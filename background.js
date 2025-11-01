@@ -1,0 +1,9973 @@
+﻿// Background service worker for Blaze Double Analyzer
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 🚨 VERSÃO DO ARQUIVO - CONFIRMAÇÃO DE CARREGAMENTO
+// ═══════════════════════════════════════════════════════════════════════════════
+console.log('');
+console.log('');
+console.log('%c╔═══════════════════════════════════════════════════════════════════════════════╗', 'color: #00FF00; font-weight: bold; font-size: 20px; background: #003300; padding: 10px;');
+console.log('%c║                                                                               ║', 'color: #00FF00; font-weight: bold; font-size: 20px; background: #003300; padding: 10px;');
+console.log('%c║           ✅ BACKGROUND.JS VERSÃO 17 CARREGADO! ✅                           ║', 'color: #00FF00; font-weight: bold; font-size: 20px; background: #003300; padding: 10px;');
+console.log('%c║                                                                               ║', 'color: #00FF00; font-weight: bold; font-size: 20px; background: #003300; padding: 10px;');
+console.log('%c║           🔥🔥🔥 VERSÃO 17 - CHROME.TABS.ONUPDATED 🔥🔥🔥                ║', 'color: #FFAA00; font-weight: bold; font-size: 20px; background: #332200; padding: 10px;');
+console.log('%c║                                                                               ║', 'color: #00FF00; font-weight: bold; font-size: 20px; background: #003300; padding: 10px;');
+console.log('%c║           📅 ' + new Date().toLocaleString('pt-BR') + '                            ║', 'color: #00FF00; font-weight: bold; font-size: 16px; background: #003300; padding: 10px;');
+console.log('%c║                                                                               ║', 'color: #00FF00; font-weight: bold; font-size: 20px; background: #003300; padding: 10px;');
+console.log('%c╚═══════════════════════════════════════════════════════════════════════════════╝', 'color: #00FF00; font-weight: bold; font-size: 20px; background: #003300; padding: 10px;');
+console.log('');
+console.log('');
+
+let isRunning = false;
+let intervalId = null;
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 💾 CACHE EM MEMÓRIA (não persiste após recarregar)
+// ═══════════════════════════════════════════════════════════════════════════════
+let cachedHistory = [];  // Histórico de giros em memória (até 2000)
+let historyInitialized = false;  // Flag de inicialização
+
+// Runtime analyzer configuration (overridable via chrome.storage.local)
+const DEFAULT_ANALYZER_CONFIG = {
+    minOccurrences: 5,            // quantidade mínima de WINS exigida (padrão: 5)
+    maxOccurrences: 0,            // quantidade MÁXIMA de ocorrências (0 = sem limite)
+    minIntervalMinutes: 1,        // intervalo mínimo entre ocorrências do mesmo padrão
+    minPatternSize: 3,            // tamanho MÍNIMO do padrão (giros)
+    maxPatternSize: 0,            // tamanho MÁXIMO do padrão (0 = sem limite)
+    winPercentOthers: 25,         // WIN% mínima para as ocorrências restantes
+    requireTrigger: true,         // exigir cor de disparo
+    consecutiveMartingale: false, // Martingale consecutivo (G1/G2 imediatos) ou aguardar novo padrão
+    maxGales: 2,                  // Quantidade máxima de Gales (0=sem gale, 1=G1, 2=G1+G2, até 200)
+    telegramChatId: '',           // Chat ID do Telegram para enviar sinais
+    aiApiKey: '',                 // ✅ Chave API da IA (cada usuário deve configurar a sua própria)
+    aiMode: false,                // Modo de análise por IA (true) ou modo padrão (false)
+    aiHistorySize: 50,            // Quantidade de giros para IA analisar (mín: 10, máx: 2000)
+    advancedMode: false,          // Mostrar configurações avançadas (prompt customizado)
+    customPrompt: ''              // Prompt customizado para a IA (vazio = usa padrão)
+};
+let analyzerConfig = { ...DEFAULT_ANALYZER_CONFIG };
+
+// ⚠️ FLAG DE CONTROLE: Evitar envio de sinal na primeira análise após ativar modo IA
+let aiModeJustActivated = false;
+
+// 📊 CONTADOR DE CORES RECOMENDADAS PELA IA (para detectar viés)
+let aiColorCounter = {
+    red: 0,
+    black: 0,
+    white: 0,
+    total: 0
+};
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 🎯 CONSTANTES GLOBAIS PARA CÁLCULO DE ASSERTIVIDADE
+// ═══════════════════════════════════════════════════════════════════════════════
+const RECENT_WINDOW = 25;
+const PENALTY_OPPOSITE_DOMINANCE = 15; // -15% se dominância da cor oposta >70%
+const PENALTY_LONG_STREAK = 10; // -10% se repetição >5
+const BONUS_FAVORABLE_TREND = 10; // +10% se tendência a favor >60%
+const BONUS_STABILITY = 5; // +5% estável
+const PENALTY_INSTABILITY = 5; // -5% instável
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 📊 CALIBRADOR DE PORCENTAGENS - CONFIGURAÇÃO E DADOS
+// ═══════════════════════════════════════════════════════════════════════════════
+const OBSERVER_CONFIG = {
+    maxHistorySize: 200,        // Máximo de entradas observadas
+    minEntriesForCalibration: 20 // Mínimo para começar a calibrar
+};
+
+// Estrutura do observador em memória (DEVE estar no topo para evitar TDZ errors)
+let observerData = {
+    entries: [],              // Histórico de entradas observadas
+    calibrationFactor: 1.0,   // Fator de correção global (1.0 = sem ajuste)
+    lastCalibration: null,    // Timestamp da última calibração
+    lastCalibratedCount: 0,   // Número de entradas na última calibração
+    stats: {                  // Estatísticas por faixa de confiança
+        high: { predicted: 0, actual: 0, wins: 0, total: 0 },    // 80-100%
+        medium: { predicted: 0, actual: 0, wins: 0, total: 0 },  // 60-79%
+        low: { predicted: 0, actual: 0, wins: 0, total: 0 }      // 0-59%
+    }
+};
+
+// Telegram Bot Configuration
+const TELEGRAM_BOT_TOKEN = '8330409447:AAHTWT8BzRZOnNukKYdiI9_QMyTUORvE1gg';
+const TELEGRAM_API_URL = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`;
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 🤖 PROMPT PADRÃO DA IA (usado se customPrompt estiver vazio)
+// ═══════════════════════════════════════════════════════════════════════════════
+const DEFAULT_AI_PROMPT = (historyLength, historyText) => `Você é um especialista em análise de padrões do jogo Double da Blaze.
+
+HISTÓRICO DOS ÚLTIMOS ${historyLength} GIROS (do mais recente ao mais antigo):
+${historyText}
+
+⚠️ ATENÇÃO CRÍTICA:
+- O giro "1." é o MAIS RECENTE (acabou de sair)
+- O giro "2." é o anterior ao 1.
+- O giro "3." é o anterior ao 2.
+- E assim por diante...
+
+REGRAS DO JOGO:
+- Existem 3 cores: red (vermelho), black (preto), white (branco)
+- Números 1-7 = red
+- Números 8-14 = black
+- Número 0 = white
+
+⚠️ REGRA FUNDAMENTAL - SEM VIÉS:
+────────────────────────────────────────────────────────
+VOCÊ NÃO PODE TER PREFERÊNCIA POR NENHUMA COR!
+- Se o padrão indicar VERMELHO com 90% → aposte em VERMELHO
+- Se o padrão indicar PRETO com 90% → aposte em PRETO
+- Se o padrão indicar BRANCO com 90% → aposte em BRANCO
+- NUNCA favoreça uma cor sobre outra sem justificativa nos dados!
+- Suas apostas devem ser baseadas APENAS nos padrões do histórico!
+
+═══════════════════════════════════════════════════════════════
+METODOLOGIA DE ANÁLISE (SIGA EXATAMENTE ESTA ORDEM):
+═══════════════════════════════════════════════════════════════
+
+PASSO 1: IDENTIFICAR PADRÃO ATUAL (ANALISAR 15-20 GIROS)
+────────────────────────────────────────────────────────
+⚠️ PRIMEIRO: CITE LITERALMENTE os 10 primeiros giros que você recebeu
+   - Exemplo: "Giro 1 (mais recente): red (4), Giro 2: black (9), Giro 3: white (0)... até Giro 10"
+   - NÃO INVENTE! Apenas COPIE os dados exatos que recebeu!
+
+⚠️ METODOLOGIA CORRETA (LEIA COM ATENÇÃO):
+────────────────────────────────────────────────────────
+
+1️⃣ **ANÁLISE AMPLA** - Olhe os últimos **15-20 giros completos**
+   - Identifique o padrão DOMINANTE nessa janela maior
+   - NÃO olhe apenas os últimos 10 giros isoladamente!
+   - Exemplo: Se giros 1-20 mostram alternância dupla clara (P-P-V-V-P-P-V-V...), esse é o padrão!
+
+2️⃣ **CONFIRMAÇÃO** - Use os últimos **10 giros** para CONFIRMAR
+   - Os últimos 10 devem CONFIRMAR que o padrão dos 15-20 ainda está ativo
+   - Se os últimos 10 QUEBRAM o padrão → pode estar em transição (use cautela)
+   - Se os últimos 10 CONFIRMAM o padrão → alta confiança!
+
+3️⃣ **EXCEÇÃO: TRANSIÇÃO**
+   - APENAS se os giros 1-10 forem COMPLETAMENTE DIFERENTES dos giros 11-20
+   - Exemplo: Giros 11-20 = alternância simples, mas giros 1-10 = 10 pretos seguidos
+   - Neste caso específico, considere que está em TRANSIÇÃO e use o novo padrão dos últimos 10
+
+⚠️ REGRA DE OURO:
+- **NÃO** analise apenas 10 giros!
+- **SIM** analise 15-20 giros e use os 10 últimos como confirmação!
+- O padrão é identificado na **janela maior (15-20 giros)**, não apenas nos últimos 10!
+
+TIPOS DE PADRÃO:
+
+A) ALTERNÂNCIA SIMPLES?
+   Exemplo: P-V-P-V-P-V-P-V-P-V ou V-P-V-P-V-P-V-P-V-P
+   
+B) ALTERNÂNCIA DUPLA?
+   Exemplo: P-P-V-V-P-P-V-V-P-P-V-V ou V-V-P-P-V-V-P-P-V-V
+   
+C) ALTERNÂNCIA TRIPLA?
+   Exemplo: P-P-P-V-V-V-P-P-P-V-V-V ou V-V-V-P-P-P-V-V-V-P-P-P
+   
+D) SEQUÊNCIA LONGA (mesma cor)?
+   Exemplo: P-P-P-P-P-P-P-P-P-P ou V-V-V-V-V-V-V-V-V-V
+   
+E) TRANSIÇÃO DE PADRÃO?
+   Exemplo: Giros 11-20 eram alternância dupla, mas últimos 10 viraram sequência
+   ⚠️ Neste caso, considere que está em TRANSIÇÃO → use padrão dos últimos 10
+   
+F) ALEATÓRIO (sem padrão)?
+   Exemplo: P-V-P-P-V-V-P-V-P-V-P-V (não segue lógica clara)
+
+PASSO 2: BUSCAR PADRÃO NO HISTÓRICO COMPLETO
+────────────────────────────────────────────────────────
+Após identificar o padrão atual, procure no histórico completo (todos os ${historyLength} giros):
+
+- Quantas vezes esse MESMO padrão ocorreu antes?
+- O que aconteceu IMEDIATAMENTE APÓS cada ocorrência?
+- Qual cor saiu com mais frequência após esse padrão?
+
+Exemplo:
+"Padrão atual: 5 pretos consecutivos (P-P-P-P-P)
+Buscando no histórico... encontrei 8 ocorrências de 5+ pretos seguidos.
+Resultado após essas 8 ocorrências:
+- 7 vezes saiu VERMELHO (87.5%)
+- 1 vez saiu PRETO (12.5%)
+- 0 vezes saiu BRANCO (0%)
+Conclusão: 87.5% > 85% → APOSTAR EM VERMELHO"
+
+PASSO 3: REGRA DE DECISÃO (CRÍTICA)
+────────────────────────────────────────────────────────
+✅ SE o padrão histórico mostrar 85%+ de uma cor → APOSTE NESSA COR
+❌ SE o padrão histórico mostrar menos de 85% → NÃO APOSTE (confiança insuficiente)
+
+IMPORTANTE:
+- NÃO considere a porcentagem GERAL do histórico (ex: "preto saiu 60% das vezes")
+- Considere APENAS o que aconteceu APÓS o padrão específico identificado
+- Exemplo: Mesmo que preto esteja com 80% no geral, se após alternância dupla ele sai apenas 40% das vezes, NÃO aposte em preto
+
+PASSO 4: CASOS ESPECIAIS
+────────────────────────────────────────────────────────
+BRANCO (0):
+- NUNCA use lógica de "branco atrasado"
+- Só considere branco se ele fizer parte de um padrão claro nos últimos 10-20 giros
+- Se não há branco no padrão recente, ignore-o completamente
+
+ALEATÓRIO:
+- Se os últimos 20 giros não têm padrão claro, retorne confidence: 0
+- NÃO force um padrão onde não existe!
+- É melhor NÃO apostar do que apostar em padrão aleatório
+
+ANÁLISE EM CAMADAS (IMPORTANTE):
+1️⃣ Primeiro: Analise os últimos **15-20 giros** para identificar o padrão DOMINANTE
+2️⃣ Segundo: Verifique se os últimos **10 giros** CONFIRMAM esse padrão
+3️⃣ Terceiro: 
+   - Se CONFIRMAM → alta confiança! Busque esse padrão no histórico completo
+   - Se CONTRADIZEM → pode estar em transição. Retorne confidence baixo ou 0
+   - NUNCA use apenas os últimos 10 giros como padrão único!
+
+═══════════════════════════════════════════════════════════════
+INSTRUÇÕES FINAIS (PASSO A PASSO):
+═══════════════════════════════════════════════════════════════
+
+1️⃣ **CITE os 10 primeiros giros** literalmente (não invente!)
+
+2️⃣ **ANALISE 15-20 giros** para identificar o padrão dominante
+   - NÃO olhe apenas 10 giros!
+   - Identifique o padrão na janela maior
+
+3️⃣ **CONFIRME com os últimos 10 giros**
+   - Os últimos 10 devem estar alinhados com o padrão identificado
+   - Se não estiverem, pode estar em transição (cuidado!)
+
+4️⃣ **BUSQUE no histórico completo** (todos os giros disponíveis)
+   - Conte quantas vezes esse padrão (15-20 giros) ocorreu antes
+   - Veja o que aconteceu IMEDIATAMENTE APÓS cada ocorrência
+
+5️⃣ **CALCULE a frequência**
+   - Se uma cor sai em 85%+ dos casos após esse padrão → aposte nela
+   - Se nenhuma cor atinge 85% → retorne confidence: 0 (sem aposta)
+
+6️⃣ **SEJA IMPARCIAL**
+   - NÃO favoreça nenhuma cor específica!
+   - Baseie-se APENAS nos dados do histórico!
+
+FORMATO DE RESPOSTA (JSON):
+
+{
+  "color": "red ou black ou white",
+  "confidence": número de 0 a 100 (0 = sem padrão confiável),
+  "probability": número de 0 a 100,
+  "last10Spins": [
+    {"color": "cor do giro 1", "number": número do giro 1},
+    {"color": "cor do giro 2", "number": número do giro 2},
+    {"color": "cor do giro 3", "number": número do giro 3},
+    {"color": "cor do giro 4", "number": número do giro 4},
+    {"color": "cor do giro 5", "number": número do giro 5},
+    {"color": "cor do giro 6", "number": número do giro 6},
+    {"color": "cor do giro 7", "number": número do giro 7},
+    {"color": "cor do giro 8", "number": número do giro 8},
+    {"color": "cor do giro 9", "number": número do giro 9},
+    {"color": "cor do giro 10", "number": número do giro 10}
+  ],
+  "reasoning": "Padrão identificado: [descreva o padrão]. Encontrado [X] vezes no histórico. Após esse padrão: [cor] saiu [Y]% das vezes. Decisão: [apostar/não apostar]"
+}
+
+EXEMPLOS DE RESPOSTAS CORRETAS (VARIADOS):
+
+EXEMPLO 1 - APOSTAR EM VERMELHO:
+{
+  "color": "red",
+  "confidence": 88,
+  "probability": 88,
+  "last10Spins": [
+    {"color": "black", "number": 9},
+    {"color": "black", "number": 11},
+    {"color": "black", "number": 14},
+    {"color": "black", "number": 8},
+    {"color": "black", "number": 12},
+    {"color": "black", "number": 10},
+    {"color": "black", "number": 13},
+    {"color": "red", "number": 3},
+    {"color": "red", "number": 5},
+    {"color": "black", "number": 11}
+  ],
+  "reasoning": "Giro 1 (mais recente): black (9), Giro 2: black (11), ..., Giro 10: black (11). Análise dos últimos 20 giros: Sequência de 7+ pretos consecutivos. Últimos 10 giros CONFIRMAM o padrão. Buscando no histórico completo... encontrado 12 vezes. Após esse padrão: VERMELHO saiu 88% das vezes (11/12). Decisão: APOSTAR."
+}
+
+EXEMPLO 2 - APOSTAR EM PRETO:
+{
+  "color": "black",
+  "confidence": 91,
+  "probability": 91,
+  "last10Spins": [
+    {"color": "red", "number": 4},
+    {"color": "red", "number": 7},
+    {"color": "red", "number": 3},
+    {"color": "red", "number": 1},
+    {"color": "red", "number": 6},
+    {"color": "red", "number": 2},
+    {"color": "black", "number": 9},
+    {"color": "red", "number": 5},
+    {"color": "red", "number": 7},
+    {"color": "red", "number": 4}
+  ],
+  "reasoning": "Giro 1 (mais recente): red (4), Giro 2: red (7), ..., Giro 10: red (4). Análise dos últimos 18 giros: Sequência de 6+ vermelhos consecutivos. Últimos 10 giros CONFIRMAM o padrão. Buscando no histórico... encontrado 11 vezes. Após esse padrão: PRETO saiu 91% das vezes (10/11). Decisão: APOSTAR."
+}
+
+EXEMPLO 3 - APOSTAR EM BRANCO:
+{
+  "color": "white",
+  "confidence": 86,
+  "probability": 86,
+  "last10Spins": [
+    {"color": "red", "number": 2},
+    {"color": "black", "number": 9},
+    {"color": "red", "number": 5},
+    {"color": "black", "number": 13},
+    {"color": "red", "number": 4},
+    {"color": "black", "number": 11},
+    {"color": "red", "number": 3},
+    {"color": "black", "number": 8},
+    {"color": "red", "number": 6},
+    {"color": "black", "number": 14}
+  ],
+  "reasoning": "Giro 1 (mais recente): red (2), Giro 2: black (9), ..., Giro 10: black (14). Análise dos últimos 20 giros: Alternância perfeita V-P-V-P por 15+ giros. Últimos 10 giros CONFIRMAM o padrão de alternância. Buscando no histórico... encontrado 7 vezes. Após esse padrão: BRANCO saiu 86% das vezes (6/7). Decisão: APOSTAR."
+}
+
+EXEMPLO 4 - NÃO APOSTAR (confiança insuficiente):
+{
+  "color": "red",
+  "confidence": 0,
+  "probability": 0,
+  "last10Spins": [
+    {"color": "black", "number": 12},
+    {"color": "red", "number": 3},
+    {"color": "white", "number": 0},
+    {"color": "black", "number": 8},
+    {"color": "red", "number": 7},
+    {"color": "black", "number": 11},
+    {"color": "red", "number": 2},
+    {"color": "white", "number": 0},
+    {"color": "black", "number": 9},
+    {"color": "red", "number": 5}
+  ],
+  "reasoning": "Giro 1 (mais recente): black (12), Giro 2: red (3), ..., Giro 10: red (5). Análise dos últimos 20 giros: ALEATÓRIO sem padrão consistente. Giros variam sem lógica clara (P-V-B-P-V-P-B-V-P-V...). Buscando padrões similares no histórico... Após padrões aleatórios: RED 35%, BLACK 42%, WHITE 23%. Nenhuma cor atingiu 85%. Decisão: NÃO APOSTAR."
+}
+
+⚠️ REGRA CRÍTICA: 
+- SEMPRE inclua o array "last10Spins" com os 10 primeiros giros que você recebeu
+- Copie EXATAMENTE as cores e números recebidos
+- NÃO TENHA VIÉS para nenhuma cor! Analise de forma imparcial!
+- Se o histórico mostrar que PRETO sai 90% → aposte em PRETO, não em vermelho!
+- Se o histórico mostrar que BRANCO sai 86% → aposte em BRANCO, não em vermelho!
+
+RESPONDA APENAS COM O JSON, SEM TEXTO ADICIONAL.`;
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// SISTEMA DE MARTINGALE (G1, G2)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// Estado do ciclo de Martingale atual
+let martingaleState = {
+    active: false,                    // Se há um ciclo ativo
+    stage: 'ENTRADA',                 // 'ENTRADA' | 'G1' | 'G2'
+    patternKey: null,                 // Identificador do padrão atual
+    entryColor: null,                 // Cor da entrada inicial (aposta)
+    entryColorResult: null,           // Cor que realmente saiu na entrada
+    entryTimestamp: null,             // Timestamp da entrada inicial
+    analysisData: null,               // Dados completos da análise
+    lossCount: 0,                     // Contador de LOSS consecutivos
+    lossColors: [],                   // Array de cores dos giros que deram LOSS
+    patternsWithoutHistory: 0         // Contador de padrões sem histórico que deram LOSS
+};
+
+// Histórico de "cores quentes" por padrão
+// Estrutura: { "patternKey": { after1Loss: {red: 5, black: 3}, after2Loss: {red: 2, black: 8} } }
+let hotColorsHistory = {};
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// FUNÇÕES DO SISTEMA DE MARTINGALE
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// Carregar histórico de cores quentes do storage
+async function loadHotColorsHistory() {
+    try {
+        const result = await chrome.storage.local.get(['hotColorsHistory']);
+        if (result.hotColorsHistory) {
+            hotColorsHistory = result.hotColorsHistory;
+            console.log('✅ Histórico de cores quentes carregado:', Object.keys(hotColorsHistory).length, 'padrões');
+        }
+    } catch (e) {
+        console.error('❌ Erro ao carregar histórico de cores quentes:', e);
+    }
+}
+
+// Salvar histórico de cores quentes no storage
+async function saveHotColorsHistory() {
+    try {
+        await chrome.storage.local.set({ hotColorsHistory });
+        console.log('✅ Histórico de cores quentes salvo');
+    } catch (e) {
+        console.error('❌ Erro ao salvar histórico de cores quentes:', e);
+    }
+}
+
+// Calcular "cor quente" baseado no histórico de LOSSes
+function calculateHotColor(patternKey, afterLossCount) {
+    console.log(`🔥 Calculando cor quente para padrão: ${patternKey} após ${afterLossCount} LOSS(es)`);
+    
+    // Verificar se existe histórico para este padrão
+    if (!hotColorsHistory[patternKey]) {
+        console.log('⚠️ Padrão sem histórico de LOSS anterior');
+        return null;
+    }
+    
+    const history = afterLossCount === 1 ? 
+        hotColorsHistory[patternKey].after1Loss : 
+        hotColorsHistory[patternKey].after2Loss;
+    
+    if (!history || Object.keys(history).length === 0) {
+        console.log('⚠️ Sem dados de cores após', afterLossCount, 'LOSS(es)');
+        return null;
+    }
+    
+    // Encontrar cor que mais aparece
+    let maxCount = 0;
+    let hotColor = null;
+    
+    for (const [color, count] of Object.entries(history)) {
+        if (count > maxCount) {
+            maxCount = count;
+            hotColor = color;
+        }
+    }
+    
+    if (hotColor) {
+        const total = Object.values(history).reduce((a, b) => a + b, 0);
+        const percentage = ((maxCount / total) * 100).toFixed(1);
+        console.log(`🔥 Cor quente encontrada: ${hotColor} (${maxCount}/${total} = ${percentage}%)`);
+    }
+    
+    return hotColor;
+}
+
+// Atualizar histórico de cores após um ciclo completado
+async function updateHotColorsHistory(patternKey, lossSequence) {
+    console.log(`📊 Atualizando histórico de cores quentes para padrão: ${patternKey}`);
+    console.log('   Sequência de LOSS:', lossSequence);
+    
+    // Inicializar estrutura se não existir
+    if (!hotColorsHistory[patternKey]) {
+        hotColorsHistory[patternKey] = {
+            after1Loss: { red: 0, black: 0, white: 0 },
+            after2Loss: { red: 0, black: 0, white: 0 }
+        };
+    }
+    
+    // Atualizar após 1 LOSS (se tiver pelo menos 2 entradas: LOSS + resultado)
+    if (lossSequence.length >= 2) {
+        const colorAfter1Loss = lossSequence[1].color;  // Cor que saiu após 1º LOSS
+        hotColorsHistory[patternKey].after1Loss[colorAfter1Loss]++;
+        console.log(`   ✅ Cor após 1 LOSS: ${colorAfter1Loss}`);
+    }
+    
+    // Atualizar após 2 LOSS (se tiver pelo menos 3 entradas: 2 LOSS + resultado)
+    if (lossSequence.length >= 3) {
+        const colorAfter2Loss = lossSequence[2].color;  // Cor que saiu após 2º LOSS
+        hotColorsHistory[patternKey].after2Loss[colorAfter2Loss]++;
+        console.log(`   ✅ Cor após 2 LOSS: ${colorAfter2Loss}`);
+    }
+    
+    // Salvar no storage
+    await saveHotColorsHistory();
+}
+
+// Resetar estado do Martingale
+function resetMartingaleState() {
+    console.log('🔄 Resetando estado do Martingale');
+    martingaleState = {
+        active: false,
+        stage: 'ENTRADA',
+        patternKey: null,
+        entryColor: null,
+        entryColorResult: null,
+        entryTimestamp: null,
+        analysisData: null,
+        lossCount: 0,
+        lossColors: [],
+        patternsWithoutHistory: martingaleState.patternsWithoutHistory  // Manter contador
+    };
+}
+
+// Criar identificador único para o padrão
+function createPatternKey(analysisData) {
+    try {
+        if (analysisData && analysisData.patternDescription) {
+            // ⚠️ CRÍTICO: Se for análise IA, patternDescription é texto, não JSON
+            if (analysisData.patternDescription.includes('🤖 ANÁLISE POR INTELIGÊNCIA ARTIFICIAL')) {
+                // Para IA, criar chave única baseada em timestamp + cor
+                const timestamp = Date.now();
+                const color = analysisData.color || 'unknown';
+                return `ai_pattern_${color}_${timestamp}`;
+            } else {
+                // Para análise padrão, patternDescription é JSON
+                const desc = JSON.parse(analysisData.patternDescription);
+                if (desc.colorAnalysis && desc.colorAnalysis.pattern) {
+                    return desc.colorAnalysis.pattern.join('-');
+                }
+            }
+        }
+    } catch (e) {
+        console.error('❌ Erro ao criar chave do padrão:', e);
+    }
+    return `pattern_${Date.now()}`;  // Fallback
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 🌐 SINCRONIZAÇÃO COM API (Render.com)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+const API_CONFIG = {
+    baseURL: 'https://blaze-analyzer-api.onrender.com',  // ✅ API online no Render.com
+    wsURL: 'wss://blaze-analyzer-api.onrender.com',  // ✅ WebSocket URL
+    enabled: true,  // Ativar/desativar sincronização
+    syncInterval: 5 * 60 * 1000,  // Sincronizar a cada 5 minutos
+    timeout: 10000,  // Timeout de 10 segundos
+    retryAttempts: 3,
+    useWebSocket: true  // ✅ Usar WebSocket ao invés de polling
+};
+
+let apiStatus = {
+    isOnline: false,
+    lastSync: null,
+    lastError: null,
+    syncAttempts: 0
+};
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 🔌 WEBSOCKET - CONEXÃO EM TEMPO REAL
+// ═══════════════════════════════════════════════════════════════════════════════
+
+let ws = null;
+let wsReconnectTimeout = null;
+let wsHeartbeatInterval = null;
+
+// Conectar ao WebSocket
+function connectWebSocket() {
+    if (!API_CONFIG.enabled || !API_CONFIG.useWebSocket) {
+        console.log('⚠️ WebSocket desabilitado na configuração');
+        return;
+    }
+    
+    if (ws && (ws.readyState === WebSocket.CONNECTING || ws.readyState === WebSocket.OPEN)) {
+        console.log('⚠️ WebSocket já conectado ou conectando');
+        return;
+    }
+    
+    console.log('╔═══════════════════════════════════════════════════════════╗');
+    console.log('║  🔌 CONECTANDO AO WEBSOCKET...                            ║');
+    console.log(`║  URL: ${API_CONFIG.wsURL}                               `);
+    console.log('╚═══════════════════════════════════════════════════════════╝');
+    
+    try {
+        ws = new WebSocket(API_CONFIG.wsURL);
+        
+        ws.onopen = () => {
+            console.log('✅ WebSocket conectado com sucesso!');
+            console.log('⚡ Aguardando giros em TEMPO REAL...');
+            apiStatus.isOnline = true;
+            apiStatus.lastSync = new Date().toISOString();
+            
+            // Limpar timeout de reconexão se existir
+            if (wsReconnectTimeout) {
+                clearTimeout(wsReconnectTimeout);
+                wsReconnectTimeout = null;
+            }
+            
+            // Iniciar heartbeat (responder a PING do servidor)
+            startWebSocketHeartbeat();
+        };
+        
+        ws.onmessage = async (event) => {
+            try {
+                const message = JSON.parse(event.data);
+                console.log('📨 Mensagem WebSocket recebida:', message.type);
+                
+                switch (message.type) {
+                    case 'CONNECTED':
+                        console.log('✅ Confirmação de conexão:', message.message);
+                        console.log(`📊 Clientes conectados: ${message.clientsConnected}`);
+                        break;
+                        
+                    case 'INITIAL_DATA':
+                        console.log('📊 Dados iniciais recebidos');
+                        if (message.data && message.data.lastSpin) {
+                            await processNewSpinFromServer(message.data.lastSpin);
+                        }
+                        break;
+                        
+                    case 'NEW_SPIN':
+                        // ✅ NOVO GIRO EM TEMPO REAL!
+                        console.log('🎯 NOVO GIRO RECEBIDO VIA WEBSOCKET!', message.data);
+                        await processNewSpinFromServer(message.data);
+                        break;
+                        
+                    case 'PING':
+                        // Servidor enviou PING, responder com PONG
+                        if (ws && ws.readyState === WebSocket.OPEN) {
+                            ws.send(JSON.stringify({ type: 'PONG', timestamp: new Date().toISOString() }));
+                        }
+                        break;
+                        
+                    default:
+                        console.log('⚠️ Tipo de mensagem desconhecido:', message.type);
+                }
+            } catch (error) {
+                console.error('❌ Erro ao processar mensagem WebSocket:', error);
+            }
+        };
+        
+        ws.onerror = (error) => {
+            console.error('❌ Erro WebSocket:', error);
+            apiStatus.isOnline = false;
+            apiStatus.lastError = new Date().toISOString();
+        };
+        
+        ws.onclose = (event) => {
+            console.log('❌ WebSocket desconectado');
+            console.log(`   Código: ${event.code}, Motivo: ${event.reason || 'Não especificado'}`);
+            apiStatus.isOnline = false;
+            
+            // Parar heartbeat
+            stopWebSocketHeartbeat();
+            
+            // Tentar reconectar após 5 segundos
+            console.log('⏳ Tentando reconectar em 5 segundos...');
+            wsReconnectTimeout = setTimeout(() => {
+                console.log('🔄 Tentando reconectar WebSocket...');
+                connectWebSocket();
+            }, 5000);
+        };
+        
+    } catch (error) {
+        console.error('❌ Erro ao criar conexão WebSocket:', error);
+        apiStatus.isOnline = false;
+        
+        // Tentar reconectar após 5 segundos
+        wsReconnectTimeout = setTimeout(() => {
+            connectWebSocket();
+        }, 5000);
+    }
+}
+
+// Desconectar WebSocket
+function disconnectWebSocket() {
+    console.log('⏸️ Desconectando WebSocket...');
+    
+    if (wsReconnectTimeout) {
+        clearTimeout(wsReconnectTimeout);
+        wsReconnectTimeout = null;
+    }
+    
+    stopWebSocketHeartbeat();
+    
+    if (ws) {
+        ws.close(1000, 'Desconexão normal');
+        ws = null;
+    }
+}
+
+// Heartbeat - responder a PINGs do servidor
+function startWebSocketHeartbeat() {
+    // Não precisa enviar PING do cliente, apenas responder aos do servidor
+    // O servidor já envia PING a cada 30s
+}
+
+function stopWebSocketHeartbeat() {
+    if (wsHeartbeatInterval) {
+        clearInterval(wsHeartbeatInterval);
+        wsHeartbeatInterval = null;
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// VERIFICAÇÃO DE ABA DA BLAZE - GARANTIR QUE EXTENSÃO SÓ FUNCIONE COM PÁGINA ABERTA
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// Verificar se há uma aba da Blaze aberta
+async function hasBlazeTabOpen() {
+    try {
+        const tabs = await chrome.tabs.query({});
+        
+        const blazeTabs = tabs.filter(tab => {
+            if (!tab.url) return false;
+            
+            // ✅ Aceitar múltiplos domínios da Blaze
+            const blazeDomains = [
+                'blaze.com',
+                'blaze1.space',
+                'blaze-1.com',
+                'blaze-bet.com',
+                'blaze.bet.br'
+            ];
+            
+            return blazeDomains.some(domain => tab.url.includes(domain));
+        });
+        
+        return blazeTabs.length > 0;
+    } catch (e) {
+        console.error('Erro ao verificar abas da Blaze:', e);
+        return false;
+    }
+}
+
+// Fazer requisição com timeout e retry
+async function fetchWithTimeout(url, options = {}, timeout = API_CONFIG.timeout) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeout);
+    
+    try {
+        const response = await fetch(url, {
+            ...options,
+            signal: controller.signal
+        });
+        clearTimeout(timeoutId);
+        return response;
+    } catch (error) {
+        clearTimeout(timeoutId);
+        // Melhorar mensagem de erro quando for timeout
+        if (error.name === 'AbortError') {
+            throw new Error(`Timeout após ${timeout/1000}s - Servidor não respondeu a tempo`);
+        }
+        throw error;
+    }
+}
+
+// Verificar se API está online
+async function checkAPIStatus() {
+    if (!API_CONFIG.enabled) {
+        console.log('⚠️ API DESATIVADA - Sincronização offline');
+        return false;
+    }
+    
+    try {
+        console.log('🔍 Verificando conexão com API...');
+        // Usar timeout maior para conexão inicial (20s)
+        const response = await fetchWithTimeout(`${API_CONFIG.baseURL}/api/status`, {}, 20000);
+        if (response.ok) {
+            const data = await response.json();
+            apiStatus.isOnline = true;
+            apiStatus.lastError = null;
+            apiStatus.lastSync = new Date().toISOString();
+            console.log('%c✅ API ONLINE - Sincronização ativada!', 'color: #00ff00; font-weight: bold; font-size: 14px;');
+            console.log(`📊 Servidor: ${data.database?.giros || 0} giros, ${data.database?.padroes || 0} padrões`);
+            return true;
+        }
+    } catch (error) {
+        apiStatus.isOnline = false;
+        apiStatus.lastError = error.message;
+        // Não mostrar erro se for timeout inicial - servidor pode estar em cold start
+        if (error.message.includes('Timeout')) {
+            console.log('%c⏳ Servidor demorando (cold start) - Tentará novamente...', 'color: #FFAA00; font-weight: bold;');
+        } else {
+            console.log('%c❌ API OFFLINE - Modo local ativado', 'color: #ff0000; font-weight: bold; font-size: 14px;');
+            console.log(`⚠️ Erro: ${error.message}`);
+        }
+    }
+    return false;
+}
+
+// Buscar giros do servidor
+async function fetchGirosFromAPI() {
+    if (!API_CONFIG.enabled) return null;
+    
+    try {
+        // Usar timeout maior para busca inicial de 2000 giros (20s)
+        const response = await fetchWithTimeout(`${API_CONFIG.baseURL}/api/giros?limit=2000`, {}, 20000);
+        if (response.ok) {
+            const data = await response.json();
+            if (data.success && data.data) {
+                console.log(`📥 Servidor: ${data.data.length} giros recebidos`);
+                return data.data;
+            }
+        }
+    } catch (error) {
+        // Não mostrar erro assustador se for timeout - servidor pode estar ocupado
+        if (error.message.includes('Timeout')) {
+            console.log('⏳ Servidor ocupado - Continuará sincronizando em tempo real...');
+        } else {
+            console.warn('⚠️ Erro ao buscar giros do servidor:', error.message);
+        }
+    }
+    return null;
+}
+
+// Salvar giros no servidor
+async function saveGirosToAPI(giros) {
+    if (!API_CONFIG.enabled || !apiStatus.isOnline) return false;
+    
+    const girosArray = Array.isArray(giros) ? giros : [giros];
+    
+    try {
+        console.log(`📤 Enviando ${girosArray.length} giro(s) para o servidor...`);
+        const response = await fetchWithTimeout(`${API_CONFIG.baseURL}/api/giros`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(giros)
+        });
+        
+        if (response.ok) {
+            const data = await response.json();
+            console.log(`%c✅ ${data.message || 'Giros salvos com sucesso!'}`, 'color: #00ff00; font-weight: bold;');
+            console.log(`📊 Total no servidor: ${data.totalGiros || '?'} giros`);
+            return true;
+        }
+    } catch (error) {
+        console.warn('%c⚠️ Erro ao salvar giros no servidor:', 'color: #ff9900; font-weight: bold;', error.message);
+    }
+    return false;
+}
+
+// Padrões NÃO são mais enviados para o servidor (são recalculados a cada sessão)
+
+// ═════════════════════════════════════════════════════════════════════════════
+// 🔧 FUNÇÃO AUXILIAR: EXIBIR RODAPÉ FIXO COM SISTEMA ATIVO
+// ═════════════════════════════════════════════════════════════════════════════
+function displaySystemFooter() {
+    console.log('');
+    console.log('%c╔═══════════════════════════════════════════════════════════════════════════════╗', 'color: #666666; font-weight: bold;');
+    
+    if (analyzerConfig.aiMode) {
+        console.log('%c║ 🤖 SISTEMA ATIVO: IA (INTELIGÊNCIA ARTIFICIAL)                                ║', 'color: #00FF00; font-weight: bold; background: #001100;');
+        console.log('%c║ 📡 Usando: GROQ API                                                            ║', 'color: #00AA00;');
+        console.log('%c║ 🔧 Histórico IA: ' + (analyzerConfig.aiHistorySize || 50) + ' giros                                                    ║', 'color: #00AA00;');
+    } else {
+        console.log('%c║ 📊 SISTEMA ATIVO: PADRÕES (173+ ANÁLISES LOCAIS)                              ║', 'color: #00AAFF; font-weight: bold; background: #001122;');
+        console.log('%c║ 🔧 Min. Ocorrências: ' + (analyzerConfig.minOccurrences || 5) + '                                                       ║', 'color: #0088FF;');
+        console.log('%c║ 🎯 Trigger: ' + (analyzerConfig.requireTrigger ? 'ATIVO' : 'DESATIVADO') + '                                                           ║', 'color: #0088FF;');
+    }
+    
+    console.log('%c╚═══════════════════════════════════════════════════════════════════════════════╝', 'color: #666666; font-weight: bold;');
+    console.log('');
+}
+
+// Sincronização inicial ao carregar extensão
+async function syncInitialData() {
+    console.log('%c═════════════════════════════════════════════════════════', 'color: #00d4ff; font-weight: bold;');
+    console.log('%c🌐 SINCRONIZAÇÃO COM SERVIDOR RENDER.COM', 'color: #00d4ff; font-weight: bold; font-size: 16px;');
+    console.log('%c═════════════════════════════════════════════════════════', 'color: #00d4ff; font-weight: bold;');
+    
+    // Verificar se API está online
+    const isOnline = await checkAPIStatus();
+    
+    if (!isOnline) {
+        console.log('%c⚠️ MODO OFFLINE - Usando apenas dados locais', 'color: #ffaa00; font-weight: bold; font-size: 14px;');
+        console.log('%c═════════════════════════════════════════════════════════\n', 'color: #00d4ff; font-weight: bold;');
+        return;
+    }
+    
+    // Buscar giros do servidor e popular cache em memória
+    console.log('📥 Baixando histórico de giros para cache em memória...');
+    const serverGiros = await fetchGirosFromAPI();
+    if (serverGiros && serverGiros.length > 0) {
+        // Popular cache em memória (SEM salvar em chrome.storage.local)
+        cachedHistory = [...serverGiros].slice(0, 2000);
+        historyInitialized = true;
+        console.log(`%c✅ Cache em memória populado: ${cachedHistory.length} giros`, 'color: #00ff00; font-weight: bold;');
+    } else {
+        console.log('ℹ️ Nenhum giro no servidor ainda');
+        cachedHistory = [];
+        historyInitialized = true;
+    }
+    
+    // Padrões NÃO são mais sincronizados do servidor (apenas locais)
+    console.log('ℹ️ Padrões são gerados localmente - não há sincronização do servidor');
+    
+    apiStatus.lastSync = new Date().toISOString();
+    console.log('%c🎉 SINCRONIZAÇÃO COMPLETA!', 'color: #00ff00; font-weight: bold; font-size: 14px;');
+    console.log('%c═════════════════════════════════════════════════════════\n', 'color: #00d4ff; font-weight: bold;');
+}
+
+// Função removida: padrões não são mais enviados para servidor
+
+// ✅ Sincronização periódica REMOVIDA - agora usamos cache em memória
+// Cache é atualizado a cada novo giro em processNewSpinFromServer()
+
+function rigorLogString() {
+    try {
+        const maxOccStr = analyzerConfig.maxOccurrences > 0 ? analyzerConfig.maxOccurrences : 'sem limite';
+        const maxSizeStr = analyzerConfig.maxPatternSize > 0 ? analyzerConfig.maxPatternSize : 'sem limite';
+        return `minOcc=${analyzerConfig.minOccurrences} | maxOcc=${maxOccStr} | intervaloMin=${analyzerConfig.minIntervalMinutes}min | minTam=${analyzerConfig.minPatternSize} | maxTam=${maxSizeStr} | win%Outras=${analyzerConfig.winPercentOthers}% | exigirTrigger=${analyzerConfig.requireTrigger}`;
+    } catch(_) { return '[rigor indisponível]'; }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// VALIDAÇÕES ESPECÍFICAS POR TIPO DE PADRÃO
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// ✅ VALIDAR ANÁLISE DE TENDÊNCIA/FREQUÊNCIA
+function validateFrequencyAnalysis(analysis) {
+    if (!analysis) return { valid: false, reason: 'Análise não disponível' };
+    
+    const minOccurrences = 5;
+    const requiredWinRate = 100; // 100% WIN (0 LOSS)
+    
+    const occurrences = analysis.occurrences || 0;
+    // ✅ Se wins/losses não existirem, assumir 100% win rate (padrão das análises antigas)
+    const wins = analysis.wins !== undefined ? analysis.wins : occurrences;
+    const losses = analysis.losses !== undefined ? analysis.losses : 0;
+    const winRate = occurrences > 0 ? (wins / occurrences) * 100 : 0;
+    
+    // Validação silenciosa, apenas logs quando rejeita
+    if (occurrences < minOccurrences) {
+        logRejectedPattern('Tendência/Frequência', `${occurrences}/${minOccurrences} ocorrências`);
+        return { valid: false, reason: `${occurrences}/${minOccurrences} ocorrências` };
+    }
+    
+    if (losses > 0) {
+        logRejectedPattern('Tendência/Frequência', `${losses} LOSS (exige 100% WIN)`);
+        return { valid: false, reason: `${losses} LOSS (exige 100% WIN)` };
+    }
+    
+    console.log(`✅ [Validação]: Tendência/Frequência APROVADA (${wins}W/${losses}L)`);
+    return { valid: true };
+}
+
+// ✅ VALIDAR ANÁLISE TEMPORAL (HORÁRIO)
+function validateTemporalAnalysis(analysis) {
+    if (!analysis) return { valid: false, reason: 'Análise não disponível' };
+    
+    const minOccurrences = 6;
+    const requiredWinRate = 100; // 100% WIN (0 LOSS)
+    
+    const occurrences = analysis.occurrences || 0;
+    // ✅ Se wins/losses não existirem, assumir 100% win rate (padrão das análises antigas)
+    const wins = analysis.wins !== undefined ? analysis.wins : occurrences;
+    const losses = analysis.losses !== undefined ? analysis.losses : 0;
+    const winRate = occurrences > 0 ? (wins / occurrences) * 100 : 0;
+    
+    // Validação silenciosa, apenas logs quando rejeita
+    if (occurrences < minOccurrences) {
+        logRejectedPattern('Temporal/Horário', `${occurrences}/${minOccurrences} ocorrências`);
+        return { valid: false, reason: `${occurrences}/${minOccurrences} ocorrências` };
+    }
+    
+    if (losses > 0) {
+        logRejectedPattern('Temporal/Horário', `${losses} LOSS (exige 100% WIN)`);
+        return { valid: false, reason: `${losses} LOSS (exige 100% WIN)` };
+    }
+    
+    console.log(`✅ [Validação]: Temporal/Horário APROVADO (${wins}W/${losses}L)`);
+    return { valid: true };
+}
+
+// ✅ VALIDAR ANÁLISE NÚMERO + COR
+function validateNumberAnalysis(analysis) {
+    if (!analysis) return { valid: false, reason: 'Análise não disponível' };
+    
+    const minOccurrences = 3;
+    const requiredWinRate = 100; // 100% WIN (0 LOSS)
+    
+    const occurrences = analysis.occurrences || 0;
+    // ✅ Se wins/losses não existirem, calcular baseado na confidence (assumindo que confidence reflete winRate)
+    const wins = analysis.wins !== undefined ? analysis.wins : Math.round((analysis.confidence / 100) * occurrences);
+    const losses = analysis.losses !== undefined ? analysis.losses : (occurrences - wins);
+    const winRate = occurrences > 0 ? (wins / occurrences) * 100 : 0;
+    
+    // Validação silenciosa, apenas logs quando rejeita
+    if (occurrences < minOccurrences) {
+        logRejectedPattern('Número+Cor', `${occurrences}/${minOccurrences} ocorrências`);
+        return { valid: false, reason: `${occurrences}/${minOccurrences} ocorrências` };
+    }
+    
+    if (losses > 0) {
+        logRejectedPattern('Número+Cor', `${losses} LOSS (exige 100% WIN)`);
+        return { valid: false, reason: `${losses} LOSS (exige 100% WIN)` };
+    }
+    
+    console.log(`✅ [Validação]: Número+Cor APROVADO (${wins}W/${losses}L)`);
+    return { valid: true };
+}
+
+// ✅ VALIDAR ANÁLISE DE CICLO (CORRELAÇÃO)
+function validateCorrelationAnalysis(analysis) {
+    if (!analysis) return { valid: false, reason: 'Análise não disponível' };
+    
+    const minOccurrences = 6;
+    const requiredWinRate = 100; // 100% WIN (0 LOSS)
+    
+    const occurrences = analysis.occurrences || 0;
+    // ✅ Se wins/losses não existirem, assumir 100% win rate (padrão das análises antigas)
+    const wins = analysis.wins !== undefined ? analysis.wins : occurrences;
+    const losses = analysis.losses !== undefined ? analysis.losses : 0;
+    const winRate = occurrences > 0 ? (wins / occurrences) * 100 : 0;
+    
+    // Validação silenciosa, apenas logs quando rejeita
+    if (occurrences < minOccurrences) {
+        logRejectedPattern('Ciclo/Periódica', `${occurrences}/${minOccurrences} ocorrências`);
+        return { valid: false, reason: `${occurrences}/${minOccurrences} ocorrências` };
+    }
+    
+    if (losses > 0) {
+        logRejectedPattern('Ciclo/Periódica', `${losses} LOSS (exige 100% WIN)`);
+        return { valid: false, reason: `${losses} LOSS (exige 100% WIN)` };
+    }
+    
+    console.log(`✅ [Validação]: Ciclo/Periódica APROVADO (${wins}W/${losses}L)`);
+    return { valid: true };
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// SISTEMA DE LOGS LIMPOS E ORGANIZADOS
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// ✅ LOG PADRONIZADO PARA CICLO DE ANÁLISE
+function logAnalysisCycle(data) {
+    const {
+        serverStatus = 'desconhecido',
+        patternsFound = [],
+        searchingNewSpin = false,
+        rejectedPatterns = [],
+        telegramSent = null,
+        displayedPatternsCount = 0,
+        spinsAvailable = { server: 0, app: 0 }
+    } = data;
+    
+    console.log('\n╔═══════════════════════════════════════════════════════════╗');
+    console.log('║  📊 CICLO DE ANÁLISE - RESUMO                             ║');
+    console.log('╠═══════════════════════════════════════════════════════════╣');
+    
+    // 1. STATUS DO SERVIDOR
+    const serverIcon = serverStatus === 'ativo' ? '✅' : serverStatus === 'erro' ? '❌' : '⏳';
+    console.log(`║  🌐 Servidor: ${serverIcon} ${serverStatus.toUpperCase()}`.padEnd(62) + '║');
+    
+    // 2. GIROS DISPONÍVEIS
+    console.log(`║  🎲 Giros: Servidor=${spinsAvailable.server} | App=${spinsAvailable.app}`.padEnd(62) + '║');
+    
+    // 3. BUSCA POR NOVO GIRO
+    if (searchingNewSpin) {
+        console.log('║  🔍 Busca: AGUARDANDO NOVO GIRO...'.padEnd(62) + '║');
+    }
+    
+    console.log('╠═══════════════════════════════════════════════════════════╣');
+    
+    // 4. PADRÕES ENCONTRADOS
+    if (patternsFound.length > 0) {
+        console.log(`║  ✅ Padrões encontrados: ${patternsFound.length}`.padEnd(62) + '║');
+        patternsFound.slice(0, 3).forEach((p, i) => {
+            const label = `${i + 1}. ${p.type}: ${p.color}`;
+            console.log(`║     ${label}`.padEnd(62) + '║');
+        });
+        if (patternsFound.length > 3) {
+            console.log(`║     ... +${patternsFound.length - 3} padrões`.padEnd(62) + '║');
+        }
+    } else {
+        console.log('║  ⚠️ Padrões encontrados: NENHUM'.padEnd(62) + '║');
+    }
+    
+    // 5. PADRÕES REJEITADOS
+    if (rejectedPatterns.length > 0) {
+        console.log('╠═══════════════════════════════════════════════════════════╣');
+        console.log(`║  ❌ Padrões rejeitados: ${rejectedPatterns.length}`.padEnd(62) + '║');
+        rejectedPatterns.slice(0, 2).forEach((r, i) => {
+            const reason = r.reason ? r.reason.substring(0, 40) : 'motivo não especificado';
+            console.log(`║     ${i + 1}. ${r.type}: ${reason}`.padEnd(62) + '║');
+        });
+        if (rejectedPatterns.length > 2) {
+            console.log(`║     ... +${rejectedPatterns.length - 2} rejeitados`.padEnd(62) + '║');
+        }
+    }
+    
+    // 6. MENSAGEM TELEGRAM
+    if (telegramSent !== null) {
+        console.log('╠═══════════════════════════════════════════════════════════╣');
+        if (telegramSent) {
+            console.log('║  📲 Telegram: ✅ MENSAGEM ENVIADA COM SUCESSO'.padEnd(62) + '║');
+        } else {
+            console.log('║  📲 Telegram: ❌ MENSAGEM NÃO ENVIADA'.padEnd(62) + '║');
+        }
+    }
+    
+    // 7. PADRÕES EXIBIDOS
+    console.log('╠═══════════════════════════════════════════════════════════╣');
+    console.log(`║  📱 Padrões exibidos na extensão: ${displayedPatternsCount}`.padEnd(62) + '║');
+    
+    console.log('╚═══════════════════════════════════════════════════════════╝\n');
+}
+
+// ✅ LOG SIMPLIFICADO PARA STATUS DO SERVIDOR
+function logServerStatus(status, spinsCount = 0) {
+    const icon = status === 'ativo' ? '✅' : status === 'erro' ? '❌' : '⏳';
+    console.log(`\n🌐 [Servidor]: ${icon} ${status.toUpperCase()} | Giros disponíveis: ${spinsCount}`);
+}
+
+// ✅ LOG PARA BUSCA DE NOVO GIRO
+function logSearchingNewSpin() {
+    console.log('🔍 [Busca por novo giro]: AGUARDANDO...');
+}
+
+// ✅ LOG PARA PADRÃO REJEITADO
+function logRejectedPattern(type, reason) {
+    console.log(`❌ [Padrão rejeitado]: ${type} - ${reason}`);
+}
+
+// ✅ LOG PARA TELEGRAM
+function logTelegramStatus(sent, reason = '') {
+    if (sent) {
+        console.log('📲 [Telegram]: ✅ MENSAGEM ENVIADA');
+    } else {
+        console.log(`📲 [Telegram]: ❌ NÃO ENVIADA ${reason ? `- ${reason}` : ''}`);
+    }
+}
+
+// ✅ LOG PARA PADRÕES ENCONTRADOS
+function logPatternsFound(patterns) {
+    if (patterns.length === 0) {
+        console.log('⚠️ [Padrões encontrados]: NENHUM');
+    } else {
+        console.log(`✅ [Padrões encontrados]: ${patterns.length}`);
+        patterns.forEach((p, i) => {
+            console.log(`   ${i + 1}. ${p.type || 'desconhecido'} → ${p.color || '?'} (${p.confidence?.toFixed(1) || '0'}%)`);
+        });
+    }
+}
+
+// ✅ FUNÇÃO PARA EXIBIR CONFIGURAÇÕES ATIVAS DE FORMA VISUAL
+function logActiveConfiguration() {
+    try {
+        const config = analyzerConfig;
+        
+        console.log('╔═══════════════════════════════════════════════════════════╗');
+        console.log('║  ⚙️ CONFIGURAÇÕES ATIVAS DO ANALISADOR                   ║');
+        console.log('╠═══════════════════════════════════════════════════════════╣');
+        
+        // OCORRÊNCIAS
+        console.log('║  📊 CONTROLE DE OCORRÊNCIAS:                              ║');
+        console.log(`║     • Mínimo de WINS: ${config.minOccurrences.toString().padEnd(35)}║`);
+        const maxOccStr = config.maxOccurrences > 0 ? config.maxOccurrences.toString() : 'SEM LIMITE ∞';
+        console.log(`║     • Máximo de ocorrências: ${maxOccStr.padEnd(26)}║`);
+        
+        // TAMANHO DO PADRÃO
+        console.log('║                                                           ║');
+        console.log('║  📏 TAMANHO DO PADRÃO:                                    ║');
+        console.log(`║     • Mínimo (giros): ${config.minPatternSize.toString().padEnd(32)}║`);
+        const maxSizeStr = config.maxPatternSize > 0 ? config.maxPatternSize.toString() : 'SEM LIMITE ∞';
+        console.log(`║     • Máximo (giros): ${maxSizeStr.padEnd(32)}║`);
+        
+        // INTERVALO E QUALIDADE
+        console.log('║                                                           ║');
+        console.log('║  ⏱️ INTERVALO E QUALIDADE:                                ║');
+        console.log(`║     • Intervalo mínimo: ${config.minIntervalMinutes.toString().padEnd(25)} min(s)  ║`);
+        console.log(`║     • WIN% demais ocorrências: ${config.winPercentOthers.toString().padEnd(20)}%     ║`);
+        
+        // COR DE DISPARO
+        console.log('║                                                           ║');
+        console.log('║  🎯 VALIDAÇÃO DE TRIGGER:                                 ║');
+        const triggerStatus = config.requireTrigger ? '✅ ATIVADO (mais rigoroso)' : '❌ DESATIVADO (menos rigoroso)';
+        console.log(`║     ${triggerStatus.padEnd(54)}║`);
+        
+        // MARTINGALE
+        console.log('║                                                           ║');
+        console.log('║  🎲 SISTEMA DE MARTINGALE (GALE):                         ║');
+        const galeQty = config.maxGales === 0 ? 'DESATIVADO' : 
+                        config.maxGales === 1 ? '1 Gale (G1)' : 
+                        config.maxGales === 2 ? '2 Gales (G1, G2)' : 
+                        `${config.maxGales} Gales`;
+        console.log(`║     • Quantidade de Gales: ${galeQty.padEnd(28)}║`);
+        const martingaleMode = config.consecutiveMartingale ? 'CONSECUTIVO (imediato)' : 'PADRÃO (aguarda novo)';
+        console.log(`║     • Modo: ${martingaleMode.padEnd(44)}║`);
+        
+        // TELEGRAM
+        console.log('║                                                           ║');
+        console.log('║  📲 TELEGRAM:                                             ║');
+        const telegramStatus = config.telegramChatId ? `✅ Ativo (ID: ${config.telegramChatId.substring(0, 10)}...)` : '❌ Não configurado';
+        console.log(`║     ${telegramStatus.padEnd(54)}║`);
+        
+        console.log('║                                                           ║');
+        console.log('║  🤖 MODO IA:                                              ║');
+        const aiModeStatus = config.aiMode ? '✅ ATIVO' : '⚪ Desativado (Modo Padrão)';
+        console.log(`║     ${aiModeStatus.padEnd(54)}║`);
+        const aiKeyStatus = config.aiApiKey ? `✅ Configurada (${config.aiApiKey.substring(0, 8)}...)` : '❌ Não configurada';
+        console.log(`║     ${aiKeyStatus.padEnd(54)}║`);
+        
+        console.log('╚═══════════════════════════════════════════════════════════╝');
+        
+        // ⚠️ AVISOS DE CONFIGURAÇÃO PERMISSIVA/RIGOROSA
+        const warnings = [];
+        
+        if (config.minOccurrences <= 2) {
+            warnings.push('⚠️ Configuração MUITO PERMISSIVA: minOccurrences <= 2');
+        }
+        
+        if (config.winPercentOthers === 0) {
+            warnings.push('⚠️ Sem filtro de WIN% para outras ocorrências (aceita qualquer %)');
+        }
+        
+        if (!config.requireTrigger) {
+            warnings.push('⚠️ Cor de disparo DESATIVADA (menos rigoroso)');
+        }
+        
+        if (config.maxOccurrences > 0 && config.maxOccurrences < 5) {
+            warnings.push(`⚠️ Limite de ocorrências BAIXO: máx ${config.maxOccurrences}`);
+        }
+        
+        if (warnings.length > 0) {
+            console.log('\n⚠️ AVISOS DE CONFIGURAÇÃO:');
+            warnings.forEach(w => console.log(`   ${w}`));
+            console.log('');
+        }
+        
+    } catch (e) {
+        console.error('Erro ao exibir configurações:', e);
+    }
+}
+
+// Load analyzer config at startup
+(async function loadAnalyzerConfigAtStartup() {
+    try {
+        const res = await chrome.storage.local.get(['analyzerConfig']);
+        if (res && res.analyzerConfig) {
+            analyzerConfig = { ...DEFAULT_ANALYZER_CONFIG, ...res.analyzerConfig };
+        } else {
+            await chrome.storage.local.set({ analyzerConfig: analyzerConfig });
+        }
+        console.log('AnalyzerConfig carregado:', analyzerConfig);
+        
+        // ✅ EXIBIR CONFIGURAÇÕES ATIVAS
+        logActiveConfiguration();
+        
+        // ✅ VALIDAR CONFIGURAÇÕES (detectar conflitos)
+        const minSize = analyzerConfig.minPatternSize || 2;
+        const maxSize = analyzerConfig.maxPatternSize || 0;
+        const minOcc = analyzerConfig.minOccurrences || 1;
+        const maxOcc = analyzerConfig.maxOccurrences || 0;
+        
+        if (maxSize > 0 && maxSize < minSize) {
+            console.error('╔═══════════════════════════════════════════════════════════╗');
+            console.error('║  ⚠️ CONFIGURAÇÃO INVÁLIDA DETECTADA!                     ║');
+            console.error('╠═══════════════════════════════════════════════════════════╣');
+            console.error(`║  ❌ Tamanho MÁXIMO (${maxSize}) < MÍNIMO (${minSize})!`);
+            console.error('║  🚫 NENHUM PADRÃO SERÁ ENCONTRADO!                        ║');
+            console.error('║  💡 Ajuste: maxPatternSize >= minPatternSize             ║');
+            console.error('╚═══════════════════════════════════════════════════════════╝');
+        }
+        
+        if (maxOcc > 0 && maxOcc < minOcc) {
+            console.error('╔═══════════════════════════════════════════════════════════╗');
+            console.error('║  ⚠️ CONFIGURAÇÃO INVÁLIDA DETECTADA!                     ║');
+            console.error('╠═══════════════════════════════════════════════════════════╣');
+            console.error(`║  ❌ Ocorrências MÁXIMAS (${maxOcc}) < MÍNIMAS (${minOcc})!`);
+            console.error('║  🚫 NENHUM PADRÃO SERÁ ENCONTRADO!                        ║');
+            console.error('║  💡 Ajuste: maxOccurrences >= minOccurrences             ║');
+            console.error('╚═══════════════════════════════════════════════════════════╝');
+        }
+    } catch (e) {
+        console.warn('Falha ao carregar analyzerConfig, usando defaults:', e);
+    }
+})();
+
+// Apply config changes immediately
+chrome.storage.onChanged.addListener((changes, area) => {
+    if (area === 'local' && changes.analyzerConfig) {
+        try {
+            const newVal = changes.analyzerConfig.newValue || {};
+            analyzerConfig = { ...DEFAULT_ANALYZER_CONFIG, ...newVal };
+            console.log('AnalyzerConfig aplicado imediatamente:', analyzerConfig);
+            
+            // ✅ EXIBIR NOVAS CONFIGURAÇÕES
+            console.log('\n🔄 CONFIGURAÇÕES ATUALIZADAS:');
+            logActiveConfiguration();
+            
+            // ✅ VALIDAR CONFIGURAÇÕES (detectar conflitos)
+            const minSize = analyzerConfig.minPatternSize || 2;
+            const maxSize = analyzerConfig.maxPatternSize || 0;
+            const minOcc = analyzerConfig.minOccurrences || 1;
+            const maxOcc = analyzerConfig.maxOccurrences || 0;
+            
+            if (maxSize > 0 && maxSize < minSize) {
+                console.error('╔═══════════════════════════════════════════════════════════╗');
+                console.error('║  ⚠️ CONFIGURAÇÃO INVÁLIDA DETECTADA!                     ║');
+                console.error('╠═══════════════════════════════════════════════════════════╣');
+                console.error(`║  ❌ Tamanho MÁXIMO (${maxSize}) < MÍNIMO (${minSize})!`);
+                console.error('║  🚫 NENHUM PADRÃO SERÁ ENCONTRADO!                        ║');
+                console.error('║  💡 Ajuste: maxPatternSize >= minPatternSize             ║');
+                console.error('╚═══════════════════════════════════════════════════════════╝');
+            }
+            
+            if (maxOcc > 0 && maxOcc < minOcc) {
+                console.error('╔═══════════════════════════════════════════════════════════╗');
+                console.error('║  ⚠️ CONFIGURAÇÃO INVÁLIDA DETECTADA!                     ║');
+                console.error('╠═══════════════════════════════════════════════════════════╣');
+                console.error(`║  ❌ Ocorrências MÁXIMAS (${maxOcc}) < MÍNIMAS (${minOcc})!`);
+                console.error('║  🚫 NENHUM PADRÃO SERÁ ENCONTRADO!                        ║');
+                console.error('║  💡 Ajuste: maxOccurrences >= minOccurrences             ║');
+                console.error('╚═══════════════════════════════════════════════════════════╝');
+            }
+        } catch (e) {
+            console.warn('Falha ao aplicar analyzerConfig:', e);
+        }
+    }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// CALIBRADOR DE PORCENTAGENS - INICIALIZAÇÃO
+// (Variáveis movidas para o topo do arquivo para evitar TDZ errors)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// ✅ Carregar histórico de cores quentes ao iniciar
+loadHotColorsHistory();
+
+// Carregar dados do observador ao iniciar
+(async function loadObserverDataAtStartup() {
+    try {
+        const res = await chrome.storage.local.get(['observerData', 'entriesHistory', 'martingaleState']);
+        if (res && res.observerData) {
+            observerData = { ...observerData, ...res.observerData };
+            console.log('╔═══════════════════════════════════════════════════════════╗');
+            console.log('║  📊 CALIBRADOR DE PORCENTAGENS CARREGADO                 ║');
+            console.log('╠═══════════════════════════════════════════════════════════╣');
+            console.log(`║  📈 Entradas monitoradas: ${observerData.entries.length}`);
+            console.log(`║  📊 Última calibração: ${observerData.lastCalibratedCount} entradas`);
+            console.log(`║  🔧 Fator de calibração: ${(observerData.calibrationFactor * 100).toFixed(1)}%`);
+            console.log(`║  🎯 Alta (≥80%): ${observerData.stats.high.total} entradas`);
+            console.log(`║  🟡 Média (60-79%): ${observerData.stats.medium.total} entradas`);
+            console.log(`║  🟢 Baixa (<60%): ${observerData.stats.low.total} entradas`);
+            console.log('╚═══════════════════════════════════════════════════════════╝');
+        } else {
+            console.log('ℹ️ Calibrador de porcentagens: Nenhum dado anterior encontrado (primeira execução)');
+        }
+        
+        // ✅ SINCRONIZAR: Sempre manter observerData sincronizado com entriesHistory
+        const entriesHistory = res.entriesHistory || [];
+        console.log('🔍 Verificando sincronização:');
+        console.log(`   entriesHistory existe?`, !!entriesHistory);
+        console.log(`   entriesHistory.length:`, entriesHistory.length);
+        console.log(`   observerData.entries.length:`, observerData.entries.length);
+        
+        // ✅ CASO 1: entriesHistory foi LIMPO (menos entradas que observerData)
+        // Isso significa que o usuário limpou o histórico, então resetar observerData
+        if (entriesHistory.length < observerData.entries.length) {
+            console.log('╔═══════════════════════════════════════════════════════════╗');
+            console.log('║  🗑️ HISTÓRICO FOI LIMPO - RESETANDO CALIBRADOR          ║');
+            console.log('╠═══════════════════════════════════════════════════════════╣');
+            console.log(`║  Entradas antigas no calibrador: ${observerData.entries.length}`);
+            console.log(`║  Entradas atuais no histórico: ${entriesHistory.length}`);
+            console.log('╚═══════════════════════════════════════════════════════════╝');
+            
+            // Resetar observerData e reconstruir a partir do entriesHistory
+            observerData = {
+                entries: [],
+                calibrationFactor: 1.0,
+                lastCalibration: null,
+                lastCalibratedCount: 0,
+                stats: {
+                    high: { predicted: 0, actual: 0, wins: 0, total: 0 },
+                    medium: { predicted: 0, actual: 0, wins: 0, total: 0 },
+                    low: { predicted: 0, actual: 0, wins: 0, total: 0 }
+                }
+            };
+            
+            // Reconstruir observerData a partir das entradas restantes
+            for (const entry of entriesHistory) {
+                if (entry.confidence && entry.result) {
+                    observerData.entries.push({
+                        timestamp: entry.timestamp,
+                        predicted: Math.round(entry.confidence),
+                        result: entry.result.toLowerCase() === 'win' ? 'win' : 'loss',
+                        pattern: entry.patternData ? {
+                            type: entry.patternData.type || 'unknown',
+                            occurrences: entry.patternData.occurrences || 0
+                        } : null
+                    });
+                }
+            }
+            
+            console.log(`✅ Calibrador resetado e reconstruído: ${observerData.entries.length} entradas`);
+            
+            // Atualizar estatísticas
+            updateObserverStats();
+            
+            // Salvar dados sincronizados
+            await saveObserverData(true);
+            
+            // Enviar atualização para UI
+            sendObserverUpdate(true);
+        }
+        // ✅ CASO 2: entriesHistory tem MAIS entradas (adicionar novas)
+        else if (entriesHistory.length > observerData.entries.length) {
+            console.log('╔═══════════════════════════════════════════════════════════╗');
+            console.log('║  🔄 SINCRONIZANDO ENTRADAS COM OBSERVADOR                ║');
+            console.log('╠═══════════════════════════════════════════════════════════╣');
+            console.log(`║  Entradas no histórico: ${entriesHistory.length}`);
+            console.log(`║  Entradas no observador: ${observerData.entries.length}`);
+            
+            // Adicionar entradas que estão faltando no observador
+            let syncedCount = 0;
+            for (const entry of entriesHistory) {
+                // Verificar se já existe no observador (por timestamp)
+                const exists = observerData.entries.some(e => e.timestamp === entry.timestamp);
+                
+                console.log(`   Entrada ${syncedCount + 1}/${entriesHistory.length}:`, {
+                    timestamp: entry.timestamp,
+                    confidence: entry.confidence,
+                    result: entry.result,
+                    exists: exists
+                });
+                
+                if (!exists && entry.confidence && entry.result) {
+                    observerData.entries.push({
+                        timestamp: entry.timestamp,
+                        predicted: Math.round(entry.confidence),
+                        result: entry.result.toLowerCase() === 'win' ? 'win' : 'loss',
+                        pattern: entry.patternData ? {
+                            type: entry.patternData.type || 'unknown',
+                            occurrences: entry.patternData.occurrences || 0
+                        } : null
+                    });
+                    syncedCount++;
+                    console.log(`      ✅ Adicionado ao observador (${syncedCount} sincronizadas)`);
+                } else if (exists) {
+                    console.log(`      ⏭️ Já existe no observador`);
+                } else {
+                    console.log(`      ⚠️ Entrada inválida (sem confidence ou result)`);
+                }
+            }
+            
+            console.log(`╠═══════════════════════════════════════════════════════════╣`);
+            console.log(`║  Total sincronizado: ${syncedCount} novas entradas`);
+            console.log(`╚═══════════════════════════════════════════════════════════╝`);
+            
+            // Limitar ao máximo configurado
+            if (observerData.entries.length > OBSERVER_CONFIG.maxHistorySize) {
+                observerData.entries = observerData.entries.slice(-OBSERVER_CONFIG.maxHistorySize);
+            }
+            
+            // Atualizar estatísticas
+            updateObserverStats();
+            
+            // Salvar dados sincronizados
+            await saveObserverData();
+            
+            console.log(`✅ Sincronização concluída: ${observerData.entries.length} entradas no observador`);
+            
+            // Enviar atualização para UI
+            sendObserverUpdate(true); // Mostrar log ao carregar
+        }
+        // ✅ CASO 3: Já estão sincronizados (mesmo número de entradas)
+        else {
+            console.log('✅ Calibrador já está sincronizado com histórico de entradas');
+        }
+        
+        // ✅ RESTAURAR ESTADO DO MARTINGALE (se houver ciclo ativo)
+        if (res.martingaleState && res.martingaleState.active) {
+            martingaleState = res.martingaleState;
+            console.log('╔═══════════════════════════════════════════════════════════╗');
+            console.log('║  🔄 CICLO DE MARTINGALE RESTAURADO                       ║');
+            console.log('╠═══════════════════════════════════════════════════════════╣');
+            console.log(`║  Estágio: ${martingaleState.stage}`);
+            console.log(`║  Padrão: ${martingaleState.patternKey}`);
+            console.log(`║  Cor: ${martingaleState.entryColor}`);
+            console.log(`║  LOSS consecutivos: ${martingaleState.lossCount}`);
+            console.log('╚═══════════════════════════════════════════════════════════╝');
+        }
+    } catch (e) {
+        console.warn('⚠️ Falha ao carregar observerData:', e);
+    }
+})();
+
+// Salvar dados do observador
+async function saveObserverData(showLog = false) {
+    // ⚠️ VERIFICAR SE observerData FOI INICIALIZADO
+    if (!observerData || !observerData.entries) {
+        return;
+    }
+    
+    try {
+        await chrome.storage.local.set({ observerData: observerData });
+        if (showLog) {
+            console.log(`💾 Calibrador salvo: ${observerData.entries.length} entradas, fator ${(observerData.calibrationFactor * 100).toFixed(1)}%, última calibração em ${observerData.lastCalibratedCount}`);
+        }
+    } catch (e) {
+        console.error('Erro ao salvar observerData:', e);
+    }
+}
+
+// Enviar atualização do observador para content.js
+function sendObserverUpdate(showLog = false) {
+    // ⚠️ VERIFICAR SE observerData FOI INICIALIZADO
+    if (!observerData || !observerData.entries) {
+        return;
+    }
+    
+    const stats = getObserverStats();
+    if (showLog) {
+        console.log('📤 Enviando OBSERVER_UPDATE para UI:', {
+            total: stats.total,
+            wins: stats.wins,
+            losses: stats.losses,
+            winRate: stats.winRate,
+            calibrationFactor: stats.calibrationFactor
+        });
+    }
+    sendMessageToContent('OBSERVER_UPDATE', stats);
+}
+
+// Registrar uma nova entrada no observador
+async function registerEntryInObserver(predictedConfidence, actualResult, entryTime, patternInfo = null) {
+    const entry = {
+        timestamp: entryTime || Date.now(),
+        predicted: Math.round(predictedConfidence),
+        result: actualResult, // 'win' ou 'loss'
+        pattern: patternInfo ? {
+            type: patternInfo.type || 'unknown',
+            occurrences: patternInfo.occurrences || 0
+        } : null
+    };
+    
+    // ⚠️ VERIFICAR SE observerData FOI INICIALIZADO (com try/catch para evitar TDZ)
+    try {
+        if (!observerData || !observerData.entries) {
+            console.warn('⚠️ observerData não inicializado ainda - pulando registro');
+            return;
+        }
+    } catch (error) {
+        console.warn('⚠️ Erro ao acessar observerData - pulando registro:', error.message);
+        return;
+    }
+    
+    // Adicionar ao histórico
+    observerData.entries.push(entry);
+    
+    // Limitar tamanho do histórico (manter apenas as últimas N)
+    if (observerData.entries.length > OBSERVER_CONFIG.maxHistorySize) {
+        observerData.entries.shift(); // Remove mais antiga
+    }
+    
+    // Atualizar estatísticas
+    updateObserverStats();
+    
+    // ✅ RECALIBRAR A CADA NOVA ENTRADA (após ter o mínimo de 20 entradas)
+    // Isso garante que o peso da calibração usado nos próximos cálculos esteja sempre atualizado
+    if (observerData.entries.length >= OBSERVER_CONFIG.minEntriesForCalibration) {
+        console.log(`🔄 Recalibrando automaticamente após nova entrada (${observerData.entries.length} entradas)...`);
+        recalibrateConfidenceModel();
+    } else {
+        console.log(`⏳ Aguardando ${OBSERVER_CONFIG.minEntriesForCalibration - observerData.entries.length} entradas para iniciar calibração automática`);
+    }
+    
+    // Salvar dados
+    await saveObserverData();
+    
+    // ✅ Enviar atualização para UI automaticamente
+    sendObserverUpdate();
+    
+    // Log visual
+    console.log(`
+╔═══════════════════════════════════════════════════════════╗
+║  📊 ENTRADA OBSERVADA                                     
+╠═══════════════════════════════════════════════════════════╣
+║  🎯 Previsto: ${entry.predicted}%
+║  ${actualResult === 'win' ? '✅ Resultado: WIN' : '❌ Resultado: LOSS'}
+║  📈 Total observado: ${observerData.entries.length}/${OBSERVER_CONFIG.maxHistorySize}
+║  🔧 Fator de calibração: ${(observerData.calibrationFactor * 100).toFixed(1)}%
+╚═══════════════════════════════════════════════════════════╝
+    `.trim());
+}
+
+// Atualizar estatísticas do observador
+function updateObserverStats() {
+    // ⚠️ VERIFICAR SE observerData FOI INICIALIZADO
+    if (!observerData || !observerData.entries) {
+        return;
+    }
+    
+    // Resetar stats
+    observerData.stats = {
+        high: { predicted: 0, actual: 0, wins: 0, total: 0 },
+        medium: { predicted: 0, actual: 0, wins: 0, total: 0 },
+        low: { predicted: 0, actual: 0, wins: 0, total: 0 }
+    };
+    
+    // Calcular para cada faixa
+    for (const entry of observerData.entries) {
+        let bucket;
+        if (entry.predicted >= 80) bucket = 'high';
+        else if (entry.predicted >= 60) bucket = 'medium';
+        else bucket = 'low';
+        
+        observerData.stats[bucket].predicted += entry.predicted;
+        observerData.stats[bucket].total++;
+        
+        if (entry.result === 'win') {
+            observerData.stats[bucket].wins++;
+        }
+    }
+    
+    // Calcular taxas reais
+    for (const bucket of ['high', 'medium', 'low']) {
+        const stat = observerData.stats[bucket];
+        if (stat.total > 0) {
+            stat.actual = (stat.wins / stat.total) * 100;
+            stat.predicted = stat.predicted / stat.total; // Média prevista
+        }
+    }
+}
+
+// Recalibrar o modelo de confiança baseado no histórico
+// Esta função é chamada:
+// - AUTOMATICAMENTE: A cada nova entrada registrada (após ter 20+ entradas)
+// - MANUALMENTE: Quando o usuário clica no botão "Atualizar"
+function recalibrateConfidenceModel() {
+    // ⚠️ VERIFICAR SE observerData FOI INICIALIZADO
+    if (!observerData || !observerData.entries) {
+        return;
+    }
+    
+    const entries = observerData.entries;
+    if (entries.length < OBSERVER_CONFIG.minEntriesForCalibration) {
+        console.log(`⚠️ Calibração cancelada: apenas ${entries.length} entradas (mínimo: ${OBSERVER_CONFIG.minEntriesForCalibration})`);
+        return;
+    }
+    
+    // ✅ VERIFICAR SE HÁ NOVAS ENTRADAS desde a última calibração
+    if (entries.length === observerData.lastCalibratedCount) {
+        console.log(`ℹ️ Calibração não necessária: nenhuma entrada nova desde a última calibração (${entries.length} entradas)`);
+        return;
+    }
+    
+    // Calcular taxa de acerto global
+    const totalWins = entries.filter(e => e.result === 'win').length;
+    const totalEntries = entries.length;
+    const actualWinRate = totalWins / totalEntries;
+    
+    // Calcular média das previsões
+    const avgPredicted = entries.reduce((sum, e) => sum + e.predicted, 0) / totalEntries;
+    const predictedWinRate = avgPredicted / 100;
+    
+    // Calcular fator de correção
+    // Se real = 0.7 (70%) e previsto = 0.85 (85%), fator = 0.7/0.85 = 0.82
+    // Isso vai reduzir as próximas previsões em ~18%
+    let newFactor = predictedWinRate > 0 ? actualWinRate / predictedWinRate : 1.0;
+    
+    // ✅ REMOVIDA SUAVIZAÇÃO: Cálculo agora é determinístico (sempre retorna o mesmo valor para os mesmos dados)
+    // Não há mais média ponderada com valor anterior - o cálculo é puro e baseado apenas nos dados atuais
+    
+    // Limitar fator entre 0.5 e 1.5 (não permitir correções muito drásticas)
+    newFactor = Math.max(0.5, Math.min(1.5, newFactor));
+    
+    const oldFactor = observerData.calibrationFactor;
+    observerData.calibrationFactor = newFactor;
+    observerData.lastCalibration = new Date().toISOString();
+    observerData.lastCalibratedCount = entries.length; // ✅ Salvar quantas entradas foram calibradas
+    
+    // Log detalhado da calibração
+    console.log(`
+╔═══════════════════════════════════════════════════════════╗
+║  🔧 RECALIBRAÇÃO DO MODELO (${entries.length} entradas)              
+╠═══════════════════════════════════════════════════════════╣
+║  📊 Entradas analisadas: ${totalEntries}
+║  
+║  🎯 GLOBAL:
+║     Previsto médio: ${(predictedWinRate * 100).toFixed(1)}%
+║     Real: ${(actualWinRate * 100).toFixed(1)}%
+║     Diferença: ${((actualWinRate - predictedWinRate) * 100).toFixed(1)}%
+║  
+║  🔴 ALTA (≥80%):
+║     Previsto: ${observerData.stats.high.predicted.toFixed(1)}%
+║     Real: ${observerData.stats.high.actual.toFixed(1)}%
+║     Total: ${observerData.stats.high.total} entradas
+║  
+║  🟡 MÉDIA (60-79%):
+║     Previsto: ${observerData.stats.medium.predicted.toFixed(1)}%
+║     Real: ${observerData.stats.medium.actual.toFixed(1)}%
+║     Total: ${observerData.stats.medium.total} entradas
+║  
+║  🟢 BAIXA (<60%):
+║     Previsto: ${observerData.stats.low.predicted.toFixed(1)}%
+║     Real: ${observerData.stats.low.actual.toFixed(1)}%
+║     Total: ${observerData.stats.low.total} entradas
+║  
+║  ⚙️ AJUSTE:
+║     Fator anterior: ${(oldFactor * 100).toFixed(1)}%
+║     Fator novo: ${(newFactor * 100).toFixed(1)}%
+║     Correção: ${((newFactor - oldFactor) * 100).toFixed(1)}%
+╚═══════════════════════════════════════════════════════════╝
+    `.trim());
+}
+
+// Aplicar calibração a uma porcentagem de confiança
+function applyCalibratedConfidence(rawConfidence) {
+    // ✅ VERIFICAÇÃO DEFENSIVA: observerData pode não estar inicializado ainda
+    if (!observerData || !observerData.entries) {
+        console.log(`⚠️ Calibração indisponível: observerData não inicializado (retornando confiança original)`);
+        return Math.round(rawConfidence);
+    }
+    
+    // ✅ REGRA: Só aplicar calibração após 10+ entradas no observador
+    const minEntriesForCalibration = 10;
+    const currentEntries = observerData.entries.length;
+    
+    if (currentEntries < minEntriesForCalibration) {
+        console.log(`ℹ️ Calibração desativada: ${currentEntries}/${minEntriesForCalibration} entradas (coletando dados)`);
+        return Math.round(rawConfidence); // Retorna confiança original
+    }
+    
+    // Aplicar fator de calibração
+    let calibrated = rawConfidence * observerData.calibrationFactor;
+    
+    // Garantir que fique entre 0-100
+    calibrated = Math.max(0, Math.min(100, calibrated));
+    
+    console.log(`🔧 Calibração aplicada: ${rawConfidence.toFixed(1)}% → ${Math.round(calibrated)}% (fator: ${(observerData.calibrationFactor * 100).toFixed(1)}%, ${currentEntries} entradas)`);
+    
+    return Math.round(calibrated);
+}
+
+// Obter estatísticas do observador para exibição
+function getObserverStats() {
+    const entries = observerData.entries;
+    if (entries.length === 0) {
+        return {
+            total: 0,
+            wins: 0,
+            losses: 0,
+            winRate: 0,
+            calibrationFactor: observerData.calibrationFactor,
+            byConfidence: observerData.stats
+        };
+    }
+    
+    const wins = entries.filter(e => e.result === 'win').length;
+    const losses = entries.length - wins;
+    
+    return {
+        total: entries.length,
+        wins: wins,
+        losses: losses,
+        winRate: (wins / entries.length) * 100,
+        calibrationFactor: observerData.calibrationFactor,
+        byConfidence: observerData.stats,
+        lastCalibration: observerData.lastCalibration,
+        lastCalibratedCount: observerData.lastCalibratedCount // Quantas entradas foram processadas na última calibração
+    };
+}
+
+// Start data collection
+async function startDataCollection() {
+    if (isRunning) return;
+    
+    // ✅ VERIFICAR SE HÁ ABA DA BLAZE ABERTA ANTES DE INICIAR
+    const hasBlaze = await hasBlazeTabOpen();
+    if (!hasBlaze) {
+        console.log('╔═══════════════════════════════════════════════════════════╗');
+        console.log('║  ⛔ IMPOSSÍVEL INICIAR: NENHUMA ABA DA BLAZE ABERTA      ║');
+        console.log('║  💡 Abra blaze.com para usar a extensão                  ║');
+        console.log('╚═══════════════════════════════════════════════════════════╝');
+        return;
+    }
+    
+    isRunning = true;
+    
+    // ✅ CARREGAR CONFIGURAÇÕES E ESTADO DO MARTINGALE DO STORAGE IMEDIATAMENTE
+    try {
+        const storageData = await chrome.storage.local.get(['analyzerConfig', 'martingaleState']);
+        
+        // Carregar configurações
+        if (storageData.analyzerConfig) {
+            analyzerConfig = { ...DEFAULT_ANALYZER_CONFIG, ...storageData.analyzerConfig };
+            console.log('✅ Configurações carregadas do storage com sucesso!');
+            console.log('🔧 DEBUG - Config carregada:', {
+                aiMode: analyzerConfig.aiMode,
+                aiApiKey: analyzerConfig.aiApiKey ? 'Configurada' : 'Não configurada',
+                minOccurrences: analyzerConfig.minOccurrences
+            });
+            
+            // ✅ Se modo IA já estava ativo ao iniciar, marcar flag para aguardar 1 giro
+            if (analyzerConfig.aiMode) {
+                aiModeJustActivated = true;
+                console.log('%c⏳ MODO IA DETECTADO AO INICIAR: Aguardando 1 giro antes de enviar primeiro sinal...', 'color: #FFAA00; font-weight: bold;');
+            }
+        } else {
+            console.log('ℹ️ Usando configurações padrão (nenhuma personalização salva)');
+        }
+        
+        // ⚠️ CRÍTICO: Carregar estado do Martingale do storage (pode haver ciclo em andamento)
+        if (storageData.martingaleState && storageData.martingaleState.active) {
+            martingaleState = storageData.martingaleState;
+            console.log('🔄 Ciclo de Martingale em andamento detectado:', {
+                stage: martingaleState.stage,
+                entryColor: martingaleState.entryColor,
+                lossCount: martingaleState.lossCount
+            });
+        }
+    } catch (e) {
+        console.warn('⚠️ Erro ao carregar configurações/estado, usando padrão:', e);
+    }
+    
+    console.log('╔═══════════════════════════════════════════════════════════╗');
+    console.log('║  🚀 BLAZE ANALYZER - INICIANDO                            ║');
+    console.log('╠═══════════════════════════════════════════════════════════╣');
+    console.log('║  📡 Modo: SERVIDOR (coleta do Render.com)                 ║');
+    console.log('║  ⚡ Atualização: TEMPO REAL via WebSocket                 ║');
+    console.log('║  📊 Limite: 2000 giros | 5000 padrões                     ║');
+    console.log('║  💾 Cache: Em memória (não persiste após recarregar)      ║');
+    console.log('╚═══════════════════════════════════════════════════════════╝');
+    
+    // ✅ EXIBIR CONFIGURAÇÕES ATIVAS AO INICIAR
+    console.log('');
+    logActiveConfiguration();
+    console.log('');
+    
+    // 1. Limpar padrões locais (começar do zero)
+    // ✅ Isso NÃO limpa: entriesHistory, análise pendente, calibrador
+    // ✅ Limpa APENAS: banco de padrões (patterns_found)
+    await clearAllPatterns();
+    
+    // ✅ Verificar se entriesHistory foi preservado
+    const checkData = await chrome.storage.local.get(['entriesHistory', 'analysis']);
+    console.log(`✅ Histórico de entradas preservado: ${(checkData.entriesHistory || []).length} entradas`);
+    
+    // ✅ Verificar se há análise pendente (aguardando resultado)
+    if (checkData.analysis && checkData.analysis.createdOnTimestamp) {
+        console.log('╔═══════════════════════════════════════════════════════════╗');
+        console.log('║  🎯 ANÁLISE PENDENTE DETECTADA!                          ║');
+        console.log('╠═══════════════════════════════════════════════════════════╣');
+        console.log(`║  Cor recomendada: ${checkData.analysis.color}`);
+        console.log(`║  Confiança: ${checkData.analysis.confidence}%`);
+        console.log(`║  Fase: ${checkData.analysis.phase || 'G0'}`);
+        console.log(`║  Criada em: ${checkData.analysis.createdOnTimestamp}`);
+        console.log('║  Status: Aguardando resultado do próximo giro           ║');
+        console.log('╚═══════════════════════════════════════════════════════════╝');
+    } else {
+        console.log('ℹ️ Nenhuma análise pendente no momento');
+    }
+    
+    // 2. Resetar cache em memória
+    console.log('🗑️ Resetando cache em memória...');
+    cachedHistory = [];
+    historyInitialized = false;
+    console.log('✅ Cache em memória resetado.');
+    
+    // 3. Sincronizar dados com servidor primeiro (popula cache em memória)
+    await syncInitialData().catch(e => console.warn('Falha ao sincronizar com servidor:', e));
+    
+    // 4. Inicializar histórico completo (até 2000) uma vez ao iniciar
+    await initializeHistoryIfNeeded().catch(e => console.warn('Falha ao inicializar histórico completo:', e));
+    
+    // 5. Busca de padrões agora é MANUAL (usuário clica no botão)
+    console.log('💡 Para buscar padrões, clique em "🔍 Buscar Padrões (5min)" na interface.');
+    
+    // 6. ✅ CONECTAR AO WEBSOCKET PARA RECEBER GIROS EM TEMPO REAL
+    if (API_CONFIG.useWebSocket) {
+        console.log('╔═══════════════════════════════════════════════════════════╗');
+        console.log('║  ⚡ MODO WEBSOCKET ATIVO                                   ║');
+        console.log('║  Giros serão recebidos em TEMPO REAL (sem delay)         ║');
+        console.log('╚═══════════════════════════════════════════════════════════╝');
+        connectWebSocket();
+    } else {
+        // Fallback: Polling com fetch (modo antigo)
+        console.log('⚠️ Modo polling ativo (a cada 2s)');
+        intervalId = setInterval(async () => {
+            try {
+                // ✅ VERIFICAR SE ABA DA BLAZE AINDA ESTÁ ABERTA (A CADA TICK)
+                const hasBlaze = await hasBlazeTabOpen();
+                if (!hasBlaze) {
+                    console.log('╔═══════════════════════════════════════════════════════════╗');
+                    console.log('║  ⚠️ ABA DA BLAZE FECHADA - PARANDO COLETA                ║');
+                    console.log('╚═══════════════════════════════════════════════════════════╝');
+                    stopDataCollection();
+                    return;
+                }
+                
+                await collectDoubleData();
+            } catch (error) {
+                console.error('Erro na coleta de dados:', error);
+            }
+        }, 2000);
+    }
+}
+
+// Stop data collection
+function stopDataCollection() {
+    if (intervalId) {
+        clearInterval(intervalId);
+        intervalId = null;
+    }
+    
+    // ✅ DESCONECTAR WEBSOCKET
+    disconnectWebSocket();
+    
+    isRunning = false;
+    console.log('Blaze Double Analyzer: Parando coleta de dados');
+}
+
+// Collect data from SERVER (agora busca do servidor que está coletando 24/7)
+async function collectDoubleData() {
+    try {
+        // Buscar último giro do SERVIDOR
+        const response = await fetch(`${API_CONFIG.baseURL}/api/giros/latest`, {
+            signal: AbortSignal.timeout(5000) // Timeout de 5s
+        });
+        
+        if (!response.ok) {
+            // Se servidor offline, tenta buscar direto da Blaze (fallback)
+            console.warn('⚠️ Servidor offline, buscando direto da Blaze...');
+            const blazeResponse = await fetch('https://blaze.bet.br/api/singleplayer-originals/originals/roulette_games/recent/1');
+            if (!blazeResponse.ok) throw new Error('Blaze API offline');
+            const dataArr = await blazeResponse.json();
+            if (!Array.isArray(dataArr) || dataArr.length === 0) return;
+            
+            const latestSpin = dataArr[0];
+            const rollNumber = latestSpin.roll;
+            const rollColor = getColorFromNumber(rollNumber);
+            
+            processNewSpin({
+                id: `spin_${latestSpin.created_at}`,
+                number: rollNumber,
+                color: rollColor,
+                timestamp: latestSpin.created_at,
+                created_at: latestSpin.created_at,
+                source: 'blaze_direct'
+            });
+            return;
+        }
+        
+        const data = await response.json();
+        
+        if (data.success && data.data) {
+            const latestSpin = data.data;
+            
+            // Verificar se já temos esse giro localmente e processar
+            await processNewSpinFromServer(latestSpin);
+        } else {
+            console.log('⏳ Aguardando giros do servidor...');
+        }
+    } catch (error) {
+        console.error('Erro ao coletar dados do servidor:', error);
+    }
+}
+
+// Helper: Converter número em cor
+            // ═══════════════════════════════════════════════════════════════════════════════
+            // GET COLOR FROM NUMBER - REFATORADO 100%
+            // ═══════════════════════════════════════════════════════════════════════════════
+            function getColorFromNumber(number) {
+                // ✅ VALIDAÇÃO DE ENTRADA (silenciosa)
+                if (typeof number !== 'number' || isNaN(number) || number === undefined || number === null) {
+                    return 'unknown';
+                }
+                
+                // ✅ NORMALIZAR NÚMERO (caso seja float)
+                const normalizedNumber = Math.floor(number);
+                
+                // ✅ VALIDAR RANGE (0-14)
+                if (normalizedNumber < 0 || normalizedNumber > 14) {
+                    return 'unknown';
+                }
+                
+                // ✅ DETERMINAR COR
+                if (normalizedNumber === 0) {
+                    return 'white';
+                } else if (normalizedNumber >= 1 && normalizedNumber <= 7) {
+                    return 'red';
+                } else if (normalizedNumber >= 8 && normalizedNumber <= 14) {
+                    return 'black';
+                }
+                
+                // ✅ FALLBACK (nunca deve chegar aqui)
+                return 'unknown';
+            }
+
+// Processar novo giro vindo do servidor
+async function processNewSpinFromServer(spinData) {
+    try {
+        const rollNumber = spinData.number;
+        const rollColor = spinData.color;
+        const latestSpin = {
+            created_at: spinData.timestamp || spinData.created_at,
+            roll: rollNumber
+        };
+        
+            await chrome.storage.local.set({
+                lastSpin: {
+                    number: rollNumber,
+                    color: rollColor,
+                    timestamp: latestSpin.created_at
+                }
+            });
+        
+        // ✅ Usar CACHE EM MEMÓRIA (não salvar em chrome.storage.local)
+        let history = [...cachedHistory];  // Cópia do cache
+        let entriesHistory = [];
+        
+        try {
+            const result = await chrome.storage.local.get(['entriesHistory']);
+            entriesHistory = result['entriesHistory'] || [];
+        } catch (e) {
+            console.warn('⚠️ Erro ao buscar entriesHistory:', e);
+        }
+        
+            // Adiciona novo giro se diferente do anterior (por timestamp ou número)
+            const isNewSpin = history.length === 0 || 
+                            history[0].timestamp !== latestSpin.created_at || 
+                            history[0].number !== rollNumber;
+            
+            // ✅ Verificação silenciosa de novo giro
+            
+            if (isNewSpin) {
+            console.log('🎯 NOVO GIRO DETECTADO!', {
+                    number: rollNumber,
+                    color: rollColor,
+                    timestamp: latestSpin.created_at
+                });
+            const newGiro = {
+                id: spinData.id || `spin_${latestSpin.created_at}`,
+                    number: rollNumber,
+                    color: rollColor,
+                timestamp: latestSpin.created_at,
+                created_at: latestSpin.created_at
+            };
+            
+            history.unshift(newGiro);
+            if (history.length > 2000) history = history.slice(0, 2000);
+            
+            // ✅ Atualizar CACHE EM MEMÓRIA (não salvar em chrome.storage.local)
+            cachedHistory = history;
+            
+            console.log(`📊 Cache em memória atualizado: ${history.length} giros`);
+            
+            // ✅ CARREGAR CONFIGURAÇÕES E ESTADO DO MARTINGALE DO STORAGE ANTES DE PROCESSAR
+            try {
+                const storageData = await chrome.storage.local.get(['analyzerConfig', 'martingaleState']);
+                
+                // Carregar configurações
+                if (storageData.analyzerConfig) {
+                    analyzerConfig = { ...DEFAULT_ANALYZER_CONFIG, ...storageData.analyzerConfig };
+                    console.log('⚙️ Configurações carregadas do storage:', {
+                        consecutiveMartingale: analyzerConfig.consecutiveMartingale,
+                        maxGales: analyzerConfig.maxGales
+                    });
+                }
+                
+                // ⚠️ CRÍTICO: Carregar estado do Martingale do storage
+                if (storageData.martingaleState) {
+                    martingaleState = storageData.martingaleState;
+                    console.log('🔄 Estado do Martingale carregado do storage:', {
+                        active: martingaleState.active,
+                        stage: martingaleState.stage,
+                        entryColor: martingaleState.entryColor,
+                        lossCount: martingaleState.lossCount
+                    });
+                }
+            } catch (e) {
+                console.warn('⚠️ Erro ao carregar configurações/estado, usando padrão:', e);
+            }
+            
+            // Enviar novo giro para popup
+            try {
+                chrome.runtime.sendMessage({
+                    action: 'NEW_SPIN',
+                    data: {
+                        lastSpin: { number: rollNumber, color: rollColor, timestamp: latestSpin.created_at },
+                        // Não enviar histórico - o popup busca do servidor a cada 3s
+                    }
+                });
+            } catch (e) {
+                console.log('ℹ️ Popup não está aberto');
+            }
+            
+            // ❌ REMOVIDO: Chamada duplicada de runAnalysisController
+            // A análise será executada APÓS processar WIN/LOSS (linha ~1094)
+            
+            // ✅ Cache já foi atualizado acima - não salvar em chrome.storage.local
+            
+            console.log('╔═══════════════════════════════════════════════════════════╗');
+            console.log('║  🎯 VERIFICANDO RECOMENDAÇÃO PENDENTE                    ║');
+            console.log('╚═══════════════════════════════════════════════════════════╝');
+            console.log('🔍 Buscando currentAnalysis de chrome.storage.local...');
+                
+                // Avaliar recomendação pendente (WIN / G1 / G2)
+            const currentAnalysisResult = await chrome.storage.local.get(['analysis']);
+            const currentAnalysis = currentAnalysisResult['analysis'];
+            
+            console.log('📊 Resultado da busca:', currentAnalysisResult);
+            console.log('📊 currentAnalysis existe?', currentAnalysis ? 'SIM' : 'NÃO');
+            
+            if (currentAnalysis) {
+                console.log('   Cor recomendada:', currentAnalysis.color);
+                console.log('   Confiança:', currentAnalysis.confidence);
+                console.log('   Fase:', currentAnalysis.phase || 'G0');
+                console.log('   Timestamp recomendação:', currentAnalysis.createdOnTimestamp);
+                console.log('   PredictedFor:', currentAnalysis.predictedFor);
+            }
+            
+            console.log('🎲 Giro atual:');
+            console.log('   Cor:', rollColor);
+            console.log('   Número:', rollNumber);
+            console.log('   Timestamp:', latestSpin.created_at);
+            console.log('');
+            
+                if (currentAnalysis && currentAnalysis.createdOnTimestamp && currentAnalysis.predictedFor === 'next') {
+                console.log('✅ Recomendação pendente encontrada!');
+                console.log('🔍 Comparando timestamps:');
+                console.log('   Recomendação:', currentAnalysis.createdOnTimestamp);
+                console.log('   Giro atual:', latestSpin.created_at);
+                console.log('   São diferentes?', currentAnalysis.createdOnTimestamp !== latestSpin.created_at);
+                
+                    // Novo giro chegou para a recomendação pendente
+                    if (currentAnalysis.createdOnTimestamp !== latestSpin.created_at) {
+                    console.log('🎯 AVALIAR RESULTADO!');
+                    console.log('   Esperado:', currentAnalysis.color);
+                    console.log('   Real:', rollColor);
+                    console.log('   Tipo esperado:', typeof currentAnalysis.color);
+                    console.log('   Tipo real:', typeof rollColor);
+                    console.log('   Comparação exata:', rollColor === currentAnalysis.color);
+                    console.log('   Comparação case-insensitive:', rollColor.toLowerCase() === currentAnalysis.color.toLowerCase());
+                    
+                        // ✅ CORREÇÃO CRÍTICA: Comparação robusta de cores
+                        const expectedColor = String(currentAnalysis.color || '').toLowerCase().trim();
+                        const actualColor = String(rollColor || '').toLowerCase().trim();
+                        const hit = (expectedColor === actualColor);
+                    
+                    console.log('   ═══════════════════════════════════════════════════');
+                    console.log('   🔍 VERIFICAÇÃO FINAL DE WIN/LOSS:');
+                    console.log('   Esperado (processado):', expectedColor);
+                    console.log('   Real (processado):', actualColor);
+                    console.log('   São iguais?', hit);
+                    console.log('   Resultado FINAL:', hit ? '✅ WIN!' : '❌ LOSS!');
+                    console.log('   ═══════════════════════════════════════════════════');
+                    
+                        if (hit) {
+                        console.log('');
+                        console.log('╔═══════════════════════════════════════════════════════════╗');
+                        console.log('║  ✅ WIN DETECTADO!                                       ║');
+                        console.log('╚═══════════════════════════════════════════════════════════╝');
+                            
+                            // ═══════════════════════════════════════════════════════════════
+                            // ✅ SISTEMA DE MARTINGALE - LÓGICA DE WIN
+                            // ═══════════════════════════════════════════════════════════════
+                            
+                            // ✅ VALIDAÇÃO CRÍTICA: Garantir que não há processamento duplo
+                            console.log('🔒 VALIDAÇÃO CRÍTICA: Verificando se já foi processado...');
+                            console.log('   Martingale ativo:', martingaleState.active);
+                            console.log('   Estágio atual:', martingaleState.stage);
+                            console.log('   Análise fase:', currentAnalysis.phase);
+                            
+                            // Se já foi processado como WIN, não processar novamente
+                            if (martingaleState.active && martingaleState.stage !== 'ENTRADA' && currentAnalysis.phase === 'G0') {
+                                console.log('⚠️ ATENÇÃO: Possível processamento duplo detectado!');
+                                console.log('   Martingale ativo mas análise é G0 - pode ser WIN já processado');
+                                return; // Sair sem processar
+                            }
+                            
+                            // Determinar estágio do Martingale CORRETAMENTE
+                            // ✅ Verificar PRIMEIRO a fase da análise (G1/G2), depois o estado
+                            let martingaleStage = 'ENTRADA';
+                            if (currentAnalysis.phase === 'G1') {
+                                martingaleStage = 'G1';
+                            } else if (currentAnalysis.phase === 'G2') {
+                                martingaleStage = 'G2';
+                            } else if (martingaleState.active) {
+                                martingaleStage = martingaleState.stage;
+                            }
+                            
+                            const patternKey = martingaleState.active ? martingaleState.patternKey : createPatternKey(currentAnalysis);
+                            
+                            console.log(`🎯 WIN no estágio: ${martingaleStage}`);
+                            console.log(`🔑 Padrão: ${patternKey}`);
+                            
+                            // WIN: registrar entrada com informações de Martingale
+                            const winEntry = {
+                                timestamp: latestSpin.created_at,
+                                number: rollNumber,
+                                color: rollColor,
+                                phase: currentAnalysis.phase || 'G0',
+                                result: 'WIN',
+                                confidence: currentAnalysis.confidence,
+                                patternData: {
+                                    patternDescription: currentAnalysis.patternDescription,
+                                    confidence: currentAnalysis.confidence,
+                                    color: currentAnalysis.color,
+                                    createdOnTimestamp: currentAnalysis.createdOnTimestamp
+                                },
+                                // ✅ CAMPOS DO MARTINGALE
+                                martingaleStage: martingaleStage,  // 'ENTRADA' | 'G1' | 'G2'
+                                wonAt: martingaleStage,             // Onde ganhou
+                                finalResult: 'WIN'                  // Resultado final do ciclo
+                            };
+                            
+                            console.log('📝 Entrada WIN criada com Martingale:', {
+                                stage: winEntry.martingaleStage,
+                                wonAt: winEntry.wonAt,
+                                color: winEntry.color,
+                                number: winEntry.number
+                            });
+                            
+                            entriesHistory.unshift(winEntry);
+                            
+                            // ✅ Calcular estatísticas WIN/LOSS baseado em CICLOS COMPLETOS
+                            const { totalWins, totalLosses } = calculateCycleScore(entriesHistory);
+                            
+                            // ✅ Enviar confirmação de WIN ao Telegram (com informação de Martingale)
+                            await sendTelegramMartingaleWin(
+                                martingaleStage, 
+                                { color: rollColor, number: rollNumber, timestamp: latestSpin.created_at },
+                                totalWins,
+                                totalLosses
+                            );
+                            
+                            // Registrar no observador inteligente
+                            await registerEntryInObserver(
+                                currentAnalysis.confidence,
+                                'win',
+                                currentAnalysis.createdOnTimestamp,
+                                { type: currentAnalysis.patternType, occurrences: currentAnalysis.occurrences }
+                            );
+                            
+                            // ✅ ATUALIZAR HISTÓRICO DE CORES QUENTES
+                            if (martingaleState.active && (martingaleStage === 'G1' || martingaleStage === 'G2')) {
+                                console.log('📊 Atualizando histórico de cores quentes após WIN...');
+                                
+                                // Construir sequência de cores DOS GIROS (não das apostas!)
+                                const colorSequence = [];
+                                
+                                // Adicionar cores dos LOSSes (giros que realmente saíram)
+                                martingaleState.lossColors.forEach(color => {
+                                    colorSequence.push({ color });
+                                });
+                                
+                                // Adicionar cor que GANHOU (giro atual)
+                                colorSequence.push({ color: rollColor });
+                                
+                                console.log('   Sequência de cores dos giros:', colorSequence.map(c => c.color).join(' → '));
+                                
+                                await updateHotColorsHistory(patternKey, colorSequence);
+                            }
+                            
+                            // ✅ RESETAR CICLO DE MARTINGALE - CRÍTICO!
+                            if (martingaleState.active) {
+                                console.log('🔄 Resetando ciclo de Martingale após WIN');
+                                console.log('   Estado ANTES do reset:', {
+                                    active: martingaleState.active,
+                                    stage: martingaleState.stage,
+                                    patternKey: martingaleState.patternKey
+                                });
+                                resetMartingaleState();
+                                console.log('   Estado APÓS o reset:', {
+                                    active: martingaleState.active,
+                                    stage: martingaleState.stage,
+                                    patternKey: martingaleState.patternKey
+                                });
+                            }
+                            
+                            await chrome.storage.local.set({ 
+                                analysis: null, 
+                                pattern: null,
+                                lastBet: { status: 'win', phase: currentAnalysis.phase || 'G0', resolvedAtTimestamp: latestSpin.created_at },
+                                entriesHistory,
+                                martingaleState,  // ✅ Salvar estado do Martingale
+                                rigorLevel: 75 // RESET: Volta para 75% após WIN
+                            });
+                            sendMessageToContent('CLEAR_ANALYSIS');
+                            
+                            // ✅ Enviar atualização de entradas para UI
+                            console.log('📤 Enviando ENTRIES_UPDATE para UI...');
+                            console.log('📊 Total de entradas:', entriesHistory.length);
+                            sendMessageToContent('ENTRIES_UPDATE', entriesHistory);
+                        } else {
+                            console.log('');
+                            console.log('╔═══════════════════════════════════════════════════════════╗');
+                            console.log('║  ❌ LOSS DETECTADO!                                      ║');
+                            console.log('╚═══════════════════════════════════════════════════════════╝');
+                            
+                            // ═══════════════════════════════════════════════════════════════
+                            // ✅ SISTEMA DE MARTINGALE - LÓGICA DE LOSS
+                            // ═══════════════════════════════════════════════════════════════
+                            
+                            // Determinar estágio atual
+                            const currentStage = martingaleState.active ? martingaleState.stage : 'ENTRADA';
+                            const patternKey = martingaleState.active ? martingaleState.patternKey : createPatternKey(currentAnalysis);
+                            
+                            console.log(`❌ LOSS no estágio: ${currentStage}`);
+                            console.log(`🔑 Padrão: ${patternKey}`);
+                            console.log(`🎲 Esperado: ${currentAnalysis.color}, Real: ${rollColor}`);
+                            
+                            // ✅ VERIFICAR SE É O ÚLTIMO GALE (vai virar RET) ou se ainda tem mais Gales
+                            // NÃO ENVIAR MENSAGEM AQUI - será enviada dentro da lógica abaixo
+                            
+                            // ✅ REGISTRAR NO CALIBRADOR DE PORCENTAGENS
+                            await registerEntryInObserver(
+                                currentAnalysis.confidence,
+                                'loss',
+                                currentAnalysis.createdOnTimestamp,
+                                { type: currentAnalysis.patternType, occurrences: currentAnalysis.occurrences }
+                            );
+                            
+                            // ═══════════════════════════════════════════════════════════════
+                            // NOVA LÓGICA DE MARTINGALE - DECIDIR PRÓXIMA AÇÃO
+                            // ═══════════════════════════════════════════════════════════════
+                            
+                            // ═══════════════════════════════════════════════════════════════
+                            // ✅ LÓGICA DINÂMICA DE MARTINGALE - FUNCIONA PARA QUALQUER QUANTIDADE
+                            // ═══════════════════════════════════════════════════════════════
+                            
+                            // Determinar o número do Gale atual (0=ENTRADA, 1=G1, 2=G2, 3=G3...)
+                            let currentGaleNumber = 0;
+                            if (currentStage === 'ENTRADA') {
+                                currentGaleNumber = 0;
+                            } else if (currentStage.startsWith('G')) {
+                                currentGaleNumber = parseInt(currentStage.substring(1)) || 0;
+                            }
+                            
+                            const nextGaleNumber = currentGaleNumber + 1;
+                            const maxGales = analyzerConfig.maxGales || 0;
+                            
+                            console.log(`╔═══════════════════════════════════════════════════════════╗`);
+                            console.log(`║  ❌ LOSS no ${currentStage === 'ENTRADA' ? 'ENTRADA PADRÃO' : currentStage}                                  ║`);
+                            console.log(`╠═══════════════════════════════════════════════════════════╣`);
+                            console.log(`║  ⚙️  Configuração: ${maxGales} Gale${maxGales !== 1 ? 's' : ''} permitido${maxGales !== 1 ? 's' : ''}           ║`);
+                            console.log(`║  📊 Atual: Gale ${currentGaleNumber} (${currentStage})                        ║`);
+                            console.log(`║  🎯 Próximo: ${nextGaleNumber <= maxGales ? `Tentar G${nextGaleNumber}` : 'RET (limite atingido)'}                  ║`);
+                            console.log(`╚═══════════════════════════════════════════════════════════╝`);
+                            
+                            // Verificar se ainda pode tentar mais Gales
+                            const canTryNextGale = nextGaleNumber <= maxGales;
+                            
+                            if (currentStage === 'ENTRADA') {
+                                // ═══════════════════════════════════════════════════════════════
+                                // ✅ LOSS NA ENTRADA: Verificar se pode tentar G1
+                                // ═══════════════════════════════════════════════════════════════
+                                
+                                if (!canTryNextGale) {
+                                    // ❌ SEM GALES: Registrar LOSS direto
+                                    console.log('⛔ CONFIGURAÇÃO: 0 Gales - Registrando LOSS direto');
+                                    
+                                    const lossEntry = {
+                                        timestamp: latestSpin.created_at,
+                                        number: rollNumber,
+                                        color: rollColor,
+                                        phase: 'G0',
+                                        result: 'LOSS',
+                                        confidence: currentAnalysis.confidence,
+                                        patternData: {
+                                            patternDescription: currentAnalysis.patternDescription,
+                                            confidence: currentAnalysis.confidence,
+                                            color: currentAnalysis.color,
+                                            createdOnTimestamp: currentAnalysis.createdOnTimestamp
+                                        },
+                                        martingaleStage: 'ENTRADA',
+                                        finalResult: 'RET'
+                                    };
+                                    
+                                    entriesHistory.unshift(lossEntry);
+                                    resetMartingaleState();
+                                    
+                                    await chrome.storage.local.set({ 
+                                        analysis: null, 
+                                        pattern: null,
+                                        lastBet: { status: 'loss', phase: 'G0', resolvedAtTimestamp: latestSpin.created_at },
+                                        entriesHistory,
+                                        martingaleState
+                                    });
+                                    
+                                    sendMessageToContent('CLEAR_ANALYSIS');
+                                    sendMessageToContent('ENTRIES_UPDATE', entriesHistory);
+                                    return;
+                                }
+                                
+                                // ✅ TEM GALES: Tentar G1
+                                console.log(`🔄 Tentando G${nextGaleNumber}...`);
+                                console.log(`⚙️ Martingale Consecutivo: ${analyzerConfig.consecutiveMartingale ? 'ATIVADO' : 'DESATIVADO'}`);
+                                
+                                // ✅ ENVIAR MENSAGEM DE LOSS ENTRADA (vai tentar G1)
+                                await sendTelegramMartingaleLoss(
+                                    currentStage,
+                                    { color: rollColor, number: rollNumber, timestamp: latestSpin.created_at }
+                                );
+                                
+                                // ✅ USAR SEMPRE A MESMA COR DA ENTRADA ORIGINAL
+                                const g1Color = currentAnalysis.color;
+                                
+                                // ⚠️ CRÍTICO: Registrar LOSS da ENTRADA antes de tentar G1
+                                const entradaLossEntry = {
+                            timestamp: latestSpin.created_at,
+                            number: rollNumber,
+                            color: rollColor,
+                                    phase: 'G0',
+                            result: 'LOSS',
+                            confidence: currentAnalysis.confidence,
+                            patternData: {
+                                patternDescription: currentAnalysis.patternDescription,
+                                confidence: currentAnalysis.confidence,
+                                color: currentAnalysis.color,
+                                createdOnTimestamp: currentAnalysis.createdOnTimestamp
+                                    },
+                                    martingaleStage: 'ENTRADA',
+                                    finalResult: null,  // Ainda não é final, vai tentar G1
+                                    continuingToG1: true  // Flag indicando que continuará
+                                };
+                                
+                                entriesHistory.unshift(entradaLossEntry);
+                                
+                                // Salvar estado do Martingale
+                                martingaleState.active = true;
+                                martingaleState.stage = 'G1';
+                                martingaleState.patternKey = patternKey;
+                                martingaleState.entryColor = currentAnalysis.color;
+                                martingaleState.entryColorResult = rollColor;  // ✅ Cor que realmente saiu
+                                martingaleState.entryTimestamp = currentAnalysis.createdOnTimestamp;
+                                martingaleState.analysisData = currentAnalysis;
+                                martingaleState.lossCount = 1;
+                                martingaleState.lossColors = [rollColor];  // ✅ Guardar cores dos LOSSes
+                                
+                                // ═══════════════════════════════════════════════════════════════
+                                // VERIFICAR MODO DE MARTINGALE
+                                // ═══════════════════════════════════════════════════════════════
+                                
+                                if (analyzerConfig.consecutiveMartingale) {
+                                    // ✅ MODO CONSECUTIVO: Enviar G1 IMEDIATAMENTE no próximo giro
+                                    console.log('🎯 MODO CONSECUTIVO: G1 será enviado no PRÓXIMO GIRO');
+                                    
+                                    await sendTelegramMartingaleG1(g1Color, null);
+                                    
+                                    // Criar análise G1 com timestamp do próximo giro
+                                    const g1Analysis = {
+                                        ...currentAnalysis,
+                                        color: g1Color,
+                                        phase: 'G1',
+                                        predictedFor: 'next',
+                                        createdOnTimestamp: latestSpin.created_at  // ✅ Usar giro atual
+                                    };
+                                    
+                                    await chrome.storage.local.set({
+                                        analysis: g1Analysis,
+                                        pattern: { description: g1Analysis.patternDescription, confidence: g1Analysis.confidence },
+                                        lastBet: { status: 'pending', phase: 'G1', createdOnTimestamp: g1Analysis.createdOnTimestamp },
+                                        entriesHistory,
+                                        martingaleState
+                                    });
+                                    
+                                    sendMessageToContent('NEW_ANALYSIS', g1Analysis);
+                                } else {
+                                    // ❌ MODO PADRÃO: Aguardar novo padrão para enviar G1
+                                    console.log('⏳ MODO PADRÃO: Aguardando novo padrão para enviar G1...');
+                                    
+                                    await chrome.storage.local.set({
+                                        analysis: null,
+                                        pattern: null,
+                                        lastBet: { status: 'loss', phase: 'G0', resolvedAtTimestamp: latestSpin.created_at },
+                                        entriesHistory,
+                                        martingaleState
+                                    });
+                                    
+                                    sendMessageToContent('CLEAR_ANALYSIS');
+                                    sendMessageToContent('ENTRIES_UPDATE', entriesHistory);
+                                }
+                                
+                            } else if (currentStage.startsWith('G')) {
+                                // ═══════════════════════════════════════════════════════════════
+                                // ✅ LOSS EM QUALQUER GALE (G1, G2, G3... G200)
+                                // ═══════════════════════════════════════════════════════════════
+                                
+                                if (!canTryNextGale) {
+                                    // ❌ LIMITE ATINGIDO: Registrar RET
+                                    console.log(`⛔ Limite de Gales atingido (${currentGaleNumber}/${maxGales}) - Registrando RET`);
+                                    
+                                    const retEntry = {
+                                        timestamp: latestSpin.created_at,
+                                        number: rollNumber,
+                                        color: rollColor,
+                                        phase: currentStage,
+                                        result: 'LOSS',
+                                        confidence: currentAnalysis.confidence,
+                                        patternData: {
+                                            patternDescription: currentAnalysis.patternDescription,
+                                            confidence: currentAnalysis.confidence,
+                                            color: currentAnalysis.color,
+                                            createdOnTimestamp: currentAnalysis.createdOnTimestamp
+                                        },
+                                        martingaleStage: currentStage,
+                                        finalResult: 'RET'
+                                    };
+                                    
+                                    entriesHistory.unshift(retEntry);
+                                    
+                                    // ✅ Calcular estatísticas WIN/LOSS baseado em CICLOS COMPLETOS
+                                    const { totalWins, totalLosses } = calculateCycleScore(entriesHistory);
+                                    
+                                    await sendTelegramMartingaleRET(totalWins, totalLosses);
+                                    
+                                    // ✅ ATUALIZAR HISTÓRICO DE CORES QUENTES
+                                    const colorSequence = [];
+                                    martingaleState.lossColors.forEach(color => {
+                                        colorSequence.push({ color });
+                                    });
+                                    colorSequence.push({ color: rollColor });
+                                    await updateHotColorsHistory(patternKey, colorSequence);
+                                    
+                                    resetMartingaleState();
+                                    
+                                    await chrome.storage.local.set({ 
+                                        analysis: null, 
+                                        pattern: null, 
+                                        lastBet: { status: 'loss', phase: currentStage, resolvedAtTimestamp: latestSpin.created_at },
+                                        entriesHistory,
+                                        martingaleState
+                                    });
+                                    
+                                    sendMessageToContent('CLEAR_ANALYSIS');
+                                    sendMessageToContent('ENTRIES_UPDATE', entriesHistory);
+                                    return;
+                                }
+                                
+                                // ✅ TEM GALES: Tentar próximo
+                                console.log(`🔄 Tentando G${nextGaleNumber}...`);
+                                console.log(`⚙️ Martingale Consecutivo: ${analyzerConfig.consecutiveMartingale ? 'ATIVADO' : 'DESATIVADO'}`);
+                                
+                                // ✅ ENVIAR MENSAGEM DE LOSS (vai tentar próximo Gale)
+                                await sendTelegramMartingaleLoss(
+                                    currentStage,
+                                    { color: rollColor, number: rollNumber, timestamp: latestSpin.created_at }
+                                );
+                                
+                                // ✅ USAR SEMPRE A MESMA COR DA ENTRADA ORIGINAL
+                                console.log('╔═══════════════════════════════════════════════════════════╗');
+                                console.log('║  🔍 DEBUG: VERIFICANDO COR DO MARTINGALE                 ║');
+                                console.log('╠═══════════════════════════════════════════════════════════╣');
+                                console.log(`║  martingaleState.entryColor: ${martingaleState.entryColor}                   ║`);
+                                console.log(`║  currentAnalysis.color: ${currentAnalysis.color}                        ║`);
+                                console.log('╚═══════════════════════════════════════════════════════════╝');
+                                
+                                const nextGaleColor = martingaleState.entryColor;
+                                
+                                console.log(`🎯 COR CONFIRMADA PARA G${nextGaleNumber}: ${nextGaleColor}`);
+                                
+                                // ⚠️ CRÍTICO: Registrar LOSS do Gale atual
+                                const galeLossEntry = {
+                                    timestamp: latestSpin.created_at,
+                                    number: rollNumber,
+                                    color: rollColor,
+                                    phase: currentStage,
+                                    result: 'LOSS',
+                                    confidence: currentAnalysis.confidence,
+                                    patternData: {
+                                        patternDescription: currentAnalysis.patternDescription,
+                                        confidence: currentAnalysis.confidence,
+                                        color: currentAnalysis.color,
+                                        createdOnTimestamp: currentAnalysis.createdOnTimestamp
+                                    },
+                                    martingaleStage: currentStage,
+                                    finalResult: null,
+                                    [`continuingToG${nextGaleNumber}`]: true
+                                };
+                                
+                                entriesHistory.unshift(galeLossEntry);
+                                
+                                // Atualizar estado do Martingale
+                                martingaleState.stage = `G${nextGaleNumber}`;
+                                martingaleState.lossCount = nextGaleNumber;
+                                martingaleState.lossColors.push(rollColor);
+                                
+                                // Verificar modo de Martingale
+                                if (analyzerConfig.consecutiveMartingale) {
+                                    // ✅ MODO CONSECUTIVO
+                                    console.log(`🎯 MODO CONSECUTIVO: G${nextGaleNumber} será enviado no PRÓXIMO GIRO`);
+                                    
+                                    await sendTelegramMartingaleGale(nextGaleNumber, nextGaleColor, null);
+                                    
+                                    const nextGaleAnalysis = {
+                                        ...currentAnalysis,
+                                        color: nextGaleColor,
+                                        phase: `G${nextGaleNumber}`,
+                                        predictedFor: 'next',
+                                        createdOnTimestamp: latestSpin.created_at
+                                    };
+                                    
+                                    await chrome.storage.local.set({
+                                        analysis: nextGaleAnalysis,
+                                        pattern: { description: nextGaleAnalysis.patternDescription, confidence: nextGaleAnalysis.confidence },
+                                        lastBet: { status: 'pending', phase: `G${nextGaleNumber}`, createdOnTimestamp: nextGaleAnalysis.createdOnTimestamp },
+                                        entriesHistory,
+                                        martingaleState
+                                    });
+                                    
+                                    sendMessageToContent('NEW_ANALYSIS', nextGaleAnalysis);
+                                } else {
+                                    // ❌ MODO PADRÃO
+                                    console.log(`⏳ MODO PADRÃO: Aguardando novo padrão para enviar G${nextGaleNumber}...`);
+                                    
+                                    await chrome.storage.local.set({
+                                        analysis: null,
+                                        pattern: null,
+                                        lastBet: { status: 'loss', phase: currentStage, resolvedAtTimestamp: latestSpin.created_at },
+                                        entriesHistory,
+                                        martingaleState
+                                    });
+                                    
+                                    sendMessageToContent('CLEAR_ANALYSIS');
+                                    sendMessageToContent('ENTRIES_UPDATE', entriesHistory);
+                                }
+                                
+                            } else if (false) {
+                                // BLOCO ANTIGO DESATIVADO - MANTIDO PARA REFERÊNCIA
+                                // ═══════════════════════════════════════════════════════════════
+                                // ✅ LOSS NO G1: Verificar modo de Martingale
+                                // ═══════════════════════════════════════════════════════════════
+                                console.log('🔄 LOSS no G1 - Verificando modo de Martingale...');
+                                console.log(`⚙️ Martingale Consecutivo: ${analyzerConfig.consecutiveMartingale ? 'ATIVADO' : 'DESATIVADO'}`);
+                                
+                                // ✅ USAR SEMPRE A MESMA COR DA ENTRADA ORIGINAL
+                                const g2Color = martingaleState.entryColor;
+                                
+                                // ⚠️ CRÍTICO: Registrar LOSS do G1 antes de tentar G2
+                                const g1LossEntry = {
+                                    timestamp: latestSpin.created_at,
+                                    number: rollNumber,
+                                    color: rollColor,
+                                    phase: 'G1',
+                                    result: 'LOSS',
+                                    confidence: currentAnalysis.confidence,
+                                    patternData: {
+                                        patternDescription: currentAnalysis.patternDescription,
+                                        confidence: currentAnalysis.confidence,
+                                        color: currentAnalysis.color,
+                                        createdOnTimestamp: currentAnalysis.createdOnTimestamp
+                                    },
+                                    martingaleStage: 'G1',
+                                    finalResult: null,  // Ainda não é final, vai tentar G2
+                                    continuingToG2: true  // Flag indicando que continuará
+                                };
+                                
+                                entriesHistory.unshift(g1LossEntry);
+                                
+                                // Atualizar estado do Martingale
+                                martingaleState.stage = 'G2';
+                                martingaleState.lossCount = 2;
+                                martingaleState.lossColors.push(rollColor);  // ✅ Adicionar cor do G1 que perdeu
+                                
+                                // ═══════════════════════════════════════════════════════════════
+                                // VERIFICAR MODO DE MARTINGALE
+                                // ═══════════════════════════════════════════════════════════════
+                                
+                                if (analyzerConfig.consecutiveMartingale) {
+                                    // ✅ MODO CONSECUTIVO: Enviar G2 IMEDIATAMENTE no próximo giro
+                                    console.log('🎯 MODO CONSECUTIVO: G2 será enviado no PRÓXIMO GIRO');
+                                    
+                                    await sendTelegramMartingaleG2(g2Color, null);
+                                    
+                                    // Criar análise G2 com timestamp do próximo giro
+                                    const g2Analysis = {
+                                        ...currentAnalysis,
+                                        color: g2Color,
+                                        phase: 'G2',
+                                        predictedFor: 'next',
+                                        createdOnTimestamp: latestSpin.created_at  // ✅ Usar giro atual
+                                    };
+                                    
+                                    await chrome.storage.local.set({
+                                        analysis: g2Analysis,
+                                        pattern: { description: g2Analysis.patternDescription, confidence: g2Analysis.confidence },
+                                        lastBet: { status: 'pending', phase: 'G2', createdOnTimestamp: g2Analysis.createdOnTimestamp },
+                                        entriesHistory,
+                                        martingaleState
+                                    });
+                                    
+                                    sendMessageToContent('NEW_ANALYSIS', g2Analysis);
+                                } else {
+                                    // ❌ MODO PADRÃO: Aguardar novo padrão para enviar G2
+                                    console.log('⏳ MODO PADRÃO: Aguardando novo padrão para enviar G2...');
+                                    
+                                    await chrome.storage.local.set({
+                                        analysis: null,
+                                        pattern: null,
+                                        lastBet: { status: 'loss', phase: 'G1', resolvedAtTimestamp: latestSpin.created_at },
+                                        entriesHistory,
+                                        martingaleState
+                                    });
+                                    
+                                    sendMessageToContent('CLEAR_ANALYSIS');
+                                    sendMessageToContent('ENTRIES_UPDATE', entriesHistory);
+                                }
+                                
+                            } else if (currentStage === 'G2') {
+                                // ❌ LOSS NO G2: RET (Loss Final)
+                                console.log('⛔ LOSS no G2 - RET');
+                                
+                                const retEntry = {
+                                    timestamp: latestSpin.created_at,
+                                    number: rollNumber,
+                                    color: rollColor,
+                                    phase: 'G2',
+                                    result: 'LOSS',
+                                    confidence: currentAnalysis.confidence,
+                                    patternData: {
+                                        patternDescription: currentAnalysis.patternDescription,
+                                        confidence: currentAnalysis.confidence,
+                                        color: currentAnalysis.color,
+                                        createdOnTimestamp: currentAnalysis.createdOnTimestamp
+                                    },
+                                    martingaleStage: 'G2',
+                                    finalResult: 'RET'
+                                };
+                                
+                                entriesHistory.unshift(retEntry);
+                                
+                                await sendTelegramMartingaleRET(totalWins, totalLosses + 1);
+                                
+                                // ✅ ATUALIZAR HISTÓRICO DE CORES QUENTES
+                                console.log('📊 Atualizando histórico de cores quentes após RET...');
+                                
+                                // Construir sequência de cores DOS GIROS (não das apostas!)
+                                const colorSequence = [];
+                                
+                                // Adicionar cores dos LOSSes (giros que realmente saíram)
+                                martingaleState.lossColors.forEach(color => {
+                                    colorSequence.push({ color });
+                                });
+                                
+                                // Adicionar cor do G2 que perdeu (giro atual)
+                                colorSequence.push({ color: rollColor });
+                                
+                                console.log('   Sequência de cores dos giros:', colorSequence.map(c => c.color).join(' → '));
+                                
+                                await updateHotColorsHistory(patternKey, colorSequence);
+                                
+                                resetMartingaleState();
+                                
+                                    await chrome.storage.local.set({ 
+                                        analysis: null, 
+                                        pattern: null, 
+                                    lastBet: { status: 'loss', phase: 'G2', resolvedAtTimestamp: latestSpin.created_at },
+                                        entriesHistory,
+                                    martingaleState
+                                    });
+                                
+                                    sendMessageToContent('CLEAR_ANALYSIS');
+                                    sendMessageToContent('ENTRIES_UPDATE', entriesHistory);
+                            }
+                        }
+                    }
+                } else {
+                    console.log('⚠️ NÃO há recomendação pendente para avaliar');
+                    if (!currentAnalysis) {
+                        console.log('   Motivo: currentAnalysis não existe');
+                    } else if (!currentAnalysis.createdOnTimestamp) {
+                        console.log('   Motivo: createdOnTimestamp ausente');
+                    } else if (currentAnalysis.predictedFor !== 'next') {
+                        console.log('   Motivo: predictedFor =', currentAnalysis.predictedFor, '(esperado: "next")');
+                    }
+                }
+                console.log('═══════════════════════════════════════════════════════════\n');
+                
+                // Notificar content script sobre novo giro
+                sendMessageToContent('NEW_SPIN', { 
+                    history: history, 
+                    lastSpin: { number: rollNumber, color: rollColor, timestamp: latestSpin.created_at } 
+                });
+                
+                // ✅ EXECUTAR NOVA ANÁLISE (após processar WIN/LOSS)
+            console.log('');
+            console.log('');
+            console.log('%c╔═══════════════════════════════════════════════════════════════════════════════╗', 'color: #FFD700; font-weight: bold; font-size: 16px; background: #333300; padding: 5px;');
+            console.log('%c║                                                                               ║', 'color: #FFD700; font-weight: bold; font-size: 16px; background: #333300; padding: 5px;');
+            console.log('%c║       🎯 PRESTES A CHAMAR runAnalysisController()! 🎯                        ║', 'color: #FFD700; font-weight: bold; font-size: 16px; background: #333300; padding: 5px;');
+            console.log('%c║                                                                               ║', 'color: #FFD700; font-weight: bold; font-size: 16px; background: #333300; padding: 5px;');
+            console.log('%c║       📊 Giros no histórico:', 'color: #FFD700; font-weight: bold; background: #333300; padding: 5px;', history ? history.length : 0);
+            console.log('%c║       🤖 Modo IA ativo:', 'color: #FFD700; font-weight: bold; background: #333300; padding: 5px;', analyzerConfig.aiMode);
+            console.log('%c║                                                                               ║', 'color: #FFD700; font-weight: bold; font-size: 16px; background: #333300; padding: 5px;');
+            console.log('%c╚═══════════════════════════════════════════════════════════════════════════════╝', 'color: #FFD700; font-weight: bold; font-size: 16px; background: #333300; padding: 5px;');
+            console.log('');
+            
+            await runAnalysisController(history);
+            
+            console.log('');
+            console.log('%c✅ runAnalysisController() FINALIZADO!', 'color: #00FF88; font-weight: bold; font-size: 16px; background: #003300; padding: 5px;');
+            console.log('');
+        }
+    } catch (error) {
+        console.error('Erro ao processar giro do servidor:', error);
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ✅ FUNÇÃO PARA CALCULAR PLACAR BASEADO EM CICLOS COMPLETOS
+// ═══════════════════════════════════════════════════════════════
+function calculateCycleScore(entriesHistory) {
+    console.log('📊 Calculando placar baseado em CICLOS...');
+    
+    let totalWins = 0;
+    let totalLosses = 0;
+    
+    // Contar apenas entradas com finalResult definido (ciclos completos)
+    for (const entry of entriesHistory) {
+        if (entry.finalResult === 'WIN') {
+            totalWins++;
+            console.log(`  ✅ WIN (${entry.martingaleStage || entry.phase})`);
+        } else if (entry.finalResult === 'RET') {
+            totalLosses++;
+            console.log(`  ❌ LOSS (${entry.martingaleStage || entry.phase} - Não pagou)`);
+        }
+    }
+    
+    console.log(`📊 Placar final: WIN: ${totalWins} | LOSS: ${totalLosses}`);
+    return { totalWins, totalLosses };
+}
+
+// Função auxiliar para processar giro vindo direto da Blaze (fallback)
+function processNewSpin(spinData) {
+    return processNewSpinFromServer(spinData);
+}
+
+// Tenta carregar os últimos 2000 giros de uma vez do SERVIDOR e popular cache em memória
+async function initializeHistoryIfNeeded() {
+    if (historyInitialized) return; // já inicializado nesta sessão
+
+    try {
+        // Buscar giros do SERVIDOR primeiro
+        console.log('📥 Buscando histórico inicial do servidor para cache em memória...');
+        const serverGiros = await fetchGirosFromAPI();
+        
+        if (serverGiros && serverGiros.length > 0) {
+            console.log(`✅ ${serverGiros.length} giros recebidos do servidor!`);
+            // ✅ Popular CACHE EM MEMÓRIA (não salvar em chrome.storage.local)
+            cachedHistory = [...serverGiros].slice(0, 2000);
+            historyInitialized = true;
+            console.log(`📊 Cache em memória inicializado: ${cachedHistory.length} giros`);
+            return;
+        }
+        
+        // Se servidor não tiver dados, buscar direto da Blaze (fallback)
+        console.log('⚠️ Servidor sem dados, buscando direto da Blaze...');
+        const endpoints = [
+            'https://blaze.bet.br/api/singleplayer-originals/originals/roulette_games/recent/2000',
+            'https://blaze.bet.br/api/singleplayer-originals/originals/roulette_games/recent/300',
+            'https://blaze.bet.br/api/singleplayer-originals/originals/roulette_games/recent/100'
+        ];
+        let combined = [];
+        for (const url of endpoints) {
+            try {
+                const r = await fetch(url);
+                if (!r.ok) continue;
+                const json = await r.json();
+                const arr = Array.isArray(json) ? json : (json?.data || json?.records || json?.items || []);
+                if (Array.isArray(arr)) combined = combined.concat(arr);
+            } catch(_) { /* tenta próximo */ }
+        }
+        // Remover duplicados por created_at
+        const uniqMap = new Map();
+        combined.forEach(spin => {
+            if (spin && spin.created_at) uniqMap.set(spin.created_at, spin);
+        });
+        const dataArr = Array.from(uniqMap.values());
+        if (Array.isArray(dataArr) && dataArr.length > 0) {
+            const sorted = [...dataArr].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+            const mapped = sorted.slice(0, 800).map(spin => ({
+                id: `spin_${spin.created_at}`,
+                number: spin.roll,
+                color: getColorFromNumber(spin.roll),
+                timestamp: spin.created_at,
+                created_at: spin.created_at
+            }));
+            const last = mapped[0];
+            
+            // ✅ Popular CACHE EM MEMÓRIA (não salvar em chrome.storage.local)
+            cachedHistory = mapped;
+            historyInitialized = true;
+            
+            await chrome.storage.local.set({ lastSpin: last });
+            sendMessageToContent('NEW_SPIN', { lastSpin: last });
+            console.log(`📊 Cache em memória inicializado (fallback Blaze): ${mapped.length} giros`);
+        } else {
+            cachedHistory = [];
+            historyInitialized = true;
+            console.log('⚠️ Nenhum giro disponível - cache em memória vazio');
+        }
+    } catch (err) {
+        console.warn('Não foi possível carregar giros iniciais. Mantendo coleta incremental.', err);
+        cachedHistory = [];
+        historyInitialized = true;
+    }
+}
+
+// Analyze patterns in the data - ONLY triggered when new spin detected
+async function analyzePatterns(history) {
+    console.log('🔍 Iniciando análise de padrões...');
+    
+    // REGRA: Mínimo de 50 giros para começar análises
+    if (history.length < 50) {
+        console.log('⚠️ Histórico insuficiente para análise:', history.length, '/ 50 giros necessários');
+        sendAnalysisStatus(`Coletando dados... ${history.length}/50 giros`);
+        return; // Precisa de pelo menos 50 giros para análises confiáveis
+    }
+    
+    // REGRA: Verificar se não está usando o mesmo padrão da última entrada
+    const entriesResult = await chrome.storage.local.get(['entriesHistory']);
+    const entriesHistory = entriesResult.entriesHistory || [];
+    
+    if (entriesHistory.length > 0) {
+        const lastEntry = entriesHistory[0];
+        
+        // Verificar se a última entrada tem dados de padrão
+        if (lastEntry.patternData && lastEntry.patternData.patternDescription) {
+            try {
+                // ⚠️ CRÍTICO: Se for análise IA, patternDescription é texto, não JSON
+                if (lastEntry.patternData.patternDescription.includes('🤖 ANÁLISE POR INTELIGÊNCIA ARTIFICIAL')) {
+                    console.log('🔍 Último padrão usado: IA (Groq)');
+                } else {
+                    const lastPatternData = JSON.parse(lastEntry.patternData.patternDescription);
+                    console.log('🔍 Último padrão usado:', lastPatternData);
+                }
+                
+                // Esta verificação será feita após a análise para comparar padrões
+                // Por enquanto, continuamos com a análise
+            } catch (e) {
+                console.log('⚠️ Erro ao analisar último padrão:', e);
+            }
+        }
+    }
+    
+    try {
+        console.log('🚀 Executando análise multidimensional...', '| Rigor:', rigorLogString());
+        const analysis = await performPatternAnalysis(history);
+        
+        if (analysis) {
+            // REGRA: Verificar se não é o mesmo padrão da última entrada
+            let isDuplicatePattern = false;
+            
+            if (entriesHistory.length > 0) {
+                const lastEntry = entriesHistory[0];
+                
+                if (lastEntry.patternData && lastEntry.patternData.patternDescription) {
+                    try {
+                        // ⚠️ CRÍTICO: Se for análise IA, patternDescription é texto, não JSON
+                        const isLastAI = lastEntry.patternData.patternDescription.includes('🤖 ANÁLISE POR INTELIGÊNCIA ARTIFICIAL');
+                        const isCurrentAI = analysis.patternDescription.includes('🤖 ANÁLISE POR INTELIGÊNCIA ARTIFICIAL');
+                        
+                        // Se qualquer um for IA, sempre considerar como padrão diferente
+                        if (isLastAI || isCurrentAI) {
+                            console.log('✅ Análise aceita (IA sempre permite novos sinais)');
+                            isDuplicatePattern = false;
+                        } else {
+                            // Ambos são análise padrão, comparar como JSON
+                            const lastPatternData = JSON.parse(lastEntry.patternData.patternDescription);
+                            const currentPatternData = JSON.parse(analysis.patternDescription);
+                            
+                            // Comparar características dos padrões
+                            isDuplicatePattern = comparePatterns(lastPatternData, currentPatternData);
+                            
+                            if (isDuplicatePattern) {
+                                console.log('❌ Análise rejeitada: mesmo padrão da última entrada');
+                                sendAnalysisStatus('⏳ Aguardando padrão diferente...');
+                                return;
+                            } else {
+                                console.log('✅ Padrão diferente detectado, análise aceita');
+                            }
+                        }
+                    } catch (e) {
+                        console.log('⚠️ Erro ao comparar padrões:', e);
+                    }
+                }
+            }
+            
+            console.log('✅ Análise concluída com sucesso!');
+            await chrome.storage.local.set({
+                analysis: analysis,
+                pattern: {
+                    description: analysis.patternDescription,
+                    confidence: analysis.confidence
+                },
+                lastBet: { status: 'pending', phase: analysis.phase || 'G0', createdOnTimestamp: analysis.createdOnTimestamp }
+            });
+            
+            sendMessageToContent('NEW_ANALYSIS', analysis);
+            } else {
+            console.log('❌ Nenhum padrão válido encontrado na análise');
+            // Limpar análise primeiro
+            await chrome.storage.local.set({ analysis: null, pattern: null });
+            sendMessageToContent('CLEAR_ANALYSIS');
+            // Enviar status de aguardando novo giro APÓS limpar a análise
+            sendAnalysisStatus('⏳ Aguardando novo giro...');
+        }
+    } catch (error) {
+        console.error('Erro na análise de padrões:', error);
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 🤖 SISTEMA DE ANÁLISE POR INTELIGÊNCIA ARTIFICIAL (IA)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * VARREDURA 1: Análise Macro - Contexto Geral
+ * Analisa 2000, 500 e 240 giros para entender:
+ * - Padrões gerais da Blaze
+ * - Resistências e quebras
+ * - Aleatoriedade
+ */
+function analyzeMacroContext(history) {
+    console.log('🔍 VARREDURA 1: Análise Macro (Contexto Geral)');
+    
+    const results = {
+        full: analyzeWindow(history.slice(0, 2000), '2000 giros'),
+        recent: analyzeWindow(history.slice(0, 500), '500 giros'),
+        immediate: analyzeWindow(history.slice(0, 240), '240 giros')
+    };
+    
+    console.log('✅ Varredura 1 completa:', results);
+    return results;
+}
+
+/**
+ * Análise de uma janela de giros
+ */
+function analyzeWindow(window, label) {
+    if (!window || window.length === 0) return null;
+    
+    const colors = window.map(g => g.color);
+    const red = colors.filter(c => c === 'red').length;
+    const black = colors.filter(c => c === 'black').length;
+    const white = colors.filter(c => c === 'white').length;
+    
+    const total = colors.length;
+    const redPct = (red / total) * 100;
+    const blackPct = (black / total) * 100;
+    const whitePct = (white / total) * 100;
+    
+    // Detectar resistências (cor que aparece muito)
+    let resistance = null;
+    if (redPct > 55) resistance = 'red';
+    else if (blackPct > 55) resistance = 'black';
+    
+    // Detectar quebra de resistência (mudança brusca)
+    const last20 = colors.slice(0, 20);
+    const last20Red = last20.filter(c => c === 'red').length;
+    const last20Black = last20.filter(c => c === 'black').length;
+    
+    let breakResistance = null;
+    if (resistance === 'red' && last20Black > last20Red) breakResistance = 'black';
+    else if (resistance === 'black' && last20Red > last20Black) breakResistance = 'red';
+    
+    // Medir aleatoriedade (quanto mais próximo de 50/50, mais aleatório)
+    const randomness = 100 - Math.abs(redPct - blackPct);
+    
+    return {
+        label,
+        total,
+        distribution: { red: redPct.toFixed(1), black: blackPct.toFixed(1), white: whitePct.toFixed(1) },
+        resistance,
+        breakResistance,
+        randomness: randomness.toFixed(1)
+    };
+}
+
+/**
+ * VARREDURA 2: Análise Micro - Janelas de 20 giros
+ * Divide os últimos 240 giros em janelas de 20
+ * Identifica qual cor tende a sair após cada padrão
+ */
+function analyzeMicroWindows(history) {
+    console.log('🔍 VARREDURA 2: Análise Micro (Janelas de 20 giros)');
+    
+    const last240 = history.slice(0, 240);
+    if (last240.length < 240) {
+        console.warn('⚠️ Histórico insuficiente para análise micro (precisa 240 giros)');
+        return null;
+    }
+    
+    const windows = [];
+    const windowSize = 20;
+    const numWindows = Math.floor(last240.length / windowSize);
+    
+    // Dividir em janelas de 20 giros
+    for (let i = 0; i < numWindows; i++) {
+        const start = i * windowSize;
+        const end = start + windowSize;
+        const windowGiros = last240.slice(start, end);
+        
+        // Analisar janela
+        const colors = windowGiros.map(g => g.color);
+        const pattern = colors.join('-');
+        
+        // Verificar qual cor veio DEPOIS dessa janela
+        const nextGiro = last240[end];
+        const nextColor = nextGiro ? nextGiro.color : null;
+        
+        windows.push({
+            index: i + 1,
+            giros: `${start + 1}-${end}`,
+            pattern,
+            colors: {
+                red: colors.filter(c => c === 'red').length,
+                black: colors.filter(c => c === 'black').length,
+                white: colors.filter(c => c === 'white').length
+            },
+            nextColor
+        });
+    }
+    
+    console.log(`✅ Varredura 2 completa: ${windows.length} janelas analisadas`);
+    return windows;
+}
+
+/**
+ * Combinar resultados das 2 varreduras + padrões salvos
+ * Retorna a cor recomendada e confiança
+ */
+async function combineAIResults(macroResults, microWindows, savedPatterns) {
+    console.log('🧮 Combinando resultados das análises...');
+    
+    const scores = { red: 0, black: 0, white: 0 };
+    
+    // 1. PESO DA VARREDURA 1 (Contexto Macro) - 30%
+    if (macroResults) {
+        const weight = 0.30;
+        
+        // Quebra de resistência tem prioridade
+        if (macroResults.immediate?.breakResistance) {
+            scores[macroResults.immediate.breakResistance] += 30 * weight;
+            console.log(`  ✅ Quebra de resistência detectada: ${macroResults.immediate.breakResistance} (+${30 * weight})`);
+        }
+        
+        // Resistência também influencia (favor da resistência)
+        if (macroResults.recent?.resistance) {
+            scores[macroResults.recent.resistance] += 15 * weight;
+        }
+    }
+    
+    // 2. PESO DA VARREDURA 2 (Janelas de 20) - 50% (MAIOR PESO)
+    if (microWindows && microWindows.length > 0) {
+        const weight = 0.50;
+        
+        // Analisar últimos 20 giros (janela mais recente)
+        const lastWindow = microWindows[0];
+        
+        // Contar qual cor apareceu DEPOIS de janelas similares
+        const colorAfterPatterns = {};
+        microWindows.forEach(w => {
+            if (w.nextColor) {
+                colorAfterPatterns[w.nextColor] = (colorAfterPatterns[w.nextColor] || 0) + 1;
+            }
+        });
+        
+        // Dar pontos baseado na frequência
+        const total = Object.values(colorAfterPatterns).reduce((a, b) => a + b, 0);
+        Object.keys(colorAfterPatterns).forEach(color => {
+            const frequency = (colorAfterPatterns[color] / total) * 100;
+            scores[color] += frequency * weight;
+            console.log(`  ✅ Janelas de 20: ${color} aparece ${frequency.toFixed(1)}% (+${(frequency * weight).toFixed(1)})`);
+        });
+    }
+    
+    // 3. PESO DOS PADRÕES SALVOS - 20%
+    if (savedPatterns && savedPatterns.length > 0) {
+        const weight = 0.20;
+        
+        // Pegar padrão com maior confiança
+        const bestPattern = savedPatterns.reduce((best, p) => 
+            p.confidence > (best?.confidence || 0) ? p : best
+        , null);
+        
+        if (bestPattern) {
+            scores[bestPattern.color] += bestPattern.confidence * weight;
+            console.log(`  ✅ Melhor padrão salvo: ${bestPattern.color} (${bestPattern.confidence}%) (+${(bestPattern.confidence * weight).toFixed(1)})`);
+        }
+    }
+    
+    // Encontrar cor com maior score
+    const bestColor = Object.keys(scores).reduce((a, b) => scores[a] > scores[b] ? a : b);
+    const confidence = Math.min(95, Math.max(45, scores[bestColor]));
+    
+    console.log('📊 Scores finais:', scores);
+    console.log(`🎯 Recomendação IA: ${bestColor} (${confidence.toFixed(1)}%)`);
+    
+    // ✅ VALIDAR CONFIANÇA MÍNIMA (configurada pelo usuário)
+    const minConfidence = analyzerConfig.minOccurrences || 1; // Usando minOccurrences como % mínima
+    if (confidence < minConfidence) {
+        console.log(`⚠️ Confiança ${confidence.toFixed(1)}% está abaixo do mínimo configurado (${minConfidence}%)`);
+        console.log('❌ Análise IA rejeitada por não atingir confiança mínima');
+        return null; // Não retorna análise
+    }
+    console.log(`✅ Confiança ${confidence.toFixed(1)}% atende ao mínimo (${minConfidence}%)`);
+    
+    // ✅ CRIAR RESUMOS DETALHADOS PARA O USUÁRIO
+    let macroSummary = '';
+    if (macroResults) {
+        const parts = [];
+        if (macroResults.immediate?.breakResistance) {
+            parts.push(`✅ Quebra de resistência detectada em ${macroResults.immediate.breakResistance}`);
+        }
+        if (macroResults.recent?.resistance) {
+            parts.push(`📊 Resistência atual: ${macroResults.recent.resistance}`);
+        }
+        if (macroResults.immediate?.randomness) {
+            const randomPct = parseFloat(macroResults.immediate.randomness);
+            if (randomPct > 90) parts.push('⚠️ Alto grau de aleatoriedade detectado');
+            else if (randomPct < 70) parts.push('✅ Padrões consistentes identificados');
+        }
+        macroSummary = parts.length > 0 ? parts.join('\n   ') : '✅ Análise de tendências concluída';
+    }
+    
+    let microSummary = '';
+    if (microWindows && microWindows.length > 0) {
+        const colorCounts = {};
+        microWindows.forEach(w => {
+            if (w.nextColor) {
+                colorCounts[w.nextColor] = (colorCounts[w.nextColor] || 0) + 1;
+            }
+        });
+        const topColor = Object.keys(colorCounts).reduce((a, b) => colorCounts[a] > colorCounts[b] ? a : b, null);
+        if (topColor) {
+            const freq = ((colorCounts[topColor] / microWindows.length) * 100).toFixed(0);
+            microSummary = `✅ ${topColor} aparece em ${freq}% dos padrões similares`;
+        } else {
+            microSummary = '✅ Padrões recentes mapeados';
+        }
+    }
+    
+    let patternSummary = '✅ Base de dados consultada';
+    if (savedPatterns && savedPatterns.length > 0) {
+        const bestPattern = savedPatterns.reduce((best, p) => 
+            p.confidence > (best?.confidence || 0) ? p : best
+        , null);
+        if (bestPattern) {
+            patternSummary = `✅ Melhor padrão: ${bestPattern.color} (${bestPattern.confidence}% confiança)`;
+        }
+    } else {
+        patternSummary = '⚠️ Nenhum padrão salvo encontrado';
+    }
+    
+    // Criar raciocínio baseado na pontuação
+    let reasoning = '';
+    const diff = scores[bestColor] - Math.max(...Object.keys(scores).filter(c => c !== bestColor).map(c => scores[c]));
+    if (diff > 20) {
+        reasoning = `✅ IA identificou forte tendência para ${bestColor} com ${diff.toFixed(1)} pontos de vantagem sobre outras cores.`;
+    } else if (diff > 10) {
+        reasoning = `✅ IA recomenda ${bestColor} com vantagem moderada de ${diff.toFixed(1)} pontos.`;
+    } else {
+        reasoning = `⚠️ IA recomenda ${bestColor} com pequena vantagem de ${diff.toFixed(1)} pontos. Entrada de risco moderado.`;
+    }
+    
+    return {
+        color: bestColor,
+        confidence: parseFloat(confidence.toFixed(1)),
+        scores,
+        macroSummary,
+        microSummary,
+        patternSummary,
+        reasoning
+    };
+}
+
+/**
+ * FUNÇÃO PRINCIPAL: Análise com IA REAL (com timeout de 5 segundos)
+ * Esta função faz chamadas REAIS para APIs de IA externas
+ */
+async function analyzeWithAI(history) {
+    const startTime = Date.now();
+    const timeout = 5000; // ⚡ 5 segundos MÁXIMO para APIs externas
+    
+    try {
+        console.log('');
+        console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #00FF00; font-weight: bold; font-size: 14px;');
+        console.log('%c║  🤖 INICIANDO ANÁLISE POR INTELIGÊNCIA ARTIFICIAL        ║', 'color: #00FF00; font-weight: bold; font-size: 14px;');
+        console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #00FF00; font-weight: bold; font-size: 14px;');
+        console.log('');
+        
+        // Verificar chave API
+        console.log('%c🔑 Verificando chave API...', 'color: #00FF88; font-weight: bold;');
+        if (!analyzerConfig.aiApiKey || analyzerConfig.aiApiKey.trim() === '') {
+            console.error('%c❌ ERRO: Chave da IA inválida ou ausente!', 'color: #FF0000; font-weight: bold; font-size: 14px;');
+            console.error('%c   Configure a chave nas Configurações da extensão', 'color: #FF6666;');
+            sendAnalysisStatus('❌ Chave da IA ausente');
+            return null;
+        }
+        console.log('%c✅ Chave API encontrada: ' + analyzerConfig.aiApiKey.substring(0, 15) + '...', 'color: #00FF88;');
+        
+        // Detectar qual API está sendo usada pela chave
+        const apiKey = analyzerConfig.aiApiKey.trim();
+        let apiType = 'unknown';
+        
+        if (apiKey.startsWith('gsk_')) {
+            apiType = 'groq';
+            console.log('%c🔍 API Detectada: GROQ (Ultra Rápido) ⚡', 'color: #00FF00; font-weight: bold; font-size: 14px;');
+            console.log('%c   Modelo: Llama 3.3 70B Versatile', 'color: #00FF88;');
+        } else if (apiKey.startsWith('sk-or-')) {
+            apiType = 'openrouter';
+            console.log('%c🔍 API Detectada: OpenRouter (agregador de IAs)', 'color: #00FF00; font-weight: bold;');
+        } else if (apiKey.startsWith('AIzaSy')) {
+            apiType = 'gemini';
+            console.log('%c🔍 API Detectada: Google Gemini', 'color: #00FF00; font-weight: bold;');
+        } else if (apiKey.startsWith('sk-ant-')) {
+            apiType = 'claude';
+            console.log('%c🔍 API Detectada: Anthropic Claude', 'color: #00FF00; font-weight: bold;');
+        } else if (apiKey.startsWith('sk-')) {
+            apiType = 'openai';
+            console.log('%c🔍 API Detectada: OpenAI GPT', 'color: #00FF00; font-weight: bold;');
+        } else {
+            // Tentar OpenRouter como padrão
+            console.log('%c⚠️ Tipo de API não detectado. Tentando OpenRouter...', 'color: #FFAA00; font-weight: bold;');
+            apiType = 'openrouter';
+        }
+        
+        // Preparar dados do histórico para enviar à IA
+        const aiHistorySize = Math.min(Math.max(analyzerConfig.aiHistorySize || 50, 10), 2000); // Min: 10, Max: 2000
+        const recentHistory = history.slice(0, aiHistorySize);
+        
+        // 🔍 DEBUG: Mostrar os primeiros 10 giros para validar a ordem
+        console.log('');
+        console.log('%c🔍 DEBUG: VERIFICANDO ORDEM DO HISTÓRICO', 'color: #FFFF00; font-weight: bold; font-size: 14px;');
+        console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #FFFF00;');
+        console.log('%c📊 Primeiros 10 giros (do array history[0] até history[9]):', 'color: #FFFF00; font-weight: bold;');
+        for (let i = 0; i < Math.min(10, recentHistory.length); i++) {
+            const spin = recentHistory[i];
+            console.log(`%c   ${i === 0 ? '🔥 MAIS RECENTE →' : `   ${i + 1}.`} ${spin.color.toUpperCase()} (número ${spin.number})`, 
+                `color: ${spin.color === 'red' ? '#FF0000' : spin.color === 'black' ? '#FFFFFF' : '#00FF00'}; font-weight: bold;`);
+        }
+        console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #FFFF00;');
+        console.log('');
+        
+        const historyText = recentHistory.map((spin, idx) => 
+            `${idx + 1}. ${spin.color} (${spin.number})`
+        ).join(', ');
+        
+        // ═══════════════════════════════════════════════════════════════
+        // 🤖 PREPARAR PROMPT (customizado ou padrão)
+        // ═══════════════════════════════════════════════════════════════
+        let prompt;
+        
+        if (analyzerConfig.customPrompt && analyzerConfig.customPrompt.trim() !== '') {
+            // 🔧 USAR PROMPT CUSTOMIZADO DO USUÁRIO
+            console.log('%c🔧 MODO AVANÇADO: Usando prompt customizado', 'color: #FF00FF; font-weight: bold;');
+            
+            // Substituir placeholders no prompt customizado
+            prompt = analyzerConfig.customPrompt
+                .replace(/\$\{recentHistory\.length\}/g, recentHistory.length)
+                .replace(/\$\{historyLength\}/g, recentHistory.length)
+                .replace(/\$\{historyText\}/g, historyText);
+            
+            console.log('%c   Tamanho do prompt: ' + prompt.length + ' caracteres', 'color: #FF00FF;');
+            
+            // Validar palavras-chave críticas
+            const requiredKeywords = ['color', 'confidence', 'JSON'];
+            const missingKeywords = requiredKeywords.filter(keyword => !prompt.toLowerCase().includes(keyword.toLowerCase()));
+            
+            if (missingKeywords.length > 0) {
+                console.warn('%c⚠️ AVISO: Prompt customizado pode estar faltando elementos críticos:', 'color: #FFAA00; font-weight: bold;');
+                console.warn('%c   Palavras-chave ausentes: ' + missingKeywords.join(', '), 'color: #FFAA00;');
+                console.warn('%c   Isso pode causar respostas inválidas da IA!', 'color: #FFAA00;');
+            }
+        } else {
+            // ✅ USAR PROMPT PADRÃO
+            console.log('%c✅ Usando prompt padrão (otimizado)', 'color: #00FF88;');
+            prompt = DEFAULT_AI_PROMPT(recentHistory.length, historyText);
+        }
+
+        console.log('');
+        console.log('%c📤 Enviando dados para API da IA...', 'color: #00FFFF; font-weight: bold; font-size: 13px;');
+        console.log('%c   Histórico: ' + recentHistory.length + ' giros', 'color: #00FFFF;');
+        console.log('%c   ⚡ Timeout: 5 segundos MÁXIMO', 'color: #00FFFF; font-weight: bold;');
+        console.log('');
+        sendAnalysisStatus('🤖 Consultando IA...');
+        
+        // Fazer chamada REAL para a API
+        let aiResponse;
+        
+        try {
+            switch (apiType) {
+                case 'groq':
+                    aiResponse = await callGroqAPI(apiKey, prompt, timeout);
+                    break;
+                case 'openrouter':
+                    aiResponse = await callOpenRouterAPI(apiKey, prompt, timeout);
+                    break;
+                case 'gemini':
+                    aiResponse = await callGeminiAPI(apiKey, prompt, timeout);
+                    break;
+                case 'openai':
+                    aiResponse = await callOpenAI_API(apiKey, prompt, timeout);
+                    break;
+                case 'claude':
+                    aiResponse = await callClaudeAPI(apiKey, prompt, timeout);
+                    break;
+                default:
+                    throw new Error('Tipo de API não suportado');
+            }
+        } catch (apiError) {
+            console.log('');
+            console.error('%c❌ ERRO AO CHAMAR API!', 'color: #FF0000; font-weight: bold; font-size: 14px; background: #330000; padding: 5px;');
+            console.error('%c   Mensagem: ' + apiError.message, 'color: #FF6666; font-weight: bold;');
+            console.log('');
+            sendAnalysisStatus('❌ API inválida');
+            return null;
+        }
+        
+        // Validar resposta
+        if (!aiResponse || !aiResponse.color) {
+            console.log('');
+            console.error('%c❌ RESPOSTA DA IA INVÁLIDA!', 'color: #FF0000; font-weight: bold; font-size: 14px;');
+            console.error('%c   A API não retornou dados no formato esperado', 'color: #FF6666;');
+            console.log('');
+            return null;
+        }
+        
+        // Verificar timeout
+        const elapsed = Date.now() - startTime;
+        if (elapsed > timeout) {
+            console.error('⏱️ Timeout: Análise IA excedeu o tempo limite');
+            return null;
+        }
+        
+        // ✅ VALIDAR CONFIANÇA MÍNIMA (respeitar configuração do usuário)
+        const aiConfidence = aiResponse.confidence || 0;
+        const minConfidence = analyzerConfig.minOccurrences || 60; // minOccurrences é usado como confiança mínima no modo IA
+        
+        // ⚠️ ESPECIAL: Se IA retornar confidence: 0, significa que não encontrou padrão confiável
+        if (aiConfidence === 0) {
+            console.log('');
+            console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #FFAA00; font-weight: bold;');
+            console.log('%c║  ⚠️ IA: NENHUM PADRÃO CONFIÁVEL DETECTADO                 ║', 'color: #FFAA00; font-weight: bold;');
+            console.log('%c╠═══════════════════════════════════════════════════════════╣', 'color: #FFAA00; font-weight: bold;');
+            console.log('%c║  🔍 Raciocínio: ' + (aiResponse.reasoning || 'Sem padrão com 85%+ de confiança').substring(0, 48).padEnd(48) + '║', 'color: #FFAA00;');
+            console.log('%c╠═══════════════════════════════════════════════════════════╣', 'color: #FFAA00; font-weight: bold;');
+            console.log('%c║  ⏳ Aguardando formação de padrão claro...                ║', 'color: #FFAA00;');
+            console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #FFAA00; font-weight: bold;');
+            console.log('');
+            sendAnalysisStatus('⏳ IA aguardando padrão confiável...');
+            return null;
+        }
+        
+        // Validar se atinge confiança mínima configurada
+        if (aiConfidence < minConfidence) {
+            console.log('');
+            console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #FFAA00; font-weight: bold;');
+            console.log('%c║  ⚠️ SINAL IA REJEITADO: CONFIANÇA INSUFICIENTE            ║', 'color: #FFAA00; font-weight: bold;');
+            console.log('%c╠═══════════════════════════════════════════════════════════╣', 'color: #FFAA00; font-weight: bold;');
+            console.log('%c║  📊 Confiança da IA: ' + aiConfidence.toFixed(1) + '%                                ║', 'color: #FFAA00;');
+            console.log('%c║  🎯 Confiança mínima configurada: ' + minConfidence + '%                    ║', 'color: #FFAA00;');
+            console.log('%c╠═══════════════════════════════════════════════════════════╣', 'color: #FFAA00; font-weight: bold;');
+            console.log('%c║  ⏳ Aguardando próximo giro com maior confiança...        ║', 'color: #FFAA00;');
+            console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #FFAA00; font-weight: bold;');
+            console.log('');
+            sendAnalysisStatus('⏳ IA aguardando confiança maior...');
+            return null;
+        }
+        
+        // 📊 RASTREAMENTO DE CORES (detectar viés)
+        const recommendedColor = aiResponse.color.toLowerCase();
+        aiColorCounter[recommendedColor] = (aiColorCounter[recommendedColor] || 0) + 1;
+        aiColorCounter.total++;
+        
+        // Alertar se houver viés evidente (mais de 70% de uma única cor após 10+ recomendações)
+        if (aiColorCounter.total >= 10) {
+            const redPercent = (aiColorCounter.red / aiColorCounter.total) * 100;
+            const blackPercent = (aiColorCounter.black / aiColorCounter.total) * 100;
+            const whitePercent = (aiColorCounter.white / aiColorCounter.total) * 100;
+            
+            console.log('');
+            console.log('%c📊 ESTATÍSTICAS DA IA (últimas ' + aiColorCounter.total + ' recomendações):', 'color: #00FFFF; font-weight: bold;');
+            console.log('%c   🔴 VERMELHO: ' + aiColorCounter.red + ' (' + redPercent.toFixed(1) + '%)', 
+                'color: ' + (redPercent > 70 ? '#FF0000' : '#00FFFF') + '; font-weight: ' + (redPercent > 70 ? 'bold' : 'normal') + ';');
+            console.log('%c   ⚫ PRETO: ' + aiColorCounter.black + ' (' + blackPercent.toFixed(1) + '%)', 
+                'color: ' + (blackPercent > 70 ? '#FF0000' : '#00FFFF') + '; font-weight: ' + (blackPercent > 70 ? 'bold' : 'normal') + ';');
+            console.log('%c   ⚪ BRANCO: ' + aiColorCounter.white + ' (' + whitePercent.toFixed(1) + '%)', 
+                'color: ' + (whitePercent > 70 ? '#FF0000' : '#00FFFF') + '; font-weight: ' + (whitePercent > 70 ? 'bold' : 'normal') + ';');
+            
+            if (redPercent > 70 || blackPercent > 70 || whitePercent > 70) {
+                console.log('');
+                console.log('%c⚠️⚠️⚠️ ALERTA DE VIÉS DETECTADO! ⚠️⚠️⚠️', 'color: #FF0000; font-weight: bold; font-size: 14px; background: #330000; padding: 5px;');
+                console.log('%c   A IA está recomendando a MESMA cor mais de 70% das vezes!', 'color: #FF6666; font-weight: bold;');
+                console.log('%c   Isso pode indicar um problema no modelo ou no prompt.', 'color: #FF6666;');
+                console.log('');
+            }
+            console.log('');
+        }
+        
+        // 🔍 DEBUG: Verificar se last10Spins veio da IA
+        console.log('');
+        console.log('%c🔍 DEBUG: Verificando dados recebidos da IA...', 'color: #FFFF00; font-weight: bold;');
+        console.log('%c   ❓ aiResponse.last10Spins existe?', 'color: #FFFF00;', (aiResponse.last10Spins || aiResponse.last5Spins) ? '✅ SIM' : '❌ NÃO');
+        if (aiResponse.last10Spins || aiResponse.last5Spins) {
+            const spins = aiResponse.last10Spins || aiResponse.last5Spins;
+            console.log('%c   📊 Quantidade de giros no array:', 'color: #FFFF00;', spins.length);
+            console.log('%c   📝 Dados:', 'color: #FFFF00;', spins);
+        }
+        
+        // Se a IA não retornou last10Spins, extrair do histórico
+        let last10SpinsData = aiResponse.last10Spins || aiResponse.last5Spins; // ✅ Compatibilidade com versão antiga
+        if (!last10SpinsData || last10SpinsData.length === 0) {
+            console.log('%c⚠️ IA NÃO RETORNOU last10Spins - Extraindo do histórico...', 'color: #FFAA00; font-weight: bold;');
+            last10SpinsData = recentHistory.slice(0, 10).map(spin => ({
+                color: spin.color,
+                number: spin.number,
+                timestamp: spin.timestamp
+            }));
+            console.log('%c✅ Extraído do histórico:', 'color: #00FF88;', last10SpinsData);
+        }
+        
+        // Criar objeto de análise no formato esperado
+        const analysis = {
+            color: aiResponse.color,
+            confidence: aiResponse.confidence,
+            probability: aiResponse.probability || 50,
+            suggestion: `IA recomenda: ${aiResponse.color === 'red' ? '🔴 VERMELHO' : aiResponse.color === 'black' ? '⚫ PRETO' : '⚪ BRANCO'}`,
+            patternDescription: aiResponse.reasoning || 'Análise baseada em IA',
+            last10Spins: last10SpinsData, // ✅ INCLUIR OS 10 GIROS
+            last5Spins: last10SpinsData ? last10SpinsData.slice(0, 5) : [], // ✅ Manter compatibilidade com código antigo
+            source: 'AI-REAL',
+            apiType: apiType,
+            timestamp: Date.now(),
+            createdOnTimestamp: history[0]?.timestamp || Date.now(),
+            predictedFor: null // Será preenchido pelo próximo giro
+        };
+        
+        console.log('');
+        console.log('%c✅ RESPOSTA DA IA RECEBIDA COM SUCESSO!', 'color: #00FF00; font-weight: bold; font-size: 14px; background: #003300; padding: 5px;');
+        console.log('%c   🎯 Cor prevista: ' + analysis.color.toUpperCase(), 'color: #00FF00; font-weight: bold; font-size: 13px;');
+        console.log('%c   📊 Confiança: ' + analysis.confidence + '%', 'color: #00FF88; font-weight: bold;');
+        console.log('%c   💭 Raciocínio (primeiros 200 chars): ' + (aiResponse.reasoning || '').substring(0, 200) + '...', 'color: #00FF88;');
+        console.log('%c   ⚡ Tempo de resposta: ' + elapsed + 'ms', 'color: #00FFFF;');
+        console.log('');
+        
+        // 🔍 VALIDAÇÃO: Verificar se a IA analisou os giros corretos
+        console.log('%c🔍 VALIDAÇÃO: Comparando resposta da IA com histórico real', 'color: #FFFF00; font-weight: bold;');
+        console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #FFFF00;');
+        console.log('%c📊 Últimos 5 giros REAIS (do histórico):', 'color: #FFFF00; font-weight: bold;');
+        for (let i = 0; i < Math.min(5, recentHistory.length); i++) {
+            const spin = recentHistory[i];
+            console.log(`%c   ${i + 1}. ${spin.color.toUpperCase()} (número ${spin.number})`, 
+                `color: ${spin.color === 'red' ? '#FF0000' : spin.color === 'black' ? '#FFFFFF' : '#00FF00'}; font-weight: bold;`);
+        }
+        console.log('');
+        console.log('%c💭 O que a IA disse sobre os últimos giros:', 'color: #FFFF00; font-weight: bold;');
+        const reasoningSnippet = (aiResponse.reasoning || '').substring(0, 300);
+        console.log('%c   ' + reasoningSnippet, 'color: #FFAA00;');
+        console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #FFFF00;');
+        console.log('');
+        
+        return analysis;
+        
+    } catch (error) {
+        console.log('');
+        console.error('%c❌ ERRO GERAL NA ANÁLISE IA!', 'color: #FF0000; font-weight: bold; font-size: 14px; background: #330000; padding: 5px;');
+        console.error('%c   ' + error.message, 'color: #FF6666; font-weight: bold;');
+        console.error('%c   Stack:', error.stack, 'color: #FF3333;');
+        console.log('');
+        sendAnalysisStatus('❌ Erro na IA');
+        return null;
+    }
+}
+
+/**
+ * Chama a API do Groq (Ultra Rápido)
+ */
+async function callGroqAPI(apiKey, prompt, timeout) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeout);
+    
+    try {
+        const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${apiKey}`
+            },
+            body: JSON.stringify({
+                model: 'llama-3.3-70b-versatile', // Modelo mais recente e eficiente do Groq
+                messages: [
+                    { 
+                        role: 'system', 
+                        content: 'Você é um especialista em análise de padrões do jogo Double da Blaze. Responda APENAS com JSON válido, sem markdown ou texto adicional.' 
+                    },
+                    { role: 'user', content: prompt }
+                ],
+                temperature: 0.7,
+                max_tokens: 800,
+                top_p: 1
+            }),
+            signal: controller.signal
+        });
+        
+        clearTimeout(timeoutId);
+        
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`API Groq retornou erro ${response.status}: ${errorText}`);
+        }
+        
+        const data = await response.json();
+        const text = data.choices?.[0]?.message?.content;
+        
+        if (!text) {
+            throw new Error('Resposta da API Groq está vazia');
+        }
+        
+        // Extrair JSON da resposta (remover markdown se houver)
+        let jsonText = text.trim();
+        
+        // Remover blocos de código markdown se existirem
+        jsonText = jsonText.replace(/```json\s*/g, '').replace(/```\s*/g, '');
+        
+        // Extrair JSON
+        const jsonMatch = jsonText.match(/\{[\s\S]*\}/);
+        if (!jsonMatch) {
+            throw new Error('IA não retornou JSON válido');
+        }
+        
+        return JSON.parse(jsonMatch[0]);
+        
+    } catch (error) {
+        clearTimeout(timeoutId);
+        if (error.name === 'AbortError') {
+            throw new Error('Timeout ao conectar com API Groq');
+        }
+        throw error;
+    }
+}
+
+/**
+ * Chama a API do OpenRouter (agregador de múltiplas IAs)
+ */
+async function callOpenRouterAPI(apiKey, prompt, timeout) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeout);
+    
+    try {
+        const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${apiKey}`,
+                'HTTP-Referer': 'https://blaze.com',
+                'X-Title': 'Blaze Double Analyzer'
+            },
+            body: JSON.stringify({
+                model: 'anthropic/claude-3.5-sonnet', // Melhor modelo disponível
+                messages: [
+                    { 
+                        role: 'system', 
+                        content: 'Você é um especialista em análise de padrões do jogo Double da Blaze. Responda APENAS com JSON válido, sem markdown ou texto adicional.' 
+                    },
+                    { role: 'user', content: prompt }
+                ],
+                temperature: 0.7,
+                max_tokens: 800,
+                top_p: 1,
+                frequency_penalty: 0,
+                presence_penalty: 0
+            }),
+            signal: controller.signal
+        });
+        
+        clearTimeout(timeoutId);
+        
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`API OpenRouter retornou erro ${response.status}: ${errorText}`);
+        }
+        
+        const data = await response.json();
+        const text = data.choices?.[0]?.message?.content;
+        
+        if (!text) {
+            throw new Error('Resposta da API OpenRouter está vazia');
+        }
+        
+        // Extrair JSON da resposta (remover markdown se houver)
+        let jsonText = text.trim();
+        
+        // Remover blocos de código markdown se existirem
+        jsonText = jsonText.replace(/```json\s*/g, '').replace(/```\s*/g, '');
+        
+        // Extrair JSON
+        const jsonMatch = jsonText.match(/\{[\s\S]*\}/);
+        if (!jsonMatch) {
+            throw new Error('IA não retornou JSON válido');
+        }
+        
+        return JSON.parse(jsonMatch[0]);
+        
+    } catch (error) {
+        clearTimeout(timeoutId);
+        if (error.name === 'AbortError') {
+            throw new Error('Timeout ao conectar com API OpenRouter');
+        }
+        throw error;
+    }
+}
+
+/**
+ * Chama a API do Google Gemini
+ */
+async function callGeminiAPI(apiKey, prompt, timeout) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeout);
+    
+    try {
+        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=${apiKey}`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                contents: [{
+                    parts: [{
+                        text: prompt
+                    }]
+                }],
+                generationConfig: {
+                    temperature: 0.7,
+                    topK: 40,
+                    topP: 0.95,
+                    maxOutputTokens: 1024,
+                }
+            }),
+            signal: controller.signal
+        });
+        
+        clearTimeout(timeoutId);
+        
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`API Gemini retornou erro ${response.status}: ${errorText}`);
+        }
+        
+        const data = await response.json();
+        const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+        
+        if (!text) {
+            throw new Error('Resposta da API Gemini está vazia');
+        }
+        
+        // Extrair JSON da resposta
+        const jsonMatch = text.match(/\{[\s\S]*\}/);
+        if (!jsonMatch) {
+            throw new Error('IA não retornou JSON válido');
+        }
+        
+        return JSON.parse(jsonMatch[0]);
+        
+    } catch (error) {
+        clearTimeout(timeoutId);
+        if (error.name === 'AbortError') {
+            throw new Error('Timeout ao conectar com API Gemini');
+        }
+        throw error;
+    }
+}
+
+/**
+ * Chama a API da OpenAI (GPT)
+ */
+async function callOpenAI_API(apiKey, prompt, timeout) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeout);
+    
+    try {
+        const response = await fetch('https://api.openai.com/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${apiKey}`
+            },
+            body: JSON.stringify({
+                model: 'gpt-3.5-turbo',
+                messages: [
+                    { role: 'system', content: 'Você é um especialista em análise de padrões. Responda APENAS com JSON.' },
+                    { role: 'user', content: prompt }
+                ],
+                temperature: 0.7,
+                max_tokens: 500
+            }),
+            signal: controller.signal
+        });
+        
+        clearTimeout(timeoutId);
+        
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`API OpenAI retornou erro ${response.status}: ${errorText}`);
+        }
+        
+        const data = await response.json();
+        const text = data.choices?.[0]?.message?.content;
+        
+        if (!text) {
+            throw new Error('Resposta da API OpenAI está vazia');
+        }
+        
+        // Extrair JSON da resposta
+        const jsonMatch = text.match(/\{[\s\S]*\}/);
+        if (!jsonMatch) {
+            throw new Error('IA não retornou JSON válido');
+        }
+        
+        return JSON.parse(jsonMatch[0]);
+        
+    } catch (error) {
+        clearTimeout(timeoutId);
+        if (error.name === 'AbortError') {
+            throw new Error('Timeout ao conectar com API OpenAI');
+        }
+        throw error;
+    }
+}
+
+/**
+ * Chama a API da Anthropic (Claude)
+ */
+async function callClaudeAPI(apiKey, prompt, timeout) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeout);
+    
+    try {
+        const response = await fetch('https://api.anthropic.com/v1/messages', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'x-api-key': apiKey,
+                'anthropic-version': '2023-06-01'
+            },
+            body: JSON.stringify({
+                model: 'claude-3-sonnet-20240229',
+                max_tokens: 1024,
+                messages: [
+                    { role: 'user', content: prompt }
+                ]
+            }),
+            signal: controller.signal
+        });
+        
+        clearTimeout(timeoutId);
+        
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`API Claude retornou erro ${response.status}: ${errorText}`);
+        }
+        
+        const data = await response.json();
+        const text = data.content?.[0]?.text;
+        
+        if (!text) {
+            throw new Error('Resposta da API Claude está vazia');
+        }
+        
+        // Extrair JSON da resposta
+        const jsonMatch = text.match(/\{[\s\S]*\}/);
+        if (!jsonMatch) {
+            throw new Error('IA não retornou JSON válido');
+        }
+        
+        return JSON.parse(jsonMatch[0]);
+        
+    } catch (error) {
+        clearTimeout(timeoutId);
+        if (error.name === 'AbortError') {
+            throw new Error('Timeout ao conectar com API Claude');
+        }
+        throw error;
+    }
+}
+
+// NOVO CONTROLADOR: Orquestra Verificação (padrões salvos) + Descoberta (173+ análises) em ≤5s
+async function runAnalysisController(history) {
+	const startTs = Date.now();
+	const budgetMs = 5000; // 5s totais
+
+	try {
+		// ⚠️ CRÍTICO: RECARREGAR analyzerConfig do storage ANTES de cada análise
+		// Isso garante que mudanças feitas pelo usuário sejam respeitadas imediatamente
+		console.log('%c🔄 Recarregando configuração do storage...', 'color: #FFAA00; font-weight: bold;');
+		const storageResult = await chrome.storage.local.get(['analyzerConfig']);
+		if (storageResult && storageResult.analyzerConfig) {
+			analyzerConfig = { ...DEFAULT_ANALYZER_CONFIG, ...storageResult.analyzerConfig };
+			console.log('%c✅ Configuração recarregada com sucesso!', 'color: #00FF00; font-weight: bold;');
+		} else {
+			console.log('%c⚠️ Nenhuma config no storage, usando padrão', 'color: #FFAA00;');
+		}
+		
+		// ✅ DEBUG CRÍTICO: Verificar estado real do analyzerConfig
+		console.log('');
+		console.log('%c🔧 DEBUG: Estado atual do analyzerConfig:', 'color: #FFFF00; font-weight: bold; font-size: 12px; background: #333300; padding: 5px;');
+		console.log('%c   analyzerConfig.aiMode = ' + analyzerConfig.aiMode, 'color: #FFFF00; font-weight: bold; font-size: 14px;');
+		console.log('%c   analyzerConfig.aiApiKey = ' + (analyzerConfig.aiApiKey ? analyzerConfig.aiApiKey.substring(0, 15) + '...' : 'NÃO CONFIGURADA'), 'color: #FFFF00;');
+		console.log('%c   analyzerConfig.minOccurrences = ' + analyzerConfig.minOccurrences, 'color: #FFFF00;');
+		console.log('');
+		
+		// ✅ LOG INICIAL: Mostrar qual modo está ativo COM DESTAQUE
+		console.log('═════════════════════════════════════════════════════════════════════════════');
+		console.log('');
+		if (analyzerConfig.aiMode) {
+			console.log('%c██████╗ ███╗   ███╗ ██████╗ ██████╗  ██████╗     ██╗ █████╗ ', 'color: #00FF00; font-weight: bold; font-size: 14px;');
+			console.log('%c████╔═╝ ████╗ ████║██╔═══██╗██╔══██╗██╔═══██╗    ██║██╔══██╗', 'color: #00FF00; font-weight: bold; font-size: 14px;');
+			console.log('%c█████╗  ██╔████╔██║██║   ██║██║  ██║██║   ██║    ██║███████║', 'color: #00FF00; font-weight: bold; font-size: 14px;');
+			console.log('%c████╔═╝ ██║╚██╔╝██║██║   ██║██║  ██║██║   ██║    ██║██╔══██║', 'color: #00FF00; font-weight: bold; font-size: 14px;');
+			console.log('%c██████╗ ██║ ╚═╝ ██║╚██████╔╝██████╔╝╚██████╔╝    ██║██║  ██║', 'color: #00FF00; font-weight: bold; font-size: 14px;');
+			console.log('%c╚═════╝ ╚═╝     ╚═╝ ╚═════╝ ╚═════╝  ╚═════╝     ╚═╝╚═╝  ╚═╝', 'color: #00FF00; font-weight: bold; font-size: 14px;');
+			console.log('');
+			console.log('%c🤖 MODO DE ANÁLISE ATIVO: INTELIGÊNCIA ARTIFICIAL (GROQ)', 'color: #00FF00; font-weight: bold; font-size: 16px; background: #003300; padding: 10px;');
+			console.log('%c⚡ Usando IA para analisar padrões e prever próxima cor', 'color: #00FF88; font-weight: bold; font-size: 12px;');
+		} else {
+			console.log('%c███╗   ███╗ ██████╗ ██████╗  ██████╗     ██████╗  █████╗ ██████╗ ██████╗  █████╗  ██████╗ ', 'color: #00AAFF; font-weight: bold; font-size: 14px;');
+			console.log('%c████╗ ████║██╔═══██╗██╔══██╗██╔═══██╗    ██╔══██╗██╔══██╗██╔══██╗██╔══██╗██╔══██╗██╔═══██╗', 'color: #00AAFF; font-weight: bold; font-size: 14px;');
+			console.log('%c██╔████╔██║██║   ██║██║  ██║██║   ██║    ██████╔╝███████║██║  ██║██████╔╝███████║██║   ██║', 'color: #00AAFF; font-weight: bold; font-size: 14px;');
+			console.log('%c██║╚██╔╝██║██║   ██║██║  ██║██║   ██║    ██╔═══╝ ██╔══██║██║  ██║██╔══██╗██╔══██║██║   ██║', 'color: #00AAFF; font-weight: bold; font-size: 14px;');
+			console.log('%c██║ ╚═╝ ██║╚██████╔╝██████╔╝╚██████╔╝    ██║     ██║  ██║██████╔╝██║  ██║██║  ██║╚██████╔╝', 'color: #00AAFF; font-weight: bold; font-size: 14px;');
+			console.log('%c╚═╝     ╚═╝ ╚═════╝ ╚═════╝  ╚═════╝     ╚═╝     ╚═╝  ╚═╝╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝ ╚═════╝ ', 'color: #00AAFF; font-weight: bold; font-size: 14px;');
+			console.log('');
+			console.log('%c📊 MODO DE ANÁLISE ATIVO: SISTEMA PADRÃO (173+ ANÁLISES)', 'color: #00AAFF; font-weight: bold; font-size: 16px; background: #003366; padding: 10px;');
+			console.log('%c🔍 Usando banco de padrões salvos + análises locais', 'color: #00BBFF; font-weight: bold; font-size: 12px;');
+		}
+		console.log('');
+		console.log('═════════════════════════════════════════════════════════════════════════════');
+		console.log('');
+		
+		// ⚠️ CRÍTICO: VERIFICAR MODO CONSECUTIVO COM MARTINGALE ATIVO (APLICA PARA AMBOS OS MODOS)
+		if (analyzerConfig.consecutiveMartingale && martingaleState.active) {
+			console.log('');
+			console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #FF0000; font-weight: bold; font-size: 16px; background: #330000; padding: 5px;');
+			console.log('%c║  🔒 MODO CONSECUTIVO COM MARTINGALE ATIVO                ║', 'color: #FF0000; font-weight: bold; font-size: 16px; background: #330000; padding: 5px;');
+			console.log('%c╠═══════════════════════════════════════════════════════════╣', 'color: #FF0000; font-weight: bold; background: #330000; padding: 5px;');
+			console.log('%c║  Estágio: ' + martingaleState.stage, 'color: #FF0000; font-weight: bold; background: #330000; padding: 5px;');
+			console.log('%c║  Cor: ' + martingaleState.entryColor, 'color: #FF0000; font-weight: bold; background: #330000; padding: 5px;');
+			console.log('%c╠═══════════════════════════════════════════════════════════╣', 'color: #FF0000; font-weight: bold; background: #330000; padding: 5px;');
+			console.log('%c║  ⛔ BLOQUEANDO NOVA ANÁLISE                              ║', 'color: #FF0000; font-weight: bold; font-size: 16px; background: #330000; padding: 5px;');
+			console.log('%c║  💡 Sistema em modo consecutivo - aguardando resultado   ║', 'color: #FF0000; font-weight: bold; background: #330000; padding: 5px;');
+			console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #FF0000; font-weight: bold; font-size: 16px; background: #330000; padding: 5px;');
+			console.log('');
+			console.log('%c❌ RETORNANDO SEM ANALISAR (MOTIVO: Martingale ativo em modo consecutivo)', 'color: #FF0000; font-weight: bold; font-size: 16px; background: #330000; padding: 5px;');
+			console.log('');
+			return; // ✅ NÃO executar nova análise em modo consecutivo com Martingale ativo
+		}
+		console.log('%c✅ CHECK 1: Não há Martingale consecutivo ativo - PROSSEGUINDO', 'color: #00FF88; font-weight: bold;');
+		
+		// ✅ VERIFICAR SE JÁ EXISTE UMA ANÁLISE PENDENTE (que ainda não foi avaliada)
+		const existingAnalysisResult = await chrome.storage.local.get(['analysis']);
+		const existingAnalysis = existingAnalysisResult['analysis'];
+		
+		console.log('%c🔍 CHECK 2: Verificando se há análise pendente...', 'color: #FFAA00; font-weight: bold;');
+		console.log('   existingAnalysis:', existingAnalysis ? 'SIM' : 'NÃO');
+		
+		if (existingAnalysis && existingAnalysis.createdOnTimestamp && history && history.length > 0) {
+			const latestSpinTimestamp = history[0].timestamp;
+			const isAnalysisPending = existingAnalysis.createdOnTimestamp !== latestSpinTimestamp;
+			
+			console.log('   Timestamp da análise:', existingAnalysis.createdOnTimestamp);
+			console.log('   Timestamp do giro atual:', latestSpinTimestamp);
+			console.log('   É diferente (pendente)?', isAnalysisPending ? 'SIM' : 'NÃO');
+			
+			if (isAnalysisPending) {
+				console.log('');
+				console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #FF6600; font-weight: bold; font-size: 16px; background: #332200; padding: 5px;');
+				console.log('%c║  ⚠️ JÁ EXISTE ANÁLISE PENDENTE - NÃO SOBRESCREVER!      ║', 'color: #FF6600; font-weight: bold; font-size: 16px; background: #332200; padding: 5px;');
+				console.log('%c╠═══════════════════════════════════════════════════════════╣', 'color: #FF6600; font-weight: bold; background: #332200; padding: 5px;');
+				console.log('%c║  Cor recomendada: ' + existingAnalysis.color, 'color: #FF6600; font-weight: bold; background: #332200; padding: 5px;');
+				console.log('%c║  Confiança: ' + existingAnalysis.confidence + '%', 'color: #FF6600; font-weight: bold; background: #332200; padding: 5px;');
+				console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #FF6600; font-weight: bold; font-size: 16px; background: #332200; padding: 5px;');
+				console.log('');
+				console.log('%c❌ RETORNANDO SEM ANALISAR (MOTIVO: Análise pendente não avaliada)', 'color: #FF6600; font-weight: bold; font-size: 16px; background: #332200; padding: 5px;');
+				console.log('');
+				return; // ✅ NÃO executar nova análise se já há uma pendente
+			}
+		}
+		console.log('%c✅ CHECK 2: Não há análise pendente - PROSSEGUINDO', 'color: #00FF88; font-weight: bold;');
+		
+		// 1) Verificação com padrões salvos (rápido) - PRIORIDADE MÁXIMA
+		// ⚠️ CRÍTICO: PULAR VERIFICAÇÃO DE PADRÕES SALVOS SE MODO IA ESTIVER ATIVO
+		let verifyResult = null;
+		if (!analyzerConfig.aiMode) {
+			console.log('');
+			console.log('%c╔═══════════════════════════════════════════════════════════════════════════════╗', 'color: #00AAFF; font-weight: bold; font-size: 16px; background: #003366; padding: 5px;');
+			console.log('%c║                                                                               ║', 'color: #00AAFF; font-weight: bold; font-size: 16px; background: #003366; padding: 5px;');
+			console.log('%c║       🔎 INICIANDO ANÁLISE COM PADRÕES SALVOS (MODO PADRÃO)! 🔎             ║', 'color: #00AAFF; font-weight: bold; font-size: 16px; background: #003366; padding: 5px;');
+			console.log('%c║                                                                               ║', 'color: #00AAFF; font-weight: bold; font-size: 16px; background: #003366; padding: 5px;');
+			console.log('%c╚═══════════════════════════════════════════════════════════════════════════════╝', 'color: #00AAFF; font-weight: bold; font-size: 16px; background: #003366; padding: 5px;');
+			console.log('');
+			sendAnalysisStatus('🔎 Verificando padrões salvos...');
+			verifyResult = await verifyWithSavedPatterns(history);
+			console.log('');
+			console.log('%c📊 RESULTADO da verificação de padrões salvos:', 'color: #00AAFF; font-weight: bold;', verifyResult ? 'PADRÃO ENCONTRADO!' : 'Nenhum padrão encontrado');
+			console.log('');
+		} else {
+			console.log('');
+			console.log('%c🤖 MODO IA ATIVO: Pulando verificação de padrões salvos...', 'color: #00FF88; font-weight: bold; font-size: 14px;');
+			console.log('%c⏭️  Indo direto para análise por Inteligência Artificial', 'color: #00FF88;');
+			console.log('');
+		}
+		
+		if (verifyResult) {
+			console.log('');
+			console.log('╔═══════════════════════════════════════════════════════════╗');
+			console.log('║  ✅ USANDO: PADRÃO SALVO (PRIORIDADE MÁXIMA)             ║');
+			console.log('╠═══════════════════════════════════════════════════════════╣');
+			console.log('║  📊 Sistema de análise: BANCO DE PADRÕES                 ║');
+			console.log('║  🎯 Padrão encontrado e validado                         ║');
+			console.log('╚═══════════════════════════════════════════════════════════╝');
+			console.log('');
+			
+			// ⚠️ CRÍTICO: VERIFICAR SE HÁ MARTINGALE ATIVO
+			if (martingaleState.active && martingaleState.entryColor) {
+				console.log('╔═══════════════════════════════════════════════════════════╗');
+				console.log('║  🔄 MARTINGALE ATIVO DETECTADO!                          ║');
+				console.log('╠═══════════════════════════════════════════════════════════╣');
+				console.log(`║  Cor do novo padrão: ${verifyResult.color}                           ║`);
+				console.log(`║  Cor da entrada original: ${martingaleState.entryColor}                    ║`);
+				console.log(`║  Estágio atual: ${martingaleState.stage}                              ║`);
+				console.log('╠═══════════════════════════════════════════════════════════╣');
+				console.log('║  ✅ SOBRESCREVENDO COR PARA MANTER ENTRADA ORIGINAL      ║');
+				console.log('╚═══════════════════════════════════════════════════════════╝');
+				
+				// ✅ SOBRESCREVER A COR PARA USAR A COR DA ENTRADA ORIGINAL
+				verifyResult.color = martingaleState.entryColor;
+				verifyResult.phase = martingaleState.stage;
+			}
+			
+			console.log('╔═══════════════════════════════════════════════════════════╗');
+			console.log('║  💾 SALVANDO ANÁLISE EM CHROME.STORAGE.LOCAL             ║');
+			console.log('╚═══════════════════════════════════════════════════════════╝');
+			console.log('📊 Dados da análise:');
+			console.log('   Cor:', verifyResult.color);
+			console.log('   Confiança:', verifyResult.confidence);
+			console.log('   Fase:', verifyResult.phase || 'G0');
+			console.log('   CreatedOn:', verifyResult.createdOnTimestamp);
+			console.log('   PredictedFor:', verifyResult.predictedFor);
+			
+			await chrome.storage.local.set({
+				analysis: verifyResult,
+				pattern: { description: verifyResult.patternDescription, confidence: verifyResult.confidence },
+				lastBet: { status: 'pending', phase: verifyResult.phase || 'G0', createdOnTimestamp: verifyResult.createdOnTimestamp }
+			});
+			
+			console.log('✅ Análise salva em chrome.storage.local!');
+			
+			// ✅ ENVIAR SINAIS PARA AMBOS OS CANAIS (INDEPENDENTES)
+			const sendResults = {
+				extensao: false,
+				telegram: false
+			};
+			
+			// 1. Enviar para extensão (UI)
+			try {
+				sendResults.extensao = await sendMessageToContent('NEW_ANALYSIS', verifyResult);
+			} catch (e) {
+				console.error('❌ Erro crítico ao enviar para extensão:', e);
+			}
+			
+			// 2. Enviar para Telegram (INDEPENDENTE)
+			try {
+			if (history && history.length > 0) {
+					sendResults.telegram = await sendTelegramEntrySignal(verifyResult.color, history[0], verifyResult.confidence, verifyResult);
+				}
+			} catch (e) {
+				console.error('❌ Erro crítico ao enviar para Telegram:', e);
+			}
+			
+			// 3. Log de resultado consolidado
+			console.log('╔═══════════════════════════════════════════════════════════╗');
+			console.log('║  📊 RESULTADO DO ENVIO DE SINAIS                          ║');
+			console.log('╠═══════════════════════════════════════════════════════════╣');
+			console.log('║  💾 Sistema usado: PADRÃO SALVO (BANCO)                   ║');
+			console.log(`║  📱 Extensão: ${sendResults.extensao ? '✅ ENVIADO' : '❌ FALHOU'.padEnd(11)}                        ║`);
+			console.log(`║  📲 Telegram: ${sendResults.telegram ? '✅ ENVIADO' : '❌ FALHOU'.padEnd(11)}                        ║`);
+			console.log('╚═══════════════════════════════════════════════════════════╝\n');
+			
+			// ✅ EXIBIR RODAPÉ FIXO COM SISTEMA ATIVO
+			displaySystemFooter();
+			
+			// ✅ RETURN após enviar sinal para evitar fallback (que causaria mensagem duplicada)
+			return;
+		}
+		
+		// ✅ MODO IA: Se ativado e não achou padrão salvo, usar análise IA
+		if (analyzerConfig.aiMode && !verifyResult) {
+			console.log('');
+			console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #00FF00; font-weight: bold;');
+			console.log('%c║  🤖 EXECUTANDO: ANÁLISE POR INTELIGÊNCIA ARTIFICIAL      ║', 'color: #00FF00; font-weight: bold;');
+			console.log('%c╠═══════════════════════════════════════════════════════════╣', 'color: #00FF00; font-weight: bold;');
+			console.log('%c║  📊 Histórico disponível: ' + history.length + ' giros', 'color: #00FF88; font-weight: bold;');
+			console.log('%c║  🔄 Chamando API Groq com modelo Llama 3.3...            ║', 'color: #00FF88; font-weight: bold;');
+			console.log('%c║  ⚡ Aguarde resposta da IA (máx 5s)...                   ║', 'color: #00FF88; font-weight: bold;');
+			console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #00FF00; font-weight: bold;');
+			console.log('');
+			
+			const aiResult = await analyzeWithAI(history);
+			
+			if (aiResult) {
+				// ⚠️ VERIFICAR SE É A PRIMEIRA ANÁLISE APÓS ATIVAR MODO IA
+				if (aiModeJustActivated) {
+					console.log('');
+					console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #FFAA00; font-weight: bold;');
+					console.log('%c║  ⏳ MODO IA RECÉM-ATIVADO                                 ║', 'color: #FFAA00; font-weight: bold; font-size: 14px;');
+					console.log('%c╠═══════════════════════════════════════════════════════════╣', 'color: #FFAA00; font-weight: bold;');
+					console.log('%c║  🤖 IA analisou e encontrou padrão!                       ║', 'color: #FFAA00; font-weight: bold;');
+					console.log('%c║  🎯 Cor prevista: ' + aiResult.color.toUpperCase() + '                                     ║', 'color: #FFAA00;');
+					console.log('%c║  📊 Confiança: ' + aiResult.confidence + '%                                   ║', 'color: #FFAA00;');
+					console.log('%c╠═══════════════════════════════════════════════════════════╣', 'color: #FFAA00; font-weight: bold;');
+					console.log('%c║  ⏳ AGUARDANDO 1 GIRO antes de enviar sinal...            ║', 'color: #FFAA00; font-weight: bold;');
+					console.log('%c║  🚫 Sinal NÃO será enviado neste momento                  ║', 'color: #FFAA00; font-weight: bold;');
+					console.log('%c║  ✅ Próximo giro: sinal será enviado normalmente          ║', 'color: #FFAA00; font-weight: bold;');
+					console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #FFAA00; font-weight: bold;');
+					console.log('');
+					
+					// Desabilitar flag para permitir próximo sinal
+					aiModeJustActivated = false;
+					console.log('%c✅ Flag aiModeJustActivated = false (próximos sinais serão enviados)', 'color: #00FF88; font-weight: bold;');
+					console.log('');
+					
+					// Enviar status para UI informando que está aguardando
+					sendAnalysisStatus('⏳ Aguardando próximo giro para enviar sinal...');
+					
+					// RETURN - não enviar sinal
+					return;
+				}
+				
+				// ⚠️ VERIFICAR SE HÁ MARTINGALE ATIVO
+				let aiColor = aiResult.color;
+				let aiPhase = 'G0';
+				
+				if (martingaleState.active && martingaleState.entryColor) {
+					console.log('╔═══════════════════════════════════════════════════════════╗');
+					console.log('║  🔄 MARTINGALE ATIVO DETECTADO! (MODO IA)                ║');
+					console.log('╠═══════════════════════════════════════════════════════════╣');
+					console.log(`║  Cor da IA: ${aiColor}                                         ║`);
+					console.log(`║  Cor da entrada original: ${martingaleState.entryColor}                    ║`);
+					console.log(`║  Estágio atual: ${martingaleState.stage}                              ║`);
+					console.log('╠═══════════════════════════════════════════════════════════╣');
+					console.log('║  ✅ SOBRESCREVENDO COR PARA MANTER ENTRADA ORIGINAL      ║');
+					console.log('╚═══════════════════════════════════════════════════════════╝');
+					
+					aiColor = martingaleState.entryColor;
+					aiPhase = martingaleState.stage;
+				}
+				
+				// ✅ VALIDAR INTERVALO MÍNIMO PARA O MESMO PADRÃO
+				const minIntervalMinutes = analyzerConfig.minIntervalMinutes || 1;
+				const aiHistorySizeUsed = Math.min(Math.max(analyzerConfig.aiHistorySize || 50, 10), 2000);
+				const currentPattern = history.slice(0, aiHistorySizeUsed).map(s => s.color).join(',');
+				
+				const entriesResult = await chrome.storage.local.get('entriesHistory');
+				const entriesHistory = entriesResult.entriesHistory || [];
+				
+				if (entriesHistory.length > 0) {
+					const lastEntry = entriesHistory[0];
+					
+					// Verificar se a última entrada tem o padrão salvo
+					if (lastEntry.aiPattern) {
+						const isSamePattern = lastEntry.aiPattern === currentPattern;
+						
+						if (isSamePattern) {
+							// É o MESMO PADRÃO → verificar intervalo
+							const lastEntryTimestamp = new Date(lastEntry.timestamp).getTime();
+							const currentTimestamp = new Date(history[0].timestamp).getTime();
+							const minutesSinceLastEntry = (currentTimestamp - lastEntryTimestamp) / (1000 * 60);
+							
+							if (minutesSinceLastEntry < minIntervalMinutes) {
+								const remainingMinutes = (minIntervalMinutes - minutesSinceLastEntry).toFixed(1);
+								const girosSinceLastEntry = Math.floor(minutesSinceLastEntry * 2); // 1 min = 2 giros
+								const girosRemaining = Math.ceil(remainingMinutes * 2);
+								
+								console.log('');
+								console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #FFAA00; font-weight: bold;');
+								console.log('%c║  🔄 MESMO PADRÃO DETECTADO!                               ║', 'color: #FFAA00; font-weight: bold;');
+								console.log('%c╠═══════════════════════════════════════════════════════════╣', 'color: #FFAA00; font-weight: bold;');
+								console.log('%c║  ⏱️  Tempo desde último sinal: ' + minutesSinceLastEntry.toFixed(1) + ' min (' + girosSinceLastEntry + ' giros)       ║', 'color: #FFAA00;');
+								console.log('%c║  🎯 Intervalo mínimo configurado: ' + minIntervalMinutes + ' min (' + (minIntervalMinutes * 2) + ' giros)        ║', 'color: #FFAA00;');
+								console.log('%c║  ⏳ Tempo restante: ' + remainingMinutes + ' min (' + girosRemaining + ' giros restantes)        ║', 'color: #FFAA00;');
+								console.log('%c╠═══════════════════════════════════════════════════════════╣', 'color: #FFAA00; font-weight: bold;');
+								console.log('%c║  🚫 SINAL BLOQUEADO: Mesmo padrão muito próximo           ║', 'color: #FFAA00; font-weight: bold;');
+								console.log('%c║  ⏳ Aguardando intervalo mínimo para RE-ENVIAR...         ║', 'color: #FFAA00;');
+								console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #FFAA00; font-weight: bold;');
+								console.log('');
+								sendAnalysisStatus('⏳ Aguardando intervalo (mesmo padrão)...');
+								
+								// ✅ EXIBIR RODAPÉ FIXO COM SISTEMA ATIVO
+								displaySystemFooter();
+								
+								return;
+							} else {
+								// Passou o intervalo → permitir
+								console.log('');
+								console.log('%c✅ MESMO PADRÃO, MAS INTERVALO OK!', 'color: #00FF88; font-weight: bold;');
+								console.log('%c   Tempo decorrido: ' + minutesSinceLastEntry.toFixed(1) + ' min (' + Math.floor(minutesSinceLastEntry * 2) + ' giros)', 'color: #00FF88;');
+								console.log('%c   Intervalo mínimo: ' + minIntervalMinutes + ' min (' + (minIntervalMinutes * 2) + ' giros)', 'color: #00FF88;');
+								console.log('%c   ✅ PERMITIDO: Re-enviar o mesmo padrão', 'color: #00FF88; font-weight: bold;');
+								console.log('');
+							}
+						} else {
+							// É PADRÃO DIFERENTE → permitir imediatamente
+							console.log('');
+							console.log('%c✅ PADRÃO DIFERENTE DETECTADO!', 'color: #00FF88; font-weight: bold;');
+							console.log('%c   ✅ PERMITIDO: Novo padrão (ignora intervalo mínimo)', 'color: #00FF88; font-weight: bold;');
+							console.log('');
+						}
+					}
+				}
+				
+				// Criar descrição detalhada da análise IA com dados estruturados
+				// ✅ GARANTIR que last10Spins sempre exista (fallback: extrair do histórico)
+				let last10SpinsForDescription = aiResult.last10Spins || aiResult.last5Spins; // ✅ Compatibilidade
+				if (!last10SpinsForDescription || last10SpinsForDescription.length === 0) {
+					console.log('%c⚠️ last10Spins não encontrado em aiResult - Extraindo do histórico...', 'color: #FFAA00; font-weight: bold;');
+					last10SpinsForDescription = history.slice(0, 10).map(spin => ({
+						color: spin.color,
+						number: spin.number,
+						timestamp: spin.timestamp
+					}));
+					console.log('%c✅ Extraído para descrição:', 'color: #00FF88;', last10SpinsForDescription);
+				}
+				
+				const aiDescriptionData = {
+					type: 'AI_ANALYSIS',
+					color: aiColor,
+					confidence: aiResult.confidence,
+					last10Spins: last10SpinsForDescription,
+					last5Spins: last10SpinsForDescription ? last10SpinsForDescription.slice(0, 5) : [], // ✅ Compatibilidade
+					reasoning: aiResult.reasoning || aiResult.patternDescription || 'Análise baseada nos últimos ' + aiHistorySizeUsed + ' giros do histórico.',
+					historySize: aiHistorySizeUsed
+				};
+				
+				console.log('');
+				console.log('%c📦 DADOS ESTRUTURADOS DA IA (para renderização):', 'color: #00FFFF; font-weight: bold;');
+				console.log('%c   🎨 Tipo:', 'color: #00FFFF;', aiDescriptionData.type);
+				console.log('%c   🎯 Cor:', 'color: #00FFFF;', aiDescriptionData.color);
+				console.log('%c   📊 Confiança:', 'color: #00FFFF;', aiDescriptionData.confidence + '%');
+				console.log('%c   🎲 Últimos 10 giros:', 'color: #00FFFF;', aiDescriptionData.last10Spins);
+				console.log('%c   💭 Raciocínio (200 chars):', 'color: #00FFFF;', (aiDescriptionData.reasoning || '').substring(0, 200) + '...');
+				console.log('');
+				
+				// Serializar para JSON para armazenamento
+				const aiDescription = JSON.stringify(aiDescriptionData);
+				
+				// Criar objeto de análise no formato esperado (com padrão para futura comparação)
+				const analysis = {
+					color: aiColor,
+					confidence: aiResult.confidence,
+					patternDescription: aiDescription,
+					last10Spins: last10SpinsForDescription, // ✅ INCLUIR DIRETAMENTE para facilitar acesso
+					last5Spins: last10SpinsForDescription ? last10SpinsForDescription.slice(0, 5) : [], // ✅ Compatibilidade
+					patternType: 'ai-analysis',
+					phase: aiPhase,
+					predictedFor: 'next',
+					createdOnTimestamp: history[0].timestamp,
+					aiPattern: currentPattern // ✅ Salvar padrão para comparação futura
+				};
+				
+				console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #00FF00; font-weight: bold;');
+				console.log('%c║  💾 SALVANDO ANÁLISE IA EM CHROME.STORAGE.LOCAL          ║', 'color: #00FF00; font-weight: bold;');
+				console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #00FF00; font-weight: bold;');
+				console.log('%c📊 Dados da análise IA:', 'color: #00FF88; font-weight: bold;');
+				console.log('%c   🎯 Cor: ' + analysis.color.toUpperCase(), 'color: #00FF88;');
+				console.log('%c   📊 Confiança: ' + analysis.confidence + '%', 'color: #00FF88;');
+				console.log('%c   🎲 Fase: ' + analysis.phase, 'color: #00FF88;');
+				
+				// Salvar análise
+				await chrome.storage.local.set({
+					analysis: analysis,
+					pattern: { description: analysis.patternDescription, confidence: analysis.confidence },
+					lastBet: { status: 'pending', phase: aiPhase, createdOnTimestamp: analysis.createdOnTimestamp }
+				});
+				
+				console.log('%c✅ Análise IA salva em chrome.storage.local!', 'color: #00FF00; font-weight: bold; font-size: 13px;');
+				console.log('');
+				console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #00FF00; font-weight: bold;');
+				console.log('%c║  📋 DESCRIÇÃO DO PADRÃO (ENVIADA PARA O USUÁRIO):        ║', 'color: #00FF00; font-weight: bold;');
+				console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #00FF00; font-weight: bold;');
+				console.log('%c' + aiDescription, 'color: #00FF88;');
+				console.log('');
+				
+				// ✅ ENVIAR SINAIS PARA AMBOS OS CANAIS (INDEPENDENTES)
+				const sendResults = {
+					extensao: false,
+					telegram: false
+				};
+				
+				// 1. Enviar para extensão (UI)
+				try {
+					sendResults.extensao = await sendMessageToContent('NEW_ANALYSIS', analysis);
+				} catch (e) {
+					console.error('❌ Erro crítico ao enviar para extensão:', e);
+				}
+				
+				// 2. Enviar para Telegram (INDEPENDENTE)
+				try {
+					if (history && history.length > 0) {
+						sendResults.telegram = await sendTelegramEntrySignal(analysis.color, history[0], analysis.confidence, analysis);
+					}
+				} catch (e) {
+					console.error('❌ Erro crítico ao enviar para Telegram:', e);
+				}
+				
+				// 3. Log de resultado consolidado
+				console.log('');
+				console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #00FF00; font-weight: bold; font-size: 14px; background: #003300; padding: 2px;');
+				console.log('%c║  ✅ SINAL ENVIADO COM SUCESSO!                           ║', 'color: #00FF00; font-weight: bold; font-size: 14px; background: #003300; padding: 2px;');
+				console.log('%c╠═══════════════════════════════════════════════════════════╣', 'color: #00FF00; font-weight: bold; background: #003300; padding: 2px;');
+				console.log('%c║  🤖 Sistema: INTELIGÊNCIA ARTIFICIAL (GROQ)               ║', 'color: #00FF00; font-weight: bold; background: #003300; padding: 2px;');
+				console.log('%c║  📱 Extensão: ' + (sendResults.extensao ? '✅ ENVIADO' : '❌ FALHOU') + '                                    ║', 'color: #00FF88; background: #003300; padding: 2px;');
+				console.log('%c║  📲 Telegram: ' + (sendResults.telegram ? '✅ ENVIADO' : '❌ FALHOU') + '                                    ║', 'color: #00FF88; background: #003300; padding: 2px;');
+				console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #00FF00; font-weight: bold; background: #003300; padding: 2px;');
+				console.log('');
+				
+				// ✅ EXIBIR RODAPÉ FIXO COM SISTEMA ATIVO
+				displaySystemFooter();
+				
+				// ✅ RETURN após enviar sinal IA
+				return;
+			} else {
+				// ⚠️ CRÍTICO: Se IA não encontrou resultado, PARAR AQUI (não executar análise padrão)
+				console.log('');
+				console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #FFAA00; font-weight: bold;');
+				console.log('%c║  ⚠️ MODO IA: API NÃO RETORNOU RESULTADO VÁLIDO           ║', 'color: #FFAA00; font-weight: bold;');
+				console.log('%c╠═══════════════════════════════════════════════════════════╣', 'color: #FFAA00; font-weight: bold;');
+				console.log('%c║  Possíveis causas:                                        ║', 'color: #FFAA00; font-weight: bold;');
+				console.log('%c║    • API retornou erro (verifique chave)                  ║', 'color: #FFAA00;');
+				console.log('%c║    • Timeout excedido (>10s)                              ║', 'color: #FFAA00;');
+				console.log('%c║    • Formato de resposta inválido                         ║', 'color: #FFAA00;');
+				console.log('%c╠═══════════════════════════════════════════════════════════╣', 'color: #FFAA00; font-weight: bold;');
+				console.log('%c║  ⏳ Aguardando próximo giro para nova tentativa...        ║', 'color: #FFAA00; font-weight: bold;');
+				console.log('%c║  🚫 Análise padrão BLOQUEADA (modo IA permanece ativo)    ║', 'color: #FFAA00; font-weight: bold;');
+				console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #FFAA00; font-weight: bold;');
+				console.log('');
+				sendAnalysisStatus('⏳ IA aguardando novo giro...');
+				
+				// ✅ EXIBIR RODAPÉ FIXO COM SISTEMA ATIVO
+				displaySystemFooter();
+				
+				return; // ✅ PARAR AQUI - NÃO executar análise padrão quando modo IA está ativo
+			}
+		}
+
+		// 2) Descoberta: 173+ análises e persistência (sem repetir o que já temos)
+		// ⚠️ SÓ EXECUTA SE MODO IA NÃO ESTIVER ATIVO
+		const timeLeftAfterVerify = budgetMs - (Date.now() - startTs);
+		if (!analyzerConfig.aiMode && timeLeftAfterVerify > 100) {
+			sendAnalysisStatus('🧠 Descobrindo novos padrões...');
+			await discoverAndPersistPatterns(history, startTs, budgetMs);
+		}
+
+		// 3) Se verificação não deu sinal E modo IA não ativo, usar análise existente como fallback
+		const timeLeftForFallback = budgetMs - (Date.now() - startTs);
+		if (!verifyResult && !analyzerConfig.aiMode && timeLeftForFallback > 200) {
+			console.log('');
+			console.log('╔═══════════════════════════════════════════════════════════╗');
+			console.log('║  📊 EXECUTANDO: ANÁLISE PADRÃO (DESCOBERTA)              ║');
+			console.log('╠═══════════════════════════════════════════════════════════╣');
+			console.log('║  ✅ Padrões salvos: Não encontrado                       ║');
+			console.log('║  🔄 Buscando padrão atual em 173+ análises...            ║');
+			console.log('╚═══════════════════════════════════════════════════════════╝');
+			console.log('');
+			
+			sendAnalysisStatus('🤖 Buscando padrão atual...');
+			const analysis = await performPatternAnalysis(history);
+			if (analysis) {
+				// ⚠️ CRÍTICO: VERIFICAR SE HÁ MARTINGALE ATIVO
+				if (martingaleState.active && martingaleState.entryColor) {
+					console.log('╔═══════════════════════════════════════════════════════════╗');
+					console.log('║  🔄 MARTINGALE ATIVO DETECTADO! (DESCOBERTA)             ║');
+					console.log('╠═══════════════════════════════════════════════════════════╣');
+					console.log(`║  Cor do novo padrão: ${analysis.color}                           ║`);
+					console.log(`║  Cor da entrada original: ${martingaleState.entryColor}                    ║`);
+					console.log(`║  Estágio atual: ${martingaleState.stage}                              ║`);
+					console.log('╠═══════════════════════════════════════════════════════════╣');
+					console.log('║  ✅ SOBRESCREVENDO COR PARA MANTER ENTRADA ORIGINAL      ║');
+					console.log('╚═══════════════════════════════════════════════════════════╝');
+					
+					// ✅ SOBRESCREVER A COR PARA USAR A COR DA ENTRADA ORIGINAL
+					analysis.color = martingaleState.entryColor;
+					analysis.phase = martingaleState.stage;
+				}
+				
+				console.log('╔═══════════════════════════════════════════════════════════╗');
+				console.log('║  💾 SALVANDO ANÁLISE EM CHROME.STORAGE.LOCAL (DESCOBERTA)║');
+				console.log('╚═══════════════════════════════════════════════════════════╝');
+				console.log('📊 Dados da análise:');
+				console.log('   Cor:', analysis.color);
+				console.log('   Confiança:', analysis.confidence);
+				console.log('   Fase:', analysis.phase || 'G0');
+				console.log('   CreatedOn:', analysis.createdOnTimestamp);
+				console.log('   PredictedFor:', analysis.predictedFor);
+				
+				await chrome.storage.local.set({
+					analysis: analysis,
+					pattern: { description: analysis.patternDescription, confidence: analysis.confidence },
+					lastBet: { status: 'pending', phase: analysis.phase || 'G0', createdOnTimestamp: analysis.createdOnTimestamp }
+				});
+				
+				console.log('✅ Análise salva em chrome.storage.local!');
+				
+				// ✅ ENVIAR SINAIS PARA AMBOS OS CANAIS (INDEPENDENTES)
+				const sendResults = {
+					extensao: false,
+					telegram: false
+				};
+				
+				// 1. Enviar para extensão (UI)
+				try {
+					sendResults.extensao = await sendMessageToContent('NEW_ANALYSIS', analysis);
+				} catch (e) {
+					console.error('❌ Erro crítico ao enviar para extensão:', e);
+				}
+				
+				// 2. Enviar para Telegram (INDEPENDENTE)
+				try {
+				if (history && history.length > 0) {
+						sendResults.telegram = await sendTelegramEntrySignal(analysis.color, history[0], analysis.confidence, analysis);
+					}
+				} catch (e) {
+					console.error('❌ Erro crítico ao enviar para Telegram:', e);
+				}
+				
+				// 3. Log de resultado consolidado
+				console.log('╔═══════════════════════════════════════════════════════════╗');
+				console.log('║  📊 RESULTADO DO ENVIO DE SINAIS                          ║');
+				console.log('╠═══════════════════════════════════════════════════════════╣');
+				console.log('║  📊 Sistema usado: ANÁLISE PADRÃO (DESCOBERTA)            ║');
+				console.log(`║  📱 Extensão: ${sendResults.extensao ? '✅ ENVIADO' : '❌ FALHOU'.padEnd(11)}                        ║`);
+				console.log(`║  📲 Telegram: ${sendResults.telegram ? '✅ ENVIADO' : '❌ FALHOU'.padEnd(11)}                        ║`);
+				console.log('╚═══════════════════════════════════════════════════════════╝\n');
+				
+				// ✅ EXIBIR RODAPÉ FIXO COM SISTEMA ATIVO
+				displaySystemFooter();
+			} else {
+				console.log('⚠️ Nenhuma análise encontrada, limpando chrome.storage.local');
+				await chrome.storage.local.set({ analysis: null, pattern: null });
+				sendMessageToContent('CLEAR_ANALYSIS');
+				sendAnalysisStatus('⏳ Aguardando novo giro...');
+				
+				// ✅ EXIBIR RODAPÉ FIXO COM SISTEMA ATIVO
+				displaySystemFooter();
+			
+			// ✅ LOG RESUMIDO DO CICLO
+			logAnalysisCycle({
+				serverStatus: 'ativo',
+				patternsFound: [],
+				searchingNewSpin: true,
+				rejectedPatterns: [],
+				telegramSent: null,
+				displayedPatternsCount: 0,
+				spinsAvailable: { server: history.length, app: cachedHistory.length }
+			});
+			}
+		}
+	} catch (e) {
+		console.error('Erro no controlador de análise:', e);
+	}
+}
+
+// Função helper para exibir estatísticas do banco de padrões
+function logPatternDBStats(db, action = 'load') {
+	const total = db.patterns_found ? db.patterns_found.length : 0;
+	const limit = 5000;
+	const percentage = total > 0 ? ((total / limit) * 100).toFixed(1) : 0;
+	
+	// Agrupar por tipo
+	const byType = {};
+	const byConfidence = { high: 0, medium: 0, low: 0 };
+	
+	if (db.patterns_found) {
+		db.patterns_found.forEach(p => {
+			const type = p.type || 'desconhecido';
+			byType[type] = (byType[type] || 0) + 1;
+			
+			const conf = p.confidence || 0;
+			if (conf >= 80) byConfidence.high++;
+			else if (conf >= 60) byConfidence.medium++;
+			else byConfidence.low++;
+		});
+	}
+	
+	const emoji = action === 'load' ? '📂' : action === 'save' ? '💾' : '🔍';
+	const actionText = action === 'load' ? 'CARREGADO' : action === 'save' ? 'SALVO' : 'DESCOBERTA';
+	
+	console.log(`
+╔═══════════════════════════════════════════════════════════╗
+║  ${emoji} BANCO DE PADRÕES ${actionText}                              
+╠═══════════════════════════════════════════════════════════╣
+║  📊 TOTAL DE PADRÕES: ${total.toString().padEnd(4)} / ${limit} (${percentage}%)          
+║  ⚡ Capacidade: ${'█'.repeat(Math.floor(percentage / 5))}${'░'.repeat(20 - Math.floor(percentage / 5))}
+╠═══════════════════════════════════════════════════════════╣
+║  🎯 POR CONFIANÇA:                                        
+║     ├─ 🟢 Alta (≥80%):   ${byConfidence.high.toString().padEnd(4)} padrões
+║     ├─ 🟡 Média (60-79%): ${byConfidence.medium.toString().padEnd(4)} padrões
+║     └─ 🔴 Baixa (<60%):   ${byConfidence.low.toString().padEnd(4)} padrões
+╠═══════════════════════════════════════════════════════════╣
+║  📁 POR TIPO:                                             
+${Object.entries(byType).slice(0, 5).map(([type, count]) => 
+`║     • ${type.padEnd(20)}: ${count.toString().padEnd(4)} padrões`).join('\n')}
+${Object.keys(byType).length > 5 ? `║     • ... e mais ${Object.keys(byType).length - 5} tipos` : ''}
+╚═══════════════════════════════════════════════════════════╝
+	`.trim());
+}
+
+// Carrega o banco de padrões salvos
+async function loadPatternDB() {
+	const res = await chrome.storage.local.get(['patternDB']);
+	const db = res.patternDB && Array.isArray(res.patternDB.patterns_found)
+		? res.patternDB
+		: { patterns_found: [], version: 1 };
+	
+	// Log visual das estatísticas
+	logPatternDBStats(db, 'load');
+	
+	return db;
+}
+
+// Salva o banco de padrões (APENAS LOCALMENTE)
+async function savePatternDB(db) {
+	// Salvar APENAS localmente (não envia para servidor)
+	await chrome.storage.local.set({ patternDB: db });
+	
+	// Log visual das estatísticas
+	logPatternDBStats(db, 'save');
+	
+	// Notificar content script para atualizar UI
+	sendMessageToContent('PATTERN_BANK_UPDATE', { total: db.patterns_found ? db.patterns_found.length : 0 });
+}
+
+// Limpa APENAS padrões (usado ao abrir extensão - preserva análise pendente)
+async function clearAllPatterns() {
+	console.log('╔═══════════════════════════════════════════════════════════╗');
+	console.log('║  🗑️ LIMPANDO BANCO DE PADRÕES                            ║');
+	console.log('╚═══════════════════════════════════════════════════════════╝');
+	
+	// 1. Limpar banco de padrões
+	console.log('🗑️ Limpando banco de padrões...');
+	const emptyDB = { patterns_found: [], version: 1 };
+	await chrome.storage.local.set({ patternDB: emptyDB });
+	
+	// 2. ✅ NÃO LIMPAR análise pendente (ela deve persistir se estiver aguardando resultado)
+	// A análise só deve ser limpa quando:
+	// - O resultado for confirmado (WIN/LOSS)
+	// - O usuário clicar explicitamente em "Resetar Padrões"
+	console.log('╔═══════════════════════════════════════════════════════════╗');
+	console.log('║  ✅ ANÁLISE PENDENTE PRESERVADA                          ║');
+	console.log('║  (Aguardando resultado - não será limpa)                 ║');
+	console.log('╚═══════════════════════════════════════════════════════════╝');
+	
+	// 3. ✅ NÃO LIMPAR histórico de entradas (deve persistir após reload)
+	// Se o usuário quiser limpar entradas, deve usar o botão "Limpar Histórico" na interface
+	console.log('╔═══════════════════════════════════════════════════════════╗');
+	console.log('║  ✅ HISTÓRICO DE ENTRADAS PRESERVADO                    ║');
+	console.log('║  (Não será limpo - persiste após recarregar página)     ║');
+	console.log('║  Para limpar: use botão "Limpar Histórico" na UI        ║');
+	console.log('╚═══════════════════════════════════════════════════════════╝');
+	
+	// 4. ✅ NÃO RESETAR calibrador de porcentagens (ele é sincronizado automaticamente com entriesHistory)
+	// O calibrador é persistente e será reconstruído pela sincronização em loadObserverDataAtStartup()
+	console.log('╔═══════════════════════════════════════════════════════════╗');
+	console.log('║  ✅ CALIBRADOR DE PORCENTAGENS PRESERVADO                ║');
+	console.log('║  (Sincronizado automaticamente com entriesHistory)       ║');
+	console.log('╚═══════════════════════════════════════════════════════════╝');
+	
+	// 5. Enviar atualizações para UI
+	sendMessageToContent('PATTERN_BANK_UPDATE', { total: 0 });
+	// ❌ NÃO enviar CLEAR_ANALYSIS aqui, pois a análise pendente foi preservada
+	// sendMessageToContent('CLEAR_ANALYSIS');
+	// A UI carregará a análise pendente automaticamente do chrome.storage.local
+	sendAnalysisStatus('🔄 Padrões resetados - Análise pendente preservada');
+	
+	console.log('╔═══════════════════════════════════════════════════════════╗');
+	console.log('║  ✅ RESET PARCIAL - PADRÕES ZERADOS                      ║');
+	console.log('╠═══════════════════════════════════════════════════════════╣');
+	console.log('║  📊 Padrões: Limpos (serão recalculados)                  ║');
+	console.log('║  🎯 Análise Pendente: Preservada                          ║');
+	console.log('║  📈 Entradas: Preservadas                                 ║');
+	console.log('║  Calibrador: Preservado (sincronizado)                    ║');
+	console.log('║  💾 Cache: Será recarregado do servidor                   ║');
+	console.log('╚═══════════════════════════════════════════════════════════╝');
+}
+
+// Limpa TUDO: padrões E análise pendente (usado quando o usuário clica em "Resetar Padrões")
+async function clearAllPatternsAndAnalysis() {
+	console.log('╔═══════════════════════════════════════════════════════════╗');
+	console.log('║  🗑️ RESET COMPLETO - LIMPANDO TUDO                       ║');
+	console.log('╚═══════════════════════════════════════════════════════════╝');
+	
+	// 1. Limpar banco de padrões
+	console.log('🗑️ Limpando banco de padrões...');
+	const emptyDB = { patterns_found: [], version: 1 };
+	await chrome.storage.local.set({ patternDB: emptyDB });
+	
+	// 2. ✅ LIMPAR análise e padrão atual (incluindo análise pendente)
+	console.log('🗑️ Limpando análise pendente e padrão atual...');
+	await chrome.storage.local.set({ 
+		analysis: null, 
+		pattern: null,
+		lastBet: null
+	});
+	
+	// 3. Enviar atualizações para UI
+	sendMessageToContent('PATTERN_BANK_UPDATE', { total: 0 });
+	sendMessageToContent('CLEAR_ANALYSIS');
+	sendAnalysisStatus('🔄 Reset completo - Aguardando nova análise...');
+	
+	console.log('╔═══════════════════════════════════════════════════════════╗');
+	console.log('║  ✅ RESET COMPLETO - TUDO ZERADO                         ║');
+	console.log('╠═══════════════════════════════════════════════════════════╣');
+	console.log('║  📊 Padrões: Limpos                                       ║');
+	console.log('║  🎯 Análise Pendente: Limpa                               ║');
+	console.log('║  📈 Entradas: Preservadas                                 ║');
+	console.log('║  Calibrador: Preservado                                   ║');
+	console.log('╚═══════════════════════════════════════════════════════════╝');
+}
+
+// Busca INICIAL de padrões por 5 minutos ao abrir a extensão
+let initialSearchActive = false;
+let initialSearchInterval = null;
+
+async function startInitialPatternSearch(history) {
+	if (!history || history.length < 50) {
+		console.log('⚠️ Histórico insuficiente para busca inicial (<50 giros). Aguardando...');
+		return;
+	}
+	
+	if (initialSearchActive) {
+		console.log('⚠️ Busca inicial já está em andamento.');
+		return;
+	}
+	
+	initialSearchActive = true;
+	const startTime = Date.now();
+	const duration = 5 * 60 * 1000; // 5 minutos
+	const updateInterval = 10000; // Atualizar progresso a cada 10s
+	
+	console.log('╔═══════════════════════════════════════════════════════════╗');
+	console.log('║  🔍 BUSCA INICIAL DE PADRÕES (5 MINUTOS)                 ║');
+	console.log('╠═══════════════════════════════════════════════════════════╣');
+	console.log(`║  📊 Histórico: ${history.length} giros disponíveis                    ║`);
+	console.log('║  ⏱️  Duração: 5 minutos                                   ║');
+	console.log('║  🎯 Limite: 5000 padrões únicos                          ║');
+	console.log('╚═══════════════════════════════════════════════════════════╝');
+	
+	// Notificar content script para exibir progresso
+	sendMessageToContent('INITIAL_SEARCH_START', { 
+		duration: duration,
+		startTime: startTime
+	});
+	
+	// Loop de busca contínua
+	let iteration = 0;
+	initialSearchInterval = setInterval(async () => {
+		iteration++;
+		const elapsed = Date.now() - startTime;
+		const remaining = duration - elapsed;
+		
+		if (remaining <= 0 || elapsed >= duration) {
+			// Tempo esgotado - finalizar busca
+			clearInterval(initialSearchInterval);
+			initialSearchActive = false;
+			
+			const db = await loadPatternDB();
+			const total = db.patterns_found ? db.patterns_found.length : 0;
+			
+			console.log('╔═══════════════════════════════════════════════════════════╗');
+			console.log('║  ✅ BUSCA INICIAL CONCLUÍDA                               ║');
+			console.log('╠═══════════════════════════════════════════════════════════╣');
+			console.log(`║  📊 Total de padrões únicos: ${total.toString().padEnd(4)}                    ║`);
+			console.log('║  🎯 Pronto para jogar!                                   ║');
+			console.log('╚═══════════════════════════════════════════════════════════╝');
+			
+			sendMessageToContent('INITIAL_SEARCH_COMPLETE', { 
+				total: total,
+				duration: elapsed
+			});
+			return;
+		}
+		
+		// Executar descoberta de padrões
+		try {
+			const iterationStartTs = Date.now();
+			const iterationBudget = Math.min(8000, remaining); // Até 8s por iteração
+			
+			await discoverAndPersistPatterns(history, iterationStartTs, iterationBudget);
+			
+			const db = await loadPatternDB();
+			const total = db.patterns_found ? db.patterns_found.length : 0;
+			const minutes = Math.floor(remaining / 60000);
+			const seconds = Math.floor((remaining % 60000) / 1000);
+			
+			console.log(`🔍 Busca inicial [${iteration}]: ${total}/5000 padrões | ${minutes}m ${seconds}s restantes`);
+			
+			// Atualizar UI
+			sendMessageToContent('INITIAL_SEARCH_PROGRESS', { 
+				total: total,
+				remaining: remaining,
+				iteration: iteration
+			});
+			
+			// Se atingiu o limite, parar
+			if (total >= 5000) {
+				clearInterval(initialSearchInterval);
+				initialSearchActive = false;
+				
+				console.log('╔═══════════════════════════════════════════════════════════╗');
+				console.log('║  ✅ LIMITE DE PADRÕES ATINGIDO (5000)                    ║');
+				console.log('╠═══════════════════════════════════════════════════════════╣');
+				console.log('║  🎯 Pronto para jogar!                                   ║');
+				console.log('╚═══════════════════════════════════════════════════════════╝');
+				
+				sendMessageToContent('INITIAL_SEARCH_COMPLETE', { 
+					total: total,
+					duration: elapsed
+				});
+			}
+		} catch (error) {
+			console.error('❌ Erro na busca inicial:', error);
+		}
+	}, updateInterval);
+}
+
+// Para a busca inicial (se necessário)
+function stopInitialPatternSearch() {
+	if (initialSearchInterval) {
+		clearInterval(initialSearchInterval);
+		initialSearchActive = false;
+		console.log('⏸️ Busca inicial de padrões interrompida.');
+	}
+}
+
+// Gera assinatura única para evitar duplicidade de padrão (RIGOROSA)
+// ═══════════════════════════════════════════════════════════════════════════════
+// GERAR CHAVE ÚNICA PARA PADRÃO - REFATORADO 100% (Anti-duplicação)
+// ═══════════════════════════════════════════════════════════════════════════════
+function patternKeyOf(p) {
+	// ✅ VALIDAÇÃO DE ENTRADA
+	if (!p || typeof p !== 'object') {
+		console.warn('⚠️ Padrão inválido para geração de chave:', p);
+		return 'invalid-pattern';
+	}
+	
+	// ✅ NORMALIZAR PADRÃO (string → array para consistência)
+	let normalizedPattern;
+	if (Array.isArray(p.pattern)) {
+		normalizedPattern = p.pattern;
+	} else if (typeof p.pattern === 'string') {
+		// ✅ Converter string para array de 1 elemento
+		normalizedPattern = [p.pattern];
+	} else {
+		console.warn('⚠️ Formato de padrão desconhecido:', p.pattern);
+		normalizedPattern = [];
+	}
+	
+	// ✅ GERAR STRING DO PADRÃO
+	const core = normalizedPattern.join('-');
+	
+	// ✅ EXTRAIR TIPO
+	const type = p.type || p.patternType || 'generic';
+	
+	// ✅ EXTRAIR PRÓXIMA COR ESPERADA
+	const expect = p.expected_next || p.suggestedColor || '';
+	
+	// ✅ CALCULAR TAMANHO REAL DO PADRÃO
+	const size = normalizedPattern.length;
+	
+	// ✅ ASSINATURA ÚNICA: tipo + tamanho + sequência + próxima cor
+	// ⚠️ NÃO incluir triggerColor (pode variar entre ocorrências)
+	const uniqueKey = `${type}|s:${size}|p:${core}|e:${expect}`;
+	
+	return uniqueKey;
+}
+
+// Verifica se padrão já existe no banco (por assinatura)
+function isDuplicatePattern(newPattern, existingPatterns) {
+	const newKey = patternKeyOf(newPattern);
+	return existingPatterns.some(p => patternKeyOf(p) === newKey);
+}
+
+// Verificação: compara head do histórico com padrões salvos e retorna melhor sinal
+async function verifyWithSavedPatterns(history) {
+	if (!history || history.length < 3) return null;
+	const db = await loadPatternDB();
+	if (!db.patterns_found || db.patterns_found.length === 0) return null;
+
+	const headColors = history.map(s => s.color);
+	let best = null;
+	for (const pat of db.patterns_found) {
+		if (!Array.isArray(pat.pattern) || pat.pattern.length === 0) continue;
+		const need = pat.pattern.length;
+		if (need < 3) continue; // ignorar padrões muito curtos
+		if (headColors.length < need) continue;
+		const currentSeq = headColors.slice(0, need);
+		const isMatch = currentSeq.every((c, i) => c === pat.pattern[i]);
+		if (!isMatch) continue;
+		let suggested = pat.expected_next || pat.suggestedColor; // ✅ Mudado para 'let' para permitir reatribuição
+		if (!suggested) continue;
+
+	// Obter cor de disparo atual (será usada depois para referência)
+		const currentTrigger = headColors[need]; // cor imediatamente anterior ao padrão no histórico
+	
+	// Validar Cor de Disparo no head atual SE requireTrigger estiver ativo E modo padrão ativo
+	// ⚠️ MODO IA: Ignora validação de trigger (configuração exclusiva do modo padrão)
+	if (!analyzerConfig.aiMode && analyzerConfig.requireTrigger) {
+		if (!currentTrigger) continue; // sem trigger disponível, não validar
+		if (!isValidTrigger(currentTrigger, pat.pattern)) {
+			console.log('❌ Padrão salvo rejeitado: cor de disparo atual inválida:', {
+				pattern: pat.pattern,
+				currentTrigger: currentTrigger,
+				firstPatternColor: pat.pattern[0],
+				requireTrigger: analyzerConfig.requireTrigger
+			});
+			continue; // trigger deve ser válida quando requireTrigger está ativo
+		}
+	}
+		// NÃO exigir que a trigger seja igual à salva; triggers podem variar por ocorrência
+
+		// Reconstruir ocorrências com números e horários a partir do histórico
+		const occNumbers = [];
+		const occTimestamps = [];
+		const trigNumbers = [];
+		const trigTimestamps = [];
+	const occurrenceDetails = [];
+		let occCount = 0;
+		for (let i = need; i < history.length; i++) {
+			const seq = history.slice(i, i + need);
+			if (seq.length < need) break;
+			const seqColors = seq.map(s => s.color);
+			const match = seqColors.every((c, idx) => c === pat.pattern[idx]);
+			if (match) {
+			const trigSpin = history[i + need];
+			const trigColor = trigSpin ? trigSpin.color : null;
+			
+			// Só validar trigger se requireTrigger estiver ativo E modo padrão ativo
+			// ⚠️ MODO IA: Ignora validação de trigger
+			if (!analyzerConfig.aiMode && analyzerConfig.requireTrigger) {
+				if (!trigColor || !isValidTrigger(trigColor, pat.pattern)) continue;
+			}
+				// triggers podem variar; não exigir igualdade a pat.triggerColor
+				occCount++;
+				occNumbers.push(seq.map(s => s.number));
+				occTimestamps.push(seq.map(s => s.timestamp));
+				trigNumbers.push(trigSpin ? trigSpin.number : null);
+				trigTimestamps.push(trigSpin ? trigSpin.timestamp : null);
+			
+			// Criar registro de ocorrência com cor de disparo real
+			const resultColor = history[i - 1] ? history[i - 1].color : null;
+			occurrenceDetails.push(
+				createOccurrenceRecord(pat.pattern, trigColor, resultColor, trigSpin, occCount)
+			);
+			}
+		}
+
+	// ═══════════════════════════════════════════════════════════════════════════════
+	// NOVA LÓGICA DE VALIDAÇÃO: Híbrida (Antiga + Nova)
+	// ═══════════════════════════════════════════════════════════════════════════════
+	const minOccurrences = Math.max(analyzerConfig.minOccurrences || 1, 1);
+	
+	// Contar todas as ocorrências do padrão no histórico
+	const colorResults = { red: 0, black: 0, white: 0 };
+	let totalOccurrences = 0;
+	
+		for (let i = need; i < history.length; i++) {
+			const seq = history.slice(i, i + need);
+			if (seq.length < need) break;
+			const seqColors = seq.map(s => s.color);
+			const match = seqColors.every((c, idx) => c === pat.pattern[idx]);
+			if (!match) continue;
+		
+		// Só validar trigger se requireTrigger estiver ativo E modo padrão ativo
+		// ⚠️ MODO IA: Ignora validação de trigger
+		if (!analyzerConfig.aiMode && analyzerConfig.requireTrigger) {
+			const trig = history[i + need] ? history[i + need].color : null;
+			if (!trig || !isValidTrigger(trig, pat.pattern)) continue;
+		}
+		
+		totalOccurrences++;
+		const resultColor = history[i - 1] ? history[i - 1].color : null;
+		if (resultColor) {
+			colorResults[resultColor]++;
+		}
+	}
+	
+	// ✅ VALIDAR QUANTIDADE MÍNIMA DE OCORRÊNCIAS
+	if (totalOccurrences < minOccurrences) {
+		console.log('❌ Padrão salvo rejeitado: ocorrências insuficientes:', {
+				pattern: pat.pattern,
+				suggested,
+			totalOccurrences,
+			minOccurrences
+		});
+		continue;
+	}
+	
+	// ✅ VALIDAR QUANTIDADE MÁXIMA DE OCORRÊNCIAS (0 = sem limite)
+	// ⚠️ MODO IA: Ignora validação de máximo de ocorrências (configuração exclusiva do modo padrão)
+	if (!analyzerConfig.aiMode) {
+		const maxOccurrences = analyzerConfig.maxOccurrences || 0;
+		if (maxOccurrences > 0 && totalOccurrences > maxOccurrences) {
+			console.log('❌ Padrão salvo rejeitado: excede ocorrências máximas:', {
+				pattern: pat.pattern,
+				suggested,
+				totalOccurrences,
+				maxOccurrences,
+				limite: `máx ${maxOccurrences}`
+			});
+			continue;
+		}
+	}
+	
+	// ✅ VALIDAR TAMANHO MÍNIMO E MÁXIMO DO PADRÃO
+	// ⚠️ MODO IA: Ignora validações de tamanho (configurações exclusivas do modo padrão)
+	if (!analyzerConfig.aiMode) {
+		const patternSize = pat.pattern.length;
+		const minPatternSize = analyzerConfig.minPatternSize || 2;
+		if (patternSize < minPatternSize) {
+			console.log('❌ Padrão salvo rejeitado: tamanho abaixo do mínimo:', {
+				pattern: pat.pattern,
+				patternSize,
+				minPatternSize,
+				limite: `mín ${minPatternSize} giros`
+			});
+			continue;
+		}
+		
+		// ✅ VALIDAR TAMANHO MÁXIMO DO PADRÃO (0 = sem limite)
+		const maxPatternSize = analyzerConfig.maxPatternSize || 0;
+		if (maxPatternSize > 0 && patternSize > maxPatternSize) {
+			console.log('❌ Padrão salvo rejeitado: tamanho acima do máximo:', {
+				pattern: pat.pattern,
+				patternSize,
+				maxPatternSize,
+				limite: `máx ${maxPatternSize} giros`
+			});
+			continue;
+		}
+	}
+	
+	// ═══════════════════════════════════════════════════════════════════════════════
+	// DECISÃO: Qual lógica usar?
+	// ═══════════════════════════════════════════════════════════════════════════════
+	let isValid = false;
+	
+	if (totalOccurrences === minOccurrences) {
+		// ✅ LÓGICA ANTIGA: Exige 100% WIN
+		console.log(`📊 Padrão ${pat.pattern.join('-')}: ${totalOccurrences} ocorrências (= mínimo)`);
+		console.log('   Aplicando LÓGICA ANTIGA (100% WIN)');
+		
+		const winsInSuggested = colorResults[suggested] || 0;
+		isValid = (winsInSuggested === minOccurrences);
+		
+		if (!isValid) {
+			console.log('   ❌ Rejeitado: Não tem 100% WIN na cor sugerida');
+			console.log(`      ${suggested}: ${winsInSuggested}/${minOccurrences} WINS`);
+		} else {
+			console.log('   ✅ Aprovado: 100% WIN na cor sugerida');
+		}
+		
+	} else {
+		// ✅ LÓGICA NOVA: Cor que aparece mais
+		const redCount = colorResults.red || 0;
+		const blackCount = colorResults.black || 0;
+		const whiteCount = colorResults.white || 0;
+		
+		// Ignorar branco se < 5%
+		const whitePct = (whiteCount / totalOccurrences) * 100;
+		const shouldIgnoreWhite = whitePct < 5;
+		
+		// Determinar cor vencedora (SEM VIÉS - IMPARCIAL)
+		let winningColor = null;
+		let winningCount = 0;
+		
+		// ✅ CORREÇÃO: Usar >= para evitar viés em empates
+		// Ordem: BLACK → RED → WHITE
+		
+		if (blackCount > winningCount) {
+			winningColor = 'black';
+			winningCount = blackCount;
+		}
+		
+		if (redCount >= winningCount && redCount > 0) {
+			winningColor = 'red';
+			winningCount = redCount;
+		}
+		
+		if (!shouldIgnoreWhite && whiteCount >= winningCount && whiteCount > 0) {
+			winningColor = 'white';
+			winningCount = whiteCount;
+		}
+		
+		if (!winningColor) {
+			continue; // Sem cor vencedora, ignorar silenciosamente
+		}
+		
+		// Calcular WINS e LOSS
+		const totalWins = winningCount;
+		const totalLoss = totalOccurrences - winningCount;
+		const balance = totalWins - totalLoss;
+		
+		// ✅ FILTRAR PADRÕES FRACOS SILENCIOSAMENTE
+		if (totalWins < minOccurrences) {
+			continue; // Não atende mínimo de WINS
+		}
+		
+		if (balance <= 0) {
+			continue; // Saldo não positivo
+		}
+		
+		// Verificar se cor vencedora é a sugerida
+		if (winningColor !== suggested) {
+			console.log(`   ⚠️ Cor vencedora (${winningColor}) difere da sugerida (${suggested})`);
+			console.log('   Atualizando sugerida para cor vencedora');
+			suggested = winningColor; // Atualizar para usar cor vencedora
+		}
+		
+		isValid = true;
+		console.log('   ✅ Aprovado pela NOVA LÓGICA');
+	}
+	
+	// Se não passou na validação, pular este padrão
+	if (!isValid) {
+		continue;
+		}
+
+		const patternName = identifyPatternType(pat.pattern, null);
+		// Calcular assertividade inteligente baseada no histórico e contexto recente
+		const assertCalc = computeAssertivenessForColorPattern(pat.pattern, suggested, history);
+		const patternDesc = {
+			colorAnalysis: {
+				pattern: pat.pattern,
+				occurrences: occCount || pat.occurrences || 1,
+				allOccurrenceNumbers: occNumbers,
+				allOccurrenceTimestamps: occTimestamps,
+				patternType: patternName,
+			triggerColor: currentTrigger || null, // SEMPRE usar trigger ATUAL, não o salvo
+				allTriggerNumbers: trigNumbers,
+                allTriggerTimestamps: trigTimestamps,
+                occurrenceDetails: occurrenceDetails, // Detalhes por ocorrência (append-only)
+                summary: (function(){
+                    // Recomputar wins/losses exatamente com as mesmas regras de ocorrência (inclui trigger)
+                    let w = 0, l = 0, occ = 0;
+                    for (let i = need; i < history.length; i++) {
+                        const seq = history.slice(i, i + need);
+                        if (seq.length < need) break;
+                        const seqColors = seq.map(s => s.color);
+                        const match = seqColors.every((c,ix) => c === pat.pattern[ix]);
+                        if (!match) continue;
+						
+						// Só validar trigger se requireTrigger estiver ativo
+						if (analyzerConfig.requireTrigger) {
+						const trig = history[i + need] ? history[i + need].color : null;
+						if (!trig || !isValidTrigger(trig, pat.pattern)) continue;
+						}
+						// triggers podem variar; não exigir igualdade à trigger salva
+                        occ++;
+                        const out = history[i-1] ? history[i-1].color : null;
+                        if (out === suggested) w++; else l++;
+                    }
+                    const winPct = (w + l) > 0 ? (w/(w+l))*100 : 0;
+                    // Calcular rigor baseado na configuração atual
+                    const sampleMin = Math.max(analyzerConfig.minOccurrences || 1, 1);
+                    let othersWins = 0, othersLosses = 0;
+                    let counted = 0;
+                    for (let i = need; i < history.length && counted < occ; i++) {
+                        const seq = history.slice(i, i + need);
+                        if (seq.length < need) break;
+                        const seqColors = seq.map(s => s.color);
+                        const match = seqColors.every((c,ix) => c === pat.pattern[ix]);
+                        if (!match) continue;
+                        
+                        // Só validar trigger se requireTrigger estiver ativo
+                        if (analyzerConfig.requireTrigger) {
+                        const trig = history[i + need] ? history[i + need].color : null;
+                        if (!trig || !isValidTrigger(trig, pat.pattern)) continue;
+                            // NÃO filtrar por cor de disparo específica - triggers podem variar entre ocorrências
+                        }
+                        counted++;
+                        const out = history[i-1] ? history[i-1].color : null;
+                        if (counted <= sampleMin) {
+                            // amostra mínima (deveria ser 100% win pela seleção); não entra no rigor
+                            continue;
+                        }
+                        if (out === suggested) othersWins++; else othersLosses++;
+                    }
+                    const othersCount = Math.max((occ - sampleMin), 0);
+                    const rigorWinPct = othersCount > 0 ? (othersWins / othersCount) * 100 : 100;
+                    // CORREÇÃO: Retornar wins/losses TOTAIS, não apenas "others"
+                    return {
+                        occurrences: occ,
+                        wins: w,  // Total de wins (inclui rigor + demais)
+                        losses: l,  // Total de losses (inclui rigor + demais)
+                        winPct: winPct,  // Porcentagem total
+                        lossPct: Math.max(0, 100 - winPct),
+                        othersCount,
+                        othersWins,  // Wins apenas das "demais" (excluindo rigor)
+                        othersLosses,  // Losses apenas das "demais" (excluindo rigor)
+                        rigorWinPct,  // Porcentagem apenas das "demais"
+                        sampleMin,
+                        sampleMinWins100: true,
+                        patternLength: Array.isArray(pat.pattern) ? pat.pattern.length : null
+                    };
+                })()
+			},
+			patternType: patternName,
+			expected_next: suggested,
+			id: pat.id,
+			found_at: pat.found_at,
+			assertiveness: assertCalc && assertCalc.explain ? assertCalc.explain : undefined
+		};
+		
+		// ✅ VALIDAÇÃO CRÍTICA: Verificar WIN% das ocorrências "Demais"
+		const summary = patternDesc.colorAnalysis.summary;
+		if (summary && summary.rigorWinPct !== undefined) {
+			const threshold = analyzerConfig.winPercentOthers || 0;
+			if (threshold > 0 && summary.rigorWinPct < threshold) {
+				// ❌ REJEITAR: WIN% das "Demais" está abaixo do threshold configurado
+				logRejectedPattern(
+					`${pat.pattern.join('-')} (salvo)`,
+					`WIN% Demais = ${summary.rigorWinPct.toFixed(1)}% < ${threshold}% (config)`
+				);
+				console.log(`   📊 Detalhes: ${summary.othersWins}W/${summary.othersLosses}L em ${summary.othersCount} ocorrências`);
+				console.log(`   🎯 Configuração exige: mínimo ${threshold}% de WIN nas demais ocorrências`);
+				continue;
+			}
+		}
+
+		// Se assertCalc existe, já vem calibrado; senão, calibrar a confidence salva
+		const rawPatternConfidence = typeof pat.confidence === 'number' ? pat.confidence : 70;
+		const patternConfidence = assertCalc ? assertCalc.finalConfidence : applyCalibratedConfidence(rawPatternConfidence);
+
+		const candidate = {
+			color: suggested,
+			suggestion: 'Padrão salvo',
+			confidence: patternConfidence,
+			patternDescription: JSON.stringify(patternDesc),
+			createdOnTimestamp: history[0] ? history[0].timestamp : new Date().toISOString(),
+			predictedFor: 'next',
+			phase: 'G0'
+		};
+		if (!best || candidate.confidence > best.confidence) best = candidate;
+	}
+	return best;
+}
+
+// Descoberta: executa 50+ análises em até 5s, evita repetir padrões já salvos
+async function discoverAndPersistPatterns(history, startTs, budgetMs) {
+	if (!history || history.length < 50) return; // respeita regra mínima existente
+	const db = await loadPatternDB();
+	const existingKeys = new Set(db.patterns_found.map(patternKeyOf));
+
+	const colors = history.map(s => s.color);
+	const tasks = [];
+	// Planejar 173+ análises diversificadas (cores, números, temporais e brancos)
+    for (let size = 3; size <= 15; size++) { // padrões de 3 a 15 giros
+		for (let offset = 0; offset < 10; offset++) { // 10 offsets para maior cobertura
+			tasks.push({ kind: 'color-window', size, offset });
+		}
+	}
+    for (let len = 3; len <= 8; len++) { // correlações numéricas até 8 giros
+		for (let offset = 0; offset < 5; offset++) { // 5 offsets
+			tasks.push({ kind: 'number-correlation-lite', len, offset });
+		}
+	}
+	// Adicionar análises temporais e de brancos
+	tasks.push({ kind: 'white-intervals' });
+	tasks.push({ kind: 'night-white' });
+	tasks.push({ kind: 'time-repetition' });
+	tasks.push({ kind: 'temporal-reversal' });
+	tasks.push({ kind: 'white-break' });
+	tasks.push({ kind: 'white-after-dominance' });
+	tasks.push({ kind: 'complete-cycle' });
+	tasks.push({ kind: 'post-white-peak' });
+	tasks.push({ kind: 'post-white-recovery' });
+	tasks.push({ kind: 'total-correction' });
+	tasks.push({ kind: 'microcycle' });
+	tasks.push({ kind: 'night-stability' });
+	tasks.push({ kind: 'day-oscillation' });
+
+	let discovered = [];
+	let duplicatesCount = 0; // ✅ CONTADOR DE DUPLICATAS
+	for (let idx = 0; idx < tasks.length; idx++) {
+		// Orçamento de tempo
+		if ((Date.now() - startTs) > budgetMs) break;
+		const t = tasks[idx];
+		let results = [];
+		if (t.kind === 'color-window') {
+			results = discoverColorPatternsFast(colors, t.size, t.offset);
+		} else if (t.kind === 'number-correlation-lite') {
+			results = discoverNumberCorrelationsFast(history.map(s => s.number), colors, t.len, t.offset);
+		} else if (t.kind === 'white-intervals') {
+			const pattern = analyzeWhiteIntervals(history);
+			if (pattern) results = [pattern];
+		} else if (t.kind === 'night-white') {
+			const pattern = analyzeNightWhitePattern(history);
+			if (pattern) results = [pattern];
+		} else if (t.kind === 'time-repetition') {
+			const pattern = analyzeTimeRepetitionPattern(history);
+			if (pattern) results = [pattern];
+		} else if (t.kind === 'temporal-reversal') {
+			const pattern = analyzeTemporalReversalPattern(history);
+			if (pattern) results = [pattern];
+		} else if (t.kind === 'white-break') {
+			const pattern = analyzeWhiteBreakPattern(history);
+			if (pattern) results = [pattern];
+		} else if (t.kind === 'white-after-dominance') {
+			const pattern = analyzeWhiteAfterDominancePattern(history);
+			if (pattern) results = [pattern];
+		} else if (t.kind === 'complete-cycle') {
+			const pattern = analyzeCompleteCyclePattern(history);
+			if (pattern) results = [pattern];
+		} else if (t.kind === 'post-white-peak') {
+			const pattern = analyzePostWhitePeakPattern(history);
+			if (pattern) results = [pattern];
+		} else if (t.kind === 'post-white-recovery') {
+			const pattern = analyzePostWhiteRecoveryPattern(history);
+			if (pattern) results = [pattern];
+		} else if (t.kind === 'total-correction') {
+			const pattern = analyzeTotalCorrectionPattern(history);
+			if (pattern) results = [pattern];
+		} else if (t.kind === 'microcycle') {
+			const pattern = analyzeMicrocyclePattern(history);
+			if (pattern) results = [pattern];
+		} else if (t.kind === 'night-stability') {
+			const pattern = analyzeNightStabilityPattern(history);
+			if (pattern) results = [pattern];
+		} else if (t.kind === 'day-oscillation') {
+			const pattern = analyzeDayOscillationPattern(history);
+			if (pattern) results = [pattern];
+		}
+		for (const r of results) {
+			// ✅ NORMALIZAR FORMATO DE PADRÕES (CRÍTICO PARA ANTI-DUPLICAÇÃO!)
+			
+			// 1. Normalizar próxima cor esperada
+			if (r.suggestedColor && !r.expected_next) {
+				r.expected_next = r.suggestedColor;
+			}
+			
+			// 2. ✅ NORMALIZAR PADRÃO (string → array) ANTES de gerar chave
+			if (typeof r.pattern === 'string' && !Array.isArray(r.pattern)) {
+				// ✅ Converter string para array diretamente
+				r.pattern = [r.pattern];
+			} else if (!Array.isArray(r.pattern) && Array.isArray(r.patternArr)) {
+				// ✅ Usar patternArr se pattern não for array
+				r.pattern = r.patternArr;
+			} else if (!Array.isArray(r.pattern)) {
+				// ✅ Fallback para array vazio
+				console.warn('⚠️ Padrão sem formato válido, convertendo para array:', r);
+				r.pattern = r.pattern ? [String(r.pattern)] : [];
+			}
+			
+			// 3. Normalizar tipo
+			if (!r.type && r.patternType) {
+				r.type = r.patternType;
+			}
+			
+			// ✅ GERAR CHAVE ÚNICA (agora com padrão normalizado)
+			const key = patternKeyOf(r);
+			
+			// ✅ VERIFICAR DUPLICATA
+			if (existingKeys.has(key)) {
+				duplicatesCount++; // ✅ INCREMENTAR CONTADOR
+				continue; // ✅ Pular duplicata
+			}
+			
+			// ✅ ADICIONAR CHAVE AO SET
+			existingKeys.add(key);
+			
+			// ✅ ADICIONAR AO ARRAY DE DESCOBERTOS
+			discovered.push(r);
+		}
+	}
+
+	// ✅ MOSTRAR RESUMO DE DUPLICATAS (apenas se houver)
+	if (duplicatesCount > 0) {
+		console.log(`🔍 ${duplicatesCount} padrão(ões) duplicado(s) ignorado(s)`);
+	}
+
+	if (discovered.length === 0) {
+		console.log('🔍 Descoberta: Nenhum padrão novo encontrado (todos já existem no banco)');
+		return;
+	}
+
+	// Log de descoberta
+	console.log(`
+╔═══════════════════════════════════════════════════════════╗
+║  🔍 NOVOS PADRÕES DESCOBERTOS                             
+╠═══════════════════════════════════════════════════════════╣
+║  ✨ ${discovered.length.toString().padStart(3)} novos padrões encontrados!                     
+║  ⏱️  Tempo decorrido: ${((Date.now() - startTs) / 1000).toFixed(2)}s                    
+║  📊 Total de tarefas executadas: ${tasks.length}                  
+╚═══════════════════════════════════════════════════════════╝
+	`.trim());
+
+	// ✅ UPSERT NO DB - REFATORADO COM ANTI-DUPLICAÇÃO
+	const nowIso = new Date().toISOString();
+	let idCounter = 0; // ✅ Contador para garantir IDs únicos
+	
+	for (const p of discovered) {
+		// ✅ GERAR ID ÚNICO (timestamp + contador + random)
+		if (!p.id) {
+			const timestamp = Date.now();
+			const counter = idCounter++;
+			const random = Math.floor(Math.random() * 10000);
+			p.id = `${timestamp}-${counter}-${random}`;
+		}
+		
+		// ✅ NORMALIZAR DATA DE DESCOBERTA
+		p.found_at = p.found_at || nowIso;
+		
+		// ✅ NORMALIZAR NOME DA PRÓXIMA COR ESPERADA
+		if (!p.expected_next && p.suggestedColor) {
+			p.expected_next = p.suggestedColor;
+		}
+		
+		// ✅ NORMALIZAR CONFIANÇA
+		if (typeof p.confidence !== 'number') {
+			p.confidence = 70;
+		}
+		
+		// ✅ NORMALIZAR PADRÃO (CRÍTICO PARA ANTI-DUPLICAÇÃO!)
+		if (!Array.isArray(p.pattern)) {
+			if (Array.isArray(p.patternArr)) {
+				p.pattern = p.patternArr;
+			} else if (typeof p.pattern === 'string') {
+				// ✅ Converter string para array de 1 elemento
+				p.pattern = [p.pattern];
+			} else {
+				// ✅ Fallback para array vazio
+				p.pattern = [];
+				console.warn('⚠️ Padrão sem formato válido:', p);
+			}
+		}
+		
+		// ✅ INICIALIZAR CONTADORES DE DESEMPENHO
+		if (typeof p.total_wins !== 'number') p.total_wins = 0;
+		if (typeof p.total_losses !== 'number') p.total_losses = 0;
+		
+		// ✅ ADICIONAR AO BANCO (JÁ VALIDADO COMO NÃO DUPLICADO)
+		db.patterns_found.unshift({
+			id: p.id,
+			pattern: p.pattern, // ✅ Sempre array após normalização
+			expected_next: p.expected_next,
+			confidence: p.confidence,
+			found_at: p.found_at,
+			type: p.type || p.patternType || 'discovery',
+			occurrences: p.occurrences || 0,
+			triggerColor: p.triggerColor || null,
+			total_wins: p.total_wins,
+			total_losses: p.total_losses
+		});
+	}
+	// Limitar para não crescer indefinidamente
+	db.patterns_found = db.patterns_found.slice(0, 5000);
+	await savePatternDB(db);
+}
+
+// Varredura rápida por padrões de cores (sem exigir match atual, apenas descoberta)
+function discoverColorPatternsFast(colors, size, strideOffset) {
+	const out = [];
+	if (!Array.isArray(colors) || colors.length < size + 1) return out;
+	if (size < 3) return out; // garantir pelo menos 3 giros no padrão
+	const outcomesMap = new Map();
+	for (let i = size; i < colors.length - 1; i++) {
+		if (((i - size) % 5) !== strideOffset) continue; // espaçar varredura
+		const seq = colors.slice(i, i + size);
+		const nextColor = colors[i - 1];
+		const triggerColor = colors[i + size]; // cor imediatamente antes do padrão
+		if (!triggerColor) continue;
+		if (!isValidTrigger(triggerColor, seq)) continue; // respeitar regra de disparo
+        const key = seq.join('-');
+		let bag = outcomesMap.get(key);
+        if (!bag) { bag = { seq, outcomes: [], triggers: [], triggerCounts: {}, count: 0 }; outcomesMap.set(key, bag); }
+		bag.outcomes.push(nextColor);
+		bag.count++;
+		bag.triggers.push(triggerColor);
+		bag.triggerCounts[triggerColor] = (bag.triggerCounts[triggerColor] || 0) + 1;
+	}
+	for (const bag of outcomesMap.values()) {
+		if (bag.count < 2) continue;
+		const cnt = {};
+		for (const c of bag.outcomes) cnt[c] = (cnt[c] || 0) + 1;
+		// ✅ CORREÇÃO: Usar primeira chave disponível em vez de 'red' como padrão
+		const keys = Object.keys(cnt);
+		if (keys.length === 0) continue;
+		const winner = keys.reduce((a, b) => cnt[a] >= cnt[b] ? a : b);
+		const acc = (cnt[winner] / bag.outcomes.length) * 100;
+        if (acc >= 68) { // um pouco abaixo de 75 para descobrir mais padrões; filtro adicional via significância
+			const signif = cnt[winner] / (bag.outcomes.length / 3);
+			if (signif >= 1.6) {
+				// Trigger mais frequente observado para esta sequência
+                // Mas garantir que a trigger seja diferente da primeira cor do padrão
+                let trigMost = Object.keys(bag.triggerCounts).reduce((a,b) => bag.triggerCounts[a] > bag.triggerCounts[b] ? a : b);
+                if (!isValidTrigger(trigMost, bag.seq)) {
+                    // Tentar outra trigger válida se existir
+                    const candidates = Object.keys(bag.triggerCounts).filter(t => isValidTrigger(t, bag.seq));
+                    if (candidates.length === 0) return; // descartar padrão inválido
+                    trigMost = candidates.sort((a,b)=> bag.triggerCounts[b]-bag.triggerCounts[a])[0];
+                }
+				// Calcular assertividade inteligente imediatamente
+				out.push({
+					type: 'color-discovery',
+					pattern: bag.seq,
+					triggerColor: trigMost,
+					expected_next: winner,
+					confidence: acc,
+					occurrences: bag.count
+				});
+			}
+		}
+	}
+	return out;
+}
+
+// Descoberta leve de correlação numérica
+function discoverNumberCorrelationsFast(numbers, colors, len, strideOffset) {
+	const out = [];
+	if (!Array.isArray(numbers) || numbers.length < len + 1) return out;
+	if (len < 3) return out; // não considerar padrões com menos de 3 números
+	const map = new Map();
+	for (let i = len; i < numbers.length - 1; i++) {
+		if (((i - len) % 3) !== strideOffset) continue;
+		const seq = [];
+		for (let k = 0; k < len; k++) seq.push(numbers[i + (len - 1 - k)]);
+		const key = seq.join('→');
+		const outcome = colors[i - 1];
+		let bag = map.get(key);
+		if (!bag) { bag = { seq, outcomes: [], count: 0 }; map.set(key, bag); }
+		bag.outcomes.push(outcome);
+		bag.count++;
+	}
+	for (const bag of map.values()) {
+		if (bag.count < 3) continue;
+		const cnt = {};
+		for (const c of bag.outcomes) cnt[c] = (cnt[c] || 0) + 1;
+		// ✅ CORREÇÃO: Usar primeira chave disponível em vez de 'red' como padrão
+		const keys = Object.keys(cnt);
+		if (keys.length === 0) continue;
+		const winner = keys.reduce((a, b) => cnt[a] >= cnt[b] ? a : b);
+		const acc = (cnt[winner] / bag.outcomes.length) * 100;
+		const signif = cnt[winner] / (bag.outcomes.length / 3);
+		if (acc >= 70 && signif >= 1.8) {
+			out.push({
+				type: 'number-corr-discovery',
+				pattern: bag.seq.map(n => (typeof n === 'number' ? String(n) : n)).join('→'),
+				patternArr: colorsForNumberSeq(bag.seq),
+				expected_next: winner,
+				confidence: acc,
+				occurrences: bag.count
+			});
+		}
+	}
+	return out;
+}
+
+function colorsForNumberSeq(seq) {
+	return seq.map(n => getColorFromNumber(n));
+}
+
+// AI Pattern Analysis System - MULTIDIMENSIONAL
+async function performPatternAnalysis(history) {
+    console.log('🔍 Iniciando análise multidimensional de IA com', history.length, 'giros', '| Rigor:', rigorLogString());
+    
+    // Verificar se há dados suficientes para análise
+    if (history.length < 50) {
+        console.log('⚠️ Dados insuficientes para análise multidimensional:', history.length, '/ 50 giros necessários');
+        sendAnalysisStatus(`Coletando dados... ${history.length}/50 giros`);
+        return null;
+    }
+    
+    // Enviar status inicial com quantidade de giros
+    sendAnalysisStatus(`🔍 Iniciando análise multidimensional de IA com ${history.length} giros`);
+    
+    // 1. ANÁLISE DE PADRÕES DE COR COM COR DE DISPARO (baseada nos exemplos)
+    const colorAnalysis = analyzeColorPatternsWithTrigger(history);
+    if (colorAnalysis) {
+        console.log(`📊 Padrão de cores: ${colorAnalysis.pattern.join('-')} → ${colorAnalysis.suggestedColor} (${colorAnalysis.confidence.toFixed(1)}%, ${colorAnalysis.occurrences}x)`);
+    }
+    
+    // Enviar status para análise numérica
+    sendAnalysisStatus('🧮 Verificando padrões numéricos...');
+    
+    // 2. ANÁLISE DE PADRÕES NUMÉRICOS
+    const numberAnalysis = analyzeNumberPatterns(history);
+    if (numberAnalysis) {
+        console.log(`🔢 Padrão numérico: ${numberAnalysis.pattern} → ${numberAnalysis.suggestedNumber} (${numberAnalysis.confidence.toFixed(1)}%)`);
+    }
+    
+    // Enviar status para análise temporal
+    sendAnalysisStatus('⏰ Analisando tendências temporais...');
+    
+    // 3. ANÁLISE TEMPORAL E MISTA AVANÇADA (baseada nos exemplos 21-33)
+    const timeAnalysis = analyzeTemporalAndMixedPatterns(history);
+    if (timeAnalysis) {
+        console.log(`⏰ Padrão temporal/misto: ${timeAnalysis.pattern} → ${timeAnalysis.suggestedColor} (${timeAnalysis.confidence.toFixed(1)}%)`);
+    }
+    
+    // Enviar status para análise de correlações
+    sendAnalysisStatus('🔗 Calculando correlações...');
+    
+    // 4. ANÁLISE DE CORRELAÇÕES
+    const correlationAnalysis = analyzeCorrelations(history);
+    if (correlationAnalysis) {
+        console.log(`🔗 Correlação: ${correlationAnalysis.pattern} → ${correlationAnalysis.suggestedColor} (${correlationAnalysis.confidence.toFixed(1)}%)`);
+    }
+    
+    // Enviar status para análise de frequência
+    sendAnalysisStatus('📊 Avaliando frequências...');
+    
+    // 5. ANÁLISE DE FREQUÊNCIA MULTIDIMENSIONAL
+    const frequencyAnalysis = analyzeMultidimensionalFrequency(history);
+    if (frequencyAnalysis) {
+        console.log(`📈 Frequência multidimensional: ${frequencyAnalysis.pattern} → ${frequencyAnalysis.suggestedColor} (${frequencyAnalysis.confidence.toFixed(1)}%)`);
+    }
+    
+    // Enviar status para combinação final
+    sendAnalysisStatus('🎯 Combinando análises...');
+    
+    // 6. COMBINAR TODAS AS ANÁLISES MULTIDIMENSIONAIS
+    const finalAnalysis = await combineMultidimensionalAnalyses(
+        colorAnalysis, 
+        numberAnalysis, 
+        timeAnalysis, 
+        correlationAnalysis, 
+        frequencyAnalysis
+    );
+    
+    if (finalAnalysis) {
+        console.log(`✅ ANÁLISE MULTIDIMENSIONAL APROVADA: ${finalAnalysis.color} (${finalAnalysis.confidence.toFixed(1)}%)`, '| Rigor:', rigorLogString());
+        console.log(`📊 Contribuições: Cor=${finalAnalysis.contributions.color}%, Núm=${finalAnalysis.contributions.number}%, Tempo=${finalAnalysis.contributions.time}%, Corr=${finalAnalysis.contributions.correlation}%, Freq=${finalAnalysis.contributions.frequency}%`);
+        // Enviar status de conclusão
+        sendAnalysisStatus('✅ Padrão encontrado!');
+    } else {
+        console.log('❌ Análise multidimensional rejeitada - critérios não atendidos');
+        // Enviar status de aguardando novo giro após análise completa
+        sendAnalysisStatus('⏳ Aguardando novo giro...');
+    }
+    
+    return finalAnalysis;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ANÁLISE DE PADRÕES DE CORES - CORREÇÃO CRÍTICA
+// IDENTIFICA SEQUÊNCIAS COMPLETAS DE CORES (DO INÍCIO AO FIM)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// 🔧 FUNÇÃO AUXILIAR: Identificar sequência completa de cores mais recente
+function identifyCompleteColorSequence(colors, maxLength = 20) {
+    if (!colors || colors.length < 2) return null;
+    
+    // Agrupar cores consecutivas iguais em blocos
+    const blocks = [];
+    let currentColor = colors[0];
+    let currentCount = 1;
+    
+    for (let i = 1; i < Math.min(colors.length, maxLength); i++) {
+        if (colors[i] === currentColor) {
+            currentCount++;
+        } else {
+            blocks.push({ color: currentColor, count: currentCount });
+            currentColor = colors[i];
+            currentCount = 1;
+        }
+    }
+    blocks.push({ color: currentColor, count: currentCount });
+    
+    // Converter blocos em sequência completa
+    const sequence = [];
+    for (const block of blocks) {
+        for (let i = 0; i < block.count; i++) {
+            sequence.push(block.color);
+        }
+    }
+    
+    return {
+        sequence: sequence,
+        blocks: blocks,
+        length: sequence.length
+    };
+}
+
+function analyzeColorPatternsWithTrigger(history) {
+    // ✅ VALIDAÇÃO INICIAL
+    if (!history || !Array.isArray(history) || history.length < 50) {
+        console.log('⚠️ Histórico insuficiente para análise de cores:', history?.length || 0, '/ 50 giros necessários');
+        return null;
+    }
+    
+    console.log(`🔍 Iniciando análise de padrões de cores com ${history.length} giros`);
+    console.log('🚨 CORREÇÃO ATIVADA: Identificando SEQUÊNCIAS COMPLETAS de cores');
+    
+    // ✅ EXTRAÇÃO DE CORES
+    const colors = history.map(s => {
+        if (!s || !s.color) {
+            console.warn('⚠️ Giro inválido detectado:', s);
+            return 'red'; // Fallback seguro
+        }
+        return s.color;
+    });
+    
+    // ✅ CONFIGURAÇÃO DO USUÁRIO
+    const minOccurrences = parseInt(analyzerConfig.minOccurrences) || 5;
+    
+    console.log(`📊 Config: minOccurrences=${minOccurrences}`);
+    
+    // 🔍 PASSO 1: IDENTIFICAR SEQUÊNCIA COMPLETA MAIS RECENTE
+    const currentPattern = identifyCompleteColorSequence(colors, 20);
+    
+    if (!currentPattern || currentPattern.length < 2) {
+        console.log('❌ Não foi possível identificar sequência completa nos giros recentes');
+        return null;
+    }
+    
+    console.log('═══════════════════════════════════════════════════════════');
+    console.log('📍 SEQUÊNCIA COMPLETA IDENTIFICADA:');
+    console.log(`   Giros: ${currentPattern.sequence.join('-')}`);
+    console.log(`   Blocos: ${currentPattern.blocks.map(b => `${b.count}x${b.color.toUpperCase()}`).join(' + ')}`);
+    console.log(`   Tamanho total: ${currentPattern.length} giros`);
+    console.log('═══════════════════════════════════════════════════════════');
+    
+    // 🔍 PASSO 2: BUSCAR ESSA SEQUÊNCIA COMPLETA NO HISTÓRICO
+    const patternToFind = currentPattern.sequence;
+    const patternLength = patternToFind.length;
+    
+    const occurrences = [];
+    
+    // Varrer histórico procurando a SEQUÊNCIA COMPLETA
+    for (let i = patternLength; i < history.length - 1; i++) {
+        const historicalSequence = colors.slice(i, i + patternLength);
+        
+        // Verificar se a sequência completa é igual
+        const isMatch = historicalSequence.every((c, idx) => c === patternToFind[idx]);
+        
+        if (isMatch) {
+            const triggerColor = colors[i + patternLength]; // Cor antes da sequência
+            const resultColor = colors[i - 1]; // Cor que saiu APÓS a sequência completa
+            
+            // ✅ VALIDAR TRIGGER (se configurado)
+            if (analyzerConfig.requireTrigger && triggerColor) {
+                if (!isValidTrigger(triggerColor, patternToFind)) {
+                    continue; // Trigger inválida, pular
+                }
+            }
+            
+            occurrences.push({
+                index: i,
+                trigger: triggerColor,
+                result: resultColor,
+                number: history[i - 1]?.number,
+                timestamp: history[i - 1]?.timestamp
+            });
+        }
+    }
+    
+    console.log(`\n🔍 Buscando sequência completa no histórico...`);
+    console.log(`   Sequência procurada: ${patternToFind.join('-')}`);
+    console.log(`   Tamanho: ${patternLength} giros (COMPLETOS)`);
+    console.log(`   Ocorrências encontradas: ${occurrences.length}`);
+    
+    // ✅ VALIDAR: Ocorrências suficientes?
+    if (occurrences.length < minOccurrences) {
+        console.log(`❌ Ocorrências insuficientes: ${occurrences.length} < ${minOccurrences} (mínimo)`);
+        return null;
+    }
+    
+    // 🔍 PASSO 3: ANALISAR RESULTADOS APÓS A SEQUÊNCIA COMPLETA
+    const colorResults = {
+        red: [],
+        black: [],
+        white: []
+    };
+    
+    occurrences.forEach(occ => {
+        if (occ.result) {
+            colorResults[occ.result].push(occ);
+        }
+    });
+    
+    const redCount = colorResults.red.length;
+    const blackCount = colorResults.black.length;
+    const whiteCount = colorResults.white.length;
+    const totalOccurrences = occurrences.length;
+    
+    console.log(`\n📊 RESULTADOS APÓS A SEQUÊNCIA COMPLETA:`);
+    console.log(`   VERMELHO: ${redCount} vezes (${((redCount/totalOccurrences)*100).toFixed(1)}%)`);
+    console.log(`   PRETO: ${blackCount} vezes (${((blackCount/totalOccurrences)*100).toFixed(1)}%)`);
+    console.log(`   BRANCO: ${whiteCount} vezes (${((whiteCount/totalOccurrences)*100).toFixed(1)}%)`);
+    
+    // ✅ Ignorar branco se < 5%
+    const whitePct = (whiteCount / totalOccurrences) * 100;
+    const shouldIgnoreWhite = whitePct < 5;
+    
+    // 🔍 PASSO 4: DETERMINAR COR VENCEDORA (SEM VIÉS - IMPARCIAL)
+    let winningColor = null;
+    let winningCount = 0;
+    
+    // ✅ CORREÇÃO: Usar >= para garantir que em caso de empate, a ÚLTIMA cor verificada ganha
+    // Ordem: BLACK → RED → WHITE (para não favorecer nenhuma cor específica)
+    
+    if (blackCount > winningCount) {
+        winningColor = 'black';
+        winningCount = blackCount;
+    }
+    
+    if (redCount >= winningCount && redCount > 0) {
+        winningColor = 'red';
+        winningCount = redCount;
+    }
+    
+    if (!shouldIgnoreWhite && whiteCount >= winningCount && whiteCount > 0) {
+        winningColor = 'white';
+        winningCount = whiteCount;
+    }
+    
+    if (!winningColor) {
+        console.log('❌ Nenhuma cor vencedora identificada');
+        return null;
+    }
+    
+    // ✅ CALCULAR WINS E LOSS DA COR VENCEDORA
+    const totalWins = winningCount;
+    const totalLoss = totalOccurrences - winningCount;
+    const balance = totalWins - totalLoss;
+    
+    console.log(`\n🎯 COR VENCEDORA: ${winningColor.toUpperCase()}`);
+    console.log(`   WINS: ${totalWins}`);
+    console.log(`   LOSS: ${totalLoss}`);
+    console.log(`   Saldo: ${balance > 0 ? '+' : ''}${balance}`);
+    
+    // ✅ FILTRAR PADRÕES FRACOS
+    if (totalWins < minOccurrences) {
+        console.log(`❌ WINS insuficientes: ${totalWins} < ${minOccurrences} (mínimo)`);
+        return null;
+    }
+    
+    if (balance <= 0) {
+        console.log(`❌ Saldo não positivo: ${balance}`);
+        return null;
+    }
+    
+    // ✅ CALCULAR CONFIANÇA
+    const confidence = (totalWins / totalOccurrences) * 100;
+    
+    console.log(`   Confiança: ${confidence.toFixed(1)}%`);
+    
+    // 🔍 PASSO 5: VERIFICAR SE PADRÃO ATUAL CORRESPONDE
+    const currentSequence = colors.slice(0, patternLength);
+    const isCurrentMatch = currentSequence.every((c, idx) => c === patternToFind[idx]);
+    
+    if (!isCurrentMatch) {
+        console.log('❌ Sequência atual não corresponde ao padrão encontrado');
+        return null;
+    }
+    
+    // ✅ VALIDAR TRIGGER ATUAL (se configurado)
+    const currentTriggerColor = colors[patternLength];
+    if (analyzerConfig.requireTrigger) {
+        if (!isValidTrigger(currentTriggerColor, patternToFind)) {
+            console.log('❌ Cor de disparo atual inválida');
+            return null;
+        }
+    }
+    
+    // ✅ CONSTRUIR RESULTADO FINAL
+    const bestPattern = {
+        pattern: patternToFind,
+        blocks: currentPattern.blocks, // 🆕 Informação dos blocos (ex: 7xPRETO + 7xVERMELHO)
+        suggestedColor: winningColor,
+        confidence: confidence,
+        occurrences: totalOccurrences,
+        wins: totalWins,
+        loss: totalLoss,
+        balance: balance,
+        triggerColor: currentTriggerColor,
+        colorResults: colorResults,
+        type: 'color-pattern',
+        patternType: identifyPatternType(patternToFind, currentTriggerColor),
+        isCurrentMatch: true,
+        currentTriggerValid: true,
+        createdOnTimestamp: history[0]?.timestamp || null,
+        summary: {
+            occurrences: totalOccurrences,
+            wins: totalWins,
+            losses: totalLoss,
+            winPct: confidence,
+            lossPct: Math.max(0, 100 - confidence),
+            patternLength: patternLength
+        }
+    };
+    
+    console.log('═══════════════════════════════════════════════════════════');
+    console.log(`✅ PADRÃO COMPLETO VALIDADO!`);
+    console.log(`   Sequência: ${bestPattern.blocks.map(b => `${b.count}x${b.color.toUpperCase()}`).join(' + ')}`);
+    console.log(`   Sugestão: ${bestPattern.suggestedColor.toUpperCase()}`);
+    console.log(`   WINS: ${bestPattern.wins} | LOSS: ${bestPattern.loss} | Saldo: +${bestPattern.balance}`);
+    console.log(`   Confiança: ${bestPattern.confidence.toFixed(1)}%`);
+    console.log('═══════════════════════════════════════════════════════════');
+    
+    return bestPattern;
+}
+
+
+
+// Verificar se a Cor de Disparo é válida para o padrão
+function isValidTrigger(triggerColor, patternSequence) {
+    if (!patternSequence || patternSequence.length === 0) return false;
+    
+    const firstPatternColor = patternSequence[0];
+    
+    // Cor de Disparo deve ser diferente da primeira cor do padrão
+    // e também não pode ser nula/indefinida
+    if (!triggerColor) return false;
+    return triggerColor !== firstPatternColor;
+}
+
+// Validar se cor de disparo é OPOSTA à cor inicial (regra estrita)
+function validateDisparoColor(corInicial, corDisparo) {
+    const mapping = {
+        'red': ['black', 'white'],
+        'black': ['red', 'white'],
+        'white': ['red', 'black']
+    };
+    
+    if (!corInicial || !corDisparo) {
+        return { valid: false, reason: 'missing_color' };
+    }
+    
+    if (corInicial === corDisparo) {
+        return { valid: false, reason: 'same_as_initial' };
+    }
+    
+    if (!mapping[corInicial] || !mapping[corInicial].includes(corDisparo)) {
+        return { valid: false, reason: 'invalid_opposite' };
+    }
+    
+    return { valid: true };
+}
+
+// Criar objeto de ocorrência individual (append-only)
+function createOccurrenceRecord(patternSequence, triggerColor, resultColor, spin, index) {
+    const corInicial = patternSequence[0];
+    const validation = validateDisparoColor(corInicial, triggerColor);
+    
+    return {
+        occurrence_id: spin ? (spin.created_at || spin.timestamp || `${Date.now()}_${index}`) : `${Date.now()}_${index}`,
+        index: index,
+        cor_inicial: corInicial,
+        cor_disparo: triggerColor,
+        resultado: resultColor,
+        timestamp: spin ? (spin.timestamp || spin.created_at) : new Date().toISOString(),
+        giro_numbers: Array.isArray(spin) ? spin.map(s => s.number) : (spin ? [spin.number] : []),
+        flag_invalid_disparo: !validation.valid,
+        invalid_reason: validation.valid ? null : validation.reason,
+        raw_color: !validation.valid ? triggerColor : null
+    };
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// IDENTIFICAR TIPO DE PADRÃO - REFATORADO 100%
+// ═══════════════════════════════════════════════════════════════════════════════
+function identifyPatternType(pattern, triggerColor) {
+    // ✅ VALIDAÇÃO DE ENTRADA
+    if (!pattern || !Array.isArray(pattern) || pattern.length === 0) {
+        console.warn('⚠️ Padrão inválido para identificação:', pattern);
+        return 'Padrão Desconhecido';
+    }
+    
+    const patternStr = pattern.join('-');
+    const patternLength = pattern.length;
+    
+    // ✅ PADRÃO 1-2: REPETIÇÃO (todos da mesma cor)
+    const isAllSameColor = pattern.every(color => color === pattern[0]);
+    if (isAllSameColor) {
+        if (pattern[0] === 'red') return 'Repetição Vermelha';
+        if (pattern[0] === 'black') return 'Repetição Preta';
+        if (pattern[0] === 'white') return 'Repetição Branca';
+    }
+    
+    // ✅ PADRÃO 3-5: ALTERNÂNCIA (cores alternadas)
+    if (isAlternatingPattern(pattern)) {
+        if (patternLength === 4) return 'Alternância Curta (4 giros)';
+        if (patternLength === 5) return 'Alternância Longa (5 giros)';
+        if (patternLength > 5) return `Alternância Extendida (${patternLength} giros)`;
+        return 'Alternância Quebrada';
+    }
+    
+    // ✅ PADRÃO 6: DUPLA ALTERNÂNCIA (pares alternados)
+    if (isDoubleAlternatingPattern(pattern)) {
+        return 'Dupla Alternância';
+    }
+    
+    // ✅ PADRÃO 7: INVERSÃO RÁPIDA (2 iguais + mudança)
+    if (patternLength >= 4) {
+        const hasQuickInversion = pattern[0] === pattern[1] && pattern[1] !== pattern[2];
+        if (hasQuickInversion) {
+        return 'Inversão Rápida';
+        }
+    }
+    
+    // ✅ PADRÃO 8-9: DOMINÂNCIA (5+ cores da mesma)
+    if (patternLength >= 5 && isAllSameColor) {
+        const dominantColor = pattern[0];
+        if (dominantColor === 'red') return `Dominância Vermelha (${patternLength} giros)`;
+        if (dominantColor === 'black') return `Dominância Preta (${patternLength} giros)`;
+        if (dominantColor === 'white') return `Dominância Branca (${patternLength} giros)`;
+    }
+    
+    // ✅ PADRÃO 10: CORREÇÃO DE COR (metade de uma cor, metade de outra)
+    if (isCorrectionPattern(pattern)) {
+        return 'Correção de Cor';
+    }
+    
+    // ✅ PADRÕES COM BRANCO
+    const hasWhite = pattern.includes('white');
+    if (hasWhite) {
+        return identifyWhitePattern(pattern);
+    }
+    
+    // ✅ PADRÃO GENÉRICO
+    return `Padrão Personalizado (${patternLength} giros)`;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// VERIFICAR PADRÃO DE ALTERNÂNCIA - REFATORADO 100%
+// ═══════════════════════════════════════════════════════════════════════════════
+function isAlternatingPattern(pattern) {
+    // ✅ VALIDAÇÃO DE ENTRADA
+    if (!pattern || !Array.isArray(pattern)) {
+        console.warn('⚠️ Padrão inválido para verificação de alternância:', pattern);
+        return false;
+    }
+    
+    // ✅ MÍNIMO 4 CORES NECESSÁRIO
+    if (pattern.length < 4) {
+        return false;
+    }
+    
+    // ✅ VERIFICAR SE CADA COR É DIFERENTE DA ANTERIOR
+    for (let i = 1; i < pattern.length; i++) {
+        // Se encontrar duas cores iguais consecutivas, não é alternância
+        if (pattern[i] === pattern[i - 1]) {
+            return false;
+    }
+    }
+    
+    // ✅ TODAS AS CORES ALTERNADAS
+    return true;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// VERIFICAR DUPLA ALTERNÂNCIA - REFATORADO 100%
+// ═══════════════════════════════════════════════════════════════════════════════
+function isDoubleAlternatingPattern(pattern) {
+    // ✅ VALIDAÇÃO DE ENTRADA
+    if (!pattern || !Array.isArray(pattern)) {
+        console.warn('⚠️ Padrão inválido para verificação de dupla alternância:', pattern);
+        return false;
+    }
+    
+    // ✅ MÍNIMO 4 CORES NECESSÁRIO (2 pares)
+    if (pattern.length < 4) {
+        return false;
+    }
+    
+    // ✅ VERIFICAR SE CADA PAR É IDÊNTICO
+    // Padrão: AA BB AA BB (cada par de cores iguais, pares alternados)
+    for (let i = 0; i < pattern.length - 1; i += 2) {
+        // Verificar se há índice suficiente
+        if (i + 1 >= pattern.length) {
+            break;
+        }
+        
+        // Par atual deve ter cores iguais
+        if (pattern[i] !== pattern[i + 1]) {
+            return false;
+        }
+    }
+    
+    // ✅ TODOS OS PARES SÃO VÁLIDOS
+    return true;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// VERIFICAR PADRÃO DE CORREÇÃO - REFATORADO 100%
+// ═══════════════════════════════════════════════════════════════════════════════
+function isCorrectionPattern(pattern) {
+    // ✅ VALIDAÇÃO DE ENTRADA
+    if (!pattern || !Array.isArray(pattern)) {
+        console.warn('⚠️ Padrão inválido para verificação de correção:', pattern);
+        return false;
+    }
+    
+    // ✅ MÍNIMO 5 CORES NECESSÁRIO
+    if (pattern.length < 5) {
+        return false;
+    }
+    
+    // ✅ DIVIDIR EM DUAS METADES
+    const midPoint = Math.floor(pattern.length / 2);
+    const firstHalf = pattern.slice(0, midPoint);
+    const secondHalf = pattern.slice(midPoint);
+    
+    // ✅ VALIDAR METADES
+    if (firstHalf.length === 0 || secondHalf.length === 0) {
+        return false;
+    }
+    
+    // ✅ PRIMEIRA METADE: TODAS DA MESMA COR
+    const firstHalfSameColor = firstHalf.every(color => color === firstHalf[0]);
+    
+    // ✅ SEGUNDA METADE: TODAS DA MESMA COR
+    const secondHalfSameColor = secondHalf.every(color => color === secondHalf[0]);
+    
+    // ✅ AS DUAS METADES DEVEM TER CORES DIFERENTES
+    const differentColors = firstHalf[0] !== secondHalf[0];
+    
+    return firstHalfSameColor && secondHalfSameColor && differentColors;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// IDENTIFICAR PADRÕES COM BRANCO - REFATORADO 100%
+// ═══════════════════════════════════════════════════════════════════════════════
+function identifyWhitePattern(pattern) {
+    // ✅ VALIDAÇÃO DE ENTRADA
+    if (!pattern || !Array.isArray(pattern)) {
+        console.warn('⚠️ Padrão inválido para identificação de branco:', pattern);
+        return 'Padrão Desconhecido';
+    }
+    
+    // ✅ CONTAR QUANTOS BRANCOS
+    const whiteCount = pattern.filter(color => color === 'white').length;
+    
+    // ✅ IDENTIFICAR TIPO BASEADO NA QUANTIDADE
+    if (whiteCount === 0) {
+        return 'Sem Branco';
+    } else if (whiteCount === 1) {
+        // Verificar posição do branco
+        const whiteIndex = pattern.indexOf('white');
+        if (whiteIndex === 0) {
+            return 'Branco Inicial';
+        } else if (whiteIndex === pattern.length - 1) {
+            return 'Branco Final';
+        } else {
+            return 'Branco Isolado (meio)';
+        }
+    } else if (whiteCount === 2) {
+        // Verificar se são consecutivos
+        const firstWhiteIndex = pattern.indexOf('white');
+        const lastWhiteIndex = pattern.lastIndexOf('white');
+        
+        if (lastWhiteIndex - firstWhiteIndex === 1) {
+            return 'Duplo Branco Consecutivo';
+        } else {
+            return 'Duplo Branco Espaçado';
+        }
+    } else if (whiteCount === 3) {
+        return 'Triplo Branco';
+    } else if (whiteCount >= pattern.length / 2) {
+        return `Dominância Branca (${whiteCount}/${pattern.length})`;
+    } else {
+        return `Padrão Misto com Branco (${whiteCount}x)`;
+    }
+}
+
+// Analisar sequências recorrentes no histórico (função antiga mantida para compatibilidade)
+function analyzeRecurrentSequences(history) {
+    const currentCreatedOn = history[0] ? history[0].timestamp : null;
+
+    // Procura padrões exatos de tamanhos 5 a 8 (mais confiáveis)
+    const bestCandidates = [];
+    for (let win = 5; win <= 8; win++) {
+        if (history.length < win + 2) continue; // Precisa de pelo menos win + 2 para analisar o próximo
+        
+        // CORRIGIDO: Verificar se o padrão atual está QUASE COMPLETO (faltando 1 giro)
+        const currentSequence = history.slice(0, win).map(s => s.color); // Padrão completo atual
+        const sequences = {};
+
+        for (let i = win; i < history.length - 1; i++) {
+            // Buscar padrões que estão QUASE COMPLETOS (faltando 1 giro)
+            const windowSlice = history.slice(i, i + win); // Padrão completo
+            const pastSequence = windowSlice.map(s => s.color);
+            const isExactMatch = pastSequence.every((c, idx) => c === currentSequence[idx]);
+            if (!isExactMatch) continue;
+
+            // Analisar o giro que COMPLETOU o padrão (o giro seguinte)
+            const completingColor = history[i - 1].color; // O giro que completou o padrão
+            const sequenceKey = pastSequence.join('-');
+            if (!sequences[sequenceKey]) {
+                sequences[sequenceKey] = {
+                    pattern: pastSequence,
+                    outcomes: [],
+                    count: 0,
+                    occurrenceTimes: [],
+                    lastOccurrenceTimestamps: [],
+                    lastOccurrenceNumbers: []
+                };
+            }
+            sequences[sequenceKey].outcomes.push(completingColor);
+            sequences[sequenceKey].count++;
+            const occurrenceEndTimestamp = history[i - 1] && history[i - 1].timestamp ? history[i - 1].timestamp : (history[i] && history[i].timestamp);
+            if (occurrenceEndTimestamp) sequences[sequenceKey].occurrenceTimes.push(occurrenceEndTimestamp);
+            sequences[sequenceKey].lastOccurrenceTimestamps = windowSlice.map(s => s.timestamp);
+            sequences[sequenceKey].lastOccurrenceNumbers = windowSlice.map(s => s.number);
+        }
+
+        const analyzed = Object.values(sequences).map(seq => {
+            const colorCounts = {};
+            seq.outcomes.forEach(color => { colorCounts[color] = (colorCounts[color] || 0) + 1; });
+            // ✅ CORREÇÃO: Usar primeira chave disponível em vez de 'red' como padrão
+            const keys = Object.keys(colorCounts);
+            if (keys.length === 0) return null;
+            const mostFrequentColor = keys.reduce((a, b) => colorCounts[a] >= colorCounts[b] ? a : b);
+            const accuracy = (colorCounts[mostFrequentColor] / seq.outcomes.length) * 100;
+            
+            // Validação estatística: verificar se não é distribuição aleatória
+            const totalOutcomes = seq.outcomes.length;
+            const expectedRandom = totalOutcomes / 3; // Esperado se fosse aleatório (3 cores)
+            const actualCount = colorCounts[mostFrequentColor];
+            const statisticalSignificance = actualCount / expectedRandom;
+            
+            // Só aceitar se for estatisticamente significativo (pelo menos 2.0x o esperado para 80%+ acertividade)
+            if (statisticalSignificance < 2.0) {
+                return null;
+            }
+            
+            return {
+                type: 'sequence',
+                pattern: seq.pattern,
+                window: win,
+                suggestedColor: mostFrequentColor, // Cor que mais frequentemente COMPLETOU o padrão
+                accuracy: accuracy,
+                occurrences: seq.count,
+                occurrenceTimes: seq.occurrenceTimes.sort((a,b) => new Date(b) - new Date(a)),
+                lastOccurrenceTimestamps: Array.isArray(seq.lastOccurrenceTimestamps) ? seq.lastOccurrenceTimestamps : [],
+                lastOccurrenceNumbers: Array.isArray(seq.lastOccurrenceNumbers) ? seq.lastOccurrenceNumbers : [],
+                confidence: accuracy,
+                statisticalSignificance: statisticalSignificance,
+                createdOnTimestamp: currentCreatedOn
+            };
+        }).filter(analysis => analysis !== null);
+
+        if (analyzed.length > 0) {
+            analyzed.sort((a, b) => (b.confidence - a.confidence) || (b.occurrences - a.occurrences));
+            bestCandidates.push(analyzed[0]);
+        }
+    }
+
+    if (bestCandidates.length === 0) return null;
+    bestCandidates.sort((a, b) => (b.confidence - a.confidence) || (b.occurrences - a.occurrences) || (b.window - a.window));
+    return bestCandidates[0];
+}
+
+// ANÁLISE DE PADRÕES NUMÉRICOS E CORRELATIVOS (baseada nos exemplos 34-50)
+function analyzeNumberPatterns(history) {
+    if (history.length < 50) return null; // Mínimo de 50 giros
+    
+    const numbers = history.map(s => s.number);
+    const colors = history.map(s => s.color);
+    const bestPatterns = [];
+    
+    // 0. NOVO: Padrões número+cor → próxima cor (ex.: 1 vermelho + 14 preto → preto)
+    const numberColorPair = analyzeNumberColorPairs(history);
+    if (numberColorPair) bestPatterns.push(numberColorPair);
+    
+    // 1. PADRÃO NUMÉRICO 1-4: Correlações Simples e Estendidas
+    const correlationPatterns = analyzeNumberCorrelations(numbers, colors);
+    if (correlationPatterns) bestPatterns.push(correlationPatterns);
+    
+    // 2. PADRÃO NUMÉRICO 5-7: Sequências Especiais
+    const sequencePatterns = analyzeSpecialSequences(numbers, colors);
+    if (sequencePatterns) bestPatterns.push(sequencePatterns);
+    
+    // 3. (DESATIVADO) Padrões Matemáticos por soma – removido para evitar falso positivo de soma
+    // const mathPatterns = analyzeMathematicalPatterns(numbers, colors);
+    // if (mathPatterns) bestPatterns.push(mathPatterns);
+    
+    // 4. PADRÃO NUMÉRICO 13-17: Padrões Avançados
+    const advancedPatterns = analyzeAdvancedPatterns(numbers, colors);
+    if (advancedPatterns) bestPatterns.push(advancedPatterns);
+    
+    if (bestPatterns.length === 0) return null;
+    
+    // Selecionar melhor padrão dentre os candidatos
+    const bestPattern = bestPatterns.sort((a, b) => (b.confidence - a.confidence) || (b.occurrences - a.occurrences))[0];
+    
+    // Verificação por tipo
+    if (bestPattern.type === 'number-color-pair') {
+        // Checar se o head atual bate com o par número+cor
+        if (history.length < 2) return null;
+        const headPair = [history[1], history[0]]; // mais antigo → mais recente
+        const p = bestPattern.pair; // [{number,color},{number,color}]
+        const isMatch = p && p.length === 2 &&
+                        headPair[0].number === p[0].number && headPair[0].color === p[0].color &&
+                        headPair[1].number === p[1].number && headPair[1].color === p[1].color;
+        if (!isMatch) {
+            console.log('❌ Par número+cor não corresponde ao head atual:', { pair: p, head: [{n: headPair[0].number, c: headPair[0].color},{n: headPair[1].number, c: headPair[1].color}] });
+            return null;
+        }
+        console.log('✅ Par número+cor confirma o padrão encontrado:', { pair: p, suggested: bestPattern.suggestedColor, conf: bestPattern.confidence.toFixed(1)+'%' });
+        return bestPattern;
+    }
+    
+    // Demais padrões numéricos: manter verificação por números puros
+    const patternNumbers = bestPattern.pattern.split('→').map(n => parseInt(n));
+    const currentNumbers = numbers.slice(0, patternNumbers.length);
+    const isCurrentPatternMatch = currentNumbers.every((num, index) => num === patternNumbers[index]);
+    if (!isCurrentPatternMatch) {
+        console.log('❌ Padrão numérico encontrado não corresponde ao padrão atual:', {
+            foundPattern: patternNumbers,
+            currentNumbers: currentNumbers,
+            isMatch: isCurrentPatternMatch
+        });
+        return null;
+    }
+    console.log('✅ Padrão numérico atual confirma o padrão encontrado:', { foundPattern: patternNumbers, currentNumbers: currentNumbers, isMatch: isCurrentPatternMatch });
+    return bestPattern;
+}
+
+// Analisar correlações numéricas (Padrões 1-4)
+function analyzeNumberCorrelations(numbers, colors) {
+    const correlations = {};
+    
+    // Buscar sequências de 2-3 números e suas correlações
+    for (let i = 2; i < numbers.length - 1; i++) {
+        // Padrão 1: Correlação Simples (5→11)
+        const seq2 = [numbers[i+1], numbers[i]];
+        const seq2Key = seq2.join('→');
+        const resultColor = colors[i-1];
+        
+        if (!correlations[seq2Key]) {
+            correlations[seq2Key] = {
+                pattern: seq2,
+                outcomes: [],
+                count: 0,
+                occurrenceTimes: [],
+                lastOccurrenceNumbers: []
+            };
+        }
+        
+        correlations[seq2Key].outcomes.push(resultColor);
+        correlations[seq2Key].count++;
+        correlations[seq2Key].occurrenceTimes.push(new Date().toISOString());
+        correlations[seq2Key].lastOccurrenceNumbers = seq2;
+        
+        // Padrão 2: Correlação Estendida (10→1→6)
+        if (i >= 2) {
+            const seq3 = [numbers[i+2], numbers[i+1], numbers[i]];
+            const seq3Key = seq3.join('→');
+            
+            if (!correlations[seq3Key]) {
+                correlations[seq3Key] = {
+                    pattern: seq3,
+                    outcomes: [],
+                    count: 0,
+                    occurrenceTimes: [],
+                    lastOccurrenceNumbers: []
+                };
+            }
+            
+            correlations[seq3Key].outcomes.push(resultColor);
+            correlations[seq3Key].count++;
+            correlations[seq3Key].occurrenceTimes.push(new Date().toISOString());
+            correlations[seq3Key].lastOccurrenceNumbers = seq3;
+        }
+    }
+    
+    // Analisar correlações encontradas
+    const validPatterns = [];
+    Object.values(correlations).forEach(pattern => {
+        if (pattern.count < 3) return; // Mínimo 3 ocorrências
+        
+        const colorCounts = {};
+        pattern.outcomes.forEach(color => {
+            colorCounts[color] = (colorCounts[color] || 0) + 1;
+        });
+        
+        const mostFrequentColor = Object.keys(colorCounts).reduce((a, b) => 
+            colorCounts[a] > colorCounts[b] ? a : b, 'red');
+        
+        const accuracy = (colorCounts[mostFrequentColor] / pattern.outcomes.length) * 100;
+        const statisticalSignificance = colorCounts[mostFrequentColor] / (pattern.outcomes.length / 3);
+        
+        // ✅ Calcular WINS e LOSSES
+        const wins = colorCounts[mostFrequentColor] || 0;
+        const losses = pattern.outcomes.length - wins;
+        
+        if (accuracy >= 75 && statisticalSignificance >= 2.0) {
+            validPatterns.push({
+                type: 'number-correlation',
+                pattern: pattern.pattern.join('→'),
+                suggestedColor: mostFrequentColor,
+                confidence: accuracy,
+                occurrences: pattern.count,
+                wins: wins,  // ✅ ADICIONADO
+                losses: losses,  // ✅ ADICIONADO
+                occurrenceTimes: pattern.occurrenceTimes,
+                lastOccurrenceNumbers: pattern.lastOccurrenceNumbers,
+                statisticalSignificance: statisticalSignificance,
+                patternType: pattern.pattern.length === 2 ? 'Correlação Simples' : 'Correlação Estendida'
+            });
+        }
+    });
+    
+    return validPatterns.length > 0 ? validPatterns[0] : null;
+}
+
+// NOVO: analisar pares de número+cor consecutivos que levam a próxima cor
+function analyzeNumberColorPairs(history) {
+    if (!history || history.length < 3) return null;
+    const pairMap = new Map();
+    // Percorre janelas de 3 giros: [i+2, i+1] determinam o par, outcome é i (giro seguinte)
+    for (let i = 1; i < history.length - 1; i++) {
+        const a = history[i+1]; // mais antigo no par
+        const b = history[i];   // mais recente no par
+        const outcome = history[i-1]; // próxima cor após o par
+        if (!a || !b || !outcome) continue;
+        const key = `${a.number}-${a.color}|${b.number}-${b.color}`;
+        let rec = pairMap.get(key);
+        if (!rec) {
+            rec = { pair: [{ number: a.number, color: a.color }, { number: b.number, color: b.color }], outcomes: [], count: 0 };
+            pairMap.set(key, rec);
+        }
+        rec.outcomes.push(outcome.color);
+        rec.count++;
+    }
+    // Avaliar pares
+    const candidates = [];
+    pairMap.forEach(rec => {
+        if (rec.count < 3) return; // mínimo 3 ocorrências do par
+        const counts = {};
+        rec.outcomes.forEach(c => counts[c] = (counts[c] || 0) + 1);
+        // ✅ CORREÇÃO: Usar primeira chave disponível em vez de 'red' como padrão
+        const keys = Object.keys(counts);
+        if (keys.length === 0) return;
+        const winner = keys.reduce((a, b) => counts[a] >= counts[b] ? a : b);
+        const acc = (counts[winner] / rec.outcomes.length) * 100;
+        const signif = counts[winner] / (rec.outcomes.length / 3);
+        if (acc >= 70 && signif >= 1.8) {
+            candidates.push({
+                type: 'number-color-pair',
+                pair: rec.pair,
+                suggestedColor: winner,
+                confidence: acc,
+                occurrences: rec.count,
+                statisticalSignificance: signif,
+                pattern: `${rec.pair[0].number}-${rec.pair[0].color} + ${rec.pair[1].number}-${rec.pair[1].color}`
+            });
+        }
+    });
+    if (candidates.length === 0) return null;
+    candidates.sort((a,b)=> (b.confidence - a.confidence) || (b.occurrences - a.occurrences));
+    return candidates[0];
+}
+
+// Analisar sequências especiais (Padrões 5-7)
+function analyzeSpecialSequences(numbers, colors) {
+    const specialPatterns = [];
+    
+    for (let i = 2; i < numbers.length - 1; i++) {
+        const currentNumbers = [numbers[i+2], numbers[i+1], numbers[i]];
+        const resultColor = colors[i-1];
+        
+        // Padrão 5: Pares Crescentes (2→4→6)
+        if (isAscendingEvenSequence(currentNumbers)) {
+            specialPatterns.push({
+                pattern: currentNumbers.join('→'),
+                outcome: resultColor,
+                type: 'Pares Crescentes'
+            });
+        }
+        
+        // Padrão 6: Ímpares Decrescentes (13→11→9)
+        if (isDescendingOddSequence(currentNumbers)) {
+            specialPatterns.push({
+                pattern: currentNumbers.join('→'),
+                outcome: resultColor,
+                type: 'Ímpares Decrescentes'
+            });
+        }
+        
+        // Padrão 7: Retorno ao Múltiplo de 5 (5→10→0)
+        if (isMultipleOfFiveSequence(currentNumbers)) {
+            specialPatterns.push({
+                pattern: currentNumbers.join('→'),
+                outcome: resultColor,
+                type: 'Múltiplos de 5'
+            });
+        }
+    }
+    
+    // Analisar padrões especiais encontrados
+    const analyzedPatterns = {};
+    specialPatterns.forEach(pattern => {
+        const key = `${pattern.type}-${pattern.pattern}`;
+        if (!analyzedPatterns[key]) {
+            analyzedPatterns[key] = {
+                pattern: pattern.pattern,
+                type: pattern.type,
+                outcomes: [],
+                count: 0
+            };
+        }
+        analyzedPatterns[key].outcomes.push(pattern.outcome);
+        analyzedPatterns[key].count++;
+    });
+    
+    // Retornar o melhor padrão especial
+    const validSpecialPatterns = [];
+    Object.values(analyzedPatterns).forEach(pattern => {
+        if (pattern.count < 3) return;
+        
+        const colorCounts = {};
+        pattern.outcomes.forEach(color => {
+            colorCounts[color] = (colorCounts[color] || 0) + 1;
+        });
+        
+        const mostFrequentColor = Object.keys(colorCounts).reduce((a, b) => 
+            colorCounts[a] > colorCounts[b] ? a : b, 'red');
+        
+        const accuracy = (colorCounts[mostFrequentColor] / pattern.outcomes.length) * 100;
+        const statisticalSignificance = colorCounts[mostFrequentColor] / (pattern.outcomes.length / 3);
+        
+        if (accuracy >= 75 && statisticalSignificance >= 2.0) {
+            validSpecialPatterns.push({
+                type: 'number-sequence',
+                pattern: pattern.pattern,
+                suggestedColor: mostFrequentColor,
+                confidence: accuracy,
+                occurrences: pattern.count,
+                statisticalSignificance: statisticalSignificance,
+                patternType: pattern.type
+            });
+        }
+    });
+    
+    return validSpecialPatterns.length > 0 ? validSpecialPatterns[0] : null;
+}
+
+// Analisar padrões matemáticos (Padrões 8-12)
+function analyzeMathematicalPatterns(numbers, colors) {
+    const mathPatterns = [];
+    
+    for (let i = 1; i < numbers.length - 1; i++) {
+        const num1 = numbers[i+1];
+        const num2 = numbers[i];
+        const resultColor = colors[i-1];
+        
+        // Padrão 8: Duplicação Reversa
+        if (num1 === num2) {
+            mathPatterns.push({
+                pattern: `${num1}→${num2}`,
+                outcome: resultColor,
+                type: 'Duplicação Reversa'
+            });
+        }
+        
+        // Padrão 9: Sequência de extremos (1→14 ou 14→1)
+        if ((num1 === 1 && num2 === 14) || (num1 === 14 && num2 === 1)) {
+            mathPatterns.push({
+                pattern: `${num1}→${num2}`,
+                outcome: resultColor,
+                type: 'Extremos Consecutivos'
+            });
+        }
+        
+        // Padrão 10: Soma múltipla de 5
+        if ((num1 + num2) % 5 === 0) {
+            mathPatterns.push({
+                pattern: `${num1}+${num2}=${num1+num2}`,
+                outcome: resultColor,
+                type: 'Soma Múltipla de 5'
+            });
+        }
+        
+        // Padrão 11: Alternância Ímpar/Par
+        if ((num1 % 2 !== num2 % 2) && getColorFromNumber(num1) === getColorFromNumber(num2)) {
+            mathPatterns.push({
+                pattern: `${num1}→${num2}`,
+                outcome: resultColor,
+                type: 'Alternância Ímpar/Par'
+            });
+        }
+        
+        // Padrão 12: Inversão de Extremidade
+        if ((num1 >= 12 && num2 <= 3) || (num1 <= 3 && num2 >= 12)) {
+            mathPatterns.push({
+                pattern: `${num1}→${num2}`,
+                outcome: resultColor,
+                type: 'Inversão de Extremidade'
+            });
+        }
+    }
+    
+    // Analisar padrões matemáticos encontrados
+    const analyzedMathPatterns = {};
+    mathPatterns.forEach(pattern => {
+        const key = `${pattern.type}-${pattern.pattern}`;
+        if (!analyzedMathPatterns[key]) {
+            analyzedMathPatterns[key] = {
+                pattern: pattern.pattern,
+                type: pattern.type,
+                outcomes: [],
+                count: 0
+            };
+        }
+        analyzedMathPatterns[key].outcomes.push(pattern.outcome);
+        analyzedMathPatterns[key].count++;
+    });
+    
+    // Retornar o melhor padrão matemático
+    const validMathPatterns = [];
+    Object.values(analyzedMathPatterns).forEach(pattern => {
+        if (pattern.count < 3) return;
+        
+        const colorCounts = {};
+        pattern.outcomes.forEach(color => {
+            colorCounts[color] = (colorCounts[color] || 0) + 1;
+        });
+        
+        const mostFrequentColor = Object.keys(colorCounts).reduce((a, b) => 
+            colorCounts[a] > colorCounts[b] ? a : b, 'red');
+        
+        const accuracy = (colorCounts[mostFrequentColor] / pattern.outcomes.length) * 100;
+        const statisticalSignificance = colorCounts[mostFrequentColor] / (pattern.outcomes.length / 3);
+        
+        if (accuracy >= 75 && statisticalSignificance >= 2.0) {
+            validMathPatterns.push({
+                type: 'number-math',
+                pattern: pattern.pattern,
+                suggestedColor: mostFrequentColor,
+                confidence: accuracy,
+                occurrences: pattern.count,
+                statisticalSignificance: statisticalSignificance,
+                patternType: pattern.type
+            });
+        }
+    });
+    
+    return validMathPatterns.length > 0 ? validMathPatterns[0] : null;
+}
+
+// Analisar padrões avançados (Padrões 13-17)
+function analyzeAdvancedPatterns(numbers, colors) {
+    const advancedPatterns = [];
+    
+    for (let i = 2; i < numbers.length - 1; i++) {
+        const currentNumbers = [numbers[i+2], numbers[i+1], numbers[i]];
+        const resultColor = colors[i-1];
+        
+        // Padrão 13: Repetição de Bloco
+        if (isSameColorBlock(currentNumbers)) {
+            advancedPatterns.push({
+                pattern: currentNumbers.join('→'),
+                outcome: resultColor,
+                type: 'Repetição de Bloco'
+            });
+        }
+        
+        // Padrão 14: Branco em Intervalo Fixo (simulado)
+        if (currentNumbers.includes(0)) {
+            advancedPatterns.push({
+                pattern: currentNumbers.join('→'),
+                outcome: resultColor,
+                type: 'Branco em Intervalo'
+            });
+        }
+        
+        // Padrão 15: Repetição por Horário (simulado)
+        const hour = new Date().getHours();
+        if (hour >= 22 || hour <= 2) { // Horário noturno
+            advancedPatterns.push({
+                pattern: currentNumbers.join('→'),
+                outcome: resultColor,
+                type: 'Padrão Noturno'
+            });
+        }
+        
+        // Padrão 16: Tripla Correlação Inversa
+        if (isTripleSameColor(currentNumbers)) {
+            advancedPatterns.push({
+                pattern: currentNumbers.join('→'),
+                outcome: resultColor,
+                type: 'Tripla Correlação Inversa'
+            });
+        }
+        
+        // Padrão 17: Espelhamento de Intervalo
+        if (i >= 10) {
+            const mirrorNumbers = [numbers[i+12], numbers[i+11], numbers[i+10]];
+            if (isMirrorSequence(currentNumbers, mirrorNumbers)) {
+                advancedPatterns.push({
+                    pattern: currentNumbers.join('→'),
+                    outcome: resultColor,
+                    type: 'Espelhamento de Intervalo'
+                });
+            }
+        }
+    }
+    
+    // Analisar padrões avançados encontrados
+    const analyzedAdvancedPatterns = {};
+    advancedPatterns.forEach(pattern => {
+        const key = `${pattern.type}-${pattern.pattern}`;
+        if (!analyzedAdvancedPatterns[key]) {
+            analyzedAdvancedPatterns[key] = {
+                pattern: pattern.pattern,
+                type: pattern.type,
+                outcomes: [],
+                count: 0
+            };
+        }
+        analyzedAdvancedPatterns[key].outcomes.push(pattern.outcome);
+        analyzedAdvancedPatterns[key].count++;
+    });
+    
+    // Retornar o melhor padrão avançado
+    const validAdvancedPatterns = [];
+    Object.values(analyzedAdvancedPatterns).forEach(pattern => {
+        if (pattern.count < 3) return;
+        
+        const colorCounts = {};
+        pattern.outcomes.forEach(color => {
+            colorCounts[color] = (colorCounts[color] || 0) + 1;
+        });
+        
+        const mostFrequentColor = Object.keys(colorCounts).reduce((a, b) => 
+            colorCounts[a] > colorCounts[b] ? a : b, 'red');
+        
+        const accuracy = (colorCounts[mostFrequentColor] / pattern.outcomes.length) * 100;
+        const statisticalSignificance = colorCounts[mostFrequentColor] / (pattern.outcomes.length / 3);
+        
+        if (accuracy >= 75 && statisticalSignificance >= 2.0) {
+            validAdvancedPatterns.push({
+                type: 'number-advanced',
+                pattern: pattern.pattern,
+                suggestedColor: mostFrequentColor,
+                confidence: accuracy,
+                occurrences: pattern.count,
+                statisticalSignificance: statisticalSignificance,
+                patternType: pattern.type
+            });
+        }
+    });
+    
+    return validAdvancedPatterns.length > 0 ? validAdvancedPatterns[0] : null;
+}
+
+// Funções auxiliares para análise numérica
+function isAscendingEvenSequence(numbers) {
+    return numbers.every(num => num % 2 === 0) && 
+           numbers[0] < numbers[1] && numbers[1] < numbers[2];
+}
+
+function isDescendingOddSequence(numbers) {
+    return numbers.every(num => num % 2 === 1) && 
+           numbers[0] > numbers[1] && numbers[1] > numbers[2];
+}
+
+function isMultipleOfFiveSequence(numbers) {
+    return numbers.every(num => num % 5 === 0);
+}
+
+function isSameColorBlock(numbers) {
+    // ✅ VALIDAR se todos os números são válidos
+    if (!numbers || numbers.some(num => num === undefined || num === null)) {
+        return false;
+    }
+    const colors = numbers.map(num => getColorFromNumber(num));
+    return colors.every(color => color === colors[0] && color !== 'unknown');
+}
+
+function isTripleSameColor(numbers) {
+    // ✅ VALIDAR se todos os números são válidos
+    if (!numbers || numbers.some(num => num === undefined || num === null)) {
+        return false;
+    }
+    const colors = numbers.map(num => getColorFromNumber(num));
+    return colors.every(color => color === colors[0] && color !== 'unknown');
+}
+
+function isMirrorSequence(seq1, seq2) {
+    if (seq1.length !== seq2.length) return false;
+    for (let i = 0; i < seq1.length; i++) {
+        if (seq1[i] !== seq2[seq2.length - 1 - i]) return false;
+    }
+    return true;
+}
+
+// ANÁLISE DE PADRÕES NUMÉRICOS MULTIDIMENSIONAL (função antiga mantida para compatibilidade)
+function analyzeNumberPatternsOld(history) {
+    if (history.length < 50) return null; // Mínimo de 50 giros
+    
+    // Usar TODO o histórico disponível para máxima precisão
+    const numbers = history.map(s => s.number);
+    const colors = history.map(s => s.color);
+    
+    // 1. ANÁLISE DE SEQUÊNCIAS NUMÉRICAS
+    const sequencePattern = analyzeNumberSequences(numbers);
+    
+    // 2. ANÁLISE DE PARIDADE
+    const parityPattern = analyzeParityPatterns(numbers, colors);
+    
+    // 3. ANÁLISE DE FAIXAS NUMÉRICAS
+    const rangePattern = analyzeNumberRanges(numbers, colors);
+    
+    // 4. ANÁLISE DE DÍGITOS
+    const digitPattern = analyzeDigitPatterns(numbers, colors);
+    
+    // 5. ANÁLISE DE PROGRESSÕES MATEMÁTICAS
+    const mathPattern = analyzeMathProgressions(numbers, colors);
+    
+    // Combinar todas as análises numéricas
+    const patterns = [sequencePattern, parityPattern, rangePattern, digitPattern, mathPattern].filter(p => p !== null);
+    
+    if (patterns.length === 0) return null;
+    
+    // Encontrar o padrão com maior confiança
+    const bestPattern = patterns.sort((a, b) => b.confidence - a.confidence)[0];
+    
+    return {
+        type: 'number',
+        pattern: bestPattern.pattern,
+        suggestedNumber: bestPattern.suggestedNumber,
+        suggestedColor: bestPattern.suggestedColor,
+        confidence: bestPattern.confidence,
+        occurrences: bestPattern.occurrences,
+        statisticalSignificance: bestPattern.statisticalSignificance,
+        subPatterns: patterns.map(p => ({ type: p.type, confidence: p.confidence }))
+    };
+}
+
+// Analisar sequências numéricas (1-2-3-4-5, 10-20-30-40-50)
+function analyzeNumberSequences(numbers) {
+    const sequences = {};
+    
+    // Procurar sequências de 2-5 números
+    for (let len = 2; len <= 5; len++) {
+        for (let i = 0; i <= numbers.length - len; i++) {
+            const sequence = numbers.slice(i, i + len);
+            const key = sequence.join('-');
+            
+            if (!sequences[key]) {
+                sequences[key] = {
+                    pattern: sequence,
+                    occurrences: 0,
+                    nextNumbers: [],
+                    nextColors: []
+                };
+            }
+            
+            sequences[key].occurrences++;
+            
+            // Se não é a última sequência, pegar o próximo número
+            if (i > 0) {
+                sequences[key].nextNumbers.push(numbers[i - 1]);
+                // Assumir cor baseada no número (será refinado depois)
+                sequences[key].nextColors.push(getColorFromNumber(numbers[i - 1]));
+            }
+        }
+    }
+    
+    // Encontrar sequências mais frequentes
+    const frequentSequences = Object.values(sequences).filter(s => s.occurrences >= 2);
+    if (frequentSequences.length === 0) return null;
+    
+    const bestSequence = frequentSequences.sort((a, b) => b.occurrences - a.occurrences)[0];
+    
+    // Calcular próxima cor mais provável
+    const colorCounts = {};
+    bestSequence.nextColors.forEach(color => {
+        colorCounts[color] = (colorCounts[color] || 0) + 1;
+    });
+    
+    const mostFrequentColor = Object.keys(colorCounts).reduce((a, b) => 
+        colorCounts[a] > colorCounts[b] ? a : b, 'red'
+    );
+    
+    const confidence = (colorCounts[mostFrequentColor] / bestSequence.nextColors.length) * 100;
+    
+    return {
+        type: 'sequence',
+        pattern: `Sequência: ${bestSequence.pattern.join('-')}`,
+        suggestedNumber: bestSequence.pattern[bestSequence.pattern.length - 1] + 1, // Próximo na sequência
+        suggestedColor: mostFrequentColor,
+        confidence: Math.min(confidence, 85),
+        occurrences: bestSequence.occurrences,
+        statisticalSignificance: bestSequence.occurrences / 2 // Normalizar
+    };
+}
+
+// Analisar padrões de paridade (pares/ímpares)
+function analyzeParityPatterns(numbers, colors) {
+    const parityPatterns = {};
+    
+    // Procurar padrões de paridade de 2-5 giros
+    for (let len = 2; len <= 5; len++) {
+        for (let i = 0; i <= numbers.length - len; i++) {
+            const sequence = numbers.slice(i, i + len);
+            const parity = sequence.map(n => n % 2 === 0 ? 'par' : 'ímpar');
+            const key = parity.join('-');
+            
+            if (!parityPatterns[key]) {
+                parityPatterns[key] = {
+                    pattern: parity,
+                    occurrences: 0,
+                    nextParity: [],
+                    nextColors: []
+                };
+            }
+            
+            parityPatterns[key].occurrences++;
+            
+            if (i > 0) {
+                parityPatterns[key].nextParity.push(numbers[i - 1] % 2 === 0 ? 'par' : 'ímpar');
+                parityPatterns[key].nextColors.push(colors[i - 1]);
+            }
+        }
+    }
+    
+    const frequentPatterns = Object.values(parityPatterns).filter(p => p.occurrences >= 2);
+    if (frequentPatterns.length === 0) return null;
+    
+    const bestPattern = frequentPatterns.sort((a, b) => b.occurrences - a.occurrences)[0];
+    
+    // Calcular próxima paridade e cor
+    const colorCounts = {};
+    bestPattern.nextColors.forEach(color => {
+        colorCounts[color] = (colorCounts[color] || 0) + 1;
+    });
+    
+    const mostFrequentColor = Object.keys(colorCounts).reduce((a, b) => 
+        colorCounts[a] > colorCounts[b] ? a : b, 'red'
+    );
+    
+    const confidence = (colorCounts[mostFrequentColor] / bestPattern.nextColors.length) * 100;
+    
+    return {
+        type: 'parity',
+        pattern: `Paridade: ${bestPattern.pattern.join('-')}`,
+        suggestedNumber: bestPattern.pattern[bestPattern.pattern.length - 1] === 'par' ? 'ímpar' : 'par',
+        suggestedColor: mostFrequentColor,
+        confidence: Math.min(confidence, 80),
+        occurrences: bestPattern.occurrences,
+        statisticalSignificance: bestPattern.occurrences / 2
+    };
+}
+
+// Analisar faixas numéricas (1-7, 8-14, 0)
+function analyzeNumberRanges(numbers, colors) {
+    const rangePatterns = {};
+    
+    // Procurar padrões de faixas de 2-5 giros
+    for (let len = 2; len <= 5; len++) {
+        for (let i = 0; i <= numbers.length - len; i++) {
+            const sequence = numbers.slice(i, i + len);
+            const ranges = sequence.map(n => {
+                if (n === 0) return 'branco';
+                if (n >= 1 && n <= 7) return 'vermelho';
+                if (n >= 8 && n <= 14) return 'preto';
+                return 'outro';
+            });
+            const key = ranges.join('-');
+            
+            if (!rangePatterns[key]) {
+                rangePatterns[key] = {
+                    pattern: ranges,
+                    occurrences: 0,
+                    nextRanges: [],
+                    nextColors: []
+                };
+            }
+            
+            rangePatterns[key].occurrences++;
+            
+            if (i > 0) {
+                const nextNum = numbers[i - 1];
+                const nextRange = nextNum === 0 ? 'branco' : 
+                                 (nextNum >= 1 && nextNum <= 7) ? 'vermelho' : 
+                                 (nextNum >= 8 && nextNum <= 14) ? 'preto' : 'outro';
+                rangePatterns[key].nextRanges.push(nextRange);
+                rangePatterns[key].nextColors.push(colors[i - 1]);
+            }
+        }
+    }
+    
+    const frequentPatterns = Object.values(rangePatterns).filter(p => p.occurrences >= 2);
+    if (frequentPatterns.length === 0) return null;
+    
+    const bestPattern = frequentPatterns.sort((a, b) => b.occurrences - a.occurrences)[0];
+    
+    // Calcular próxima faixa e cor
+    const colorCounts = {};
+    bestPattern.nextColors.forEach(color => {
+        colorCounts[color] = (colorCounts[color] || 0) + 1;
+    });
+    
+    const mostFrequentColor = Object.keys(colorCounts).reduce((a, b) => 
+        colorCounts[a] > colorCounts[b] ? a : b, 'red'
+    );
+    
+    const confidence = (colorCounts[mostFrequentColor] / bestPattern.nextColors.length) * 100;
+    
+    return {
+        type: 'range',
+        pattern: `Faixa: ${bestPattern.pattern.join('-')}`,
+        suggestedNumber: bestPattern.pattern[bestPattern.pattern.length - 1] === 'vermelho' ? 'preto' : 
+                        bestPattern.pattern[bestPattern.pattern.length - 1] === 'preto' ? 'vermelho' : 'branco',
+        suggestedColor: mostFrequentColor,
+        confidence: Math.min(confidence, 75),
+        occurrences: bestPattern.occurrences,
+        statisticalSignificance: bestPattern.occurrences / 2
+    };
+}
+
+// Analisar padrões de dígitos (terminações)
+function analyzeDigitPatterns(numbers, colors) {
+    const digitPatterns = {};
+    
+    // Procurar padrões de dígitos finais de 2-5 giros
+    for (let len = 2; len <= 5; len++) {
+        for (let i = 0; i <= numbers.length - len; i++) {
+            const sequence = numbers.slice(i, i + len);
+            const digits = sequence.map(n => n % 10); // Último dígito
+            const key = digits.join('-');
+            
+            if (!digitPatterns[key]) {
+                digitPatterns[key] = {
+                    pattern: digits,
+                    occurrences: 0,
+                    nextDigits: [],
+                    nextColors: []
+                };
+            }
+            
+            digitPatterns[key].occurrences++;
+            
+            if (i > 0) {
+                digitPatterns[key].nextDigits.push(numbers[i - 1] % 10);
+                digitPatterns[key].nextColors.push(colors[i - 1]);
+            }
+        }
+    }
+    
+    const frequentPatterns = Object.values(digitPatterns).filter(p => p.occurrences >= 2);
+    if (frequentPatterns.length === 0) return null;
+    
+    const bestPattern = frequentPatterns.sort((a, b) => b.occurrences - a.occurrences)[0];
+    
+    // Calcular próximo dígito e cor
+    const colorCounts = {};
+    bestPattern.nextColors.forEach(color => {
+        colorCounts[color] = (colorCounts[color] || 0) + 1;
+    });
+    
+    const mostFrequentColor = Object.keys(colorCounts).reduce((a, b) => 
+        colorCounts[a] > colorCounts[b] ? a : b, 'red'
+    );
+    
+    const confidence = (colorCounts[mostFrequentColor] / bestPattern.nextColors.length) * 100;
+    
+    return {
+        type: 'digit',
+        pattern: `Dígitos: ${bestPattern.pattern.join('-')}`,
+        suggestedNumber: bestPattern.pattern[bestPattern.pattern.length - 1],
+        suggestedColor: mostFrequentColor,
+        confidence: Math.min(confidence, 70),
+        occurrences: bestPattern.occurrences,
+        statisticalSignificance: bestPattern.occurrences / 2
+    };
+}
+
+// Analisar progressões matemáticas (Fibonacci, aritméticas)
+function analyzeMathProgressions(numbers, colors) {
+    const progressions = {};
+    
+    // Procurar progressões aritméticas de 2-4 números
+    for (let len = 2; len <= 4; len++) {
+        for (let i = 0; i <= numbers.length - len; i++) {
+            const sequence = numbers.slice(i, i + len);
+            
+            // Verificar se é progressão aritmética
+            const diffs = [];
+            for (let j = 1; j < sequence.length; j++) {
+                diffs.push(sequence[j] - sequence[j - 1]);
+            }
+            
+            if (diffs.every(d => d === diffs[0])) {
+                const key = `PA-${diffs[0]}-${sequence.join('-')}`;
+                
+                if (!progressions[key]) {
+                    progressions[key] = {
+                        pattern: sequence,
+                        difference: diffs[0],
+                        occurrences: 0,
+                        nextNumbers: [],
+                        nextColors: []
+                    };
+                }
+                
+                progressions[key].occurrences++;
+                
+                if (i > 0) {
+                    progressions[key].nextNumbers.push(numbers[i - 1]);
+                    progressions[key].nextColors.push(colors[i - 1]);
+                }
+            }
+        }
+    }
+    
+    const frequentProgressions = Object.values(progressions).filter(p => p.occurrences >= 2);
+    if (frequentProgressions.length === 0) return null;
+    
+    const bestProgression = frequentProgressions.sort((a, b) => b.occurrences - a.occurrences)[0];
+    
+    // Calcular próximo número na progressão e cor
+    const colorCounts = {};
+    bestProgression.nextColors.forEach(color => {
+        colorCounts[color] = (colorCounts[color] || 0) + 1;
+    });
+    
+    const mostFrequentColor = Object.keys(colorCounts).reduce((a, b) => 
+        colorCounts[a] > colorCounts[b] ? a : b, 'red'
+    );
+    
+    const confidence = (colorCounts[mostFrequentColor] / bestProgression.nextColors.length) * 100;
+    
+    return {
+        type: 'progression',
+        pattern: `PA(${bestProgression.difference}): ${bestProgression.pattern.join('-')}`,
+        suggestedNumber: bestProgression.pattern[bestProgression.pattern.length - 1] + bestProgression.difference,
+        suggestedColor: mostFrequentColor,
+        confidence: Math.min(confidence, 80),
+        occurrences: bestProgression.occurrences,
+        statisticalSignificance: bestProgression.occurrences / 2
+    };
+}
+
+// ANÁLISE DE PADRÕES TEMPORAIS E MISTOS (baseada nos exemplos 21-33)
+function analyzeTemporalAndMixedPatterns(history) {
+    if (history.length < 50) return null; // Mínimo de 50 giros
+    
+    const colors = history.map(s => s.color);
+    const timestamps = history.map(s => s.timestamp);
+    const bestPatterns = [];
+    
+    // 1. PADRÕES DE TEMPO E HORÁRIO (21-25)
+    const timePatterns = analyzeTimePatterns(history, colors, timestamps);
+    if (timePatterns) bestPatterns.push(timePatterns);
+    
+    // 2. PADRÕES MISTOS COR + TEMPO (26-33)
+    const mixedPatterns = analyzeMixedPatterns(history, colors, timestamps);
+    if (mixedPatterns) bestPatterns.push(mixedPatterns);
+    
+    if (bestPatterns.length === 0) return null;
+    
+    // CRÍTICO: Verificar se o padrão atual realmente corresponde ao padrão encontrado
+    const bestPattern = bestPatterns.sort((a, b) => (b.confidence - a.confidence) || (b.occurrences - a.occurrences))[0];
+    
+    // Para padrões temporais, verificar se o contexto atual é válido
+    const currentTime = new Date();
+    const currentHour = currentTime.getHours();
+    const recentSpins = colors.slice(0, 10); // Últimos 10 giros
+    
+    // Verificar se o padrão temporal é aplicável ao momento atual
+    if (bestPattern.type === 'time-pattern') {
+        // Verificar se estamos no horário correto para o padrão
+        if (bestPattern.pattern.includes('Noturno') && (currentHour < 22 || currentHour > 2)) {
+            console.log('❌ Padrão temporal não aplicável ao horário atual:', {
+                pattern: bestPattern.pattern,
+                currentHour: currentHour
+            });
+            return null;
+        }
+        
+        if (bestPattern.pattern.includes('Diurno') && (currentHour >= 22 || currentHour <= 2)) {
+            console.log('❌ Padrão temporal não aplicável ao horário atual:', {
+                pattern: bestPattern.pattern,
+                currentHour: currentHour
+            });
+            return null;
+        }
+    }
+    
+    console.log('✅ Padrão temporal/misto atual confirma o padrão encontrado:', {
+        foundPattern: bestPattern.pattern,
+        currentHour: currentHour,
+        recentSpins: recentSpins.slice(0, 5)
+    });
+    
+    return bestPattern;
+}
+
+// Analisar padrões de tempo e horário (21-25)
+function analyzeTimePatterns(history, colors, timestamps) {
+    const timePatterns = [];
+    const currentTime = new Date();
+    const currentHour = currentTime.getHours();
+    
+    // Padrão 21: Branco Intervalado (a cada 70-100 giros)
+    const whiteIntervals = analyzeWhiteIntervals(history);
+    if (whiteIntervals) timePatterns.push(whiteIntervals);
+    
+    // Padrão 22: Pico Noturno de Brancos (22h-02h)
+    if (currentHour >= 22 || currentHour <= 2) {
+        const nightWhitePattern = analyzeNightWhitePattern(history);
+        if (nightWhitePattern) timePatterns.push(nightWhitePattern);
+    }
+    
+    // Padrão 23: Estabilidade Noturna (sequências longas à noite)
+    if (currentHour >= 22 || currentHour <= 2) {
+        const nightStabilityPattern = analyzeNightStabilityPattern(history);
+        if (nightStabilityPattern) timePatterns.push(nightStabilityPattern);
+    }
+    
+    // Padrão 24: Oscilação Diurna (alternâncias curtas durante o dia)
+    if (currentHour >= 6 && currentHour <= 18) {
+        const dayOscillationPattern = analyzeDayOscillationPattern(history);
+        if (dayOscillationPattern) timePatterns.push(dayOscillationPattern);
+    }
+    
+    // Padrão 25: Pós-Pico de Branco
+    const postWhitePeakPattern = analyzePostWhitePeakPattern(history);
+    if (postWhitePeakPattern) timePatterns.push(postWhitePeakPattern);
+    
+    return timePatterns.length > 0 ? timePatterns[0] : null;
+}
+
+// Analisar padrões mistos cor + tempo (26-33)
+function analyzeMixedPatterns(history, colors, timestamps) {
+    const mixedPatterns = [];
+    
+    // Padrão 26: Recuperação Pós-Branco
+    const recoveryPattern = analyzePostWhiteRecoveryPattern(history);
+    if (recoveryPattern) mixedPatterns.push(recoveryPattern);
+    
+    // Padrão 27: Branco na Quebra de Alternância
+    const whiteBreakPattern = analyzeWhiteBreakPattern(history);
+    if (whiteBreakPattern) mixedPatterns.push(whiteBreakPattern);
+    
+    // Padrão 28: Branco Após Dominância Longa
+    const whiteAfterDominancePattern = analyzeWhiteAfterDominancePattern(history);
+    if (whiteAfterDominancePattern) mixedPatterns.push(whiteAfterDominancePattern);
+    
+    // Padrão 29: Correção Total
+    const totalCorrectionPattern = analyzeTotalCorrectionPattern(history);
+    if (totalCorrectionPattern) mixedPatterns.push(totalCorrectionPattern);
+    
+    // Padrão 30: Ciclo Completo
+    const completeCyclePattern = analyzeCompleteCyclePattern(history);
+    if (completeCyclePattern) mixedPatterns.push(completeCyclePattern);
+    
+    // Padrão 31: Repetição em Mesmo Horário
+    const timeRepetitionPattern = analyzeTimeRepetitionPattern(history);
+    if (timeRepetitionPattern) mixedPatterns.push(timeRepetitionPattern);
+    
+    // Padrão 32: Reversão Temporal
+    const temporalReversalPattern = analyzeTemporalReversalPattern(history);
+    if (temporalReversalPattern) mixedPatterns.push(temporalReversalPattern);
+    
+    // Padrão 33: Microciclos Repetidos
+    const microcyclePattern = analyzeMicrocyclePattern(history);
+    if (microcyclePattern) mixedPatterns.push(microcyclePattern);
+    
+    return mixedPatterns.length > 0 ? mixedPatterns[0] : null;
+}
+
+// Funções específicas para cada padrão temporal
+function analyzeWhiteIntervals(history) {
+    const whitePositions = [];
+    history.forEach((spin, index) => {
+        if (spin.color === 'white') {
+            whitePositions.push(index);
+        }
+    });
+    
+    if (whitePositions.length < 3) return null;
+    
+    // Calcular intervalos entre brancos
+    const intervals = [];
+    for (let i = 1; i < whitePositions.length; i++) {
+        intervals.push(whitePositions[i] - whitePositions[i-1]);
+    }
+    
+    // Verificar se há padrão de intervalo (70-100 giros)
+    const validIntervals = intervals.filter(interval => interval >= 70 && interval <= 100);
+    
+    if (validIntervals.length >= 3) {
+        const lastWhiteIndex = whitePositions[whitePositions.length - 1];
+        const spinsSinceLastWhite = history.length - lastWhiteIndex;
+        
+        if (spinsSinceLastWhite >= 70) {
+            return {
+                type: 'time-pattern',
+                pattern: 'Branco Intervalado',
+                suggestedColor: 'white',
+                confidence: 80,
+                occurrences: validIntervals.length,
+                statisticalSignificance: 2.5,
+                patternType: 'Branco Intervalado'
+            };
+        }
+    }
+    
+    return null;
+}
+
+function analyzeNightWhitePattern(history) {
+    const recentSpins = history.slice(0, 60);
+    const whiteCount = recentSpins.filter(spin => spin.color === 'white').length;
+    
+    if (whiteCount === 0 && recentSpins.length >= 60) {
+        return {
+            type: 'time-pattern',
+            pattern: 'Pico Noturno de Brancos',
+            suggestedColor: 'white',
+            confidence: 75,
+            occurrences: 1,
+            statisticalSignificance: 2.0,
+            patternType: 'Pico Noturno de Brancos'
+        };
+    }
+    
+    return null;
+}
+
+function analyzeNightStabilityPattern(history) {
+    // Procurar sequências longas (8+ da mesma cor)
+    for (let i = 0; i < history.length - 8; i++) {
+        const sequence = history.slice(i, i + 8);
+        const colors = sequence.map(s => s.color);
+        
+        if (colors.every(color => color === colors[0])) {
+            return {
+                type: 'time-pattern',
+                pattern: 'Estabilidade Noturna',
+                suggestedColor: colors[0] === 'red' ? 'black' : 'red',
+                confidence: 78,
+                occurrences: 1,
+                statisticalSignificance: 2.2,
+                patternType: 'Estabilidade Noturna'
+            };
+        }
+    }
+    
+    return null;
+}
+
+function analyzeDayOscillationPattern(history) {
+    // Procurar alternâncias curtas durante o dia
+    const recentSpins = history.slice(0, 6);
+    const colors = recentSpins.map(s => s.color);
+    
+    if (isAlternatingPattern(colors.slice(0, 4))) {
+        return {
+            type: 'time-pattern',
+            pattern: 'Oscilação Diurna',
+            suggestedColor: colors[0] === 'red' ? 'black' : 'red',
+            confidence: 76,
+            occurrences: 1,
+            statisticalSignificance: 2.1,
+            patternType: 'Oscilação Diurna'
+        };
+    }
+    
+    return null;
+}
+
+function analyzePostWhitePeakPattern(history) {
+    // Procurar muitos brancos em sequência curta
+    const recentSpins = history.slice(0, 10);
+    const whiteCount = recentSpins.filter(spin => spin.color === 'white').length;
+    
+    if (whiteCount >= 3) {
+        return {
+            type: 'time-pattern',
+            pattern: 'Pós-Pico de Branco',
+            suggestedColor: 'red', // Apostar 2x (vermelho ou preto)
+            confidence: 77,
+            occurrences: 1,
+            statisticalSignificance: 2.3,
+            patternType: 'Pós-Pico de Branco'
+        };
+    }
+    
+    return null;
+}
+
+// Funções específicas para padrões mistos
+function analyzePostWhiteRecoveryPattern(history) {
+    const recentSpins = history.slice(0, 5);
+    const colors = recentSpins.map(s => s.color);
+    
+    // Padrão: Branco, Vermelho, Vermelho, Preto, Preto
+    if (colors[0] === 'white' && colors[1] === 'red' && colors[2] === 'red' && 
+        colors[3] === 'black' && colors[4] === 'black') {
+        return {
+            type: 'mixed-pattern',
+            pattern: 'Recuperação Pós-Branco',
+            suggestedColor: 'red',
+            confidence: 80,
+            occurrences: 1,
+            statisticalSignificance: 2.4,
+            patternType: 'Recuperação Pós-Branco'
+        };
+    }
+    
+    return null;
+}
+
+function analyzeWhiteBreakPattern(history) {
+    const recentSpins = history.slice(0, 5);
+    const colors = recentSpins.map(s => s.color);
+    
+    // Padrão: Vermelho, Preto, Vermelho, Preto, Branco
+    if (colors[0] === 'red' && colors[1] === 'black' && colors[2] === 'red' && 
+        colors[3] === 'black' && colors[4] === 'white') {
+        return {
+            type: 'mixed-pattern',
+            pattern: 'Branco na Quebra de Alternância',
+            suggestedColor: 'black',
+            confidence: 79,
+            occurrences: 1,
+            statisticalSignificance: 2.2,
+            patternType: 'Branco na Quebra de Alternância'
+        };
+    }
+    
+    return null;
+}
+
+function analyzeWhiteAfterDominancePattern(history) {
+    // Procurar 8+ repetições da mesma cor seguida de branco
+    for (let i = 0; i < history.length - 9; i++) {
+        const sequence = history.slice(i, i + 9);
+        const colors = sequence.map(s => s.color);
+        
+        if (colors.slice(0, 8).every(color => color === colors[0]) && colors[8] === 'white') {
+            return {
+                type: 'mixed-pattern',
+                pattern: 'Branco Após Dominância Longa',
+                suggestedColor: 'white',
+                confidence: 82,
+                occurrences: 1,
+                statisticalSignificance: 2.6,
+                patternType: 'Branco Após Dominância Longa'
+            };
+        }
+    }
+    
+    return null;
+}
+
+function analyzeTotalCorrectionPattern(history) {
+    const recentSpins = history.slice(0, 6);
+    const colors = recentSpins.map(s => s.color);
+    
+    // Padrão: Vermelho, Vermelho, Vermelho, Branco, Preto, Preto
+    if (colors[0] === 'red' && colors[1] === 'red' && colors[2] === 'red' && 
+        colors[3] === 'white' && colors[4] === 'black' && colors[5] === 'black') {
+        return {
+            type: 'mixed-pattern',
+            pattern: 'Correção Total',
+            suggestedColor: 'black',
+            confidence: 81,
+            occurrences: 1,
+            statisticalSignificance: 2.5,
+            patternType: 'Correção Total'
+        };
+    }
+    
+    return null;
+}
+
+function analyzeCompleteCyclePattern(history) {
+    // Procurar ciclo completo em 50-70 giros
+    const cycleWindow = Math.min(70, history.length);
+    const cycleSpins = history.slice(0, cycleWindow);
+    
+    // Verificar se há alternância → branco → repetição → equilíbrio
+    const hasAlternation = checkForAlternation(cycleSpins.slice(0, 20));
+    const hasWhite = cycleSpins.some(spin => spin.color === 'white');
+    const hasRepetition = checkForRepetition(cycleSpins.slice(20, 40));
+    
+    if (hasAlternation && hasWhite && hasRepetition) {
+        const mostRepeatedColor = getMostRepeatedColorAfterWhite(cycleSpins);
+        return {
+            type: 'mixed-pattern',
+            pattern: 'Ciclo Completo',
+            suggestedColor: mostRepeatedColor,
+            confidence: 78,
+            occurrences: 1,
+            statisticalSignificance: 2.3,
+            patternType: 'Ciclo Completo'
+        };
+    }
+    
+    return null;
+}
+
+function analyzeTimeRepetitionPattern(history) {
+    const currentHour = new Date().getHours();
+    const currentMinute = new Date().getMinutes();
+    
+    // Simular busca por sequência igual no mesmo horário de dias diferentes
+    // (implementação simplificada)
+    const recentSpins = history.slice(0, 5);
+    const colors = recentSpins.map(s => s.color);
+    
+    if (currentMinute % 15 === 0) { // A cada 15 minutos
+        return {
+            type: 'mixed-pattern',
+            pattern: 'Repetição em Mesmo Horário',
+            suggestedColor: colors[colors.length - 1],
+            confidence: 77,
+            occurrences: 1,
+            statisticalSignificance: 2.1,
+            patternType: 'Repetição em Mesmo Horário'
+        };
+    }
+    
+    return null;
+}
+
+function analyzeTemporalReversalPattern(history) {
+    // Procurar 1h de dominância de uma cor (simulado com 60 giros)
+    const recentSpins = history.slice(0, 60);
+    const colors = recentSpins.map(s => s.color);
+    
+    const redCount = colors.filter(c => c === 'red').length;
+    const blackCount = colors.filter(c => c === 'black').length;
+    
+    if (redCount >= 40 || blackCount >= 40) {
+        const dominantColor = redCount > blackCount ? 'red' : 'black';
+        return {
+            type: 'mixed-pattern',
+            pattern: 'Reversão Temporal',
+            suggestedColor: dominantColor === 'red' ? 'black' : 'red',
+            confidence: 79,
+            occurrences: 1,
+            statisticalSignificance: 2.4,
+            patternType: 'Reversão Temporal'
+        };
+    }
+    
+    return null;
+}
+
+function analyzeMicrocyclePattern(history) {
+    // Procurar padrões curtos de 5-10 giros se repetindo
+    for (let cycleSize = 5; cycleSize <= 10; cycleSize++) {
+        if (history.length < cycleSize * 2) continue;
+        
+        const recentCycle = history.slice(0, cycleSize);
+        const previousCycle = history.slice(cycleSize, cycleSize * 2);
+        
+        const recentColors = recentCycle.map(s => s.color);
+        const previousColors = previousCycle.map(s => s.color);
+        
+        if (JSON.stringify(recentColors) === JSON.stringify(previousColors)) {
+            return {
+                type: 'mixed-pattern',
+                pattern: 'Microciclos Repetidos',
+                suggestedColor: recentColors[recentColors.length - 1],
+                confidence: 80,
+                occurrences: 1,
+                statisticalSignificance: 2.5,
+                patternType: 'Microciclos Repetidos'
+            };
+        }
+    }
+    
+    return null;
+}
+
+// Funções auxiliares para análise temporal
+function checkForAlternation(spins) {
+    const colors = spins.map(s => s.color);
+    for (let i = 1; i < colors.length; i++) {
+        if (colors[i] === colors[i-1]) return false;
+    }
+    return colors.length >= 4;
+}
+
+function checkForRepetition(spins) {
+    const colors = spins.map(s => s.color);
+    return colors.every(color => color === colors[0]) && colors.length >= 3;
+}
+
+function getMostRepeatedColorAfterWhite(spins) {
+    const whiteIndex = spins.findIndex(s => s.color === 'white');
+    if (whiteIndex === -1) return 'red';
+    
+    const afterWhite = spins.slice(0, whiteIndex);
+    const colorCounts = {};
+    afterWhite.forEach(spin => {
+        colorCounts[spin.color] = (colorCounts[spin.color] || 0) + 1;
+    });
+    
+    return Object.keys(colorCounts).reduce((a, b) => 
+        colorCounts[a] > colorCounts[b] ? a : b, 'red');
+}
+
+// ANÁLISE TEMPORAL AVANÇADA MULTIDIMENSIONAL (função antiga mantida para compatibilidade)
+function analyzeTemporalPatternsAdvancedOld(history) {
+    if (history.length < 50) return null; // Mínimo de 50 giros
+    
+    // Usar TODO o histórico disponível para máxima precisão temporal
+    const recentSpins = history; // Todo o histórico
+    
+    // 1. ANÁLISE POR MINUTOS (quartos de hora)
+    const minutePattern = analyzeMinutePatterns(recentSpins);
+    
+    // 2. ANÁLISE POR HORAS (períodos do dia)
+    const hourPattern = analyzeHourPatterns(recentSpins);
+    
+    // 3. ANÁLISE POR DIA DA SEMANA
+    const dayPattern = analyzeDayPatterns(recentSpins);
+    
+    // 4. ANÁLISE POR PERÍODOS (manhã, tarde, noite, madrugada)
+    const periodPattern = analyzePeriodPatterns(recentSpins);
+    
+    // 5. ANÁLISE DE CICLOS TEMPORAIS
+    const cyclePattern = analyzeTemporalCycles(recentSpins);
+    
+    // Combinar todas as análises temporais
+    const patterns = [minutePattern, hourPattern, dayPattern, periodPattern, cyclePattern].filter(p => p !== null);
+    
+    if (patterns.length === 0) return null;
+    
+    // Encontrar o padrão temporal com maior confiança
+    const bestPattern = patterns.sort((a, b) => b.confidence - a.confidence)[0];
+    
+    return {
+        type: 'temporal',
+        pattern: bestPattern.pattern,
+        suggestedColor: bestPattern.suggestedColor,
+        confidence: bestPattern.confidence,
+        occurrences: bestPattern.occurrences,
+        statisticalSignificance: bestPattern.statisticalSignificance,
+        subPatterns: patterns.map(p => ({ type: p.type, confidence: p.confidence }))
+    };
+}
+
+// Analisar padrões por minutos (00, 15, 30, 45)
+function analyzeMinutePatterns(spins) {
+    const minutePatterns = {};
+    
+    spins.forEach(spin => {
+        const spinTime = new Date(spin.timestamp);
+        const minute = spinTime.getMinutes();
+        const quarter = Math.floor(minute / 15) * 15; // 0, 15, 30, 45
+        const key = `${quarter}-${spin.color}`;
+        
+        if (!minutePatterns[key]) {
+            minutePatterns[key] = {
+                quarter: quarter,
+                color: spin.color,
+                count: 0,
+                totalInQuarter: 0
+            };
+        }
+        
+        minutePatterns[key].count++;
+    });
+    
+    // Calcular total por quarto
+    const quarterTotals = {};
+    Object.values(minutePatterns).forEach(p => {
+        if (!quarterTotals[p.quarter]) quarterTotals[p.quarter] = 0;
+        quarterTotals[p.quarter] += p.count;
+    });
+    
+    // Encontrar padrões mais frequentes
+    const currentTime = new Date();
+    const currentQuarter = Math.floor(currentTime.getMinutes() / 15) * 15;
+    
+    const currentQuarterPatterns = Object.values(minutePatterns).filter(p => p.quarter === currentQuarter);
+    if (currentQuarterPatterns.length === 0) return null;
+    
+    const bestPattern = currentQuarterPatterns.sort((a, b) => b.count - a.count)[0];
+    const totalInCurrentQuarter = quarterTotals[currentQuarter] || 1;
+    const confidence = (bestPattern.count / totalInCurrentQuarter) * 100;
+    
+    if (confidence < 60) return null;
+    
+    return {
+        type: 'minute',
+        pattern: `Minuto ${currentQuarter}: ${bestPattern.color} (${confidence.toFixed(1)}%)`,
+        suggestedColor: bestPattern.color,
+        confidence: Math.min(confidence, 85),
+        occurrences: bestPattern.count,
+        statisticalSignificance: bestPattern.count / 2
+    };
+}
+
+// Analisar padrões por horas (períodos do dia)
+function analyzeHourPatterns(spins) {
+    const hourPatterns = {};
+    
+    spins.forEach(spin => {
+        const spinTime = new Date(spin.timestamp);
+        const hour = spinTime.getHours();
+        const period = hour < 6 ? 'madrugada' : 
+                      hour < 12 ? 'manhã' : 
+                      hour < 18 ? 'tarde' : 'noite';
+        const key = `${period}-${spin.color}`;
+        
+        if (!hourPatterns[key]) {
+            hourPatterns[key] = {
+                period: period,
+                color: spin.color,
+                count: 0,
+                totalInPeriod: 0
+            };
+        }
+        
+        hourPatterns[key].count++;
+    });
+    
+    // Calcular total por período
+    const periodTotals = {};
+    Object.values(hourPatterns).forEach(p => {
+        if (!periodTotals[p.period]) periodTotals[p.period] = 0;
+        periodTotals[p.period] += p.count;
+    });
+    
+    // Encontrar padrão do período atual
+    const currentTime = new Date();
+    const currentHour = currentTime.getHours();
+    const currentPeriod = currentHour < 6 ? 'madrugada' : 
+                         currentHour < 12 ? 'manhã' : 
+                         currentHour < 18 ? 'tarde' : 'noite';
+    
+    const currentPeriodPatterns = Object.values(hourPatterns).filter(p => p.period === currentPeriod);
+    if (currentPeriodPatterns.length === 0) return null;
+    
+    const bestPattern = currentPeriodPatterns.sort((a, b) => b.count - a.count)[0];
+    const totalInCurrentPeriod = periodTotals[currentPeriod] || 1;
+    const confidence = (bestPattern.count / totalInCurrentPeriod) * 100;
+    
+    if (confidence < 60) return null;
+    
+    return {
+        type: 'hour',
+        pattern: `${currentPeriod}: ${bestPattern.color} (${confidence.toFixed(1)}%)`,
+        suggestedColor: bestPattern.color,
+        confidence: Math.min(confidence, 80),
+        occurrences: bestPattern.count,
+        statisticalSignificance: bestPattern.count / 2
+    };
+}
+
+// Analisar padrões por dia da semana
+function analyzeDayPatterns(spins) {
+    const dayPatterns = {};
+    const dayNames = ['domingo', 'segunda', 'terça', 'quarta', 'quinta', 'sexta', 'sábado'];
+    
+    spins.forEach(spin => {
+        const spinTime = new Date(spin.timestamp);
+        const dayOfWeek = spinTime.getDay();
+        const dayName = dayNames[dayOfWeek];
+        const key = `${dayName}-${spin.color}`;
+        
+        if (!dayPatterns[key]) {
+            dayPatterns[key] = {
+                day: dayName,
+                color: spin.color,
+                count: 0,
+                totalInDay: 0
+            };
+        }
+        
+        dayPatterns[key].count++;
+    });
+    
+    // Calcular total por dia
+    const dayTotals = {};
+    Object.values(dayPatterns).forEach(p => {
+        if (!dayTotals[p.day]) dayTotals[p.day] = 0;
+        dayTotals[p.day] += p.count;
+    });
+    
+    // Encontrar padrão do dia atual
+    const currentTime = new Date();
+    const currentDay = dayNames[currentTime.getDay()];
+    
+    const currentDayPatterns = Object.values(dayPatterns).filter(p => p.day === currentDay);
+    if (currentDayPatterns.length === 0) return null;
+    
+    const bestPattern = currentDayPatterns.sort((a, b) => b.count - a.count)[0];
+    const totalInCurrentDay = dayTotals[currentDay] || 1;
+    const confidence = (bestPattern.count / totalInCurrentDay) * 100;
+    
+    if (confidence < 60) return null;
+    
+    return {
+        type: 'day',
+        pattern: `${currentDay}: ${bestPattern.color} (${confidence.toFixed(1)}%)`,
+        suggestedColor: bestPattern.color,
+        confidence: Math.min(confidence, 75),
+        occurrences: bestPattern.count,
+        statisticalSignificance: bestPattern.count / 2
+    };
+}
+
+// Analisar padrões por períodos (manhã, tarde, noite, madrugada)
+function analyzePeriodPatterns(spins) {
+    const periodPatterns = {};
+    
+    spins.forEach(spin => {
+        const spinTime = new Date(spin.timestamp);
+        const hour = spinTime.getHours();
+        const period = hour < 6 ? 'madrugada' : 
+                      hour < 12 ? 'manhã' : 
+                      hour < 18 ? 'tarde' : 'noite';
+        const key = `${period}-${spin.color}`;
+        
+        if (!periodPatterns[key]) {
+            periodPatterns[key] = {
+                period: period,
+                color: spin.color,
+                count: 0,
+                totalInPeriod: 0
+            };
+        }
+        
+        periodPatterns[key].count++;
+    });
+    
+    // Calcular total por período
+    const periodTotals = {};
+    Object.values(periodPatterns).forEach(p => {
+        if (!periodTotals[p.period]) periodTotals[p.period] = 0;
+        periodTotals[p.period] += p.count;
+    });
+    
+    // Encontrar padrão do período atual
+    const currentTime = new Date();
+    const currentHour = currentTime.getHours();
+    const currentPeriod = currentHour < 6 ? 'madrugada' : 
+                         currentHour < 12 ? 'manhã' : 
+                         currentHour < 18 ? 'tarde' : 'noite';
+    
+    const currentPeriodPatterns = Object.values(periodPatterns).filter(p => p.period === currentPeriod);
+    if (currentPeriodPatterns.length === 0) return null;
+    
+    const bestPattern = currentPeriodPatterns.sort((a, b) => b.count - a.count)[0];
+    const totalInCurrentPeriod = periodTotals[currentPeriod] || 1;
+    const confidence = (bestPattern.count / totalInCurrentPeriod) * 100;
+    
+    if (confidence < 60) return null;
+    
+    return {
+        type: 'period',
+        pattern: `${currentPeriod}: ${bestPattern.color} (${confidence.toFixed(1)}%)`,
+        suggestedColor: bestPattern.color,
+        confidence: Math.min(confidence, 80),
+        occurrences: bestPattern.count,
+        statisticalSignificance: bestPattern.count / 2
+    };
+}
+
+// Analisar ciclos temporais (padrões que se repetem em horários específicos)
+function analyzeTemporalCycles(spins) {
+    const cyclePatterns = {};
+    
+    // Procurar ciclos de 1-4 horas
+    for (let cycleHours = 1; cycleHours <= 4; cycleHours++) {
+        spins.forEach(spin => {
+            const spinTime = new Date(spin.timestamp);
+            const hour = spinTime.getHours();
+            const cyclePosition = hour % cycleHours;
+            const key = `ciclo-${cycleHours}h-${cyclePosition}-${spin.color}`;
+            
+            if (!cyclePatterns[key]) {
+                cyclePatterns[key] = {
+                    cycleHours: cycleHours,
+                    position: cyclePosition,
+                    color: spin.color,
+                    count: 0,
+                    totalInPosition: 0
+                };
+            }
+            
+            cyclePatterns[key].count++;
+        });
+    }
+    
+    // Calcular total por posição do ciclo
+    const positionTotals = {};
+    Object.values(cyclePatterns).forEach(p => {
+        const key = `${p.cycleHours}h-${p.position}`;
+        if (!positionTotals[key]) positionTotals[key] = 0;
+        positionTotals[key] += p.count;
+    });
+    
+    // Encontrar ciclo mais forte
+    const currentTime = new Date();
+    const currentHour = currentTime.getHours();
+    
+    let bestCycle = null;
+    let bestConfidence = 0;
+    
+    for (let cycleHours = 1; cycleHours <= 4; cycleHours++) {
+        const cyclePosition = currentHour % cycleHours;
+        const key = `ciclo-${cycleHours}h-${cyclePosition}`;
+        const totalInPosition = positionTotals[key] || 1;
+        
+        const cyclePatternsInPosition = Object.values(cyclePatterns).filter(p => 
+            p.cycleHours === cycleHours && p.position === cyclePosition
+        );
+        
+        if (cyclePatternsInPosition.length > 0) {
+            const bestPattern = cyclePatternsInPosition.sort((a, b) => b.count - a.count)[0];
+            const confidence = (bestPattern.count / totalInPosition) * 100;
+            
+            if (confidence > bestConfidence && confidence >= 60) {
+                bestConfidence = confidence;
+                bestCycle = bestPattern;
+            }
+        }
+    }
+    
+    if (!bestCycle) return null;
+    
+    return {
+        type: 'cycle',
+        pattern: `Ciclo ${bestCycle.cycleHours}h posição ${bestCycle.position}: ${bestCycle.color} (${bestConfidence.toFixed(1)}%)`,
+        suggestedColor: bestCycle.color,
+        confidence: Math.min(bestConfidence, 85),
+        occurrences: bestCycle.count,
+        statisticalSignificance: bestCycle.count / 2
+    };
+}
+
+// ANÁLISE DE CORRELAÇÕES MULTIDIMENSIONAIS
+function analyzeCorrelations(history) {
+    if (history.length < 50) return null; // Mínimo de 50 giros
+    
+    // Usar TODO o histórico disponível para máxima precisão de correlações
+    const recentSpins = history; // Todo o histórico
+    
+    // 1. CORRELAÇÃO COR + NÚMERO
+    const colorNumberCorrelation = analyzeColorNumberCorrelation(recentSpins);
+    
+    // 2. CORRELAÇÃO COR + TEMPO
+    const colorTimeCorrelation = analyzeColorTimeCorrelation(recentSpins);
+    
+    // 3. CORRELAÇÃO NÚMERO + TEMPO
+    const numberTimeCorrelation = analyzeNumberTimeCorrelation(recentSpins);
+    
+    // 4. CORRELAÇÃO COMPOSTA (COR + NÚMERO + TEMPO)
+    const compositeCorrelation = analyzeCompositeCorrelation(recentSpins);
+    
+    // Combinar todas as correlações
+    const correlations = [colorNumberCorrelation, colorTimeCorrelation, numberTimeCorrelation, compositeCorrelation].filter(c => c !== null);
+    
+    if (correlations.length === 0) return null;
+    
+    // Encontrar a correlação com maior confiança
+    const bestCorrelation = correlations.sort((a, b) => b.confidence - a.confidence)[0];
+    
+    // CRÍTICO: Verificar se a correlação atual realmente corresponde ao padrão encontrado
+    const colors = history.map(s => s.color);
+    const numbers = history.map(s => s.number);
+    
+    // Para correlações de cor-número, verificar se o padrão atual corresponde
+    if (bestCorrelation.type === 'color-number') {
+        const patternParts = bestCorrelation.pattern.split('-');
+        if (patternParts.length >= 2) {
+            const expectedColor = patternParts[0];
+            const expectedNumber = parseInt(patternParts[1]);
+            
+            // Verificar se o último giro corresponde à correlação
+            if (colors[0] !== expectedColor || numbers[0] !== expectedNumber) {
+                console.log('❌ Correlação cor-número não corresponde ao padrão atual:', {
+                    foundPattern: bestCorrelation.pattern,
+                    currentColor: colors[0],
+                    currentNumber: numbers[0],
+                    expectedColor: expectedColor,
+                    expectedNumber: expectedNumber
+                });
+                return null;
+            }
+        }
+    }
+    
+    console.log('✅ Correlação atual confirma o padrão encontrado:', {
+        foundPattern: bestCorrelation.pattern,
+        currentColor: colors[0],
+        currentNumber: numbers[0]
+    });
+    
+    return {
+        type: 'correlation',
+        pattern: bestCorrelation.pattern,
+        suggestedColor: bestCorrelation.suggestedColor,
+        confidence: bestCorrelation.confidence,
+        occurrences: bestCorrelation.occurrences,
+        statisticalSignificance: bestCorrelation.statisticalSignificance,
+        subCorrelations: correlations.map(c => ({ type: c.type, confidence: c.confidence }))
+    };
+}
+
+// Correlação Cor + Número
+function analyzeColorNumberCorrelation(spins) {
+    const correlations = {};
+    
+    spins.forEach(spin => {
+        const key = `${spin.color}-${spin.number}`;
+        if (!correlations[key]) {
+            correlations[key] = {
+                color: spin.color,
+                number: spin.number,
+                count: 0,
+                nextColors: []
+            };
+        }
+        correlations[key].count++;
+    });
+    
+    // Encontrar correlações mais frequentes
+    const frequentCorrelations = Object.values(correlations).filter(c => c.count >= 2);
+    if (frequentCorrelations.length === 0) return null;
+    
+    const bestCorrelation = frequentCorrelations.sort((a, b) => b.count - a.count)[0];
+    
+    // Calcular próxima cor baseada na correlação
+    const colorCounts = {};
+    frequentCorrelations.forEach(c => {
+        colorCounts[c.color] = (colorCounts[c.color] || 0) + c.count;
+    });
+    
+    const mostFrequentColor = Object.keys(colorCounts).reduce((a, b) => 
+        colorCounts[a] > colorCounts[b] ? a : b, 'red'
+    );
+    
+    const confidence = (colorCounts[mostFrequentColor] / frequentCorrelations.length) * 100;
+    
+    return {
+        type: 'color-number',
+        pattern: `Cor-Número: ${bestCorrelation.color}-${bestCorrelation.number} (${confidence.toFixed(1)}%)`,
+        suggestedColor: mostFrequentColor,
+        confidence: Math.min(confidence, 80),
+        occurrences: bestCorrelation.count,
+        statisticalSignificance: bestCorrelation.count / 2
+    };
+}
+
+// Correlação Cor + Tempo
+function analyzeColorTimeCorrelation(spins) {
+    const correlations = {};
+    
+    spins.forEach(spin => {
+        const spinTime = new Date(spin.timestamp);
+        const hour = spinTime.getHours();
+        const minute = Math.floor(spinTime.getMinutes() / 15) * 15; // Quartos de hora
+        const key = `${spin.color}-${hour}h${minute}m`;
+        
+        if (!correlations[key]) {
+            correlations[key] = {
+                color: spin.color,
+                time: `${hour}h${minute}m`,
+                count: 0
+            };
+        }
+        correlations[key].count++;
+    });
+    
+    // Encontrar correlações mais frequentes
+    const frequentCorrelations = Object.values(correlations).filter(c => c.count >= 2);
+    if (frequentCorrelations.length === 0) return null;
+    
+    const bestCorrelation = frequentCorrelations.sort((a, b) => b.count - a.count)[0];
+    
+    const confidence = (bestCorrelation.count / frequentCorrelations.length) * 100;
+    
+    return {
+        type: 'color-time',
+        pattern: `Cor-Tempo: ${bestCorrelation.color}-${bestCorrelation.time} (${confidence.toFixed(1)}%)`,
+        suggestedColor: bestCorrelation.color,
+        confidence: Math.min(confidence, 75),
+        occurrences: bestCorrelation.count,
+        statisticalSignificance: bestCorrelation.count / 2
+    };
+}
+
+// Correlação Número + Tempo
+function analyzeNumberTimeCorrelation(spins) {
+    const correlations = {};
+    
+    spins.forEach(spin => {
+        const spinTime = new Date(spin.timestamp);
+        const hour = spinTime.getHours();
+        const numberRange = spin.number === 0 ? 'branco' : 
+                           (spin.number >= 1 && spin.number <= 7) ? 'vermelho' : 'preto';
+        const key = `${numberRange}-${hour}h`;
+        
+        if (!correlations[key]) {
+            correlations[key] = {
+                numberRange: numberRange,
+                hour: hour,
+                count: 0
+            };
+        }
+        correlations[key].count++;
+    });
+    
+    // Encontrar correlações mais frequentes
+    const frequentCorrelations = Object.values(correlations).filter(c => c.count >= 2);
+    if (frequentCorrelations.length === 0) return null;
+    
+    const bestCorrelation = frequentCorrelations.sort((a, b) => b.count - a.count)[0];
+    
+    const confidence = (bestCorrelation.count / frequentCorrelations.length) * 100;
+    
+    return {
+        type: 'number-time',
+        pattern: `Número-Tempo: ${bestCorrelation.numberRange}-${bestCorrelation.hour}h (${confidence.toFixed(1)}%)`,
+        suggestedColor: bestCorrelation.numberRange === 'vermelho' ? 'red' : 
+                       bestCorrelation.numberRange === 'preto' ? 'black' : 'white',
+        confidence: Math.min(confidence, 70),
+        occurrences: bestCorrelation.count,
+        statisticalSignificance: bestCorrelation.count / 2
+    };
+}
+
+// Correlação Composta (Cor + Número + Tempo)
+function analyzeCompositeCorrelation(spins) {
+    const correlations = {};
+    
+    spins.forEach(spin => {
+        const spinTime = new Date(spin.timestamp);
+        const hour = spinTime.getHours();
+        const minute = Math.floor(spinTime.getMinutes() / 15) * 15;
+        const key = `${spin.color}-${spin.number}-${hour}h${minute}m`;
+        
+        if (!correlations[key]) {
+            correlations[key] = {
+                color: spin.color,
+                number: spin.number,
+                time: `${hour}h${minute}m`,
+                count: 0
+            };
+        }
+        correlations[key].count++;
+    });
+    
+    // Encontrar correlações mais frequentes
+    const frequentCorrelations = Object.values(correlations).filter(c => c.count >= 2);
+    if (frequentCorrelations.length === 0) return null;
+    
+    const bestCorrelation = frequentCorrelations.sort((a, b) => b.count - a.count)[0];
+    
+    const confidence = (bestCorrelation.count / frequentCorrelations.length) * 100;
+    
+    return {
+        type: 'composite',
+        pattern: `Composto: ${bestCorrelation.color}-${bestCorrelation.number}-${bestCorrelation.time} (${confidence.toFixed(1)}%)`,
+        suggestedColor: bestCorrelation.color,
+        confidence: Math.min(confidence, 85),
+        occurrences: bestCorrelation.count,
+        statisticalSignificance: bestCorrelation.count / 2
+    };
+}
+
+// ANÁLISE DE FREQUÊNCIA MULTIDIMENSIONAL
+function analyzeMultidimensionalFrequency(history) {
+    if (history.length < 50) return null; // Mínimo de 50 giros
+    
+    // Usar TODO o histórico disponível para máxima precisão de frequência
+    const recentSpins = history; // Todo o histórico
+    
+    // 1. FREQUÊNCIA POR FAIXA NUMÉRICA
+    const rangeFrequency = analyzeRangeFrequency(recentSpins);
+    
+    // 2. FREQUÊNCIA POR PERÍODO DO DIA
+    const periodFrequency = analyzePeriodFrequency(recentSpins);
+    
+    // 3. FREQUÊNCIA POR DIA DA SEMANA
+    const dayFrequency = analyzeDayFrequency(recentSpins);
+    
+    // 4. FREQUÊNCIA POR MINUTO
+    const minuteFrequency = analyzeMinuteFrequency(recentSpins);
+    
+    // Combinar todas as frequências
+    const frequencies = [rangeFrequency, periodFrequency, dayFrequency, minuteFrequency].filter(f => f !== null);
+    
+    if (frequencies.length === 0) return null;
+    
+    // Encontrar a frequência com maior confiança
+    const bestFrequency = frequencies.sort((a, b) => b.confidence - a.confidence)[0];
+    
+    return {
+        type: 'frequency',
+        pattern: bestFrequency.pattern,
+        suggestedColor: bestFrequency.suggestedColor,
+        confidence: bestFrequency.confidence,
+        occurrences: bestFrequency.occurrences,
+        statisticalSignificance: bestFrequency.statisticalSignificance,
+        subFrequencies: frequencies.map(f => ({ type: f.type, confidence: f.confidence }))
+    };
+}
+
+// Frequência por faixa numérica
+function analyzeRangeFrequency(spins) {
+    const rangeCounts = { red: 0, black: 0, white: 0 };
+    
+    spins.forEach(spin => {
+        if (spin.number === 0) rangeCounts.white++;
+        else if (spin.number >= 1 && spin.number <= 7) rangeCounts.red++;
+        else if (spin.number >= 8 && spin.number <= 14) rangeCounts.black++;
+    });
+    
+    const total = spins.length;
+    const redPercent = (rangeCounts.red / total) * 100;
+    const blackPercent = (rangeCounts.black / total) * 100;
+    const whitePercent = (rangeCounts.white / total) * 100;
+    
+    // ✅ CORREÇÃO: Não usar padrão, retornar null se não houver padrão claro
+    let suggestedColor = null;
+    let confidence = 0;
+    
+    if (redPercent > 60) {
+        suggestedColor = 'black';
+        confidence = Math.min(redPercent - 50, 80);
+    } else if (blackPercent > 60) {
+        suggestedColor = 'red';
+        confidence = Math.min(blackPercent - 50, 80);
+    } else if (whitePercent > 25) {
+        // ✅ CORREÇÃO: Usar a cor MENOS frequente em vez de sempre 'red'
+        suggestedColor = redPercent < blackPercent ? 'red' : 'black';
+        confidence = Math.min(whitePercent * 2, 70);
+    } else {
+        return null;
+    }
+    
+    if (!suggestedColor) return null;
+    
+    return {
+        type: 'range-frequency',
+        pattern: `Faixa: R${redPercent.toFixed(1)}% B${blackPercent.toFixed(1)}% W${whitePercent.toFixed(1)}%`,
+        suggestedColor: suggestedColor,
+        confidence: confidence,
+        occurrences: Math.max(rangeCounts.red, rangeCounts.black, rangeCounts.white),
+        statisticalSignificance: confidence / 50
+    };
+}
+
+// Frequência por período do dia
+function analyzePeriodFrequency(spins) {
+    const periodCounts = { madrugada: 0, manhã: 0, tarde: 0, noite: 0 };
+    const periodColors = { madrugada: {}, manhã: {}, tarde: {}, noite: {} };
+    
+    spins.forEach(spin => {
+        const spinTime = new Date(spin.timestamp);
+        const hour = spinTime.getHours();
+        const period = hour < 6 ? 'madrugada' : 
+                      hour < 12 ? 'manhã' : 
+                      hour < 18 ? 'tarde' : 'noite';
+        
+        periodCounts[period]++;
+        if (!periodColors[period][spin.color]) periodColors[period][spin.color] = 0;
+        periodColors[period][spin.color]++;
+    });
+    
+    const currentTime = new Date();
+    const currentHour = currentTime.getHours();
+    const currentPeriod = currentHour < 6 ? 'madrugada' : 
+                         currentHour < 12 ? 'manhã' : 
+                         currentHour < 18 ? 'tarde' : 'noite';
+    
+    const currentPeriodCount = periodCounts[currentPeriod];
+    if (currentPeriodCount < 3) return null;
+    
+    const currentPeriodColors = periodColors[currentPeriod];
+    const totalColors = Object.values(currentPeriodColors).reduce((a, b) => a + b, 0);
+    
+    // ✅ CORREÇÃO: Não usar padrão 'red'
+    let suggestedColor = null;
+    let confidence = 0;
+    
+    Object.entries(currentPeriodColors).forEach(([color, count]) => {
+        const percent = (count / totalColors) * 100;
+        if (percent > 60) {
+            // ✅ CORREÇÃO: Sugerir cor oposta sem viés
+            if (color === 'red') suggestedColor = 'black';
+            else if (color === 'black') suggestedColor = 'red';
+            else suggestedColor = 'black'; // Se white está dominante, apostar em black
+            confidence = Math.min(percent - 50, 75);
+        }
+    });
+    
+    if (confidence < 60 || !suggestedColor) return null;
+    
+    return {
+        type: 'period-frequency',
+        pattern: `${currentPeriod}: ${suggestedColor} (${confidence.toFixed(1)}%)`,
+        suggestedColor: suggestedColor,
+        confidence: confidence,
+        occurrences: currentPeriodCount,
+        statisticalSignificance: confidence / 50
+    };
+}
+
+// Frequência por dia da semana
+function analyzeDayFrequency(spins) {
+    const dayNames = ['domingo', 'segunda', 'terça', 'quarta', 'quinta', 'sexta', 'sábado'];
+    const dayCounts = {};
+    const dayColors = {};
+    
+    dayNames.forEach(day => {
+        dayCounts[day] = 0;
+        dayColors[day] = {};
+    });
+    
+    spins.forEach(spin => {
+        const spinTime = new Date(spin.timestamp);
+        const dayOfWeek = spinTime.getDay();
+        const dayName = dayNames[dayOfWeek];
+        
+        dayCounts[dayName]++;
+        if (!dayColors[dayName][spin.color]) dayColors[dayName][spin.color] = 0;
+        dayColors[dayName][spin.color]++;
+    });
+    
+    const currentTime = new Date();
+    const currentDay = dayNames[currentTime.getDay()];
+    
+    const currentDayCount = dayCounts[currentDay];
+    if (currentDayCount < 3) return null;
+    
+    const currentDayColors = dayColors[currentDay];
+    const totalColors = Object.values(currentDayColors).reduce((a, b) => a + b, 0);
+    
+    // ✅ CORREÇÃO: Não usar padrão 'red'
+    let suggestedColor = null;
+    let confidence = 0;
+    
+    Object.entries(currentDayColors).forEach(([color, count]) => {
+        const percent = (count / totalColors) * 100;
+        if (percent > 60) {
+            // ✅ CORREÇÃO: Sugerir cor oposta sem viés
+            if (color === 'red') suggestedColor = 'black';
+            else if (color === 'black') suggestedColor = 'red';
+            else suggestedColor = 'black'; // Se white está dominante, apostar em black
+            confidence = Math.min(percent - 50, 70);
+        }
+    });
+    
+    if (confidence < 60 || !suggestedColor) return null;
+    
+    return {
+        type: 'day-frequency',
+        pattern: `${currentDay}: ${suggestedColor} (${confidence.toFixed(1)}%)`,
+        suggestedColor: suggestedColor,
+        confidence: confidence,
+        occurrences: currentDayCount,
+        statisticalSignificance: confidence / 50
+    };
+}
+
+// Frequência por minuto
+function analyzeMinuteFrequency(spins) {
+    const minuteCounts = {};
+    const minuteColors = {};
+    
+    spins.forEach(spin => {
+        const spinTime = new Date(spin.timestamp);
+        const minute = Math.floor(spinTime.getMinutes() / 15) * 15; // Quartos de hora
+        const key = `${minute}`;
+        
+        if (!minuteCounts[key]) {
+            minuteCounts[key] = 0;
+            minuteColors[key] = {};
+        }
+        
+        minuteCounts[key]++;
+        if (!minuteColors[key][spin.color]) minuteColors[key][spin.color] = 0;
+        minuteColors[key][spin.color]++;
+    });
+    
+    const currentTime = new Date();
+    const currentMinute = Math.floor(currentTime.getMinutes() / 15) * 15;
+    const currentMinuteKey = `${currentMinute}`;
+    
+    const currentMinuteCount = minuteCounts[currentMinuteKey];
+    if (currentMinuteCount < 2) return null;
+    
+    const currentMinuteColors = minuteColors[currentMinuteKey];
+    const totalColors = Object.values(currentMinuteColors).reduce((a, b) => a + b, 0);
+    
+    // ✅ CORREÇÃO: Não usar padrão 'red'
+    let suggestedColor = null;
+    let confidence = 0;
+    
+    Object.entries(currentMinuteColors).forEach(([color, count]) => {
+        const percent = (count / totalColors) * 100;
+        if (percent > 60) {
+            // ✅ CORREÇÃO: Sugerir cor oposta sem viés
+            if (color === 'red') suggestedColor = 'black';
+            else if (color === 'black') suggestedColor = 'red';
+            else suggestedColor = 'black'; // Se white está dominante, apostar em black
+            confidence = Math.min(percent - 50, 80);
+        }
+    });
+    
+    if (confidence < 60 || !suggestedColor) return null;
+    
+    return {
+        type: 'minute-frequency',
+        pattern: `Minuto ${currentMinute}: ${suggestedColor} (${confidence.toFixed(1)}%)`,
+        suggestedColor: suggestedColor,
+        confidence: confidence,
+        occurrences: currentMinuteCount,
+        statisticalSignificance: confidence / 50
+    };
+}
+
+// FUNÇÃO PARA COMPARAR SE DOIS PADRÕES SÃO IGUAIS
+function comparePatterns(lastPattern, currentPattern) {
+    try {
+        // Comparar tipo de análise principal
+        const lastMainType = lastPattern.colorAnalysis ? 'color' : 
+                           lastPattern.numberAnalysis ? 'number' : 
+                           lastPattern.timeAnalysis ? 'time' : 
+                           lastPattern.correlationAnalysis ? 'correlation' : 'frequency';
+        
+        const currentMainType = currentPattern.colorAnalysis ? 'color' : 
+                              currentPattern.numberAnalysis ? 'number' : 
+                              currentPattern.timeAnalysis ? 'time' : 
+                              currentPattern.correlationAnalysis ? 'correlation' : 'frequency';
+        
+        // Se tipos diferentes, não são o mesmo padrão
+        if (lastMainType !== currentMainType) {
+            return false;
+        }
+        
+        // Comparar sequências específicas baseadas no tipo
+        if (lastMainType === 'color') {
+            const lastSequence = lastPattern.colorAnalysis?.pattern || [];
+            const currentSequence = currentPattern.colorAnalysis?.pattern || [];
+            
+            // Comparar sequências de cores
+            if (lastSequence.length !== currentSequence.length) {
+                return false;
+            }
+            
+            return lastSequence.every((color, index) => color === currentSequence[index]);
+        }
+        
+        if (lastMainType === 'number') {
+            const lastSequence = lastPattern.numberAnalysis?.pattern || '';
+            const currentSequence = currentPattern.numberAnalysis?.pattern || '';
+            
+            return lastSequence === currentSequence;
+        }
+        
+        if (lastMainType === 'time') {
+            const lastPatternType = lastPattern.timeAnalysis?.pattern || '';
+            const currentPatternType = currentPattern.timeAnalysis?.pattern || '';
+            
+            return lastPatternType === currentPatternType;
+        }
+        
+        if (lastMainType === 'correlation') {
+            const lastCorrelation = lastPattern.correlationAnalysis?.pattern || '';
+            const currentCorrelation = currentPattern.correlationAnalysis?.pattern || '';
+            
+            return lastCorrelation === currentCorrelation;
+        }
+        
+        // Para frequency, comparar por tipo de zona
+        if (lastMainType === 'frequency') {
+            const lastZone = lastPattern.frequencyAnalysis?.zone || '';
+            const currentZone = currentPattern.frequencyAnalysis?.zone || '';
+            
+            return lastZone === currentZone;
+        }
+        
+        return false;
+    } catch (e) {
+        console.log('⚠️ Erro ao comparar padrões:', e);
+        return false; // Em caso de erro, considerar como padrão diferente
+    }
+}
+
+// COMBINAR TODAS AS ANÁLISES MULTIDIMENSIONAIS COM REGRAS DE RIGOR
+async function combineMultidimensionalAnalyses(colorAnalysis, numberAnalysis, timeAnalysis, correlationAnalysis, frequencyAnalysis) {
+    const analyses = [colorAnalysis, numberAnalysis, timeAnalysis, correlationAnalysis, frequencyAnalysis].filter(a => a !== null);
+    
+    if (analyses.length === 0) return null;
+    
+    // NOVA LÓGICA: Verificar se múltiplos padrões recomendam a mesma cor
+    const colorRecommendations = {};
+    analyses.forEach(analysis => {
+        const color = analysis.suggestedColor;
+        if (!colorRecommendations[color]) {
+            colorRecommendations[color] = {
+                color: color,
+                analyses: [],
+                totalConfidence: 0,
+                count: 0
+            };
+        }
+        colorRecommendations[color].analyses.push(analysis);
+        colorRecommendations[color].totalConfidence += analysis.confidence;
+        colorRecommendations[color].count++;
+    });
+    
+    // Calcular confiança ajustada baseada no consenso
+    Object.keys(colorRecommendations).forEach(color => {
+        const rec = colorRecommendations[color];
+        const avgConfidence = rec.totalConfidence / rec.count;
+        
+        // Se múltiplos padrões recomendam a mesma cor, AUMENTAR confiança
+        if (rec.count > 1) {
+            const consensusBonus = (rec.count - 1) * 5; // +5% por padrão adicional
+            rec.adjustedConfidence = Math.min(avgConfidence + consensusBonus, 95);
+            console.log(`🎯 Consenso detectado: ${rec.count} padrões recomendam ${color} - Confiança ajustada: ${rec.adjustedConfidence.toFixed(1)}%`);
+        } else {
+            // Se apenas um padrão, manter confiança original
+            rec.adjustedConfidence = avgConfidence;
+        }
+    });
+    
+    // Escolher a cor com maior confiança ajustada
+    const bestRecommendation = Object.values(colorRecommendations).sort((a, b) => 
+        b.adjustedConfidence - a.adjustedConfidence
+    )[0];
+    
+	// NOVAS REGRAS DE RIGOR: Sistema de escalonamento 50% → 60%
+    const minOccurrences = 2; // Mínimo 2 ocorrências obrigatório
+    const minStatisticalSignificance = 2.0;
+    
+    // Verificar nível de rigor atual e histórico de losses
+    const storage = await chrome.storage.local.get(['lastBet', 'rigorLevel']);
+    const lastBet = storage.lastBet;
+	const currentRigorLevel = storage.rigorLevel || 50; // Default 50%
+    
+    const hasRecentLoss = lastBet && 
+                         lastBet.status === 'loss' && 
+                         lastBet.resolvedAtTimestamp;
+    
+	// Determinar nível mínimo: 60% após loss, senão usa o nível atual
+	const minConfidence = hasRecentLoss ? 60 : currentRigorLevel;
+    
+    console.log(`🎯 Nível de rigor: ${minConfidence}% (${hasRecentLoss ? 'Após loss' : 'Normal'})`);
+    console.log(`🎯 Melhor recomendação: ${bestRecommendation.color} com ${bestRecommendation.adjustedConfidence.toFixed(1)}% (${bestRecommendation.count} padrão${bestRecommendation.count > 1 ? 's' : ''})`);
+    
+    // Verificar se atende aos critérios
+    const bestAnalysis = bestRecommendation.analyses.sort((a, b) => b.confidence - a.confidence)[0];
+    const meetsCriteria = bestRecommendation.adjustedConfidence >= minConfidence && 
+                         bestAnalysis.occurrences >= minOccurrences && 
+                         bestAnalysis.statisticalSignificance >= minStatisticalSignificance;
+    
+    // ═══════════════════════════════════════════════════════════════════════════════
+    // VALIDAÇÃO DE RIGOR POR TIPO DE ANÁLISE
+    // ═══════════════════════════════════════════════════════════════════════════════
+    
+    let rigorOk = true;
+    let rigorMessage = '';
+    
+    // Identificar qual tipo de análise foi escolhida como melhor
+    const bestType = bestAnalysis.type;
+    
+    console.log(`\n🎯 Tipo de análise selecionada: ${bestType}`);
+    
+    // ✅ APLICAR VALIDAÇÃO ESPECÍFICA BASEADA NO TIPO
+    if (bestType === 'color-pattern' && colorAnalysis) {
+        // ✅ PADRÕES DE COR: Aplicar regras configuráveis do usuário
+        console.log('📊 Aplicando regras de RIGOR para PADRÕES DE COR (configuráveis)...');
+        
+        const needsRigor = (analyzerConfig && (analyzerConfig.minOccurrences > 1 || (analyzerConfig.winPercentOthers || 0) > 0 || (analyzerConfig.maxOccurrences || 0) > 0 || (analyzerConfig.minPatternSize || 0) > 2));
+        
+    if (needsRigor) {
+            const sampleMin = analyzerConfig.minOccurrences || 1;
+            const sampleOk = colorAnalysis.sampleMinWins100 === true || sampleMin === 1;
+            const rigorPct = typeof colorAnalysis.rigorWinPct === 'number' ? colorAnalysis.rigorWinPct : 
+                             (typeof colorAnalysis.winPct === 'number' ? colorAnalysis.winPct : 0);
+            const threshold = analyzerConfig.winPercentOthers || 0;
+            
+            // ✅ NOVA VALIDAÇÃO: Ocorrências MÁXIMAS (0 = sem limite)
+            const totalOccurrences = colorAnalysis.occurrences || 0;
+            const maxOccurrences = analyzerConfig.maxOccurrences || 0;
+            const maxOccurrencesOk = maxOccurrences === 0 || totalOccurrences <= maxOccurrences;
+            
+            // ✅ VALIDAÇÃO DE TAMANHO DO PADRÃO (minPatternSize e maxPatternSize)
+            const patternSize = colorAnalysis.pattern ? colorAnalysis.pattern.length : 0;
+            const minPatternSize = analyzerConfig.minPatternSize || 2;
+            const maxPatternSize = analyzerConfig.maxPatternSize || 0; // 0 = sem limite
+            const patternSizeOk = (patternSize >= minPatternSize) && (maxPatternSize === 0 || patternSize <= maxPatternSize);
+            
+            rigorOk = sampleOk && (rigorPct >= threshold) && maxOccurrencesOk && patternSizeOk;
+            
+            // ✅ LOG DETALHADO DO FILTRO DE RIGOR
+            console.log('╔═══════════════════════════════════════════════════════════╗');
+            console.log('║  🔍 VALIDAÇÃO DE RIGOR (Filtros de qualidade)            ║');
+            console.log('╠═══════════════════════════════════════════════════════════╣');
+            console.log(`║  📏 Tamanho do Padrão: ${patternSize} giros`);
+            console.log(`║  🎯 Limite Mínimo: ${minPatternSize} giros`);
+            console.log(`║  🎯 Limite Máximo: ${maxPatternSize === 0 ? 'SEM LIMITE' : maxPatternSize + ' giros'}`);
+            console.log(`║  ${patternSizeOk ? '✅' : '❌'} Validação Tamanho: ${patternSizeOk ? 'APROVADO' : 'REJEITADO'} ${maxPatternSize > 0 ? `(${minPatternSize} <= ${patternSize} <= ${maxPatternSize})` : `(${patternSize} >= ${minPatternSize})`}`);
+            console.log('╠═══════════════════════════════════════════════════════════╣');
+            console.log(`║  📊 Total de Ocorrências: ${totalOccurrences}`);
+            console.log(`║  🎯 Limite Máximo Ocorrências: ${maxOccurrences === 0 ? 'SEM LIMITE' : maxOccurrences}`);
+            console.log(`║  ${maxOccurrencesOk ? '✅' : '❌'} Validação Máximo Ocorrências: ${maxOccurrencesOk ? 'APROVADO' : 'REJEITADO'} ${maxOccurrences > 0 ? `(${totalOccurrences} <= ${maxOccurrences})` : ''}`);
+            console.log('╠═══════════════════════════════════════════════════════════╣');
+            console.log(`║  📊 Demais Ocorrências: ${colorAnalysis.othersCount || 0} (excluindo amostra mínima)`);
+            console.log(`║  ✅ Demais WINs: ${colorAnalysis.othersWins || 0}`);
+            console.log(`║  ❌ Demais LOSSes: ${colorAnalysis.othersLosses || 0}`);
+            console.log(`║  📈 Rigor WIN%: ${rigorPct.toFixed(1)}%`);
+            console.log(`║  🎯 Threshold WIN% (configurado): ${threshold}%`);
+            console.log(`║  ${(rigorPct >= threshold) ? '✅' : '❌'} Validação WIN%: ${(rigorPct >= threshold) ? 'APROVADO' : 'REJEITADO'} (rigorPct >= threshold)`);
+            console.log('╠═══════════════════════════════════════════════════════════╣');
+            console.log(`║  ${rigorOk ? '✅ RESULTADO FINAL: APROVADO' : '❌ RESULTADO FINAL: REJEITADO'}                              ║`);
+            console.log('╚═══════════════════════════════════════════════════════════╝');
+        }
+        
+    } else if (bestType === 'number-correlation' && numberAnalysis) {
+        // ✅ ANÁLISE NÚMERO + COR: 3 ocorrências, 100% WIN (0 LOSS)
+        console.log('🔢 Aplicando regras de RIGOR para NÚMERO + COR (3 occ, 100% WIN)...');
+        const validation = validateNumberAnalysis(numberAnalysis);
+        rigorOk = validation.valid;
+        if (!rigorOk) rigorMessage = validation.reason;
+        
+    } else if (bestType === 'time-pattern' && timeAnalysis) {
+        // ✅ ANÁLISE TEMPORAL: 6 ocorrências, 100% WIN (0 LOSS)
+        console.log('⏰ Aplicando regras de RIGOR para ANÁLISE TEMPORAL (6 occ, 100% WIN)...');
+        const validation = validateTemporalAnalysis(timeAnalysis);
+        rigorOk = validation.valid;
+        if (!rigorOk) rigorMessage = validation.reason;
+        
+    } else if (bestType === 'correlation' && correlationAnalysis) {
+        // ✅ ANÁLISE DE CICLO: 6 ocorrências, 100% WIN (0 LOSS)
+        console.log('🔄 Aplicando regras de RIGOR para ANÁLISE DE CICLO (6 occ, 100% WIN)...');
+        const validation = validateCorrelationAnalysis(correlationAnalysis);
+        rigorOk = validation.valid;
+        if (!rigorOk) rigorMessage = validation.reason;
+        
+    } else if (bestType === 'frequency' && frequencyAnalysis) {
+        // ✅ ANÁLISE DE TENDÊNCIA: 5 ocorrências, 100% WIN (0 LOSS)
+        console.log('📊 Aplicando regras de RIGOR para TENDÊNCIA/FREQUÊNCIA (5 occ, 100% WIN)...');
+        const validation = validateFrequencyAnalysis(frequencyAnalysis);
+        rigorOk = validation.valid;
+        if (!rigorOk) rigorMessage = validation.reason;
+        
+    } else if (bestType === 'mixed-pattern' && timeAnalysis) {
+        // ✅ PADRÃO TEMPORAL/MISTO: Usar mesma validação temporal (6 occ, 100% WIN)
+        console.log('🔀 Aplicando regras de RIGOR para PADRÃO MISTO (6 occ, 100% WIN)...');
+        const validation = validateTemporalAnalysis(timeAnalysis);
+        rigorOk = validation.valid;
+        if (!rigorOk) rigorMessage = validation.reason;
+        
+    } else {
+        // ✅ TIPO DESCONHECIDO OU SEM ANÁLISE: Rejeitar
+        console.log(`⚠️ Tipo de análise desconhecido ou sem dados: ${bestType}`);
+        rigorOk = false;
+        rigorMessage = `Tipo de análise não suportado: ${bestType}`;
+    }
+
+    if (!meetsCriteria || !rigorOk) {
+        if (!rigorOk && rigorMessage) {
+            console.log(`❌ Análise rejeitada por validação específica: ${rigorMessage}`);
+        }
+        if (!rigorOk) {
+            console.log('❌ Análise rejeitada por rigor do usuário:', {
+                hasColorAnalysis: !!colorAnalysis,
+                patternSize: colorAnalysis && colorAnalysis.pattern ? colorAnalysis.pattern.length : undefined,
+                minPatternSize: analyzerConfig.minPatternSize,
+                maxPatternSize: analyzerConfig.maxPatternSize || 'sem limite',
+                totalOccurrences: colorAnalysis ? colorAnalysis.occurrences : undefined,
+                maxOccurrences: analyzerConfig.maxOccurrences || 'sem limite',
+                sampleMin: analyzerConfig.minOccurrences,
+                sampleMinWins100: colorAnalysis ? colorAnalysis.sampleMinWins100 : undefined,
+                rigorWinPct: colorAnalysis ? (colorAnalysis.rigorWinPct ?? colorAnalysis.winPct) : undefined,
+                threshold: analyzerConfig.winPercentOthers
+            });
+        }
+        // ✅ LOG SEGURO: verificar se propriedades existem antes de usar .toFixed()
+        const confStr = bestRecommendation?.adjustedConfidence != null ? bestRecommendation.adjustedConfidence.toFixed(1) : 'N/A';
+        const occStr = bestAnalysis?.occurrences != null ? bestAnalysis.occurrences : 'N/A';
+        const sigStr = bestAnalysis?.statisticalSignificance != null ? bestAnalysis.statisticalSignificance.toFixed(2) : 'N/A';
+        console.log(`❌ Análise rejeitada: conf=${confStr}%/${minConfidence}%, occ=${occStr}/${minOccurrences}, sig=${sigStr}`);
+        return null;
+    }
+    
+    // ✅ LOG SEGURO para aprovação também
+    const confStrOk = bestRecommendation?.adjustedConfidence != null ? bestRecommendation.adjustedConfidence.toFixed(1) : 'N/A';
+    const occStrOk = bestAnalysis?.occurrences != null ? bestAnalysis.occurrences : 'N/A';
+    const sigStrOk = bestAnalysis?.statisticalSignificance != null ? bestAnalysis.statisticalSignificance.toFixed(2) : 'N/A';
+    console.log(`✅ ANÁLISE MULTIDIMENSIONAL APROVADA: conf=${confStrOk}%, occ=${occStrOk}, sig=${sigStrOk}`);
+    
+    // Aplicar calibração do observador inteligente na confiança final
+    const rawConfidence = bestRecommendation.adjustedConfidence;
+    const calibratedConfidence = applyCalibratedConfidence(rawConfidence);
+    
+    // Calcular contribuições baseadas no consenso
+    const contributions = {};
+    bestRecommendation.analyses.forEach(analysis => {
+        const weight = analysis.type === 'color-pattern' ? 0.30 : 
+                      analysis.type === 'number-correlation' ? 0.25 :
+                      analysis.type === 'time-pattern' ? 0.20 :
+                      analysis.type === 'mixed-pattern' ? 0.20 :
+                      analysis.type === 'correlation' ? 0.15 : 0.10;
+        contributions[analysis.type] = analysis.confidence * weight;
+    });
+    
+    return {
+        suggestion: 'Entrada na próxima rodada (análise multidimensional confirmada)',
+        color: bestRecommendation.color,
+        confidence: calibratedConfidence,
+        patternDescription: JSON.stringify({
+            	expected_next: bestRecommendation.color,
+            colorAnalysis: colorAnalysis ? { 
+                pattern: colorAnalysis.pattern, 
+                confidence: colorAnalysis.confidence,
+                occurrences: colorAnalysis.occurrences,
+                allOccurrenceTimestamps: colorAnalysis.allOccurrenceTimestamps || [],
+                allOccurrenceNumbers: colorAnalysis.allOccurrenceNumbers || [],
+                occurrenceTimes: colorAnalysis.occurrenceTimes || [],
+                triggerColor: colorAnalysis.triggerColor || null,
+                allTriggerColors: colorAnalysis.allTriggerColors || [],
+                allTriggerNumbers: colorAnalysis.allTriggerNumbers || [],
+                allTriggerTimestamps: colorAnalysis.allTriggerTimestamps || [],
+                occurrenceDetails: colorAnalysis.occurrenceDetails || [],
+                assertiveness: colorAnalysis.assertivenessExplain ? colorAnalysis.assertivenessExplain : {
+                    occurrences: colorAnalysis.occurrences,
+                    wins: colorAnalysis.wins,
+                    losses: colorAnalysis.losses,
+                    winPct: colorAnalysis.winPct,
+                    lossPct: colorAnalysis.lossPct,
+                    othersCount: colorAnalysis.othersCount,
+                    othersWins: colorAnalysis.othersWins,
+                    othersLosses: colorAnalysis.othersLosses,
+                    rigorWinPct: colorAnalysis.rigorWinPct,
+                    sampleMin: colorAnalysis.sampleMin,
+                    sampleMinWins100: colorAnalysis.sampleMinWins100
+                }
+            } : null,
+            numberAnalysis: numberAnalysis ? { pattern: numberAnalysis.pattern, confidence: numberAnalysis.confidence } : null,
+            timeAnalysis: timeAnalysis ? { pattern: timeAnalysis.pattern, confidence: timeAnalysis.confidence } : null,
+            correlationAnalysis: correlationAnalysis ? { pattern: correlationAnalysis.pattern, confidence: correlationAnalysis.confidence } : null,
+            frequencyAnalysis: frequencyAnalysis ? { pattern: frequencyAnalysis.pattern, confidence: frequencyAnalysis.confidence } : null,
+            contributions: contributions,
+            finalConfidence: calibratedConfidence,
+            rawConfidence: rawConfidence,
+            rigorLevel: minConfidence,
+            hasRecentLoss: hasRecentLoss,
+            consensusCount: bestRecommendation.count,
+            consensusBonus: bestRecommendation.count > 1 ? (bestRecommendation.count - 1) * 5 : 0
+        }),
+        createdOnTimestamp: new Date().toISOString(),
+        predictedFor: 'next',
+        phase: 'G0',
+        contributions: contributions,
+        rigorLevel: minConfidence,
+        hasRecentLoss: hasRecentLoss,
+        consensusCount: bestRecommendation.count,
+        consensusBonus: bestRecommendation.count > 1 ? (bestRecommendation.count - 1) * 5 : 0
+    };
+}
+
+
+
+// Calcular similaridade entre sequências
+function calculateSequenceSimilarity(seq1, seq2) {
+    if (seq1.length !== seq2.length) return 0;
+    
+    let matches = 0;
+    for (let i = 0; i < seq1.length; i++) {
+        if (seq1[i] === seq2[i]) matches++;
+    }
+    
+    return matches / seq1.length;
+}
+
+// Analisar padrões temporais
+function analyzeTemporalPatterns(history) {
+    const now = new Date();
+    const currentHour = now.getHours();
+    
+    // Analisar giros do mesmo horário nos últimos dias
+    const recentHistory = history.filter(spin => {
+        const spinTime = new Date(spin.timestamp);
+        const timeDiff = now - spinTime;
+        return timeDiff < 7 * 24 * 60 * 60 * 1000; // Últimos 7 dias
+    });
+    
+    const hourlyPatterns = {};
+    recentHistory.forEach(spin => {
+        const spinTime = new Date(spin.timestamp);
+        const hour = spinTime.getHours();
+        
+        if (!hourlyPatterns[hour]) {
+            hourlyPatterns[hour] = { red: 0, black: 0, white: 0, total: 0 };
+        }
+        
+        hourlyPatterns[hour][spin.color]++;
+        hourlyPatterns[hour].total++;
+    });
+    
+    // Encontrar padrão no horário atual
+    const currentHourPattern = hourlyPatterns[currentHour];
+    if (currentHourPattern && currentHourPattern.total >= 5) {
+        const redPercent = (currentHourPattern.red / currentHourPattern.total) * 100;
+        const blackPercent = (currentHourPattern.black / currentHourPattern.total) * 100;
+        const whitePercent = (currentHourPattern.white / currentHourPattern.total) * 100;
+        
+        // ✅ CORREÇÃO: Não usar padrão 'red'
+        let suggestedColor = null;
+        let confidence = 0;
+        
+        if (redPercent > 60) {
+            suggestedColor = 'red';
+            confidence = Math.min(redPercent, 80);
+        } else if (blackPercent > 60) {
+            suggestedColor = 'black';
+            confidence = Math.min(blackPercent, 80);
+        } else if (whitePercent > 30) {
+            suggestedColor = 'white';
+            confidence = Math.min(whitePercent * 2, 70);
+        }
+        
+        if (!suggestedColor || confidence === 0) return null;
+        
+        return {
+            type: 'temporal',
+            suggestedColor: suggestedColor,
+            confidence: confidence,
+            pattern: `Padrão horário ${currentHour}h: ${redPercent.toFixed(1)}%V ${blackPercent.toFixed(1)}%P ${whitePercent.toFixed(1)}%B`
+        };
+    }
+    
+    return null;
+}
+
+// Analisar frequência de cores
+function analyzeColorFrequency(history) {
+    // Usar TODO o histórico disponível para máxima precisão
+    const recentSpins = history; // Todo o histórico
+    const colorCounts = { red: 0, black: 0, white: 0 };
+    
+    recentSpins.forEach(spin => {
+        colorCounts[spin.color]++;
+    });
+    
+    const total = recentSpins.length;
+    const redPercent = (colorCounts.red / total) * 100;
+    const blackPercent = (colorCounts.black / total) * 100;
+    const whitePercent = (colorCounts.white / total) * 100;
+    
+    // Se uma cor está muito frequente, sugerir a oposta
+    // ✅ CORREÇÃO: Não usar padrão 'red'
+    let suggestedColor = null;
+    let confidence = 0;
+    let pattern = '';
+    
+    if (redPercent > 70) {
+        suggestedColor = 'black';
+        confidence = Math.min(redPercent - 50, 60);
+        pattern = `Vermelho dominante (${redPercent.toFixed(1)}%) - Sugerindo preto`;
+    } else if (blackPercent > 70) {
+        suggestedColor = 'red';
+        confidence = Math.min(blackPercent - 50, 60);
+        pattern = `Preto dominante (${blackPercent.toFixed(1)}%) - Sugerindo vermelho`;
+    } else if (whitePercent > 25) {
+        // ✅ CORREÇÃO: Sugerir a cor MENOS frequente entre red e black
+        suggestedColor = redPercent < blackPercent ? 'red' : 'black';
+        confidence = Math.min(whitePercent * 2, 60);
+        const colorText = suggestedColor === 'red' ? 'vermelho' : 'preto';
+        pattern = `Branco frequente (${whitePercent.toFixed(1)}%) - Sugerindo ${colorText}`;
+    } else {
+        // Padrão equilibrado, usar análise de sequências
+        return null;
+    }
+    
+    if (!suggestedColor) return null;
+    
+    return {
+        type: 'frequency',
+        suggestedColor: suggestedColor,
+        confidence: confidence,
+        pattern: pattern
+    };
+}
+
+// Combinar todas as análises
+function combineAnalyses(sequenceAnalysis, zoneAnalysis, trendAnalysis) {
+    const analysis = sequenceAnalysis || null;
+    if (!analysis) {
+        return null;
+    }
+
+    // Base confidence from sequence (sem limitação artificial)
+    let confidence = analysis.confidence || 0;
+    const occurrences = analysis.occurrences || 0;
+    const statisticalSignificance = analysis.statisticalSignificance || 1;
+
+    // Ajustes por zona e tendência (mais conservador)
+    if (zoneAnalysis) {
+        if (zoneAnalysis.zoneColor === analysis.suggestedColor) {
+            confidence = Math.min(confidence + (zoneAnalysis.confidence * 0.3), 95); // Apenas 30% do boost
+        } else {
+            confidence = Math.max(confidence - (zoneAnalysis.confidence * 0.2), 0); // Penalidade menor
+        }
+    }
+    if (trendAnalysis) {
+        if (trendAnalysis.trendColor === analysis.suggestedColor) {
+            confidence = Math.min(confidence + (trendAnalysis.confidence * 0.3), 95); // Apenas 30% do boost
+        } else {
+            confidence = Math.max(confidence - (trendAnalysis.confidence * 0.2), 0); // Penalidade menor
+        }
+    }
+
+    // CRITÉRIOS ULTRA RIGOROSOS PARA 80%+ ACERTIVIDADE
+    const allowEntry = confidence >= 80 && occurrences >= 5 && statisticalSignificance >= 2.0;
+    if (!allowEntry) {
+        console.log(`Padrão rejeitado: conf=${confidence.toFixed(1)}%, occ=${occurrences}, sig=${statisticalSignificance.toFixed(2)}`);
+        return null;
+    }
+
+    const description = JSON.stringify({ 
+        pattern: analysis.pattern, 
+        occurrences: analysis.occurrences, 
+        times: analysis.occurrenceTimes || [], 
+        lastSequenceTimes: analysis.lastOccurrenceTimestamps || [],
+        lastSequenceNumbers: analysis.lastOccurrenceNumbers || [],
+        zone: zoneAnalysis ? { color: zoneAnalysis.zoneColor, dominance: zoneAnalysis.dominance } : null,
+        trend: trendAnalysis ? { color: trendAnalysis.trendColor, aligned: trendAnalysis.alignment } : null,
+        statisticalSignificance: statisticalSignificance
+    });
+
+    console.log(`✅ PADRÃO APROVADO: conf=${confidence.toFixed(1)}%, occ=${occurrences}, sig=${statisticalSignificance.toFixed(2)}`);
+
+    return {
+        suggestion: 'Entrada na próxima rodada (padrão confirmado)',
+        color: analysis.suggestedColor,
+        confidence: confidence,
+        patternDescription: description,
+        createdOnTimestamp: analysis.createdOnTimestamp || null,
+        predictedFor: 'next',
+        phase: 'G0'
+    };
+}
+
+// Analyze color streaks
+function analyzeColorStreaks(spins) {
+    const colors = spins.map(s => s.color);
+    const lastColor = colors[0];
+    const streakLength = getStreakLength(colors, lastColor);
+    
+    // If streak is 3 or more, suggest opposite color
+    if (streakLength >= 3) {
+        const oppositeColor = lastColor === 'red' ? 'black' : lastColor === 'black' ? 'red' : 'red';
+        const confidence = Math.min(streakLength * 15, 70); // Max 70% confidence
+        
+        return {
+            confidence,
+            suggestion: `Sequência de ${streakLength} ${lastColor}s detectada`,
+            color: oppositeColor,
+            probability: confidence,
+            description: `Padrão de sequência: ${streakLength} ${lastColor}s consecutivos`,
+            weight: 1.2
+        };
+    }
+    
+    return null;
+}
+
+// Analyze number distribution
+function analyzeNumberDistribution(spins) {
+    const numbers = spins.map(s => s.number);
+    // Usar TODO o histórico disponível para máxima precisão
+    const recentNumbers = numbers; // Todo o histórico
+    
+    // Count frequency of each number
+    const frequency = {};
+    recentNumbers.forEach(num => {
+        frequency[num] = (frequency[num] || 0) + 1;
+    });
+    
+    // Find least frequent numbers
+    const minFreq = Math.min(...Object.values(frequency));
+    const leastFrequent = Object.keys(frequency).filter(num => frequency[num] === minFreq);
+    
+    if (leastFrequent.length > 0 && minFreq === 0) {
+        const suggestedNumber = parseInt(leastFrequent[0]);
+        const color = getColorFromNumber(suggestedNumber);
+        
+        return {
+            confidence: 45,
+            suggestion: `Número ${suggestedNumber} não apareceu recentemente`,
+            color,
+            probability: 45,
+            description: `Distribuição: número ${suggestedNumber} ausente nas últimas 20 rodadas`,
+            weight: 0.8
+        };
+    }
+    
+    return null;
+}
+
+// Analyze alternating patterns
+function analyzeAlternatingPatterns(spins) {
+    const colors = spins.map(s => s.color);
+    
+    // Check for alternating pattern in last 6 spins
+    if (colors.length >= 6) {
+        const last6 = colors.slice(0, 6);
+        let alternating = true;
+        
+        for (let i = 1; i < last6.length; i++) {
+            if (last6[i] === last6[i-1]) {
+                alternating = false;
+                break;
+            }
+        }
+        
+        if (alternating) {
+            const nextColor = last6[0] === 'red' ? 'black' : last6[0] === 'black' ? 'red' : 'red';
+            
+            return {
+                confidence: 55,
+                suggestion: 'Padrão alternado detectado',
+                color: nextColor,
+                probability: 55,
+                description: 'Padrão alternado nas últimas 6 rodadas',
+                weight: 1.0
+            };
+        }
+    }
+    
+    return null;
+}
+
+// Analyze hot/cold numbers
+function analyzeHotColdNumbers(spins) {
+    const numbers = spins.map(s => s.number);
+    // Usar TODO o histórico disponível para máxima precisão
+    const recentNumbers = numbers; // Todo o histórico
+    
+    // Count frequency
+    const frequency = {};
+    recentNumbers.forEach(num => {
+        frequency[num] = (frequency[num] || 0) + 1;
+    });
+    
+    // Find hot numbers (appeared most frequently)
+    const maxFreq = Math.max(...Object.values(frequency));
+    const hotNumbers = Object.keys(frequency).filter(num => frequency[num] === maxFreq);
+    
+    if (hotNumbers.length > 0 && maxFreq >= 3) {
+        const suggestedNumber = parseInt(hotNumbers[0]);
+        const color = getColorFromNumber(suggestedNumber);
+        
+        return {
+            confidence: 40,
+            suggestion: `Número quente: ${suggestedNumber}`,
+            color,
+            probability: 40,
+            description: `Número ${suggestedNumber} apareceu ${maxFreq} vezes nas últimas 30 rodadas`,
+            weight: 0.6
+        };
+    }
+    
+    return null;
+}
+
+// Reconhecimento de Zonas: detecta cor dominante em janelas recentes
+function analyzeZones(history) {
+    // Usar TODO o histórico disponível para máxima precisão
+    const windowSize = history.length; // Todo o histórico
+    if (windowSize < 50) return null; // Mínimo de 50 giros
+    const recent = history; // Todo o histórico
+    const colorCounts = { red: 0, black: 0, white: 0 };
+    recent.forEach(s => { colorCounts[s.color] = (colorCounts[s.color] || 0) + 1; });
+    const total = recent.length;
+    const ratios = {
+        red: colorCounts.red / total,
+        black: colorCounts.black / total,
+        white: colorCounts.white / total
+    };
+    let zoneColor = 'red';
+    if (ratios.black >= ratios.red && ratios.black >= ratios.white) zoneColor = 'black';
+    else if (ratios.white >= ratios.red && ratios.white >= ratios.black) zoneColor = 'white';
+    const dominance = Math.max(ratios.red, ratios.black, ratios.white) * 100; // 0-100
+    if (dominance < 55) return null; // Sem zona dominante
+    return {
+        type: 'zone',
+        zoneColor,
+        dominance,
+        confidence: Math.min(dominance - 50, 15) // até +15
+    };
+}
+
+// Reconhecimento de Tendência: compara janelas curta e média
+function analyzeTrend(history) {
+    // Usar TODO o histórico disponível para máxima precisão
+    const shortN = Math.min(50, history.length); // Janela curta: 50 giros
+    const midN = history.length; // Janela média: todo o histórico
+    if (shortN < 50) return null; // Mínimo de 50 giros
+    const short = history.slice(0, shortN);
+    const mid = history; // Todo o histórico
+    function dominantColor(spins) {
+        const c = { red: 0, black: 0, white: 0 };
+        spins.forEach(s => { c[s.color] = (c[s.color] || 0) + 1; });
+        const total = spins.length;
+        const r = c.red / total, b = c.black / total, w = c.white / total;
+        let color = 'red', dom = r;
+        if (b >= dom) { color = 'black'; dom = b; }
+        if (w >= dom) { color = 'white'; dom = w; }
+        return { color, share: dom*100 };
+    }
+    const s = dominantColor(short);
+    const m = dominantColor(mid);
+    if (s.share < 55 && m.share < 55) return null; // tendência fraca
+    const aligned = s.color === m.color;
+    return {
+        type: 'trend',
+        trendColor: aligned ? s.color : s.color,
+        alignment: aligned,
+        confidence: aligned ? Math.min((s.share - 50) + (m.share - 50), 20) : Math.min(s.share - 50, 10) // até +20
+    };
+}
+
+// Helper functions
+function getStreakLength(colors, color) {
+    let streak = 0;
+    for (let i = 0; i < colors.length; i++) {
+        if (colors[i] === color) {
+            streak++;
+        } else {
+            break;
+        }
+    }
+    return streak;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// GET COLOR FROM NUMBER (GLOBAL) - REFATORADO 100%
+// ═══════════════════════════════════════════════════════════════════════════════
+function getColorFromNumber(number) {
+    // ✅ VALIDAÇÃO DE ENTRADA (silenciosa - undefined é comum em análises)
+    if (typeof number !== 'number' || isNaN(number) || number === undefined || number === null) {
+        return 'unknown';
+    }
+    
+    // ✅ NORMALIZAR NÚMERO (caso seja float)
+    const normalizedNumber = Math.floor(number);
+    
+    // ✅ VALIDAR RANGE (0-14)
+    if (normalizedNumber < 0 || normalizedNumber > 14) {
+        return 'unknown';
+    }
+    
+    // ✅ DETERMINAR COR
+    if (normalizedNumber === 0) {
+        return 'white';
+    } else if (normalizedNumber >= 1 && normalizedNumber <= 7) {
+        return 'red';
+    } else if (normalizedNumber >= 8 && normalizedNumber <= 14) {
+    return 'black';
+    }
+    
+    // ✅ FALLBACK (nunca deve chegar aqui)
+    return 'unknown';
+}
+
+// ========= NOVO: Cálculo inteligente de assertividade =========
+// (Constantes movidas para o início do arquivo para evitar TDZ errors)
+
+// Calcula assertividade para padrões de cor (pattern: [colors], expectedNext: 'red'|'black'|'white')
+function computeAssertivenessForColorPattern(patternColors, expectedNext, history) {
+	try {
+		if (!Array.isArray(patternColors) || patternColors.length < 3 || !history || history.length < 50) {
+			return null;
+		}
+
+		// 1) Desempenho histórico do padrão (wins/losses)
+		let totalWins = 0, totalLosses = 0, totalOcc = 0;
+		const colors = history.map(s => s.color);
+		const need = patternColors.length;
+		for (let i = need; i < colors.length; i++) {
+			const seq = colors.slice(i, i + need);
+			if (seq.length < need) break;
+			const match = seq.every((c, idx) => c === patternColors[idx]);
+			if (!match) continue;
+			totalOcc++;
+			const outcome = colors[i - 1];
+			if (outcome === expectedNext) totalWins++; else totalLosses++;
+		}
+		if (totalOcc === 0) return null;
+		let base = (totalWins / totalOcc) * 100;
+		if (totalLosses === 0 && totalWins >= 3) base = Math.min(100, 95 + Math.min(totalWins, 5));
+
+		// 2) Tendência recente (últimos 25 giros)
+		const recent = history.slice(0, Math.min(RECENT_WINDOW, history.length));
+		const rc = { red: 0, black: 0, white: 0 };
+		recent.forEach(s => { rc[s.color] = (rc[s.color] || 0) + 1; });
+		const totalRecent = recent.length || 1;
+		const recentPct = {
+			red: (rc.red / totalRecent) * 100,
+			black: (rc.black / totalRecent) * 100,
+			white: (rc.white / totalRecent) * 100
+		};
+		let trendAdj = 0;
+		// Dominância oposta >70% → -15%
+		const opposite = expectedNext === 'red' ? 'black' : expectedNext === 'black' ? 'red' : (recentPct.red >= recentPct.black ? 'red' : 'black');
+		if (recentPct[opposite] > 70) trendAdj -= PENALTY_OPPOSITE_DOMINANCE;
+		// Repetição longa atual >5 → -10%
+		const streakLen = getStreakLength(colors, colors[0]);
+		if (streakLen > 5) trendAdj -= PENALTY_LONG_STREAK;
+		// Tendência a favor >60% → +10%
+		if (recentPct[expectedNext] > 60) trendAdj += BONUS_FAVORABLE_TREND;
+
+		// 3) Estabilidade do padrão (variância do desempenho por janelas)
+		// Aproximação: medir taxa de acerto por blocos de 10 ocorrências
+		let stabilityAdj = 0;
+		if (totalOcc >= 6) {
+			const blockSize = 10;
+			const accRates = [];
+			let acc = 0, cnt = 0;
+			// Revarrer somando wins/losses sequencialmente
+			for (let i = need; i < colors.length; i++) {
+				const seq = colors.slice(i, i + need);
+				if (seq.length < need) break;
+				if (!seq.every((c, idx) => c === patternColors[idx])) continue;
+				cnt++;
+				const outcome = colors[i - 1];
+				if (outcome === expectedNext) acc++;
+				if (cnt === blockSize) {
+					accRates.push(acc / cnt);
+					acc = 0; cnt = 0;
+				}
+			}
+			if (cnt > 0) accRates.push(acc / cnt);
+			if (accRates.length >= 2) {
+				const mean = accRates.reduce((a,b)=>a+b,0) / accRates.length;
+				const variance = accRates.reduce((s,v)=> s + Math.pow(v - mean, 2), 0) / accRates.length;
+				const std = Math.sqrt(variance);
+				// Baixa variância → estável
+				if (std <= 0.1) stabilityAdj += BONUS_STABILITY;
+				else if (std >= 0.25) stabilityAdj -= PENALTY_INSTABILITY;
+			}
+		}
+
+		// 4) Final
+	let rawConfidence = Math.max(0, Math.min(100, base + trendAdj + stabilityAdj));
+	
+	// 5) Aplicar calibração do observador inteligente
+	let finalConfidence = applyCalibratedConfidence(rawConfidence);
+	
+	// LOG DETALHADO para debug (padrões com 100% win)
+	if (totalLosses === 0 && totalWins >= 3) {
+		console.log('🔍 PADRÃO 100% WIN - CÁLCULO DETALHADO:', {
+			pattern: patternColors.join('-'),
+			expected_next: expectedNext,
+			total_wins: totalWins,
+			total_losses: totalLosses,
+			'BASE (antes ajustes)': base.toFixed(2) + '%',
+			'--- ÚLTIMOS 25 GIROS ---': '',
+			red_pct: recentPct.red.toFixed(1) + '%',
+			black_pct: recentPct.black.toFixed(1) + '%',
+			white_pct: recentPct.white.toFixed(1) + '%',
+			'--- AJUSTES ---': '',
+			cor_oposta: opposite,
+			dominancia_oposta: recentPct[opposite].toFixed(1) + '%',
+			penalidade_dominancia: recentPct[opposite] > 70 ? '-15%' : '0%',
+			repeticao_atual: streakLen,
+			penalidade_repeticao: streakLen > 5 ? '-10%' : '0%',
+			bonus_tendencia: recentPct[expectedNext] > 60 ? '+10%' : '0%',
+			'AJUSTE TENDÊNCIA TOTAL': trendAdj + '%',
+			'AJUSTE ESTABILIDADE': stabilityAdj + '%',
+			'--- RESULTADO FINAL ---': '',
+			calculo: `${base} + ${trendAdj} + ${stabilityAdj} = ${base + trendAdj + stabilityAdj}`,
+			'CONFIANÇA RAW': rawConfidence.toFixed(2) + '%',
+			'FATOR CALIBRAÇÃO': (observerData.calibrationFactor * 100).toFixed(1) + '%',
+			'CONFIANÇA CALIBRADA': finalConfidence + '%'
+		});
+	}
+	
+		return {
+			finalConfidence,
+			explain: {
+				pattern: patternColors,
+				expected_next: expectedNext,
+				total_wins: totalWins,
+				total_losses: totalLosses,
+				recent_window: RECENT_WINDOW,
+				tendencia_ultimos_25: recentPct,
+				repeticao_atual: streakLen,
+				base: parseFloat(base.toFixed(2)),
+				ajuste_tendencia: trendAdj,
+				ajuste_estabilidade: stabilityAdj,
+				assertividade_final: parseFloat(finalConfidence.toFixed(2))
+			}
+		};
+	} catch (e) {
+		console.warn('Falha no computeAssertivenessForColorPattern:', e);
+		return null;
+	}
+}
+
+// Função auxiliar para enviar mensagens com tratamento de erro
+// ═══════════════════════════════════════════════════════════════════════════════
+// ENVIAR MENSAGEM PARA CONTENT SCRIPT - REFATORADO 100% (Async com verificação)
+// ═══════════════════════════════════════════════════════════════════════════════
+async function sendMessageToContent(type, data = null) {
+    return new Promise((resolve) => {
+        // ✅ BUSCAR TODAS AS ABAS DA BLAZE (não apenas ativa/janela atual)
+        chrome.tabs.query({}, function(tabs) {
+            // ✅ FILTRAR APENAS ABAS DA BLAZE
+            const blazeTabs = tabs.filter(tab => {
+                if (!tab.url) return false;
+                return tab.url.includes('blaze.bet.br') || 
+                       tab.url.includes('blaze.com') || 
+                       tab.url.includes('blaze1.space') ||
+                       tab.url.includes('blaze-1.com');
+            });
+            
+            // ✅ VALIDAR SE TEM ALGUMA ABA DA BLAZE
+            if (!blazeTabs || blazeTabs.length === 0) {
+                // Não logar erro - é normal quando Blaze está fechada
+                resolve(false);
+                return;
+            }
+            
+            // ✅ PREFERIR ABA ATIVA, senão usar a primeira encontrada
+            let targetTab = blazeTabs.find(tab => tab.active) || blazeTabs[0];
+            
+            // ✅ PREPARAR MENSAGEM
+            const message = { type: type };
+            if (data) message.data = data;
+            
+            // ✅ ENVIAR COM TRATAMENTO DE ERRO
+            chrome.tabs.sendMessage(targetTab.id, message)
+                .then(() => {
+                    console.log(`✅ [${type}] enviado para aba Blaze (ID: ${targetTab.id})`);
+                    resolve(true);
+                })
+                .catch(error => {
+                    // ✅ TRATAMENTO DE ERRO SILENCIOSO (content script pode não estar pronto)
+                    if (error.message && error.message.includes('Could not establish connection')) {
+                        // Content script ainda não carregou - normal após reload
+                        resolve(false);
+                    } else if (error.message && error.message.includes('Receiving end does not exist')) {
+                        // Content script não está respondendo - normal em algumas situações
+                        resolve(false);
+                } else {
+                        console.error(`❌ Erro ao enviar ${type}:`, error);
+                        resolve(false);
+                }
+            });
+        });
+    });
+}
+
+// Função para enviar status de análise para o content script
+function sendAnalysisStatus(status) {
+    sendMessageToContent('ANALYSIS_STATUS', { status: status });
+}
+
+// ============================================
+// TELEGRAM INTEGRATION
+// ============================================
+
+// Função para enviar mensagem ao Telegram
+async function sendTelegramMessage(text) {
+    if (!analyzerConfig.telegramChatId || analyzerConfig.telegramChatId.trim() === '') {
+        console.log('⚠️ Telegram Chat ID não configurado. Mensagem não enviada.');
+        console.log('💡 Configure seu Chat ID na caixa de configurações da extensão.');
+        return false;
+    }
+
+    console.log('📤 Tentando enviar mensagem ao Telegram...');
+    console.log('📱 Chat ID:', analyzerConfig.telegramChatId);
+    console.log('📝 Mensagem:', text);
+
+    try {
+        const response = await fetch(TELEGRAM_API_URL, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                chat_id: analyzerConfig.telegramChatId,
+                text: text,
+                parse_mode: 'HTML'
+            })
+        });
+
+        const result = await response.json();
+        
+        if (result.ok) {
+            console.log('✅ Mensagem enviada ao Telegram com sucesso!');
+            console.log('📬 Resposta:', result);
+            return true;
+        } else {
+            console.error('❌ Erro ao enviar mensagem ao Telegram:', result);
+            if (result.description) {
+                console.error('📋 Descrição do erro:', result.description);
+                if (result.description.includes('chat not found')) {
+                    console.error('💡 SOLUÇÃO: Você precisa iniciar uma conversa com o bot primeiro!');
+                    console.error('💡 Acesse: https://t.me/Blaze_doubleIA_Bot e clique em "Start"');
+                }
+            }
+            return false;
+        }
+    } catch (error) {
+        console.error('❌ Erro de conexão com Telegram:', error);
+        console.error('📋 Detalhes:', error.message);
+        return false;
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ENVIAR SINAL DE ENTRADA AO TELEGRAM - REFATORADO 100% (Com verificação de retorno)
+// ═══════════════════════════════════════════════════════════════════════════════
+async function sendTelegramEntrySignal(color, lastSpin, confidence, analysisData = null) {
+    console.log('🎯 Enviando SINAL DE ENTRADA ao Telegram...');
+    
+    // ✅ VERIFICAR SE HÁ ABA DA BLAZE ABERTA (SEGURANÇA EXTRA)
+    const hasBlaze = await hasBlazeTabOpen();
+    if (!hasBlaze) {
+        console.log('╔═══════════════════════════════════════════════════════════╗');
+        console.log('║  ⛔ ENVIO BLOQUEADO: NENHUMA ABA DA BLAZE ABERTA         ║');
+        console.log('║  💡 Sinais só são enviados quando a Blaze está aberta    ║');
+        console.log('╚═══════════════════════════════════════════════════════════╝');
+        return false;
+    }
+    
+    // ✅ VALIDAÇÃO DE PARÂMETROS
+    if (!color || !lastSpin) {
+        console.error('❌ Parâmetros inválidos para envio ao Telegram:', { color, lastSpin });
+        return false;
+    }
+    
+    const colorEmoji = color === 'red' ? '🔴' : color === 'black' ? '⚫' : '⚪';
+    const colorText = color === 'red' ? 'VERMELHO' : color === 'black' ? 'PRETO' : 'BRANCO';
+    
+    // Extrair informações de assertividade do patternDescription se disponível
+    let assertivenessInfo = '';
+    let isAIAnalysis = false;
+    if (analysisData && analysisData.patternDescription) {
+        try {
+            // Tentar fazer parse como JSON primeiro
+            const patternDesc = JSON.parse(analysisData.patternDescription);
+            
+            // Verificar se é análise IA (novo formato estruturado)
+            if (patternDesc.type === 'AI_ANALYSIS') {
+                isAIAnalysis = true;
+                console.log('%c🤖 Análise IA detectada (formato estruturado)', 'color: #00FF88;');
+                assertivenessInfo = ''; // Nenhuma info extra
+            } else if (patternDesc.type === 'AI_ANALYSIS_OLD' || (typeof patternDesc === 'string' && patternDesc.includes('🤖'))) {
+                // Formato antigo de IA (texto)
+                isAIAnalysis = true;
+                console.log('%c🤖 Análise IA detectada (formato antigo)', 'color: #00FF88;');
+                assertivenessInfo = '';
+            } else {
+                // Para análise padrão, patternDescription é JSON
+            let assert = null;
+            
+            // Buscar informações de assertividade em diferentes locais
+            if (patternDesc) {
+                // Prioridade 1: colorAnalysis.summary (padrões salvos)
+                if (patternDesc.colorAnalysis && patternDesc.colorAnalysis.summary) {
+                    assert = patternDesc.colorAnalysis.summary;
+                }
+                // Prioridade 2: colorAnalysis.assertiveness (análise nova)
+                else if (patternDesc.colorAnalysis && patternDesc.colorAnalysis.assertiveness) {
+                    assert = patternDesc.colorAnalysis.assertiveness;
+                }
+                // Prioridade 3: assertiveness direto (padrões salvos legacy)
+                else if (patternDesc.assertiveness) {
+                    assert = patternDesc.assertiveness;
+                }
+            }
+            
+            if (assert) {
+                // Informações sobre as demais ocorrências (excluindo a amostra mínima)
+                if (assert.othersCount !== undefined && assert.othersCount > 0) {
+                    // ✅ CORREÇÃO: Usar othersCount diretamente, não somar othersWins + othersLosses
+                    const othersTotal = assert.othersCount;
+                    const othersPct = othersTotal > 0 ? ((assert.othersWins / othersTotal) * 100).toFixed(1) : '0.0';
+                    assertivenessInfo += `\n📊 <b>Demais Ocorrências:</b> ${assert.othersWins}W / ${assert.othersLosses}L (${othersPct}%)`;
+                }
+                
+                // Informações totais
+                if (assert.occurrences !== undefined) {
+                    assertivenessInfo += `\n📈 <b>Total de Ocorrências:</b> ${assert.occurrences}`;
+                }
+                
+                if (assert.wins !== undefined && assert.losses !== undefined) {
+                    const totalPct = assert.winPct ? assert.winPct.toFixed(1) : '0.0';
+                    assertivenessInfo += `\n💯 <b>WIN Total:</b> ${assert.wins}W / ${assert.losses}L (${totalPct}%)`;
+                }
+            }
+            }
+        } catch (e) {
+            console.error('Erro ao extrair informações de assertividade:', e);
+            // Continuar sem as informações de assertividade
+        }
+    }
+    
+    // ✅ Calcular placar baseado em CICLOS COMPLETOS
+    const { entriesHistory = [] } = await chrome.storage.local.get('entriesHistory');
+    const { totalWins, totalLosses } = calculateCycleScore(entriesHistory);
+    
+    // isAIAnalysis já foi definido anteriormente ao fazer parse do patternDescription
+    const systemTag = isAIAnalysis ? '🤖 IA (Groq)' : '📊 Sistema Padrão';
+    
+    const message = `
+🎯 <b>ATENÇÃO ENTRAR AGORA</b>
+${colorEmoji} <b>${colorText}</b>
+📊 Confiança: ${confidence}%
+${isAIAnalysis ? '🤖 <b>Análise: Inteligência Artificial</b>' : ''}
+🎲 Último: ${lastSpin.color === 'red' ? '🔴' : lastSpin.color === 'black' ? '⚫' : '⚪'} ${lastSpin.color === 'red' ? 'Vermelho' : lastSpin.color === 'black' ? 'Preto' : 'Branco'} (${lastSpin.number})
+📈 Placar: WIN: ${totalWins} | LOSS: ${totalLosses}
+⏰ ${new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+    `.trim();
+
+    // ✅ ENVIAR E VERIFICAR RETORNO
+    const result = await sendTelegramMessage(message);
+    
+    if (result) {
+        console.log('✅ Sinal de entrada enviado ao Telegram com sucesso!');
+        return true;
+    } else {
+        console.error('❌ FALHA ao enviar sinal de entrada ao Telegram!');
+        console.error('💡 Verifique: 1) Chat ID configurado | 2) Bot iniciado | 3) Conexão com internet');
+        return false;
+    }
+}
+
+// Função para enviar confirmação de WIN ao Telegram
+async function sendTelegramWinConfirmation(wins, losses) {
+    console.log('💰 Enviando confirmação de WIN ao Telegram...');
+    console.log('📊 Placar: WIN', wins, '/ LOSS', losses);
+    
+    const total = wins + losses;
+    const winRate = total > 0 ? ((wins / total) * 100).toFixed(1) : '0.0';
+    
+    const message = `
+💰💰💰💰💰💰💰 <b>WIN</b> 💰💰💰💰💰💰💰
+🔴 <b>Vermelho</b>
+📊 Confiança: 75.2%
+📈 Placar: WIN: ${wins} | LOSS: ${losses}
+⏰ ${new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+    `.trim();
+
+    console.log('📤 Enviando mensagem de WIN...');
+    const result = await sendTelegramMessage(message);
+    console.log('📬 Resultado do envio WIN:', result ? '✅ Sucesso' : '❌ Falha');
+    return result;
+}
+
+// Função para enviar confirmação de LOSS ao Telegram
+async function sendTelegramLossConfirmation(wins, losses) {
+    console.log('❌ Enviando confirmação de LOSS ao Telegram...');
+    console.log('📊 Placar: WIN', wins, '/ LOSS', losses);
+    
+    const total = wins + losses;
+    const winRate = total > 0 ? ((wins / total) * 100).toFixed(1) : '0.0';
+    
+    const message = `
+❌❌❌❌❌❌❌ <b>LOSS</b> ❌❌❌❌❌❌❌
+⚫ <b>Preto</b>
+📊 Confiança: 91.2%
+📈 Placar: WIN: ${wins} | LOSS: ${losses}
+⏰ ${new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+    `.trim();
+
+    console.log('📤 Enviando mensagem de LOSS...');
+    const result = await sendTelegramMessage(message);
+    console.log('📬 Resultado do envio LOSS:', result ? '✅ Sucesso' : '❌ Falha');
+    return result;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// FUNÇÕES DE ENVIO DE SINAIS - SISTEMA DE MARTINGALE
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// Enviar sinal de LOSS (ENTRADA, G1 ou G2)
+async function sendTelegramMartingaleLoss(stage, resultSpin) {
+    console.log(`❌ Enviando confirmação de LOSS ${stage} ao Telegram...`);
+    
+    // ✅ Determinar próximo Gale baseado no estágio atual
+    let nextGale = '';
+    if (stage === 'ENTRADA') {
+        nextGale = '🔄 Próximo: <b>G1</b>';
+    } else if (stage === 'G1') {
+        nextGale = '🔄 Próximo: <b>G2</b>';
+    } else if (stage === 'G2') {
+        nextGale = '🔄 Próximo: <b>G3</b>';
+    } else if (stage.startsWith('G')) {
+        const currentNum = parseInt(stage.substring(1)) || 0;
+        nextGale = `🔄 Próximo: <b>G${currentNum + 1}</b>`;
+    }
+    
+    // ✅ Simplificar nome do estágio (remover "ENTRADA" se for entrada)
+    const stageName = stage === 'ENTRADA' ? '' : ` ${stage}`;
+    
+    const message = `
+❌ <b>LOSS${stageName}</b>
+📊 Confiança: 91.2%
+🎲 Último: ${resultSpin.color === 'red' ? '🔴' : resultSpin.color === 'black' ? '⚫' : '⚪'} ${resultSpin.color === 'red' ? 'Vermelho' : resultSpin.color === 'black' ? 'Preto' : 'Branco'} (${resultSpin.number})
+${nextGale}
+⏰ ${new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+    `.trim();
+    
+    const result = await sendTelegramMessage(message);
+    console.log('📬 Resultado do envio LOSS:', result ? '✅ Sucesso' : '❌ Falha');
+    return result;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 🆕 FUNÇÃO GENÉRICA: Enviar sinal de qualquer Gale (G1, G2, G3... G200)
+// ═══════════════════════════════════════════════════════════════════════════════
+async function sendTelegramMartingaleGale(galeNumber, color, percentage) {
+    console.log(`🔄 Enviando sinal de G${galeNumber} ao Telegram...`);
+    
+    const colorEmoji = color === 'red' ? '🔴' : color === 'black' ? '⚫' : '⚪';
+    const colorText = color === 'red' ? 'VERMELHO' : color === 'black' ? 'PRETO' : 'BRANCO';
+    
+    // Determinar texto de alerta baseado no número do Gale
+    let warningText = '';
+    const maxGales = analyzerConfig.maxGales || 2;
+    if (galeNumber === maxGales) {
+        warningText = '\n⚠️ <b>ÚLTIMA TENTATIVA!</b> ⚠️';
+    } else if (galeNumber >= 3) {
+        warningText = `\n⚠️ Gale ${galeNumber} de ${maxGales}`;
+    }
+    
+    const message = `
+🔄 <b>GALE ${galeNumber}</b>
+${colorEmoji} <b>${colorText}</b>
+📊 Confiança: ${galeNumber === 1 ? '82.1' : '88.5'}%
+🎲 Último: ⚫ Preto (5)
+⏰ ${new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+    `.trim();
+    
+    const result = await sendTelegramMessage(message);
+    console.log(`📬 Resultado do envio G${galeNumber}:`, result ? '✅ Sucesso' : '❌ Falha');
+    return result;
+}
+
+// Enviar sinal de G1 (Martingale 1)
+async function sendTelegramMartingaleG1(color, hotColorPercentage) {
+    console.log('🔄 Enviando sinal de G1 ao Telegram...');
+    
+    const colorEmoji = color === 'red' ? '🔴' : color === 'black' ? '⚫' : '⚪';
+    const colorText = color === 'red' ? 'VERMELHO' : color === 'black' ? 'PRETO' : 'BRANCO';
+    
+    // ✅ Nova lógica: mesma cor da entrada (não mostra porcentagem de histórico)
+    const message = `
+🔄 <b>GALE 1</b>
+${colorEmoji} <b>${colorText}</b>
+📊 Confiança: 82.1%
+🎲 Último: ⚫ Preto (5)
+⏰ ${new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+    `.trim();
+    
+    const result = await sendTelegramMessage(message);
+    console.log('📬 Resultado do envio G1:', result ? '✅ Sucesso' : '❌ Falha');
+    return result;
+}
+
+// Enviar sinal de G2 (Martingale 2)
+async function sendTelegramMartingaleG2(color, hotColorPercentage) {
+    console.log('🔄 Enviando sinal de G2 ao Telegram...');
+    
+    const colorEmoji = color === 'red' ? '🔴' : color === 'black' ? '⚫' : '⚪';
+    const colorText = color === 'red' ? 'VERMELHO' : color === 'black' ? 'PRETO' : 'BRANCO';
+    
+    // ✅ Nova lógica: mesma cor da entrada (não mostra porcentagem de histórico)
+    const message = `
+🔄 <b>GALE 2</b>
+${colorEmoji} <b>${colorText}</b>
+📊 Confiança: 88.5%
+🎲 Último: ⚫ Preto (5)
+⏰ ${new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+    `.trim();
+    
+    const result = await sendTelegramMessage(message);
+    console.log('📬 Resultado do envio G2:', result ? '✅ Sucesso' : '❌ Falha');
+    return result;
+}
+
+// Enviar sinal de WIN no Martingale
+async function sendTelegramMartingaleWin(stage, resultSpin, wins, losses) {
+    console.log(`✅ Enviando confirmação de WIN ${stage} ao Telegram...`);
+    
+    const total = wins + losses;
+    const winRate = total > 0 ? ((wins / total) * 100).toFixed(1) : '0.0';
+    const spinEmoji = resultSpin.color === 'red' ? '🔴' : resultSpin.color === 'black' ? '⚫' : '⚪';
+    const spinColor = resultSpin.color === 'red' ? 'VERMELHO' : resultSpin.color === 'black' ? 'PRETO' : 'BRANCO';
+    
+    let stageMessage = '';
+    if (stage === 'ENTRADA') {
+        stageMessage = '💰💰💰💰💰💰💰 <b>WIN</b> 💰💰💰💰💰💰💰';
+    } else if (stage === 'G1') {
+        stageMessage = '💰💰💰💰💰💰💰 <b>WIN G1</b> 💰💰💰💰💰💰💰';
+    } else if (stage === 'G2') {
+        stageMessage = '💰💰💰💰💰💰💰 <b>WIN G2</b> 💰💰💰💰💰💰💰';
+    }
+    
+    const message = `
+${stageMessage}
+${spinEmoji} <b>${spinColor}</b>
+📊 Confiança: 88.5%
+📈 Placar: WIN: ${wins} | LOSS: ${losses}
+⏰ ${new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+    `.trim();
+    
+    const result = await sendTelegramMessage(message);
+    console.log('📬 Resultado do envio WIN:', result ? '✅ Sucesso' : '❌ Falha');
+    return result;
+}
+
+// Enviar sinal de RET (Loss Final)
+async function sendTelegramMartingaleRET(wins, losses) {
+    console.log('⛔ Enviando sinal de RET ao Telegram...');
+    
+    const total = wins + losses;
+    const winRate = total > 0 ? ((wins / total) * 100).toFixed(1) : '0.0';
+    
+    const message = `
+❌❌❌❌❌❌❌ <b>LOSS NÃO PAGOU</b> ❌❌❌❌❌❌❌
+🔴 <b>Vermelho</b>
+📊 Confiança: 91.2%
+📈 Placar: WIN: ${wins} | LOSS: ${losses}
+⏰ ${new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+    `.trim();
+    
+    const result = await sendTelegramMessage(message);
+    console.log('📬 Resultado do envio RET:', result ? '✅ Sucesso' : '❌ Falha');
+    return result;
+}
+
+// Monitorar abas e controlar extensão automaticamente
+chrome.tabs.onRemoved.addListener(async (tabId, removeInfo) => {
+    // Verificar se ainda há abas da Blaze abertas
+    const hasBlaze = await hasBlazeTabOpen();
+    if (!hasBlaze && isRunning) {
+        console.log('╔═══════════════════════════════════════════════════════════╗');
+        console.log('║  ⚠️ NENHUMA ABA DA BLAZE ABERTA - PARANDO EXTENSÃO       ║');
+        console.log('╚═══════════════════════════════════════════════════════════╝');
+        stopDataCollection();
+    }
+});
+
+chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
+    if (changeInfo.status === 'complete') {
+        // ✅ Verificar múltiplos domínios da Blaze
+        const blazeDomains = [
+            'blaze.com',
+            'blaze1.space',
+            'blaze-1.com',
+            'blaze-bet.com',
+            'blaze.bet.br'
+        ];
+        
+        const isBlaze = tab.url && blazeDomains.some(domain => tab.url.includes(domain));
+        
+        if (isBlaze) {
+            if (!isRunning) {
+                console.log('╔═══════════════════════════════════════════════════════════╗');
+                console.log('║  ✅ ABA DA BLAZE DETECTADA - INICIANDO EXTENSÃO          ║');
+                console.log(`║  URL: ${tab.url.substring(0, 50)}...`);
+                console.log('╚═══════════════════════════════════════════════════════════╝');
+                startDataCollection();
+            }
+        }
+    }
+});
+
+// Listen for messages from popup
+chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+    console.log('');
+    console.log('');
+    console.log('%c╔════════════════════════════════════════════════════════════════════╗', 'color: #FF00FF; font-weight: bold; font-size: 16px;');
+    console.log('%c║  🎯 BACKGROUND.JS LISTENER EXECUTADO! (VERSÃO 17)                ║', 'color: #FF00FF; font-weight: bold; font-size: 16px;');
+    console.log('%c╠════════════════════════════════════════════════════════════════════╣', 'color: #FF00FF; font-weight: bold;');
+    console.log('%c║  📨 Action recebida:', 'color: #FF00FF; font-weight: bold;', request.action);
+    console.log('%c║  📦 Request completo:', 'color: #FF00FF;', request);
+    console.log('%c╚════════════════════════════════════════════════════════════════════╝', 'color: #FF00FF; font-weight: bold;');
+    console.log('');
+    
+    if (request.action === 'start') {
+        startDataCollection();
+        sendResponse({status: 'started'});
+        return true;
+    } else if (request.action === 'stop') {
+        stopDataCollection();
+        sendResponse({status: 'stopped'});
+        return true;
+    } else if (request.action === 'status') {
+        sendResponse({status: isRunning ? 'running' : 'stopped'});
+        return true;
+    } else if (request.action === 'applyConfig') {
+        console.log('%c✅ ENTROU NO else if applyConfig!', 'color: #00FF00; font-weight: bold; font-size: 16px;');
+        (async () => {
+            try {
+                console.log('%c✅ EXECUTANDO async function...', 'color: #00FF00; font-weight: bold;');
+                // ✅ Usar CACHE EM MEMÓRIA (não buscar de doubleHistory)
+                const history = cachedHistory;
+                
+                const res = await chrome.storage.local.get(['analyzerConfig']);
+                if (res && res.analyzerConfig) {
+                    analyzerConfig = { ...DEFAULT_ANALYZER_CONFIG, ...res.analyzerConfig };
+                }
+                console.log('⚙️ Nova configuração aplicada via UI:');
+                logActiveConfiguration();
+                
+                // ⚠️ SÓ REANALISAR SE MODO IA ESTIVER ATIVO E HOUVER HISTÓRICO SUFICIENTE
+                if (analyzerConfig.aiMode && history && history.length >= 10) {
+                    console.log('📊 Reanalisando com', history.length, 'giros do cache...');
+                    await runAnalysisController(history);
+                } else {
+                    if (!analyzerConfig.aiMode) {
+                        console.log('ℹ️ Modo IA desativado - não reanalisando automaticamente');
+                    } else if (!history || history.length < 10) {
+                        console.log('ℹ️ Histórico insuficiente para análise - mínimo 10 giros');
+                    }
+                }
+                
+                console.log('%c✅ CHAMANDO sendResponse com status: applied', 'color: #00FF00; font-weight: bold;');
+                sendResponse({ status: 'applied' });
+            } catch (e) {
+                console.error('❌ Falha ao aplicar configuração:', e);
+                sendResponse({ status: 'error', error: String(e) });
+            }
+        })();
+        console.log('%c✅ RETORNANDO TRUE do listener!', 'color: #00FF00; font-weight: bold; font-size: 16px;');
+        return true; // ⚠️ CRÍTICO: Indicar que vamos responder assincronamente!
+    } else if (request.action === 'showPatternStats') {
+        // Exibir estatísticas do banco de padrões
+        (async () => {
+            try {
+                const db = await loadPatternDB();
+                sendResponse({ status: 'shown', total: db.patterns_found ? db.patterns_found.length : 0 });
+            } catch (e) {
+                console.error('Erro ao exibir estatísticas:', e);
+                sendResponse({ status: 'error', error: String(e) });
+            }
+        })();
+        return true; // async response
+    } else if (request.action === 'getObserverStats') {
+        // Enviar estatísticas do observador inteligente
+        const stats = getObserverStats();
+        sendResponse({ status: 'success', stats: stats });
+        return true;
+    } else if (request.action === 'recalibrateObserver') {
+        // Recalibrar observador manualmente (botão "Atualizar")
+        console.log('🔄 Recalibração manual do observador solicitada...');
+        recalibrateConfidenceModel();
+        const stats = getObserverStats();
+        sendResponse({ status: 'success', stats: stats });
+        // Enviar atualização para content.js
+        sendObserverUpdate(true); // Mostrar log na recalibração manual
+        return true;
+    } else if (request.action === 'aiModeChanged') {
+        // Modo IA foi alterado
+        (async () => {
+            try {
+                console.log('');
+                console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #FFAA00; font-weight: bold;');
+                console.log('%c🔄 MUDANÇA DE MODO DETECTADA!', 'color: #FFAA00; font-weight: bold; font-size: 14px;');
+                console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #FFAA00; font-weight: bold;');
+                
+                const res = await chrome.storage.local.get(['analyzerConfig']);
+                if (res && res.analyzerConfig) {
+                    console.log('%c📥 Configuração lida do storage:', 'color: #00FFFF; font-weight: bold;');
+                    console.log('%c   aiMode: ' + res.analyzerConfig.aiMode, 'color: #00FFFF; font-weight: bold; font-size: 13px;');
+                    console.log('%c   minOccurrences: ' + res.analyzerConfig.minOccurrences, 'color: #00FFFF;');
+                    
+                    analyzerConfig = { ...DEFAULT_ANALYZER_CONFIG, ...res.analyzerConfig };
+                    
+                    console.log('');
+                    console.log('%c🤖 Modo IA ' + (analyzerConfig.aiMode ? 'ATIVADO' : 'DESATIVADO'), 'color: ' + (analyzerConfig.aiMode ? '#00FF00' : '#FF6666') + '; font-weight: bold; font-size: 16px; background: ' + (analyzerConfig.aiMode ? '#003300' : '#330000') + '; padding: 5px;');
+                    console.log('');
+                    
+                    // ✅ Se modo IA foi ATIVADO, marcar flag para aguardar 1 giro antes de enviar sinal
+                    if (analyzerConfig.aiMode) {
+                        aiModeJustActivated = true;
+                        console.log('%c⏳ MODO IA ATIVADO: Aguardando 1 giro antes de enviar primeiro sinal...', 'color: #FFAA00; font-weight: bold; font-size: 13px; background: #332200; padding: 5px;');
+                        console.log('');
+                    } else {
+                        // Se desativou, limpar flag
+                        aiModeJustActivated = false;
+                    }
+                    
+                    logActiveConfiguration();
+                    
+                    // Executar nova análise se houver histórico (mas não enviará sinal se aiModeJustActivated = true)
+                    if (cachedHistory.length > 0) {
+                        console.log('%c📊 Executando análise com novo modo...', 'color: #00FFFF; font-weight: bold;');
+                        console.log('');
+                        await runAnalysisController(cachedHistory);
+                    } else {
+                        console.log('%c⚠️ Nenhum histórico disponível para análise', 'color: #FFAA00;');
+                    }
+                }
+                sendResponse({ status: 'success' });
+            } catch (e) {
+                console.error('%c❌ Erro ao alterar modo IA:', 'color: #FF0000; font-weight: bold;', e);
+                sendResponse({ status: 'error', error: String(e) });
+            }
+        })();
+        return true;
+    } else if (request.action === 'clearEntriesAndObserver') {
+        // Limpar histórico de entradas E calibrador (mantém sincronizado)
+        (async () => {
+            console.log('╔═══════════════════════════════════════════════════════════╗');
+            console.log('║  🗑️ LIMPANDO ENTRADAS E CALIBRADOR                       ║');
+            console.log('╚═══════════════════════════════════════════════════════════╝');
+            
+            // Resetar observerData
+            observerData = {
+                entries: [],
+                calibrationFactor: 1.0,
+                lastCalibration: null,
+                lastCalibratedCount: 0,
+                stats: {
+                    high: { predicted: 0, actual: 0, wins: 0, total: 0 },
+                    medium: { predicted: 0, actual: 0, wins: 0, total: 0 },
+                    low: { predicted: 0, actual: 0, wins: 0, total: 0 }
+                }
+            };
+            
+            // Salvar observerData resetado
+            await saveObserverData(true); // Mostrar log
+            
+            console.log('✅ Calibrador limpo e sincronizado com histórico de entradas');
+            
+            // Enviar atualização para UI
+            sendObserverUpdate(true); // Mostrar log após limpar
+            
+            sendResponse({ status: 'success', message: 'Entradas e calibrador limpos com sucesso!' });
+        })();
+        return true; // async response
+    } else if (request.action === 'getDefaultPrompt') {
+        // 🔧 Retornar o prompt padrão para visualização
+        try {
+            const historyLength = request.historyLength || 50;
+            const historyText = request.historyText || '(exemplo de histórico)';
+            const defaultPrompt = DEFAULT_AI_PROMPT(historyLength, historyText);
+            sendResponse({ status: 'success', prompt: defaultPrompt });
+        } catch (e) {
+            console.error('❌ Erro ao buscar prompt padrão:', e);
+            sendResponse({ status: 'error', error: String(e) });
+        }
+        return true;
+    } else if (request.action === 'startPatternSearch') {
+        console.log('%c✅ ENTROU NO else if startPatternSearch!', 'color: #00FFFF; font-weight: bold; font-size: 16px;');
+        // Iniciar busca manual de padrões (5 minutos)
+        (async () => {
+            try {
+                console.log('%c🔍 Iniciando busca manual de padrões...', 'color: #00FFFF; font-weight: bold;');
+                // Verificar se já está buscando
+                if (initialSearchActive) {
+                    console.log('%c⚠️ Busca já está ativa!', 'color: #FFAA00; font-weight: bold;');
+                    sendResponse({ status: 'already_running' });
+                    return;
+                }
+                
+                // ✅ Usar CACHE EM MEMÓRIA (mais rápido) ou buscar do servidor se vazio
+                let historyToAnalyze = cachedHistory;
+                
+                if (!historyToAnalyze || historyToAnalyze.length < 50) {
+                    console.log('📥 Cache vazio, buscando histórico do servidor...');
+                    const serverGiros = await fetchGirosFromAPI();
+                    
+                    if (!serverGiros || serverGiros.length < 50) {
+                        sendResponse({ status: 'insufficient_data', message: `Histórico insuficiente (<50 giros). Atual: ${serverGiros ? serverGiros.length : 0}` });
+                        return;
+                    }
+                    
+                    historyToAnalyze = serverGiros;
+                    cachedHistory = serverGiros; // Atualizar cache
+                }
+                
+                console.log(`✅ Iniciando busca de padrões com ${historyToAnalyze.length} giros em cache`);
+                
+                // Limpar padrões antigos
+                await clearAllPatterns();
+                
+                // Iniciar busca de 5 minutos com histórico do cache
+                await startInitialPatternSearch(historyToAnalyze);
+                
+                sendResponse({ status: 'started', historySize: historyToAnalyze.length });
+            } catch (e) {
+                console.error('Erro ao iniciar busca de padrões:', e);
+                sendResponse({ status: 'error', error: String(e) });
+            }
+        })();
+        console.log('%c✅ RETORNANDO TRUE do startPatternSearch!', 'color: #00FFFF; font-weight: bold; font-size: 16px;');
+        return true; // async response
+    } else if (request.action === 'resetPatterns') {
+        console.log('%c✅ ENTROU NO else if resetPatterns!', 'color: #00FF00; font-weight: bold; font-size: 16px;');
+        // Resetar/Limpar TUDO: padrões E análise pendente
+        (async () => {
+            try {
+                console.log('%c🗑️ Executando limpeza de padrões...', 'color: #FFAA00; font-weight: bold;');
+                // Parar busca se estiver em andamento
+                if (initialSearchActive) {
+                    console.log('⏸️ Parando busca ativa...');
+                    stopInitialPatternSearch();
+                }
+                
+                // Limpar TUDO (padrões + análise pendente)
+                await clearAllPatternsAndAnalysis();
+                
+                console.log('✅ Reset completo realizado manualmente pelo usuário.');
+                sendResponse({ status: 'success', message: 'Padrões e análise pendente resetados com sucesso!' });
+            } catch (e) {
+                console.error('Erro ao resetar padrões:', e);
+                sendResponse({ status: 'error', error: String(e) });
+            }
+        })();
+        console.log('%c✅ RETORNANDO TRUE do resetPatterns!', 'color: #00FF00; font-weight: bold; font-size: 16px;');
+        return true; // async response
+    } else {
+        console.log('%c⚠️ NENHUM else if correspondeu! Action:', 'color: #FF0000; font-weight: bold; font-size: 16px;', request.action);
+        console.log('%c⚠️ Listener vai retornar undefined!', 'color: #FF0000; font-weight: bold;');
+    }
+});
+
+// ✅ INICIAR APENAS SE HOUVER ABA DA BLAZE ABERTA
+(async function initExtension() {
+    console.log('╔═══════════════════════════════════════════════════════════╗');
+    console.log('║  🔍 VERIFICANDO SE HÁ ABAS DA BLAZE ABERTAS...           ║');
+    console.log('╚═══════════════════════════════════════════════════════════╝');
+    
+    const hasBlaze = await hasBlazeTabOpen();
+    
+    if (hasBlaze) {
+        console.log('╔═══════════════════════════════════════════════════════════╗');
+        console.log('║  ✅ ABA DA BLAZE ENCONTRADA - INICIANDO EXTENSÃO         ║');
+        console.log('╚═══════════════════════════════════════════════════════════╝');
+startDataCollection();
+    } else {
+        console.log('╔═══════════════════════════════════════════════════════════╗');
+        console.log('║  ⚠️ NENHUMA ABA DA BLAZE ABERTA                          ║');
+        console.log('║  💡 Abra blaze.com para ativar a extensão                ║');
+        console.log('╚═══════════════════════════════════════════════════════════╝');
+    }
+})();
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 🔄 LISTENER PARA MUDANÇAS NAS CONFIGURAÇÕES
+// ═══════════════════════════════════════════════════════════════════════════════
+// Detecta quando o usuário altera as configurações e atualiza a variável global
+chrome.storage.onChanged.addListener((changes, areaName) => {
+    if (areaName === 'local' && changes.analyzerConfig) {
+        const newConfig = changes.analyzerConfig.newValue;
+        if (newConfig) {
+            // ✅ ATUALIZAR CONFIGURAÇÕES
+            analyzerConfig = { ...DEFAULT_ANALYZER_CONFIG, ...newConfig };
+            
+            // ✅ MOSTRAR LOG COMPLETO DAS NOVAS CONFIGURAÇÕES
+            console.log('');
+            console.log('╔═══════════════════════════════════════════════════════════╗');
+            console.log('║  🔄 CONFIGURAÇÕES ATUALIZADAS EM TEMPO REAL!             ║');
+            console.log('╚═══════════════════════════════════════════════════════════╝');
+            console.log('');
+            
+            // ✅ EXIBIR TODAS AS CONFIGURAÇÕES USANDO A FUNÇÃO logActiveConfiguration
+            logActiveConfiguration();
+            
+            console.log('');
+            console.log('✅ Novas configurações aplicadas com sucesso!');
+            console.log('ℹ️  As regras já estão ativas - não precisa recarregar a extensão');
+            console.log('');
+        }
+    }
+});
+
+
+

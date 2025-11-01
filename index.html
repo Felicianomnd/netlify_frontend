@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="theme-color" content="#1a1a2e">
+    <title>🎯 Blaze Double Analyzer - Painel Web</title>
+    
+    <!-- ✅ CARREGA O CSS ORIGINAL DA SIDEBAR -->
+    <link rel="stylesheet" href="styles.css">
+    
+    <style>
+        /* Estilos APENAS para a página web, não afeta a sidebar */
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #1a1a2e;
+            color: white;
+            overflow-x: hidden;
+        }
+
+        /* Área principal onde a sidebar será renderizada */
+        #app-container {
+            width: 100%;
+            min-height: 100vh;
+            position: relative;
+        }
+
+        /* Mensagem de carregamento */
+        #loading-message {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+            z-index: 9999;
+        }
+
+        .loader {
+            border: 4px solid rgba(255, 255, 255, 0.1);
+            border-top: 4px solid #00FF88;
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 20px auto;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        /* Garantir que a sidebar apareça corretamente na versão web */
+        #blaze-double-analyzer {
+            position: fixed !important;
+            top: 20px !important;
+            right: 20px !important;
+            z-index: 10000 !important;
+        }
+        
+        /* ✅ MOBILE: FULLSCREEN */
+        @media only screen and (max-width: 768px) {
+            #blaze-double-analyzer {
+                position: fixed !important;
+                top: 0 !important;
+                left: 0 !important;
+                right: 0 !important;
+                bottom: 0 !important;
+                width: 100% !important;
+                height: 100% !important;
+            }
+            
+            body {
+                overflow: hidden !important;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Mensagem de carregamento -->
+    <div id="loading-message">
+        <div class="loader"></div>
+        <h2>🚀 Carregando Blaze Analyzer...</h2>
+        <p>Inicializando sistemas...</p>
+    </div>
+
+    <!-- Container onde a sidebar será renderizada -->
+    <div id="app-container"></div>
+
+    <!-- ═══════════════════════════════════════════════════════════════════════════════ -->
+    <!-- ORDEM DE CARREGAMENTO IMPORTANTE:                                              -->
+    <!-- 1. chrome-shim.js (simula APIs do Chrome)                                       -->
+    <!-- 2. background.js (lógica principal - INTACTO)                                   -->
+    <!-- 3. web-init.js (inicializa background.js)                                       -->
+    <!-- 4. web-bridge.js (monitora giros e chama análise)                               -->
+    <!-- 5. content.js (cria a sidebar - INTACTO)                                        -->
+    <!-- ═══════════════════════════════════════════════════════════════════════════════ -->
+
+    <!-- 🔐 VERIFICAÇÃO DE AUTENTICAÇÃO -->
+    <script>
+        // Verificar se usuário está logado
+        (function() {
+            const authToken = localStorage.getItem('authToken');
+            
+            if (!authToken) {
+                // Não está logado - redirecionar para tela de login
+                console.log('❌ Usuário não autenticado - redirecionando para login...');
+                window.location.href = 'auth.html';
+                return;
+            }
+            
+            // Verificar se token é válido
+            fetch('https://blaze-analyzer-api.onrender.com/api/auth/verify', {
+                headers: {
+                    'Authorization': 'Bearer ' + authToken
+                }
+            })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error('Token inválido');
+                }
+                return response.json();
+            })
+            .then(data => {
+                if (data.success) {
+                    console.log('✅ Usuário autenticado:', data.user.name);
+                    // Salvar dados do usuário
+                    localStorage.setItem('user', JSON.stringify(data.user));
+                } else {
+                    throw new Error('Token inválido');
+                }
+            })
+            .catch(error => {
+                console.error('❌ Erro na autenticação:', error);
+                localStorage.removeItem('authToken');
+                localStorage.removeItem('user');
+                window.location.href = 'auth.html';
+            });
+        })();
+    </script>
+    
+    <!-- 1️⃣ CHROME SHIM - Simula APIs do Chrome -->
+    <script>
+        // Cache-bust agressivo: adiciona timestamp único
+        const cacheBust = Date.now();
+        console.log('%c🔥 CACHE-BUST ATIVO: ' + cacheBust, 'color: #FF0000; font-weight: bold; font-size: 16px;');
+    </script>
+    <script>
+        const script1 = document.createElement('script');
+        script1.src = 'chrome-shim.js?v=' + Date.now();
+        document.currentScript.parentNode.insertBefore(script1, document.currentScript.nextSibling);
+    </script>
+
+    <!-- 2️⃣ BACKGROUND.JS - Lógica principal (SEM ALTERAÇÕES) -->
+    <script>
+        const script2 = document.createElement('script');
+        script2.src = 'background.js?v=' + Date.now();
+        document.currentScript.parentNode.insertBefore(script2, document.currentScript.nextSibling);
+    </script>
+
+    <!-- 3️⃣ WEB-INIT.JS - Inicialização do background (NOVO) -->
+    <script>
+        const script3 = document.createElement('script');
+        script3.src = 'web-init.js?v=' + Date.now();
+        document.currentScript.parentNode.insertBefore(script3, document.currentScript.nextSibling);
+    </script>
+
+    <!-- 4️⃣ WEB-BRIDGE.JS - Ponte de comunicação (NOVO) -->
+    <script>
+        const script4 = document.createElement('script');
+        script4.src = 'web-bridge.js?v=' + Date.now();
+        document.currentScript.parentNode.insertBefore(script4, document.currentScript.nextSibling);
+    </script>
+
+    <!-- 5️⃣ CONTENT.JS - Sidebar completa (SEM ALTERAÇÕES) -->
+    <script>
+        console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #FFD700; font-weight: bold;');
+        console.log('%c⏳ PRESTES A CARREGAR CONTENT.JS...', 'color: #FFD700; font-weight: bold; font-size: 14px;');
+        console.log('%c   document.body existe?', 'color: #FFD700;', document.body ? '✅ SIM' : '❌ NÃO');
+        console.log('%c   document.readyState:', 'color: #FFD700;', document.readyState);
+        console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #FFD700; font-weight: bold;');
+    </script>
+    <script>
+        const script5 = document.createElement('script');
+        script5.src = 'content.js?v=' + Date.now();
+        document.currentScript.parentNode.insertBefore(script5, document.currentScript.nextSibling);
+    </script>
+    <script>
+        console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #00FF88; font-weight: bold;');
+        console.log('%c✅ Script content.js foi CARREGADO (tag processada)', 'color: #00FF88; font-weight: bold;');
+        console.log('%c   Se você NÃO vê "🚀 CONTENT.JS INICIANDO..." acima,', 'color: #FFA500;');
+        console.log('%c   então há um ERRO DE SINTAXE no content.js!', 'color: #FFA500; font-weight: bold;');
+        console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #00FF88; font-weight: bold;');
+    </script>
+
+    <!-- 6️⃣ Script de inicialização da versão web -->
+    <script>
+        // ═══════════════════════════════════════════════════════════════════════════════
+        // CAPTURAR ERROS GLOBAIS
+        // ═══════════════════════════════════════════════════════════════════════════════
+        
+        window.addEventListener('error', function(event) {
+            console.error('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #FF0000; font-weight: bold;');
+            console.error('%c🚨 ERRO GLOBAL DETECTADO!', 'color: #FF0000; font-weight: bold; font-size: 16px;');
+            console.error('%c   Mensagem:', 'color: #FF0000;', event.message);
+            console.error('%c   Arquivo:', 'color: #FF0000;', event.filename);
+            console.error('%c   Linha:', 'color: #FF0000;', event.lineno);
+            console.error('%c   Coluna:', 'color: #FF0000;', event.colno);
+            console.error('%c   Stack:', 'color: #FF0000;', event.error ? event.error.stack : 'N/A');
+            console.error('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #FF0000; font-weight: bold;');
+        });
+        
+        // ═══════════════════════════════════════════════════════════════════════════════
+        // GARANTIR QUE TODOS OS LOGS DO BACKGROUND.JS APAREÇAM NO CONSOLE
+        // ═══════════════════════════════════════════════════════════════════════════════
+        
+        // Capturar e reexibir logs do background.js (caso estejam sendo filtrados)
+        const originalConsoleLog = console.log;
+        const originalConsoleWarn = console.warn;
+        const originalConsoleError = console.error;
+        
+        // Garantir que logs apareçam sempre
+        console.log = function(...args) {
+            originalConsoleLog.apply(console, args);
+        };
+        
+        console.warn = function(...args) {
+            originalConsoleWarn.apply(console, args);
+        };
+        
+        console.error = function(...args) {
+            originalConsoleError.apply(console, args);
+        };
+        
+        // ═══════════════════════════════════════════════════════════════════════════════
+        // INICIALIZAÇÃO DA VERSÃO WEB
+        // ═══════════════════════════════════════════════════════════════════════════════
+        
+        console.log('%c═══════════════════════════════════════════════════════════════════════════════', 'color: #00FF88; font-weight: bold;');
+        console.log('%c  🎯 BLAZE DOUBLE ANALYZER - VERSÃO WEB                                        ', 'color: #00FF88; font-weight: bold; font-size: 16px;');
+        console.log('%c═══════════════════════════════════════════════════════════════════════════════', 'color: #00FF88; font-weight: bold;');
+        console.log('');
+        console.log('%c✅ chrome-shim.js carregado', 'color: #00FF88;');
+        console.log('%c✅ background.js carregado', 'color: #00FF88;');
+        console.log('%c✅ web-init.js carregado', 'color: #00FF88;');
+        console.log('%c✅ web-bridge.js carregado', 'color: #00FF88;');
+        console.log('%c✅ content.js carregado', 'color: #00FF88;');
+        console.log('');
+        console.log('%c💡 TODOS OS LOGS DO BACKGROUND.JS APARECERÃO ABAIXO', 'color: #FFD700; font-weight: bold;');
+        console.log('%c📊 Aguarde os logs de inicialização...', 'color: #00AAFF;');
+        console.log('');
+
+        // Remover mensagem de carregamento após a sidebar ser criada
+        setTimeout(() => {
+            const loadingMessage = document.getElementById('loading-message');
+            if (loadingMessage) {
+                loadingMessage.style.opacity = '0';
+                loadingMessage.style.transition = 'opacity 0.5s ease';
+                setTimeout(() => {
+                    loadingMessage.remove();
+                }, 500);
+            }
+        }, 1000);
+
+        // Verificar se a sidebar foi criada corretamente
+        setTimeout(() => {
+            const sidebar = document.getElementById('blaze-double-analyzer');
+            if (sidebar) {
+                console.log('%c✅ SIDEBAR CRIADA COM SUCESSO!', 'color: #00FF88; font-weight: bold; font-size: 14px;');
+                console.log('%c📍 A sidebar completa está ativa e funcional!', 'color: #00FF88;');
+            } else {
+                console.log('%c⚠️ Aguardando criação da sidebar...', 'color: #FFA500;');
+                // Tentar novamente em 2 segundos
+                setTimeout(() => {
+                    const sidebar2 = document.getElementById('blaze-double-analyzer');
+                    if (sidebar2) {
+                        console.log('%c✅ SIDEBAR CRIADA!', 'color: #00FF88; font-weight: bold;');
+                    } else {
+                        console.log('%c❌ Sidebar não encontrada. Verifique o console para erros.', 'color: #FF0000;');
+                    }
+                }, 2000);
+            }
+        }, 1500);
+
+        // Notificar usuário de teclas de atalho (se houver)
+        console.log('');
+        console.log('%c💡 DICA: A sidebar está ativa! Ela funciona exatamente como na extensão.', 'color: #00AAFF;');
+        console.log('');
+    </script>
+</body>
+</html>

@@ -1,0 +1,647 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="theme-color" content="#0f212e">
+    <title>🎯 Blaze Analyzer - Login</title>
+    
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #0f212e;
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+        
+        .auth-container {
+            background: #1a2c38;
+            border-radius: 16px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+            padding: 40px;
+            width: 100%;
+            max-width: 420px;
+            animation: slideUp 0.5s ease;
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+        
+        @keyframes slideUp {
+            from {
+                opacity: 0;
+                transform: translateY(30px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        
+        .logo {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        
+        .logo h1 {
+            font-size: 28px;
+            color: #ffffff;
+            margin-bottom: 8px;
+            font-weight: 700;
+            letter-spacing: -0.5px;
+        }
+        
+        .logo p {
+            color: #8f9bb3;
+            font-size: 14px;
+            font-weight: 400;
+        }
+        
+        .tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 30px;
+        }
+        
+        .tab {
+            flex: 1;
+            padding: 14px;
+            border: none;
+            background: transparent;
+            border-radius: 8px;
+            font-size: 15px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            color: #8f9bb3;
+            border: 2px solid transparent;
+        }
+        
+        .tab.active {
+            background: #ff003f;
+            color: white;
+            box-shadow: 0 4px 12px rgba(255, 0, 63, 0.3);
+        }
+        
+        .form-container {
+            display: none;
+        }
+        
+        .form-container.active {
+            display: block;
+        }
+        
+        .form-group {
+            margin-bottom: 20px;
+        }
+        
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            color: #ffffff;
+            font-weight: 500;
+            font-size: 14px;
+        }
+        
+        .form-group input {
+            width: 100%;
+            padding: 14px 16px;
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 8px;
+            font-size: 15px;
+            transition: all 0.2s;
+            background: rgba(15, 33, 46, 0.6);
+            color: #ffffff;
+        }
+        
+        .form-group input::placeholder {
+            color: #5c6c7a;
+        }
+        
+        .form-group input:focus {
+            outline: none;
+            border-color: #ff003f;
+            background: rgba(15, 33, 46, 0.8);
+            box-shadow: 0 0 0 3px rgba(255, 0, 63, 0.1);
+        }
+        
+        .btn {
+            width: 100%;
+            padding: 15px;
+            border: none;
+            border-radius: 10px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            margin-top: 10px;
+        }
+        
+        .btn-primary {
+            background: #ff003f;
+            color: white;
+            font-weight: 600;
+            letter-spacing: 0.3px;
+        }
+        
+        .btn-primary:hover:not(:disabled) {
+            background: #e6003a;
+            transform: translateY(-1px);
+            box-shadow: 0 6px 20px rgba(255, 0, 63, 0.4);
+        }
+        
+        .btn-primary:active:not(:disabled) {
+            transform: translateY(0);
+        }
+        
+        .btn-primary:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        .forgot-password {
+            text-align: center;
+            margin-top: 15px;
+        }
+        
+        .forgot-password a {
+            color: #ff003f;
+            text-decoration: none;
+            font-size: 14px;
+            font-weight: 500;
+            transition: color 0.2s;
+        }
+        
+        .forgot-password a:hover {
+            color: #ff4d7a;
+            text-decoration: underline;
+        }
+        
+        .message {
+            padding: 15px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            font-size: 14px;
+            display: none;
+        }
+        
+        .message.success {
+            background: rgba(46, 213, 115, 0.15);
+            color: #2ed573;
+            border: 1px solid rgba(46, 213, 115, 0.3);
+        }
+        
+        .message.error {
+            background: rgba(255, 71, 87, 0.15);
+            color: #ff4757;
+            border: 1px solid rgba(255, 71, 87, 0.3);
+        }
+        
+        .message.show {
+            display: block;
+            animation: fadeIn 0.3s ease;
+        }
+        
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+        
+        .loader {
+            border: 3px solid rgba(255,255,255,0.2);
+            border-top: 3px solid #ffffff;
+            border-radius: 50%;
+            width: 18px;
+            height: 18px;
+            animation: spin 0.8s linear infinite;
+            display: inline-block;
+            margin-right: 10px;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        .password-reset-container {
+            display: none;
+        }
+        
+        .password-reset-container.active {
+            display: block;
+        }
+        
+        .back-button {
+            background: rgba(255,255,255,0.1);
+            color: #ffffff;
+            padding: 10px 20px;
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 14px;
+            margin-bottom: 20px;
+            transition: all 0.2s;
+            font-weight: 500;
+        }
+        
+        .back-button:hover {
+            background: rgba(255,255,255,0.15);
+            border-color: rgba(255,255,255,0.2);
+        }
+        
+        /* ═══════════════════════════════════════════════════════════════════════════════ */
+        /* 📱 RESPONSIVIDADE PARA MOBILE                                                   */
+        /* ═══════════════════════════════════════════════════════════════════════════════ */
+        
+        @media only screen and (max-width: 768px) {
+            body {
+                padding: 15px !important;
+            }
+            
+            .auth-container {
+                padding: 25px !important;
+                max-width: 100% !important;
+            }
+            
+            .logo h1 {
+                font-size: 24px !important;
+            }
+            
+            .logo p {
+                font-size: 13px !important;
+            }
+            
+            .tab {
+                font-size: 14px !important;
+                padding: 12px !important;
+            }
+            
+            .form-group input {
+                font-size: 16px !important; /* Previne zoom no iOS */
+                padding: 14px !important;
+                min-height: 48px !important;
+            }
+            
+            .btn {
+                font-size: 15px !important;
+                padding: 16px !important;
+                min-height: 52px !important;
+            }
+            
+            .forgot-password a {
+                font-size: 13px !important;
+                display: block !important;
+                padding: 12px !important;
+            }
+            
+            .message {
+                font-size: 13px !important;
+                padding: 14px !important;
+            }
+            
+            .form-group label {
+                font-size: 13px !important;
+            }
+            
+            /* Melhorar toque */
+            * {
+                -webkit-tap-highlight-color: rgba(255, 0, 63, 0.2);
+            }
+            
+            /* Prevenir zoom indesejado */
+            input:focus,
+            select:focus {
+                font-size: 16px !important;
+            }
+        }
+        
+        /* Landscape mobile */
+        @media only screen and (max-width: 768px) and (orientation: landscape) {
+            .auth-container {
+                padding: 20px !important;
+                margin: 10px 0 !important;
+            }
+            
+            .logo {
+                margin-bottom: 15px !important;
+            }
+            
+            .logo h1 {
+                font-size: 20px !important;
+            }
+            
+            .tabs {
+                margin-bottom: 15px !important;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="auth-container">
+        <div class="logo">
+            <h1>Blaze Analyzer</h1>
+            <p>Sistema de Análise de Padrões</p>
+        </div>
+        
+        <!-- Mensagem de feedback -->
+        <div id="message" class="message"></div>
+        
+        <!-- Telas de Login/Cadastro -->
+        <div id="mainForms">
+            <!-- Tabs -->
+            <div class="tabs">
+                <button class="tab active" onclick="switchTab('login')">Login</button>
+                <button class="tab" onclick="switchTab('register')">Cadastrar</button>
+            </div>
+            
+            <!-- Formulário de Login -->
+            <div id="loginForm" class="form-container active">
+                <form onsubmit="handleLogin(event)">
+                    <div class="form-group">
+                        <label for="loginEmail">Email</label>
+                        <input type="email" id="loginEmail" required placeholder="seu@email.com">
+                    </div>
+                    <div class="form-group">
+                        <label for="loginPassword">Senha</label>
+                        <input type="password" id="loginPassword" required placeholder="••••••••">
+                    </div>
+                    <button type="submit" class="btn btn-primary" id="loginBtn">
+                        Entrar
+                    </button>
+                </form>
+                <div class="forgot-password">
+                    <a href="#" onclick="showForgotPassword(); return false;">Esqueci minha senha</a>
+                </div>
+            </div>
+            
+            <!-- Formulário de Cadastro -->
+            <div id="registerForm" class="form-container">
+                <form onsubmit="handleRegister(event)">
+                    <div class="form-group">
+                        <label for="registerName">Nome Completo</label>
+                        <input type="text" id="registerName" required placeholder="João Silva">
+                    </div>
+                    <div class="form-group">
+                        <label for="registerEmail">Email</label>
+                        <input type="email" id="registerEmail" required placeholder="seu@email.com">
+                    </div>
+                    <div class="form-group">
+                        <label for="registerPassword">Senha (mínimo 6 caracteres)</label>
+                        <input type="password" id="registerPassword" required minlength="6" placeholder="••••••••">
+                    </div>
+                    <div class="form-group">
+                        <label for="registerPasswordConfirm">Confirmar Senha</label>
+                        <input type="password" id="registerPasswordConfirm" required minlength="6" placeholder="••••••••">
+                    </div>
+                    <button type="submit" class="btn btn-primary" id="registerBtn">
+                        Criar Conta
+                    </button>
+                </form>
+            </div>
+        </div>
+        
+        <!-- Tela de Recuperação de Senha -->
+        <div id="forgotPasswordContainer" class="password-reset-container">
+            <button class="back-button" onclick="hideForgotPassword()">← Voltar</button>
+            <h2 style="margin-bottom: 20px; color: #333;">Recuperar Senha</h2>
+            <form onsubmit="handleForgotPassword(event)">
+                <div class="form-group">
+                    <label for="forgotEmail">Email</label>
+                    <input type="email" id="forgotEmail" required placeholder="seu@email.com">
+                </div>
+                <button type="submit" class="btn btn-primary" id="forgotBtn">
+                    Enviar Link de Recuperação
+                </button>
+            </form>
+        </div>
+    </div>
+    
+    <script>
+        const API_URL = 'https://blaze-analyzer-api.onrender.com/api/auth';
+        
+        // Verificar se já está logado
+        window.addEventListener('DOMContentLoaded', () => {
+            const token = localStorage.getItem('authToken');
+            if (token) {
+                verifyToken(token);
+            }
+        });
+        
+        // Verificar token
+        async function verifyToken(token) {
+            try {
+                const response = await fetch(`${API_URL}/verify`, {
+                    headers: {
+                        'Authorization': `Bearer ${token}`
+                    }
+                });
+                
+                if (response.ok) {
+                    // Token válido - redirecionar para extensão
+                    window.location.href = 'index.html';
+                } else {
+                    // Token inválido - limpar e mostrar login
+                    localStorage.removeItem('authToken');
+                }
+            } catch (error) {
+                console.error('Erro ao verificar token:', error);
+            }
+        }
+        
+        // Alternar entre abas
+        function switchTab(tab) {
+            // Atualizar tabs
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            event.target.classList.add('active');
+            
+            // Atualizar formulários
+            document.querySelectorAll('.form-container').forEach(f => f.classList.remove('active'));
+            document.getElementById(tab + 'Form').classList.add('active');
+            
+            // Limpar mensagem
+            hideMessage();
+        }
+        
+        // Mostrar/esconder recuperação de senha
+        function showForgotPassword() {
+            document.getElementById('mainForms').style.display = 'none';
+            document.getElementById('forgotPasswordContainer').classList.add('active');
+            hideMessage();
+        }
+        
+        function hideForgotPassword() {
+            document.getElementById('mainForms').style.display = 'block';
+            document.getElementById('forgotPasswordContainer').classList.remove('active');
+            hideMessage();
+        }
+        
+        // Mostrar mensagem
+        function showMessage(text, type = 'error') {
+            const messageEl = document.getElementById('message');
+            messageEl.textContent = text;
+            messageEl.className = `message ${type} show`;
+        }
+        
+        function hideMessage() {
+            const messageEl = document.getElementById('message');
+            messageEl.classList.remove('show');
+        }
+        
+        // Handle Login
+        async function handleLogin(event) {
+            event.preventDefault();
+            
+            const email = document.getElementById('loginEmail').value;
+            const password = document.getElementById('loginPassword').value;
+            const btn = document.getElementById('loginBtn');
+            
+            btn.disabled = true;
+            btn.innerHTML = '<div class="loader"></div> Entrando...';
+            hideMessage();
+            
+            try {
+                const response = await fetch(`${API_URL}/login`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ email, password })
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    // Salvar token
+                    localStorage.setItem('authToken', data.token);
+                    localStorage.setItem('user', JSON.stringify(data.user));
+                    
+                    showMessage('Login realizado com sucesso! Redirecionando...', 'success');
+                    
+                    // Redirecionar após 1 segundo
+                    setTimeout(() => {
+                        window.location.href = 'index.html';
+                    }, 1000);
+                } else {
+                    showMessage(data.message || 'Erro ao fazer login', 'error');
+                    btn.disabled = false;
+                    btn.innerHTML = 'Entrar';
+                }
+            } catch (error) {
+                console.error('Erro:', error);
+                showMessage('Erro de conexão. Verifique sua internet.', 'error');
+                btn.disabled = false;
+                btn.innerHTML = 'Entrar';
+            }
+        }
+        
+        // Handle Register
+        async function handleRegister(event) {
+            event.preventDefault();
+            
+            const name = document.getElementById('registerName').value;
+            const email = document.getElementById('registerEmail').value;
+            const password = document.getElementById('registerPassword').value;
+            const passwordConfirm = document.getElementById('registerPasswordConfirm').value;
+            const btn = document.getElementById('registerBtn');
+            
+            // Validar senhas
+            if (password !== passwordConfirm) {
+                showMessage('As senhas não coincidem', 'error');
+                return;
+            }
+            
+            btn.disabled = true;
+            btn.innerHTML = '<div class="loader"></div> Criando conta...';
+            hideMessage();
+            
+            try {
+                const response = await fetch(`${API_URL}/register`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ name, email, password })
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    // Salvar token
+                    localStorage.setItem('authToken', data.token);
+                    localStorage.setItem('user', JSON.stringify(data.user));
+                    
+                    showMessage('Conta criada com sucesso! Redirecionando...', 'success');
+                    
+                    // Redirecionar após 1 segundo
+                    setTimeout(() => {
+                        window.location.href = 'index.html';
+                    }, 1000);
+                } else {
+                    showMessage(data.message || 'Erro ao criar conta', 'error');
+                    btn.disabled = false;
+                    btn.innerHTML = 'Criar Conta';
+                }
+            } catch (error) {
+                console.error('Erro:', error);
+                showMessage('Erro de conexão. Verifique sua internet.', 'error');
+                btn.disabled = false;
+                btn.innerHTML = 'Criar Conta';
+            }
+        }
+        
+        // Handle Forgot Password
+        async function handleForgotPassword(event) {
+            event.preventDefault();
+            
+            const email = document.getElementById('forgotEmail').value;
+            const btn = document.getElementById('forgotBtn');
+            
+            btn.disabled = true;
+            btn.innerHTML = '<div class="loader"></div> Enviando...';
+            hideMessage();
+            
+            try {
+                const response = await fetch(`${API_URL}/forgot-password`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ email })
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    showMessage('Link de recuperação enviado para seu email!', 'success');
+                    document.getElementById('forgotEmail').value = '';
+                    
+                    // Voltar ao login após 3 segundos
+                    setTimeout(() => {
+                        hideForgotPassword();
+                    }, 3000);
+                } else {
+                    showMessage(data.message || 'Erro ao enviar email', 'error');
+                }
+            } catch (error) {
+                console.error('Erro:', error);
+                showMessage('Erro de conexão. Verifique sua internet.', 'error');
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = 'Enviar Link de Recuperação';
+            }
+        }
+    </script>
+</body>
+</html>
+

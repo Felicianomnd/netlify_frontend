@@ -1,0 +1,46 @@
+{
+  "manifest_version": 3,
+  "name": "Blaze Double Analyzer",
+  "version": "1.0.0",
+  "description": "Extensão para análise de padrões e sugestões de apostas no jogo Double da Blaze",
+  "permissions": [
+    "storage",
+    "activeTab",
+    "scripting",
+    "tabs"
+  ],
+  "host_permissions": [
+    "https://blaze.bet.br/*",
+    "https://blaze.com/*",
+    "https://blaze1.space/*",
+    "https://blaze-1.com/*",
+    "https://blaze-bet.com/*",
+    "https://blaze-analyzer-api.onrender.com/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "https://blaze.bet.br/*",
+        "https://blaze.com/*",
+        "https://blaze1.space/*",
+        "https://blaze-1.com/*",
+        "https://blaze-bet.com/*"
+      ],
+      "js": ["content.js"],
+      "css": ["styles.css"],
+      "run_at": "document_end"
+    }
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Blaze Double Analyzer"
+  },
+  "icons": {
+    "16": "icon16.svg",
+    "48": "icon48.svg",
+    "128": "icon128.svg"
+  }
+}
