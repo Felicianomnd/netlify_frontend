@@ -28,7 +28,8 @@ let historyInitialized = false;  // Flag de inicialização
 
 // Runtime analyzer configuration (overridable via chrome.storage.local)
 const DEFAULT_ANALYZER_CONFIG = {
-    minOccurrences: 5,            // quantidade mínima de WINS exigida (padrão: 5)
+    minOccurrences: 5,            // quantidade mínima de WINS exigida (padrão: 5) - MODO PADRÃO
+    minPercentage: 60,            // porcentagem mínima de confiança (1-100%) - MODO IA
     maxOccurrences: 0,            // quantidade MÁXIMA de ocorrências (0 = sem limite)
     minIntervalMinutes: 1,        // intervalo mínimo entre ocorrências do mesmo padrão
     minPatternSize: 3,            // tamanho MÍNIMO do padrão (giros)
@@ -548,6 +549,9 @@ let apiStatus = {
 let ws = null;
 let wsReconnectTimeout = null;
 let wsHeartbeatInterval = null;
+let lastDataReceived = Date.now(); // ✅ Rastrear último dado recebido
+let pollingInterval = null; // ✅ Intervalo de polling de fallback
+let dataCheckInterval = null; // ✅ Intervalo para verificar dados desatualizados
 
 // Conectar ao WebSocket
 function connectWebSocket() {
@@ -581,6 +585,9 @@ function connectWebSocket() {
                 wsReconnectTimeout = null;
             }
             
+            // ✅ Parar polling de fallback (WebSocket reconectado)
+            stopPollingFallback();
+            
             // Iniciar heartbeat (responder a PING do servidor)
             startWebSocketHeartbeat();
         };
@@ -589,6 +596,9 @@ function connectWebSocket() {
             try {
                 const message = JSON.parse(event.data);
                 console.log('📨 Mensagem WebSocket recebida:', message.type);
+                
+                // ✅ Atualizar timestamp de último dado recebido
+                lastDataReceived = Date.now();
                 
                 switch (message.type) {
                     case 'CONNECTED':
@@ -616,6 +626,11 @@ function connectWebSocket() {
                         }
                         break;
                         
+                    case 'PONG':
+                        // Resposta do servidor ao nosso PING
+                        console.log('💚 PONG recebido do servidor');
+                        break;
+                        
                     default:
                         console.log('⚠️ Tipo de mensagem desconhecido:', message.type);
                 }
@@ -638,22 +653,28 @@ function connectWebSocket() {
             // Parar heartbeat
             stopWebSocketHeartbeat();
             
-            // Tentar reconectar após 5 segundos
-            console.log('⏳ Tentando reconectar em 5 segundos...');
+            // ✅ Iniciar polling de fallback imediatamente
+            startPollingFallback();
+            
+            // ✅ Tentar reconectar após 2 segundos (reduzido de 5s)
+            console.log('⏳ Tentando reconectar em 2 segundos...');
             wsReconnectTimeout = setTimeout(() => {
                 console.log('🔄 Tentando reconectar WebSocket...');
                 connectWebSocket();
-            }, 5000);
+            }, 2000);
         };
         
     } catch (error) {
         console.error('❌ Erro ao criar conexão WebSocket:', error);
         apiStatus.isOnline = false;
         
-        // Tentar reconectar após 5 segundos
+        // ✅ Iniciar polling de fallback imediatamente
+        startPollingFallback();
+        
+        // ✅ Tentar reconectar após 2 segundos (reduzido de 5s)
         wsReconnectTimeout = setTimeout(() => {
             connectWebSocket();
-        }, 5000);
+        }, 2000);
     }
 }
 
@@ -674,16 +695,118 @@ function disconnectWebSocket() {
     }
 }
 
-// Heartbeat - responder a PINGs do servidor
+// Heartbeat - enviar PING ativo do cliente a cada 20s
 function startWebSocketHeartbeat() {
-    // Não precisa enviar PING do cliente, apenas responder aos do servidor
-    // O servidor já envia PING a cada 30s
+    stopWebSocketHeartbeat(); // Limpar qualquer heartbeat anterior
+    
+    // ✅ Enviar PING ativo do cliente a cada 20 segundos
+    wsHeartbeatInterval = setInterval(() => {
+        if (ws && ws.readyState === WebSocket.OPEN) {
+            try {
+                ws.send(JSON.stringify({ type: 'PING', timestamp: Date.now() }));
+                console.log('💓 Heartbeat: PING enviado');
+            } catch (error) {
+                console.error('❌ Erro ao enviar PING:', error);
+                // Se falhou ao enviar PING, tentar reconectar
+                connectWebSocket();
+            }
+        } else {
+            console.warn('⚠️ WebSocket não está aberto. Tentando reconectar...');
+            connectWebSocket();
+        }
+    }, 20000); // 20 segundos
 }
 
 function stopWebSocketHeartbeat() {
     if (wsHeartbeatInterval) {
         clearInterval(wsHeartbeatInterval);
         wsHeartbeatInterval = null;
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 🔄 POLLING DE FALLBACK - Quando WebSocket falha ou está inativo
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function startPollingFallback() {
+    // Se já está rodando, não iniciar novamente
+    if (pollingInterval) return;
+    
+    console.log('');
+    console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #FFA500; font-weight: bold;');
+    console.log('%c║  🔄 POLLING DE FALLBACK ATIVADO                          ║', 'color: #FFA500; font-weight: bold;');
+    console.log('%c║  WebSocket está offline - buscando dados via HTTP       ║', 'color: #FFA500;');
+    console.log('%c║  Frequência: a cada 3 segundos                          ║', 'color: #FFA500;');
+    console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #FFA500; font-weight: bold;');
+    console.log('');
+    
+    // ✅ Buscar dados a cada 3 segundos quando WebSocket está offline
+    pollingInterval = setInterval(async () => {
+        try {
+            // Buscar último giro do servidor
+            const response = await fetch(`${API_CONFIG.baseURL}/api/giros/latest`, {
+                signal: AbortSignal.timeout(5000)
+            });
+            
+            if (response.ok) {
+                const data = await response.json();
+                if (data.success && data.data) {
+                    await processNewSpinFromServer(data.data);
+                }
+            }
+        } catch (error) {
+            console.warn('⚠️ Polling fallback: erro ao buscar dados:', error.message);
+        }
+    }, 3000); // A cada 3 segundos
+}
+
+function stopPollingFallback() {
+    if (pollingInterval) {
+        clearInterval(pollingInterval);
+        pollingInterval = null;
+        console.log('✅ Polling de fallback parado - WebSocket reconectado');
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 🔍 VERIFICAÇÃO DE DADOS DESATUALIZADOS - Critical para mobile
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function startDataFreshnessCheck() {
+    // Se já está rodando, não iniciar novamente
+    if (dataCheckInterval) return;
+    
+    console.log('✅ Sistema de verificação de dados ativos: LIGADO');
+    console.log('   Verificará se dados estão atualizados a cada 30 segundos');
+    
+    // ✅ Verificar a cada 30 segundos se os dados estão desatualizados
+    dataCheckInterval = setInterval(() => {
+        const now = Date.now();
+        const timeSinceLastData = now - lastDataReceived;
+        const maxStaleTime = 90000; // 90 segundos (1.5 minutos)
+        
+        if (timeSinceLastData > maxStaleTime) {
+            console.warn('');
+            console.warn('%c⚠️⚠️⚠️ DADOS DESATUALIZADOS DETECTADOS! ⚠️⚠️⚠️', 'color: #FF0000; font-weight: bold; font-size: 16px; background: #330000; padding: 5px;');
+            console.warn(`   Último dado recebido há ${Math.floor(timeSinceLastData / 1000)} segundos`);
+            console.warn('   Forçando reconexão e atualização...');
+            console.warn('');
+            
+            // ✅ Forçar reconexão WebSocket
+            disconnectWebSocket();
+            connectWebSocket();
+            
+            // ✅ Forçar busca imediata de dados via polling
+            collectDoubleData();
+        }
+    }, 30000); // Verificar a cada 30 segundos
+}
+
+function stopDataFreshnessCheck() {
+    if (dataCheckInterval) {
+        clearInterval(dataCheckInterval);
+        dataCheckInterval = null;
+        console.log('⏸️ Sistema de verificação de dados: DESLIGADO');
     }
 }
 
@@ -1861,6 +1984,9 @@ async function startDataCollection() {
         console.log('║  Giros serão recebidos em TEMPO REAL (sem delay)         ║');
         console.log('╚═══════════════════════════════════════════════════════════╝');
         connectWebSocket();
+        
+        // ✅ Iniciar sistema de verificação de dados desatualizados
+        startDataFreshnessCheck();
     } else {
         // Fallback: Polling com fetch (modo antigo)
         console.log('⚠️ Modo polling ativo (a cada 2s)');
@@ -1893,6 +2019,12 @@ function stopDataCollection() {
     
     // ✅ DESCONECTAR WEBSOCKET
     disconnectWebSocket();
+    
+    // ✅ PARAR POLLING DE FALLBACK
+    stopPollingFallback();
+    
+    // ✅ PARAR VERIFICAÇÃO DE DADOS DESATUALIZADOS
+    stopDataFreshnessCheck();
     
     isRunning = false;
     console.log('Blaze Double Analyzer: Parando coleta de dados');
@@ -3177,8 +3309,8 @@ async function combineAIResults(macroResults, microWindows, savedPatterns) {
     console.log('📊 Scores finais:', scores);
     console.log(`🎯 Recomendação IA: ${bestColor} (${confidence.toFixed(1)}%)`);
     
-    // ✅ VALIDAR CONFIANÇA MÍNIMA (configurada pelo usuário)
-    const minConfidence = analyzerConfig.minOccurrences || 1; // Usando minOccurrences como % mínima
+    // ✅ VALIDAR CONFIANÇA MÍNIMA (configurada pelo usuário) - MODO IA
+    const minConfidence = analyzerConfig.minPercentage || 60; // Porcentagem mínima configurada para o modo IA
     if (confidence < minConfidence) {
         console.log(`⚠️ Confiança ${confidence.toFixed(1)}% está abaixo do mínimo configurado (${minConfidence}%)`);
         console.log('❌ Análise IA rejeitada por não atingir confiança mínima');
@@ -9969,5 +10101,79 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
     }
 });
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// 📱 LISTENERS DE VISIBILIDADE - Critical para mobile/desktop
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// Detectar quando usuário volta para uma aba da Blaze (mobile/desktop)
+chrome.tabs.onActivated.addListener(async (activeInfo) => {
+    try {
+        const tab = await chrome.tabs.get(activeInfo.tabId);
+        
+        if (tab.url && (tab.url.includes('blaze.com') || tab.url.includes('blaze.bet.br'))) {
+            console.log('');
+            console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #00FFFF; font-weight: bold;');
+            console.log('%c║  📱 USUÁRIO VOLTOU PARA ABA DA BLAZE                     ║', 'color: #00FFFF; font-weight: bold;');
+            console.log('%c║  Verificando conexões e dados...                        ║', 'color: #00FFFF;');
+            console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #00FFFF; font-weight: bold;');
+            console.log('');
+            
+            // ✅ Verificar se WebSocket está conectado
+            if (!ws || ws.readyState !== WebSocket.OPEN) {
+                console.warn('⚠️ WebSocket desconectado. Reconectando...');
+                connectWebSocket();
+            }
+            
+            // ✅ Forçar busca imediata de dados para garantir que está atualizado
+            console.log('🔄 Buscando dados mais recentes...');
+            await collectDoubleData();
+            
+            // ✅ Resetar timer de último dado recebido
+            lastDataReceived = Date.now();
+        }
+    } catch (error) {
+        // Ignorar erros silenciosamente (tab pode ter sido fechada)
+    }
+});
+
+// Detectar quando uma aba da Blaze é atualizada/recarregada
+chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
+    try {
+        // Só processar quando a página terminou de carregar
+        if (changeInfo.status === 'complete' && tab.url && (tab.url.includes('blaze.com') || tab.url.includes('blaze.bet.br'))) {
+            console.log('');
+            console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #00FFFF; font-weight: bold;');
+            console.log('%c║  🔄 ABA DA BLAZE RECARREGADA                             ║', 'color: #00FFFF; font-weight: bold;');
+            console.log('%c║  Reconectando sistemas...                               ║', 'color: #00FFFF;');
+            console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #00FFFF; font-weight: bold;');
+            console.log('');
+            
+            // ✅ Aguardar 2 segundos para página estabilizar
+            await new Promise(resolve => setTimeout(resolve, 2000));
+            
+            // ✅ Verificar se WebSocket está conectado
+            if (!ws || ws.readyState !== WebSocket.OPEN) {
+                console.warn('⚠️ WebSocket desconectado após recarregar página. Reconectando...');
+                connectWebSocket();
+            }
+            
+            // ✅ Forçar busca imediata de dados
+            console.log('🔄 Sincronizando dados após reload...');
+            await collectDoubleData();
+            
+            // ✅ Resetar timer
+            lastDataReceived = Date.now();
+        }
+    } catch (error) {
+        // Ignorar erros silenciosamente
+    }
+});
+
+console.log('');
+console.log('%c✅ Listeners de visibilidade instalados!', 'color: #00FF88; font-weight: bold;');
+console.log('%c   - Detectará quando usuário voltar para aba da Blaze', 'color: #00FF88;');
+console.log('%c   - Reconectará automaticamente se necessário', 'color: #00FF88;');
+console.log('%c   - Critical para funcionamento no mobile', 'color: #00FF88;');
+console.log('');
 
 

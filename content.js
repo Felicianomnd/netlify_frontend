@@ -512,6 +512,7 @@
     function toggleAIConfigFields(isAIMode) {
         // ✅ CAMPOS DO MODO PADRÃO: Ocultar quando IA está ativa
         const standardModeFields = [
+            'cfgMinOccurrences',     // Ocorrências mínima (modo padrão)
             'cfgMaxOccurrences',     // Quantidade máxima de ocorrências
             'cfgMinPatternSize',     // Tamanho mínimo do padrão
             'cfgMaxPatternSize',     // Tamanho máximo do padrão
@@ -532,6 +533,7 @@
         
         // ✅ CAMPOS DO MODO IA: Ocultar quando modo padrão está ativo
         const aiModeFields = [
+            'cfgMinPercentage',  // Porcentagem mínima (modo IA)
             'cfgAiApiKey',       // Chave API da IA
             'cfgAiHistorySize'   // Quantidade de giros para IA analisar
         ];
@@ -791,6 +793,10 @@
                             <input type="number" id="cfgMinOccurrences" min="1" value="1" />
                         </div>
                         <div class="setting-item">
+                            <span class="setting-label">Porcentagem mínima (%):</span>
+                            <input type="number" id="cfgMinPercentage" min="1" max="100" value="60" placeholder="60" title="Porcentagem mínima de confiança para a IA enviar sinais" />
+                        </div>
+                        <div class="setting-item">
                             <span class="setting-label">Ocorrências MÁXIMAS (0 = sem limite):</span>
                             <input type="number" id="cfgMaxOccurrences" min="0" value="0" placeholder="0 = sem limite" />
                         </div>
@@ -1046,6 +1052,7 @@
                     // ✅ IMPORTANTE: Mesclar com DEFAULT para garantir que temos todos os campos
                     const DEFAULT_CONFIG = {
                         minOccurrences: 5,
+                        minPercentage: 60,
                         maxOccurrences: 0,
                         minIntervalMinutes: 1,
                         minPatternSize: 3,
@@ -3181,8 +3188,10 @@
                 const maxGales = document.getElementById('cfgMaxGales');
                 const tgChatId = document.getElementById('cfgTgChatId');
                 const aiApiKey = document.getElementById('cfgAiApiKey');
+                const minPercentage = document.getElementById('cfgMinPercentage');
                 const aiHistorySize = document.getElementById('cfgAiHistorySize');
                 if (minOcc) minOcc.value = cfg.minOccurrences != null ? cfg.minOccurrences : 1;
+                if (minPercentage) minPercentage.value = cfg.minPercentage != null ? cfg.minPercentage : 60;
                 if (maxOcc) maxOcc.value = cfg.maxOccurrences != null ? cfg.maxOccurrences : 0;
                 if (minInt) minInt.value = cfg.minIntervalMinutes != null ? cfg.minIntervalMinutes : 1;
                 if (minSize) minSize.value = cfg.minPatternSize != null ? cfg.minPatternSize : 3;
@@ -3222,75 +3231,89 @@
     }
 
     function saveSettings() {
-        const minOcc = Math.max(parseInt(document.getElementById('cfgMinOccurrences').value || '1', 10), 1);
-        const maxOcc = Math.max(parseInt(document.getElementById('cfgMaxOccurrences').value || '0', 10), 0);
-        const minInt = Math.max(parseInt(document.getElementById('cfgMinInterval').value || '1', 10), 1);
-        let minSize = Math.max(parseInt(document.getElementById('cfgMinPatternSize').value || '2', 10), 2);
-        let maxSize = Math.max(parseInt(document.getElementById('cfgMaxPatternSize').value || '0', 10), 0);
-        const winPct = Math.max(0, Math.min(100, parseInt(document.getElementById('cfgWinPercentOthers').value || '25', 10)));
-        const reqTrig = !!document.getElementById('cfgRequireTrigger').checked;
-        const consecutiveMartingale = !!document.getElementById('cfgConsecutiveMartingale').checked;
-        const maxGales = Math.max(0, Math.min(200, parseInt(document.getElementById('cfgMaxGales').value || '2', 10)));
-        const tgChatId = (document.getElementById('cfgTgChatId').value || '').trim();
-        const aiApiKey = (document.getElementById('cfgAiApiKey').value || '').trim();
-        const aiHistorySize = Math.max(10, Math.min(2000, parseInt(document.getElementById('cfgAiHistorySize').value || '50', 10)));
-        
-        // 🔧 Configurações avançadas (prompt customizado)
-        const advancedMode = document.getElementById('cfgAdvancedMode') ? document.getElementById('cfgAdvancedMode').checked : false;
-        const customPrompt = (document.getElementById('cfgCustomPrompt') ? document.getElementById('cfgCustomPrompt').value : '').trim();
-        
-        // ✅ VALIDAÇÃO: maxOccurrences não pode ser menor que minOccurrences (se não for 0)
-        if (maxOcc > 0 && maxOcc < minOcc) {
-            alert(`❌ ERRO: Ocorrências MÁXIMAS (${maxOcc}) não pode ser menor que MÍNIMAS (${minOcc})!\n\nAjuste os valores e tente novamente.`);
-            return;
-        }
-        
-        // ✅ VALIDAÇÃO: maxPatternSize não pode ser menor que minPatternSize (se não for 0)
-        if (maxSize > 0 && maxSize < minSize) {
-            alert(`❌ ERRO: Tamanho MÁXIMO do padrão (${maxSize}) não pode ser menor que MÍNIMO (${minSize})!\n\n⚠️ Isso impede qualquer padrão de ser encontrado!\n\nAjuste os valores e tente novamente.`);
-            return;
-        }
-        
-        const cfg = {
-            minOccurrences: minOcc,
-            maxOccurrences: maxOcc,
-            minIntervalMinutes: minInt,
-            minPatternSize: minSize,
-            maxPatternSize: maxSize,
-            winPercentOthers: winPct,
-            requireTrigger: reqTrig,
-            consecutiveMartingale: consecutiveMartingale,
-            maxGales: maxGales,
-            telegramChatId: tgChatId,
-            aiApiKey: aiApiKey,
-            aiHistorySize: aiHistorySize,
-            advancedMode: advancedMode,
-            customPrompt: customPrompt
-        };
-        chrome.storage.local.set({ analyzerConfig: cfg }, function() {
-            console.log('✅ Configurações salvas:', cfg);
-            // Pedir para o background aplicar imediatamente e dar feedback
-            try {
-                chrome.runtime.sendMessage({ action: 'applyConfig' }, function(resp) {
-                    console.log('📡 Resposta do background.js:', resp);
-                    if (chrome.runtime.lastError) {
-                        console.error('❌ Erro ao enviar mensagem:', chrome.runtime.lastError);
-                        showConfigFeedback(false);
-                    } else {
-                        // ✅ ACEITAR AMBOS OS FORMATOS DE RESPOSTA:
-                        // - {status: 'applied'} quando background.js responde corretamente
-                        // - {success: true} quando chrome-shim.js responde por padrão
-                        // Como já salvamos em chrome.storage.local, qualquer resposta sem erro = sucesso!
-                        const isSuccess = resp && (resp.status === 'applied' || resp.success === true);
-                        console.log('✅ Configurações aplicadas com sucesso!');
-                        showConfigFeedback(isSuccess);
-                    }
-                });
-            } catch (e) {
-                console.error('❌ Erro ao salvar configurações:', e);
-                showConfigFeedback(false);
+        // ✅ BUSCAR CONFIGURAÇÃO ATUAL PRIMEIRO (para preservar aiMode e outros estados)
+        chrome.storage.local.get(['analyzerConfig'], function(result) {
+            const currentConfig = result.analyzerConfig || {};
+            
+            const minOcc = Math.max(parseInt(document.getElementById('cfgMinOccurrences').value || '1', 10), 1);
+            const minPercentage = Math.max(1, Math.min(100, parseInt(document.getElementById('cfgMinPercentage').value || '60', 10)));
+            const maxOcc = Math.max(parseInt(document.getElementById('cfgMaxOccurrences').value || '0', 10), 0);
+            const minInt = Math.max(parseInt(document.getElementById('cfgMinInterval').value || '1', 10), 1);
+            let minSize = Math.max(parseInt(document.getElementById('cfgMinPatternSize').value || '2', 10), 2);
+            let maxSize = Math.max(parseInt(document.getElementById('cfgMaxPatternSize').value || '0', 10), 0);
+            const winPct = Math.max(0, Math.min(100, parseInt(document.getElementById('cfgWinPercentOthers').value || '25', 10)));
+            const reqTrig = !!document.getElementById('cfgRequireTrigger').checked;
+            const consecutiveMartingale = !!document.getElementById('cfgConsecutiveMartingale').checked;
+            const maxGales = Math.max(0, Math.min(200, parseInt(document.getElementById('cfgMaxGales').value || '2', 10)));
+            const tgChatId = (document.getElementById('cfgTgChatId').value || '').trim();
+            const aiApiKey = (document.getElementById('cfgAiApiKey').value || '').trim();
+            const aiHistorySize = Math.max(10, Math.min(2000, parseInt(document.getElementById('cfgAiHistorySize').value || '50', 10)));
+            
+            // 🔧 Configurações avançadas (prompt customizado)
+            const advancedMode = document.getElementById('cfgAdvancedMode') ? document.getElementById('cfgAdvancedMode').checked : false;
+            const customPrompt = (document.getElementById('cfgCustomPrompt') ? document.getElementById('cfgCustomPrompt').value : '').trim();
+            
+            // ✅ VALIDAÇÃO: maxOccurrences não pode ser menor que minOccurrences (se não for 0)
+            if (maxOcc > 0 && maxOcc < minOcc) {
+                alert(`❌ ERRO: Ocorrências MÁXIMAS (${maxOcc}) não pode ser menor que MÍNIMAS (${minOcc})!\n\nAjuste os valores e tente novamente.`);
+                return;
             }
-        });
+            
+            // ✅ VALIDAÇÃO: maxPatternSize não pode ser menor que minPatternSize (se não for 0)
+            if (maxSize > 0 && maxSize < minSize) {
+                alert(`❌ ERRO: Tamanho MÁXIMO do padrão (${maxSize}) não pode ser menor que MÍNIMO (${minSize})!\n\n⚠️ Isso impede qualquer padrão de ser encontrado!\n\nAjuste os valores e tente novamente.`);
+                return;
+            }
+            
+            // ✅ MESCLAR com configuração atual para preservar aiMode e outros estados
+            const cfg = {
+                ...currentConfig, // Preservar configurações existentes (incluindo aiMode)
+                minOccurrences: minOcc,
+                minPercentage: minPercentage,
+                maxOccurrences: maxOcc,
+                minIntervalMinutes: minInt,
+                minPatternSize: minSize,
+                maxPatternSize: maxSize,
+                winPercentOthers: winPct,
+                requireTrigger: reqTrig,
+                consecutiveMartingale: consecutiveMartingale,
+                maxGales: maxGales,
+                telegramChatId: tgChatId,
+                aiApiKey: aiApiKey,
+                aiHistorySize: aiHistorySize,
+                advancedMode: advancedMode,
+                customPrompt: customPrompt
+            };
+            
+            console.log('💾 Salvando configurações...');
+            console.log('   aiMode preservado:', cfg.aiMode);
+            console.log('   Configurações completas:', cfg);
+            
+            chrome.storage.local.set({ analyzerConfig: cfg }, function() {
+                console.log('✅ Configurações salvas:', cfg);
+                // Pedir para o background aplicar imediatamente e dar feedback
+                try {
+                    chrome.runtime.sendMessage({ action: 'applyConfig' }, function(resp) {
+                        console.log('📡 Resposta do background.js:', resp);
+                        if (chrome.runtime.lastError) {
+                            console.error('❌ Erro ao enviar mensagem:', chrome.runtime.lastError);
+                            showConfigFeedback(false);
+                        } else {
+                            // ✅ ACEITAR AMBOS OS FORMATOS DE RESPOSTA:
+                            // - {status: 'applied'} quando background.js responde corretamente
+                            // - {success: true} quando chrome-shim.js responde por padrão
+                            // Como já salvamos em chrome.storage.local, qualquer resposta sem erro = sucesso!
+                            const isSuccess = resp && (resp.status === 'applied' || resp.success === true);
+                            console.log('✅ Configurações aplicadas com sucesso!');
+                            showConfigFeedback(isSuccess);
+                        }
+                    });
+                } catch (e) {
+                    console.error('❌ Erro ao salvar configurações:', e);
+                    showConfigFeedback(false);
+                }
+            }); // Fecha chrome.storage.local.set
+        }); // Fecha chrome.storage.local.get
     }
 
     function showConfigFeedback(success) {
