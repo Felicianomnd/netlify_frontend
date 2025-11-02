@@ -2,347 +2,400 @@
 <html lang="pt-BR">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <meta name="mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <meta name="theme-color" content="#0f212e">
-    <title>🎯 Blaze Analyzer - Login</title>
-    
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Blaze Analyzer - Autenticação</title>
     <style>
         * {
             margin: 0;
             padding: 0;
             box-sizing: border-box;
         }
-        
+
         body {
-            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: #0f212e;
+            font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, 'Roboto', 'Oxygen', sans-serif;
+            background: linear-gradient(135deg, #151924 0%, #1a1f2e 100%);
             min-height: 100vh;
             display: flex;
-            justify-content: center;
             align-items: center;
+            justify-content: center;
             padding: 20px;
         }
-        
+
         .auth-container {
-            background: #1a2c38;
-            border-radius: 16px;
-            box-shadow: 0 8px 32px rgba(0,0,0,0.4);
-            padding: 40px;
             width: 100%;
-            max-width: 420px;
-            animation: slideUp 0.5s ease;
-            border: 1px solid rgba(255,255,255,0.1);
+            max-width: 450px;
+            background: #252a3b;
+            border-radius: 16px;
+            padding: 40px 32px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5), 0 0 20px rgba(255, 0, 63, 0.2);
+            border: 1px solid #2f3546;
         }
-        
-        @keyframes slideUp {
-            from {
-                opacity: 0;
-                transform: translateY(30px);
-            }
-            to {
-                opacity: 1;
-                transform: translateY(0);
-            }
-        }
-        
+
         .logo {
             text-align: center;
-            margin-bottom: 30px;
+            margin-bottom: 32px;
         }
-        
+
+        .logo-icon {
+            font-size: 48px;
+            margin-bottom: 12px;
+            animation: pulse 2s ease-in-out infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+        }
+
         .logo h1 {
             font-size: 28px;
-            color: #ffffff;
-            margin-bottom: 8px;
             font-weight: 700;
-            letter-spacing: -0.5px;
+            background: linear-gradient(90deg, #ff003f, #9945ff);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 8px;
         }
-        
+
         .logo p {
-            color: #8f9bb3;
+            color: #8da2bb;
             font-size: 14px;
-            font-weight: 400;
         }
-        
-        .tabs {
-            display: flex;
-            gap: 10px;
-            margin-bottom: 30px;
-        }
-        
-        .tab {
-            flex: 1;
-            padding: 14px;
-            border: none;
-            background: transparent;
+
+        .message {
+            padding: 16px;
             border-radius: 8px;
-            font-size: 15px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.2s;
-            color: #8f9bb3;
-            border: 2px solid transparent;
+            margin-bottom: 20px;
+            display: none;
+            align-items: center;
+            gap: 12px;
+            font-size: 14px;
         }
-        
-        .tab.active {
-            background: #ff003f;
-            color: white;
-            box-shadow: 0 4px 12px rgba(255, 0, 63, 0.3);
+
+        .message.show {
+            display: flex;
         }
-        
-        .form-container {
+
+        .message.error {
+            background: rgba(255, 0, 63, 0.1);
+            color: #ff003f;
+            border: 1px solid rgba(255, 0, 63, 0.3);
+        }
+
+        .message.success {
+            background: rgba(0, 255, 136, 0.1);
+            color: #00ff88;
+            border: 1px solid rgba(0, 255, 136, 0.3);
+        }
+
+        .message.info {
+            background: rgba(0, 212, 255, 0.1);
+            color: #00d4ff;
+            border: 1px solid rgba(0, 212, 255, 0.3);
+        }
+
+        .screen {
             display: none;
         }
-        
-        .form-container.active {
+
+        .screen.active {
             display: block;
+            animation: fadeIn 0.3s ease-out;
         }
-        
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .tabs {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 24px;
+        }
+
+        .tab {
+            flex: 1;
+            padding: 12px;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid #2f3546;
+            border-radius: 8px;
+            color: #8da2bb;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .tab:hover {
+            background: rgba(255, 0, 63, 0.1);
+            border-color: #ff003f;
+        }
+
+        .tab.active {
+            background: linear-gradient(135deg, #ff003f 0%, #c70032 100%);
+            color: white;
+            border-color: #ff003f;
+        }
+
         .form-group {
             margin-bottom: 20px;
         }
-        
-        .form-group label {
+
+        .form-label {
             display: block;
             margin-bottom: 8px;
-            color: #ffffff;
-            font-weight: 500;
+            color: #b4c2d8;
             font-size: 14px;
+            font-weight: 500;
         }
-        
-        .form-group input {
+
+        .form-input {
             width: 100%;
             padding: 14px 16px;
-            border: 1px solid rgba(255,255,255,0.1);
+            background: #151924;
+            border: 2px solid #2f3546;
             border-radius: 8px;
+            color: white;
             font-size: 15px;
-            transition: all 0.2s;
-            background: rgba(15, 33, 46, 0.6);
-            color: #ffffff;
+            transition: all 0.3s;
         }
-        
-        .form-group input::placeholder {
-            color: #5c6c7a;
-        }
-        
-        .form-group input:focus {
+
+        .form-input:focus {
             outline: none;
             border-color: #ff003f;
-            background: rgba(15, 33, 46, 0.8);
             box-shadow: 0 0 0 3px rgba(255, 0, 63, 0.1);
         }
-        
+
+        .form-input::placeholder {
+            color: #8da2bb;
+        }
+
         .btn {
             width: 100%;
-            padding: 15px;
+            padding: 14px;
             border: none;
-            border-radius: 10px;
+            border-radius: 8px;
             font-size: 16px;
             font-weight: 600;
             cursor: pointer;
             transition: all 0.3s;
-            margin-top: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
         }
-        
+
         .btn-primary {
-            background: #ff003f;
+            background: linear-gradient(135deg, #ff003f 0%, #c70032 100%);
             color: white;
-            font-weight: 600;
-            letter-spacing: 0.3px;
+            box-shadow: 0 4px 16px rgba(255, 0, 63, 0.3);
         }
-        
+
         .btn-primary:hover:not(:disabled) {
-            background: #e6003a;
-            transform: translateY(-1px);
+            transform: translateY(-2px);
             box-shadow: 0 6px 20px rgba(255, 0, 63, 0.4);
         }
-        
-        .btn-primary:active:not(:disabled) {
-            transform: translateY(0);
-        }
-        
+
         .btn-primary:disabled {
             opacity: 0.5;
             cursor: not-allowed;
-            transform: none;
         }
-        
-        .forgot-password {
+
+        .btn-secondary {
+            background: rgba(255, 255, 255, 0.1);
+            color: white;
+            border: 1px solid #2f3546;
+        }
+
+        .btn-secondary:hover {
+            background: rgba(255, 255, 255, 0.15);
+        }
+
+        .link {
             text-align: center;
-            margin-top: 15px;
+            margin-top: 16px;
+            color: #8da2bb;
+            font-size: 14px;
         }
-        
-        .forgot-password a {
+
+        .link a {
             color: #ff003f;
             text-decoration: none;
-            font-size: 14px;
-            font-weight: 500;
-            transition: color 0.2s;
+            font-weight: 600;
         }
-        
-        .forgot-password a:hover {
-            color: #ff4d7a;
+
+        .link a:hover {
             text-decoration: underline;
         }
-        
-        .message {
-            padding: 15px;
-            border-radius: 10px;
-            margin-bottom: 20px;
-            font-size: 14px;
-            display: none;
-        }
-        
-        .message.success {
-            background: rgba(46, 213, 115, 0.15);
-            color: #2ed573;
-            border: 1px solid rgba(46, 213, 115, 0.3);
-        }
-        
-        .message.error {
-            background: rgba(255, 71, 87, 0.15);
-            color: #ff4757;
-            border: 1px solid rgba(255, 71, 87, 0.3);
-        }
-        
-        .message.show {
-            display: block;
-            animation: fadeIn 0.3s ease;
-        }
-        
-        @keyframes fadeIn {
-            from { opacity: 0; }
-            to { opacity: 1; }
-        }
-        
-        .loader {
-            border: 3px solid rgba(255,255,255,0.2);
-            border-top: 3px solid #ffffff;
-            border-radius: 50%;
-            width: 18px;
-            height: 18px;
-            animation: spin 0.8s linear infinite;
-            display: inline-block;
-            margin-right: 10px;
-        }
-        
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-        }
-        
-        .password-reset-container {
-            display: none;
-        }
-        
-        .password-reset-container.active {
-            display: block;
-        }
-        
-        .back-button {
-            background: rgba(255,255,255,0.1);
-            color: #ffffff;
-            padding: 10px 20px;
-            border: 1px solid rgba(255,255,255,0.1);
-            border-radius: 8px;
+
+        .plan-card {
+            background: #151924;
+            border: 2px solid #2f3546;
+            border-radius: 12px;
+            padding: 24px;
+            margin-bottom: 16px;
             cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .plan-card:hover {
+            border-color: #ff003f;
+            transform: translateY(-4px);
+            box-shadow: 0 8px 20px rgba(255, 0, 63, 0.2);
+        }
+
+        .plan-card.selected {
+            border-color: #ff003f;
+            background: rgba(255, 0, 63, 0.1);
+        }
+
+        .plan-name {
+            font-size: 20px;
+            font-weight: 700;
+            color: white;
+            margin-bottom: 8px;
+        }
+
+        .plan-price {
+            font-size: 32px;
+            font-weight: 700;
+            color: #ff003f;
+            margin-bottom: 8px;
+        }
+
+        .plan-price span {
+            font-size: 16px;
+            color: #8da2bb;
+        }
+
+        .plan-description {
+            color: #8da2bb;
             font-size: 14px;
-            margin-bottom: 20px;
-            transition: all 0.2s;
-            font-weight: 500;
         }
-        
-        .back-button:hover {
-            background: rgba(255,255,255,0.15);
-            border-color: rgba(255,255,255,0.2);
+
+        .payment-info {
+            background: #151924;
+            border: 2px solid #ff003f;
+            border-radius: 12px;
+            padding: 24px;
+            margin: 20px 0;
         }
-        
-        /* ═══════════════════════════════════════════════════════════════════════════════ */
-        /* 📱 RESPONSIVIDADE PARA MOBILE                                                   */
-        /* ═══════════════════════════════════════════════════════════════════════════════ */
-        
-        @media only screen and (max-width: 768px) {
-            body {
-                padding: 15px !important;
-            }
-            
+
+        .payment-title {
+            color: white;
+            font-size: 18px;
+            font-weight: 700;
+            margin-bottom: 16px;
+            text-align: center;
+        }
+
+        .pix-key {
+            background: #252a3b;
+            padding: 16px;
+            border-radius: 8px;
+            margin: 16px 0;
+            text-align: center;
+        }
+
+        .pix-key-label {
+            color: #8da2bb;
+            font-size: 12px;
+            margin-bottom: 8px;
+        }
+
+        .pix-key-value {
+            color: #ff003f;
+            font-size: 18px;
+            font-weight: 700;
+            font-family: 'Courier New', monospace;
+            word-break: break-all;
+        }
+
+        .copy-btn {
+            margin-top: 12px;
+            padding: 8px 16px;
+            background: rgba(255, 0, 63, 0.1);
+            border: 1px solid #ff003f;
+            border-radius: 6px;
+            color: #ff003f;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .copy-btn:hover {
+            background: #ff003f;
+            color: white;
+        }
+
+        .whatsapp-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 12px 24px;
+            background: #25d366;
+            color: white;
+            border-radius: 8px;
+            text-decoration: none;
+            font-weight: 600;
+            margin-top: 16px;
+            transition: all 0.3s;
+        }
+
+        .whatsapp-btn:hover {
+            background: #20ba5a;
+            transform: translateY(-2px);
+        }
+
+        .code-input-container {
+            display: flex;
+            gap: 8px;
+            justify-content: center;
+            margin: 24px 0;
+        }
+
+        .code-digit {
+            width: 50px;
+            height: 60px;
+            text-align: center;
+            font-size: 24px;
+            font-weight: 700;
+            background: #151924;
+            border: 2px solid #2f3546;
+            border-radius: 8px;
+            color: #ff003f;
+            transition: all 0.3s;
+        }
+
+        .code-digit:focus {
+            outline: none;
+            border-color: #ff003f;
+            box-shadow: 0 0 0 3px rgba(255, 0, 63, 0.2);
+        }
+
+        .loader {
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(255, 255, 255, 0.3);
+            border-top-color: white;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        @media (max-width: 480px) {
             .auth-container {
-                padding: 25px !important;
-                max-width: 100% !important;
+                padding: 24px 20px;
             }
             
-            .logo h1 {
-                font-size: 24px !important;
-            }
-            
-            .logo p {
-                font-size: 13px !important;
-            }
-            
-            .tab {
-                font-size: 14px !important;
-                padding: 12px !important;
-            }
-            
-            .form-group input {
-                font-size: 16px !important; /* Previne zoom no iOS */
-                padding: 14px !important;
-                min-height: 48px !important;
-            }
-            
-            .btn {
-                font-size: 15px !important;
-                padding: 16px !important;
-                min-height: 52px !important;
-            }
-            
-            .forgot-password a {
-                font-size: 13px !important;
-                display: block !important;
-                padding: 12px !important;
-            }
-            
-            .message {
-                font-size: 13px !important;
-                padding: 14px !important;
-            }
-            
-            .form-group label {
-                font-size: 13px !important;
-            }
-            
-            /* Melhorar toque */
-            * {
-                -webkit-tap-highlight-color: rgba(255, 0, 63, 0.2);
-            }
-            
-            /* Prevenir zoom indesejado */
-            input:focus,
-            select:focus {
-                font-size: 16px !important;
-            }
-        }
-        
-        /* Landscape mobile */
-        @media only screen and (max-width: 768px) and (orientation: landscape) {
-            .auth-container {
-                padding: 20px !important;
-                margin: 10px 0 !important;
-            }
-            
-            .logo {
-                margin-bottom: 15px !important;
-            }
-            
-            .logo h1 {
-                font-size: 20px !important;
-            }
-            
-            .tabs {
-                margin-bottom: 15px !important;
+            .code-digit {
+                width: 40px;
+                height: 50px;
+                font-size: 20px;
             }
         }
     </style>
@@ -350,59 +403,55 @@
 <body>
     <div class="auth-container">
         <div class="logo">
+            <div class="logo-icon">🎯</div>
             <h1>Blaze Analyzer</h1>
             <p>Sistema de Análise de Padrões</p>
         </div>
-        
-        <!-- Mensagem de feedback -->
+
         <div id="message" class="message"></div>
-        
-        <!-- Telas de Login/Cadastro -->
-        <div id="mainForms">
-            <!-- Tabs -->
+
+        <!-- TELA 1: LOGIN/CADASTRO -->
+        <div id="authScreen" class="screen active">
             <div class="tabs">
                 <button class="tab active" onclick="switchTab('login')">Login</button>
                 <button class="tab" onclick="switchTab('register')">Cadastrar</button>
             </div>
-            
-            <!-- Formulário de Login -->
-            <div id="loginForm" class="form-container active">
+
+            <!-- Login -->
+            <div id="loginForm" style="display: block;">
                 <form onsubmit="handleLogin(event)">
                     <div class="form-group">
-                        <label for="loginEmail">Email</label>
-                        <input type="email" id="loginEmail" required placeholder="seu@email.com">
+                        <label class="form-label">Email</label>
+                        <input type="email" class="form-input" id="loginEmail" placeholder="seu@email.com" required>
                     </div>
                     <div class="form-group">
-                        <label for="loginPassword">Senha</label>
-                        <input type="password" id="loginPassword" required placeholder="••••••••">
+                        <label class="form-label">Senha</label>
+                        <input type="password" class="form-input" id="loginPassword" placeholder="••••••••" required>
                     </div>
                     <button type="submit" class="btn btn-primary" id="loginBtn">
                         Entrar
                     </button>
                 </form>
-                <div class="forgot-password">
-                    <a href="#" onclick="showForgotPassword(); return false;">Esqueci minha senha</a>
-                </div>
             </div>
-            
-            <!-- Formulário de Cadastro -->
-            <div id="registerForm" class="form-container">
+
+            <!-- Cadastro -->
+            <div id="registerForm" style="display: none;">
                 <form onsubmit="handleRegister(event)">
                     <div class="form-group">
-                        <label for="registerName">Nome Completo</label>
-                        <input type="text" id="registerName" required placeholder="João Silva">
+                        <label class="form-label">Nome Completo</label>
+                        <input type="text" class="form-input" id="registerName" placeholder="João Silva" required>
                     </div>
                     <div class="form-group">
-                        <label for="registerEmail">Email</label>
-                        <input type="email" id="registerEmail" required placeholder="seu@email.com">
+                        <label class="form-label">Email</label>
+                        <input type="email" class="form-input" id="registerEmail" placeholder="seu@email.com" required>
                     </div>
                     <div class="form-group">
-                        <label for="registerPassword">Senha (mínimo 6 caracteres)</label>
-                        <input type="password" id="registerPassword" required minlength="6" placeholder="••••••••">
+                        <label class="form-label">Senha (mínimo 6 caracteres)</label>
+                        <input type="password" class="form-input" id="registerPassword" placeholder="••••••••" minlength="6" required>
                     </div>
                     <div class="form-group">
-                        <label for="registerPasswordConfirm">Confirmar Senha</label>
-                        <input type="password" id="registerPasswordConfirm" required minlength="6" placeholder="••••••••">
+                        <label class="form-label">Confirmar Senha</label>
+                        <input type="password" class="form-input" id="registerPasswordConfirm" placeholder="••••••••" minlength="6" required>
                     </div>
                     <button type="submit" class="btn btn-primary" id="registerBtn">
                         Criar Conta
@@ -410,152 +459,176 @@
                 </form>
             </div>
         </div>
-        
-        <!-- Tela de Recuperação de Senha -->
-        <div id="forgotPasswordContainer" class="password-reset-container">
-            <button class="back-button" onclick="hideForgotPassword()">← Voltar</button>
-            <h2 style="margin-bottom: 20px; color: #333;">Recuperar Senha</h2>
-            <form onsubmit="handleForgotPassword(event)">
-                <div class="form-group">
-                    <label for="forgotEmail">Email</label>
-                    <input type="email" id="forgotEmail" required placeholder="seu@email.com">
+
+        <!-- TELA 2: ESCOLHA DE PLANO -->
+        <div id="planScreen" class="screen">
+            <h2 style="color: white; text-align: center; margin-bottom: 24px;">Escolha seu Plano</h2>
+            <div id="plansContainer"></div>
+            <button class="btn btn-primary" onclick="confirmPlan()" id="confirmPlanBtn">
+                Continuar
+            </button>
+        </div>
+
+        <!-- TELA 3: PAGAMENTO PIX -->
+        <div id="paymentScreen" class="screen">
+            <h2 style="color: white; text-align: center; margin-bottom: 24px;">Pagamento PIX</h2>
+            <div class="payment-info">
+                <div class="payment-title">Dados para Pagamento</div>
+                
+                <div class="pix-key">
+                    <div class="pix-key-label">Chave PIX</div>
+                    <div class="pix-key-value" id="pixKeyValue">-</div>
+                    <button class="copy-btn" onclick="copyPixKey()">📋 Copiar Chave</button>
                 </div>
-                <button type="submit" class="btn btn-primary" id="forgotBtn">
-                    Enviar Link de Recuperação
+
+                <div style="text-align: center; margin-top: 24px;">
+                    <div style="color: #8da2bb; margin-bottom: 12px;">Após o pagamento, envie o comprovante:</div>
+                    <a href="#" id="whatsappLink" class="whatsapp-btn" target="_blank">
+                        📱 Enviar Comprovante via WhatsApp
+                    </a>
+                </div>
+            </div>
+
+            <div style="text-align: center; color: #8da2bb; font-size: 14px; margin: 20px 0;">
+                Você receberá um código de ativação após a confirmação do pagamento
+            </div>
+
+            <button class="btn btn-secondary" onclick="showActivationScreen()">
+                Já tenho o código de ativação
+            </button>
+        </div>
+
+        <!-- TELA 4: INSERIR CÓDIGO -->
+        <div id="activationScreen" class="screen">
+            <h2 style="color: white; text-align: center; margin-bottom: 24px;">Ativar Conta</h2>
+            
+            <div style="text-align: center; color: #8da2bb; margin-bottom: 24px;">
+                Digite o código de 6 dígitos que você recebeu
+            </div>
+
+            <form onsubmit="handleActivation(event)">
+                <div class="code-input-container">
+                    <input type="text" class="code-digit" maxlength="1" id="code1" oninput="moveToNext(this, 'code2')" onkeydown="handleBackspace(event, 'code1')">
+                    <input type="text" class="code-digit" maxlength="1" id="code2" oninput="moveToNext(this, 'code3')" onkeydown="handleBackspace(event, 'code1')">
+                    <input type="text" class="code-digit" maxlength="1" id="code3" oninput="moveToNext(this, 'code4')" onkeydown="handleBackspace(event, 'code2')">
+                    <input type="text" class="code-digit" maxlength="1" id="code4" oninput="moveToNext(this, 'code5')" onkeydown="handleBackspace(event, 'code3')">
+                    <input type="text" class="code-digit" maxlength="1" id="code5" oninput="moveToNext(this, 'code6')" onkeydown="handleBackspace(event, 'code4')">
+                    <input type="text" class="code-digit" maxlength="1" id="code6" oninput="submitCode()" onkeydown="handleBackspace(event, 'code5')">
+                </div>
+
+                <button type="submit" class="btn btn-primary" id="activateBtn">
+                    Ativar Conta
                 </button>
             </form>
+
+            <div class="link">
+                <a href="#" onclick="showPaymentScreen(); return false;">Voltar para pagamento</a>
+            </div>
         </div>
     </div>
-    
+
     <script>
-        const API_URL = 'https://blaze-analyzer-api.onrender.com/api/auth';
-        
+        const API_URL = 'https://blaze-analyzer-api.onrender.com/api';
+        let selectedPlan = null;
+        let userData = null;
+        let paymentSettings = null;
+
         // Verificar se já está logado
-        window.addEventListener('DOMContentLoaded', () => {
+        window.addEventListener('DOMContentLoaded', async () => {
             const token = localStorage.getItem('authToken');
             if (token) {
-                verifyToken(token);
+                const isValid = await verifyToken(token);
+                if (isValid) {
+                    window.location.href = 'index.html';
+                }
             }
         });
-        
-        // Verificar token
+
         async function verifyToken(token) {
             try {
-                const response = await fetch(`${API_URL}/verify`, {
-                    headers: {
-                        'Authorization': `Bearer ${token}`
-                    }
+                const response = await fetch(`${API_URL}/auth/verify`, {
+                    headers: { 'Authorization': `Bearer ${token}` }
                 });
-                
-                if (response.ok) {
-                    // Token válido - redirecionar para extensão
-                    window.location.href = 'index.html';
-                } else {
-                    // Token inválido - limpar e mostrar login
-                    localStorage.removeItem('authToken');
-                }
+                return response.ok;
             } catch (error) {
-                console.error('Erro ao verificar token:', error);
+                return false;
             }
         }
-        
-        // Alternar entre abas
+
         function switchTab(tab) {
-            // Atualizar tabs
             document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
             event.target.classList.add('active');
             
-            // Atualizar formulários
-            document.querySelectorAll('.form-container').forEach(f => f.classList.remove('active'));
-            document.getElementById(tab + 'Form').classList.add('active');
-            
-            // Limpar mensagem
+            document.getElementById('loginForm').style.display = tab === 'login' ? 'block' : 'none';
+            document.getElementById('registerForm').style.display = tab === 'register' ? 'block' : 'none';
             hideMessage();
         }
-        
-        // Mostrar/esconder recuperação de senha
-        function showForgotPassword() {
-            document.getElementById('mainForms').style.display = 'none';
-            document.getElementById('forgotPasswordContainer').classList.add('active');
-            hideMessage();
-        }
-        
-        function hideForgotPassword() {
-            document.getElementById('mainForms').style.display = 'block';
-            document.getElementById('forgotPasswordContainer').classList.remove('active');
-            hideMessage();
-        }
-        
-        // Mostrar mensagem
+
         function showMessage(text, type = 'error') {
             const messageEl = document.getElementById('message');
             messageEl.textContent = text;
             messageEl.className = `message ${type} show`;
         }
-        
+
         function hideMessage() {
-            const messageEl = document.getElementById('message');
-            messageEl.classList.remove('show');
+            document.getElementById('message').classList.remove('show');
         }
-        
-        // Handle Login
+
+        function showScreen(screenId) {
+            document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+            document.getElementById(screenId).classList.add('active');
+            hideMessage();
+        }
+
         async function handleLogin(event) {
             event.preventDefault();
-            
             const email = document.getElementById('loginEmail').value;
             const password = document.getElementById('loginPassword').value;
             const btn = document.getElementById('loginBtn');
             
             btn.disabled = true;
             btn.innerHTML = '<div class="loader"></div> Entrando...';
-            hideMessage();
             
             try {
-                const response = await fetch(`${API_URL}/login`, {
+                const response = await fetch(`${API_URL}/auth/login`, {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
+                    headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ email, password })
                 });
                 
                 const data = await response.json();
                 
                 if (data.success) {
-                    // Salvar token
                     localStorage.setItem('authToken', data.token);
                     localStorage.setItem('user', JSON.stringify(data.user));
-                    
-                    showMessage('Login realizado com sucesso! Redirecionando...', 'success');
-                    
-                    // Redirecionar após 1 segundo
-                    setTimeout(() => {
-                        window.location.href = 'index.html';
-                    }, 1000);
+                    showMessage('Login realizado com sucesso!', 'success');
+                    setTimeout(() => window.location.href = 'index.html', 1000);
                 } else {
-                    showMessage(data.message || 'Erro ao fazer login', 'error');
-                    btn.disabled = false;
-                    btn.innerHTML = 'Entrar';
+                    if (data.requiresActivation) {
+                        userData = { email };
+                        showActivationScreen();
+                    } else if (data.expired) {
+                        showMessage('Sua assinatura expirou. Entre em contato para renovar.', 'error');
+                    } else {
+                        showMessage(data.error || 'Email ou senha incorretos', 'error');
+                    }
                 }
             } catch (error) {
-                console.error('Erro:', error);
-                showMessage('Erro de conexão. Verifique sua internet.', 'error');
+                showMessage('Erro ao conectar com o servidor', 'error');
+            } finally {
                 btn.disabled = false;
                 btn.innerHTML = 'Entrar';
             }
         }
-        
-        // Handle Register
+
         async function handleRegister(event) {
             event.preventDefault();
-            
             const name = document.getElementById('registerName').value;
             const email = document.getElementById('registerEmail').value;
             const password = document.getElementById('registerPassword').value;
             const passwordConfirm = document.getElementById('registerPasswordConfirm').value;
             const btn = document.getElementById('registerBtn');
             
-            // Validar senhas
             if (password !== passwordConfirm) {
                 showMessage('As senhas não coincidem', 'error');
                 return;
@@ -563,85 +636,181 @@
             
             btn.disabled = true;
             btn.innerHTML = '<div class="loader"></div> Criando conta...';
-            hideMessage();
             
             try {
-                const response = await fetch(`${API_URL}/register`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({ name, email, password })
-                });
-                
-                const data = await response.json();
-                
-                if (data.success) {
-                    // Salvar token
-                    localStorage.setItem('authToken', data.token);
-                    localStorage.setItem('user', JSON.stringify(data.user));
-                    
-                    showMessage('Conta criada com sucesso! Redirecionando...', 'success');
-                    
-                    // Redirecionar após 1 segundo
-                    setTimeout(() => {
-                        window.location.href = 'index.html';
-                    }, 1000);
-                } else {
-                    showMessage(data.message || 'Erro ao criar conta', 'error');
-                    btn.disabled = false;
-                    btn.innerHTML = 'Criar Conta';
-                }
+                userData = { name, email, password };
+                await loadPlans();
+                showScreen('planScreen');
             } catch (error) {
-                console.error('Erro:', error);
-                showMessage('Erro de conexão. Verifique sua internet.', 'error');
+                showMessage('Erro ao carregar planos', 'error');
+            } finally {
                 btn.disabled = false;
                 btn.innerHTML = 'Criar Conta';
             }
         }
-        
-        // Handle Forgot Password
-        async function handleForgotPassword(event) {
-            event.preventDefault();
+
+        async function loadPlans() {
+            try {
+                const response = await fetch(`${API_URL}/plans`);
+                const data = await response.json();
+                
+                if (data.success) {
+                    const container = document.getElementById('plansContainer');
+                    container.innerHTML = data.plans.map(plan => `
+                        <div class="plan-card" onclick="selectPlan('${plan.duration}')">
+                            <div class="plan-name">${plan.name}</div>
+                            <div class="plan-price">R$ ${plan.price.toFixed(2).replace('.', ',')} <span>/ ${plan.days} dias</span></div>
+                            <div class="plan-description">${plan.description}</div>
+                        </div>
+                    `).join('');
+                }
+            } catch (error) {
+                showMessage('Erro ao carregar planos', 'error');
+            }
+        }
+
+        function selectPlan(duration) {
+            selectedPlan = duration;
+            document.querySelectorAll('.plan-card').forEach(card => card.classList.remove('selected'));
+            event.currentTarget.classList.add('selected');
+        }
+
+        async function confirmPlan() {
+            if (!selectedPlan) {
+                showMessage('Selecione um plano', 'error');
+                return;
+            }
             
-            const email = document.getElementById('forgotEmail').value;
-            const btn = document.getElementById('forgotBtn');
-            
+            const btn = document.getElementById('confirmPlanBtn');
             btn.disabled = true;
-            btn.innerHTML = '<div class="loader"></div> Enviando...';
-            hideMessage();
+            btn.innerHTML = '<div class="loader"></div> Processando...';
             
             try {
-                const response = await fetch(`${API_URL}/forgot-password`, {
+                const response = await fetch(`${API_URL}/auth/register`, {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({ email })
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ ...userData, selectedPlan })
                 });
                 
                 const data = await response.json();
                 
                 if (data.success) {
-                    showMessage('Link de recuperação enviado para seu email!', 'success');
-                    document.getElementById('forgotEmail').value = '';
-                    
-                    // Voltar ao login após 3 segundos
-                    setTimeout(() => {
-                        hideForgotPassword();
-                    }, 3000);
+                    await loadPaymentInfo();
+                    showScreen('paymentScreen');
                 } else {
-                    showMessage(data.message || 'Erro ao enviar email', 'error');
+                    showMessage(data.error || 'Erro ao criar conta', 'error');
                 }
             } catch (error) {
-                console.error('Erro:', error);
-                showMessage('Erro de conexão. Verifique sua internet.', 'error');
+                showMessage('Erro ao criar conta', 'error');
             } finally {
                 btn.disabled = false;
-                btn.innerHTML = 'Enviar Link de Recuperação';
+                btn.innerHTML = 'Continuar';
+            }
+        }
+
+        async function loadPaymentInfo() {
+            try {
+                const response = await fetch(`${API_URL}/plans/payment/settings`);
+                const data = await response.json();
+                
+                if (data.success) {
+                    paymentSettings = data.payment;
+                    document.getElementById('pixKeyValue').textContent = paymentSettings.pixKey || 'Não configurado';
+                    
+                    const whatsapp = paymentSettings.whatsapp || '';
+                    const cleanPhone = whatsapp.replace(/\D/g, '');
+                    const message = encodeURIComponent(`Olá! Acabei de fazer o pagamento do Blaze Analyzer. Email: ${userData.email}`);
+                    document.getElementById('whatsappLink').href = `https://wa.me/${cleanPhone}?text=${message}`;
+                }
+            } catch (error) {
+                console.error('Erro ao carregar informações de pagamento:', error);
+            }
+        }
+
+        function copyPixKey() {
+            const pixKey = document.getElementById('pixKeyValue').textContent;
+            navigator.clipboard.writeText(pixKey).then(() => {
+                showMessage('Chave PIX copiada!', 'success');
+            });
+        }
+
+        function showPaymentScreen() {
+            showScreen('paymentScreen');
+        }
+
+        function showActivationScreen() {
+            showScreen('activationScreen');
+            document.getElementById('code1').focus();
+        }
+
+        function moveToNext(current, nextId) {
+            if (current.value.length === 1) {
+                const next = document.getElementById(nextId);
+                if (next) next.focus();
+            }
+        }
+
+        function handleBackspace(event, prevId) {
+            if (event.key === 'Backspace' && event.target.value === '') {
+                const prev = document.getElementById(prevId);
+                if (prev) prev.focus();
+            }
+        }
+
+        function submitCode() {
+            const code6 = document.getElementById('code6');
+            if (code6.value.length === 1) {
+                document.getElementById('activateBtn').click();
+            }
+        }
+
+        async function handleActivation(event) {
+            event.preventDefault();
+            
+            const code = ['code1', 'code2', 'code3', 'code4', 'code5', 'code6']
+                .map(id => document.getElementById(id).value.toUpperCase())
+                .join('');
+            
+            if (code.length !== 6) {
+                showMessage('Digite o código completo', 'error');
+                return;
+            }
+            
+            const btn = document.getElementById('activateBtn');
+            btn.disabled = true;
+            btn.innerHTML = '<div class="loader"></div> Ativando...';
+            
+            try {
+                const response = await fetch(`${API_URL}/auth/activate`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        email: userData.email,
+                        activationCode: code
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    localStorage.setItem('authToken', data.token);
+                    localStorage.setItem('user', JSON.stringify(data.user));
+                    showMessage('Conta ativada com sucesso!', 'success');
+                    setTimeout(() => window.location.href = 'index.html', 1500);
+                } else {
+                    showMessage(data.error || 'Código inválido', 'error');
+                    ['code1', 'code2', 'code3', 'code4', 'code5', 'code6'].forEach(id => {
+                        document.getElementById(id).value = '';
+                    });
+                    document.getElementById('code1').focus();
+                }
+            } catch (error) {
+                showMessage('Erro ao ativar conta', 'error');
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = 'Ativar Conta';
             }
         }
     </script>
 </body>
 </html>
-
