@@ -2489,6 +2489,14 @@ async function processNewSpinFromServer(spinData) {
                                     };
                                     
                                     entriesHistory.unshift(lossEntry);
+                                    
+                                    // ✅ Calcular estatísticas WIN/LOSS
+                                    const { totalWins, totalLosses } = calculateCycleScore(entriesHistory);
+                                    
+                                    // ✅ ENVIAR MENSAGEM DE RET AO TELEGRAM (sem Gales)
+                                    console.log('📤 Enviando mensagem de RET ao Telegram (0 Gales configurados)...');
+                                    await sendTelegramMartingaleRET(totalWins, totalLosses);
+                                    
                                     resetMartingaleState();
                                     
                                     await chrome.storage.local.set({ 
