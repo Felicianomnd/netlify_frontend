@@ -43,9 +43,9 @@
         return new Promise((resolve) => {
             // Encontrar a sidebar principal
             const sidebar = document.getElementById('blaze-double-analyzer');
-            
+        
             // Criar modal simples (sem overlay escuro)
-            const modal = document.createElement('div');
+        const modal = document.createElement('div');
             modal.style.cssText = `
                 position: fixed;
                 background: #1a2c38;
@@ -59,12 +59,12 @@
                 font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
                 box-sizing: border-box;
             `;
-            
+        
             // Calcular posição: sempre no topo da sidebar, centralizado
             const isMobile = window.innerWidth <= 768;
             
             if (sidebar && !isMobile) {
-                const rect = sidebar.getBoundingClientRect();
+            const rect = sidebar.getBoundingClientRect();
                 
                 // Posicionar no topo da sidebar (logo abaixo do header)
                 modal.style.top = (rect.top + 80) + 'px';  // 80px do topo para ficar abaixo do "Double Analyzer"
@@ -229,7 +229,7 @@
                 font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
                 box-sizing: border-box;
             `;
-            
+        
             // Mensagem
             const messageEl = document.createElement('div');
             messageEl.style.cssText = `
@@ -272,7 +272,7 @@
                 }
                 resolve(true);
             };
-            
+        
             // Montar modal
             modal.appendChild(messageEl);
             modal.appendChild(okBtn);
@@ -289,9 +289,9 @@
                 }
             };
             document.addEventListener('keydown', keyHandler);
-            
+        
             // Fechar ao clicar fora
-            setTimeout(() => {
+        setTimeout(() => {
                 const clickOutside = (e) => {
                     if (!modal.contains(e.target)) {
                         okBtn.click();
@@ -319,7 +319,7 @@
             border-radius: 8px;
             padding: 20px;
             width: 90%;
-            max-width: 380px;
+            max-width: 420px;
             box-shadow: 0 4px 20px rgba(0, 0, 0, 0.8), 0 0 10px rgba(255, 215, 0, 0.3);
             z-index: 999999;
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
@@ -348,47 +348,120 @@
         `;
         message.innerHTML = `
             <p style="margin: 0 0 12px 0;">O <strong>Nível Diamante</strong> requer uma chave API da Groq para funcionar.</p>
-            <p style="margin: 0; font-size: 13px; color: #8da2bb;">Configure sua chave API nas <strong>Configurações</strong> para ativar este modo.</p>
+            <p style="margin: 0; font-size: 13px; color: #8da2bb;">Configure sua chave API primeiro para poder ativar este modo.</p>
         `;
         
         // Container dos botões
         const buttonsContainer = document.createElement('div');
         buttonsContainer.style.cssText = `
             display: flex;
+            flex-direction: column;
             gap: 10px;
-            justify-content: center;
             margin-top: 16px;
         `;
         
-        // Botão OK (único botão - não permite continuar sem chave)
-        const okBtn = document.createElement('button');
-        okBtn.textContent = 'OK, Entendi';
-        okBtn.style.cssText = `
+        // Botão "Configurar Chave API" (principal - destaque)
+        const configBtn = document.createElement('button');
+        configBtn.textContent = '🔑 Configurar Chave API';
+        configBtn.style.cssText = `
             width: 100%;
             padding: 12px 16px;
-            background: linear-gradient(135deg, #00d4ff 0%, #00ff88 100%);
+            background: linear-gradient(135deg, #FFD700 0%, #FFA500 100%);
             color: #1a2c38;
-            border: 1px solid rgba(0, 255, 136, 0.3);
+            border: 1px solid rgba(255, 215, 0, 0.5);
             border-radius: 6px;
             font-size: 14px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        `;
+        configBtn.onmouseover = () => {
+            configBtn.style.transform = 'scale(1.05)';
+            configBtn.style.boxShadow = '0 4px 12px rgba(255, 215, 0, 0.4)';
+        };
+        configBtn.onmouseout = () => {
+            configBtn.style.transform = 'scale(1)';
+            configBtn.style.boxShadow = 'none';
+        };
+        configBtn.onclick = () => {
+            if (modal.parentNode === document.body) {
+                document.body.removeChild(modal);
+            }
+            
+            // ✅ Tornar o campo de chave API visível (forçar exibição)
+            const aiApiKeyField = document.getElementById('cfgAiApiKey');
+            if (aiApiKeyField) {
+                const settingItem = aiApiKeyField.closest('.setting-item');
+                if (settingItem) {
+                    settingItem.style.display = '';
+                    settingItem.style.animation = 'highlight-field 2s ease';
+                    // Marcar que este campo foi forçado a ser visível
+                    settingItem.setAttribute('data-force-visible', 'true');
+                    
+                    // Adicionar animação de destaque temporária
+                    const style = document.createElement('style');
+                    style.textContent = `
+                        @keyframes highlight-field {
+                            0%, 100% { background: transparent; }
+                            50% { background: rgba(255, 215, 0, 0.15); }
+                        }
+                    `;
+                    document.head.appendChild(style);
+                    
+                    // Scroll até o campo
+                    settingItem.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    
+                    // Dar foco no campo após um pequeno delay (para o scroll terminar)
+                    setTimeout(() => {
+                        aiApiKeyField.focus();
+                        
+                        // Destacar o campo por 3 segundos
+                        aiApiKeyField.style.border = '2px solid #FFD700';
+                        aiApiKeyField.style.boxShadow = '0 0 10px rgba(255, 215, 0, 0.5)';
+                        
+                        setTimeout(() => {
+                            aiApiKeyField.style.border = '';
+                            aiApiKeyField.style.boxShadow = '';
+                        }, 3000);
+                    }, 500);
+                }
+            }
+            
+            callback(false); // Não ativa o modo IA ainda
+        };
+        
+        // Botão OK (secundário)
+        const okBtn = document.createElement('button');
+        okBtn.textContent = 'Voltar';
+        okBtn.style.cssText = `
+            width: 100%;
+            padding: 10px 16px;
+            background: transparent;
+            color: #8da2bb;
+            border: 1px solid #445566;
+            border-radius: 6px;
+            font-size: 13px;
             font-weight: 600;
             cursor: pointer;
             transition: all 0.2s ease;
         `;
         okBtn.onmouseover = () => {
-            okBtn.style.transform = 'scale(1.05)';
+            okBtn.style.background = '#2a3a48';
+            okBtn.style.color = '#cdd6e8';
         };
         okBtn.onmouseout = () => {
-            okBtn.style.transform = 'scale(1)';
+            okBtn.style.background = 'transparent';
+            okBtn.style.color = '#8da2bb';
         };
         okBtn.onclick = () => {
             if (modal.parentNode === document.body) {
                 document.body.removeChild(modal);
             }
-            callback(false); // ✅ SEMPRE retorna false - NÃO permite ativar sem chave
+            callback(false); // ✅ Retorna false - NÃO ativa o modo IA
         };
         
         // Montar modal
+        buttonsContainer.appendChild(configBtn);
         buttonsContainer.appendChild(okBtn);
         modal.appendChild(header);
         modal.appendChild(message);
@@ -410,6 +483,17 @@
             console.log('✅ Configuração salva com sucesso!');
             updateAIModeUI(toggleElement, newAIMode);
             console.log(`🤖 Modo IA ${newAIMode ? 'ATIVADO' : 'DESATIVADO'}`);
+            
+            // ✅ Remover flag de forçar visibilidade quando IA for ativado
+            if (newAIMode) {
+                const aiApiKeyField = document.getElementById('cfgAiApiKey');
+                if (aiApiKeyField) {
+                    const settingItem = aiApiKeyField.closest('.setting-item');
+                    if (settingItem) {
+                        settingItem.removeAttribute('data-force-visible');
+                    }
+                }
+            }
             
             // ✅ Habilitar/Desabilitar campos irrelevantes para IA
             toggleAIConfigFields(newAIMode);
@@ -458,7 +542,14 @@
                 // Ocultar o elemento pai (setting-item) completamente
                 const settingItem = field.closest('.setting-item');
                 if (settingItem) {
-                    settingItem.style.display = isAIMode ? '' : 'none';
+                    // ✅ Não esconder se foi forçado a ser visível (botão "Configurar Chave API")
+                    const isForceVisible = settingItem.getAttribute('data-force-visible') === 'true';
+                    if (isForceVisible && fieldId === 'cfgAiApiKey') {
+                        // Manter visível
+                        settingItem.style.display = '';
+                    } else {
+                        settingItem.style.display = isAIMode ? '' : 'none';
+                    }
                 }
             }
         });
@@ -871,7 +962,7 @@
         }
         
         try {
-            document.body.appendChild(sidebar);
+        document.body.appendChild(sidebar);
             console.log('%c✅ appendChild executado com sucesso!', 'color: #00FF88;');
         } catch (error) {
             console.error('%c❌ ERRO ao adicionar sidebar ao DOM:', 'color: #FF0000; font-weight: bold;', error);
@@ -912,26 +1003,26 @@
                 // Usar modal customizado em vez do confirm() nativo
                 showCustomConfirm('Limpar histórico de entradas?', clearEntriesBtn).then(confirmed => {
                     if (confirmed) {
-                        try {
-                            chrome.storage.local.set({ entriesHistory: [] }, function() {
-                                console.log('Histórico de entradas limpo');
-                                renderEntriesPanel([]);
-                                
-                                // ✅ Notificar background.js para limpar o calibrador também
-                                chrome.runtime.sendMessage({ 
-                                    action: 'clearEntriesAndObserver' 
-                                }, function(response) {
-                                    if (response && response.status === 'success') {
-                                        console.log('✅ Calibrador sincronizado após limpar entradas');
-                                        // Atualizar UI do calibrador
-                                        loadObserverStats();
-                                    }
-                                });
+                    try {
+                        chrome.storage.local.set({ entriesHistory: [] }, function() {
+                            console.log('Histórico de entradas limpo');
+                            renderEntriesPanel([]);
+                            
+                            // ✅ Notificar background.js para limpar o calibrador também
+                            chrome.runtime.sendMessage({ 
+                                action: 'clearEntriesAndObserver' 
+                            }, function(response) {
+                                if (response && response.status === 'success') {
+                                    console.log('✅ Calibrador sincronizado após limpar entradas');
+                                    // Atualizar UI do calibrador
+                                    loadObserverStats();
+                                }
                             });
-                        } catch (e) {
-                            console.error('Falha ao limpar entradas:', e);
-                        }
+                        });
+                    } catch (e) {
+                        console.error('Falha ao limpar entradas:', e);
                     }
+                }
                 });
             });
         }
@@ -1063,11 +1154,11 @@
             btnRestoreDefaultPrompt.addEventListener('click', function() {
                 showCustomConfirm('🔄 Tem certeza que deseja restaurar o prompt padrão?\n\nIsso vai APAGAR seu prompt customizado atual.', btnRestoreDefaultPrompt).then(confirmed => {
                     if (confirmed) {
-                        customPromptTextarea.value = '';
-                        customPromptTextarea.dispatchEvent(new Event('input')); // Atualizar contador
-                        console.log('✅ Prompt restaurado para padrão');
+                    customPromptTextarea.value = '';
+                    customPromptTextarea.dispatchEvent(new Event('input')); // Atualizar contador
+                    console.log('✅ Prompt restaurado para padrão');
                         showCustomAlert('✅ Prompt restaurado! Clique em SALVAR para aplicar.', 'success');
-                    }
+                }
                 });
             });
         }
@@ -2540,9 +2631,9 @@
                     
                     showCustomConfirm(`Limpar ${amountText} e recarregar?`, this).then(confirmed => {
                         if (confirmed) {
-                            clearHistorySelective(amount);
-                        }
-                        clearDropdown.style.display = 'none';
+                        clearHistorySelective(amount);
+                    }
+                    clearDropdown.style.display = 'none';
                     });
                 });
             });
@@ -3428,11 +3519,11 @@
             
             // Confirmação antes de resetar
             showCustomConfirm('Deseja realmente LIMPAR todos os padrões?\n\nEsta ação não pode ser desfeita.\n\nClique em OK para continuar.', btn).then(confirmar => {
-                if (!confirmar) return;
-                
-                btn.textContent = 'Resetando...';
-                btn.disabled = true;
-                
+            if (!confirmar) return;
+            
+            btn.textContent = 'Resetando...';
+            btn.disabled = true;
+            
                 console.log('%c🗑️ LIMPANDO PADRÕES DIRETAMENTE DO LOCALSTORAGE...', 'color: #FF0000; font-weight: bold; font-size: 14px;');
                 
                 try {
