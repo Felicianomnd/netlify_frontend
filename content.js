@@ -3002,7 +3002,8 @@
     }
     
     // Update data every 3 seconds
-    setInterval(loadInitialData, 3000);
+    // ⚠️ OTIMIZADO: Mudado de 3s para 30s para reduzir consumo de bandwidth
+    setInterval(loadInitialData, 30000); // 30 segundos em vez de 3
     
     // FORÇAR ATUALIZAÇÃO DO HISTÓRICO A CADA 2 SEGUNDOS (agora busca do servidor)
     setInterval(function() {
