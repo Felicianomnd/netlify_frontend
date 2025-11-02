@@ -2399,13 +2399,6 @@
     color: #f44336 !important;
     font-weight: bold;
 }
-  display: flex !important;
-  align-items: center !important;
-  justify-content: center !important;
-  padding: 8px !important;
-  box-sizing: border-box !important;
-  overflow: hidden !important;
-}
 
 .analysis-status {
   display: flex;
@@ -2792,6 +2785,9 @@
         border: none !important;
         margin: 0 !important;
         transform: none !important;
+        /* ✅ Respeitar área segura do iOS (notch e barra de navegação) */
+        padding-top: env(safe-area-inset-top) !important;
+        padding-bottom: env(safe-area-inset-bottom) !important;
     }
     
     /* ✅ DESABILITAR RESIZE NO MOBILE */
@@ -2811,6 +2807,12 @@
     .analyzer-header {
         padding: 12px 10px !important;
         min-height: 50px !important;
+        /* ✅ Adicionar padding extra no topo para não ficar escondido atrás da barra do navegador */
+        padding-top: max(12px, env(safe-area-inset-top, 0px)) !important;
+        position: sticky !important;
+        top: 0 !important;
+        z-index: 1000 !important;
+        background: linear-gradient(135deg, #0f3460 0%, #16213e 100%) !important;
     }
     
     .analyzer-header h3 {
@@ -2831,7 +2833,9 @@
     /* ✅ AJUSTAR CONTEÚDO DA SIDEBAR */
     .analyzer-body {
         padding: 12px 10px !important;
-        height: calc(100vh - 50px) !important;
+        /* ✅ Ajustar altura considerando safe-area e header */
+        height: calc(100vh - 50px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px)) !important;
+        max-height: calc(100vh - 50px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px)) !important;
         overflow-y: auto !important;
         -webkit-overflow-scrolling: touch !important;
     }
