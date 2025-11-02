@@ -307,88 +307,130 @@
     // FUNÇÃO: Mostrar modal customizado para aviso da chave API
     // ═══════════════════════════════════════════════════════════════════════════════
     function showAIKeyWarningModal(callback) {
-        // Criar overlay
-        const overlay = document.createElement('div');
-        overlay.className = 'ai-modal-overlay';
-        
-        // Criar modal
+        // Criar modal simples e responsivo
         const modal = document.createElement('div');
-        modal.className = 'ai-modal';
+        modal.style.cssText = `
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: #1a2c38;
+            border: 2px solid #FFD700;
+            border-radius: 8px;
+            padding: 20px;
+            width: 90%;
+            max-width: 380px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.8), 0 0 10px rgba(255, 215, 0, 0.3);
+            z-index: 999999;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            box-sizing: border-box;
+        `;
         
-        // Pegar posição da extensão
-        const sidebar = document.getElementById('blaze-double-analyzer');
-        if (sidebar) {
-            const rect = sidebar.getBoundingClientRect();
-            modal.style.top = `${rect.top + 100}px`;
-            modal.style.left = `${rect.left + (rect.width / 2) - 200}px`; // Centralizar com modal de 400px
-        }
+        // Título com ícone
+        const header = document.createElement('div');
+        header.style.cssText = `
+            text-align: center;
+            margin-bottom: 16px;
+        `;
+        header.innerHTML = `
+            <div style="font-size: 36px; margin-bottom: 8px;">⚠️</div>
+            <h3 style="margin: 0; color: #FFD700; font-size: 18px;">Chave da IA não configurada</h3>
+        `;
         
-        modal.innerHTML = `
-            <div class="ai-modal-header">
-                <div class="ai-modal-icon">⚠️</div>
-                <h3>Chave da IA não configurada</h3>
-            </div>
-            <div class="ai-modal-body">
-                <p>A análise por <strong>Inteligência Artificial</strong> precisa de uma chave API para funcionar.</p>
-                <div class="ai-modal-steps">
-                    <div class="ai-modal-step">
-                        <span class="step-number">1</span>
-                        <span class="step-text">Abra as <strong>Configurações</strong></span>
-                    </div>
-                    <div class="ai-modal-step">
-                        <span class="step-number">2</span>
-                        <span class="step-text">Preencha <strong>Chave API REAL da IA</strong></span>
-                    </div>
-                    <div class="ai-modal-step">
-                        <span class="step-number">3</span>
-                        <span class="step-text">Clique em <strong>Salvar</strong></span>
-                    </div>
-                </div>
-                <div style="background: rgba(76,175,80,0.1); padding: 10px; border-radius: 8px; margin: 15px 0;">
-                    <small style="color: #4CAF50; display: block; text-align: center;">
-                        <strong>✅ API JÁ CONFIGURADA:</strong> OpenRouter (Claude 3.5 Sonnet)<br>
-                        Você pode continuar sem configurar nada, ou trocar por outra API se preferir
-                    </small>
-                </div>
-                <p class="ai-modal-question">Deseja continuar mesmo assim?</p>
-            </div>
-            <div class="ai-modal-footer">
-                <button class="ai-modal-btn ai-modal-btn-cancel" id="aiModalCancel">
-                    ❌ Cancelar
-                </button>
-                <button class="ai-modal-btn ai-modal-btn-confirm" id="aiModalConfirm">
-                    ✅ Continuar
-                </button>
+        // Mensagem
+        const message = document.createElement('div');
+        message.style.cssText = `
+            color: #cdd6e8;
+            font-size: 14px;
+            line-height: 1.6;
+            text-align: center;
+            margin-bottom: 16px;
+        `;
+        message.innerHTML = `
+            <p style="margin: 0 0 12px 0;">A análise por <strong>Inteligência Artificial</strong> precisa de uma chave API.</p>
+            <div style="background: rgba(0, 255, 136, 0.1); padding: 10px; border-radius: 6px; border: 1px solid rgba(0, 255, 136, 0.3); margin: 12px 0;">
+                <small style="color: #00ff88;">
+                    ✅ <strong>API JÁ CONFIGURADA:</strong><br>
+                    OpenRouter (Claude 3.5 Sonnet)<br>
+                    Você pode continuar sem configurar nada
+                </small>
             </div>
         `;
         
-        overlay.appendChild(modal);
-        document.body.appendChild(overlay);
+        // Container dos botões
+        const buttonsContainer = document.createElement('div');
+        buttonsContainer.style.cssText = `
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+            margin-top: 16px;
+        `;
         
-        // Event listeners
-        document.getElementById('aiModalCancel').addEventListener('click', function() {
-            document.body.removeChild(overlay);
-            callback(false);
-        });
-        
-        document.getElementById('aiModalConfirm').addEventListener('click', function() {
-            document.body.removeChild(overlay);
-            callback(true);
-        });
-        
-        // Fechar ao clicar no overlay
-        overlay.addEventListener('click', function(e) {
-            if (e.target === overlay) {
-                document.body.removeChild(overlay);
-                callback(false);
+        // Botão Cancelar
+        const cancelBtn = document.createElement('button');
+        cancelBtn.textContent = 'Cancelar';
+        cancelBtn.style.cssText = `
+            flex: 1;
+            padding: 12px 16px;
+            background: rgba(255, 255, 255, 0.05);
+            color: #ff003f;
+            border: 1px solid rgba(255, 0, 63, 0.3);
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        `;
+        cancelBtn.onmouseover = () => {
+            cancelBtn.style.background = 'rgba(255, 0, 63, 0.1)';
+            cancelBtn.style.borderColor = 'rgba(255, 0, 63, 0.5)';
+        };
+        cancelBtn.onmouseout = () => {
+            cancelBtn.style.background = 'rgba(255, 255, 255, 0.05)';
+            cancelBtn.style.borderColor = 'rgba(255, 0, 63, 0.3)';
+        };
+        cancelBtn.onclick = () => {
+            if (modal.parentNode === document.body) {
+                document.body.removeChild(modal);
             }
-        });
+            callback(false);
+        };
         
-        // Animar entrada
-        setTimeout(() => {
-            overlay.classList.add('show');
-            modal.classList.add('show');
-        }, 10);
+        // Botão Continuar
+        const confirmBtn = document.createElement('button');
+        confirmBtn.textContent = 'Continuar';
+        confirmBtn.style.cssText = `
+            flex: 1;
+            padding: 12px 16px;
+            background: linear-gradient(135deg, #00d4ff 0%, #00ff88 100%);
+            color: #1a2c38;
+            border: 1px solid rgba(0, 255, 136, 0.3);
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        `;
+        confirmBtn.onmouseover = () => {
+            confirmBtn.style.transform = 'scale(1.05)';
+        };
+        confirmBtn.onmouseout = () => {
+            confirmBtn.style.transform = 'scale(1)';
+        };
+        confirmBtn.onclick = () => {
+            if (modal.parentNode === document.body) {
+                document.body.removeChild(modal);
+            }
+            callback(true);
+        };
+        
+        // Montar modal
+        buttonsContainer.appendChild(cancelBtn);
+        buttonsContainer.appendChild(confirmBtn);
+        modal.appendChild(header);
+        modal.appendChild(message);
+        modal.appendChild(buttonsContainer);
+        document.body.appendChild(modal);
     }
     
     // ═══════════════════════════════════════════════════════════════════════════════

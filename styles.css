@@ -2861,6 +2861,21 @@
         font-size: 16px !important; /* Previne zoom no iOS */
         padding: 12px !important;
         min-height: 44px !important; /* Área de toque mínima */
+        max-width: 100% !important;
+        box-sizing: border-box !important;
+    }
+    
+    /* ✅ AJUSTAR CAMPOS COM BOTÃO DE VISIBILIDADE */
+    .setting-row > div {
+        width: 100% !important;
+        max-width: 100% !important;
+        overflow: hidden !important;
+    }
+    
+    .toggle-visibility-btn {
+        min-width: 44px !important;
+        padding: 0 10px !important;
+        flex-shrink: 0 !important;
     }
     
     /* ✅ AJUSTAR BOTÕES */
