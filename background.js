@@ -176,32 +176,30 @@ E) TRANSIÇÃO DE PADRÃO?
 F) ALEATÓRIO (sem padrão)?
    Exemplo: P-V-P-P-V-V-P-V-P-V-P-V (não segue lógica clara)
 
-PASSO 2: BUSCAR PADRÃO NO HISTÓRICO COMPLETO
+PASSO 2: FAZER RECOMENDAÇÃO BASEADA NO PADRÃO VISUAL
 ────────────────────────────────────────────────────────
-Após identificar o padrão atual, procure no histórico completo (todos os ${historyLength} giros):
+🚨 VOCÊ **NÃO PODE** INVENTAR ESTATÍSTICAS! 🚨
 
-- Quantas vezes esse MESMO padrão ocorreu antes?
-- O que aconteceu IMEDIATAMENTE APÓS cada ocorrência?
-- Qual cor saiu com mais frequência após esse padrão?
+❌ NÃO DIGA:
+- "Buscando no histórico... encontrei 12 vezes"
+- "Saiu 92% das vezes (11/12)"
+- "VERMELHO saiu 88% das vezes"
+- QUALQUER CONTAGEM OU PORCENTAGEM INVENTADA!
 
-Exemplo:
-"Padrão atual: 5 pretos consecutivos (P-P-P-P-P)
-Buscando no histórico... encontrei 8 ocorrências de 5+ pretos seguidos.
-Resultado após essas 8 ocorrências:
-- 7 vezes saiu VERMELHO (87.5%)
-- 1 vez saiu PRETO (12.5%)
-- 0 vezes saiu BRANCO (0%)
-Conclusão: 87.5% > 85% → APOSTAR EM VERMELHO"
+✅ APENAS DIGA:
+"Padrão identificado: [descreva visualmente o padrão]"
+"Recomendação baseada no padrão: [cor]"
 
-PASSO 3: REGRA DE DECISÃO (CRÍTICA)
+EXEMPLOS CORRETOS:
+- "Padrão: Sequência de 6+ pretos. Recomendação: VERMELHO"
+- "Padrão: Alternância V-P-V-P. Recomendação: [próxima cor da alternância]"
+- "Padrão: Aleatório. Recomendação: SEM APOSTA (confidence: 0)"
+
+PASSO 3: REGRA DE DECISÃO
 ────────────────────────────────────────────────────────
-✅ SE o padrão histórico mostrar 85%+ de uma cor → APOSTE NESSA COR
-❌ SE o padrão histórico mostrar menos de 85% → NÃO APOSTE (confiança insuficiente)
-
-IMPORTANTE:
-- NÃO considere a porcentagem GERAL do histórico (ex: "preto saiu 60% das vezes")
-- Considere APENAS o que aconteceu APÓS o padrão específico identificado
-- Exemplo: Mesmo que preto esteja com 80% no geral, se após alternância dupla ele sai apenas 40% das vezes, NÃO aposte em preto
+- Se o padrão é CLARO → confiança 70-95%
+- Se o padrão é FRACO/INCERTO → confiança 0-50%
+- Se ALEATÓRIO → confidence: 0 (não apostar)
 
 PASSO 4: CASOS ESPECIAIS
 ────────────────────────────────────────────────────────
@@ -237,38 +235,30 @@ INSTRUÇÕES FINAIS (PASSO A PASSO):
    - Os últimos 10 devem estar alinhados com o padrão identificado
    - Se não estiverem, pode estar em transição (cuidado!)
 
-4️⃣ **BUSQUE no histórico completo** (todos os giros disponíveis)
-   - Conte quantas vezes esse padrão (15-20 giros) ocorreu antes
-   - Veja o que aconteceu IMEDIATAMENTE APÓS cada ocorrência
+4️⃣ **FAÇA A RECOMENDAÇÃO**
+   - Baseie-se apenas no padrão VISUAL identificado
+   - NÃO INVENTE estatísticas ou contagens!
+   - Seja honesto se não houver padrão claro
 
-5️⃣ **CALCULE a frequência**
-   - Se uma cor sai em 85%+ dos casos após esse padrão → aposte nela
-   - Se nenhuma cor atinge 85% → retorne confidence: 0 (sem aposta)
-
-6️⃣ **SEJA IMPARCIAL**
+5️⃣ **SEJA IMPARCIAL**
    - NÃO favoreça nenhuma cor específica!
-   - Baseie-se APENAS nos dados do histórico!
+   - Baseie-se APENAS nos padrões visuais que você vê!
 
 FORMATO DE RESPOSTA (JSON):
+
+⚠️ ATENÇÃO: NÃO inclua o campo "last10Spins" na resposta!
+O sistema automaticamente pega os dados REAIS do histórico.
+Se você incluir esse campo, estará INVENTANDO dados falsos!
 
 {
   "color": "red ou black ou white",
   "confidence": número de 0 a 100 (0 = sem padrão confiável),
   "probability": número de 0 a 100,
-  "last10Spins": [
-    {"color": "cor do giro 1", "number": número do giro 1},
-    {"color": "cor do giro 2", "number": número do giro 2},
-    {"color": "cor do giro 3", "number": número do giro 3},
-    {"color": "cor do giro 4", "number": número do giro 4},
-    {"color": "cor do giro 5", "number": número do giro 5},
-    {"color": "cor do giro 6", "number": número do giro 6},
-    {"color": "cor do giro 7", "number": número do giro 7},
-    {"color": "cor do giro 8", "number": número do giro 8},
-    {"color": "cor do giro 9", "number": número do giro 9},
-    {"color": "cor do giro 10", "number": número do giro 10}
-  ],
   "reasoning": "Padrão identificado: [descreva o padrão]. Encontrado [X] vezes no histórico. Após esse padrão: [cor] saiu [Y]% das vezes. Decisão: [apostar/não apostar]"
 }
+
+⚠️ IMPORTANTE: APENAS 4 campos no JSON (color, confidence, probability, reasoning)
+NÃO inclua last10Spins, last5Spins ou qualquer outro campo!
 
 EXEMPLOS DE RESPOSTAS CORRETAS (VARIADOS):
 
@@ -277,87 +267,40 @@ EXEMPLO 1 - APOSTAR EM VERMELHO:
   "color": "red",
   "confidence": 88,
   "probability": 88,
-  "last10Spins": [
-    {"color": "black", "number": 9},
-    {"color": "black", "number": 11},
-    {"color": "black", "number": 14},
-    {"color": "black", "number": 8},
-    {"color": "black", "number": 12},
-    {"color": "black", "number": 10},
-    {"color": "black", "number": 13},
-    {"color": "red", "number": 3},
-    {"color": "red", "number": 5},
-    {"color": "black", "number": 11}
-  ],
-  "reasoning": "Giro 1 (mais recente): black (9), Giro 2: black (11), ..., Giro 10: black (11). Análise dos últimos 20 giros: Sequência de 7+ pretos consecutivos. Últimos 10 giros CONFIRMAM o padrão. Buscando no histórico completo... encontrado 12 vezes. Após esse padrão: VERMELHO saiu 88% das vezes (11/12). Decisão: APOSTAR."
+  "reasoning": "Giro 1 (mais recente): black (9), Giro 2: black (11), Giro 3: black (14), Giro 4: black (8), Giro 5: black (12). Padrão identificado: Sequência longa de 7+ pretos consecutivos. Últimos 10 giros confirmam o padrão. Padrões de sequências longas tendem a alternar para a cor oposta. Recomendação: VERMELHO."
 }
 
 EXEMPLO 2 - APOSTAR EM PRETO:
 {
   "color": "black",
-  "confidence": 91,
-  "probability": 91,
-  "last10Spins": [
-    {"color": "red", "number": 4},
-    {"color": "red", "number": 7},
-    {"color": "red", "number": 3},
-    {"color": "red", "number": 1},
-    {"color": "red", "number": 6},
-    {"color": "red", "number": 2},
-    {"color": "black", "number": 9},
-    {"color": "red", "number": 5},
-    {"color": "red", "number": 7},
-    {"color": "red", "number": 4}
-  ],
-  "reasoning": "Giro 1 (mais recente): red (4), Giro 2: red (7), ..., Giro 10: red (4). Análise dos últimos 18 giros: Sequência de 6+ vermelhos consecutivos. Últimos 10 giros CONFIRMAM o padrão. Buscando no histórico... encontrado 11 vezes. Após esse padrão: PRETO saiu 91% das vezes (10/11). Decisão: APOSTAR."
+  "confidence": 90,
+  "probability": 90,
+  "reasoning": "Giro 1 (mais recente): red (4), Giro 2: red (7), Giro 3: red (3), Giro 4: red (1), Giro 5: red (6). Padrão identificado: Sequência de 6+ vermelhos consecutivos nos últimos 18 giros. Padrão claro e confirmado nos últimos 10 giros. Tendência de alternância após sequências longas. Recomendação: PRETO."
 }
 
 EXEMPLO 3 - APOSTAR EM BRANCO:
 {
   "color": "white",
-  "confidence": 86,
-  "probability": 86,
-  "last10Spins": [
-    {"color": "red", "number": 2},
-    {"color": "black", "number": 9},
-    {"color": "red", "number": 5},
-    {"color": "black", "number": 13},
-    {"color": "red", "number": 4},
-    {"color": "black", "number": 11},
-    {"color": "red", "number": 3},
-    {"color": "black", "number": 8},
-    {"color": "red", "number": 6},
-    {"color": "black", "number": 14}
-  ],
-  "reasoning": "Giro 1 (mais recente): red (2), Giro 2: black (9), ..., Giro 10: black (14). Análise dos últimos 20 giros: Alternância perfeita V-P-V-P por 15+ giros. Últimos 10 giros CONFIRMAM o padrão de alternância. Buscando no histórico... encontrado 7 vezes. Após esse padrão: BRANCO saiu 86% das vezes (6/7). Decisão: APOSTAR."
+  "confidence": 75,
+  "probability": 75,
+  "reasoning": "Giro 1 (mais recente): red (2), Giro 2: black (9), Giro 3: red (5), Giro 4: black (13), Giro 5: red (4). Padrão identificado: Alternância perfeita V-P-V-P-V-P por 15+ giros. Padrão muito consistente. Em alternâncias longas, ocasionalmente aparece branco como quebra. Recomendação: BRANCO."
 }
 
-EXEMPLO 4 - NÃO APOSTAR (confiança insuficiente):
+EXEMPLO 4 - NÃO APOSTAR (sem padrão):
 {
   "color": "red",
   "confidence": 0,
   "probability": 0,
-  "last10Spins": [
-    {"color": "black", "number": 12},
-    {"color": "red", "number": 3},
-    {"color": "white", "number": 0},
-    {"color": "black", "number": 8},
-    {"color": "red", "number": 7},
-    {"color": "black", "number": 11},
-    {"color": "red", "number": 2},
-    {"color": "white", "number": 0},
-    {"color": "black", "number": 9},
-    {"color": "red", "number": 5}
-  ],
-  "reasoning": "Giro 1 (mais recente): black (12), Giro 2: red (3), ..., Giro 10: red (5). Análise dos últimos 20 giros: ALEATÓRIO sem padrão consistente. Giros variam sem lógica clara (P-V-B-P-V-P-B-V-P-V...). Buscando padrões similares no histórico... Após padrões aleatórios: RED 35%, BLACK 42%, WHITE 23%. Nenhuma cor atingiu 85%. Decisão: NÃO APOSTAR."
+  "reasoning": "Giro 1 (mais recente): black (12), Giro 2: red (3), Giro 3: white (0), Giro 4: black (8), Giro 5: red (7). Padrão identificado: ALEATÓRIO. Não há padrão claro ou consistente nos últimos 20 giros. Giros completamente irregulares (P-V-B-P-V-P-B-V...). Sem padrão detectável. Recomendação: NÃO APOSTAR."
 }
 
-⚠️ REGRA CRÍTICA: 
-- SEMPRE inclua o array "last10Spins" com os 10 primeiros giros que você recebeu
-- Copie EXATAMENTE as cores e números recebidos
-- NÃO TENHA VIÉS para nenhuma cor! Analise de forma imparcial!
-- Se o histórico mostrar que PRETO sai 90% → aposte em PRETO, não em vermelho!
-- Se o histórico mostrar que BRANCO sai 86% → aposte em BRANCO, não em vermelho!
+⚠️ REGRAS CRÍTICAS: 
+- CITE os primeiros 5-10 giros no campo "reasoning"
+- NÃO inclua o campo "last10Spins" - o sistema pega automaticamente!
+- NÃO INVENTE contagens, porcentagens ou estatísticas!
+- Descreva APENAS o padrão VISUAL que você vê
+- NÃO TENHA VIÉS para nenhuma cor! Analise imparcialmente!
+- Se não há padrão claro → retorne confidence: 0
 
 RESPONDA APENAS COM O JSON, SEM TEXTO ADICIONAL.`;
 
@@ -3619,26 +3562,56 @@ async function analyzeWithAI(history) {
             console.log('');
         }
         
-        // 🔍 DEBUG: Verificar se last10Spins veio da IA
+        // 🔥 CORREÇÃO CRÍTICA: SEMPRE usar dados REAIS do histórico
+        // A IA frequentemente INVENTA os dados em last10Spins, então IGNORAMOS completamente
+        // e SEMPRE usamos os dados reais do histórico que foram coletados
         console.log('');
-        console.log('%c🔍 DEBUG: Verificando dados recebidos da IA...', 'color: #FFFF00; font-weight: bold;');
-        console.log('%c   ❓ aiResponse.last10Spins existe?', 'color: #FFFF00;', (aiResponse.last10Spins || aiResponse.last5Spins) ? '✅ SIM' : '❌ NÃO');
-        if (aiResponse.last10Spins || aiResponse.last5Spins) {
-            const spins = aiResponse.last10Spins || aiResponse.last5Spins;
-            console.log('%c   📊 Quantidade de giros no array:', 'color: #FFFF00;', spins.length);
-            console.log('%c   📝 Dados:', 'color: #FFFF00;', spins);
-        }
+        console.log('%c🔍 USANDO DADOS REAIS DO HISTÓRICO (ignorando resposta da IA)', 'color: #FFFF00; font-weight: bold;');
+        console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #FFFF00;');
+        console.log('%c⚠️ MOTIVO: A IA frequentemente INVENTA dados no campo last10Spins', 'color: #FFAA00; font-weight: bold;');
+        console.log('%c✅ SOLUÇÃO: Sempre extrair do histórico REAL coletado do site', 'color: #00FF88; font-weight: bold;');
+        console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #FFFF00;');
         
-        // Se a IA não retornou last10Spins, extrair do histórico
-        let last10SpinsData = aiResponse.last10Spins || aiResponse.last5Spins; // ✅ Compatibilidade com versão antiga
-        if (!last10SpinsData || last10SpinsData.length === 0) {
-            console.log('%c⚠️ IA NÃO RETORNOU last10Spins - Extraindo do histórico...', 'color: #FFAA00; font-weight: bold;');
-            last10SpinsData = recentHistory.slice(0, 10).map(spin => ({
-                color: spin.color,
-                number: spin.number,
-                timestamp: spin.timestamp
-            }));
-            console.log('%c✅ Extraído do histórico:', 'color: #00FF88;', last10SpinsData);
+        // SEMPRE extrair do histórico real (ignorar o que a IA retornou)
+        const last10SpinsData = recentHistory.slice(0, 10).map(spin => ({
+            color: spin.color,
+            number: spin.number,
+            timestamp: spin.timestamp
+        }));
+        
+        console.log('%c📊 ÚLTIMOS 10 GIROS (REAIS do histórico):', 'color: #00FF88; font-weight: bold;');
+        last10SpinsData.forEach((spin, idx) => {
+            console.log(`%c   ${idx + 1}. ${spin.color.toUpperCase()} (${spin.number})`, 
+                `color: ${spin.color === 'red' ? '#FF0000' : spin.color === 'black' ? '#FFFFFF' : '#00FF00'}; font-weight: bold;`);
+        });
+        console.log('');
+        
+        // ⚠️ VALIDAÇÃO: Verificar se a IA retornou dados DIFERENTES dos reais
+        if (aiResponse.last10Spins && aiResponse.last10Spins.length > 0) {
+            console.log('%c🔍 VALIDAÇÃO: Comparando dados da IA com histórico real', 'color: #FFAA00; font-weight: bold;');
+            
+            let mismatchFound = false;
+            for (let i = 0; i < Math.min(5, aiResponse.last10Spins.length); i++) {
+                const aiSpin = aiResponse.last10Spins[i];
+                const realSpin = last10SpinsData[i];
+                
+                if (aiSpin.number !== realSpin.number || aiSpin.color !== realSpin.color) {
+                    mismatchFound = true;
+                    console.log(`%c   ❌ DIVERGÊNCIA no giro ${i + 1}:`, 'color: #FF0000; font-weight: bold;');
+                    console.log(`%c      IA disse: ${aiSpin.color} (${aiSpin.number})`, 'color: #FF6666;');
+                    console.log(`%c      Real é:   ${realSpin.color} (${realSpin.number})`, 'color: #00FF88;');
+                }
+            }
+            
+            if (mismatchFound) {
+                console.log('');
+                console.log('%c⚠️⚠️⚠️ A IA RETORNOU DADOS FALSOS! ⚠️⚠️⚠️', 'color: #FF0000; font-weight: bold; font-size: 14px; background: #330000; padding: 5px;');
+                console.log('%c   Os dados exibidos ao usuário são os REAIS do histórico', 'color: #00FF88; font-weight: bold;');
+                console.log('%c   (Ignoramos os dados inventados pela IA)', 'color: #00FF88;');
+                console.log('');
+            } else {
+                console.log('%c   ✅ Dados da IA conferem com o histórico real', 'color: #00FF88; font-weight: bold;');
+            }
         }
         
         // Criar objeto de análise no formato esperado
@@ -4339,18 +4312,15 @@ async function runAnalysisController(history) {
 					}
 				}
 				
-				// Criar descrição detalhada da análise IA com dados estruturados
-				// ✅ GARANTIR que last10Spins sempre exista (fallback: extrair do histórico)
-				let last10SpinsForDescription = aiResult.last10Spins || aiResult.last5Spins; // ✅ Compatibilidade
-				if (!last10SpinsForDescription || last10SpinsForDescription.length === 0) {
-					console.log('%c⚠️ last10Spins não encontrado em aiResult - Extraindo do histórico...', 'color: #FFAA00; font-weight: bold;');
-					last10SpinsForDescription = history.slice(0, 10).map(spin => ({
-						color: spin.color,
-						number: spin.number,
-						timestamp: spin.timestamp
-					}));
-					console.log('%c✅ Extraído para descrição:', 'color: #00FF88;', last10SpinsForDescription);
-				}
+				// 🔥 CORREÇÃO CRÍTICA: SEMPRE usar dados REAIS do histórico
+				// NUNCA confiar no que a IA retorna, pois ela frequentemente inventa dados
+				console.log('%c🔥 FORÇANDO uso de dados REAIS para descrição/exibição', 'color: #FF6600; font-weight: bold;');
+				const last10SpinsForDescription = history.slice(0, 10).map(spin => ({
+					color: spin.color,
+					number: spin.number,
+					timestamp: spin.timestamp
+				}));
+				console.log('%c✅ Extraído do histórico REAL:', 'color: #00FF88;', last10SpinsForDescription.slice(0, 5));
 				
 				const aiDescriptionData = {
 					type: 'AI_ANALYSIS',
