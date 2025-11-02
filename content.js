@@ -334,7 +334,7 @@
         `;
         header.innerHTML = `
             <div style="font-size: 36px; margin-bottom: 8px;">⚠️</div>
-            <h3 style="margin: 0; color: #FFD700; font-size: 18px;">Chave da IA não configurada</h3>
+            <h3 style="margin: 0; color: #FFD700; font-size: 18px;">Nível Diamante Bloqueado</h3>
         `;
         
         // Mensagem
@@ -347,14 +347,8 @@
             margin-bottom: 16px;
         `;
         message.innerHTML = `
-            <p style="margin: 0 0 12px 0;">A análise por <strong>Inteligência Artificial</strong> precisa de uma chave API.</p>
-            <div style="background: rgba(0, 255, 136, 0.1); padding: 10px; border-radius: 6px; border: 1px solid rgba(0, 255, 136, 0.3); margin: 12px 0;">
-                <small style="color: #00ff88;">
-                    ✅ <strong>API JÁ CONFIGURADA:</strong><br>
-                    OpenRouter (Claude 3.5 Sonnet)<br>
-                    Você pode continuar sem configurar nada
-                </small>
-            </div>
+            <p style="margin: 0 0 12px 0;">O <strong>Nível Diamante</strong> requer uma chave API da Groq para funcionar.</p>
+            <p style="margin: 0; font-size: 13px; color: #8da2bb;">Configure sua chave API nas <strong>Configurações</strong> para ativar este modo.</p>
         `;
         
         // Container dos botões
@@ -366,41 +360,11 @@
             margin-top: 16px;
         `;
         
-        // Botão Cancelar
-        const cancelBtn = document.createElement('button');
-        cancelBtn.textContent = 'Cancelar';
-        cancelBtn.style.cssText = `
-            flex: 1;
-            padding: 12px 16px;
-            background: rgba(255, 255, 255, 0.05);
-            color: #ff003f;
-            border: 1px solid rgba(255, 0, 63, 0.3);
-            border-radius: 6px;
-            font-size: 14px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.2s ease;
-        `;
-        cancelBtn.onmouseover = () => {
-            cancelBtn.style.background = 'rgba(255, 0, 63, 0.1)';
-            cancelBtn.style.borderColor = 'rgba(255, 0, 63, 0.5)';
-        };
-        cancelBtn.onmouseout = () => {
-            cancelBtn.style.background = 'rgba(255, 255, 255, 0.05)';
-            cancelBtn.style.borderColor = 'rgba(255, 0, 63, 0.3)';
-        };
-        cancelBtn.onclick = () => {
-            if (modal.parentNode === document.body) {
-                document.body.removeChild(modal);
-            }
-            callback(false);
-        };
-        
-        // Botão Continuar
-        const confirmBtn = document.createElement('button');
-        confirmBtn.textContent = 'Continuar';
-        confirmBtn.style.cssText = `
-            flex: 1;
+        // Botão OK (único botão - não permite continuar sem chave)
+        const okBtn = document.createElement('button');
+        okBtn.textContent = 'OK, Entendi';
+        okBtn.style.cssText = `
+            width: 100%;
             padding: 12px 16px;
             background: linear-gradient(135deg, #00d4ff 0%, #00ff88 100%);
             color: #1a2c38;
@@ -411,22 +375,21 @@
             cursor: pointer;
             transition: all 0.2s ease;
         `;
-        confirmBtn.onmouseover = () => {
-            confirmBtn.style.transform = 'scale(1.05)';
+        okBtn.onmouseover = () => {
+            okBtn.style.transform = 'scale(1.05)';
         };
-        confirmBtn.onmouseout = () => {
-            confirmBtn.style.transform = 'scale(1)';
+        okBtn.onmouseout = () => {
+            okBtn.style.transform = 'scale(1)';
         };
-        confirmBtn.onclick = () => {
+        okBtn.onclick = () => {
             if (modal.parentNode === document.body) {
                 document.body.removeChild(modal);
             }
-            callback(true);
+            callback(false); // ✅ SEMPRE retorna false - NÃO permite ativar sem chave
         };
         
         // Montar modal
-        buttonsContainer.appendChild(cancelBtn);
-        buttonsContainer.appendChild(confirmBtn);
+        buttonsContainer.appendChild(okBtn);
         modal.appendChild(header);
         modal.appendChild(message);
         modal.appendChild(buttonsContainer);
