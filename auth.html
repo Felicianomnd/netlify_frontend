@@ -717,7 +717,13 @@
                     document.getElementById('pixKeyValue').textContent = paymentSettings.pixKey || 'Não configurado';
                     
                     const whatsapp = paymentSettings.whatsapp || '';
-                    const cleanPhone = whatsapp.replace(/\D/g, '');
+                    let cleanPhone = whatsapp.replace(/\D/g, ''); // Remove todos os caracteres não numéricos
+                    
+                    // ✅ Garantir que o número tenha o código do país (Brasil = 55)
+                    if (cleanPhone && !cleanPhone.startsWith('55')) {
+                        cleanPhone = '55' + cleanPhone;
+                    }
+                    
                     const message = encodeURIComponent(`Olá! Acabei de fazer o pagamento do Blaze Analyzer. Email: ${userData.email}`);
                     document.getElementById('whatsappLink').href = `https://wa.me/${cleanPhone}?text=${message}`;
                 }
