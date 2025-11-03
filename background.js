@@ -96,18 +96,25 @@ const TELEGRAM_API_URL = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/send
 // ═══════════════════════════════════════════════════════════════════════════════
 // 🤖 PROMPT PADRÃO DA IA (usado se customPrompt estiver vazio)
 // ═══════════════════════════════════════════════════════════════════════════════
-const DEFAULT_AI_PROMPT = (historyLength, historyText, patternsText = '') => `Você é um especialista em análise de padrões do jogo Double da Blaze.
+const DEFAULT_AI_PROMPT = (historyLength, historyText, patternsText = '', last20Text = '') => `Você é um especialista em análise de padrões do jogo Double da Blaze.
 
 ${patternsText}
 
-HISTÓRICO DOS ÚLTIMOS ${historyLength} GIROS (do mais recente ao mais antigo):
-${historyText}
+═══════════════════════════════════════════════════════════════
+🚨 ÚLTIMOS 20 GIROS (OS MAIS IMPORTANTES - ANALISE ESTES!) 🚨
+═══════════════════════════════════════════════════════════════
+${last20Text || historyText.split(',').slice(0, 20).join(',')}
 
 ⚠️ ATENÇÃO CRÍTICA:
 - O giro "1." é o MAIS RECENTE (acabou de sair)
 - O giro "2." é o anterior ao 1.
 - O giro "3." é o anterior ao 2.
 - E assim por diante...
+
+═══════════════════════════════════════════════════════════════
+HISTÓRICO COMPLETO (${historyLength} GIROS - para contexto):
+═══════════════════════════════════════════════════════════════
+${historyText}
 
 REGRAS DO JOGO:
 - Existem 3 cores: red (vermelho), black (preto), white (branco)
@@ -128,46 +135,57 @@ VOCÊ NÃO PODE TER PREFERÊNCIA POR NENHUMA COR!
 METODOLOGIA DE ANÁLISE (SIGA EXATAMENTE ESTA ORDEM):
 ═══════════════════════════════════════════════════════════════
 
-PASSO 1: IDENTIFICAR PADRÃO ATUAL (ANALISAR 15-20 GIROS)
+PASSO 1: CITAR OS ÚLTIMOS 20 GIROS (OBRIGATÓRIO)
 ────────────────────────────────────────────────────────
-⚠️ PRIMEIRO: CITE LITERALMENTE os 10 primeiros giros que você recebeu
-   - Exemplo: "Giro 1 (mais recente): red (4), Giro 2: black (9), Giro 3: white (0)... até Giro 10"
-   - NÃO INVENTE! Apenas COPIE os dados exatos que recebeu!
+🚨 VOCÊ **DEVE** COMEÇAR SUA RESPOSTA CITANDO OS 20 GIROS! 🚨
 
-⚠️ METODOLOGIA CORRETA (LEIA COM ATENÇÃO):
+FORMATO OBRIGATÓRIO:
+"Últimos 20 giros recebidos:
+1. (mais recente) [cor] ([número])
+2. [cor] ([número])
+3. [cor] ([número])
+...até 20"
+
+⚠️ NÃO INVENTE! COPIE EXATAMENTE O QUE ESTÁ EM "ÚLTIMOS 20 GIROS"!
+⚠️ SE VOCÊ CITAR GIROS DIFERENTES, SUA ANÁLISE SERÁ REJEITADA!
+⚠️ É **OBRIGATÓRIO** CITAR OS 20 GIROS ANTES DE FAZER QUALQUER ANÁLISE!
+
+PASSO 2: ANALISAR OS ÚLTIMOS 20 GIROS
 ────────────────────────────────────────────────────────
 
-🎯 NOVO SISTEMA: COMPARAÇÃO COM PADRÕES DETECTADOS
+🎯 SISTEMA: COMPARAÇÃO COM PADRÕES DETECTADOS
 ═══════════════════════════════════════════════════════════════
 
 O sistema JavaScript JÁ ANALISOU todo o histórico e DETECTOU padrões reais!
-Acima você recebeu um RELATÓRIO COM ESTATÍSTICAS REAIS de cada padrão.
+Você recebeu um RELATÓRIO COM ESTATÍSTICAS REAIS de cada padrão.
 
 SUA TAREFA:
-1️⃣ **LEIA O RELATÓRIO DE PADRÕES** (acima)
+1️⃣ **LEIA O RELATÓRIO DE PADRÕES** (no início)
    - Veja quais padrões foram encontrados
    - Veja as ESTATÍSTICAS REAIS de cada padrão
    - Essas porcentagens são FATOS (não invente outras!)
 
-2️⃣ **ANALISE OS ÚLTIMOS 6-10 GIROS**
-   - Veja se eles BATEM com algum padrão do relatório
-   - Exemplo: Se últimos 6 giros = P-V-P-V-P-V → bate com "Alternância Simples"
-   - Exemplo: Se últimos 8 giros = P-P-V-V-P-P-V-V → bate com "Alternância Dupla"
+2️⃣ **ANALISE OS ÚLTIMOS 20 GIROS QUE VOCÊ CITOU**
+   - Veja se os últimos 6-8 giros BATEM com algum padrão do relatório
+   - Exemplo: Se giros 1-6 = P-V-P-V-P-V → bate com "Alternância Simples"
+   - Exemplo: Se giros 1-8 = P-P-V-V-P-P-V-V → bate com "Alternância Dupla"
+   - Exemplo: Se giros 1-6 = R-R-R-R-R-R → bate com "Sequência 6+ Vermelhos"
 
-3️⃣ **USE AS ESTATÍSTICAS REAIS**
+3️⃣ **USE AS ESTATÍSTICAS REAIS DO RELATÓRIO**
    - Se encontrou um padrão que bate, use a estatística REAL do relatório
-   - Exemplo: Relatório diz "Alternância Simples → VERMELHO 80%"
+   - Exemplo: Relatório diz "Alternância Simples → VERMELHO 80% (12/15)"
    - Sua recomendação deve ser: VERMELHO com 80% de confiança
 
-4️⃣ **SE NÃO BATER COM NENHUM PADRÃO**
-   - Analise os últimos 15-20 giros de forma livre
-   - Identifique o padrão visual dominante
-   - Use confiança MENOR (50-70%) pois não tem histórico comprovado
+4️⃣ **SE NÃO BATER COM NENHUM PADRÃO DO RELATÓRIO**
+   - Analise o padrão visual dos últimos 20 giros de forma livre
+   - Identifique tendências (alternância, sequência, etc)
+   - Use confiança MENOR (50-70%) pois não tem estatística histórica comprovada
 
-⚠️ REGRA DE OURO:
-- **SEMPRE** tente comparar com os padrões do relatório PRIMEIRO!
-- **USE** as porcentagens do relatório (não invente outras!)
-- **SÓ** analise livremente se não bater com nenhum padrão conhecido
+⚠️ REGRAS CRÍTICAS:
+- **NUNCA** invente sequências que NÃO existem nos 20 giros que você citou!
+- **SEMPRE** compare com os padrões do relatório PRIMEIRO!
+- **USE** apenas as porcentagens do relatório (não invente outras!)
+- Se não há padrão claro nos últimos 20 giros → confidence: 0 (não apostar)
 
 TIPOS DE PADRÃO:
 
@@ -190,7 +208,7 @@ E) TRANSIÇÃO DE PADRÃO?
 F) ALEATÓRIO (sem padrão)?
    Exemplo: P-V-P-P-V-V-P-V-P-V-P-V (não segue lógica clara)
 
-PASSO 2: FAZER RECOMENDAÇÃO BASEADA NO PADRÃO
+PASSO 3: FAZER RECOMENDAÇÃO BASEADA NO PADRÃO
 ────────────────────────────────────────────────────────
 🚨 VOCÊ **NÃO PODE** INVENTAR ESTATÍSTICAS! 🚨
 
@@ -199,24 +217,23 @@ PASSO 2: FAZER RECOMENDAÇÃO BASEADA NO PADRÃO
 "Baseado em [X] ocorrências no histórico, esse padrão foi seguido por [cor] em [Y]% das vezes"
 "Recomendação: [cor]"
 
-❌ NÃO INVENTE NÚMEROS!
-- Use APENAS as estatísticas do RELATÓRIO acima!
-- Se o relatório diz "80%", use 80%
-- Se o relatório diz "15 ocorrências", use 15
-- NÃO crie suas próprias contagens!
+❌ NÃO INVENTE NÚMEROS OU SEQUÊNCIAS!
+- Use APENAS as estatísticas do RELATÓRIO!
+- NÃO diga "Sequência de pretos" se não há sequência de pretos nos 20 giros!
+- NÃO invente padrões que não existem nos giros que você citou!
 
 ✅ SE NÃO BATEU COM NENHUM PADRÃO DO RELATÓRIO:
-"Nenhum padrão conhecido detectado nos últimos giros"
-"Padrão visual: [descreva o que você vê]"
-"Recomendação: [cor] (confiança baixa)"
+"Nenhum padrão conhecido detectado nos últimos 20 giros"
+"Padrão visual: [descreva o que REALMENTE VÊ]"
+"Recomendação: [cor] (confiança baixa)" ou "confidence: 0 (não apostar)"
 
-PASSO 3: REGRA DE DECISÃO
+PASSO 4: REGRA DE DECISÃO
 ────────────────────────────────────────────────────────
 - Se o padrão é CLARO → confiança 70-95%
 - Se o padrão é FRACO/INCERTO → confiança 0-50%
 - Se ALEATÓRIO → confidence: 0 (não apostar)
 
-PASSO 4: CASOS ESPECIAIS
+PASSO 5: CASOS ESPECIAIS
 ────────────────────────────────────────────────────────
 BRANCO (0):
 - NUNCA use lógica de "branco atrasado"
@@ -282,7 +299,7 @@ EXEMPLO 1 - PADRÃO DO RELATÓRIO ENCONTRADO:
   "color": "red",
   "confidence": 85,
   "probability": 85,
-  "reasoning": "Últimos 6 giros: black (9), black (11), red (4), red (7), black (14), black (8). Padrão identificado: Alternância Dupla (P-P-V-V-P-P). Segundo o relatório, este padrão apareceu 15 vezes no histórico e foi seguido por VERMELHO em 85% das vezes (13/15). Recomendação: VERMELHO."
+  "reasoning": "Últimos 20 giros recebidos: 1. black (9), 2. black (11), 3. red (4), 4. red (7), 5. black (14), 6. black (8), 7. red (2), 8. red (5), 9. black (12), 10. black (10)... até 20. Padrão identificado nos giros 1-8: Alternância Dupla (P-P-V-V-P-P-V-V). Segundo o relatório, este padrão apareceu 15 vezes no histórico e foi seguido por VERMELHO em 85% das vezes (13/15). Recomendação: VERMELHO."
 }
 
 EXEMPLO 2 - PADRÃO DO RELATÓRIO ENCONTRADO (SEQUÊNCIA):
@@ -290,7 +307,7 @@ EXEMPLO 2 - PADRÃO DO RELATÓRIO ENCONTRADO (SEQUÊNCIA):
   "color": "black",
   "confidence": 87,
   "probability": 87,
-  "reasoning": "Últimos 6 giros: red (4), red (2), red (7), red (3), red (1), red (6). Padrão identificado: Sequência de 6+ Vermelhos. Segundo o relatório, este padrão apareceu 8 vezes e foi seguido por PRETO em 87.5% das vezes (7/8). Recomendação: PRETO."
+  "reasoning": "Últimos 20 giros recebidos: 1. red (4), 2. red (2), 3. red (7), 4. red (3), 5. red (1), 6. red (6), 7. black (9), 8. red (5)... até 20. Padrão identificado nos giros 1-6: Sequência de 6+ Vermelhos. Segundo o relatório, este padrão apareceu 8 vezes e foi seguido por PRETO em 87.5% das vezes (7/8). Recomendação: PRETO."
 }
 
 EXEMPLO 3 - NENHUM PADRÃO DO RELATÓRIO BATE:
@@ -298,7 +315,7 @@ EXEMPLO 3 - NENHUM PADRÃO DO RELATÓRIO BATE:
   "color": "red",
   "confidence": 60,
   "probability": 60,
-  "reasoning": "Últimos 10 giros não batem com nenhum padrão conhecido do relatório. Padrão visual: Sequência mista com leve tendência a pretos (6 pretos vs 4 vermelhos). Sem confirmação histórica. Recomendação: VERMELHO (reversão esperada, mas confiança moderada)."
+  "reasoning": "Últimos 20 giros recebidos: 1. black (12), 2. red (3), 3. black (9), 4. red (7), 5. black (11), 6. red (2)... até 20. Nenhum padrão conhecido do relatório detectado nos últimos 20 giros. Padrão visual: Alternância irregular com leve tendência a pretos (11 pretos vs 9 vermelhos nos 20 giros). Sem confirmação histórica. Recomendação: VERMELHO (reversão esperada, mas confiança moderada)."
 }
 
 EXEMPLO 4 - NÃO APOSTAR (sem padrão):
@@ -3376,7 +3393,14 @@ function detectPatternsInHistory(history) {
     console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #00BFFF; font-weight: bold;');
     console.log('%c║  🔍 DETECTANDO PADRÕES NO HISTÓRICO                      ║', 'color: #00BFFF; font-weight: bold;');
     console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #00BFFF; font-weight: bold;');
+    console.log('%c   Histórico recebido: ' + history.length + ' giros', 'color: #00BFFF;');
     console.log('');
+    
+    // ✅ VALIDAÇÃO: Verificar se histórico é válido
+    if (!history || !Array.isArray(history) || history.length === 0) {
+        console.warn('%c⚠️ Histórico inválido ou vazio!', 'color: #FFAA00; font-weight: bold;');
+        return [];
+    }
     
     const patterns = {
         // Alternância simples: P-V-P-V-P-V
@@ -3554,6 +3578,8 @@ function detectPatternsInHistory(history) {
     
     if (report.length === 0) {
         console.log('%c⚠️ Nenhum padrão claro detectado no histórico', 'color: #FFAA00;');
+        console.log('%c   Isso é NORMAL se o histórico for muito aleatório', 'color: #FFAA00;');
+        console.log('%c   A IA vai analisar de forma livre.', 'color: #FFAA00;');
     } else {
         report.forEach((p, index) => {
             console.log(`%c${index + 1}. ${p.name}`, 'color: #00FF88; font-weight: bold;');
@@ -3565,6 +3591,9 @@ function detectPatternsInHistory(history) {
             console.log('');
         });
     }
+    
+    console.log('%c✅ Detecção de padrões concluída! Retornando ' + report.length + ' padrões', 'color: #00BFFF; font-weight: bold;');
+    console.log('');
     
     return report;
 }
@@ -3621,21 +3650,29 @@ async function analyzeWithAI(history) {
         }
         
         // Preparar dados do histórico para enviar à IA
-        const aiHistorySize = Math.min(Math.max(analyzerConfig.aiHistorySize || 50, 10), 2000); // Min: 10, Max: 2000
+        const aiHistorySize = Math.min(Math.max(analyzerConfig.aiHistorySize || 50, 20), 2000); // Min: 20, Max: 2000
         const recentHistory = history.slice(0, aiHistorySize);
         
-        // 🔍 DEBUG: Mostrar os primeiros 10 giros para validar a ordem
+        // ✅ CRÍTICO: Enviar os últimos 20 giros em DESTAQUE para a IA
+        const last20Spins = history.slice(0, 20);
+        
+        // 🔍 DEBUG: Mostrar os primeiros 20 giros para validar a ordem
         console.log('');
         console.log('%c🔍 DEBUG: VERIFICANDO ORDEM DO HISTÓRICO', 'color: #FFFF00; font-weight: bold; font-size: 14px;');
         console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #FFFF00;');
-        console.log('%c📊 Primeiros 10 giros (do array history[0] até history[9]):', 'color: #FFFF00; font-weight: bold;');
-        for (let i = 0; i < Math.min(10, recentHistory.length); i++) {
+        console.log('%c📊 ÚLTIMOS 20 GIROS (do array history[0] até history[19]):', 'color: #FFFF00; font-weight: bold;');
+        for (let i = 0; i < Math.min(20, recentHistory.length); i++) {
             const spin = recentHistory[i];
             console.log(`%c   ${i === 0 ? '🔥 MAIS RECENTE →' : `   ${i + 1}.`} ${spin.color.toUpperCase()} (número ${spin.number})`, 
                 `color: ${spin.color === 'red' ? '#FF0000' : spin.color === 'black' ? '#FFFFFF' : '#00FF00'}; font-weight: bold;`);
         }
         console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #FFFF00;');
         console.log('');
+        
+        // Criar texto com DESTAQUE para os últimos 20 giros
+        const last20Text = last20Spins.map((spin, idx) => 
+            `${idx + 1}. ${spin.color} (${spin.number})`
+        ).join(', ');
         
         const historyText = recentHistory.map((spin, idx) => 
             `${idx + 1}. ${spin.color} (${spin.number})`
@@ -3644,11 +3681,17 @@ async function analyzeWithAI(history) {
         // ═══════════════════════════════════════════════════════════════
         // 🔍 DETECTAR PADRÕES NO HISTÓRICO (ANÁLISE ESTATÍSTICA REAL)
         // ═══════════════════════════════════════════════════════════════
-        const patternsReport = detectPatternsInHistory(recentHistory);
+        let patternsReport = [];
+        try {
+            patternsReport = detectPatternsInHistory(recentHistory);
+        } catch (patternError) {
+            console.error('%c❌ ERRO ao detectar padrões:', 'color: #FF0000; font-weight: bold;', patternError);
+            console.log('%c⚠️ Continuando análise SEM padrões detectados...', 'color: #FFAA00;');
+        }
         
         // Montar texto do relatório de padrões para enviar à IA
         let patternsText = '';
-        if (patternsReport.length > 0) {
+        if (patternsReport && patternsReport.length > 0) {
             patternsText = '═══════════════════════════════════════════════════════════════\n';
             patternsText += '📊 PADRÕES DETECTADOS NO HISTÓRICO (ESTATÍSTICAS REAIS):\n';
             patternsText += '═══════════════════════════════════════════════════════════════\n\n';
@@ -3697,9 +3740,9 @@ async function analyzeWithAI(history) {
                 console.warn('%c   Isso pode causar respostas inválidas da IA!', 'color: #FFAA00;');
             }
         } else {
-            // ✅ USAR PROMPT PADRÃO (COM PADRÕES DETECTADOS)
-            console.log('%c✅ Usando prompt padrão com padrões detectados', 'color: #00FF88;');
-            prompt = DEFAULT_AI_PROMPT(recentHistory.length, historyText, patternsText);
+            // ✅ USAR PROMPT PADRÃO (COM PADRÕES DETECTADOS E ÚLTIMOS 20 GIROS)
+            console.log('%c✅ Usando prompt padrão com padrões detectados + últimos 20 giros', 'color: #00FF88;');
+            prompt = DEFAULT_AI_PROMPT(recentHistory.length, historyText, patternsText, last20Text);
         }
 
         console.log('');
