@@ -96,7 +96,9 @@ const TELEGRAM_API_URL = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/send
 // ═══════════════════════════════════════════════════════════════════════════════
 // 🤖 PROMPT PADRÃO DA IA (usado se customPrompt estiver vazio)
 // ═══════════════════════════════════════════════════════════════════════════════
-const DEFAULT_AI_PROMPT = (historyLength, historyText) => `Você é um especialista em análise de padrões do jogo Double da Blaze.
+const DEFAULT_AI_PROMPT = (historyLength, historyText, patternsText = '') => `Você é um especialista em análise de padrões do jogo Double da Blaze.
+
+${patternsText}
 
 HISTÓRICO DOS ÚLTIMOS ${historyLength} GIROS (do mais recente ao mais antigo):
 ${historyText}
@@ -135,25 +137,37 @@ PASSO 1: IDENTIFICAR PADRÃO ATUAL (ANALISAR 15-20 GIROS)
 ⚠️ METODOLOGIA CORRETA (LEIA COM ATENÇÃO):
 ────────────────────────────────────────────────────────
 
-1️⃣ **ANÁLISE AMPLA** - Olhe os últimos **15-20 giros completos**
-   - Identifique o padrão DOMINANTE nessa janela maior
-   - NÃO olhe apenas os últimos 10 giros isoladamente!
-   - Exemplo: Se giros 1-20 mostram alternância dupla clara (P-P-V-V-P-P-V-V...), esse é o padrão!
+🎯 NOVO SISTEMA: COMPARAÇÃO COM PADRÕES DETECTADOS
+═══════════════════════════════════════════════════════════════
 
-2️⃣ **CONFIRMAÇÃO** - Use os últimos **10 giros** para CONFIRMAR
-   - Os últimos 10 devem CONFIRMAR que o padrão dos 15-20 ainda está ativo
-   - Se os últimos 10 QUEBRAM o padrão → pode estar em transição (use cautela)
-   - Se os últimos 10 CONFIRMAM o padrão → alta confiança!
+O sistema JavaScript JÁ ANALISOU todo o histórico e DETECTOU padrões reais!
+Acima você recebeu um RELATÓRIO COM ESTATÍSTICAS REAIS de cada padrão.
 
-3️⃣ **EXCEÇÃO: TRANSIÇÃO**
-   - APENAS se os giros 1-10 forem COMPLETAMENTE DIFERENTES dos giros 11-20
-   - Exemplo: Giros 11-20 = alternância simples, mas giros 1-10 = 10 pretos seguidos
-   - Neste caso específico, considere que está em TRANSIÇÃO e use o novo padrão dos últimos 10
+SUA TAREFA:
+1️⃣ **LEIA O RELATÓRIO DE PADRÕES** (acima)
+   - Veja quais padrões foram encontrados
+   - Veja as ESTATÍSTICAS REAIS de cada padrão
+   - Essas porcentagens são FATOS (não invente outras!)
+
+2️⃣ **ANALISE OS ÚLTIMOS 6-10 GIROS**
+   - Veja se eles BATEM com algum padrão do relatório
+   - Exemplo: Se últimos 6 giros = P-V-P-V-P-V → bate com "Alternância Simples"
+   - Exemplo: Se últimos 8 giros = P-P-V-V-P-P-V-V → bate com "Alternância Dupla"
+
+3️⃣ **USE AS ESTATÍSTICAS REAIS**
+   - Se encontrou um padrão que bate, use a estatística REAL do relatório
+   - Exemplo: Relatório diz "Alternância Simples → VERMELHO 80%"
+   - Sua recomendação deve ser: VERMELHO com 80% de confiança
+
+4️⃣ **SE NÃO BATER COM NENHUM PADRÃO**
+   - Analise os últimos 15-20 giros de forma livre
+   - Identifique o padrão visual dominante
+   - Use confiança MENOR (50-70%) pois não tem histórico comprovado
 
 ⚠️ REGRA DE OURO:
-- **NÃO** analise apenas 10 giros!
-- **SIM** analise 15-20 giros e use os 10 últimos como confirmação!
-- O padrão é identificado na **janela maior (15-20 giros)**, não apenas nos últimos 10!
+- **SEMPRE** tente comparar com os padrões do relatório PRIMEIRO!
+- **USE** as porcentagens do relatório (não invente outras!)
+- **SÓ** analise livremente se não bater com nenhum padrão conhecido
 
 TIPOS DE PADRÃO:
 
@@ -176,24 +190,25 @@ E) TRANSIÇÃO DE PADRÃO?
 F) ALEATÓRIO (sem padrão)?
    Exemplo: P-V-P-P-V-V-P-V-P-V-P-V (não segue lógica clara)
 
-PASSO 2: FAZER RECOMENDAÇÃO BASEADA NO PADRÃO VISUAL
+PASSO 2: FAZER RECOMENDAÇÃO BASEADA NO PADRÃO
 ────────────────────────────────────────────────────────
 🚨 VOCÊ **NÃO PODE** INVENTAR ESTATÍSTICAS! 🚨
 
-❌ NÃO DIGA:
-- "Buscando no histórico... encontrei 12 vezes"
-- "Saiu 92% das vezes (11/12)"
-- "VERMELHO saiu 88% das vezes"
-- QUALQUER CONTAGEM OU PORCENTAGEM INVENTADA!
+✅ SE ENCONTROU PADRÃO QUE BATE COM O RELATÓRIO:
+"Padrão identificado: [nome do padrão do relatório]"
+"Baseado em [X] ocorrências no histórico, esse padrão foi seguido por [cor] em [Y]% das vezes"
+"Recomendação: [cor]"
 
-✅ APENAS DIGA:
-"Padrão identificado: [descreva visualmente o padrão]"
-"Recomendação baseada no padrão: [cor]"
+❌ NÃO INVENTE NÚMEROS!
+- Use APENAS as estatísticas do RELATÓRIO acima!
+- Se o relatório diz "80%", use 80%
+- Se o relatório diz "15 ocorrências", use 15
+- NÃO crie suas próprias contagens!
 
-EXEMPLOS CORRETOS:
-- "Padrão: Sequência de 6+ pretos. Recomendação: VERMELHO"
-- "Padrão: Alternância V-P-V-P. Recomendação: [próxima cor da alternância]"
-- "Padrão: Aleatório. Recomendação: SEM APOSTA (confidence: 0)"
+✅ SE NÃO BATEU COM NENHUM PADRÃO DO RELATÓRIO:
+"Nenhum padrão conhecido detectado nos últimos giros"
+"Padrão visual: [descreva o que você vê]"
+"Recomendação: [cor] (confiança baixa)"
 
 PASSO 3: REGRA DE DECISÃO
 ────────────────────────────────────────────────────────
@@ -260,30 +275,30 @@ Se você incluir esse campo, estará INVENTANDO dados falsos!
 ⚠️ IMPORTANTE: APENAS 4 campos no JSON (color, confidence, probability, reasoning)
 NÃO inclua last10Spins, last5Spins ou qualquer outro campo!
 
-EXEMPLOS DE RESPOSTAS CORRETAS (VARIADOS):
+EXEMPLOS DE RESPOSTAS CORRETAS (USANDO RELATÓRIO DE PADRÕES):
 
-EXEMPLO 1 - APOSTAR EM VERMELHO:
+EXEMPLO 1 - PADRÃO DO RELATÓRIO ENCONTRADO:
 {
   "color": "red",
-  "confidence": 88,
-  "probability": 88,
-  "reasoning": "Giro 1 (mais recente): black (9), Giro 2: black (11), Giro 3: black (14), Giro 4: black (8), Giro 5: black (12). Padrão identificado: Sequência longa de 7+ pretos consecutivos. Últimos 10 giros confirmam o padrão. Padrões de sequências longas tendem a alternar para a cor oposta. Recomendação: VERMELHO."
+  "confidence": 85,
+  "probability": 85,
+  "reasoning": "Últimos 6 giros: black (9), black (11), red (4), red (7), black (14), black (8). Padrão identificado: Alternância Dupla (P-P-V-V-P-P). Segundo o relatório, este padrão apareceu 15 vezes no histórico e foi seguido por VERMELHO em 85% das vezes (13/15). Recomendação: VERMELHO."
 }
 
-EXEMPLO 2 - APOSTAR EM PRETO:
+EXEMPLO 2 - PADRÃO DO RELATÓRIO ENCONTRADO (SEQUÊNCIA):
 {
   "color": "black",
-  "confidence": 90,
-  "probability": 90,
-  "reasoning": "Giro 1 (mais recente): red (4), Giro 2: red (7), Giro 3: red (3), Giro 4: red (1), Giro 5: red (6). Padrão identificado: Sequência de 6+ vermelhos consecutivos nos últimos 18 giros. Padrão claro e confirmado nos últimos 10 giros. Tendência de alternância após sequências longas. Recomendação: PRETO."
+  "confidence": 87,
+  "probability": 87,
+  "reasoning": "Últimos 6 giros: red (4), red (2), red (7), red (3), red (1), red (6). Padrão identificado: Sequência de 6+ Vermelhos. Segundo o relatório, este padrão apareceu 8 vezes e foi seguido por PRETO em 87.5% das vezes (7/8). Recomendação: PRETO."
 }
 
-EXEMPLO 3 - APOSTAR EM BRANCO:
+EXEMPLO 3 - NENHUM PADRÃO DO RELATÓRIO BATE:
 {
-  "color": "white",
-  "confidence": 75,
-  "probability": 75,
-  "reasoning": "Giro 1 (mais recente): red (2), Giro 2: black (9), Giro 3: red (5), Giro 4: black (13), Giro 5: red (4). Padrão identificado: Alternância perfeita V-P-V-P-V-P por 15+ giros. Padrão muito consistente. Em alternâncias longas, ocasionalmente aparece branco como quebra. Recomendação: BRANCO."
+  "color": "red",
+  "confidence": 60,
+  "probability": 60,
+  "reasoning": "Últimos 10 giros não batem com nenhum padrão conhecido do relatório. Padrão visual: Sequência mista com leve tendência a pretos (6 pretos vs 4 vermelhos). Sem confirmação histórica. Recomendação: VERMELHO (reversão esperada, mas confiança moderada)."
 }
 
 EXEMPLO 4 - NÃO APOSTAR (sem padrão):
@@ -3345,6 +3360,216 @@ async function combineAIResults(macroResults, microWindows, savedPatterns) {
 }
 
 /**
+ * ═══════════════════════════════════════════════════════════════════════════════
+ * 🔍 DETECTOR DE PADRÕES NO HISTÓRICO (ANÁLISE ESTATÍSTICA REAL)
+ * ═══════════════════════════════════════════════════════════════════════════════
+ * Esta função analisa TODO o histórico e detecta padrões específicos:
+ * - Alternância simples (P-V-P-V)
+ * - Alternância dupla (P-P-V-V)
+ * - Alternância tripla (P-P-P-V-V-V)
+ * - Sequências longas (6+ mesma cor)
+ * 
+ * Para cada padrão, conta O QUE VEIO DEPOIS (estatística REAL)
+ */
+function detectPatternsInHistory(history) {
+    console.log('');
+    console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #00BFFF; font-weight: bold;');
+    console.log('%c║  🔍 DETECTANDO PADRÕES NO HISTÓRICO                      ║', 'color: #00BFFF; font-weight: bold;');
+    console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #00BFFF; font-weight: bold;');
+    console.log('');
+    
+    const patterns = {
+        // Alternância simples: P-V-P-V-P-V
+        alternanciaSimples: { count: 0, afterRed: 0, afterBlack: 0, afterWhite: 0 },
+        
+        // Alternância dupla: P-P-V-V-P-P-V-V
+        alternanciaDupla: { count: 0, afterRed: 0, afterBlack: 0, afterWhite: 0 },
+        
+        // Alternância tripla: P-P-P-V-V-V-P-P-P
+        alternanciaTripla: { count: 0, afterRed: 0, afterBlack: 0, afterWhite: 0 },
+        
+        // Sequência longa de vermelhos (6+)
+        sequenciaVermelho6Plus: { count: 0, afterRed: 0, afterBlack: 0, afterWhite: 0 },
+        
+        // Sequência longa de pretos (6+)
+        sequenciaPreto6Plus: { count: 0, afterRed: 0, afterBlack: 0, afterWhite: 0 },
+        
+        // Sequência longa de mesma cor (4-5)
+        sequenciaMesmaCor4a5: { count: 0, afterRed: 0, afterBlack: 0, afterWhite: 0 }
+    };
+    
+    // Simplificar cores (ignorar white temporariamente para padrões)
+    const simplifiedHistory = history.map(spin => {
+        if (spin.color === 'white') return 'W';
+        return spin.color === 'red' ? 'R' : 'B';
+    });
+    
+    // Analisar histórico (deixar espaço para o "próximo giro")
+    for (let i = 0; i < history.length - 1; i++) {
+        const next = history[i]; // O giro que VEIO DEPOIS do padrão
+        
+        // ═══════════════════════════════════════════════════════════════
+        // ALTERNÂNCIA SIMPLES: R-B-R-B-R-B (mínimo 6 giros)
+        // ═══════════════════════════════════════════════════════════════
+        if (i + 6 < history.length) {
+            const seq = simplifiedHistory.slice(i + 1, i + 7).join('');
+            
+            // Padrão: R-B-R-B-R-B ou B-R-B-R-B-R
+            if (seq === 'RBRBRB' || seq === 'BRBRBR') {
+                patterns.alternanciaSimples.count++;
+                if (next.color === 'red') patterns.alternanciaSimples.afterRed++;
+                else if (next.color === 'black') patterns.alternanciaSimples.afterBlack++;
+                else patterns.alternanciaSimples.afterWhite++;
+            }
+        }
+        
+        // ═══════════════════════════════════════════════════════════════
+        // ALTERNÂNCIA DUPLA: R-R-B-B-R-R-B-B (mínimo 8 giros)
+        // ═══════════════════════════════════════════════════════════════
+        if (i + 8 < history.length) {
+            const seq = simplifiedHistory.slice(i + 1, i + 9).join('');
+            
+            // Padrão: R-R-B-B-R-R-B-B ou B-B-R-R-B-B-R-R
+            if (seq === 'RRBBRRBB' || seq === 'BBRRBBRR') {
+                patterns.alternanciaDupla.count++;
+                if (next.color === 'red') patterns.alternanciaDupla.afterRed++;
+                else if (next.color === 'black') patterns.alternanciaDupla.afterBlack++;
+                else patterns.alternanciaDupla.afterWhite++;
+            }
+        }
+        
+        // ═══════════════════════════════════════════════════════════════
+        // ALTERNÂNCIA TRIPLA: R-R-R-B-B-B-R-R-R (mínimo 9 giros)
+        // ═══════════════════════════════════════════════════════════════
+        if (i + 9 < history.length) {
+            const seq = simplifiedHistory.slice(i + 1, i + 10).join('');
+            
+            // Padrão: R-R-R-B-B-B-R-R-R ou B-B-B-R-R-R-B-B-B
+            if (seq === 'RRRBBBRRR' || seq === 'BBBRRRBBB') {
+                patterns.alternanciaTripla.count++;
+                if (next.color === 'red') patterns.alternanciaTripla.afterRed++;
+                else if (next.color === 'black') patterns.alternanciaTripla.afterBlack++;
+                else patterns.alternanciaTripla.afterWhite++;
+            }
+        }
+        
+        // ═══════════════════════════════════════════════════════════════
+        // SEQUÊNCIA DE VERMELHO 6+ (ignorando brancos)
+        // ═══════════════════════════════════════════════════════════════
+        if (i + 6 < history.length) {
+            const seq = simplifiedHistory.slice(i + 1, i + 7).filter(c => c !== 'W').join('');
+            
+            if (seq === 'RRRRRR') {
+                patterns.sequenciaVermelho6Plus.count++;
+                if (next.color === 'red') patterns.sequenciaVermelho6Plus.afterRed++;
+                else if (next.color === 'black') patterns.sequenciaVermelho6Plus.afterBlack++;
+                else patterns.sequenciaVermelho6Plus.afterWhite++;
+            }
+        }
+        
+        // ═══════════════════════════════════════════════════════════════
+        // SEQUÊNCIA DE PRETO 6+ (ignorando brancos)
+        // ═══════════════════════════════════════════════════════════════
+        if (i + 6 < history.length) {
+            const seq = simplifiedHistory.slice(i + 1, i + 7).filter(c => c !== 'W').join('');
+            
+            if (seq === 'BBBBBB') {
+                patterns.sequenciaPreto6Plus.count++;
+                if (next.color === 'red') patterns.sequenciaPreto6Plus.afterRed++;
+                else if (next.color === 'black') patterns.sequenciaPreto6Plus.afterBlack++;
+                else patterns.sequenciaPreto6Plus.afterWhite++;
+            }
+        }
+        
+        // ═══════════════════════════════════════════════════════════════
+        // SEQUÊNCIA MESMA COR 4-5 (mais comum, mais dados)
+        // ═══════════════════════════════════════════════════════════════
+        if (i + 5 < history.length) {
+            const seq = simplifiedHistory.slice(i + 1, i + 6).filter(c => c !== 'W').join('');
+            
+            if (seq === 'RRRRR' || seq === 'BBBBB' || seq === 'RRRR' || seq === 'BBBB') {
+                patterns.sequenciaMesmaCor4a5.count++;
+                if (next.color === 'red') patterns.sequenciaMesmaCor4a5.afterRed++;
+                else if (next.color === 'black') patterns.sequenciaMesmaCor4a5.afterBlack++;
+                else patterns.sequenciaMesmaCor4a5.afterWhite++;
+            }
+        }
+    }
+    
+    // ═══════════════════════════════════════════════════════════════
+    // CALCULAR PORCENTAGENS E MONTAR RELATÓRIO
+    // ═══════════════════════════════════════════════════════════════
+    const report = [];
+    
+    for (const [patternName, data] of Object.entries(patterns)) {
+        if (data.count > 0) {
+            const total = data.afterRed + data.afterBlack + data.afterWhite;
+            const redPercent = ((data.afterRed / total) * 100).toFixed(1);
+            const blackPercent = ((data.afterBlack / total) * 100).toFixed(1);
+            const whitePercent = ((data.afterWhite / total) * 100).toFixed(1);
+            
+            // Nome legível do padrão
+            let readableName = '';
+            switch(patternName) {
+                case 'alternanciaSimples':
+                    readableName = 'Alternância Simples (P-V-P-V-P-V)';
+                    break;
+                case 'alternanciaDupla':
+                    readableName = 'Alternância Dupla (P-P-V-V-P-P-V-V)';
+                    break;
+                case 'alternanciaTripla':
+                    readableName = 'Alternância Tripla (P-P-P-V-V-V-P-P-P)';
+                    break;
+                case 'sequenciaVermelho6Plus':
+                    readableName = 'Sequência de 6+ Vermelhos';
+                    break;
+                case 'sequenciaPreto6Plus':
+                    readableName = 'Sequência de 6+ Pretos';
+                    break;
+                case 'sequenciaMesmaCor4a5':
+                    readableName = 'Sequência de 4-5 Mesma Cor';
+                    break;
+            }
+            
+            report.push({
+                name: readableName,
+                pattern: patternName,
+                occurrences: data.count,
+                afterRed: data.afterRed,
+                afterBlack: data.afterBlack,
+                afterWhite: data.afterWhite,
+                redPercent: parseFloat(redPercent),
+                blackPercent: parseFloat(blackPercent),
+                whitePercent: parseFloat(whitePercent)
+            });
+        }
+    }
+    
+    // Ordenar por número de ocorrências (mais confiável primeiro)
+    report.sort((a, b) => b.occurrences - a.occurrences);
+    
+    // Exibir relatório no console
+    console.log('%c📊 RELATÓRIO DE PADRÕES DETECTADOS:', 'color: #00BFFF; font-weight: bold; font-size: 14px;');
+    console.log('');
+    
+    if (report.length === 0) {
+        console.log('%c⚠️ Nenhum padrão claro detectado no histórico', 'color: #FFAA00;');
+    } else {
+        report.forEach((p, index) => {
+            console.log(`%c${index + 1}. ${p.name}`, 'color: #00FF88; font-weight: bold;');
+            console.log(`   Ocorrências: ${p.occurrences} vezes`);
+            console.log(`   Após esse padrão:`);
+            console.log(`   %c→ VERMELHO: ${p.afterRed} vezes (${p.redPercent}%)`, 'color: #FF0000; font-weight: bold;');
+            console.log(`   %c→ PRETO: ${p.afterBlack} vezes (${p.blackPercent}%)`, 'color: #FFFFFF; font-weight: bold;');
+            console.log(`   %c→ BRANCO: ${p.afterWhite} vezes (${p.whitePercent}%)`, 'color: #00FF00; font-weight: bold;');
+            console.log('');
+        });
+    }
+    
+    return report;
+}
+
+/**
  * FUNÇÃO PRINCIPAL: Análise com IA REAL (com timeout de 5 segundos)
  * Esta função faz chamadas REAIS para APIs de IA externas
  */
@@ -3417,6 +3642,34 @@ async function analyzeWithAI(history) {
         ).join(', ');
         
         // ═══════════════════════════════════════════════════════════════
+        // 🔍 DETECTAR PADRÕES NO HISTÓRICO (ANÁLISE ESTATÍSTICA REAL)
+        // ═══════════════════════════════════════════════════════════════
+        const patternsReport = detectPatternsInHistory(recentHistory);
+        
+        // Montar texto do relatório de padrões para enviar à IA
+        let patternsText = '';
+        if (patternsReport.length > 0) {
+            patternsText = '═══════════════════════════════════════════════════════════════\n';
+            patternsText += '📊 PADRÕES DETECTADOS NO HISTÓRICO (ESTATÍSTICAS REAIS):\n';
+            patternsText += '═══════════════════════════════════════════════════════════════\n\n';
+            
+            patternsReport.forEach((p, index) => {
+                patternsText += `PADRÃO ${index + 1}: ${p.name}\n`;
+                patternsText += `- Ocorrências: ${p.occurrences} vezes no histórico\n`;
+                patternsText += `- Após esse padrão:\n`;
+                patternsText += `  → VERMELHO: ${p.afterRed} vezes (${p.redPercent}%)\n`;
+                patternsText += `  → PRETO: ${p.afterBlack} vezes (${p.blackPercent}%)\n`;
+                patternsText += `  → BRANCO: ${p.afterWhite} vezes (${p.whitePercent}%)\n`;
+                patternsText += `\n`;
+            });
+            
+            patternsText += '═══════════════════════════════════════════════════════════════\n';
+        } else {
+            patternsText = '⚠️ Nenhum padrão claro foi detectado no histórico.\n';
+            patternsText += 'Analise os últimos 20 giros de forma mais livre.\n\n';
+        }
+        
+        // ═══════════════════════════════════════════════════════════════
         // 🤖 PREPARAR PROMPT (customizado ou padrão)
         // ═══════════════════════════════════════════════════════════════
         let prompt;
@@ -3429,7 +3682,8 @@ async function analyzeWithAI(history) {
             prompt = analyzerConfig.customPrompt
                 .replace(/\$\{recentHistory\.length\}/g, recentHistory.length)
                 .replace(/\$\{historyLength\}/g, recentHistory.length)
-                .replace(/\$\{historyText\}/g, historyText);
+                .replace(/\$\{historyText\}/g, historyText)
+                .replace(/\$\{patternsText\}/g, patternsText);
             
             console.log('%c   Tamanho do prompt: ' + prompt.length + ' caracteres', 'color: #FF00FF;');
             
@@ -3443,9 +3697,9 @@ async function analyzeWithAI(history) {
                 console.warn('%c   Isso pode causar respostas inválidas da IA!', 'color: #FFAA00;');
             }
         } else {
-            // ✅ USAR PROMPT PADRÃO
-            console.log('%c✅ Usando prompt padrão (otimizado)', 'color: #00FF88;');
-            prompt = DEFAULT_AI_PROMPT(recentHistory.length, historyText);
+            // ✅ USAR PROMPT PADRÃO (COM PADRÕES DETECTADOS)
+            console.log('%c✅ Usando prompt padrão com padrões detectados', 'color: #00FF88;');
+            prompt = DEFAULT_AI_PROMPT(recentHistory.length, historyText, patternsText);
         }
 
         console.log('');
