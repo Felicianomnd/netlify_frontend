@@ -165,11 +165,14 @@ SUA TAREFA:
    - Veja as ESTATÍSTICAS REAIS de cada padrão
    - Essas porcentagens são FATOS (não invente outras!)
 
-2️⃣ **ANALISE OS ÚLTIMOS 20 GIROS QUE VOCÊ CITOU**
-   - Veja se os últimos 6-8 giros BATEM com algum padrão do relatório
-   - Exemplo: Se giros 1-6 = P-V-P-V-P-V → bate com "Alternância Simples"
-   - Exemplo: Se giros 1-8 = P-P-V-V-P-P-V-V → bate com "Alternância Dupla"
-   - Exemplo: Se giros 1-6 = R-R-R-R-R-R → bate com "Sequência 6+ Vermelhos"
+2️⃣ **IDENTIFIQUE O PADRÃO QUE ESTÁ ATIVO AGORA (começando do giro 1)**
+   - ⚠️ **CRÍTICO:** O padrão DEVE começar no giro 1 (mais recente) e ir para trás!
+   - ✅ O padrão pode ter qualquer tamanho (6, 8, 10, 15 giros... não tem limite)!
+   - ✅ Use os 20 giros para ter CONTEXTO MACRO e identificar padrões grandes
+   - ✅ Exemplo CORRETO: Se giros **1-6** = P-V-P-V-P-V → "Alternância Simples ATIVA"
+   - ✅ Exemplo CORRETO: Se giros **1-15** = P-P-V-V-P-P-V-V-P-P-V-V-P-P-V → "Alternância Dupla ATIVA" (padrão grande!)
+   - ❌ Exemplo ERRADO: Giros 1-5 = P-V-P-V-P, mas você usa padrão dos giros **8-14** = R-R-R-R-R-R-R
+   - ❌ **NÃO USE** padrões que estão "no meio" ou "no final" dos 20 giros se eles NÃO incluem o giro 1!
 
 3️⃣ **USE AS ESTATÍSTICAS REAIS DO RELATÓRIO**
    - Se encontrou um padrão que bate, use a estatística REAL do relatório
@@ -219,8 +222,10 @@ PASSO 3: FAZER RECOMENDAÇÃO BASEADA NO PADRÃO
 
 ❌ NÃO INVENTE NÚMEROS OU SEQUÊNCIAS!
 - Use APENAS as estatísticas do RELATÓRIO!
-- NÃO diga "Sequência de pretos" se não há sequência de pretos nos 20 giros!
-- NÃO invente padrões que não existem nos giros que você citou!
+- O padrão identificado DEVE começar no giro 1 (mais recente)!
+- NÃO use padrões que estão "no meio" dos 20 giros (ex: giros 8-14)!
+- Se o padrão não INCLUI o giro 1, ele NÃO está ativo!
+- Exemplo: Se giros 1-5 = V-P-V-V-P, NÃO diga "Sequência de 7 vermelhos" baseado nos giros 8-14!
 
 ✅ SE NÃO BATEU COM NENHUM PADRÃO DO RELATÓRIO:
 "Nenhum padrão conhecido detectado nos últimos 20 giros"
@@ -294,28 +299,28 @@ NÃO inclua last10Spins, last5Spins ou qualquer outro campo!
 
 EXEMPLOS DE RESPOSTAS CORRETAS (USANDO RELATÓRIO DE PADRÕES):
 
-EXEMPLO 1 - PADRÃO DO RELATÓRIO ENCONTRADO:
+EXEMPLO 1 - PADRÃO ATIVO começando no giro 1 (8 giros):
 {
   "color": "red",
   "confidence": 85,
   "probability": 85,
-  "reasoning": "Últimos 20 giros recebidos: 1. black (9), 2. black (11), 3. red (4), 4. red (7), 5. black (14), 6. black (8), 7. red (2), 8. red (5), 9. black (12), 10. black (10)... até 20. Padrão identificado nos giros 1-8: Alternância Dupla (P-P-V-V-P-P-V-V). Segundo o relatório, este padrão apareceu 15 vezes no histórico e foi seguido por VERMELHO em 85% das vezes (13/15). Recomendação: VERMELHO."
+  "reasoning": "Últimos 20 giros recebidos: 1. black (9), 2. black (11), 3. red (4), 4. red (7), 5. black (14), 6. black (8), 7. red (2), 8. red (5), 9. black (12)... até 20. Padrão ATIVO identificado nos giros 1-8: 1.P, 2.P, 3.V, 4.V, 5.P, 6.P, 7.V, 8.V = Alternância Dupla (P-P-V-V-P-P-V-V). Segundo o relatório, este padrão apareceu 15 vezes no histórico e foi seguido por VERMELHO em 85% das vezes (13/15). Recomendação: VERMELHO."
 }
 
-EXEMPLO 2 - PADRÃO DO RELATÓRIO ENCONTRADO (SEQUÊNCIA):
+EXEMPLO 2 - PADRÃO ATIVO começando no giro 1 (15 giros - PADRÃO GRANDE!):
 {
   "color": "black",
-  "confidence": 87,
-  "probability": 87,
-  "reasoning": "Últimos 20 giros recebidos: 1. red (4), 2. red (2), 3. red (7), 4. red (3), 5. red (1), 6. red (6), 7. black (9), 8. red (5)... até 20. Padrão identificado nos giros 1-6: Sequência de 6+ Vermelhos. Segundo o relatório, este padrão apareceu 8 vezes e foi seguido por PRETO em 87.5% das vezes (7/8). Recomendação: PRETO."
+  "confidence": 90,
+  "probability": 90,
+  "reasoning": "Últimos 20 giros: 1. black (10), 2. black (9), 3. red (4), 4. red (7), 5. black (14), 6. black (8), 7. red (2), 8. red (5), 9. black (12), 10. black (11), 11. red (3), 12. red (1), 13. black (13), 14. black (9), 15. red (6)... até 20. Padrão ATIVO identificado nos giros 1-15: Alternância Dupla (P-P-V-V-P-P-V-V-P-P-V-V-P-P-V). Padrão grande e consistente! Segundo o relatório, foi seguido por VERMELHO em 85% das vezes. Recomendação: VERMELHO com alta confiança."
 }
 
-EXEMPLO 3 - NENHUM PADRÃO DO RELATÓRIO BATE:
+EXEMPLO 3 - NENHUM PADRÃO DO RELATÓRIO (analise livre):
 {
   "color": "red",
   "confidence": 60,
   "probability": 60,
-  "reasoning": "Últimos 20 giros recebidos: 1. black (12), 2. red (3), 3. black (9), 4. red (7), 5. black (11), 6. red (2)... até 20. Nenhum padrão conhecido do relatório detectado nos últimos 20 giros. Padrão visual: Alternância irregular com leve tendência a pretos (11 pretos vs 9 vermelhos nos 20 giros). Sem confirmação histórica. Recomendação: VERMELHO (reversão esperada, mas confiança moderada)."
+  "reasoning": "Últimos 20 giros: 1. black (12), 2. red (3), 3. black (9), 4. red (7), 5. black (11)... até 20. Analisando os giros começando do 1: Alternância irregular (P-V-P-V-P...). Nenhum padrão conhecido do relatório detectado. Visão macro dos 20 giros: leve predominância de pretos. Recomendação: VERMELHO (reversão esperada) com confiança moderada."
 }
 
 EXEMPLO 4 - NÃO APOSTAR (sem padrão):
