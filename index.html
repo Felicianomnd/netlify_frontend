@@ -148,8 +148,8 @@
 
     <!-- Botão flutuante para abrir tela dividida (APENAS DESKTOP) -->
     <button id="splitScreenBtn" onclick="openSplitScreen()" style="display: none;">
-        <span style="font-size: 24px;">🚀</span>
-        <span>Abrir Blaze ao Lado</span>
+        <span style="font-size: 24px;">⚡</span>
+        <span>Modo Tela Dividida</span>
     </button>
 
     <!-- ═══════════════════════════════════════════════════════════════════════════════ -->
@@ -367,44 +367,43 @@
         let blazeIframe = null;
         
         function openSplitScreen() {
-            // ✅ ABRIR DIRETAMENTE EM JANELA POPUP (Blaze bloqueia iframe)
+            // 🎯 SOLUÇÃO DEFINITIVA: WINDOWS SNAP AUTOMÁTICO
+            // Redimensionar ESTA janela para metade esquerda e abrir Blaze na metade direita
             
-            // Calcular dimensões PERFEITAS para janela popup
             const screenWidth = window.screen.availWidth;
             const screenHeight = window.screen.availHeight;
             
-            // Sidebar ocupa 400px à esquerda
-            const sidebarWidth = 400;
+            // Calcular metade da tela
+            const halfWidth = Math.floor(screenWidth / 2);
             
-            // Janela da Blaze ocupa TODO o resto (lado direito)
-            const width = screenWidth - sidebarWidth;
-            const height = screenHeight;
-            const left = sidebarWidth; // Começa onde a sidebar termina
-            const top = 0;
+            // ✅ PASSO 1: Redimensionar e mover ESTA janela para o lado ESQUERDO
+            try {
+                window.resizeTo(halfWidth, screenHeight);
+                window.moveTo(0, 0);
+                
+                console.log('✅ Janela atual redimensionada para lado esquerdo');
+            } catch (e) {
+                console.warn('⚠️ Não foi possível redimensionar automaticamente:', e);
+            }
             
-            // ⚠️ IMPORTANTE: Navegadores não permitem remover completamente a barra de endereço por segurança
-            // Mas vamos minimizar ao máximo usando as opções disponíveis
-            const features = [
-                `width=${width}`,
-                `height=${height}`,
-                `left=${left}`,
-                `top=${top}`,
+            // ✅ PASSO 2: Abrir Blaze em janela que ocupa lado DIREITO
+            const blazeFeatures = [
+                `width=${halfWidth}`,
+                `height=${screenHeight}`,
+                `left=${halfWidth}`,
+                `top=0`,
                 `menubar=no`,
                 `toolbar=no`,
-                `location=no`,      // Remove barra de endereço (não funciona em todos os navegadores)
+                `location=yes`,
                 `status=no`,
-                `directories=no`,
-                `personalbar=no`,
-                `titlebar=no`,
                 `scrollbars=yes`,
                 `resizable=yes`
             ].join(',');
             
-            // Abrir janela popup
             const blazeWindow = window.open(
                 'https://blaze.bet.br/pt/',
                 'BlazeWindow',
-                features
+                blazeFeatures
             );
             
             if (blazeWindow) {
@@ -433,9 +432,9 @@
                 notification.innerHTML = `
                     <span style="font-size: 24px;">✅</span>
                     <div>
-                        <div style="font-weight: 700; margin-bottom: 4px;">Blaze Aberta!</div>
-                        <div style="font-size: 13px; opacity: 0.9;">Posicionada ao lado direito da tela</div>
-                        <div style="font-size: 12px; opacity: 0.8; margin-top: 4px;">💡 Mantenha esta janela focada para evitar que vá para trás</div>
+                        <div style="font-weight: 700; margin-bottom: 4px;">Tela Dividida Ativada!</div>
+                        <div style="font-size: 13px; opacity: 0.9;">Esta janela: lado esquerdo | Blaze: lado direito</div>
+                        <div style="font-size: 12px; opacity: 0.8; margin-top: 4px;">💡 Ambas as janelas lado a lado, sem sobreposição!</div>
                     </div>
                 `;
                 document.body.appendChild(notification);
