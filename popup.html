@@ -79,12 +79,51 @@
         .confidence.low {
             color: #F44336;
         }
+        
+        /* Botão de Tela Dividida */
+        .split-screen-btn {
+            width: 100%;
+            padding: 16px;
+            margin: 12px 0;
+            border: 2px solid rgba(255, 255, 255, 0.4);
+            border-radius: 8px;
+            background: linear-gradient(135deg, #ff003f 0%, #c40032 100%);
+            color: white;
+            font-size: 15px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 12px rgba(255, 0, 63, 0.3);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+        
+        .split-screen-btn:hover {
+            background: linear-gradient(135deg, #ff1a4d 0%, #d4003a 100%);
+            transform: translateY(-2px);
+            box-shadow: 0 6px 16px rgba(255, 0, 63, 0.5);
+        }
+        
+        .split-screen-btn:active {
+            transform: translateY(0);
+        }
+        
+        .split-screen-icon {
+            font-size: 20px;
+        }
     </style>
 </head>
 <body>
     <div class="header">
         <h1>🎯 Blaze Double Analyzer</h1>
     </div>
+    
+    <button class="split-screen-btn" id="openSplitScreenBtn">
+        <span class="split-screen-icon">🖥️</span>
+        <span>Abrir Tela Completa</span>
+    </button>
     
     <div class="status" id="status">
         Conectando à Blaze...
