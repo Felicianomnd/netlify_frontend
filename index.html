@@ -140,8 +140,8 @@
 
     <!-- Botão flutuante para abrir tela dividida (APENAS DESKTOP) -->
     <button id="splitScreenBtn" onclick="openSplitScreen()" style="display: none;">
-        <span style="font-size: 24px;">🖥️</span>
-        <span>Tela Completa</span>
+        <span style="font-size: 24px;">🚀</span>
+        <span>Abrir Blaze ao Lado</span>
     </button>
 
     <!-- ═══════════════════════════════════════════════════════════════════════════════ -->
@@ -359,15 +359,136 @@
         let blazeIframe = null;
         
         function openSplitScreen() {
-            if (splitScreenActive) {
-                // Já está em modo split - fechar
-                closeSplitScreen();
+            // ✅ ABRIR DIRETAMENTE EM JANELA POPUP (Blaze bloqueia iframe)
+            
+            // Calcular dimensões para janela popup
+            const screenWidth = window.screen.availWidth;
+            const screenHeight = window.screen.availHeight;
+            
+            // Janela ocupando 60% direita da tela
+            const width = Math.floor(screenWidth * 0.6);
+            const height = screenHeight;
+            const left = Math.floor(screenWidth * 0.4);
+            const top = 0;
+            
+            // Abrir janela popup
+            const blazeWindow = window.open(
+                'https://blaze.bet.br/pt/',
+                'BlazeWindow',
+                `width=${width},height=${height},left=${left},top=${top},menubar=no,toolbar=no,location=yes,status=no,resizable=yes,scrollbars=yes`
+            );
+            
+            if (blazeWindow) {
+                blazeWindow.focus();
+                
+                // Mostrar notificação de sucesso
+                const notification = document.createElement('div');
+                notification.style.cssText = `
+                    position: fixed;
+                    top: 80px;
+                    right: 20px;
+                    background: linear-gradient(135deg, #00ff88 0%, #00cc6a 100%);
+                    color: #0a0e27;
+                    padding: 20px 28px;
+                    border-radius: 12px;
+                    font-size: 15px;
+                    font-weight: 600;
+                    z-index: 999999;
+                    box-shadow: 0 8px 24px rgba(0, 255, 136, 0.5);
+                    animation: slideInRight 0.3s ease-out;
+                    display: flex;
+                    align-items: center;
+                    gap: 12px;
+                    max-width: 350px;
+                `;
+                notification.innerHTML = `
+                    <span style="font-size: 24px;">✅</span>
+                    <div>
+                        <div style="font-weight: 700; margin-bottom: 4px;">Blaze Aberta!</div>
+                        <div style="font-size: 13px; opacity: 0.9;">Janela posicionada ao lado direito</div>
+                    </div>
+                `;
+                document.body.appendChild(notification);
+                
+                setTimeout(() => {
+                    notification.style.animation = 'slideOutRight 0.3s ease-out';
+                    setTimeout(() => notification.remove(), 300);
+                }, 4000);
+                
+                // Adicionar animações
+                if (!document.getElementById('notificationStyles')) {
+                    const style = document.createElement('style');
+                    style.id = 'notificationStyles';
+                    style.textContent = `
+                        @keyframes slideInRight {
+                            from { transform: translateX(400px); opacity: 0; }
+                            to { transform: translateX(0); opacity: 1; }
+                        }
+                        @keyframes slideOutRight {
+                            from { transform: translateX(0); opacity: 1; }
+                            to { transform: translateX(400px); opacity: 0; }
+                        }
+                    `;
+                    document.head.appendChild(style);
+                }
+                
+                // Ocultar botão flutuante temporariamente
+                const btn = document.getElementById('splitScreenBtn');
+                btn.style.display = 'none';
+                
+                // Mostrar novamente após 5 segundos
+                setTimeout(() => {
+                    btn.style.display = 'flex';
+                }, 5000);
+                
+                return;
+            } else {
+                // Pop-up bloqueado
+                const warning = document.createElement('div');
+                warning.style.cssText = `
+                    position: fixed;
+                    top: 50%;
+                    left: 50%;
+                    transform: translate(-50%, -50%);
+                    background: rgba(26, 26, 46, 0.98);
+                    color: white;
+                    padding: 40px;
+                    border-radius: 16px;
+                    border: 2px solid #ff003f;
+                    max-width: 500px;
+                    z-index: 999999;
+                    text-align: center;
+                    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);
+                `;
+                warning.innerHTML = `
+                    <div style="font-size: 64px; margin-bottom: 20px;">⚠️</div>
+                    <h2 style="color: #ff003f; font-size: 24px; margin-bottom: 16px;">Pop-up Bloqueado</h2>
+                    <p style="color: #a8a8a8; font-size: 16px; margin-bottom: 24px; line-height: 1.6;">
+                        Seu navegador bloqueou a janela popup. Clique no botão novamente e permita pop-ups quando solicitado.
+                    </p>
+                    <button onclick="this.parentElement.remove()" style="
+                        background: linear-gradient(135deg, #ff003f 0%, #c40032 100%);
+                        color: white;
+                        border: none;
+                        padding: 12px 32px;
+                        border-radius: 8px;
+                        font-size: 16px;
+                        font-weight: 600;
+                        cursor: pointer;
+                    ">
+                        ✓ Entendi
+                    </button>
+                `;
+                document.body.appendChild(warning);
                 return;
             }
             
+            /* CÓDIGO ANTIGO DO SPLIT-SCREEN COMENTADO (caso queira restaurar)
             splitScreenActive = true;
             
-            // ✅ CRIAR CONTAINER DE TELA DIVIDIDA
+            return; // DESATIVADO - Usando popup ao invés de iframe
+            
+            // ✅ CRIAR CONTAINER DE TELA DIVIDIDA (DESATIVADO)
             const splitContainer = document.createElement('div');
             splitContainer.id = 'splitScreenContainer';
             splitContainer.style.cssText = `
@@ -631,6 +752,7 @@
                 `;
                 document.head.appendChild(style);
             }
+            */ // FIM DO CÓDIGO ANTIGO
         }
         
         function closeSplitScreen() {
@@ -663,73 +785,7 @@
             }
         }
         
-        // Função para abrir Blaze em janela popup (alternativa ao iframe bloqueado)
-        function openBlazeInWindow() {
-            // Calcular dimensões para janela popup
-            const screenWidth = window.screen.availWidth;
-            const screenHeight = window.screen.availHeight;
-            
-            // Janela ocupando metade direita da tela
-            const width = Math.floor(screenWidth / 2);
-            const height = screenHeight;
-            const left = Math.floor(screenWidth / 2);
-            const top = 0;
-            
-            // Abrir janela popup
-            const blazeWindow = window.open(
-                'https://blaze.bet.br/pt/',
-                'BlazeWindow',
-                `width=${width},height=${height},left=${left},top=${top},menubar=no,toolbar=no,location=no,status=no,resizable=yes,scrollbars=yes`
-            );
-            
-            if (blazeWindow) {
-                blazeWindow.focus();
-                
-                // Mostrar notificação de sucesso
-                const notification = document.createElement('div');
-                notification.style.cssText = `
-                    position: fixed;
-                    top: 20px;
-                    left: 50%;
-                    transform: translateX(-50%);
-                    background: rgba(0, 255, 136, 0.95);
-                    color: #0a0e27;
-                    padding: 16px 32px;
-                    border-radius: 8px;
-                    font-size: 15px;
-                    font-weight: 600;
-                    z-index: 999999;
-                    box-shadow: 0 8px 24px rgba(0, 255, 136, 0.4);
-                    animation: slideDown 0.3s ease-out;
-                `;
-                notification.innerHTML = '✅ Blaze aberta! Organize as janelas lado a lado.';
-                document.body.appendChild(notification);
-                
-                setTimeout(() => {
-                    notification.style.animation = 'slideUp 0.3s ease-out';
-                    setTimeout(() => notification.remove(), 300);
-                }, 3000);
-                
-                // Adicionar animações
-                if (!document.getElementById('notificationStyles')) {
-                    const style = document.createElement('style');
-                    style.id = 'notificationStyles';
-                    style.textContent = `
-                        @keyframes slideDown {
-                            from { transform: translate(-50%, -100%); opacity: 0; }
-                            to { transform: translate(-50%, 0); opacity: 1; }
-                        }
-                        @keyframes slideUp {
-                            from { transform: translate(-50%, 0); opacity: 1; }
-                            to { transform: translate(-50%, -100%); opacity: 0; }
-                        }
-                    `;
-                    document.head.appendChild(style);
-                }
-            } else {
-                alert('⚠️ Não foi possível abrir a janela. Verifique se o bloqueador de pop-ups está desativado.');
-            }
-        }
+        // Função removida - agora está integrada no openSplitScreen()
     </script>
 </body>
 </html>
