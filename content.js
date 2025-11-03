@@ -2885,12 +2885,14 @@
             });
         } else if (request.type === 'NEW_SPIN') {
             console.log('⚡ Novo giro recebido via WebSocket - atualizando histórico INSTANTANEAMENTE!');
-            // ✅ ATUALIZAR HISTÓRICO EM TEMPO REAL
-            updateHistoryUIFromServer();
             
-            // Atualizar também o último giro na sidebar
+            // ✅ ATUALIZAR HISTÓRICO INSTANTANEAMENTE (SEM REQUISIÇÃO HTTP)
             if (request.data && request.data.lastSpin) {
+                // Atualizar último giro na sidebar
                 updateSidebar({ lastSpin: request.data.lastSpin });
+                
+                // ✅ NOVO: Atualizar histórico INSTANTANEAMENTE (sem fazer requisição HTTP)
+                updateHistoryUIInstant(request.data.lastSpin);
             }
         } else if (request.type === 'CLEAR_ANALYSIS') {
             updateSidebar({ analysis: null, pattern: null });
@@ -2909,6 +2911,31 @@
             console.log('📊 Dados recebidos:', request.data);
             updateObserverUI(request.data);
             console.log('✅ updateObserverUI executado!');
+        } else if (request.type === 'WEBSOCKET_STATUS') {
+            // ✅ GERENCIAR STATUS DO WEBSOCKET
+            isWebSocketConnected = request.data.connected;
+            
+            if (request.data.connected) {
+                console.log('');
+                console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #00FF00; font-weight: bold;');
+                console.log('%c║  ✅ WEBSOCKET RECONECTADO!                               ║', 'color: #00FF00; font-weight: bold;');
+                console.log('%c║  Histórico voltará a atualizar INSTANTANEAMENTE         ║', 'color: #00FF00;');
+                console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #00FF00; font-weight: bold;');
+                console.log('');
+                
+                // Parar polling de fallback
+                stopHistoryPolling();
+            } else {
+                console.log('');
+                console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #FF0000; font-weight: bold;');
+                console.log('%c║  ❌ WEBSOCKET DESCONECTADO!                              ║', 'color: #FF0000; font-weight: bold;');
+                console.log('%c║  Ativando polling de fallback (a cada 2 segundos)       ║', 'color: #FF0000;');
+                console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #FF0000; font-weight: bold;');
+                console.log('');
+                
+                // Iniciar polling de fallback
+                startHistoryPolling();
+            }
         } else if (request.type === 'ANALYSIS_STATUS') {
             // Alinhar leitura com emissor (dados vêm em request.data.status)
             const status = request.data && request.data.status ? request.data.status : request.status;
@@ -3599,6 +3626,8 @@
     const API_URL = 'https://blaze-analyzer-api.onrender.com';
     let isUpdatingHistory = false;
     let lastHistoryUpdate = null;
+    let isWebSocketConnected = true; // Assume conectado inicialmente
+    let historyPollingInterval = null; // Intervalo de polling para histórico
     
     // Buscar giros do servidor (TODOS os 2000)
     async function fetchHistoryFromServer() {
@@ -3630,6 +3659,72 @@
         }
     }
     
+    // ═══════════════════════════════════════════════════════════════
+    // 🚀 ATUALIZAÇÃO INSTANTÂNEA DO HISTÓRICO (SEM REQUISIÇÃO HTTP)
+    // ═══════════════════════════════════════════════════════════════
+    function updateHistoryUIInstant(newSpin) {
+        if (!newSpin || !newSpin.number) return;
+        
+        console.log('⚡ ATUALIZANDO HISTÓRICO INSTANTANEAMENTE (SEM HTTP):', newSpin);
+        
+        // ✅ ADICIONAR NOVO GIRO NO INÍCIO DO HISTÓRICO LOCAL
+        if (currentHistoryData.length > 0) {
+            // Verificar se já existe (evitar duplicatas)
+            const exists = currentHistoryData.some(spin => 
+                spin.timestamp === newSpin.timestamp || 
+                (spin.number === newSpin.number && Math.abs(new Date(spin.timestamp) - new Date(newSpin.timestamp)) < 2000)
+            );
+            
+            if (!exists) {
+                currentHistoryData.unshift(newSpin);
+                // Manter no máximo 2000 giros em memória
+                if (currentHistoryData.length > 2000) {
+                    currentHistoryData = currentHistoryData.slice(0, 2000);
+                }
+            }
+        }
+        
+        // ✅ RE-RENDERIZAR HISTÓRICO INSTANTANEAMENTE
+        const historyContainer = document.getElementById('spin-history-bar-ext');
+        if (historyContainer && currentHistoryData.length > 0) {
+            // SALVAR posição do scroll (sempre no topo para novos giros)
+            historyContainer.innerHTML = renderSpinHistory(currentHistoryData);
+            historyContainer.style.display = 'block';
+            
+            console.log(`✅ Histórico atualizado INSTANTANEAMENTE: ${currentHistoryData.length} giros (sem HTTP)`);
+            
+            // ✅ Re-adicionar event listener para o botão "Carregar Mais"
+            const loadMoreBtn = document.getElementById('loadMoreHistoryBtn');
+            if (loadMoreBtn) {
+                loadMoreBtn.addEventListener('click', function() {
+                    const remaining = currentHistoryData.length - currentHistoryDisplayLimit;
+                    const increment = 500;
+                    const addAmount = remaining > increment ? increment : remaining;
+                    
+                    currentHistoryDisplayLimit += addAmount;
+                    console.log(`📊 Carregando mais ${addAmount} giros. Total exibido: ${currentHistoryDisplayLimit}`);
+                    
+                    historyContainer.innerHTML = renderSpinHistory(currentHistoryData);
+                    
+                    // Re-adicionar event listener
+                    const newLoadMoreBtn = document.getElementById('loadMoreHistoryBtn');
+                    if (newLoadMoreBtn) {
+                        newLoadMoreBtn.addEventListener('click', arguments.callee);
+                    }
+                });
+            }
+        }
+        
+        // ✅ ATUALIZAR TOTAL DE GIROS
+        const totalSpins = document.getElementById('totalSpins');
+        if (totalSpins) {
+            totalSpins.textContent = currentHistoryData.length;
+        }
+    }
+    
+    // ═══════════════════════════════════════════════════════════════
+    // 🌐 ATUALIZAÇÃO COMPLETA DO HISTÓRICO (COM REQUISIÇÃO HTTP)
+    // ═══════════════════════════════════════════════════════════════
     // Atualizar UI com giros do servidor
     async function updateHistoryUIFromServer() {
         const spins = await fetchHistoryFromServer();
@@ -3672,7 +3767,7 @@
                     }, 50); // Aumentar delay para garantir renderização completa
                 }
                 
-                console.log(`✅ Histórico atualizado: ${spins.length} giros do servidor`);
+                console.log(`✅ Histórico atualizado (HTTP): ${spins.length} giros do servidor`);
                 
                 // ✅ Adicionar event listener para o botão "Carregar Mais"
                 const loadMoreBtn = document.getElementById('loadMoreHistoryBtn');
@@ -3743,22 +3838,49 @@
         }
     }
     
+    // ═══════════════════════════════════════════════════════════════
+    // 🔄 POLLING DE FALLBACK PARA HISTÓRICO (quando WebSocket cai)
+    // ═══════════════════════════════════════════════════════════════
+    function startHistoryPolling() {
+        // Se já está rodando, não iniciar novamente
+        if (historyPollingInterval) return;
+        
+        console.log('');
+        console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #FF6B00; font-weight: bold;');
+        console.log('%c║  🔄 POLLING DE HISTÓRICO ATIVADO                         ║', 'color: #FF6B00; font-weight: bold;');
+        console.log('%c║  WebSocket desconectado - atualizando via HTTP          ║', 'color: #FF6B00;');
+        console.log('%c║  Frequência: a cada 2 segundos                          ║', 'color: #FF6B00;');
+        console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #FF6B00; font-weight: bold;');
+        console.log('');
+        
+        // ✅ Atualizar histórico a cada 2 segundos via HTTP
+        historyPollingInterval = setInterval(() => {
+            console.log('🔄 Atualizando histórico via HTTP (WebSocket offline)...');
+            updateHistoryUIFromServer();
+        }, 2000); // A cada 2 segundos
+    }
+    
+    function stopHistoryPolling() {
+        if (historyPollingInterval) {
+            clearInterval(historyPollingInterval);
+            historyPollingInterval = null;
+            console.log('✅ Polling de histórico parado - WebSocket reconectado');
+        }
+    }
+    
     // Iniciar histórico (atualiza instantaneamente via WebSocket)
     function startAutoHistoryUpdate() {
         console.log('%c═══════════════════════════════════════════════════════════', 'color: #00d4ff; font-weight: bold;');
-        console.log('%c🔄 HISTÓRICO AUTOMÁTICO (DO SERVIDOR)', 'color: #00d4ff; font-weight: bold; font-size: 14px;');
+        console.log('%c🔄 HISTÓRICO INTELIGENTE COM FALLBACK', 'color: #00d4ff; font-weight: bold; font-size: 14px;');
         console.log('%c═══════════════════════════════════════════════════════════', 'color: #00d4ff; font-weight: bold;');
-        console.log('📊 Buscando até 2000 giros do servidor');
+        console.log('📊 Carregando até 2000 giros do servidor (UMA VEZ - ao iniciar)');
         console.log('🎯 Exibindo os 500 mais recentes na tela');
-        console.log('⚡ Atualização: TEMPO REAL via WebSocket');
+        console.log('⚡ WebSocket CONECTADO → Atualização INSTANTÂNEA (sem HTTP)');
+        console.log('🔄 WebSocket DESCONECTADO → Polling a cada 2 segundos (fallback)');
         console.log('%c═══════════════════════════════════════════════════════════\n', 'color: #00d4ff; font-weight: bold;');
         
-        // Atualizar imediatamente ao carregar
+        // ✅ Carregar histórico inicial UMA VEZ (ao abrir extensão)
         updateHistoryUIFromServer();
-        
-        // ✅ REMOVIDO: setInterval(updateHistoryUIFromServer, 3000)
-        // Agora o histórico atualiza INSTANTANEAMENTE quando recebe NEW_SPIN via WebSocket!
-        // O evento NEW_SPIN do background.js já chama updateHistoryUIFromServer()
     }
     
     // Carregar configurações e banco de padrões ao iniciar

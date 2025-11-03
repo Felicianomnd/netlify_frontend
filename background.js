@@ -679,11 +679,14 @@ function startPollingFallback() {
     console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #FFA500; font-weight: bold;');
     console.log('%c║  🔄 POLLING DE FALLBACK ATIVADO                          ║', 'color: #FFA500; font-weight: bold;');
     console.log('%c║  WebSocket está offline - buscando dados via HTTP       ║', 'color: #FFA500;');
-    console.log('%c║  Frequência: a cada 3 segundos                          ║', 'color: #FFA500;');
+    console.log('%c║  Frequência: a cada 2 segundos                          ║', 'color: #FFA500;');
     console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #FFA500; font-weight: bold;');
     console.log('');
     
-    // ✅ Buscar dados a cada 3 segundos quando WebSocket está offline
+    // ✅ Notificar content.js que WebSocket caiu
+    sendMessageToContent('WEBSOCKET_STATUS', { connected: false });
+    
+    // ✅ Buscar dados a cada 2 segundos quando WebSocket está offline
     pollingInterval = setInterval(async () => {
         try {
             // Buscar último giro do servidor
@@ -700,7 +703,7 @@ function startPollingFallback() {
         } catch (error) {
             console.warn('⚠️ Polling fallback: erro ao buscar dados:', error.message);
         }
-    }, 3000); // A cada 3 segundos
+    }, 2000); // A cada 2 segundos
 }
 
 function stopPollingFallback() {
@@ -708,6 +711,9 @@ function stopPollingFallback() {
         clearInterval(pollingInterval);
         pollingInterval = null;
         console.log('✅ Polling de fallback parado - WebSocket reconectado');
+        
+        // ✅ Notificar content.js que WebSocket reconectou
+        sendMessageToContent('WEBSOCKET_STATUS', { connected: true });
     }
 }
 
