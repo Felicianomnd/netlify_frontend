@@ -352,12 +352,237 @@
         console.log('');
         
         // ═══════════════════════════════════════════════════════════════════════════════
-        // FUNÇÃO PARA ABRIR TELA DIVIDIDA
+        // FUNÇÃO PARA ATIVAR TELA DIVIDIDA (MODO SPLIT-SCREEN)
         // ═══════════════════════════════════════════════════════════════════════════════
         
+        let splitScreenActive = false;
+        let blazeIframe = null;
+        
         function openSplitScreen() {
-            // Abrir split-screen.html em nova aba
-            window.open('split-screen.html', '_blank');
+            if (splitScreenActive) {
+                // Já está em modo split - fechar
+                closeSplitScreen();
+                return;
+            }
+            
+            splitScreenActive = true;
+            
+            // ✅ CRIAR CONTAINER DE TELA DIVIDIDA
+            const splitContainer = document.createElement('div');
+            splitContainer.id = 'splitScreenContainer';
+            splitContainer.style.cssText = `
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100vh;
+                z-index: 99998;
+                background: #000;
+                display: flex;
+            `;
+            
+            // ✅ PAINEL ESQUERDO (onde fica a sidebar atual)
+            const leftPanel = document.createElement('div');
+            leftPanel.id = 'leftPanel';
+            leftPanel.style.cssText = `
+                width: 400px;
+                min-width: 350px;
+                max-width: 600px;
+                height: 100vh;
+                background: #1a1a2e;
+                position: relative;
+                overflow: hidden;
+                border-right: 3px solid #ff003f;
+                box-shadow: 2px 0 20px rgba(255, 0, 63, 0.4);
+            `;
+            
+            // ✅ DIVISOR REDIMENSIONÁVEL
+            const resizer = document.createElement('div');
+            resizer.style.cssText = `
+                width: 8px;
+                height: 100vh;
+                background: #ff003f;
+                cursor: col-resize;
+                position: relative;
+                z-index: 10;
+                transition: background 0.2s;
+            `;
+            
+            resizer.addEventListener('mouseenter', () => {
+                resizer.style.background = '#ff1a4d';
+            });
+            
+            resizer.addEventListener('mouseleave', () => {
+                resizer.style.background = '#ff003f';
+            });
+            
+            // Função de redimensionamento
+            let isResizing = false;
+            
+            resizer.addEventListener('mousedown', (e) => {
+                isResizing = true;
+                document.body.style.cursor = 'col-resize';
+                document.body.style.userSelect = 'none';
+            });
+            
+            document.addEventListener('mousemove', (e) => {
+                if (!isResizing) return;
+                
+                const newWidth = e.clientX;
+                if (newWidth >= 350 && newWidth <= 600) {
+                    leftPanel.style.width = newWidth + 'px';
+                }
+            });
+            
+            document.addEventListener('mouseup', () => {
+                isResizing = false;
+                document.body.style.cursor = 'default';
+                document.body.style.userSelect = 'auto';
+            });
+            
+            // ✅ PAINEL DIREITO (iframe da Blaze)
+            const rightPanel = document.createElement('div');
+            rightPanel.style.cssText = `
+                flex: 1;
+                height: 100vh;
+                position: relative;
+                background: #000;
+            `;
+            
+            // Loading
+            const loading = document.createElement('div');
+            loading.style.cssText = `
+                position: absolute;
+                top: 50%;
+                left: 50%;
+                transform: translate(-50%, -50%);
+                text-align: center;
+                color: white;
+                z-index: 5;
+            `;
+            loading.innerHTML = `
+                <div style="width: 50px; height: 50px; border: 4px solid rgba(255,0,63,0.2); border-top: 4px solid #ff003f; border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto 20px;"></div>
+                <p style="font-size: 16px; color: #a8a8a8;">Carregando Blaze...</p>
+            `;
+            
+            // ✅ IFRAME DA BLAZE
+            blazeIframe = document.createElement('iframe');
+            blazeIframe.src = 'https://blaze.bet.br/pt/';
+            blazeIframe.style.cssText = `
+                width: 100%;
+                height: 100%;
+                border: none;
+                display: block;
+            `;
+            
+            blazeIframe.setAttribute('allow', 'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture');
+            
+            blazeIframe.addEventListener('load', () => {
+                setTimeout(() => {
+                    loading.style.display = 'none';
+                }, 1000);
+            });
+            
+            // Botão de fechar
+            const closeBtn = document.createElement('button');
+            closeBtn.innerHTML = '✕ Fechar Tela Dividida';
+            closeBtn.style.cssText = `
+                position: absolute;
+                top: 20px;
+                right: 20px;
+                z-index: 20;
+                background: rgba(255, 0, 63, 0.9);
+                color: white;
+                border: none;
+                padding: 12px 24px;
+                border-radius: 8px;
+                font-size: 14px;
+                font-weight: 600;
+                cursor: pointer;
+                transition: all 0.3s ease;
+                box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+            `;
+            
+            closeBtn.addEventListener('mouseenter', () => {
+                closeBtn.style.background = 'rgba(255, 26, 77, 0.95)';
+                closeBtn.style.transform = 'translateY(-2px)';
+            });
+            
+            closeBtn.addEventListener('mouseleave', () => {
+                closeBtn.style.background = 'rgba(255, 0, 63, 0.9)';
+                closeBtn.style.transform = 'translateY(0)';
+            });
+            
+            closeBtn.addEventListener('click', closeSplitScreen);
+            
+            // Montar estrutura
+            rightPanel.appendChild(loading);
+            rightPanel.appendChild(blazeIframe);
+            rightPanel.appendChild(closeBtn);
+            
+            splitContainer.appendChild(leftPanel);
+            splitContainer.appendChild(resizer);
+            splitContainer.appendChild(rightPanel);
+            
+            document.body.appendChild(splitContainer);
+            
+            // ✅ MOVER A SIDEBAR PARA DENTRO DO PAINEL ESQUERDO
+            const sidebar = document.getElementById('blaze-double-analyzer');
+            if (sidebar) {
+                sidebar.style.position = 'relative';
+                sidebar.style.top = '0';
+                sidebar.style.right = '0';
+                sidebar.style.width = '100%';
+                sidebar.style.height = '100vh';
+                sidebar.style.borderRadius = '0';
+                leftPanel.appendChild(sidebar);
+            }
+            
+            // Ocultar botão flutuante
+            document.getElementById('splitScreenBtn').style.display = 'none';
+            
+            // Adicionar estilo de animação de spin
+            if (!document.getElementById('splitScreenStyles')) {
+                const style = document.createElement('style');
+                style.id = 'splitScreenStyles';
+                style.textContent = `
+                    @keyframes spin {
+                        0% { transform: rotate(0deg); }
+                        100% { transform: rotate(360deg); }
+                    }
+                `;
+                document.head.appendChild(style);
+            }
+        }
+        
+        function closeSplitScreen() {
+            splitScreenActive = false;
+            
+            // Remover container de split
+            const splitContainer = document.getElementById('splitScreenContainer');
+            if (splitContainer) {
+                splitContainer.remove();
+            }
+            
+            // Restaurar sidebar para posição original
+            const sidebar = document.getElementById('blaze-double-analyzer');
+            if (sidebar) {
+                document.getElementById('app-container').appendChild(sidebar);
+                sidebar.style.position = 'fixed';
+                sidebar.style.top = '20px';
+                sidebar.style.right = '20px';
+                sidebar.style.width = '';
+                sidebar.style.height = '';
+                sidebar.style.borderRadius = '';
+            }
+            
+            // Mostrar botão flutuante novamente
+            document.getElementById('splitScreenBtn').style.display = 'flex';
+            
+            // Destruir iframe
+            if (blazeIframe) {
+                blazeIframe = null;
+            }
         }
     </script>
 </body>
