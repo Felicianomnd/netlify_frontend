@@ -58,50 +58,58 @@
         /* Garantir que a sidebar apareça corretamente na versão web */
         #blaze-double-analyzer {
             position: fixed !important;
-            top: 20px !important;
-            right: 20px !important;
+            top: 0 !important;
+            left: 0 !important;
+            width: 400px !important;
+            height: 100vh !important;
             z-index: 10000 !important;
+            border-radius: 0 !important;
+            box-shadow: 2px 0 20px rgba(255, 0, 63, 0.3) !important;
         }
         
         /* ✅ MOBILE: FULLSCREEN */
-        /* Botão flutuante para tela dividida (APENAS DESKTOP) */
+        /* Botão flutuante para tela dividida (FIXO NA SIDEBAR) */
         #splitScreenBtn {
             position: fixed;
-            bottom: 30px;
-            left: 30px;
+            bottom: 20px;
+            left: 20px;
+            width: 360px;
             z-index: 99999;
             background: linear-gradient(135deg, #ff003f 0%, #c40032 100%);
             color: white;
             border: none;
             padding: 16px 24px;
-            border-radius: 50px;
+            border-radius: 12px;
             font-size: 16px;
             font-weight: 700;
             cursor: pointer;
-            box-shadow: 0 8px 24px rgba(255, 0, 63, 0.4);
+            box-shadow: 0 8px 24px rgba(255, 0, 63, 0.6);
             transition: all 0.3s ease;
             display: flex;
             align-items: center;
+            justify-content: center;
             gap: 10px;
             animation: pulse 2s infinite;
+            border: 2px solid rgba(255, 255, 255, 0.2);
         }
 
         #splitScreenBtn:hover {
-            transform: translateY(-4px);
-            box-shadow: 0 12px 32px rgba(255, 0, 63, 0.6);
+            transform: translateY(-2px);
+            box-shadow: 0 12px 32px rgba(255, 0, 63, 0.8);
             background: linear-gradient(135deg, #ff1a4d 0%, #d4003a 100%);
+            border-color: rgba(255, 255, 255, 0.3);
         }
 
         #splitScreenBtn:active {
-            transform: translateY(-2px);
+            transform: translateY(0);
         }
 
         @keyframes pulse {
             0%, 100% {
-                box-shadow: 0 8px 24px rgba(255, 0, 63, 0.4);
+                box-shadow: 0 8px 24px rgba(255, 0, 63, 0.6);
             }
             50% {
-                box-shadow: 0 8px 32px rgba(255, 0, 63, 0.7);
+                box-shadow: 0 8px 32px rgba(255, 0, 63, 0.9);
             }
         }
         
@@ -361,21 +369,42 @@
         function openSplitScreen() {
             // ✅ ABRIR DIRETAMENTE EM JANELA POPUP (Blaze bloqueia iframe)
             
-            // Calcular dimensões para janela popup
+            // Calcular dimensões PERFEITAS para janela popup
             const screenWidth = window.screen.availWidth;
             const screenHeight = window.screen.availHeight;
             
-            // Janela ocupando 60% direita da tela
-            const width = Math.floor(screenWidth * 0.6);
+            // Sidebar ocupa 400px à esquerda
+            const sidebarWidth = 400;
+            
+            // Janela da Blaze ocupa TODO o resto (lado direito)
+            const width = screenWidth - sidebarWidth;
             const height = screenHeight;
-            const left = Math.floor(screenWidth * 0.4);
+            const left = sidebarWidth; // Começa onde a sidebar termina
             const top = 0;
+            
+            // ⚠️ IMPORTANTE: Navegadores não permitem remover completamente a barra de endereço por segurança
+            // Mas vamos minimizar ao máximo usando as opções disponíveis
+            const features = [
+                `width=${width}`,
+                `height=${height}`,
+                `left=${left}`,
+                `top=${top}`,
+                `menubar=no`,
+                `toolbar=no`,
+                `location=no`,      // Remove barra de endereço (não funciona em todos os navegadores)
+                `status=no`,
+                `directories=no`,
+                `personalbar=no`,
+                `titlebar=no`,
+                `scrollbars=yes`,
+                `resizable=yes`
+            ].join(',');
             
             // Abrir janela popup
             const blazeWindow = window.open(
                 'https://blaze.bet.br/pt/',
                 'BlazeWindow',
-                `width=${width},height=${height},left=${left},top=${top},menubar=no,toolbar=no,location=yes,status=no,resizable=yes,scrollbars=yes`
+                features
             );
             
             if (blazeWindow) {
@@ -405,7 +434,8 @@
                     <span style="font-size: 24px;">✅</span>
                     <div>
                         <div style="font-weight: 700; margin-bottom: 4px;">Blaze Aberta!</div>
-                        <div style="font-size: 13px; opacity: 0.9;">Janela posicionada ao lado direito</div>
+                        <div style="font-size: 13px; opacity: 0.9;">Posicionada ao lado direito da tela</div>
+                        <div style="font-size: 12px; opacity: 0.8; margin-top: 4px;">💡 Mantenha esta janela focada para evitar que vá para trás</div>
                     </div>
                 `;
                 document.body.appendChild(notification);
@@ -463,9 +493,17 @@
                 warning.innerHTML = `
                     <div style="font-size: 64px; margin-bottom: 20px;">⚠️</div>
                     <h2 style="color: #ff003f; font-size: 24px; margin-bottom: 16px;">Pop-up Bloqueado</h2>
-                    <p style="color: #a8a8a8; font-size: 16px; margin-bottom: 24px; line-height: 1.6;">
-                        Seu navegador bloqueou a janela popup. Clique no botão novamente e permita pop-ups quando solicitado.
+                    <p style="color: #a8a8a8; font-size: 16px; margin-bottom: 16px; line-height: 1.6;">
+                        Seu navegador bloqueou a janela popup.
                     </p>
+                    <div style="background: rgba(255, 0, 63, 0.1); padding: 16px; border-radius: 8px; margin-bottom: 24px; text-align: left;">
+                        <p style="color: #ff003f; font-size: 14px; font-weight: 600; margin-bottom: 8px;">📋 Como resolver:</p>
+                        <p style="color: #a8a8a8; font-size: 14px; line-height: 1.5;">
+                            1. Clique no ícone 🚫 na barra de endereço<br>
+                            2. Selecione "Sempre permitir pop-ups"<br>
+                            3. Clique no botão novamente
+                        </p>
+                    </div>
                     <button onclick="this.parentElement.remove()" style="
                         background: linear-gradient(135deg, #ff003f 0%, #c40032 100%);
                         color: white;
@@ -475,6 +513,7 @@
                         font-size: 16px;
                         font-weight: 600;
                         cursor: pointer;
+                        box-shadow: 0 4px 12px rgba(255, 0, 63, 0.4);
                     ">
                         ✓ Entendi
                     </button>
@@ -764,16 +803,16 @@
                 splitContainer.remove();
             }
             
-            // Restaurar sidebar para posição original
+            // Restaurar sidebar para posição original (já está fixa à esquerda)
             const sidebar = document.getElementById('blaze-double-analyzer');
             if (sidebar) {
                 document.getElementById('app-container').appendChild(sidebar);
                 sidebar.style.position = 'fixed';
-                sidebar.style.top = '20px';
-                sidebar.style.right = '20px';
-                sidebar.style.width = '';
-                sidebar.style.height = '';
-                sidebar.style.borderRadius = '';
+                sidebar.style.top = '0';
+                sidebar.style.left = '0';
+                sidebar.style.width = '400px';
+                sidebar.style.height = '100vh';
+                sidebar.style.borderRadius = '0';
             }
             
             // Mostrar botão flutuante novamente
