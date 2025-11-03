@@ -64,6 +64,47 @@
         }
         
         /* ✅ MOBILE: FULLSCREEN */
+        /* Botão flutuante para tela dividida (APENAS DESKTOP) */
+        #splitScreenBtn {
+            position: fixed;
+            bottom: 30px;
+            left: 30px;
+            z-index: 99999;
+            background: linear-gradient(135deg, #ff003f 0%, #c40032 100%);
+            color: white;
+            border: none;
+            padding: 16px 24px;
+            border-radius: 50px;
+            font-size: 16px;
+            font-weight: 700;
+            cursor: pointer;
+            box-shadow: 0 8px 24px rgba(255, 0, 63, 0.4);
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            animation: pulse 2s infinite;
+        }
+
+        #splitScreenBtn:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 12px 32px rgba(255, 0, 63, 0.6);
+            background: linear-gradient(135deg, #ff1a4d 0%, #d4003a 100%);
+        }
+
+        #splitScreenBtn:active {
+            transform: translateY(-2px);
+        }
+
+        @keyframes pulse {
+            0%, 100% {
+                box-shadow: 0 8px 24px rgba(255, 0, 63, 0.4);
+            }
+            50% {
+                box-shadow: 0 8px 32px rgba(255, 0, 63, 0.7);
+            }
+        }
+        
         @media only screen and (max-width: 768px) {
             #blaze-double-analyzer {
                 position: fixed !important;
@@ -78,6 +119,11 @@
             body {
                 overflow: hidden !important;
             }
+            
+            /* OCULTAR botão de tela dividida no mobile */
+            #splitScreenBtn {
+                display: none !important;
+            }
         }
     </style>
 </head>
@@ -91,6 +137,12 @@
 
     <!-- Container onde a sidebar será renderizada -->
     <div id="app-container"></div>
+
+    <!-- Botão flutuante para abrir tela dividida (APENAS DESKTOP) -->
+    <button id="splitScreenBtn" onclick="openSplitScreen()" style="display: none;">
+        <span style="font-size: 24px;">🖥️</span>
+        <span>Tela Completa</span>
+    </button>
 
     <!-- ═══════════════════════════════════════════════════════════════════════════════ -->
     <!-- ORDEM DE CARREGAMENTO IMPORTANTE:                                              -->
@@ -131,6 +183,13 @@
                     console.log('✅ Usuário autenticado:', data.user.name);
                     // Salvar dados do usuário
                     localStorage.setItem('user', JSON.stringify(data.user));
+                    
+                    // ✅ MOSTRAR BOTÃO DE TELA DIVIDIDA (APENAS DESKTOP)
+                    if (window.innerWidth > 768) {
+                        setTimeout(() => {
+                            document.getElementById('splitScreenBtn').style.display = 'flex';
+                        }, 2000);
+                    }
                 } else {
                     throw new Error('Token inválido');
                 }
@@ -291,6 +350,15 @@
         console.log('');
         console.log('%c💡 DICA: A sidebar está ativa! Ela funciona exatamente como na extensão.', 'color: #00AAFF;');
         console.log('');
+        
+        // ═══════════════════════════════════════════════════════════════════════════════
+        // FUNÇÃO PARA ABRIR TELA DIVIDIDA
+        // ═══════════════════════════════════════════════════════════════════════════════
+        
+        function openSplitScreen() {
+            // Abrir split-screen.html em nova aba
+            window.open('split-screen.html', '_blank');
+        }
     </script>
 </body>
 </html>

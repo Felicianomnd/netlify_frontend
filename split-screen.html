@@ -4,6 +4,10 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Blaze Analyzer - Tela Completa</title>
+    
+    <!-- ✅ Carregar chrome-shim.js para versão web -->
+    <script src="chrome-shim.js"></script>
+    
     <style>
         * {
             margin: 0;
@@ -343,31 +347,27 @@
         
         async function loadExtensionContent() {
             try {
-                // Buscar dados do chrome.storage
-                const data = await new Promise((resolve) => {
-                    chrome.storage.local.get([
-                        'lastSpin',
-                        'currentAnalysis',
-                        'isAnalyzing',
-                        'hitRate',
-                        'patternHistory',
-                        'userData'
-                    ], resolve);
-                });
+                // ✅ VERSÃO WEB: Buscar dados do localStorage (simulado pelo chrome-shim.js)
+                const data = {
+                    lastSpin: JSON.parse(localStorage.getItem('lastSpin') || 'null'),
+                    currentAnalysis: JSON.parse(localStorage.getItem('currentAnalysis') || 'null'),
+                    isAnalyzing: localStorage.getItem('isAnalyzing') === 'true',
+                    hitRate: JSON.parse(localStorage.getItem('hitRate') || '{"hits":0,"total":0,"percentage":0}'),
+                    patternHistory: JSON.parse(localStorage.getItem('patternHistory') || '[]'),
+                    userData: JSON.parse(localStorage.getItem('user') || 'null')
+                };
 
                 renderContent(data);
 
                 // Atualizar a cada 3 segundos
-                setInterval(async () => {
-                    const updatedData = await new Promise((resolve) => {
-                        chrome.storage.local.get([
-                            'lastSpin',
-                            'currentAnalysis',
-                            'isAnalyzing',
-                            'hitRate',
-                            'patternHistory'
-                        ], resolve);
-                    });
+                setInterval(() => {
+                    const updatedData = {
+                        lastSpin: JSON.parse(localStorage.getItem('lastSpin') || 'null'),
+                        currentAnalysis: JSON.parse(localStorage.getItem('currentAnalysis') || 'null'),
+                        isAnalyzing: localStorage.getItem('isAnalyzing') === 'true',
+                        hitRate: JSON.parse(localStorage.getItem('hitRate') || '{"hits":0,"total":0,"percentage":0}'),
+                        patternHistory: JSON.parse(localStorage.getItem('patternHistory') || '[]')
+                    };
                     renderContent(updatedData);
                 }, 3000);
 
@@ -376,7 +376,7 @@
                 document.getElementById('panelContent').innerHTML = `
                     <div style="padding: 20px; text-align: center; color: #ff003f;">
                         <p style="font-size: 18px; font-weight: 600; margin-bottom: 12px;">⚠️ Erro ao Conectar</p>
-                        <p style="color: #a8a8a8; font-size: 14px;">Certifique-se de que a extensão está instalada e ativa.</p>
+                        <p style="color: #a8a8a8; font-size: 14px;">Certifique-se de que você está logado e a análise está ativa.</p>
                         <button onclick="location.reload()" style="margin-top: 20px; background: #ff003f; color: white; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer;">
                             🔄 Recarregar
                         </button>
