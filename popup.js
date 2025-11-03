@@ -7,18 +7,6 @@ document.addEventListener('DOMContentLoaded', function() {
     const lastSpinInfo = document.getElementById('lastSpinInfo');
     const analysisInfo = document.getElementById('analysisInfo');
     const patternInfo = document.getElementById('patternInfo');
-    const openSplitScreenBtn = document.getElementById('openSplitScreenBtn');
-
-    // ═══════════════════════════════════════════════════════════════════════════════
-    // ABRIR TELA DIVIDIDA (SPLIT SCREEN)
-    // ═══════════════════════════════════════════════════════════════════════════════
-    
-    openSplitScreenBtn.addEventListener('click', function() {
-        // Abrir split-screen.html em uma nova aba
-        chrome.tabs.create({
-            url: chrome.runtime.getURL('split-screen.html')
-        });
-    });
 
     // Check if we're on Blaze site
     chrome.tabs.query({active: true, currentWindow: true}, function(tabs) {
