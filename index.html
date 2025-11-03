@@ -476,12 +476,89 @@
             `;
             
             blazeIframe.setAttribute('allow', 'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture');
+            blazeIframe.setAttribute('sandbox', 'allow-same-origin allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox');
+            
+            // Mensagem de erro caso iframe seja bloqueado
+            const errorMsg = document.createElement('div');
+            errorMsg.style.cssText = `
+                position: absolute;
+                top: 50%;
+                left: 50%;
+                transform: translate(-50%, -50%);
+                text-align: center;
+                color: white;
+                background: rgba(26, 26, 46, 0.95);
+                padding: 40px;
+                border-radius: 16px;
+                border: 2px solid #ff003f;
+                max-width: 500px;
+                display: none;
+                z-index: 10;
+            `;
+            errorMsg.innerHTML = `
+                <div style="font-size: 64px; margin-bottom: 20px;">🚫</div>
+                <h2 style="color: #ff003f; font-size: 24px; margin-bottom: 16px;">Site Bloqueado</h2>
+                <p style="color: #a8a8a8; font-size: 16px; margin-bottom: 24px; line-height: 1.6;">
+                    O site da Blaze bloqueou o carregamento no iframe por razões de segurança.
+                </p>
+                <p style="color: white; font-size: 15px; margin-bottom: 24px; font-weight: 600;">
+                    📌 Clique no botão abaixo para abrir a Blaze em uma janela separada ao lado:
+                </p>
+                <button onclick="openBlazeInWindow()" style="
+                    background: linear-gradient(135deg, #ff003f 0%, #c40032 100%);
+                    color: white;
+                    border: none;
+                    padding: 16px 32px;
+                    border-radius: 8px;
+                    font-size: 16px;
+                    font-weight: 600;
+                    cursor: pointer;
+                    transition: all 0.3s ease;
+                    box-shadow: 0 4px 12px rgba(255, 0, 63, 0.4);
+                " onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 6px 16px rgba(255, 0, 63, 0.6)';" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 4px 12px rgba(255, 0, 63, 0.4)';">
+                    🚀 Abrir Blaze em Janela Nova
+                </button>
+                <p style="color: #666; font-size: 13px; margin-top: 20px;">
+                    Organize as duas janelas lado a lado para a melhor experiência
+                </p>
+            `;
+            
+            let iframeLoaded = false;
             
             blazeIframe.addEventListener('load', () => {
+                iframeLoaded = true;
                 setTimeout(() => {
                     loading.style.display = 'none';
+                    
+                    // Tentar detectar se o iframe está vazio (bloqueado)
+                    try {
+                        const iframeDoc = blazeIframe.contentDocument || blazeIframe.contentWindow.document;
+                        if (!iframeDoc || !iframeDoc.body || iframeDoc.body.children.length === 0) {
+                            blazeIframe.style.display = 'none';
+                            errorMsg.style.display = 'block';
+                        }
+                    } catch (e) {
+                        // Se der erro de acesso, provavelmente foi bloqueado
+                        blazeIframe.style.display = 'none';
+                        errorMsg.style.display = 'block';
+                    }
                 }, 1000);
             });
+            
+            blazeIframe.addEventListener('error', () => {
+                loading.style.display = 'none';
+                blazeIframe.style.display = 'none';
+                errorMsg.style.display = 'block';
+            });
+            
+            // Timeout para detectar se não carregou em 5 segundos
+            setTimeout(() => {
+                if (!iframeLoaded) {
+                    loading.style.display = 'none';
+                    blazeIframe.style.display = 'none';
+                    errorMsg.style.display = 'block';
+                }
+            }, 5000);
             
             // Botão de fechar
             const closeBtn = document.createElement('button');
@@ -517,6 +594,7 @@
             
             // Montar estrutura
             rightPanel.appendChild(loading);
+            rightPanel.appendChild(errorMsg);
             rightPanel.appendChild(blazeIframe);
             rightPanel.appendChild(closeBtn);
             
@@ -582,6 +660,74 @@
             // Destruir iframe
             if (blazeIframe) {
                 blazeIframe = null;
+            }
+        }
+        
+        // Função para abrir Blaze em janela popup (alternativa ao iframe bloqueado)
+        function openBlazeInWindow() {
+            // Calcular dimensões para janela popup
+            const screenWidth = window.screen.availWidth;
+            const screenHeight = window.screen.availHeight;
+            
+            // Janela ocupando metade direita da tela
+            const width = Math.floor(screenWidth / 2);
+            const height = screenHeight;
+            const left = Math.floor(screenWidth / 2);
+            const top = 0;
+            
+            // Abrir janela popup
+            const blazeWindow = window.open(
+                'https://blaze.bet.br/pt/',
+                'BlazeWindow',
+                `width=${width},height=${height},left=${left},top=${top},menubar=no,toolbar=no,location=no,status=no,resizable=yes,scrollbars=yes`
+            );
+            
+            if (blazeWindow) {
+                blazeWindow.focus();
+                
+                // Mostrar notificação de sucesso
+                const notification = document.createElement('div');
+                notification.style.cssText = `
+                    position: fixed;
+                    top: 20px;
+                    left: 50%;
+                    transform: translateX(-50%);
+                    background: rgba(0, 255, 136, 0.95);
+                    color: #0a0e27;
+                    padding: 16px 32px;
+                    border-radius: 8px;
+                    font-size: 15px;
+                    font-weight: 600;
+                    z-index: 999999;
+                    box-shadow: 0 8px 24px rgba(0, 255, 136, 0.4);
+                    animation: slideDown 0.3s ease-out;
+                `;
+                notification.innerHTML = '✅ Blaze aberta! Organize as janelas lado a lado.';
+                document.body.appendChild(notification);
+                
+                setTimeout(() => {
+                    notification.style.animation = 'slideUp 0.3s ease-out';
+                    setTimeout(() => notification.remove(), 300);
+                }, 3000);
+                
+                // Adicionar animações
+                if (!document.getElementById('notificationStyles')) {
+                    const style = document.createElement('style');
+                    style.id = 'notificationStyles';
+                    style.textContent = `
+                        @keyframes slideDown {
+                            from { transform: translate(-50%, -100%); opacity: 0; }
+                            to { transform: translate(-50%, 0); opacity: 1; }
+                        }
+                        @keyframes slideUp {
+                            from { transform: translate(-50%, 0); opacity: 1; }
+                            to { transform: translate(-50%, -100%); opacity: 0; }
+                        }
+                    `;
+                    document.head.appendChild(style);
+                }
+            } else {
+                alert('⚠️ Não foi possível abrir a janela. Verifique se o bloqueador de pop-ups está desativado.');
             }
         }
     </script>
