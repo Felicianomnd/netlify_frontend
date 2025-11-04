@@ -576,23 +576,6 @@
             }
         });
         
-        // 🔧 MODO AVANÇADO: Só mostrar quando IA está ativa
-        const advancedModeContainer = document.getElementById('advancedModeContainer');
-        if (advancedModeContainer) {
-            advancedModeContainer.style.display = isAIMode ? '' : 'none';
-        }
-        
-        // Se modo IA foi desativado, também ocultar a seção de prompt customizado
-        if (!isAIMode) {
-            const customPromptSection = document.getElementById('customPromptSection');
-            if (customPromptSection) {
-                customPromptSection.style.display = 'none';
-            }
-            const advancedModeCheckbox = document.getElementById('cfgAdvancedMode');
-            if (advancedModeCheckbox) {
-                advancedModeCheckbox.checked = false;
-            }
-        }
     }
     
     // ═══════════════════════════════════════════════════════════════════════════════
@@ -715,6 +698,539 @@
             }
         }, 5000); // 5 segundos
     }
+
+    // ═══════════════════════════════════════════════════════════════════════════════
+    // 🎯 SISTEMA DE PADRÕES CUSTOMIZADOS (NÍVEL DIAMANTE)
+    // ═══════════════════════════════════════════════════════════════════════════════
+    
+    let customPatternsData = []; // Array de padrões customizados
+    
+    // Função para mostrar notificação toast (simples e rápida)
+    function showToast(message, duration = 2000) {
+        // Remover toast anterior se existir
+        const existingToast = document.getElementById('customToast');
+        if (existingToast) {
+            existingToast.remove();
+        }
+        
+        const toast = document.createElement('div');
+        toast.id = 'customToast';
+        toast.className = 'custom-toast';
+        toast.textContent = message;
+        
+        document.body.appendChild(toast);
+        
+        // Mostrar com animação
+        setTimeout(() => toast.classList.add('show'), 10);
+        
+        // Remover após duração
+        setTimeout(() => {
+            toast.classList.remove('show');
+            setTimeout(() => toast.remove(), 300);
+        }, duration);
+    }
+    
+    // Criar modal de visualização de padrões
+    function createViewPatternsModal() {
+        const modalHTML = `
+            <div id="viewPatternsModal" class="custom-pattern-modal" style="display: none;">
+                <div class="custom-pattern-modal-overlay"></div>
+                <div class="custom-pattern-modal-content">
+                    <div class="custom-pattern-modal-header">
+                        <h3>Padrões Ativos (<span id="modalPatternsCount">0</span>)</h3>
+                        <button class="custom-pattern-modal-close" id="closeViewPatternsModal">✕</button>
+                    </div>
+                    
+                    <div class="custom-pattern-modal-body" style="max-height: 400px; overflow-y: auto;">
+                        <div id="viewPatternsList"></div>
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        document.body.insertAdjacentHTML('beforeend', modalHTML);
+        
+        // Event listeners
+        const modal = document.getElementById('viewPatternsModal');
+        const closeBtn = document.getElementById('closeViewPatternsModal');
+        const overlay = modal.querySelector('.custom-pattern-modal-overlay');
+        
+        closeBtn.addEventListener('click', () => {
+            modal.style.display = 'none';
+        });
+        
+        overlay.addEventListener('click', () => {
+            modal.style.display = 'none';
+        });
+        
+        console.log('✅ Modal de visualização de padrões criado');
+    }
+    
+    // Criar modal de padrões customizados
+    function createCustomPatternModal() {
+        const modalHTML = `
+            <div id="customPatternModal" class="custom-pattern-modal" style="display: none;">
+                <div class="custom-pattern-modal-overlay"></div>
+                <div class="custom-pattern-modal-content">
+                    <div class="custom-pattern-modal-header">
+                        <h3>Criar Modelo de Análise</h3>
+                        <button class="custom-pattern-modal-close" id="closeCustomPatternModal">✕</button>
+                    </div>
+                    
+                    <div class="custom-pattern-modal-body">
+                        <!-- Nome do modelo -->
+                        <div class="custom-pattern-field">
+                            <label class="custom-pattern-label">Nome do Modelo:</label>
+                            <input type="text" id="customPatternName" class="custom-pattern-input" placeholder="Ex: Alternância Simples Custom" maxlength="50">
+                        </div>
+                        
+                        <!-- Sequência de cores -->
+                        <div class="custom-pattern-field">
+                            <label class="custom-pattern-label">Sequência do Padrão:</label>
+                            <div id="customPatternSequence" class="custom-pattern-sequence">
+                                <!-- Será populado dinamicamente -->
+                            </div>
+                            <button id="addColorToSequence" class="btn-add-color">➕ Adicionar Cor</button>
+                        </div>
+                        
+                        <!-- Cor anterior -->
+                        <div class="custom-pattern-field">
+                            <label class="custom-pattern-label">Qual cor deve vir ANTES deste padrão?</label>
+                            <div class="custom-pattern-before-colors">
+                                <label class="color-radio-label">
+                                    <input type="radio" name="beforeColor" value="red-white" class="color-radio" checked>
+                                    <span class="color-radio-btn red-white">
+                                        <span class="color-circle red"></span>
+                                        <span class="or-text">ou</span>
+                                        <span class="color-circle white"></span>
+                                    </span>
+                                </label>
+                                <label class="color-radio-label">
+                                    <input type="radio" name="beforeColor" value="black-white" class="color-radio">
+                                    <span class="color-radio-btn black-white">
+                                        <span class="color-circle black"></span>
+                                        <span class="or-text">ou</span>
+                                        <span class="color-circle white"></span>
+                                    </span>
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="custom-pattern-modal-footer">
+                        <button id="saveCustomPattern" class="btn-save-pattern">💾 Salvar Modelo</button>
+                        <button id="cancelCustomPattern" class="btn-cancel-pattern">❌ Cancelar</button>
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        // Adicionar modal ao body
+        document.body.insertAdjacentHTML('beforeend', modalHTML);
+        
+        // Event listeners
+        setupCustomPatternModalListeners();
+        
+        console.log('✅ Modal de padrões customizados criado');
+    }
+    
+    // Configurar listeners do modal
+    function setupCustomPatternModalListeners() {
+        const modal = document.getElementById('customPatternModal');
+        const closeBtn = document.getElementById('closeCustomPatternModal');
+        const cancelBtn = document.getElementById('cancelCustomPattern');
+        const saveBtn = document.getElementById('saveCustomPattern');
+        const addColorBtn = document.getElementById('addColorToSequence');
+        const overlay = modal.querySelector('.custom-pattern-modal-overlay');
+        
+        // Fechar modal
+        closeBtn.addEventListener('click', () => closeCustomPatternModal());
+        cancelBtn.addEventListener('click', () => closeCustomPatternModal());
+        overlay.addEventListener('click', () => closeCustomPatternModal());
+        
+        // Adicionar cor à sequência
+        addColorBtn.addEventListener('click', () => showColorPicker());
+        
+        // Salvar modelo
+        saveBtn.addEventListener('click', () => saveCustomPatternModel());
+        
+        // Botão "Adicionar Modelo" na sidebar
+        setTimeout(() => {
+            const btnAdd = document.getElementById('btnAddCustomPattern');
+            if (btnAdd) {
+                btnAdd.addEventListener('click', () => openCustomPatternModal());
+            }
+            
+            // Botão "Ver Padrões Ativos"
+            const btnView = document.getElementById('btnViewCustomPatterns');
+            if (btnView) {
+                btnView.addEventListener('click', () => {
+                    const modal = document.getElementById('viewPatternsModal');
+                    if (modal) {
+                        modal.style.display = 'flex';
+                    }
+                });
+            }
+        }, 100);
+    }
+    
+    // Abrir modal
+    function openCustomPatternModal() {
+        const modal = document.getElementById('customPatternModal');
+        modal.style.display = 'flex';
+        
+        // Resetar campos
+        document.getElementById('customPatternName').value = '';
+        document.getElementById('customPatternSequence').innerHTML = '';
+        document.querySelectorAll('input[name="beforeColor"]').forEach(radio => {
+            radio.checked = radio.value === 'red-white'; // ✅ Padrão: Vermelho ou Branco
+        });
+        
+        console.log('🎯 Modal de padrão customizado aberto');
+    }
+    
+    // Fechar modal
+    function closeCustomPatternModal() {
+        const modal = document.getElementById('customPatternModal');
+        modal.style.display = 'none';
+        console.log('❌ Modal de padrão customizado fechado');
+    }
+    
+    // Mostrar seletor de cor
+    function showColorPicker() {
+        const sequenceDiv = document.getElementById('customPatternSequence');
+        
+        // Criar popup temporário para escolher cor (com quadradinhos visuais)
+        const colorPickerHTML = `
+            <div class="color-picker-popup">
+                <button class="color-choice-visual red" data-color="red">
+                    <span class="spin-color-circle red"></span>
+                </button>
+                <button class="color-choice-visual black" data-color="black">
+                    <span class="spin-color-circle black"></span>
+                </button>
+                <button class="color-choice-visual white" data-color="white">
+                    <span class="spin-color-circle white"></span>
+                </button>
+            </div>
+        `;
+        
+        const tempDiv = document.createElement('div');
+        tempDiv.innerHTML = colorPickerHTML;
+        const popup = tempDiv.firstElementChild;
+        
+        // Posicionar popup
+        sequenceDiv.appendChild(popup);
+        
+        // Event listeners para escolha de cor
+        popup.querySelectorAll('.color-choice-visual').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const color = btn.dataset.color;
+                addColorToSequence(color);
+                popup.remove();
+            });
+        });
+    }
+    
+    // Adicionar cor à sequência
+    function addColorToSequence(color) {
+        const sequenceDiv = document.getElementById('customPatternSequence');
+        
+        const colorBadge = document.createElement('div');
+        colorBadge.className = `sequence-color-item ${color}`;
+        colorBadge.dataset.color = color;
+        colorBadge.innerHTML = `<span class="spin-color-circle-small ${color}"></span>`;
+        
+        // Adicionar evento de clique para remover (ao invés de botão visível)
+        colorBadge.addEventListener('click', function() {
+            this.remove();
+        });
+        
+        sequenceDiv.appendChild(colorBadge);
+        
+        console.log(`➕ Cor ${color} adicionada à sequência`);
+    }
+    
+    // ═══════════════════════════════════════════════════════════════
+    // 🌐 API HELPER - SINCRONIZAÇÃO COM SERVIDOR
+    // ═══════════════════════════════════════════════════════════════
+    
+    // ═══════════════════════════════════════════════════════════════
+    // 🌐 CONFIGURAÇÃO DE URLs - DUAS APIS SEPARADAS
+    // ═══════════════════════════════════════════════════════════════
+    
+    const API_URLS = {
+        // API de Giros (coleta, histórico, padrões de análise)
+        giros: window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+            ? 'http://localhost:3001'
+            : 'https://blaze-giros-api-xxxxx.onrender.com', // ← AJUSTAR URL DO RENDER
+        
+        // API de Autenticação (usuários, admin, padrões customizados)
+        auth: window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+            ? 'http://localhost:3000'
+            : 'https://blaze-auth-api-xxxxx.onrender.com' // ← AJUSTAR URL DO RENDER
+    };
+    
+    // Obter URL da API de Giros
+    function getGirosApiUrl() {
+        return API_URLS.giros;
+    }
+    
+    // Obter URL da API de Auth (para compatibilidade com código antigo)
+    function getApiUrl() {
+        return API_URLS.auth;
+    }
+    
+    // Sincronizar padrões com o servidor
+    async function syncPatternsToServer(patterns) {
+        const token = localStorage.getItem('authToken');
+        if (!token) {
+            console.log('⚠️ Usuário não autenticado - salvando apenas localmente');
+            return false;
+        }
+        
+        try {
+            const apiUrl = getApiUrl();
+            const response = await fetch(`${apiUrl}/api/user/custom-patterns`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify({ patterns })
+            });
+            
+            const data = await response.json();
+            
+            if (data.success) {
+                console.log('✅ Padrões sincronizados com o servidor:', data.message);
+                return true;
+            } else {
+                console.error('❌ Erro ao sincronizar com servidor:', data.error);
+                return false;
+            }
+        } catch (error) {
+            console.error('❌ Erro na requisição ao servidor:', error);
+            return false;
+        }
+    }
+    
+    // Carregar padrões do servidor
+    async function loadPatternsFromServer() {
+        const token = localStorage.getItem('authToken');
+        if (!token) {
+            console.log('⚠️ Usuário não autenticado - carregando apenas do localStorage');
+            return null;
+        }
+        
+        try {
+            const apiUrl = getApiUrl();
+            const response = await fetch(`${apiUrl}/api/user/custom-patterns`, {
+                method: 'GET',
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                }
+            });
+            
+            const data = await response.json();
+            
+            if (data.success) {
+                console.log(`✅ ${data.patterns.length} padrão(ões) carregado(s) do servidor`);
+                return data.patterns;
+            } else {
+                console.error('❌ Erro ao carregar do servidor:', data.error);
+                return null;
+            }
+        } catch (error) {
+            console.error('❌ Erro na requisição ao servidor:', error);
+            return null;
+        }
+    }
+    
+    // Salvar modelo customizado
+    async function saveCustomPatternModel() {
+        const name = document.getElementById('customPatternName').value.trim();
+        const sequenceDiv = document.getElementById('customPatternSequence');
+        const colorBadges = sequenceDiv.querySelectorAll('.sequence-color-item');
+        const beforeColorRadio = document.querySelector('input[name="beforeColor"]:checked');
+        
+        // Validações
+        if (!name) {
+            alert('❌ Por favor, digite um nome para o modelo!');
+            return;
+        }
+        
+        if (colorBadges.length < 2) {
+            alert('❌ A sequência deve ter pelo menos 2 cores!');
+            return;
+        }
+        
+        // Extrair sequência
+        const sequence = Array.from(colorBadges).map(badge => badge.dataset.color);
+        const beforeColor = beforeColorRadio ? beforeColorRadio.value : 'any';
+        
+        // Criar objeto do modelo
+        const newPattern = {
+            id: 'custom_' + Date.now(),
+            name: name,
+            sequence: sequence,
+            beforeColor: beforeColor,
+            active: true,
+            createdAt: new Date().toISOString()
+        };
+        
+        // Salvar no storage local
+        try {
+            const result = await chrome.storage.local.get(['customPatterns']);
+            let patterns = result.customPatterns || [];
+            patterns.push(newPattern);
+            
+            await chrome.storage.local.set({ customPatterns: patterns });
+            
+            console.log('✅ Modelo customizado salvo localmente:', newPattern);
+            
+            // ✅ SINCRONIZAR COM O SERVIDOR
+            const synced = await syncPatternsToServer(patterns);
+            if (synced) {
+                console.log('✅ Padrão sincronizado com a conta do usuário');
+            }
+            
+            // Fechar modal PRIMEIRO
+            closeCustomPatternModal();
+            
+            // Atualizar lista
+            loadCustomPatternsList();
+            
+            // Notificar background.js
+            chrome.runtime.sendMessage({ 
+                type: 'CUSTOM_PATTERNS_UPDATED', 
+                data: patterns 
+            });
+            
+            // Toast simples (2 segundos)
+            showToast('✓ Modelo salvo' + (synced ? ' e sincronizado' : ''));
+            
+        } catch (error) {
+            console.error('❌ Erro ao salvar modelo:', error);
+            showToast('✗ Erro ao salvar');
+        }
+    }
+    
+    // Carregar lista de modelos customizados
+    async function loadCustomPatternsList() {
+        try {
+            // ✅ TENTAR CARREGAR DO SERVIDOR PRIMEIRO (se autenticado)
+            const serverPatterns = await loadPatternsFromServer();
+            let patterns = [];
+            
+            if (serverPatterns !== null) {
+                // Carregar do servidor e atualizar localStorage
+                patterns = serverPatterns;
+                await chrome.storage.local.set({ customPatterns: patterns });
+                console.log('✅ Padrões carregados do servidor e sincronizados localmente');
+            } else {
+                // Carregar do localStorage (fallback)
+                const result = await chrome.storage.local.get(['customPatterns']);
+                patterns = result.customPatterns || [];
+                console.log('✅ Padrões carregados do localStorage');
+            }
+            
+            // Atualizar contador no botão
+            const patternsCountSpan = document.getElementById('patternsCount');
+            const btnViewPatterns = document.getElementById('btnViewCustomPatterns');
+            
+            if (patternsCountSpan) {
+                patternsCountSpan.textContent = patterns.length;
+            }
+            
+            if (btnViewPatterns) {
+                btnViewPatterns.style.display = patterns.length > 0 ? 'block' : 'none';
+            }
+            
+            // Preencher modal de visualização
+            const viewPatternsList = document.getElementById('viewPatternsList');
+            const modalPatternsCount = document.getElementById('modalPatternsCount');
+            
+            if (modalPatternsCount) {
+                modalPatternsCount.textContent = patterns.length;
+            }
+            
+            if (viewPatternsList) {
+                if (patterns.length === 0) {
+                    viewPatternsList.innerHTML = '<div style="text-align: center; padding: 20px; color: #888;">Nenhum padrão criado ainda</div>';
+                } else {
+                    viewPatternsList.innerHTML = patterns.map(pattern => {
+                        const sequenceHTML = pattern.sequence.map(color => {
+                            return `<span class="spin-color-circle-small ${color}"></span>`;
+                        }).join(' ');
+                        
+                        // ✅ Cor anterior com quadradinhos visuais
+                        let beforeColorHTML = '';
+                        if (pattern.beforeColor === 'red-white') {
+                            beforeColorHTML = '<span class="spin-color-circle-small red"></span> <span style="font-size: 9px; color: #666;">ou</span> <span class="spin-color-circle-small white"></span>';
+                        } else if (pattern.beforeColor === 'black-white') {
+                            beforeColorHTML = '<span class="spin-color-circle-small black"></span> <span style="font-size: 9px; color: #666;">ou</span> <span class="spin-color-circle-small white"></span>';
+                        } else {
+                            beforeColorHTML = '<span class="spin-color-circle-small ' + pattern.beforeColor + '"></span>';
+                        }
+                        
+                        return `
+                            <div class="view-pattern-item">
+                                <div class="view-pattern-name">${pattern.name}</div>
+                                <div class="view-pattern-row">
+                                    <div class="view-pattern-sequence">${sequenceHTML}</div>
+                                    <div class="view-pattern-before">Anterior: ${beforeColorHTML}</div>
+                                </div>
+                                <button class="view-pattern-remove" onclick="removeCustomPatternFromView('${pattern.id}')">✕</button>
+                            </div>
+                        `;
+                    }).join('');
+                }
+            }
+            
+            console.log(`📋 ${patterns.length} modelo(s) customizado(s) carregado(s)`);
+            
+        } catch (error) {
+            console.error('❌ Erro ao carregar modelos:', error);
+        }
+    }
+    
+    // Remover modelo customizado (do modal de visualização)
+    window.removeCustomPatternFromView = async function(patternId) {
+        try {
+            const result = await chrome.storage.local.get(['customPatterns']);
+            let patterns = result.customPatterns || [];
+            patterns = patterns.filter(p => p.id !== patternId);
+            
+            await chrome.storage.local.set({ customPatterns: patterns });
+            
+            console.log('🗑️ Modelo removido localmente:', patternId);
+            
+            // ✅ SINCRONIZAR REMOÇÃO COM O SERVIDOR
+            const synced = await syncPatternsToServer(patterns);
+            if (synced) {
+                console.log('✅ Remoção sincronizada com o servidor');
+            }
+            
+            // Atualizar lista
+            loadCustomPatternsList();
+            
+            // Notificar background.js
+            chrome.runtime.sendMessage({ 
+                type: 'CUSTOM_PATTERNS_UPDATED', 
+                data: patterns 
+            });
+            
+            // Toast
+            showToast('✓ Modelo removido' + (synced ? ' e sincronizado' : ''));
+            
+        } catch (error) {
+            console.error('❌ Erro ao remover modelo:', error);
+            showToast('✗ Erro ao remover');
+        }
+    };
+    
+    // ✅ Removido: loadCustomPatternsList() agora é chamada diretamente após criar a sidebar
 
     // Create sidebar
     function createSidebar() {
@@ -902,8 +1418,8 @@
                             <input type="number" id="cfgMaxOccurrences" min="0" value="0" placeholder="0 = sem limite" />
                         </div>
                         <div class="setting-item">
-                            <span class="setting-label">Intervalo mínimo (min):</span>
-                            <input type="number" id="cfgMinInterval" min="1" value="1" />
+                            <span class="setting-label">Intervalo mínimo (giros):</span>
+                            <input type="number" id="cfgMinInterval" min="0" value="0" title="Quantidade mínima de giros entre sinais (0 = sem intervalo, envia sempre que encontrar padrão válido)" placeholder="Ex: 5 giros (0 = sem intervalo)" />
                         </div>
                         <div class="setting-item">
                             <span class="setting-label">Giros para analisar (IA):</span>
@@ -946,95 +1462,24 @@
                                 </button>
                             </div>
                         </div>
-                        <div class="setting-item setting-row">
-                            <span class="setting-label">Chave API da IA:</span>
-                            <div style="display: flex; gap: 4px; flex: 1; align-items: stretch;">
-                                <input type="password" id="cfgAiApiKey" placeholder="Cole sua chave API aqui" style="flex: 1;" />
-                                <button type="button" id="toggleApiKey" class="toggle-visibility-btn" title="Mostrar/Ocultar">
-                                    <svg class="eye-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                        <path d="M12 5C7 5 2.73 8.11 1 12.5C2.73 16.89 7 20 12 20C17 20 21.27 16.89 23 12.5C21.27 8.11 17 5 12 5Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                                        <circle cx="12" cy="12.5" r="3.5" stroke="currentColor" stroke-width="2"/>
-                                    </svg>
-                                    <svg class="eye-off-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style="display: none;">
-                                        <path d="M3 3L21 21M10.5 10.7C9.8 11.5 9.5 12.5 10 13.5C10.5 14.5 11.5 15 12.5 15C13.3 15 14.1 14.6 14.7 14M17 17C15.5 18.5 13.8 19.5 12 19.5C7 19.5 2.73 16.39 1 12C2.1 9.6 3.8 7.6 6 6.3M12 5.5C17 5.5 21.27 8.61 23 13C22.4 14.4 21.5 15.7 20.4 16.8" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                                    </svg>
-                                </button>
-                            </div>
-                        </div>
                         
                         <!-- ═══════════════════════════════════════════════════════ -->
-                        <!-- 🔧 CONFIGURAÇÕES AVANÇADAS (PROMPT CUSTOMIZADO) -->
+                        <!-- MODELOS CUSTOMIZADOS DE ANÁLISE (NÍVEL DIAMANTE) -->
                         <!-- ═══════════════════════════════════════════════════════ -->
-                        <div class="setting-item setting-row" id="advancedModeContainer" style="margin-top: 20px; padding-top: 15px; border-top: 1px solid #333;">
-                            <label class="checkbox-label" style="font-weight: bold; color: #FF00FF;">
-                                <input type="checkbox" id="cfgAdvancedMode" />
-                                🔧 Modo Avançado (Prompt Customizado)
-                            </label>
-                        </div>
-                        
-                        <!-- Seção expansível de prompt customizado -->
-                        <div id="customPromptSection" style="display: none; margin-top: 15px; padding: 15px; background: #1a0a0a; border: 1px solid #FF00FF; border-radius: 8px;">
-                            
-                            <!-- Aviso de responsabilidade -->
-                            <div style="background: #330000; padding: 12px; margin-bottom: 15px; border-radius: 6px; border-left: 4px solid #FF0000;">
-                                <div style="color: #FF6666; font-weight: bold; font-size: 13px; margin-bottom: 8px;">⚠️ ATENÇÃO - USO AVANÇADO</div>
-                                <div style="color: #FFAAAA; font-size: 11px; line-height: 1.6;">
-                                    • Modificar o prompt pode afetar <strong>drasticamente</strong> os resultados<br>
-                                    • Use apenas se souber o que está fazendo<br>
-                                    • Sempre teste antes de confiar nos sinais<br>
-                                    • Você é <strong>responsável</strong> por qualquer modificação
-                                </div>
-                            </div>
-                            
-                            <!-- Label do textarea -->
-                            <label style="display: block; color: #FF00FF; font-weight: bold; font-size: 12px; margin-bottom: 8px;">
-                                📝 Prompt Customizado:
-                            </label>
-                            
-                            <!-- Textarea para editar o prompt -->
-                            <textarea 
-                                id="cfgCustomPrompt" 
-                                rows="12" 
-                                placeholder="Deixe vazio para usar o prompt padrão otimizado...&#10;&#10;Use estas variáveis:&#10;• \${recentHistory.length} - quantidade de giros&#10;• \${historyText} - texto do histórico"
-                                style="width: 100%; 
-                                       font-family: 'Courier New', monospace; 
-                                       font-size: 10px; 
-                                       background: #0a0a0a; 
-                                       color: #00FF88; 
-                                       border: 1px solid #444; 
-                                       border-radius: 4px; 
-                                       padding: 10px; 
-                                       resize: vertical; 
-                                       line-height: 1.5;"
-                            ></textarea>
-                            
-                            <!-- Info de caracteres -->
-                            <div id="promptCharCount" style="color: #888; font-size: 10px; margin-top: 5px; text-align: right;">
-                                0 caracteres
-                            </div>
-                            
-                            <!-- Botões de ação -->
-                            <div style="display: flex; gap: 10px; margin-top: 15px; flex-wrap: wrap;">
-                                <button id="btnShowDefaultPrompt" style="flex: 1; min-width: 150px; padding: 10px; background: linear-gradient(135deg, #1a4d2e 0%, #2d7a4f 100%); color: #fff; border: 1px solid #00FF88; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: bold; transition: all 0.3s;">
-                                    👁️ Ver Prompt Padrão
-                                </button>
-                                <button id="btnRestoreDefaultPrompt" style="flex: 1; min-width: 150px; padding: 10px; background: linear-gradient(135deg, #4d2e1a 0%, #7a4f2d 100%); color: #fff; border: 1px solid #FFAA00; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: bold; transition: all 0.3s;">
-                                    🔄 Restaurar Prompt Padrão
-                                </button>
-                                <button id="btnValidatePrompt" style="flex: 1; min-width: 150px; padding: 10px; background: linear-gradient(135deg, #1a2e4d 0%, #2d4f7a 100%); color: #fff; border: 1px solid #00AAFF; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: bold; transition: all 0.3s;">
-                                    ✅ Validar Prompt
-                                </button>
-                            </div>
-                            
-                            <!-- Info de ajuda -->
-                            <div style="margin-top: 15px; padding: 10px; background: #0a1a2a; border-radius: 6px; border-left: 4px solid #00AAFF;">
-                                <div style="color: #00AAFF; font-weight: bold; font-size: 11px; margin-bottom: 6px;">💡 DICAS PARA CUSTOMIZAR:</div>
-                                <div style="color: #AAC; font-size: 10px; line-height: 1.7;">
-                                    • <strong>Variáveis disponíveis:</strong> \${recentHistory.length}, \${historyText}<br>
-                                    • <strong>Resposta obrigatória:</strong> JSON com "color", "confidence", "probability", "reasoning"<br>
-                                    • <strong>Formato da resposta:</strong> {"color": "red/black/white", "confidence": 0-100, ...}<br>
-                                    • <strong>Evite:</strong> Remover instruções de JSON, remover campos obrigatórios<br>
-                                    • <strong>Teste sempre:</strong> Após modificar, observe os resultados antes de confiar
+                        <div class="setting-item setting-row" id="customPatternsContainer" style="margin-top: 20px; padding-top: 15px; border-top: 1px solid #333;">
+                            <div style="width: 100%;">
+                                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0;">
+                                    <label style="font-weight: bold; color: #00d4ff; font-size: 13px;">
+                                        Modelos de Análise Customizados
+                                    </label>
+                                    <div style="display: flex; gap: 8px;">
+                                        <button id="btnViewCustomPatterns" class="btn-view-patterns" style="display: none;">
+                                            ✓ Padrões Ativos (<span id="patternsCount">0</span>)
+                                        </button>
+                                        <button id="btnAddCustomPattern" class="btn-add-custom-pattern">
+                                            ➕ Adicionar Modelo
+                                        </button>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -1082,6 +1527,16 @@
         console.log('%c   ID: blaze-double-analyzer', 'color: #00FF88;');
         console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #00FF88; font-weight: bold;');
         console.log('');
+        
+        // ═══════════════════════════════════════════════════════════════
+        // 🎯 CRIAR MODAL DE PADRÕES CUSTOMIZADOS
+        // ═══════════════════════════════════════════════════════════════
+        createCustomPatternModal();
+        createViewPatternsModal();
+        
+        // ✅ Carregar padrões customizados imediatamente após criar a sidebar
+        console.log('%c🎯 Carregando padrões customizados...', 'color: #00d4ff; font-weight: bold;');
+        loadCustomPatternsList();
         
         // 🧠 Iniciar atualização periódica do status da memória ativa
         console.log('%c🧠 Iniciando sistema de atualização de status da memória ativa...', 'color: #00CED1; font-weight: bold;');
@@ -1171,7 +1626,7 @@
                         minOccurrences: 5,
                         minPercentage: 60,
                         maxOccurrences: 0,
-                        minIntervalMinutes: 1,
+                        minIntervalSpins: 0,
                         minPatternSize: 3,
                         maxPatternSize: 0,
                         winPercentOthers: 25,
@@ -1194,132 +1649,6 @@
                     // ✅ Ativar direto (não precisa mais de chave API - sistema é 100% JavaScript)
                     activateAIMode(config, newAIMode, aiModeToggle);
                 });
-            });
-        }
-        
-        // ═══════════════════════════════════════════════════════════════
-        // 🔧 MODO AVANÇADO - Event Listeners
-        // ═══════════════════════════════════════════════════════════════
-        
-        // Toggle do modo avançado (mostrar/ocultar seção de prompt customizado)
-        const advancedModeCheckbox = document.getElementById('cfgAdvancedMode');
-        const customPromptSection = document.getElementById('customPromptSection');
-        const customPromptTextarea = document.getElementById('cfgCustomPrompt');
-        const promptCharCount = document.getElementById('promptCharCount');
-        
-        if (advancedModeCheckbox && customPromptSection) {
-            advancedModeCheckbox.addEventListener('change', function() {
-                if (this.checked) {
-                    customPromptSection.style.display = 'block';
-                    console.log('🔧 Modo Avançado ATIVADO - Prompt customizado disponível');
-                } else {
-                    customPromptSection.style.display = 'none';
-                    console.log('🔧 Modo Avançado DESATIVADO');
-                }
-            });
-        }
-        
-        // Contador de caracteres do prompt
-        if (customPromptTextarea && promptCharCount) {
-            customPromptTextarea.addEventListener('input', function() {
-                const charCount = this.value.length;
-                promptCharCount.textContent = charCount + ' caracteres';
-                
-                // Aviso se estiver muito longo (APIs têm limites)
-                if (charCount > 8000) {
-                    promptCharCount.style.color = '#FF6666';
-                    promptCharCount.textContent = charCount + ' caracteres (⚠️ Muito longo!)';
-                } else if (charCount > 5000) {
-                    promptCharCount.style.color = '#FFAA00';
-                    promptCharCount.textContent = charCount + ' caracteres (⚠️ Atenção ao limite)';
-                } else {
-                    promptCharCount.style.color = '#888';
-                }
-            });
-        }
-        
-        // Botão "Ver Prompt Padrão" (abre modal com o prompt)
-        const btnShowDefaultPrompt = document.getElementById('btnShowDefaultPrompt');
-        if (btnShowDefaultPrompt) {
-            btnShowDefaultPrompt.addEventListener('click', function() {
-                // Pedir ao background.js o prompt padrão
-                chrome.runtime.sendMessage({ 
-                    action: 'getDefaultPrompt',
-                    historyLength: 50,
-                    historyText: '(exemplo de histórico)'
-                }, function(response) {
-                    if (response && response.prompt) {
-                        showPromptModal('📋 Prompt Padrão (Somente Leitura)', response.prompt, true);
-                    } else {
-                        alert('❌ Erro ao buscar prompt padrão');
-                    }
-                });
-            });
-        }
-        
-        // Botão "Restaurar Prompt Padrão"
-        const btnRestoreDefaultPrompt = document.getElementById('btnRestoreDefaultPrompt');
-        if (btnRestoreDefaultPrompt && customPromptTextarea) {
-            btnRestoreDefaultPrompt.addEventListener('click', function() {
-                showCustomConfirm('🔄 Tem certeza que deseja restaurar o prompt padrão?\n\nIsso vai APAGAR seu prompt customizado atual.', btnRestoreDefaultPrompt).then(confirmed => {
-                    if (confirmed) {
-                    customPromptTextarea.value = '';
-                    customPromptTextarea.dispatchEvent(new Event('input')); // Atualizar contador
-                    console.log('✅ Prompt restaurado para padrão');
-                        showCustomAlert('✅ Prompt restaurado! Clique em SALVAR para aplicar.', 'success');
-                }
-                });
-            });
-        }
-        
-        // Botão "Validar Prompt"
-        const btnValidatePrompt = document.getElementById('btnValidatePrompt');
-        if (btnValidatePrompt && customPromptTextarea) {
-            btnValidatePrompt.addEventListener('click', function() {
-                const promptText = customPromptTextarea.value.trim();
-                
-                if (promptText === '') {
-                    alert('✅ Prompt vazio - será usado o prompt padrão.\n\nTudo certo!');
-                    return;
-                }
-                
-                // Validar palavras-chave críticas
-                const requiredKeywords = [
-                    { keyword: 'color', label: 'Campo "color"' },
-                    { keyword: 'confidence', label: 'Campo "confidence"' },
-                    { keyword: 'probability', label: 'Campo "probability"' },
-                    { keyword: 'reasoning', label: 'Campo "reasoning"' },
-                    { keyword: 'JSON', label: 'Instrução de JSON' },
-                    { keyword: '${', label: 'Variáveis (${...})' }
-                ];
-                
-                const missing = [];
-                const found = [];
-                
-                requiredKeywords.forEach(item => {
-                    if (promptText.toLowerCase().includes(item.keyword.toLowerCase())) {
-                        found.push('✅ ' + item.label);
-                    } else {
-                        missing.push('❌ ' + item.label);
-                    }
-                });
-                
-                let message = '🔍 VALIDAÇÃO DO PROMPT:\n\n';
-                
-                if (missing.length === 0) {
-                    message += '✅ TODOS OS ELEMENTOS CRÍTICOS ENCONTRADOS!\n\n';
-                    message += found.join('\n');
-                    message += '\n\n💡 Seu prompt parece estar correto!\n';
-                    message += 'Lembre-se de testar antes de confiar 100%.';
-                    alert(message);
-                } else {
-                    message += '⚠️ ELEMENTOS AUSENTES (podem causar erros):\n\n';
-                    message += missing.join('\n');
-                    message += '\n\n✅ Elementos encontrados:\n';
-                    message += found.join('\n');
-                    message += '\n\n💡 Considere adicionar os elementos ausentes.';
-                    alert(message);
-                }
             });
         }
         
@@ -1578,29 +1907,12 @@
             margin: 10px 0;
             box-shadow: 0 4px 20px rgba(138, 43, 226, 0.3);
         ">
-            <div style="
-                display: flex;
-                align-items: center;
-                gap: 10px;
-                margin-bottom: 15px;
-                padding-bottom: 12px;
-                border-bottom: 2px solid rgba(138, 43, 226, 0.4);
-            ">
-                <span style="font-size: 24px;">🤖</span>
-                <span style="
-                    color: #b794f6;
-                    font-weight: bold;
-                    font-size: 16px;
-                    text-shadow: 0 0 10px rgba(183, 148, 246, 0.5);
-                ">ANÁLISE POR INTELIGÊNCIA ARTIFICIAL</span>
-            </div>
-            
             <div style="margin: 15px 0;">
-                <div style="color: #b794f6; font-weight: bold; font-size: 14px; margin-bottom: 10px;">
-                    📊 RECOMENDAÇÃO: ${aiData.color === 'red' ? '🔴 VERMELHO' : aiData.color === 'black' ? '⚫ PRETO' : '⚪ BRANCO'}
+                <div style="color: #b794f6; font-weight: bold; font-size: 16px; margin-bottom: 10px;">
+                    ${aiData.color === 'red' ? '🔴 Entrar na cor VERMELHA' : aiData.color === 'black' ? '⚫ Entrar na cor PRETA' : '⚪ Entrar na cor BRANCA'}
                 </div>
                 <div style="color: #e8e8ff; font-size: 13px; margin-bottom: 5px;">
-                    🎯 Confiança: ${aiData.confidence.toFixed(1)}%
+                    Confiança: ${aiData.confidence.toFixed(1)}%
                 </div>
             </div>
             
@@ -1664,22 +1976,6 @@
             margin: 10px 0;
             box-shadow: 0 4px 20px rgba(138, 43, 226, 0.3);
         ">
-            <div style="
-                display: flex;
-                align-items: center;
-                gap: 10px;
-                margin-bottom: 15px;
-                padding-bottom: 12px;
-                border-bottom: 2px solid rgba(138, 43, 226, 0.4);
-            ">
-                <span style="font-size: 24px;">🤖</span>
-                <span style="
-                    color: #b794f6;
-                    font-weight: bold;
-                    font-size: 16px;
-                    text-shadow: 0 0 10px rgba(183, 148, 246, 0.5);
-                ">ANÁLISE POR INTELIGÊNCIA ARTIFICIAL</span>
-            </div>
             <pre style="
                 white-space: pre-wrap;
                 font-family: 'Segoe UI', 'Roboto', sans-serif;
@@ -1815,29 +2111,12 @@
                         margin: 10px 0;
                         box-shadow: 0 4px 20px rgba(138, 43, 226, 0.3);
                     ">
-                        <div style="
-                            display: flex;
-                            align-items: center;
-                            gap: 10px;
-                            margin-bottom: 15px;
-                            padding-bottom: 12px;
-                            border-bottom: 2px solid rgba(138, 43, 226, 0.4);
-                        ">
-                            <span style="font-size: 24px;">🤖</span>
-                            <span style="
-                                color: #b794f6;
-                                font-weight: bold;
-                                font-size: 16px;
-                                text-shadow: 0 0 10px rgba(183, 148, 246, 0.5);
-                            ">ANÁLISE POR INTELIGÊNCIA ARTIFICIAL</span>
-                        </div>
-                        
                         <div style="margin: 15px 0;">
-                            <div style="color: #b794f6; font-weight: bold; font-size: 14px; margin-bottom: 10px;">
-                                📊 RECOMENDAÇÃO: ${aiData.color === 'red' ? '🔴 VERMELHO' : aiData.color === 'black' ? '⚫ PRETO' : '⚪ BRANCO'}
+                            <div style="color: #b794f6; font-weight: bold; font-size: 16px; margin-bottom: 10px;">
+                                ${aiData.color === 'red' ? '🔴 Entrar na cor VERMELHA' : aiData.color === 'black' ? '⚫ Entrar na cor PRETA' : '⚪ Entrar na cor BRANCA'}
                             </div>
                             <div style="color: #e8e8ff; font-size: 13px; margin-bottom: 5px;">
-                                🎯 Confiança: ${aiData.confidence.toFixed(1)}%
+                                Confiança: ${aiData.confidence.toFixed(1)}%
                             </div>
                         </div>
                         
@@ -1902,22 +2181,6 @@
                         margin: 10px 0;
                         box-shadow: 0 4px 20px rgba(138, 43, 226, 0.3);
                     ">
-                        <div style="
-                            display: flex;
-                            align-items: center;
-                            gap: 10px;
-                            margin-bottom: 15px;
-                            padding-bottom: 12px;
-                            border-bottom: 2px solid rgba(138, 43, 226, 0.4);
-                        ">
-                            <span style="font-size: 24px;">🤖</span>
-                            <span style="
-                                color: #b794f6;
-                                font-weight: bold;
-                                font-size: 16px;
-                                text-shadow: 0 0 10px rgba(183, 148, 246, 0.5);
-                            ">ANÁLISE POR INTELIGÊNCIA ARTIFICIAL</span>
-                        </div>
                         <pre style="
                             white-space: pre-wrap;
                             font-family: 'Segoe UI', 'Roboto', sans-serif;
@@ -3330,7 +3593,7 @@
                 if (minOcc) minOcc.value = cfg.minOccurrences != null ? cfg.minOccurrences : 1;
                 if (minPercentage) minPercentage.value = cfg.minPercentage != null ? cfg.minPercentage : 60;
                 if (maxOcc) maxOcc.value = cfg.maxOccurrences != null ? cfg.maxOccurrences : 0;
-                if (minInt) minInt.value = cfg.minIntervalMinutes != null ? cfg.minIntervalMinutes : 1;
+                if (minInt) minInt.value = cfg.minIntervalSpins != null ? cfg.minIntervalSpins : 0;
                 if (minSize) minSize.value = cfg.minPatternSize != null ? cfg.minPatternSize : 3;
                 if (maxSize) maxSize.value = cfg.maxPatternSize != null ? cfg.maxPatternSize : 0;
                 if (winPct) winPct.value = cfg.winPercentOthers != null ? cfg.winPercentOthers : 25;
@@ -3367,107 +3630,197 @@
         } catch (e) { console.error('Erro ao carregar configurações:', e); }
     }
 
-    function saveSettings() {
+    async function saveSettings() {
+        console.log('');
+        console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #00D4FF; font-weight: bold;');
+        console.log('%c║  💾 SALVANDO CONFIGURAÇÕES                                ║', 'color: #00D4FF; font-weight: bold;');
+        console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #00D4FF; font-weight: bold;');
+        console.log('');
+        
+        // ✅ Feedback visual IMEDIATO para o usuário
+        const btn = document.getElementById('cfgSaveBtn');
+        if (btn) {
+            btn.textContent = 'Salvando...';
+            btn.style.background = '#1976d2';
+        }
+        
         // ✅ BUSCAR CONFIGURAÇÃO ATUAL PRIMEIRO (para preservar aiMode e outros estados)
-        chrome.storage.local.get(['analyzerConfig'], function(result) {
-            const currentConfig = result.analyzerConfig || {};
-            
-            const minOcc = Math.max(parseInt(document.getElementById('cfgMinOccurrences').value || '1', 10), 1);
-            const minPercentage = Math.max(1, Math.min(100, parseInt(document.getElementById('cfgMinPercentage').value || '60', 10)));
-            const maxOcc = Math.max(parseInt(document.getElementById('cfgMaxOccurrences').value || '0', 10), 0);
-            const minInt = Math.max(parseInt(document.getElementById('cfgMinInterval').value || '1', 10), 1);
-            let minSize = Math.max(parseInt(document.getElementById('cfgMinPatternSize').value || '2', 10), 2);
-            let maxSize = Math.max(parseInt(document.getElementById('cfgMaxPatternSize').value || '0', 10), 0);
-            const winPct = Math.max(0, Math.min(100, parseInt(document.getElementById('cfgWinPercentOthers').value || '25', 10)));
-            const reqTrig = !!document.getElementById('cfgRequireTrigger').checked;
-            const consecutiveMartingale = !!document.getElementById('cfgConsecutiveMartingale').checked;
-            const maxGales = Math.max(0, Math.min(200, parseInt(document.getElementById('cfgMaxGales').value || '2', 10)));
-            const tgChatId = (document.getElementById('cfgTgChatId').value || '').trim();
-            const aiApiKey = (document.getElementById('cfgAiApiKey').value || '').trim();
-            const aiHistorySize = Math.max(10, Math.min(2000, parseInt(document.getElementById('cfgAiHistorySize').value || '50', 10)));
-            
-            // 🔧 Configurações avançadas (prompt customizado)
-            const advancedMode = document.getElementById('cfgAdvancedMode') ? document.getElementById('cfgAdvancedMode').checked : false;
-            const customPrompt = (document.getElementById('cfgCustomPrompt') ? document.getElementById('cfgCustomPrompt').value : '').trim();
-            
-            // ✅ VALIDAÇÃO: maxOccurrences não pode ser menor que minOccurrences (se não for 0)
-            if (maxOcc > 0 && maxOcc < minOcc) {
-                alert(`❌ ERRO: Ocorrências MÁXIMAS (${maxOcc}) não pode ser menor que MÍNIMAS (${minOcc})!\n\nAjuste os valores e tente novamente.`);
-                return;
-            }
-            
-            // ✅ VALIDAÇÃO: maxPatternSize não pode ser menor que minPatternSize (se não for 0)
-            if (maxSize > 0 && maxSize < minSize) {
-                alert(`❌ ERRO: Tamanho MÁXIMO do padrão (${maxSize}) não pode ser menor que MÍNIMO (${minSize})!\n\n⚠️ Isso impede qualquer padrão de ser encontrado!\n\nAjuste os valores e tente novamente.`);
-                return;
-            }
-            
-            // ✅ MESCLAR com configuração atual para preservar aiMode e outros estados
-            const cfg = {
-                ...currentConfig, // Preservar configurações existentes (incluindo aiMode)
-                minOccurrences: minOcc,
-                minPercentage: minPercentage,
-                maxOccurrences: maxOcc,
-                minIntervalMinutes: minInt,
-                minPatternSize: minSize,
-                maxPatternSize: maxSize,
-                winPercentOthers: winPct,
-                requireTrigger: reqTrig,
-                consecutiveMartingale: consecutiveMartingale,
-                maxGales: maxGales,
-                telegramChatId: tgChatId,
-                aiApiKey: aiApiKey,
-                aiHistorySize: aiHistorySize,
-                advancedMode: advancedMode,
-                customPrompt: customPrompt
-            };
-            
-            console.log('💾 Salvando configurações...');
-            console.log('   aiMode preservado:', cfg.aiMode);
-            console.log('   Configurações completas:', cfg);
-            
-            chrome.storage.local.set({ analyzerConfig: cfg }, function() {
-                console.log('✅ Configurações salvas:', cfg);
-                // Pedir para o background aplicar imediatamente e dar feedback
-                try {
-                    chrome.runtime.sendMessage({ action: 'applyConfig' }, function(resp) {
-                        console.log('📡 Resposta do background.js:', resp);
-                        if (chrome.runtime.lastError) {
-                            console.error('❌ Erro ao enviar mensagem:', chrome.runtime.lastError);
-                            showConfigFeedback(false);
-                        } else {
-                            // ✅ ACEITAR AMBOS OS FORMATOS DE RESPOSTA:
-                            // - {status: 'applied'} quando background.js responde corretamente
-                            // - {success: true} quando chrome-shim.js responde por padrão
-                            // Como já salvamos em chrome.storage.local, qualquer resposta sem erro = sucesso!
-                            const isSuccess = resp && (resp.status === 'applied' || resp.success === true);
-                            console.log('✅ Configurações aplicadas com sucesso!');
-                            showConfigFeedback(isSuccess);
-                        }
-                    });
-                } catch (e) {
-                    console.error('❌ Erro ao salvar configurações:', e);
-                    showConfigFeedback(false);
+        chrome.storage.local.get(['analyzerConfig'], async function(result) {
+            try {
+                const currentConfig = result.analyzerConfig || {};
+                console.log('📊 Configuração atual:', currentConfig);
+                
+                // ✅ CAPTURAR VALORES COM VERIFICAÇÃO DE EXISTÊNCIA
+                const getElementValue = (id, defaultValue, isCheckbox = false) => {
+                    const el = document.getElementById(id);
+                    if (!el) {
+                        console.warn(`⚠️ Elemento "${id}" não encontrado - usando padrão: ${defaultValue}`);
+                        return defaultValue;
+                    }
+                    return isCheckbox ? !!el.checked : (el.value || defaultValue);
+                };
+                
+                const minOcc = Math.max(parseInt(getElementValue('cfgMinOccurrences', '1'), 10), 1);
+                const minPercentage = Math.max(1, Math.min(100, parseInt(getElementValue('cfgMinPercentage', '60'), 10)));
+                const maxOcc = Math.max(parseInt(getElementValue('cfgMaxOccurrences', '0'), 10), 0);
+                const minInt = Math.max(parseInt(getElementValue('cfgMinInterval', '0'), 10), 0);
+                let minSize = Math.max(parseInt(getElementValue('cfgMinPatternSize', '2'), 10), 2);
+                let maxSize = Math.max(parseInt(getElementValue('cfgMaxPatternSize', '0'), 10), 0);
+                const winPct = Math.max(0, Math.min(100, parseInt(getElementValue('cfgWinPercentOthers', '25'), 10)));
+                const reqTrig = getElementValue('cfgRequireTrigger', false, true);
+                const consecutiveMartingale = getElementValue('cfgConsecutiveMartingale', false, true);
+                const maxGales = Math.max(0, Math.min(200, parseInt(getElementValue('cfgMaxGales', '2'), 10)));
+                const tgChatId = String(getElementValue('cfgTgChatId', '')).trim();
+                const aiApiKey = String(getElementValue('cfgAiApiKey', '')).trim();
+                const aiHistorySize = Math.max(10, Math.min(2000, parseInt(getElementValue('cfgAiHistorySize', '50'), 10)));
+                
+                // 🔧 Configurações avançadas (prompt customizado)
+                const advancedMode = document.getElementById('cfgAdvancedMode') ? document.getElementById('cfgAdvancedMode').checked : false;
+                const customPrompt = (document.getElementById('cfgCustomPrompt') ? document.getElementById('cfgCustomPrompt').value : '').trim();
+                
+                // ✅ RESETAR HISTÓRICO DE SINAIS (limpar penalidades de losses consecutivos)
+                console.log('%c🔄 Resetando histórico de sinais (limpar losses consecutivos)...', 'color: #00D4FF; font-weight: bold;');
+                await chrome.storage.local.set({
+                    signalsHistory: {
+                        totalSignals: 0,
+                        wins: 0,
+                        losses: 0,
+                        consecutiveLosses: 0,
+                        consecutiveWins: 0,
+                        lastSignalTimestamp: null,
+                        recent: []
+                    }
+                });
+                console.log('%c✅ Histórico de sinais resetado!', 'color: #00FF88; font-weight: bold;');
+                
+                console.log('📝 Valores capturados dos campos:');
+                console.log('   • minPercentage:', minPercentage + '%');
+                console.log('   • minOccurrences:', minOcc);
+                console.log('   • maxOccurrences:', maxOcc);
+                console.log('   • minIntervalSpins:', minInt);
+                console.log('   • minPatternSize:', minSize);
+                console.log('   • maxPatternSize:', maxSize);
+                console.log('   • winPercentOthers:', winPct + '%');
+                console.log('   • aiHistorySize:', aiHistorySize);
+                
+                // ✅ VALIDAÇÃO: maxOccurrences não pode ser menor que minOccurrences (se não for 0)
+                if (maxOcc > 0 && maxOcc < minOcc) {
+                    alert(`❌ ERRO: Ocorrências MÁXIMAS (${maxOcc}) não pode ser menor que MÍNIMAS (${minOcc})!\n\nAjuste os valores e tente novamente.`);
+                    if (btn) {
+                        btn.textContent = 'Salvar';
+                        btn.style.background = '';
+                    }
+                    return;
                 }
-            }); // Fecha chrome.storage.local.set
+                
+                // ✅ VALIDAÇÃO: maxPatternSize não pode ser menor que minPatternSize (se não for 0)
+                if (maxSize > 0 && maxSize < minSize) {
+                    alert(`❌ ERRO: Tamanho MÁXIMO do padrão (${maxSize}) não pode ser menor que MÍNIMO (${minSize})!\n\n⚠️ Isso impede qualquer padrão de ser encontrado!\n\nAjuste os valores e tente novamente.`);
+                    if (btn) {
+                        btn.textContent = 'Salvar';
+                        btn.style.background = '';
+                    }
+                    return;
+                }
+                
+                // ✅ MESCLAR com configuração atual para preservar aiMode e outros estados
+                const cfg = {
+                    ...currentConfig, // Preservar configurações existentes (incluindo aiMode)
+                    minOccurrences: minOcc,
+                    minPercentage: minPercentage,
+                    maxOccurrences: maxOcc,
+                    minIntervalSpins: minInt,
+                    minPatternSize: minSize,
+                    maxPatternSize: maxSize,
+                    winPercentOthers: winPct,
+                    requireTrigger: reqTrig,
+                    consecutiveMartingale: consecutiveMartingale,
+                    maxGales: maxGales,
+                    telegramChatId: tgChatId,
+                    aiApiKey: aiApiKey,
+                    aiHistorySize: aiHistorySize,
+                    advancedMode: advancedMode,
+                    customPrompt: customPrompt
+                };
+                
+                console.log('');
+                console.log('%c💾 Salvando em chrome.storage.local...', 'color: #00FF88; font-weight: bold;');
+                console.log('   aiMode preservado:', cfg.aiMode);
+                console.log('   Objeto completo:', cfg);
+                
+                chrome.storage.local.set({ analyzerConfig: cfg }, function() {
+                    if (chrome.runtime.lastError) {
+                        console.error('%c❌ ERRO ao salvar no storage!', 'color: #FF0000; font-weight: bold;');
+                        console.error(chrome.runtime.lastError);
+                        showConfigFeedback(false);
+                        return;
+                    }
+                    
+                    console.log('%c✅ SALVO NO STORAGE COM SUCESSO!', 'color: #00FF00; font-weight: bold;');
+                    console.log('');
+                    
+                    // Pedir para o background aplicar imediatamente e dar feedback
+                    console.log('%c📡 Enviando mensagem para background.js...', 'color: #00D4FF; font-weight: bold;');
+                    try {
+                        chrome.runtime.sendMessage({ action: 'applyConfig' }, function(resp) {
+                            console.log('%c📨 Resposta recebida do background.js:', 'color: #00FF88; font-weight: bold;', resp);
+                            
+                            if (chrome.runtime.lastError) {
+                                console.error('%c❌ Erro ao comunicar com background:', 'color: #FF6666; font-weight: bold;');
+                                console.error(chrome.runtime.lastError);
+                                // ✅ MESMO COM ERRO NA COMUNICAÇÃO, OS DADOS JÁ FORAM SALVOS!
+                                console.log('%c⚠️ MAS: Configurações JÁ FORAM SALVAS no storage!', 'color: #FFA500; font-weight: bold;');
+                                showConfigFeedback(true); // Mostrar sucesso porque salvou
+                            } else {
+                                // ✅ ACEITAR AMBOS OS FORMATOS DE RESPOSTA:
+                                // - {status: 'applied'} quando background.js responde corretamente
+                                // - {success: true} quando chrome-shim.js responde por padrão
+                                // Como já salvamos em chrome.storage.local, qualquer resposta sem erro = sucesso!
+                                const isSuccess = resp && (resp.status === 'applied' || resp.success === true);
+                                console.log('%c✅ CONFIGURAÇÕES APLICADAS E ATIVAS!', 'color: #00FF00; font-weight: bold; font-size: 14px;');
+                                console.log('');
+                                showConfigFeedback(isSuccess);
+                            }
+                        });
+                    } catch (e) {
+                        console.error('%c❌ Exception ao enviar mensagem:', 'color: #FF0000; font-weight: bold;', e);
+                        // ✅ MESMO COM ERRO, OS DADOS JÁ FORAM SALVOS!
+                        console.log('%c⚠️ MAS: Configurações JÁ FORAM SALVAS no storage!', 'color: #FFA500; font-weight: bold;');
+                        showConfigFeedback(true); // Mostrar sucesso porque salvou
+                    }
+                });
+            } catch (e) {
+                console.error('%c❌ ERRO CRÍTICO ao processar configurações:', 'color: #FF0000; font-weight: bold;', e);
+                console.error(e.stack);
+                showConfigFeedback(false);
+            }
         }); // Fecha chrome.storage.local.get
     }
 
     function showConfigFeedback(success) {
         const btn = document.getElementById('cfgSaveBtn');
-        if (!btn) return;
-        const original = btn.textContent;
-        if (success) {
-            btn.textContent = 'Salvo!';
-            btn.style.background = '#2e7d32';
-        } else {
-            btn.textContent = 'Erro';
-            btn.style.background = '#b71c1c';
+        if (!btn) {
+            console.warn('⚠️ Botão cfgSaveBtn não encontrado para feedback visual');
+            return;
         }
+        
+        console.log('%c🎨 Mostrando feedback visual:', 'color: #00D4FF; font-weight: bold;', success ? '✅ SUCESSO' : '❌ ERRO');
+        
+        if (success) {
+            btn.textContent = '✅ Salvo!';
+            btn.style.background = '#2e7d32';
+            btn.style.color = '#fff';
+        } else {
+            btn.textContent = '❌ Erro';
+            btn.style.background = '#b71c1c';
+            btn.style.color = '#fff';
+        }
+        
         setTimeout(function(){
-            btn.textContent = original;
+            btn.textContent = 'Salvar';
             btn.style.background = '';
-        }, 1500);
+            btn.style.color = '';
+        }, 2000);
     }
 
     // ========== BANCO DE PADRÕES ==========

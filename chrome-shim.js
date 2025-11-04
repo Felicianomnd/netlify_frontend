@@ -19,6 +19,25 @@
                 try {
                     const allData = JSON.parse(localStorage.getItem('blazeAnalyzerData') || '{}');
                     
+                    // Log APENAS se for analyzerConfig sendo carregado
+                    const isLoadingConfig = (keys === 'analyzerConfig' || 
+                                            (Array.isArray(keys) && keys.includes('analyzerConfig')) ||
+                                            (typeof keys === 'object' && keys.analyzerConfig !== undefined));
+                    
+                    if (isLoadingConfig) {
+                        console.log('');
+                        console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #00D4FF; font-weight: bold;');
+                        console.log('%c║  📖 chrome.storage.local.get() - analyzerConfig          ║', 'color: #00D4FF; font-weight: bold;');
+                        console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #00D4FF; font-weight: bold;');
+                        console.log('%c📊 analyzerConfig no localStorage:', 'color: #00D4FF; font-weight: bold;');
+                        console.log(allData.analyzerConfig || '{não encontrado}');
+                        
+                        if (allData.analyzerConfig && allData.analyzerConfig.minPercentage) {
+                            console.log('%c🎯 minPercentage:', 'color: #FFD700; font-weight: bold;', allData.analyzerConfig.minPercentage + '%');
+                        }
+                        console.log('');
+                    }
+                    
                     if (typeof keys === 'string') {
                         // Single key
                         const result = {};
@@ -59,9 +78,62 @@
 
             set: function(data, callback) {
                 try {
-                    const allData = JSON.parse(localStorage.getItem('blazeAnalyzerData') || '{}');
+                    console.log('');
+                    console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #FFD700; font-weight: bold;');
+                    console.log('%c║  💾 chrome.storage.local.set() CHAMADO                   ║', 'color: #FFD700; font-weight: bold;');
+                    console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #FFD700; font-weight: bold;');
+                    console.log('%c📦 Dados recebidos para salvar:', 'color: #FFD700; font-weight: bold;');
+                    console.log(data);
+                    console.log('');
+                    
+                    // Ler dados atuais
+                    const currentLocalStorage = localStorage.getItem('blazeAnalyzerData');
+                    console.log('%c📊 localStorage ANTES:', 'color: #00AAFF; font-weight: bold;');
+                    console.log(currentLocalStorage ? JSON.parse(currentLocalStorage) : '{vazio}');
+                    console.log('');
+                    
+                    const allData = JSON.parse(currentLocalStorage || '{}');
+                    
+                    // Salvar valor ANTIGO de analyzerConfig se estiver sendo atualizado
+                    if (data.analyzerConfig && allData.analyzerConfig) {
+                        console.log('%c🔍 COMPARANDO analyzerConfig:', 'color: #00D4FF; font-weight: bold;');
+                        console.log('%c   ANTES:', 'color: #FFA500;', allData.analyzerConfig);
+                        console.log('%c   DEPOIS:', 'color: #00FF88;', data.analyzerConfig);
+                        
+                        // Comparar minPercentage especificamente
+                        if (allData.analyzerConfig.minPercentage !== data.analyzerConfig.minPercentage) {
+                            console.log('%c   🎯 minPercentage MUDOU:', 'color: #FFD700; font-weight: bold;');
+                            console.log(`%c      ${allData.analyzerConfig.minPercentage}% → ${data.analyzerConfig.minPercentage}%`, 'color: #FFD700; font-weight: bold;');
+                        }
+                    }
+                    
                     Object.assign(allData, data);
+                    
+                    console.log('%c💾 Salvando no localStorage...', 'color: #00FF88; font-weight: bold;');
                     localStorage.setItem('blazeAnalyzerData', JSON.stringify(allData));
+                    
+                    console.log('%c✅ SALVO COM SUCESSO!', 'color: #00FF00; font-weight: bold; font-size: 14px;');
+                    console.log('');
+                    
+                    // Verificar se realmente salvou
+                    const savedData = localStorage.getItem('blazeAnalyzerData');
+                    const parsedSaved = JSON.parse(savedData);
+                    console.log('%c📊 localStorage DEPOIS:', 'color: #00FF88; font-weight: bold;');
+                    console.log(parsedSaved);
+                    
+                    if (data.analyzerConfig && parsedSaved.analyzerConfig) {
+                        console.log('');
+                        console.log('%c🔍 VERIFICAÇÃO FINAL - analyzerConfig.minPercentage:', 'color: #00D4FF; font-weight: bold;');
+                        console.log(`%c   Salvo: ${parsedSaved.analyzerConfig.minPercentage}%`, 'color: #00FF88; font-weight: bold;');
+                        console.log(`%c   Esperado: ${data.analyzerConfig.minPercentage}%`, 'color: #FFD700; font-weight: bold;');
+                        
+                        if (parsedSaved.analyzerConfig.minPercentage === data.analyzerConfig.minPercentage) {
+                            console.log('%c   ✅ VALORES CONFEREM!', 'color: #00FF00; font-weight: bold; font-size: 14px;');
+                        } else {
+                            console.error('%c   ❌ VALORES NÃO CONFEREM!', 'color: #FF0000; font-weight: bold; font-size: 14px;');
+                        }
+                    }
+                    console.log('');
                     
                     // Dispatch event for listeners
                     window.dispatchEvent(new CustomEvent('storage-changed', { 
@@ -71,7 +143,9 @@
                     if (callback) callback();
                     return Promise.resolve();
                 } catch (error) {
-                    console.error('Storage set error:', error);
+                    console.error('%c❌ ERRO CRÍTICO NO STORAGE.SET:', 'color: #FF0000; font-weight: bold; font-size: 16px;');
+                    console.error(error);
+                    console.error(error.stack);
                     if (callback) callback();
                     return Promise.resolve();
                 }

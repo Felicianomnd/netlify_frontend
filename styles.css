@@ -3121,3 +3121,681 @@
         padding: 10px !important;
     }
 }
+/* ═══════════════════════════════════════════════════════════════════════════════ */
+/* 🎯 MODAL DE PADRÕES CUSTOMIZADOS (NÍVEL DIAMANTE)                               */
+/* ═══════════════════════════════════════════════════════════════════════════════ */
+
+/* Modal overlay */
+.custom-pattern-modal {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 999999;
+    align-items: center;
+    justify-content: center;
+}
+
+.custom-pattern-modal-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.85);
+}
+
+/* Modal content - MINIMALISTA E COMPACTO */
+.custom-pattern-modal-content {
+    position: relative;
+    background: #1a1f2e;
+    border: 1px solid #333;
+    border-radius: 8px;
+    max-width: 420px;
+    width: 90%;
+    max-height: 80vh;
+    overflow-y: auto;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+    animation: modalSlideIn 0.2s ease-out;
+}
+
+@keyframes modalSlideIn {
+    from {
+        opacity: 0;
+        transform: translateY(-30px) scale(0.95);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+}
+
+/* Modal header - COMPACTO */
+.custom-pattern-modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 16px;
+    border-bottom: 1px solid #333;
+}
+
+.custom-pattern-modal-header h3 {
+    margin: 0;
+    color: #fff;
+    font-size: 15px;
+    font-weight: bold;
+    font-family: 'Segoe UI', 'Roboto', 'Helvetica Neue', Arial, sans-serif;
+}
+
+.custom-pattern-modal-close {
+    background: transparent;
+    border: none;
+    color: #888;
+    width: 24px;
+    height: 24px;
+    font-size: 20px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.custom-pattern-modal-close:hover {
+    color: #ff6666;
+}
+
+/* Modal body - COMPACTO */
+.custom-pattern-modal-body {
+    padding: 16px;
+}
+
+.custom-pattern-field {
+    margin-bottom: 16px;
+}
+
+.custom-pattern-label {
+    display: block;
+    color: #ccc;
+    font-size: 12px;
+    font-weight: normal;
+    margin-bottom: 8px;
+    font-family: 'Segoe UI', 'Roboto', 'Helvetica Neue', Arial, sans-serif;
+}
+
+.custom-pattern-input {
+    width: 100%;
+    padding: 8px 10px;
+    background: #0a0f14;
+    border: 1px solid #333;
+    border-radius: 4px;
+    color: #fff;
+    font-size: 13px;
+    font-family: 'Segoe UI', 'Roboto', 'Helvetica Neue', Arial, sans-serif;
+    transition: all 0.2s;
+}
+
+.custom-pattern-input:focus {
+    outline: none;
+    border-color: #555;
+}
+
+/* Sequência de cores - MINIMALISTA */
+.custom-pattern-sequence {
+    min-height: 50px;
+    padding: 8px;
+    background: #0a0f14;
+    border: 1px solid #333;
+    border-radius: 4px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+    margin-bottom: 8px;
+}
+
+.custom-pattern-sequence:empty::before {
+    content: 'Clique em "Adicionar Cor"';
+    color: #555;
+    font-size: 11px;
+    font-style: italic;
+}
+
+/* Item de cor na sequência - APENAS CÍRCULO PEQUENO */
+.sequence-color-item {
+    position: relative;
+    display: inline-block;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.sequence-color-item::after {
+    content: '✕';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    color: #fff;
+    font-size: 16px;
+    font-weight: bold;
+    opacity: 0;
+    transition: opacity 0.2s;
+    text-shadow: 0 0 3px rgba(0, 0, 0, 0.8);
+    pointer-events: none;
+}
+
+.sequence-color-item:hover::after {
+    opacity: 1;
+}
+
+.sequence-color-item:hover {
+    opacity: 0.7;
+}
+
+/* Círculo pequeno de cor */
+.spin-color-circle-small {
+    display: block;
+    width: 24px;
+    height: 24px;
+    border-radius: 4px;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+}
+
+.spin-color-circle-small.red {
+    background: linear-gradient(135deg, #ff0000 0%, #cc0000 100%);
+    border-color: #ff0000;
+}
+
+.spin-color-circle-small.black {
+    background: linear-gradient(135deg, #2a2a2a 0%, #0a0a0a 100%);
+    border-color: #444;
+}
+
+.spin-color-circle-small.white {
+    background: linear-gradient(135deg, #ffffff 0%, #e0e0e0 100%);
+    border-color: #ccc;
+}
+
+/* Botão adicionar cor - SIMPLES */
+.btn-add-color {
+    padding: 6px 12px;
+    background: #0088cc;
+    border: 1px solid #006699;
+    border-radius: 4px;
+    color: #fff;
+    font-size: 12px;
+    cursor: pointer;
+    transition: all 0.2s;
+    font-family: 'Segoe UI', 'Roboto', 'Helvetica Neue', Arial, sans-serif;
+}
+
+.btn-add-color:hover {
+    background: #0099dd;
+}
+
+/* Color picker popup - SIMPLES */
+.color-picker-popup {
+    display: flex;
+    gap: 8px;
+    padding: 8px;
+    background: #0a0f14;
+    border: 1px solid #333;
+    border-radius: 4px;
+    margin-top: 8px;
+}
+
+/* Seleção de cor anterior - CONTRASTE FORTE */
+.custom-pattern-before-colors {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.color-radio-label {
+    cursor: pointer;
+}
+
+.color-radio {
+    display: none;
+}
+
+/* NÃO SELECIONADO - MUITO APAGADO */
+.color-radio-btn {
+    display: inline-block;
+    padding: 6px 10px;
+    border-radius: 4px;
+    font-size: 12px;
+    transition: all 0.2s;
+    border: 1px solid #222;
+    background: #0a0f14;
+    color: #555;
+    opacity: 0.5;
+    font-family: 'Segoe UI', 'Roboto', 'Helvetica Neue', Arial, sans-serif;
+}
+
+/* SELECIONADO - DESTAQUE FORTE */
+.color-radio:checked + .color-radio-btn {
+    border: 2px solid #00aa66;
+    background: #1a2e22;
+    color: #fff;
+    opacity: 1;
+    font-weight: bold;
+}
+
+.color-radio-btn:hover {
+    opacity: 0.7;
+}
+
+/* Modal footer - COMPACTO */
+.custom-pattern-modal-footer {
+    display: flex;
+    gap: 10px;
+    padding: 12px 16px;
+    border-top: 1px solid #333;
+}
+
+.btn-save-pattern,
+.btn-cancel-pattern {
+    flex: 1;
+    padding: 8px 16px;
+    border-radius: 4px;
+    font-size: 13px;
+    cursor: pointer;
+    transition: all 0.2s;
+    font-family: 'Segoe UI', 'Roboto', 'Helvetica Neue', Arial, sans-serif;
+}
+
+.btn-save-pattern {
+    background: #00aa66;
+    border: 1px solid #008855;
+    color: #fff;
+}
+
+.btn-save-pattern:hover {
+    background: #00bb77;
+}
+
+.btn-cancel-pattern {
+    background: #1a1f2e;
+    border: 1px solid #333;
+    color: #888;
+}
+
+.btn-cancel-pattern:hover {
+    background: #222832;
+    color: #aaa;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════════ */
+/* 🎯 TOAST NOTIFICATION                                                            */
+/* ═══════════════════════════════════════════════════════════════════════════════ */
+
+.custom-toast {
+    position: fixed;
+    top: 20px;
+    left: 50%;
+    transform: translateX(-50%) translateY(-100px);
+    background: #00aa66;
+    color: #fff;
+    padding: 12px 24px;
+    border-radius: 6px;
+    font-size: 14px;
+    font-weight: 500;
+    z-index: 999999999;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    opacity: 0;
+    transition: all 0.3s ease;
+}
+
+.custom-toast.show {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════════ */
+/* 🎯 BOTÕES DE MODELOS CUSTOMIZADOS                                               */
+/* ═══════════════════════════════════════════════════════════════════════════════ */
+
+.btn-view-patterns {
+    padding: 8px 14px;
+    background: #1a2e3e;
+    border: 1px solid #00d4ff;
+    border-radius: 6px;
+    color: #00d4ff;
+    font-size: 12px;
+    font-weight: bold;
+    cursor: pointer;
+    transition: all 0.2s;
+    font-family: 'Segoe UI', 'Roboto', 'Helvetica Neue', Arial, sans-serif;
+}
+
+.btn-view-patterns:hover {
+    background: #00d4ff;
+    color: #0a0f14;
+}
+
+.btn-add-custom-pattern {
+    padding: 8px 14px;
+    background: #00aa66;
+    border: 1px solid #008855;
+    border-radius: 6px;
+    color: #fff;
+    font-size: 12px;
+    font-weight: bold;
+    cursor: pointer;
+    transition: all 0.2s;
+    font-family: 'Segoe UI', 'Roboto', 'Helvetica Neue', Arial, sans-serif;
+}
+
+.btn-add-custom-pattern:hover {
+    background: #00bb77;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════════ */
+/* 🎯 MODAL DE VISUALIZAÇÃO DE PADRÕES                                             */
+/* ═══════════════════════════════════════════════════════════════════════════════ */
+
+.view-pattern-item {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 10px 12px;
+    background: #0a0f14;
+    border: 1px solid #333;
+    border-radius: 6px;
+    margin-bottom: 8px;
+    transition: all 0.2s;
+}
+
+.view-pattern-item:hover {
+    background: #101520;
+    border-color: #00d4ff;
+}
+
+.view-pattern-name {
+    color: #00d4ff;
+    font-size: 12px;
+    font-weight: bold;
+    padding-right: 30px;
+    margin-bottom: 2px;
+}
+
+.view-pattern-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.view-pattern-sequence {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-wrap: wrap;
+}
+
+.view-pattern-before {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    color: #888;
+    font-size: 10px;
+    white-space: nowrap;
+}
+
+.view-pattern-remove {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    background: transparent;
+    border: none;
+    color: #ff6666;
+    font-size: 16px;
+    cursor: pointer;
+    padding: 4px;
+    line-height: 1;
+    transition: all 0.2s;
+    opacity: 0.6;
+}
+
+.view-pattern-remove:hover {
+    opacity: 1;
+    transform: scale(1.2);
+}
+
+.custom-patterns-list {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.custom-pattern-item {
+    background: #0a0f14;
+    border: 1px solid #00d4ff33;
+    border-radius: 8px;
+    padding: 12px;
+    transition: all 0.2s;
+}
+
+.custom-pattern-item:hover {
+    border-color: #00d4ff;
+    box-shadow: 0 2px 8px rgba(0, 212, 255, 0.2);
+}
+
+.pattern-item-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+}
+
+.pattern-item-name {
+    color: #00ff88;
+    font-size: 13px;
+    font-weight: bold;
+    font-family: 'Segoe UI', 'Roboto', 'Helvetica Neue', Arial, sans-serif;
+}
+
+.btn-remove-pattern {
+    padding: 6px 10px;
+    background: rgba(255, 0, 0, 0.2);
+    border: 1px solid #ff0000;
+    border-radius: 4px;
+    color: #ff6666;
+    font-size: 11px;
+    font-weight: bold;
+    cursor: pointer;
+    transition: all 0.2s;
+    font-family: 'Segoe UI', 'Roboto', 'Helvetica Neue', Arial, sans-serif;
+}
+
+.btn-remove-pattern:hover {
+    background: rgba(255, 0, 0, 0.4);
+    transform: scale(1.05);
+}
+
+.pattern-item-body {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.pattern-item-sequence {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+    font-size: 12px;
+    color: #ccc;
+}
+
+.pattern-list-color {
+    font-size: 16px;
+}
+
+.pattern-item-before {
+    color: #888;
+    font-size: 11px;
+    font-family: 'Segoe UI', 'Roboto', 'Helvetica Neue', Arial, sans-serif;
+}
+
+.no-custom-patterns {
+    padding: 20px;
+    text-align: center;
+    background: #0a0f14;
+    border: 1px dashed #00d4ff33;
+    border-radius: 8px;
+}
+
+/* Mobile responsiveness for modal */
+@media only screen and (max-width: 768px) {
+    .custom-pattern-modal-content {
+        width: 95%;
+        max-height: 90vh;
+    }
+    
+    .custom-pattern-before-colors {
+        flex-direction: column;
+    }
+    
+    .custom-pattern-modal-footer {
+        flex-direction: column;
+    }
+    
+    .btn-save-pattern,
+    .btn-cancel-pattern {
+        width: 100%;
+    }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════════ */
+/* 🎨 QUADRADINHOS DE COR (ESTILO DO HISTÓRICO DE GIROS)                          */
+/* ═══════════════════════════════════════════════════════════════════════════════ */
+
+.spin-color-circle {
+    display: inline-block;
+    width: 28px;
+    height: 28px;
+    border-radius: 4px;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+    transition: all 0.2s;
+}
+
+.spin-color-circle.red {
+    background: linear-gradient(135deg, #ff0000 0%, #cc0000 100%);
+    border-color: #ff0000;
+}
+
+.spin-color-circle.black {
+    background: linear-gradient(135deg, #2a2a2a 0%, #0a0a0a 100%);
+    border-color: #444;
+}
+
+.spin-color-circle.white {
+    background: linear-gradient(135deg, #ffffff 0%, #e0e0e0 100%);
+    border-color: #ccc;
+}
+
+/* Cor anterior - círculos com "ou" */
+.color-circle {
+    display: inline-block;
+    width: 24px;
+    height: 24px;
+    border-radius: 4px;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+    vertical-align: middle;
+}
+
+.color-circle.red {
+    background: linear-gradient(135deg, #ff0000 0%, #cc0000 100%);
+    border-color: #ff0000;
+}
+
+.color-circle.black {
+    background: linear-gradient(135deg, #2a2a2a 0%, #0a0a0a 100%);
+    border-color: #444;
+}
+
+.color-circle.white {
+    background: linear-gradient(135deg, #ffffff 0%, #e0e0e0 100%);
+    border-color: #ccc;
+}
+
+.or-text {
+    display: inline-block;
+    margin: 0 4px;
+    color: #666;
+    font-size: 10px;
+    vertical-align: middle;
+}
+
+.or-text-small {
+    display: inline;
+    margin: 0 3px;
+    color: #666;
+    font-size: 9px;
+}
+
+.arrow-separator {
+    display: inline;
+    margin: 0 4px;
+    color: #666;
+    font-size: 12px;
+}
+
+/* Color picker popup - botões visuais MINIMALISTA */
+.color-choice-visual {
+    background: transparent;
+    border: 1px solid #333;
+    border-radius: 4px;
+    padding: 4px;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.color-choice-visual:hover {
+    border-color: #555;
+    transform: scale(1.05);
+}
+
+.color-choice-visual .spin-color-circle {
+    width: 26px;
+    height: 26px;
+}
+
+/* Botões de opção de cor anterior - MINIMALISTA */
+.color-radio-btn.red-white,
+.color-radio-btn.black-white {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+/* Mobile responsiveness */
+@media only screen and (max-width: 768px) {
+    .custom-pattern-modal-content {
+        max-width: 95%;
+    }
+    
+    .spin-color-circle,
+    .spin-color-circle-small {
+        width: 22px;
+        height: 22px;
+    }
+    
+    .color-circle {
+        width: 20px;
+        height: 20px;
+    }
+    
+    .color-choice-visual .spin-color-circle {
+        width: 24px;
+        height: 24px;
+    }
+}
