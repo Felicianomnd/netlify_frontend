@@ -707,7 +707,7 @@
                         const modeApi = toggleElement.querySelector('.mode-api');
                         if (modeApi) {
                             await atualizarStatusMemoriaAtiva(modeApi);
-                        }
+        }
                     }
                 }
             } catch (error) {

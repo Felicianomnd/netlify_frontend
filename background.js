@@ -4410,64 +4410,80 @@ function findPatternBySimilarity(last20Spins) {
     
     console.log(`%c🔄 ALTERNÂNCIAS DETECTADAS: ${alternations}`, 'color: #9370DB;');
     
-    // 🎯 NÍVEL 3: Alternâncias (3+ mudanças)
-    if (alternations >= 3) {
-        console.log(`%c🎯 NÍVEL 3: Comportamento de ALTERNÂNCIA (${alternations} mudanças)!`, 'color: #FFD700; font-weight: bold;');
-        console.log(`%c   Vamos buscar no histórico: padrões de alternância similares`, 'color: #FFD700;');
-        console.log('');
-        
-        const nonWhiteSequence = colors.filter(c => c !== 'white').slice(0, 6);
-        
-        return {
-            type: 'alternancia_simples',
-            size: nonWhiteSequence.length,
-            sequence: nonWhiteSequence.join('-'),
-            name: `Alternância com ${alternations} mudanças`,
-            contextBefore: colors.slice(6, 10).join('-'),
-            isSimilarity: true,
-            level: 3
-        };
-    }
+    // ❌ NÍVEL 3 REMOVIDO: "Alternância com 3 mudanças" é MUITO GENÉRICO!
+    // Encontrava 1111 ocorrências em 2000 giros (55%!) - isso não é padrão, é ruído!
+    // O sistema estava recomendando sempre a mesma cor porque a distribuição era quase 50/50
     
-    // ═══════════════════════════════════════════════════════════════
-    // 🎯 NÍVEL 4: ANÁLISE DOS ÚLTIMOS 6-8 GIROS (MÍNIMO 5 VÁLIDOS)
-    // ═══════════════════════════════════════════════════════════════
-    
-    console.log('%c🎯 NÍVEL 4: Analisando últimos 6-8 giros', 'color: #FF6B35; font-weight: bold;');
-    console.log('%c   Buscando padrões mais amplos (mínimo 5 giros válidos)', 'color: #FF6B35;');
+    console.log('%c⚠️ NÍVEL 3 DESABILITADO (muito genérico)', 'color: #FF6B35;');
+    console.log('%c   "Alternância com X mudanças" encontrava 1000+ ocorrências!', 'color: #FF6B35;');
+    console.log('%c   Isso não é um padrão útil. Pulando para Nível 4...', 'color: #FF6B35;');
     console.log('');
     
-    // Pegar os últimos 8 giros (ignorando brancos) - mínimo 5 válidos
-    const last8NonWhite = colors.filter(c => c !== 'white').slice(0, 8);
+    // ═══════════════════════════════════════════════════════════════
+    // 🎯 NÍVEL 4: ANÁLISE DOS ÚLTIMOS 5-7 GIROS (PADRÕES ESPECÍFICOS)
+    // ═══════════════════════════════════════════════════════════════
     
-    if (last8NonWhite.length >= 5) {
-        console.log(`%c   Sequência dos últimos ${last8NonWhite.length} giros (sem branco):`, 'color: #FF6B35;');
-        console.log(`%c   ${last8NonWhite.map(c => c === 'red' ? 'V' : 'P').join('-')}`, 'color: #FF6B35;');
-        console.log('');
-        console.log(`%c   Buscando no histórico: o que veio após esta sequência?`, 'color: #FFD700;');
+    console.log('%c🎯 NÍVEL 4: Analisando últimos 5-7 giros', 'color: #FF6B35; font-weight: bold;');
+    console.log('%c   Buscando padrões ESPECÍFICOS (não genéricos)', 'color: #FF6B35;');
+    console.log('');
+    
+    // Pegar os últimos 5-7 giros (ignorando brancos)
+    const last7NonWhite = colors.filter(c => c !== 'white').slice(0, 7);
+    
+    if (last7NonWhite.length >= 5) {
+        console.log(`%c   Sequência dos últimos ${last7NonWhite.length} giros (sem branco):`, 'color: #FF6B35;');
+        console.log(`%c   ${last7NonWhite.map(c => c === 'red' ? 'V' : 'P').join('-')}`, 'color: #FF6B35;');
         console.log('');
         
-        // Determinar o tipo baseado no comportamento
+        const firstColor = last7NonWhite[0];
         let patternType = 'sequencia_mixed';
-        const firstColor = last8NonWhite[0];
+        let patternName = '';
         
-        // Verificar se é sequência da mesma cor
-        if (last8NonWhite.every(c => c === firstColor)) {
+        // Verificar se é sequência da mesma cor (5+ iguais)
+        if (last7NonWhite.every(c => c === firstColor)) {
             patternType = 'sequencia_' + firstColor;
+            patternName = `Sequência de ${last7NonWhite.length} ${firstColor === 'red' ? 'Vermelhos' : 'Pretos'}`;
+            console.log(`%c   ✅ PADRÃO ESPECÍFICO: ${patternName}`, 'color: #00FF00; font-weight: bold;');
         } else {
-            patternType = 'alternancia_simples';
+            // Verificar alternância dupla (PP-VV-PP ou VV-PP-VV)
+            let isAlternanceDupla = true;
+            for (let i = 0; i < last7NonWhite.length - 1; i += 2) {
+                if (i + 1 < last7NonWhite.length) {
+                    if (last7NonWhite[i] !== last7NonWhite[i + 1]) {
+                        isAlternanceDupla = false;
+                        break;
+                    }
+                }
+            }
+            
+            if (isAlternanceDupla && last7NonWhite.length >= 6) {
+                patternType = 'alternancia_dupla';
+                patternName = `Alternância Dupla de ${last7NonWhite.length} giros`;
+                console.log(`%c   ✅ PADRÃO ESPECÍFICO: ${patternName}`, 'color: #00FF00; font-weight: bold;');
+            } else {
+                // Não é um padrão específico suficiente - rejeitar
+                console.log(`%c   ❌ NÃO é padrão específico (nem sequência nem alternância dupla)`, 'color: #FF6B35;');
+                console.log(`%c   Pulando para Nível 5 (fallback)...`, 'color: #FF6B35;');
+                console.log('');
+                // Não retornar nada - deixar cair no Nível 5
+            }
         }
         
-        return {
-            type: patternType,
-            size: last8NonWhite.length,
-            sequence: last8NonWhite.join('-'),
-            name: `Análise Ampla (${last8NonWhite.length} giros)`,
-            contextBefore: colors.slice(8, 12).join('-'),
-            isSimilarity: true,
-            level: 4,
-            forced: true // Flag para indicar que foi análise forçada
-        };
+        // Se encontrou padrão específico, retornar
+        if (patternName) {
+            console.log(`%c   Buscando no histórico: o que veio após ${patternName}?`, 'color: #FFD700;');
+            console.log('');
+            
+            return {
+                type: patternType,
+                size: last7NonWhite.length,
+                sequence: last7NonWhite.join('-'),
+                name: patternName,
+                contextBefore: colors.slice(7, 11).join('-'),
+                isSimilarity: true,
+                level: 4
+            };
+        }
     }
     
     // ═══════════════════════════════════════════════════════════════
@@ -4557,6 +4573,22 @@ function searchPatternInHistory(activePattern, allPatterns, history) {
         console.log('%c⚠️ Nenhuma ocorrência deste padrão no histórico', 'color: #FFAA00;');
         return null;
     }
+    
+    // 🚨 VALIDAÇÃO CRÍTICA: Rejeitar padrões MUITO GENÉRICOS
+    // Se um padrão aparece em mais de 15% do histórico, NÃO É UM PADRÃO ÚTIL!
+    const maxOccurrencesAllowed = Math.floor(history.length * 0.15); // 15% do histórico
+    if (sameTypePatterns.length > maxOccurrencesAllowed) {
+        console.log('%c🚨 PADRÃO MUITO GENÉRICO DETECTADO!', 'color: #FF0000; font-weight: bold; font-size: 14px;');
+        console.log(`%c   Ocorrências: ${sameTypePatterns.length}`, 'color: #FF0000; font-weight: bold;');
+        console.log(`%c   Máximo permitido: ${maxOccurrencesAllowed} (15% de ${history.length} giros)`, 'color: #FF0000; font-weight: bold;');
+        console.log(`%c   Porcentagem: ${((sameTypePatterns.length / history.length) * 100).toFixed(1)}%`, 'color: #FF0000; font-weight: bold;');
+        console.log('%c   ❌ REJEITADO: Isso não é um padrão, é RUÍDO ALEATÓRIO!', 'color: #FF0000; font-weight: bold;');
+        console.log('');
+        return null;
+    }
+    
+    console.log(`%c✅ Validação OK: ${sameTypePatterns.length} ocorrências (${((sameTypePatterns.length / history.length) * 100).toFixed(1)}% do histórico)`, 'color: #00FF00;');
+    console.log('');
     
     // Calcular distribuição de tamanhos
     const distribution = {};
@@ -5677,19 +5709,27 @@ async function analyzeWithPatternSystem(history) {
         
         // 🎯 ETAPA 5.6: Penalizar análises FORÇADAS ou MÍNIMAS
         if (activePattern.forced) {
-            const forcedPenalty = -10;
+            const forcedPenalty = -20; // Aumentado de -10% para -20%
             allAdjustments += forcedPenalty;
             allReasons.push(`Análise forçada (sem padrão forte) → ${forcedPenalty}%`);
         }
         if (activePattern.minimal) {
-            const minimalPenalty = -15;
+            const minimalPenalty = -30; // Aumentado de -15% para -30%
             allAdjustments += minimalPenalty;
-            allReasons.push(`Análise mínima (1 giro apenas) → ${minimalPenalty}%`);
+            allReasons.push(`Análise mínima (padrão muito curto) → ${minimalPenalty}%`);
         }
-        if (activePattern.level && activePattern.level >= 4) {
-            const levelPenalty = -5;
-            allAdjustments += levelPenalty;
-            allReasons.push(`Padrão nível ${activePattern.level} (menos confiável) → ${levelPenalty}%`);
+        if (activePattern.level) {
+            if (activePattern.level === 5) {
+                // Nível 5 (fallback extremo) - penalidade SEVERA
+                const level5Penalty = -25;
+                allAdjustments += level5Penalty;
+                allReasons.push(`Padrão Nível 5 (fallback) → ${level5Penalty}%`);
+            } else if (activePattern.level === 4) {
+                // Nível 4 - penalidade moderada
+                const level4Penalty = -15;
+                allAdjustments += level4Penalty;
+                allReasons.push(`Padrão Nível 4 (similaridade) → ${level4Penalty}%`);
+            }
         }
         
         let finalConfidence = Math.round(baseConfidence + allAdjustments);
@@ -5707,7 +5747,7 @@ async function analyzeWithPatternSystem(history) {
         // ═══════════════════════════════════════════════════════════════
         // 🔄 AJUSTE DINÂMICO DO MÍNIMO BASEADO NA PERFORMANCE RECENTE
         // ═══════════════════════════════════════════════════════════════
-        let minConfidence = analyzerConfig.minPercentage || 60;
+        let minConfidence = analyzerConfig.minPercentage || 65; // Aumentado de 60% para 65%
         
         // Calcular performance recente (últimos 20 sinais)
         if (signalsHistory.recentPerformance.length >= 10) {
@@ -5806,6 +5846,16 @@ async function analyzeWithPatternSystem(history) {
         await saveSignalsHistory();
         
         console.log('%c✅ ANÁLISE CONCLUÍDA!', 'color: #00FF00; font-weight: bold; font-size: 14px;');
+        console.log('');
+        console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #00FFFF; font-weight: bold;');
+        console.log('%c🧠 RACIOCÍNIO FINAL:', 'color: #00FFFF; font-weight: bold; font-size: 14px;');
+        console.log('%c   ' + reasoning, 'color: #00FFFF;');
+        console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #00FFFF; font-weight: bold;');
+        console.log('');
+        console.log('%c📊 RETORNO PARA UI:', 'color: #FFD700; font-weight: bold;');
+        console.log('%c   🎯 Cor:', 'color: #FFD700;', recommendedColor.toUpperCase());
+        console.log('%c   📈 Confiança:', 'color: #FFD700;', finalConfidence + '%');
+        console.log('%c   📝 PatternDescription:', 'color: #FFD700;', activePattern.name);
         console.log('');
         
         return {
