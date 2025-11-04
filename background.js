@@ -4471,16 +4471,69 @@ function findPatternBySimilarity(last20Spins) {
     }
     
     // ═══════════════════════════════════════════════════════════════
-    // ❌ NÍVEL 5 REMOVIDO: 1 giro NÃO É PADRÃO!
+    // 🎯 NÍVEL 5: FALLBACK - SEMPRE ENCONTRA ALGO (mínimo 3 giros)
     // ═══════════════════════════════════════════════════════════════
-    // Se chegou aqui, não há padrão válido para análise!
     
-    console.log('%c⚠️ NENHUM PADRÃO VÁLIDO DETECTADO!', 'color: #FF0000; font-weight: bold;');
-    console.log('%c   Não há sequências ou alternâncias suficientes para análise', 'color: #FF0000;');
-    console.log('%c   PULANDO este giro (não enviará sinal)', 'color: #FF0000; font-weight: bold;');
+    console.log('%c🎯 NÍVEL 5: FALLBACK - Análise dos últimos 3-5 giros disponíveis', 'color: #FFA500; font-weight: bold;');
+    console.log('%c   Garantindo que SEMPRE haja uma análise baseada em histórico', 'color: #FFA500;');
     console.log('');
     
-    return null; // ⚠️ SEM PADRÃO = SEM SINAL!
+    // Pegar os últimos 3-5 giros não-brancos (SEMPRE terá ao menos 1)
+    const last5NonWhite = colors.filter(c => c !== 'white').slice(0, 5);
+    
+    if (last5NonWhite.length >= 3) {
+        console.log(`%c   ✅ Usando últimos ${last5NonWhite.length} giros para análise`, 'color: #FFA500;');
+        console.log(`%c   Sequência: ${last5NonWhite.map(c => c === 'red' ? 'V' : 'P').join('-')}`, 'color: #FFA500;');
+        console.log('');
+        
+        const firstColor = last5NonWhite[0];
+        let patternType = 'sequencia_mixed';
+        
+        // Verificar se é sequência da mesma cor
+        if (last5NonWhite.every(c => c === firstColor)) {
+            patternType = 'sequencia_' + firstColor;
+        } else {
+            patternType = 'alternancia_simples';
+        }
+        
+        return {
+            type: patternType,
+            size: last5NonWhite.length,
+            sequence: last5NonWhite.join('-'),
+            name: `Análise Fallback (${last5NonWhite.length} giros)`,
+            contextBefore: colors.slice(5, 9).join('-'),
+            isSimilarity: true,
+            level: 5,
+            forced: true,
+            minimal: true // Indica análise mínima - aplica penalidade
+        };
+    }
+    
+    // ⚠️ ÚLTIMO RECURSO: Pegar ao menos os últimos 2 giros
+    if (last5NonWhite.length >= 2) {
+        console.log(`%c   ⚠️ MÍNIMO: Usando últimos ${last5NonWhite.length} giros`, 'color: #FF6B35;');
+        console.log(`%c   Sequência: ${last5NonWhite.map(c => c === 'red' ? 'V' : 'P').join('-')}`, 'color: #FF6B35;');
+        console.log('');
+        
+        const firstColor = last5NonWhite[0];
+        
+        return {
+            type: 'sequencia_mixed',
+            size: last5NonWhite.length,
+            sequence: last5NonWhite.join('-'),
+            name: `Análise Mínima (${last5NonWhite.length} giros)`,
+            contextBefore: colors.slice(2, 6).join('-'),
+            isSimilarity: true,
+            level: 5,
+            forced: true,
+            minimal: true
+        };
+    }
+    
+    // 🚨 SITUAÇÃO EXTREMA: Não há giros suficientes (muito raro)
+    console.log('%c🚨 SITUAÇÃO EXTREMA: Menos de 2 giros válidos!', 'color: #FF0000; font-weight: bold;');
+    console.log('%c   Isso é MUITO raro - pode ser início do jogo', 'color: #FF0000;');
+    return null;
 }
 
 /**
