@@ -1548,8 +1548,32 @@
     #blaze-double-analyzer {
         width: 100%;
         height: auto;
+        min-height: 100vh;
         position: relative;
         transform: none !important;
+        top: 0;
+        right: 0;
+        left: 0;
+        margin: 0;
+        border-radius: 0;
+        max-width: 100%;
+        max-height: none;
+    }
+    
+    /* ✅ Garantir que o conteúdo não fique escondido */
+    .analyzer-content {
+        height: auto !important;
+        min-height: calc(100vh - 80px);
+        padding-bottom: 40px !important;
+        overflow-y: visible !important;
+    }
+    
+    /* ✅ Header fixo em mobile */
+    .analyzer-header {
+        position: sticky;
+        top: 0;
+        z-index: 100;
+        background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
     }
 }
 
@@ -2683,10 +2707,12 @@
 }
 
 .mode-name {
-    font-size: 13px;
+    font-size: 14px;
     font-weight: 600;
     color: #00d4ff;
     text-align: center;
+    font-family: 'Segoe UI', 'Roboto', 'Helvetica Neue', Arial, sans-serif;
+    letter-spacing: 0.3px;
 }
 
 .ai-mode-toggle.active .mode-name {
@@ -2694,11 +2720,13 @@
 }
 
 .mode-api {
-    font-size: 9px;
-    font-weight: 400;
-    color: #8da2bb;
+    font-size: 10px;
+    font-weight: 500;
+    color: #ffffff;
     text-align: center;
-    opacity: 0.8;
+    font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+    letter-spacing: 0.5px;
+    line-height: 1.3;
 }
 
 .toggle-btn {

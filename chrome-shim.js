@@ -132,54 +132,64 @@
             console.log('%c   📦 MENSAGEM COMPLETA:', 'color: #00AAFF;', JSON.stringify(message, null, 2));
             console.log('%c   📊 Listeners registrados: ' + messageListeners.length, 'color: #00AAFF; font-weight: bold;');
             
-            // Simular message passing - disparar TODOS os listeners registrados
-            setTimeout(() => {
-                let responded = false;
-                const sendResponse = (response) => {
-                    if (!responded) {
-                        responded = true;
-                        console.log('%c   ✅ sendResponse chamado com:', 'color: #00FF88;', response);
+            // ✅ CRÍTICO: Retornar uma Promise que resolve com a RESPOSTA REAL!
+            return new Promise((resolve) => {
+                // Simular message passing - disparar TODOS os listeners registrados
+                setTimeout(() => {
+                    let responded = false;
+                    const sendResponse = (response) => {
+                        if (!responded) {
+                            responded = true;
+                            console.log('%c   ✅ sendResponse chamado com:', 'color: #00FF88;', response);
+                            
+                            // ✅ Resolver a Promise com a resposta REAL!
+                            resolve(response);
+                            
+                            if (callback) {
+                                callback(response);
+                            }
+                        }
+                    };
+                    
+                    // Chamar todos os listeners registrados
+                    let willRespondAsync = false;
+                    if (messageListeners.length === 0) {
+                        console.log('%c   ⚠️ NENHUM LISTENER REGISTRADO!', 'color: #FF0000; font-weight: bold;');
+                    }
+                    
+                    messageListeners.forEach((listener, index) => {
+                        try {
+                            console.log('%c   📞 Chamando listener #' + (index + 1) + '...', 'color: #00AAFF;');
+                            const result = listener(message, {}, sendResponse);
+                            console.log('%c   📤 Listener #' + (index + 1) + ' retornou:', 'color: #00AAFF;', result);
+                            // Se retornar true, significa que vai responder assincronamente
+                            if (result === true) {
+                                willRespondAsync = true;
+                                console.log('%c   ⏳ Listener #' + (index + 1) + ' vai responder assincronamente', 'color: #FFA500; font-weight: bold;');
+                            }
+                        } catch (error) {
+                            console.error('%c   ❌ Erro ao executar listener #' + (index + 1) + ':', 'color: #FF0000;', error);
+                        }
+                    });
+                    
+                    // ⚠️ CRÍTICO: Só responder com padrão se:
+                    // 1. Ninguém respondeu ainda (!responded)
+                    // 2. E nenhum listener disse que vai responder depois (!willRespondAsync)
+                    if (!responded && !willRespondAsync) {
+                        console.log('%c   📤 Nenhum listener respondeu - enviando resposta padrão', 'color: #FFA500;');
+                        const defaultResponse = { success: true };
+                        resolve(defaultResponse);
                         if (callback) {
-                            callback(response);
+                            callback(defaultResponse);
                         }
+                    } else if (willRespondAsync && !responded) {
+                        console.log('%c   ⏳ Aguardando resposta assíncrona do listener...', 'color: #00AAFF;');
+                        // Não resolve ainda - vai resolver quando sendResponse for chamado
+                    } else if (responded) {
+                        console.log('%c   ✅ Resposta já enviada!', 'color: #00FF88; font-weight: bold;');
                     }
-                };
-                
-                // Chamar todos os listeners registrados
-                let willRespondAsync = false;
-                if (messageListeners.length === 0) {
-                    console.log('%c   ⚠️ NENHUM LISTENER REGISTRADO!', 'color: #FF0000; font-weight: bold;');
-                }
-                
-                messageListeners.forEach((listener, index) => {
-                    try {
-                        console.log('%c   📞 Chamando listener #' + (index + 1) + '...', 'color: #00AAFF;');
-                        const result = listener(message, {}, sendResponse);
-                        console.log('%c   📤 Listener #' + (index + 1) + ' retornou:', 'color: #00AAFF;', result);
-                        // Se retornar true, significa que vai responder assincronamente
-                        if (result === true) {
-                            willRespondAsync = true;
-                            console.log('%c   ⏳ Listener #' + (index + 1) + ' vai responder assincronamente', 'color: #FFA500; font-weight: bold;');
-                        }
-                    } catch (error) {
-                        console.error('%c   ❌ Erro ao executar listener #' + (index + 1) + ':', 'color: #FF0000;', error);
-                    }
-                });
-                
-                // ⚠️ CRÍTICO: Só responder com padrão se:
-                // 1. Ninguém respondeu ainda (!responded)
-                // 2. E nenhum listener disse que vai responder depois (!willRespondAsync)
-                if (!responded && !willRespondAsync && callback) {
-                    console.log('%c   📤 Nenhum listener respondeu - enviando resposta padrão', 'color: #FFA500;');
-                    callback({ success: true });
-                } else if (willRespondAsync && !responded) {
-                    console.log('%c   ⏳ Aguardando resposta assíncrona do listener...', 'color: #00AAFF;');
-                } else if (responded) {
-                    console.log('%c   ✅ Resposta já enviada!', 'color: #00FF88; font-weight: bold;');
-                }
-            }, 0);
-            
-            return Promise.resolve({ success: true });
+                }, 0);
+            });
         },
 
         onMessage: {

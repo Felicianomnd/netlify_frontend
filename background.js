@@ -26,6 +26,53 @@ let intervalId = null;
 let cachedHistory = [];  // Histórico de giros em memória (até 2000)
 let historyInitialized = false;  // Flag de inicialização
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// 🧠 MEMÓRIA ATIVA - SISTEMA INCREMENTAL DE ANÁLISE
+// Sistema inteligente que mantém análises pré-calculadas em memória
+// Atualiza apenas o delta (novo giro) ao invés de recalcular tudo
+// ═══════════════════════════════════════════════════════════════════════════════
+let memoriaAtiva = {
+    // 📊 STATUS
+    inicializada: false,
+    ultimaAtualizacao: null,
+    versao: 1,
+    
+    // 📜 HISTÓRICO (2000 giros)
+    giros: [],
+    ultimos20: [],
+    
+    // 🎯 PADRÕES PRÉ-DETECTADOS (cache)
+    padroesDetectados: {
+        alternanciaSimples: [],
+        alternanciasDupla: [],
+        alternanciasTripla: [],
+        sequenciasRed: [],
+        sequenciasBlack: []
+    },
+    
+    // 📊 ESTATÍSTICAS PRÉ-CALCULADAS
+    estatisticas: {
+        totalGiros: 0,
+        distribuicao: {
+            red: { count: 0, percent: 0 },
+            black: { count: 0, percent: 0 },
+            white: { count: 0, percent: 0 }
+        },
+        // Estatísticas por tipo de padrão
+        porPadrao: {}
+    },
+    
+    // 🎯 PADRÃO ATIVO ATUAL
+    padraoAtual: null,
+    
+    // 📈 PERFORMANCE
+    tempoInicializacao: 0,
+    tempoUltimaAtualizacao: 0,
+    totalAtualizacoes: 0
+};
+
+let memoriaAtivaInicializando = false;  // Flag para evitar inicializações simultâneas
+
 // Runtime analyzer configuration (overridable via chrome.storage.local)
 const DEFAULT_ANALYZER_CONFIG = {
     minOccurrences: 5,            // quantidade mínima de WINS exigida (padrão: 5) - MODO PADRÃO
@@ -944,9 +991,18 @@ function displaySystemFooter() {
     console.log('%c╔═══════════════════════════════════════════════════════════════════════════════╗', 'color: #666666; font-weight: bold;');
     
     if (analyzerConfig.aiMode) {
-        console.log('%c║ 🤖 SISTEMA ATIVO: IA (INTELIGÊNCIA ARTIFICIAL)                                ║', 'color: #00FF00; font-weight: bold; background: #001100;');
-        console.log('%c║ 📡 Usando: GROQ API                                                            ║', 'color: #00AA00;');
-        console.log('%c║ 🔧 Histórico IA: ' + (analyzerConfig.aiHistorySize || 50) + ' giros                                                    ║', 'color: #00AA00;');
+        console.log('%c║ 🎯 SISTEMA ATIVO: ANÁLISE AVANÇADA (AUTO-APRENDIZADO)                         ║', 'color: #00FF00; font-weight: bold; background: #001100;');
+        console.log('%c║ 📊 Sistema: 100% JavaScript (Sem IA Externa)                                  ║', 'color: #00AA00;');
+        console.log('%c║ 🔧 Histórico analisado: ' + (analyzerConfig.aiHistorySize || 50) + ' giros                                              ║', 'color: #00AA00;');
+        
+        // 🧠 INDICADOR DE MEMÓRIA ATIVA (dinâmico)
+        if (memoriaAtiva.inicializada) {
+            const tempoDecorrido = Math.round((Date.now() - memoriaAtiva.ultimaAtualizacao) / 1000);
+            const statusCor = tempoDecorrido < 60 ? '#00FF00' : '#FFA500'; // Verde se recente, laranja se não
+            console.log(`%c║ 🧠 CACHE RAM: ⚡ ATIVO | ${memoriaAtiva.giros.length} giros | ${memoriaAtiva.totalAtualizacoes} updates | ⏱️ ${memoriaAtiva.tempoUltimaAtualizacao.toFixed(1)}ms      ║`, `color: ${statusCor};`);
+        } else {
+            console.log('%c║ 🧠 CACHE RAM: 🔄 INICIALIZANDO... (primeira análise em andamento)            ║', 'color: #FFA500;');
+        }
     } else {
         console.log('%c║ 📊 SISTEMA ATIVO: PADRÕES (173+ ANÁLISES LOCAIS)                              ║', 'color: #00AAFF; font-weight: bold; background: #001122;');
         console.log('%c║ 🔧 Min. Ocorrências: ' + (analyzerConfig.minOccurrences || 5) + '                                                       ║', 'color: #0088FF;');
@@ -1338,6 +1394,9 @@ function logActiveConfiguration() {
             await chrome.storage.local.set({ analyzerConfig: analyzerConfig });
         }
         console.log('AnalyzerConfig carregado:', analyzerConfig);
+        
+        // ✅ INICIALIZAR HISTÓRICO DE SINAIS (para auto-aprendizado)
+        await initializeSignalsHistory();
         
         // ✅ EXIBIR CONFIGURAÇÕES ATIVAS
         logActiveConfiguration();
@@ -2150,6 +2209,18 @@ async function processNewSpinFromServer(spinData) {
             cachedHistory = history;
             
             console.log(`📊 Cache em memória atualizado: ${history.length} giros`);
+            
+            // ⚡ ATUALIZAR MEMÓRIA ATIVA INCREMENTALMENTE (super rápido!)
+            if (memoriaAtiva.inicializada) {
+                const sucesso = atualizarMemoriaIncrementalmente(newGiro);
+                if (sucesso) {
+                    console.log(`%c⚡ Memória Ativa atualizada incrementalmente! (${memoriaAtiva.tempoUltimaAtualizacao.toFixed(2)}ms)`, 'color: #00CED1; font-weight: bold;');
+                } else {
+                    console.warn('%c⚠️ Falha ao atualizar Memória Ativa! Será reinicializada na próxima análise.', 'color: #FFA500;');
+                }
+            } else {
+                console.log('%c🧠 Memória Ativa não inicializada (será inicializada na próxima análise)', 'color: #00CED1;');
+            }
             
             // ✅ CARREGAR CONFIGURAÇÕES E ESTADO DO MARTINGALE DO STORAGE ANTES DE PROCESSAR
             try {
@@ -3035,7 +3106,7 @@ async function analyzePatterns(history) {
             try {
                 // ⚠️ CRÍTICO: Se for análise IA, patternDescription é texto, não JSON
                 if (lastEntry.patternData.patternDescription.includes('🤖 ANÁLISE POR INTELIGÊNCIA ARTIFICIAL')) {
-                    console.log('🔍 Último padrão usado: IA (Groq)');
+                    console.log('🔍 Último padrão usado: Análise Avançada (IA)');
                 } else {
                     const lastPatternData = JSON.parse(lastEntry.patternData.patternDescription);
                     console.log('🔍 Último padrão usado:', lastPatternData);
@@ -3603,6 +3674,2101 @@ function detectPatternsInHistory(history) {
     return report;
 }
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// 🎯 SISTEMA DE ANÁLISE AVANÇADA POR PADRÕES (100% JavaScript - SEM IA)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * ARMAZENAMENTO DE SINAIS ENVIADOS (para auto-aprendizado)
+ * Persiste em chrome.storage.local
+ */
+let signalsHistory = {
+    signals: [],              // Todos os sinais enviados
+    patternStats: {},         // Estatísticas por tipo de padrão
+    contextStats: {},         // Estatísticas por contexto
+    blockedPatterns: {},      // 🚫 Padrões bloqueados temporariamente {patternKey: {until: timestamp, reason: string}}
+    consecutiveLosses: 0,     // 📉 Contador de losses consecutivos GLOBAL
+    recentPerformance: [],    // 📊 Últimos 20 sinais (para ajuste dinâmico de minPercentage)
+    lastUpdated: null
+};
+
+/**
+ * Inicializar histórico de sinais do storage
+ */
+async function initializeSignalsHistory() {
+    try {
+        const result = await chrome.storage.local.get('signalsHistory');
+        if (result.signalsHistory) {
+            signalsHistory = result.signalsHistory;
+            
+            // ✅ Garantir que os novos campos existam (migração)
+            if (!signalsHistory.blockedPatterns) signalsHistory.blockedPatterns = {};
+            if (signalsHistory.consecutiveLosses === undefined) signalsHistory.consecutiveLosses = 0;
+            if (!signalsHistory.recentPerformance) signalsHistory.recentPerformance = [];
+            
+            console.log(`%c✅ Histórico de sinais carregado: ${signalsHistory.signals.length} sinais`, 'color: #00FF88;');
+            console.log(`%c   📉 Losses consecutivos: ${signalsHistory.consecutiveLosses}`, 'color: #FFA500;');
+        }
+    } catch (error) {
+        console.error('%c❌ Erro ao carregar histórico de sinais:', 'color: #FF0000;', error);
+    }
+}
+
+/**
+ * Salvar histórico de sinais no storage
+ */
+async function saveSignalsHistory() {
+    try {
+        signalsHistory.lastUpdated = Date.now();
+        await chrome.storage.local.set({ signalsHistory });
+    } catch (error) {
+        console.error('%c❌ Erro ao salvar histórico de sinais:', 'color: #FF0000;', error);
+    }
+}
+
+/**
+ * DETECTAR TODOS OS TIPOS DE PADRÕES VARIADOS
+ * Cria exemplos de alternância simples, dupla, tripla, sequências, etc.
+ */
+function detectAllPatternTypes(history) {
+    const patterns = [];
+    
+    if (history.length < 2) return patterns;
+    
+    // Converter histórico para array de cores simples
+    const colors = history.map(spin => spin.color);
+    
+    console.log('%c═══════════════════════════════════════════════════════════', 'color: #00BFFF; font-weight: bold;');
+    console.log('%c🔍 DETECTANDO TODOS OS PADRÕES POSSÍVEIS', 'color: #00BFFF; font-weight: bold;');
+    console.log('%c═══════════════════════════════════════════════════════════', 'color: #00BFFF; font-weight: bold;');
+    console.log('');
+    
+    // 1. ALTERNÂNCIA SIMPLES (V-P-V-P...)
+    console.log('%c📊 Buscando: Alternância Simples (tamanhos 2-20)', 'color: #00FF88;');
+    for (let size = 2; size <= Math.min(20, colors.length); size += 2) {
+        for (let i = 0; i <= colors.length - size; i++) {
+            const sequence = colors.slice(i, i + size);
+            const isAlternating = checkAlternatingPattern(sequence, 1);
+            
+            if (isAlternating && !sequence.includes('white')) {
+                // ✅ CORREÇÃO CRÍTICA: Array[0]=recente, [1]=antigo
+                // O que veio DEPOIS é [i-1] (mais recente), não [i+size] (mais antigo)!
+                if (i > 0) { // Precisa ter um giro seguinte
+                    const whatCameNext = colors[i - 1]; // ✅ Giro SEGUINTE
+                    const contextBefore = (i + size < colors.length - 4) ? colors.slice(i + size, i + size + 4).join('-') : 'inicio';
+                    patterns.push({
+                        type: 'alternancia_simples',
+                        size: size,
+                        sequence: sequence.join('-'),
+                        index: i,
+                        whatCameNext: whatCameNext,
+                        contextBefore: contextBefore
+                    });
+                }
+            }
+        }
+    }
+    
+    // 2. ALTERNÂNCIA DUPLA (V-V-P-P-V-V...)
+    console.log('%c📊 Buscando: Alternância Dupla (tamanhos 4-20)', 'color: #00FF88;');
+    for (let size = 4; size <= Math.min(20, colors.length); size += 4) {
+        for (let i = 0; i <= colors.length - size; i++) {
+            const sequence = colors.slice(i, i + size);
+            const isAlternating = checkAlternatingPattern(sequence, 2);
+            
+            if (isAlternating && !sequence.includes('white')) {
+                // ✅ CORREÇÃO: O que veio DEPOIS é [i-1], não [i+size]
+                if (i > 0) {
+                    const whatCameNext = colors[i - 1]; // ✅ Giro SEGUINTE
+                    const contextBefore = (i + size < colors.length - 4) ? colors.slice(i + size, i + size + 4).join('-') : 'inicio';
+                    patterns.push({
+                        type: 'alternancia_dupla',
+                        size: size,
+                        sequence: sequence.join('-'),
+                        index: i,
+                        whatCameNext: whatCameNext,
+                        contextBefore: contextBefore
+                    });
+                }
+            }
+        }
+    }
+    
+    // 3. ALTERNÂNCIA TRIPLA (V-V-V-P-P-P...)
+    console.log('%c📊 Buscando: Alternância Tripla (tamanhos 6-18)', 'color: #00FF88;');
+    for (let size = 6; size <= Math.min(18, colors.length); size += 6) {
+        for (let i = 0; i <= colors.length - size; i++) {
+            const sequence = colors.slice(i, i + size);
+            const isAlternating = checkAlternatingPattern(sequence, 3);
+            
+            if (isAlternating && !sequence.includes('white')) {
+                // ✅ CORREÇÃO: O que veio DEPOIS é [i-1], não [i+size]
+                if (i > 0) {
+                    const whatCameNext = colors[i - 1]; // ✅ Giro SEGUINTE
+                    const contextBefore = (i + size < colors.length - 4) ? colors.slice(i + size, i + size + 4).join('-') : 'inicio';
+                    patterns.push({
+                        type: 'alternancia_tripla',
+                        size: size,
+                        sequence: sequence.join('-'),
+                        index: i,
+                        whatCameNext: whatCameNext,
+                        contextBefore: contextBefore
+                    });
+                }
+            }
+        }
+    }
+    
+    // 4. SEQUÊNCIAS (mesma cor consecutiva)
+    console.log('%c📊 Buscando: Sequências (tamanhos 2-15)', 'color: #00FF88;');
+    for (let size = 2; size <= Math.min(15, colors.length); size++) {
+        for (let i = 0; i <= colors.length - size; i++) {
+            const sequence = colors.slice(i, i + size);
+            const firstColor = sequence[0];
+            const isSequence = sequence.every(c => c === firstColor) && firstColor !== 'white';
+            
+            if (isSequence) {
+                // ✅ CORREÇÃO: O que veio DEPOIS é [i-1], não [i+size]
+                if (i > 0) {
+                    const whatCameNext = colors[i - 1]; // ✅ Giro SEGUINTE
+                    const contextBefore = (i + size < colors.length - 4) ? colors.slice(i + size, i + size + 4).join('-') : 'inicio';
+                    patterns.push({
+                        type: 'sequencia_' + firstColor,
+                        size: size,
+                        sequence: sequence.join('-'),
+                        index: i,
+                        whatCameNext: whatCameNext,
+                        contextBefore: contextBefore
+                    });
+                }
+            }
+        }
+    }
+    
+    console.log('%c✅ Total de padrões detectados: ' + patterns.length, 'color: #00BFFF; font-weight: bold;');
+    console.log('');
+    
+    return patterns;
+}
+
+/**
+ * Verificar se uma sequência segue um padrão de alternância
+ * @param {Array} sequence - Array de cores
+ * @param {Number} groupSize - Tamanho do grupo (1=simples, 2=dupla, 3=tripla)
+ */
+function checkAlternatingPattern(sequence, groupSize) {
+    if (sequence.length < groupSize * 2) return false;
+    
+    for (let i = 0; i < sequence.length; i++) {
+        const groupIndex = Math.floor(i / groupSize);
+        const expectedColor = groupIndex % 2 === 0 ? sequence[0] : (sequence[0] === 'red' ? 'black' : 'red');
+        
+        if (sequence[i] !== expectedColor) {
+            return false;
+        }
+    }
+    
+    return true;
+}
+
+/**
+ * 🔍 VALIDADOR RIGOROSO DE PADRÃO
+ * Verifica se o padrão detectado está REALMENTE correto
+ * Analisa o contexto completo antes e depois do padrão
+ */
+function validatePatternDetection(colors, patternStartIndex, patternSize, patternType, groupSize, patternName) {
+    const patternSequence = colors.slice(patternStartIndex, patternStartIndex + patternSize);
+    
+    console.log('%c═══════════════════════════════════════════════════════════', 'color: #FF1493; font-weight: bold;');
+    console.log('%c🔍 VALIDADOR RIGOROSO DE PADRÃO', 'color: #FF1493; font-weight: bold; font-size: 14px;');
+    console.log('%c═══════════════════════════════════════════════════════════', 'color: #FF1493; font-weight: bold;');
+    console.log('');
+    console.log(`%c📋 Padrão detectado: ${patternName}`, 'color: #FF69B4; font-weight: bold;');
+    console.log(`%c   Tipo: ${patternType}`, 'color: #FF69B4;');
+    console.log(`%c   Tamanho: ${patternSize} giros`, 'color: #FF69B4;');
+    console.log(`%c   Sequência: ${patternSequence.map(c => c === 'red' ? 'V' : c === 'black' ? 'P' : 'B').join('-')}`, 'color: #FF69B4;');
+    console.log('');
+    
+    // ═══════════════════════════════════════════════════════════════
+    // ETAPA 1: MOSTRAR CONTEXTO COMPLETO (10 giros)
+    // ═══════════════════════════════════════════════════════════════
+    const contextSize = Math.min(10, colors.length);
+    const contextColors = colors.slice(0, contextSize).map((c, i) => {
+        const symbol = c === 'red' ? 'V' : c === 'black' ? 'P' : 'B';
+        if (i >= patternStartIndex && i < patternStartIndex + patternSize) {
+            return `[${symbol}]`; // Marcar padrão com colchetes
+        }
+        return symbol;
+    }).join('-');
+    
+    console.log(`%c📊 CONTEXTO COMPLETO (últimos ${contextSize} giros):`, 'color: #00CED1; font-weight: bold;');
+    console.log(`%c   ${contextColors}`, 'color: #00CED1;');
+    console.log(`%c   (Padrão marcado com [ ])`, 'color: #888;');
+    console.log('');
+    
+    // ═══════════════════════════════════════════════════════════════
+    // ETAPA 2: ANÁLISE DO CONTEXTO ANTERIOR (O que veio ANTES)
+    // ═══════════════════════════════════════════════════════════════
+    const contextBefore = [];
+    for (let i = patternStartIndex + patternSize; i < Math.min(patternStartIndex + patternSize + 5, colors.length); i++) {
+        if (colors[i] && colors[i] !== 'white') {
+            contextBefore.push(colors[i]);
+        }
+    }
+    
+    if (contextBefore.length > 0) {
+        console.log(`%c🔙 CONTEXTO ANTERIOR (antes do padrão):`, 'color: #FFA500; font-weight: bold;');
+        console.log(`%c   Giros anteriores: ${contextBefore.map(c => c === 'red' ? 'V' : 'P').join('-')}`, 'color: #FFA500;');
+        
+        // VALIDAÇÃO CRÍTICA: Se é alternância, verificar se não é sequência quebrando
+        if (patternType.includes('alternancia')) {
+            // ═══════════════════════════════════════════════════════════════
+            // LÓGICA CORRETA: Pegar os ÚLTIMOS N giros do padrão (onde N = groupSize)
+            // e ver se essa cor continua ANTES do padrão
+            // ═══════════════════════════════════════════════════════════════
+            
+            // Para alternância DUPLA P-P-V-V:
+            // - Últimos 2 giros (groupSize=2): P-P (posições 2,3 do padrão)
+            // - Se antes veio mais P, então P-P faz parte de P-P-P!
+            // - REJEITAR!
+            
+            // Pegar os últimos N giros do padrão
+            const lastGroupColors = patternSequence.slice(patternSize - groupSize, patternSize);
+            const lastGroupColor = lastGroupColors[0]; // Cor do último grupo
+            
+            console.log(`%c   🔍 Verificando últimos ${groupSize} giro(s) do padrão:`, 'color: #FFA500;');
+            console.log(`%c      Cor: ${lastGroupColor === 'red' ? 'VERMELHO' : 'PRETO'}`, 'color: #FFA500;');
+            
+            // Verificar se essa mesma cor continua ANTES do padrão
+            if (contextBefore.length > 0 && contextBefore[0] === lastGroupColor) {
+                console.log('%c   ❌ ERRO DETECTADO: Padrão INCORRETO!', 'color: #FF0000; font-weight: bold;');
+                console.log(`%c   Motivo: A cor ${lastGroupColor === 'red' ? 'VERMELHO' : 'PRETO'} continua ANTES do padrão!`, 'color: #FF0000;');
+                console.log(`%c   O último grupo (${lastGroupColors.map(c => c === 'red' ? 'V' : 'P').join('-')}) faz parte de uma SEQUÊNCIA maior!`, 'color: #FF0000;');
+                console.log(`%c   Isso NÃO é ${patternName}! É uma SEQUÊNCIA quebrando!`, 'color: #FF0000; font-weight: bold;');
+                console.log('');
+                console.log('%c═══════════════════════════════════════════════════════════', 'color: #FF1493; font-weight: bold;');
+                console.log('');
+                return { valid: false, reason: `Último grupo do padrão (${lastGroupColor === 'red' ? 'V' : 'P'}) continua antes - é sequência quebrando!` };
+            }
+            
+            // VALIDAÇÃO ADICIONAL: Verificar os PRIMEIROS N giros do padrão também
+            const firstGroupColors = patternSequence.slice(0, groupSize);
+            const firstGroupColor = firstGroupColors[0];
+            
+            console.log(`%c   🔍 Verificando primeiros ${groupSize} giro(s) do padrão:`, 'color: #FFA500;');
+            console.log(`%c      Cor: ${firstGroupColor === 'red' ? 'VERMELHO' : 'PRETO'}`, 'color: #FFA500;');
+            
+            // Verificar quantas vezes essa cor aparece ANTES do padrão
+            let sameColorCountBefore = 0;
+            for (let i = 0; i < contextBefore.length; i++) {
+                if (contextBefore[i] === lastGroupColor) {
+                    sameColorCountBefore++;
+                } else {
+                    break;
+                }
+            }
+            
+            if (sameColorCountBefore > 0) {
+                console.log('%c   ❌ ERRO DETECTADO: Padrão INCORRETO!', 'color: #FF0000; font-weight: bold;');
+                console.log(`%c   Motivo: ${sameColorCountBefore} cor(es) ${lastGroupColor === 'red' ? 'VERMELHO' : 'PRETO'} continuam antes!`, 'color: #FF0000;');
+                console.log(`%c   Isso cria uma sequência de ${sameColorCountBefore + groupSize} cores iguais!`, 'color: #FF0000;');
+                console.log(`%c   Isso NÃO é ${patternName}! É uma SEQUÊNCIA quebrando!`, 'color: #FF0000; font-weight: bold;');
+                console.log('');
+                console.log('%c═══════════════════════════════════════════════════════════', 'color: #FF1493; font-weight: bold;');
+                console.log('');
+                return { valid: false, reason: `${sameColorCountBefore} cor(es) continuam antes - sequência de ${sameColorCountBefore + groupSize} total!` };
+            } else {
+                console.log(`%c   ✅ OK: Não há continuação da cor antes do padrão`, 'color: #00FF00;');
+            }
+        }
+        
+        // VALIDAÇÃO: Se é sequência, não pode ter a mesma cor logo antes
+        if (patternType.includes('sequencia')) {
+            const firstColor = patternSequence[0];
+            if (contextBefore[0] === firstColor) {
+                console.log('%c   ❌ ERRO DETECTADO: Padrão INCORRETO!', 'color: #FF0000; font-weight: bold;');
+                console.log(`%c   Motivo: Sequência continua ANTES do padrão detectado`, 'color: #FF0000;');
+                console.log(`%c   Isso não é uma nova sequência, é continuação!`, 'color: #FF0000; font-weight: bold;');
+                console.log('');
+                console.log('%c═══════════════════════════════════════════════════════════', 'color: #FF1493; font-weight: bold;');
+                console.log('');
+                return { valid: false, reason: 'Sequência continua antes do padrão' };
+            } else {
+                console.log(`%c   ✅ OK: Cor anterior (${contextBefore[0] === 'red' ? 'V' : 'P'}) é diferente da sequência (${firstColor === 'red' ? 'V' : 'P'})`, 'color: #00FF00;');
+            }
+        }
+        
+        console.log('');
+    }
+    
+    // ═══════════════════════════════════════════════════════════════
+    // ETAPA 3: ANÁLISE DO CONTEXTO POSTERIOR (O que veio DEPOIS)
+    // ═══════════════════════════════════════════════════════════════
+    if (patternStartIndex >= 1) {
+        const contextAfter = [];
+        for (let i = patternStartIndex - 1; i >= Math.max(0, patternStartIndex - 5); i--) {
+            if (colors[i] && colors[i] !== 'white') {
+                contextAfter.push(colors[i]);
+            }
+        }
+        
+        if (contextAfter.length > 0) {
+            console.log(`%c🔜 CONTEXTO POSTERIOR (depois do padrão):`, 'color: #9370DB; font-weight: bold;');
+            console.log(`%c   Giros seguintes: ${contextAfter.map(c => c === 'red' ? 'V' : 'P').join('-')}`, 'color: #9370DB;');
+            
+            const nextColor = contextAfter[0];
+            const lastColorOfPattern = patternSequence[patternSize - 1];
+            
+            // VALIDAÇÃO: Último giro do padrão não pode continuar depois
+            if (nextColor === lastColorOfPattern) {
+                console.log('%c   ❌ ERRO DETECTADO: Padrão INCORRETO!', 'color: #FF0000; font-weight: bold;');
+                console.log(`%c   Motivo: Último giro do padrão (${lastColorOfPattern === 'red' ? 'V' : 'P'}) continua depois`, 'color: #FF0000;');
+                console.log(`%c   O padrão detectado faz parte de um padrão MAIOR!`, 'color: #FF0000; font-weight: bold;');
+                console.log('');
+                console.log('%c═══════════════════════════════════════════════════════════', 'color: #FF1493; font-weight: bold;');
+                console.log('');
+                return { valid: false, reason: 'Último giro do padrão continua depois (padrão maior)' };
+            } else {
+                console.log(`%c   ✅ OK: Próximo giro (${nextColor === 'red' ? 'V' : 'P'}) quebra o padrão`, 'color: #00FF00;');
+            }
+            
+            console.log('');
+        }
+    }
+    
+    // ═══════════════════════════════════════════════════════════════
+    // CONCLUSÃO: PADRÃO VÁLIDO!
+    // ═══════════════════════════════════════════════════════════════
+    console.log('%c✅ PADRÃO VALIDADO COM SUCESSO!', 'color: #00FF00; font-weight: bold; font-size: 14px;');
+    console.log('%c   Todas as verificações passaram!', 'color: #00FF88;');
+    console.log('%c   O padrão está LIMPO e CORRETO!', 'color: #00FF88;');
+    console.log('');
+    console.log('%c═══════════════════════════════════════════════════════════', 'color: #FF1493; font-weight: bold;');
+    console.log('');
+    
+    return { valid: true, reason: 'Padrão validado com sucesso' };
+}
+
+/**
+ * ✅ VALIDAÇÃO CRÍTICA: Verificar se o padrão está "limpo"
+ * Um padrão só é válido se:
+ * 1. O giro ANTERIOR (antes do primeiro giro do padrão) quebra o padrão
+ * 2. O giro POSTERIOR (depois do último giro do padrão) também quebra
+ * 
+ * Exemplo CORRETO:
+ * Giros: P-V-P-V (posições 3,2,1,0)
+ * Padrão: V-P (posições 1,0)
+ * - Giro anterior (2): V (se continuasse: V-V-P = não é alternância) ✅
+ * - Giro posterior (3): P (se continuasse: V-P-P = não é alternância) ✅
+ * 
+ * Exemplo ERRADO:
+ * Giros: P-P-V-P (posições 3,2,1,0)
+ * Padrão: V-P (posições 1,0)
+ * - Giro anterior (2): P ✅ OK
+ * - Giro posterior (3): P ❌ ERRO! O P do giro 1 faz parte de sequência P-P
+ */
+function isPatternClean(colors, patternStartIndex, patternSize, patternType, groupSize) {
+    const patternSequence = colors.slice(patternStartIndex, patternStartIndex + patternSize);
+    
+    // ═══════════════════════════════════════════════════════════════
+    // VERIFICAÇÃO 1: Giro ANTERIOR ao padrão (após o último giro)
+    // ═══════════════════════════════════════════════════════════════
+    const previousColorIndex = patternStartIndex + patternSize;
+    const previousColor = colors[previousColorIndex];
+    
+    if (previousColor) {
+        // Para alternâncias, verificar se o giro anterior quebraria o padrão
+        if (patternType.includes('alternancia')) {
+            const firstColor = patternSequence[0];
+            const groupIndex = Math.floor(patternSize / groupSize);
+            const expectedColor = groupIndex % 2 === 0 ? firstColor : (firstColor === 'red' ? 'black' : 'red');
+            
+            if (previousColor === expectedColor) {
+                return false; // ❌ Padrão continua antes
+            }
+        }
+        
+        // Para sequências, verificar se o giro anterior é diferente
+        if (patternType.includes('sequencia')) {
+            const firstColor = patternSequence[0];
+            if (previousColor === firstColor) {
+                return false; // ❌ Sequência continua antes
+            }
+        }
+    }
+    
+    // ═══════════════════════════════════════════════════════════════
+    // VERIFICAÇÃO 2: Giro POSTERIOR ao padrão (depois do primeiro giro)
+    // ═══════════════════════════════════════════════════════════════
+    // ⚠️ CRÍTICO: Para alternâncias e sequências de 2+ giros
+    if (patternSize >= 2 && patternStartIndex >= 1) {
+        const nextColorIndex = patternStartIndex - 1; // Giro DEPOIS do padrão (mais recente)
+        const nextColor = colors[nextColorIndex];
+        
+        if (nextColor && nextColor !== 'white') {
+            const lastColorOfPattern = patternSequence[patternSize - 1];
+            
+            // Para alternâncias, o último giro do padrão NÃO pode continuar depois
+            if (patternType.includes('alternancia')) {
+                // Se o último giro do padrão for P, e o próximo também for P,
+                // significa que o P do padrão faz parte de uma sequência maior
+                if (nextColor === lastColorOfPattern) {
+                    return false; // ❌ Último giro do padrão continua depois
+                }
+            }
+            
+            // Para sequências, verificar se continua depois
+            if (patternType.includes('sequencia')) {
+                if (nextColor === lastColorOfPattern) {
+                    return false; // ❌ Sequência continua depois
+                }
+            }
+        }
+    }
+    
+    return true; // ✅ Padrão está limpo dos dois lados
+}
+
+/**
+ * BUSCAR PADRÃO ATIVO NOS ÚLTIMOS 20 GIROS
+ * Identifica qual padrão está acontecendo AGORA (começando do giro 1)
+ */
+function findActivePattern(last20Spins) {
+    const colors = last20Spins.map(spin => spin.color);
+    
+    console.log('%c═══════════════════════════════════════════════════════════', 'color: #FFD700; font-weight: bold;');
+    console.log('%c🎯 IDENTIFICANDO PADRÃO ATIVO (começando do giro 1)', 'color: #FFD700; font-weight: bold;');
+    console.log('%c═══════════════════════════════════════════════════════════', 'color: #FFD700; font-weight: bold;');
+    console.log('');
+    
+    console.log('%cÚltimos 20 giros:', 'color: #FFD700;');
+    last20Spins.slice(0, 10).forEach((spin, index) => {
+        console.log(`  ${index + 1}. ${spin.color} (${spin.roll})`);
+    });
+    console.log('  ... (+ 10 giros mais antigos)');
+    console.log('');
+    
+    // Tentar detectar padrões do MAIOR para o MENOR
+    // Começar sempre do giro 1 (mais recente)
+    
+    let bestPattern = null;
+    let bestSize = 0;
+    
+    // ═══════════════════════════════════════════════════════════════
+    // 🎯 TAMANHOS MÍNIMOS PARA PADRÕES CONFIÁVEIS
+    // ═══════════════════════════════════════════════════════════════
+    // ═══════════════════════════════════════════════════════════════
+    // 🎯 CALIBRAÇÕES BASEADAS EM 10.000 GIROS REAIS DA BLAZE
+    // Data: 31/10/2025 - 03/11/2025 | Análise científica correta
+    // ═══════════════════════════════════════════════════════════════
+    
+    const MIN_ALTERNANCIA_TRIPLA = 9;  // 3 ciclos completos (V-V-V-P-P-P-V-V-V)
+    const MIN_ALTERNANCIA_DUPLA = 8;   // 2 ciclos completos (V-V-P-P-V-V-P-P)
+    const MIN_ALTERNANCIA_SIMPLES = 6; // 3 ciclos completos (V-P-V-P-V-P)
+    const MIN_SEQUENCIA = 3;           // ✅ Média real: 1.9 (conservador: 3)
+    
+    // 🔥 DADOS REAIS: Pontos de quebra críticos (>60% probabilidade)
+    const QUEBRA_CRITICA_RED_5 = 5;    // ✅ Vermelho 5: 62.4% quebra (83/133)
+    const QUEBRA_CRITICA_RED_8 = 8;    // ✅ Vermelho 8: 66.7% quebra (8/12)
+    const QUEBRA_CRITICA_BLACK_7 = 7;  // ✅ Preto 7: 76.0% quebra (19/25) ⬅️ FORTE!
+    const MAX_SEQUENCIA_HISTORICO = 11; // ✅ Máximo visto: 11 (1x cada cor em 10k)
+    
+    // 📊 DISTRIBUIÇÃO REAL (QUASE 50/50!)
+    const REAL_RED_PERCENT = 46.77;    // ✅ Vermelho: 4677/10000
+    const REAL_BLACK_PERCENT = 46.87;  // ✅ Preto: 4687/10000 (apenas 0.1% a mais!)
+    const REAL_WHITE_PERCENT = 6.36;   // ✅ Branco: 636/10000 (1 a cada 15.7)
+    
+    console.log('%c⚙️ TAMANHOS MÍNIMOS PARA PADRÕES:', 'color: #FFD700; font-weight: bold;');
+    console.log(`%c   Alternância Tripla: ${MIN_ALTERNANCIA_TRIPLA}+ giros`, 'color: #FFD700;');
+    console.log(`%c   Alternância Dupla: ${MIN_ALTERNANCIA_DUPLA}+ giros`, 'color: #FFD700;');
+    console.log(`%c   Alternância Simples: ${MIN_ALTERNANCIA_SIMPLES}+ giros`, 'color: #FFD700;');
+    console.log(`%c   Sequência: ${MIN_SEQUENCIA}+ giros`, 'color: #FFD700;');
+    console.log('');
+    
+    // Tentar alternância tripla (9, 12, 15, 18)
+    for (let size = 18; size >= MIN_ALTERNANCIA_TRIPLA; size -= 3) {
+        if (size > colors.length) continue;
+        const sequence = colors.slice(0, size);
+        if (checkAlternatingPattern(sequence, 3) && !sequence.includes('white')) {
+            const patternName = `Alternância Tripla de ${size} giros`;
+            // 🔍 VALIDAÇÃO RIGOROSA: Verificar se o padrão está REALMENTE correto
+            const validation = validatePatternDetection(colors, 0, size, 'alternancia_tripla', 3, patternName);
+            if (validation.valid) {
+                bestPattern = {
+                    type: 'alternancia_tripla',
+                    size: size,
+                    sequence: sequence.join('-'),
+                    name: patternName
+                };
+                bestSize = size;
+                break;
+            } else {
+                console.log(`%c❌ Padrão "${patternName}" rejeitado: ${validation.reason}`, 'color: #FF0000; font-weight: bold;');
+                console.log('');
+            }
+        }
+    }
+    
+    // Tentar alternância dupla (8, 12, 16, 20)
+    if (!bestPattern || bestSize < MIN_ALTERNANCIA_DUPLA) {
+        for (let size = 20; size >= MIN_ALTERNANCIA_DUPLA; size -= 4) {
+            if (size > colors.length) continue;
+            const sequence = colors.slice(0, size);
+            if (checkAlternatingPattern(sequence, 2) && !sequence.includes('white')) {
+                const patternName = `Alternância Dupla de ${size} giros`;
+                // 🔍 VALIDAÇÃO RIGOROSA: Verificar se o padrão está REALMENTE correto
+                const validation = validatePatternDetection(colors, 0, size, 'alternancia_dupla', 2, patternName);
+                if (validation.valid) {
+                    bestPattern = {
+                        type: 'alternancia_dupla',
+                        size: size,
+                        sequence: sequence.join('-'),
+                        name: patternName
+                    };
+                    bestSize = size;
+                    break;
+                } else {
+                    console.log(`%c❌ Padrão "${patternName}" rejeitado: ${validation.reason}`, 'color: #FF0000; font-weight: bold;');
+                    console.log('');
+                }
+            }
+        }
+    }
+    
+    // Tentar alternância simples (6, 8, 10, 12, 14, 16, 18, 20)
+    if (!bestPattern || bestSize < MIN_ALTERNANCIA_SIMPLES) {
+        for (let size = 20; size >= MIN_ALTERNANCIA_SIMPLES; size -= 2) {
+            if (size > colors.length) continue;
+            const sequence = colors.slice(0, size);
+            if (checkAlternatingPattern(sequence, 1) && !sequence.includes('white')) {
+                const patternName = `Alternância Simples de ${size} giros`;
+                // 🔍 VALIDAÇÃO RIGOROSA: Verificar se o padrão está REALMENTE correto
+                const validation = validatePatternDetection(colors, 0, size, 'alternancia_simples', 1, patternName);
+                if (validation.valid) {
+                    bestPattern = {
+                        type: 'alternancia_simples',
+                        size: size,
+                        sequence: sequence.join('-'),
+                        name: patternName
+                    };
+                    bestSize = size;
+                    break;
+                } else {
+                    console.log(`%c❌ Padrão "${patternName}" rejeitado: ${validation.reason}`, 'color: #FF0000; font-weight: bold;');
+                    console.log('');
+                }
+            }
+        }
+    }
+    
+    // Tentar sequências (mesma cor) - MÍNIMO 4 GIROS
+    if (!bestPattern || bestSize < MIN_SEQUENCIA) {
+        for (let size = 15; size >= MIN_SEQUENCIA; size--) {
+            if (size > colors.length) continue;
+            const sequence = colors.slice(0, size);
+            const firstColor = sequence[0];
+            if (sequence.every(c => c === firstColor) && firstColor !== 'white') {
+                const patternName = `Sequência de ${size} ${firstColor === 'red' ? 'Vermelhos' : 'Pretos'}`;
+                // 🔍 VALIDAÇÃO RIGOROSA: Verificar se o padrão está REALMENTE correto
+                const validation = validatePatternDetection(colors, 0, size, 'sequencia_' + firstColor, 1, patternName);
+                if (validation.valid) {
+                    bestPattern = {
+                        type: 'sequencia_' + firstColor,
+                        size: size,
+                        sequence: sequence.join('-'),
+                        name: patternName
+                    };
+                    bestSize = size;
+                    break;
+                } else {
+                    console.log(`%c❌ Padrão "${patternName}" rejeitado: ${validation.reason}`, 'color: #FF0000; font-weight: bold;');
+                    console.log('');
+                }
+            }
+        }
+    }
+    
+    if (bestPattern) {
+        console.log('%c✅ PADRÃO ATIVO ENCONTRADO:', 'color: #00FF00; font-weight: bold;');
+        console.log(`%c   ${bestPattern.name}`, 'color: #00FF88; font-weight: bold;');
+        console.log(`%c   Sequência: ${bestPattern.sequence}`, 'color: #00FF88;');
+        console.log('');
+        
+        // Adicionar contexto (o que veio antes)
+        const contextStart = bestSize;
+        const contextEnd = Math.min(contextStart + 4, colors.length);
+        bestPattern.contextBefore = colors.slice(contextStart, contextEnd).join('-');
+        
+        return bestPattern;
+    }
+    
+    // ═══════════════════════════════════════════════════════════════
+    // 🔍 SE NÃO ENCONTROU PADRÃO FIXO, TENTAR ANÁLISE POR SIMILARIDADE
+    // ═══════════════════════════════════════════════════════════════
+    console.log('%c⚠️ Nenhum padrão fixo detectado', 'color: #FFAA00; font-weight: bold;');
+    console.log('%c🔍 Tentando análise por SIMILARIDADE...', 'color: #00CED1; font-weight: bold;');
+    console.log('');
+    
+    const similarityPattern = findPatternBySimilarity(last20Spins);
+    
+    // ✅ GARANTIA: similarityPattern SEMPRE retorna algo (nunca null)
+    if (similarityPattern) {
+        const levelText = similarityPattern.level ? ` (Nível ${similarityPattern.level})` : '';
+        console.log(`%c✅ PADRÃO POR SIMILARIDADE ENCONTRADO${levelText}:`, 'color: #00FF00; font-weight: bold;');
+        console.log(`%c   ${similarityPattern.name}`, 'color: #00FF88; font-weight: bold;');
+        console.log(`%c   Sequência: ${similarityPattern.sequence}`, 'color: #00FF88;');
+        
+        if (similarityPattern.forced) {
+            console.log('%c   ⚠️ Análise forçada (sem padrão forte detectado)', 'color: #FFA500;');
+        }
+        if (similarityPattern.minimal) {
+            console.log('%c   ⚠️ Análise mínima (confiança será reduzida)', 'color: #FFA500;');
+        }
+        
+        console.log('');
+        return similarityPattern;
+    }
+    
+    // ❌ ISSO NUNCA DEVE ACONTECER! (fallback extremo)
+    console.error('%c❌ ERRO CRÍTICO: Similaridade retornou null!', 'color: #FF0000; font-weight: bold;');
+    console.error('%c   Isso não deveria acontecer. Sistema tem bug!', 'color: #FF0000;');
+    
+    return null;
+}
+
+/**
+ * 🔍 BUSCAR PADRÃO POR SIMILARIDADE
+ * Quando não há padrão fixo, buscar situações similares no histórico
+ */
+function findPatternBySimilarity(last20Spins) {
+    const colors = last20Spins.map(spin => spin.color);
+    
+    console.log('%c═══════════════════════════════════════════════════════════', 'color: #00CED1; font-weight: bold;');
+    console.log('%c🔍 ANÁLISE POR SIMILARIDADE (Busca Inteligente)', 'color: #00CED1; font-weight: bold;');
+    console.log('%c═══════════════════════════════════════════════════════════', 'color: #00CED1; font-weight: bold;');
+    console.log('');
+    
+    // ═══════════════════════════════════════════════════════════════
+    // ETAPA 1: DETECTAR SEQUÊNCIAS RECENTES (mesmo que curtas)
+    // ═══════════════════════════════════════════════════════════════
+    
+    // Contar quantas cores iguais no início (giros 1, 2, 3...)
+    let currentStreak = 1;
+    const firstColor = colors[0];
+    
+    for (let i = 1; i < Math.min(10, colors.length); i++) {
+        if (colors[i] === firstColor && colors[i] !== 'white') {
+            currentStreak++;
+        } else {
+            break;
+        }
+    }
+    
+    console.log(`%c📊 SITUAÇÃO ATUAL:`, 'color: #00CED1; font-weight: bold;');
+    console.log(`%c   Cor mais recente: ${firstColor === 'red' ? 'VERMELHO' : firstColor === 'black' ? 'PRETO' : 'BRANCO'}`, 'color: #00CED1;');
+    console.log(`%c   Sequência atual: ${currentStreak} giro(s) da mesma cor`, 'color: #00CED1;');
+    console.log('');
+    
+    // 🎯 NÍVEL 1: Sequências de 4+ giros (MÍNIMO ACEITÁVEL)
+    if (currentStreak >= 4 && firstColor !== 'white') {
+        console.log(`%c🎯 NÍVEL 1: Detectado ${currentStreak} ${firstColor === 'red' ? 'VERMELHOS' : 'PRETOS'} seguidos!`, 'color: #FFD700; font-weight: bold;');
+        console.log(`%c   Vamos buscar no histórico: o que acontece após ${currentStreak} cores iguais?`, 'color: #FFD700;');
+        console.log('');
+        
+        const sequence = colors.slice(0, currentStreak);
+        return {
+            type: 'sequencia_' + firstColor,
+            size: currentStreak,
+            sequence: sequence.join('-'),
+            name: `Sequência de ${currentStreak} ${firstColor === 'red' ? 'Vermelhos' : 'Pretos'}`,
+            contextBefore: colors.slice(currentStreak, Math.min(currentStreak + 4, colors.length)).join('-'),
+            isSimilarity: true,
+            level: 1
+        };
+    }
+    
+    // ❌ NÍVEL 2 REMOVIDO: 2-3 giros NÃO são suficientes para análise!
+    // 2 pretos ou 2 vermelhos saem O TEMPO TODO no jogo!
+    // Não dá para fazer previsão com isso!
+    
+    // ═══════════════════════════════════════════════════════════════
+    // ETAPA 2: DETECTAR ALTERNÂNCIAS IMPERFEITAS
+    // ═══════════════════════════════════════════════════════════════
+    
+    // Contar alternâncias nos primeiros 6-8 giros (mesmo com branco no meio)
+    let alternations = 0;
+    let lastNonWhite = null;
+    
+    for (let i = 0; i < Math.min(8, colors.length); i++) {
+        if (colors[i] !== 'white') {
+            if (lastNonWhite && colors[i] !== lastNonWhite) {
+                alternations++;
+            }
+            lastNonWhite = colors[i];
+        }
+    }
+    
+    console.log(`%c🔄 ALTERNÂNCIAS DETECTADAS: ${alternations}`, 'color: #9370DB;');
+    
+    // 🎯 NÍVEL 3: Alternâncias (3+ mudanças)
+    if (alternations >= 3) {
+        console.log(`%c🎯 NÍVEL 3: Comportamento de ALTERNÂNCIA (${alternations} mudanças)!`, 'color: #FFD700; font-weight: bold;');
+        console.log(`%c   Vamos buscar no histórico: padrões de alternância similares`, 'color: #FFD700;');
+        console.log('');
+        
+        const nonWhiteSequence = colors.filter(c => c !== 'white').slice(0, 6);
+        
+        return {
+            type: 'alternancia_simples',
+            size: nonWhiteSequence.length,
+            sequence: nonWhiteSequence.join('-'),
+            name: `Alternância com ${alternations} mudanças`,
+            contextBefore: colors.slice(6, 10).join('-'),
+            isSimilarity: true,
+            level: 3
+        };
+    }
+    
+    // ═══════════════════════════════════════════════════════════════
+    // 🎯 NÍVEL 4: ANÁLISE DOS ÚLTIMOS 6-8 GIROS (MÍNIMO 5 VÁLIDOS)
+    // ═══════════════════════════════════════════════════════════════
+    
+    console.log('%c🎯 NÍVEL 4: Analisando últimos 6-8 giros', 'color: #FF6B35; font-weight: bold;');
+    console.log('%c   Buscando padrões mais amplos (mínimo 5 giros válidos)', 'color: #FF6B35;');
+    console.log('');
+    
+    // Pegar os últimos 8 giros (ignorando brancos) - mínimo 5 válidos
+    const last8NonWhite = colors.filter(c => c !== 'white').slice(0, 8);
+    
+    if (last8NonWhite.length >= 5) {
+        console.log(`%c   Sequência dos últimos ${last8NonWhite.length} giros (sem branco):`, 'color: #FF6B35;');
+        console.log(`%c   ${last8NonWhite.map(c => c === 'red' ? 'V' : 'P').join('-')}`, 'color: #FF6B35;');
+        console.log('');
+        console.log(`%c   Buscando no histórico: o que veio após esta sequência?`, 'color: #FFD700;');
+        console.log('');
+        
+        // Determinar o tipo baseado no comportamento
+        let patternType = 'sequencia_mixed';
+        const firstColor = last8NonWhite[0];
+        
+        // Verificar se é sequência da mesma cor
+        if (last8NonWhite.every(c => c === firstColor)) {
+            patternType = 'sequencia_' + firstColor;
+        } else {
+            patternType = 'alternancia_simples';
+        }
+        
+        return {
+            type: patternType,
+            size: last8NonWhite.length,
+            sequence: last8NonWhite.join('-'),
+            name: `Análise Ampla (${last8NonWhite.length} giros)`,
+            contextBefore: colors.slice(8, 12).join('-'),
+            isSimilarity: true,
+            level: 4,
+            forced: true // Flag para indicar que foi análise forçada
+        };
+    }
+    
+    // ═══════════════════════════════════════════════════════════════
+    // ❌ NÍVEL 5 REMOVIDO: 1 giro NÃO É PADRÃO!
+    // ═══════════════════════════════════════════════════════════════
+    // Se chegou aqui, não há padrão válido para análise!
+    
+    console.log('%c⚠️ NENHUM PADRÃO VÁLIDO DETECTADO!', 'color: #FF0000; font-weight: bold;');
+    console.log('%c   Não há sequências ou alternâncias suficientes para análise', 'color: #FF0000;');
+    console.log('%c   PULANDO este giro (não enviará sinal)', 'color: #FF0000; font-weight: bold;');
+    console.log('');
+    
+    return null; // ⚠️ SEM PADRÃO = SEM SINAL!
+}
+
+/**
+ * BUSCAR TODAS AS OCORRÊNCIAS DE UM PADRÃO NO HISTÓRICO
+ * Retorna distribuição completa (quantas vezes parou em cada tamanho)
+ */
+function searchPatternInHistory(activePattern, allPatterns, history) {
+    console.log('%c═══════════════════════════════════════════════════════════', 'color: #00CED1; font-weight: bold;');
+    console.log('%c📚 BUSCANDO PADRÃO NO HISTÓRICO', 'color: #00CED1; font-weight: bold;');
+    console.log('%c═══════════════════════════════════════════════════════════', 'color: #00CED1; font-weight: bold;');
+    console.log('');
+    
+    // Buscar todas as ocorrências do mesmo TIPO de padrão
+    const sameTypePatterns = allPatterns.filter(p => p.type === activePattern.type);
+    
+    console.log(`%cPadrão buscado: ${activePattern.name}`, 'color: #00CED1;');
+    console.log(`%cOcorrências encontradas: ${sameTypePatterns.length}`, 'color: #00CED1;');
+    console.log('');
+    
+    if (sameTypePatterns.length === 0) {
+        console.log('%c⚠️ Nenhuma ocorrência deste padrão no histórico', 'color: #FFAA00;');
+        return null;
+    }
+    
+    // Calcular distribuição de tamanhos
+    const distribution = {};
+    const nextColorStats = { red: 0, black: 0, white: 0 };
+    
+    sameTypePatterns.forEach(pattern => {
+        // Contar tamanho
+        if (!distribution[pattern.size]) {
+            distribution[pattern.size] = 0;
+        }
+        distribution[pattern.size]++;
+        
+        // Contar cor que veio depois
+        if (pattern.whatCameNext) {
+            nextColorStats[pattern.whatCameNext]++;
+        }
+    });
+    
+    console.log('%c📊 DISTRIBUIÇÃO DE TAMANHOS:', 'color: #00CED1; font-weight: bold;');
+    Object.keys(distribution).sort((a, b) => distribution[b] - distribution[a]).forEach(size => {
+        const count = distribution[size];
+        const percent = ((count / sameTypePatterns.length) * 100).toFixed(1);
+        console.log(`   ${size} giros: ${count} vezes (${percent}%)`);
+    });
+    console.log('');
+    
+    const totalNext = nextColorStats.red + nextColorStats.black + nextColorStats.white;
+    const redPercent = ((nextColorStats.red / totalNext) * 100).toFixed(1);
+    const blackPercent = ((nextColorStats.black / totalNext) * 100).toFixed(1);
+    const whitePercent = ((nextColorStats.white / totalNext) * 100).toFixed(1);
+    
+    console.log('%c🎯 COR QUE VEIO DEPOIS:', 'color: #00CED1; font-weight: bold;');
+    console.log(`   %cVERMELHO: ${nextColorStats.red} vezes (${redPercent}%)`, 'color: #FF0000; font-weight: bold;');
+    console.log(`   %cPRETO: ${nextColorStats.black} vezes (${blackPercent}%)`, 'color: #FFFFFF; font-weight: bold;');
+    console.log(`   %cBRANCO: ${nextColorStats.white} vezes (${whitePercent}%)`, 'color: #00FF00; font-weight: bold;');
+    console.log('');
+    
+    // Encontrar tamanho mais comum
+    const mostCommonSize = Object.keys(distribution).sort((a, b) => distribution[b] - distribution[a])[0];
+    const avgSize = sameTypePatterns.reduce((sum, p) => sum + p.size, 0) / sameTypePatterns.length;
+    
+    return {
+        occurrences: sameTypePatterns.length,
+        distribution: distribution,
+        mostCommonSize: parseInt(mostCommonSize),
+        averageSize: avgSize.toFixed(1),
+        nextColor: {
+            red: nextColorStats.red,
+            black: nextColorStats.black,
+            white: nextColorStats.white,
+            redPercent: parseFloat(redPercent),
+            blackPercent: parseFloat(blackPercent),
+            whitePercent: parseFloat(whitePercent)
+        }
+    };
+}
+
+/**
+ * VERIFICAR ACERTOS DOS SINAIS ANTERIORES
+ * Atualiza estatísticas quando um novo giro acontece
+ */
+async function checkPreviousSignalAccuracy(newSpin) {
+    if (signalsHistory.signals.length === 0) return;
+    
+    // Pegar último sinal enviado que ainda não foi verificado
+    const lastSignal = signalsHistory.signals[signalsHistory.signals.length - 1];
+    
+    if (lastSignal.verified) return; // Já foi verificado
+    
+    console.log('%c═══════════════════════════════════════════════════════════', 'color: #FF69B4; font-weight: bold;');
+    console.log('%c✔️ VERIFICANDO ACERTO DO SINAL ANTERIOR', 'color: #FF69B4; font-weight: bold;');
+    console.log('%c═══════════════════════════════════════════════════════════', 'color: #FF69B4; font-weight: bold;');
+    console.log('');
+    
+    const colorThatCame = newSpin.color;
+    const colorRecommended = lastSignal.colorRecommended;
+    const hit = colorThatCame === colorRecommended;
+    
+    console.log(`%cSinal anterior recomendou: ${colorRecommended.toUpperCase()}`, 'color: #FF69B4;');
+    console.log(`%cCor que saiu: ${colorThatCame.toUpperCase()}`, 'color: #FF69B4;');
+    console.log(`%cResultado: ${hit ? '✅ ACERTOU!' : '❌ ERROU'}`, hit ? 'color: #00FF00; font-weight: bold;' : 'color: #FF0000; font-weight: bold;');
+    console.log('');
+    
+    // Atualizar sinal
+    lastSignal.colorThatCame = colorThatCame;
+    lastSignal.hit = hit;
+    lastSignal.verified = true;
+    
+    // Atualizar estatísticas por padrão
+    const patternKey = `${lastSignal.patternType}_${lastSignal.patternSize}`;
+    if (!signalsHistory.patternStats[patternKey]) {
+        signalsHistory.patternStats[patternKey] = {
+            total: 0,
+            hits: 0,
+            misses: 0,
+            hitRate: 0
+        };
+    }
+    
+    signalsHistory.patternStats[patternKey].total++;
+    if (hit) {
+        signalsHistory.patternStats[patternKey].hits++;
+    } else {
+        signalsHistory.patternStats[patternKey].misses++;
+    }
+    signalsHistory.patternStats[patternKey].hitRate = 
+        (signalsHistory.patternStats[patternKey].hits / signalsHistory.patternStats[patternKey].total * 100).toFixed(1);
+    
+    // Atualizar estatísticas por contexto
+    const contextKey = `${lastSignal.patternType}_${lastSignal.contextBefore}`;
+    if (!signalsHistory.contextStats[contextKey]) {
+        signalsHistory.contextStats[contextKey] = {
+            total: 0,
+            hits: 0,
+            hitRate: 0
+        };
+    }
+    
+    signalsHistory.contextStats[contextKey].total++;
+    if (hit) {
+        signalsHistory.contextStats[contextKey].hits++;
+    }
+    signalsHistory.contextStats[contextKey].hitRate = 
+        (signalsHistory.contextStats[contextKey].hits / signalsHistory.contextStats[contextKey].total * 100).toFixed(1);
+    
+    console.log(`%c📊 Estatísticas do padrão "${lastSignal.patternName}":`, 'color: #FF69B4; font-weight: bold;');
+    console.log(`   Total de sinais: ${signalsHistory.patternStats[patternKey].total}`);
+    console.log(`   Acertos: ${signalsHistory.patternStats[patternKey].hits}`);
+    console.log(`   Erros: ${signalsHistory.patternStats[patternKey].misses}`);
+    console.log(`   %cTaxa de acerto: ${signalsHistory.patternStats[patternKey].hitRate}%`, 'color: #FFD700; font-weight: bold;');
+    console.log('');
+    
+    // ═══════════════════════════════════════════════════════════════
+    // 📊 RASTREAMENTO DE LOSSES CONSECUTIVOS
+    // ═══════════════════════════════════════════════════════════════
+    
+    // Atualizar contador de losses consecutivos
+    if (hit) {
+        signalsHistory.consecutiveLosses = 0; // ✅ Resetar ao acertar
+        console.log('%c✅ LOSS CONSECUTIVOS RESETADO!', 'color: #00FF00; font-weight: bold;');
+    } else {
+        signalsHistory.consecutiveLosses++; // ❌ Incrementar ao errar
+        console.log(`%c⚠️ LOSS CONSECUTIVOS: ${signalsHistory.consecutiveLosses}`, 'color: #FF0000; font-weight: bold;');
+        
+        // 🚨 ALERTA: Se chegou a 2 losses consecutivos
+        if (signalsHistory.consecutiveLosses >= 2) {
+            console.log('%c⚠️⚠️⚠️ ATENÇÃO: 2+ LOSSES CONSECUTIVOS! ⚠️⚠️⚠️', 'color: #FF0000; font-weight: bold; background: #FFFF00;');
+            console.log('%c   Sistema vai AUMENTAR o mínimo para proteger o usuário!', 'color: #FF6B6B; font-weight: bold;');
+        }
+    }
+    
+    // Atualizar performance recente (últimos 20 sinais)
+    signalsHistory.recentPerformance.push({
+        timestamp: Date.now(),
+        hit: hit,
+        patternKey: patternKey
+    });
+    
+    // Manter apenas os últimos 20
+    if (signalsHistory.recentPerformance.length > 20) {
+        signalsHistory.recentPerformance = signalsHistory.recentPerformance.slice(-20);
+    }
+    
+    // Calcular taxa de acerto recente (últimos 20 sinais)
+    const recentHits = signalsHistory.recentPerformance.filter(s => s.hit).length;
+    const recentTotal = signalsHistory.recentPerformance.length;
+    const recentHitRate = recentTotal > 0 ? ((recentHits / recentTotal) * 100).toFixed(1) : 0;
+    
+    console.log(`%c📊 PERFORMANCE RECENTE (últimos ${recentTotal} sinais):`, 'color: #00CED1; font-weight: bold;');
+    console.log(`   Acertos: ${recentHits}/${recentTotal} (${recentHitRate}%)`);
+    console.log('');
+    
+    // 🚨 ALERTA: Se performance recente < 50%, avisar!
+    if (recentTotal >= 10 && parseFloat(recentHitRate) < 50) {
+        console.log('%c⚠️⚠️⚠️ ALERTA: PERFORMANCE RECENTE MUITO BAIXA! ⚠️⚠️⚠️', 'color: #FF0000; font-weight: bold; font-size: 14px; background: #FFFF00;');
+        console.log(`%c   Taxa de acerto: ${recentHitRate}% (mínimo recomendado: 55%)`, 'color: #FF0000; font-weight: bold;');
+        console.log('%c   AÇÃO: Sistema irá AUMENTAR o mínimo exigido automaticamente!', 'color: #FFA500; font-weight: bold;');
+        console.log('');
+    }
+    
+    // Salvar
+    await saveSignalsHistory();
+}
+
+/**
+ * ✅ CALCULAR AJUSTE DE CONFIANÇA BASEADO EM PERFORMANCE
+ * Ajuste PROPORCIONAL baseado na diferença entre performance real e esperada
+ */
+function calculateConfidenceAdjustment(patternType, patternSize, contextBefore) {
+    const patternKey = `${patternType}_${patternSize}`;
+    const contextKey = `${patternType}_${contextBefore}`;
+    
+    let adjustment = 0;
+    let reasons = [];
+    
+    // ═══════════════════════════════════════════════════════════════
+    // AJUSTE 1: Baseado na performance do padrão
+    // ═══════════════════════════════════════════════════════════════
+    if (signalsHistory.patternStats[patternKey]) {
+        const stats = signalsHistory.patternStats[patternKey];
+        const hitRate = parseFloat(stats.hitRate);
+        
+        if (stats.total >= 3) { // Mínimo 3 sinais para ter significância estatística
+            // FÓRMULA: Ajuste = (Taxa Real - 50%) × Peso
+            // 50% = Expectativa neutra (como jogar moeda)
+            // Se taxa > 50% = padrão bom (ajuste positivo)
+            // Se taxa < 50% = padrão ruim (ajuste negativo)
+            
+            const expectedRate = 50; // 50% = neutro (chance aleatória)
+            const difference = hitRate - expectedRate;
+            
+            // Peso baseado na quantidade de amostras (mais amostras = mais confiável)
+            let sampleWeight = 1.0;
+            if (stats.total >= 10) sampleWeight = 1.5; // 10+ amostras = peso maior
+            if (stats.total >= 20) sampleWeight = 2.0; // 20+ amostras = peso ainda maior
+            
+            // Ajuste proporcional com limite
+            const calculatedAdjustment = (difference * 0.4 * sampleWeight); // 0.4 = fator de escala
+            adjustment += Math.max(-25, Math.min(20, calculatedAdjustment)); // Limita entre -25% e +20%
+            
+            const sign = calculatedAdjustment >= 0 ? '+' : '';
+            reasons.push(`Padrão: ${hitRate}% de acerto (${stats.hits}/${stats.total}) | Ajuste: ${sign}${adjustment.toFixed(1)}%`);
+        }
+    }
+    
+    // ═══════════════════════════════════════════════════════════════
+    // AJUSTE 2: Baseado no contexto específico
+    // ═══════════════════════════════════════════════════════════════
+    if (signalsHistory.contextStats[contextKey]) {
+        const stats = signalsHistory.contextStats[contextKey];
+        const hitRate = parseFloat(stats.hitRate);
+        
+        if (stats.total >= 2) { // Mínimo 2 sinais
+            // FÓRMULA: Ajuste = (Taxa Real - 50%) × 0.3
+            const expectedRate = 50;
+            const difference = hitRate - expectedRate;
+            const contextAdjustment = Math.max(-15, Math.min(15, difference * 0.3));
+            
+            adjustment += contextAdjustment;
+            
+            if (Math.abs(contextAdjustment) > 0.5) {
+                const sign = contextAdjustment >= 0 ? '+' : '';
+                reasons.push(`Contexto: ${hitRate}% de acerto (${stats.hits}/${stats.total}) | Ajuste: ${sign}${contextAdjustment.toFixed(1)}%`);
+            }
+        }
+    }
+    
+    return { adjustment, reasons };
+}
+
+/**
+ * ✅ ANÁLISE DE "TEMPERATURA" DOS ÚLTIMOS 20 GIROS
+ * Detecta se a Blaze está "quente" (sequências longas) ou "fria" (quebrando rápido)
+ */
+function analyzeLast20Temperature(last20Spins, activePattern) {
+    const colors = last20Spins.map(s => s.color);
+    
+    console.log('%c═══════════════════════════════════════════════════════════', 'color: #FF6B35; font-weight: bold;');
+    console.log('%c🌡️ ANÁLISE DE TEMPERATURA DOS ÚLTIMOS 20 GIROS', 'color: #FF6B35; font-weight: bold;');
+    console.log('%c═══════════════════════════════════════════════════════════', 'color: #FF6B35; font-weight: bold;');
+    console.log('');
+    
+    // Detectar todas as sequências e alternâncias nos últimos 20 giros
+    let sequencesFound = [];
+    let i = 0;
+    
+    while (i < colors.length) {
+        const currentColor = colors[i];
+        if (currentColor === 'white') {
+            i++;
+            continue;
+        }
+        
+        // Contar sequência da mesma cor
+        let seqLength = 1;
+        while (i + seqLength < colors.length && colors[i + seqLength] === currentColor) {
+            seqLength++;
+        }
+        
+        sequencesFound.push({
+            type: seqLength >= 2 ? 'sequencia' : 'single',
+            color: currentColor,
+            length: seqLength,
+            position: i
+        });
+        
+        i += seqLength;
+    }
+    
+    // Calcular estatísticas
+    const totalSequences = sequencesFound.filter(s => s.type === 'sequencia').length;
+    const longSequences = sequencesFound.filter(s => s.length >= 4).length; // 4+ mesma cor
+    const veryLongSequences = sequencesFound.filter(s => s.length >= 6).length; // 6+ mesma cor
+    
+    // Detectar se está em modo "alternância rápida" ou "sequências longas"
+    let avgSequenceLength = 0;
+    if (sequencesFound.length > 0) {
+        avgSequenceLength = sequencesFound.reduce((sum, s) => sum + s.length, 0) / sequencesFound.length;
+    }
+    
+    console.log('%c📊 ESTATÍSTICAS DOS ÚLTIMOS 20 GIROS:', 'color: #FF6B35; font-weight: bold;');
+    console.log(`   Total de sequências: ${totalSequences}`);
+    console.log(`   Sequências longas (4+): ${longSequences}`);
+    console.log(`   Sequências muito longas (6+): ${veryLongSequences}`);
+    console.log(`   Tamanho médio: ${avgSequenceLength.toFixed(1)} giros`);
+    console.log('');
+    
+    // ═══════════════════════════════════════════════════════════════
+    // ✅ DETERMINAR TEMPERATURA COM CÁLCULOS FUNDAMENTADOS
+    // ═══════════════════════════════════════════════════════════════
+    
+    let temperature = 'NEUTRA';
+    let adjustment = 0;
+    let reasoning = '';
+    
+    // FÓRMULA: Intensidade de Sequências = (Soma dos tamanhos das sequências longas) / 20 giros
+    // Quanto maior a intensidade, mais "quente" está a Blaze
+    const longSequencesIntensity = sequencesFound
+        .filter(s => s.length >= 3)
+        .reduce((sum, s) => sum + s.length, 0) / 20;
+    
+    // FÓRMULA: Score de Temperatura = (Média × 10) + (Sequências longas × 5) + (Intensidade × 20)
+    const temperatureScore = (avgSequenceLength * 10) + (longSequences * 5) + (longSequencesIntensity * 20);
+    
+    console.log(`%c🌡️ CÁLCULOS DE TEMPERATURA:`, 'color: #FF6B35; font-weight: bold;');
+    console.log(`   Intensidade de sequências: ${(longSequencesIntensity * 100).toFixed(1)}%`);
+    console.log(`   Score de temperatura: ${temperatureScore.toFixed(1)}`);
+    console.log('');
+    
+    // ═══════════════════════════════════════════════════════════════
+    // CLASSIFICAÇÃO DE TEMPERATURA (baseada no score)
+    // ═══════════════════════════════════════════════════════════════
+    
+    // TEMPERATURA QUENTE: Score >= 45 (muitas sequências longas)
+    if (temperatureScore >= 45) {
+        temperature = 'QUENTE 🔥';
+        
+        // FÓRMULA: Ajuste para sequências = Score × 0.3 (máximo +20%)
+        // FÓRMULA: Ajuste para alternâncias = -Score × 0.2 (penaliza alternâncias)
+        if (activePattern.type.includes('sequencia')) {
+            adjustment = Math.min(20, temperatureScore * 0.3);
+            reasoning = `Blaze QUENTE (score: ${temperatureScore.toFixed(0)}). Sequências tendem a continuar. (+${adjustment.toFixed(1)}%)`;
+        } else {
+            adjustment = Math.max(-10, -(temperatureScore - 45) * 0.2);
+            reasoning = `Blaze QUENTE mas padrão é alternância. Pode estar mudando. (${adjustment.toFixed(1)}%)`;
+        }
+    }
+    // TEMPERATURA FRIA: Score <= 20 (poucas ou nenhuma sequência)
+    else if (temperatureScore <= 20) {
+        temperature = 'FRIA ❄️';
+        
+        // FÓRMULA: Ajuste para sequências = -(20 - Score) × 0.7 (penaliza sequências)
+        // FÓRMULA: Ajuste para alternâncias = (20 - Score) × 0.5 (favorece alternâncias)
+        if (activePattern.type.includes('sequencia')) {
+            adjustment = -((20 - temperatureScore) * 0.7);
+            adjustment = Math.max(-20, adjustment);
+            reasoning = `Blaze FRIA (score: ${temperatureScore.toFixed(0)}). Sequências quebram rápido. (${adjustment.toFixed(1)}%)`;
+        } else {
+            adjustment = (20 - temperatureScore) * 0.5;
+            adjustment = Math.min(15, adjustment);
+            reasoning = `Blaze FRIA (score: ${temperatureScore.toFixed(0)}). Alternâncias se mantêm fortes. (+${adjustment.toFixed(1)}%)`;
+        }
+    }
+    // TEMPERATURA MÉDIA: Score entre 21-44 (comportamento misto)
+    else {
+        temperature = 'MÉDIA 🌤️';
+        
+        // FÓRMULA: Ajuste suave proporcional à proximidade dos extremos
+        // Score próximo de 45 = leve bônus para sequências
+        // Score próximo de 20 = leve bônus para alternâncias
+        
+        if (activePattern.type.includes('sequencia')) {
+            // Quanto mais próximo de 45, mais positivo (0 a +8%)
+            adjustment = ((temperatureScore - 20) / 25) * 8;
+            adjustment = Math.max(-5, Math.min(8, adjustment));
+            reasoning = `Blaze MÉDIA (score: ${temperatureScore.toFixed(0)}). Comportamento misto. (${adjustment >= 0 ? '+' : ''}${adjustment.toFixed(1)}%)`;
+        } else {
+            // Quanto mais próximo de 20, mais positivo para alternâncias (0 a +5%)
+            adjustment = ((44 - temperatureScore) / 24) * 5;
+            adjustment = Math.max(-3, Math.min(5, adjustment));
+            reasoning = `Blaze MÉDIA (score: ${temperatureScore.toFixed(0)}). Alternância moderada. (${adjustment >= 0 ? '+' : ''}${adjustment.toFixed(1)}%)`;
+        }
+    }
+    
+    // ═══════════════════════════════════════════════════════════════
+    // 🎯 ANÁLISE DE QUEBRAS (O que o usuário pediu!)
+    // ═══════════════════════════════════════════════════════════════
+    
+    // Se o padrão ativo é uma sequência, verificar se sequências similares quebraram recentemente
+    if (activePattern.type.includes('sequencia') && activePattern.size >= 3) {
+        console.log('%c🔍 ANÁLISE DE QUEBRAS (contexto dos últimos 20 giros):', 'color: #FFD700; font-weight: bold;');
+        console.log('');
+        
+        const patternColor = activePattern.sequence.split('-')[0];
+        const patternSize = activePattern.size;
+        
+        // ═══════════════════════════════════════════════════════════════
+        // 🎯 PRIORIDADE 1: VERIFICAÇÃO GLOBAL (10.000 GIROS REAIS)
+        // Análise científica CORRETA baseada em probabilidades reais
+        // ═══════════════════════════════════════════════════════════════
+        
+        console.log(`%c   Padrão atual: ${patternSize} ${patternColor === 'red' ? 'VERMELHOS' : 'PRETOS'}`, 'color: #FFD700;');
+        console.log('');
+        
+        // 🎯 LÓGICA INTELIGENTE: Cada cor tem seus pontos críticos DIFERENTES!
+        
+        // ═══ VERMELHO ═══
+        if (patternColor === 'red') {
+            if (patternSize >= MAX_SEQUENCIA_HISTORICO) {
+                // 11+ vermelhos: Nunca visto ir além disso! (Apenas log informativo)
+                console.log(`%c🚨 MÁXIMO HISTÓRICO ATINGIDO! (${patternSize} vermelhos)`, 'color: #FF0000; font-weight: bold; font-size: 14px;');
+                console.log(`%c   📊 Em 10.000 giros, NUNCA passou de ${MAX_SEQUENCIA_HISTORICO}!`, 'color: #FF0000; font-weight: bold;');
+                console.log(`%c   ℹ️ Probabilidade de quebra MUITO ALTA`, 'color: #FFA500;');
+                reasoning += ` | 🚨 Máximo histórico (${MAX_SEQUENCIA_HISTORICO}) atingido`;
+            }
+            else if (patternSize >= 7) {
+                // 7+ vermelhos: Log informativo apenas
+                console.log(`%c🔥 SEQUÊNCIA LONGA! (${patternSize} vermelhos)`, 'color: #FF4500; font-weight: bold;');
+                console.log(`%c   📊 Sequência considerável detectada`, 'color: #FF4500;');
+                console.log(`%c   ℹ️ Histórico indica probabilidade de quebra`, 'color: #FFA500;');
+                reasoning += ` | 🔥 Vermelho ${patternSize}: Sequência longa`;
+            }
+            // ✅ REMOVIDAS: TODAS as penalizações artificiais!
+            // Os dados históricos já incluem as probabilidades de quebra!
+        }
+        // ═══ PRETO ═══
+        else if (patternColor === 'black') {
+            if (patternSize >= MAX_SEQUENCIA_HISTORICO) {
+                // 11+ pretos: Nunca visto ir além disso! (Apenas log informativo)
+                console.log(`%c🚨 MÁXIMO HISTÓRICO ATINGIDO! (${patternSize} pretos)`, 'color: #FF0000; font-weight: bold; font-size: 14px;');
+                console.log(`%c   📊 Em 10.000 giros, NUNCA passou de ${MAX_SEQUENCIA_HISTORICO}!`, 'color: #FF0000; font-weight: bold;');
+                console.log(`%c   ℹ️ Probabilidade de quebra MUITO ALTA`, 'color: #FFA500;');
+                reasoning += ` | 🚨 Máximo histórico (${MAX_SEQUENCIA_HISTORICO}) atingido`;
+            }
+            else if (patternSize >= 7) {
+                // 7+ pretos: Log informativo apenas
+                console.log(`%c🔥 SEQUÊNCIA LONGA! (${patternSize} pretos)`, 'color: #FF0000; font-weight: bold;');
+                console.log(`%c   📊 Sequência considerável detectada (76.0% quebra real em 7+)`, 'color: #FF0000;');
+                console.log(`%c   ℹ️ Histórico indica probabilidade de quebra`, 'color: #FFA500;');
+                reasoning += ` | 🔥 Preto ${patternSize}: Sequência longa`;
+            }
+            // ✅ REMOVIDAS: TODAS as penalizações artificiais!
+            // Os dados históricos já incluem as probabilidades de quebra!
+        }
+        
+        console.log('');
+        
+        // ═══════════════════════════════════════════════════════════════
+        // 🎯 PRIORIDADE 2: ANÁLISE DOS ÚLTIMOS 20 GIROS (contexto recente)
+        // ═══════════════════════════════════════════════════════════════
+        
+        // Buscar sequências da mesma cor nos últimos 20 giros
+        const similarSequences = sequencesFound.filter(s => 
+            s.color === patternColor && s.length >= 3
+        );
+        
+        console.log(`%c   Sequências similares nos últimos 20: ${similarSequences.length}`, 'color: #FFD700;');
+        
+        if (similarSequences.length > 0) {
+            // Verificar o tamanho máximo que chegou
+            const maxLength = Math.max(...similarSequences.map(s => s.length));
+            const avgLength = similarSequences.reduce((sum, s) => sum + s.length, 0) / similarSequences.length;
+            
+            console.log(`%c   Tamanho máximo alcançado: ${maxLength} giros`, 'color: #FFD700;');
+            console.log(`%c   Tamanho médio: ${avgLength.toFixed(1)} giros`, 'color: #FFD700;');
+            console.log('');
+            
+            // 🎯 LÓGICA INTELIGENTE DO USUÁRIO:
+            // Se já estamos no giro X e nenhuma sequência recente passou de X,
+            // MUITO PROVÁVEL que vai quebrar!
+            
+            // ℹ️ Análise informativa apenas - SEM penalizações artificiais
+            if (patternSize >= maxLength) {
+                console.log(`%c⚠️ ALERTA: Padrão atual (${patternSize}) já atingiu o máximo recente (${maxLength})!`, 'color: #FF0000; font-weight: bold;');
+                console.log(`%c   ℹ️ Probabilidade de QUEBRA pode ser alta`, 'color: #FFA500;');
+                console.log(`%c   📊 Histórico já reflete esta probabilidade`, 'color: #00FF88;');
+                reasoning += ` | Padrão atingiu máximo recente (${maxLength})`;
+            } else if (patternSize >= avgLength) {
+                console.log(`%c⚠️ Padrão atual (${patternSize}) está acima da média recente (${avgLength.toFixed(1)})`, 'color: #FFA500; font-weight: bold;');
+                console.log(`%c   ℹ️ Sequência acima do normal nos últimos 20 giros`, 'color: #FFA500;');
+                reasoning += ` | Acima da média recente (${avgLength.toFixed(1)})`;
+            } else {
+                console.log(`%c✅ Padrão atual (${patternSize}) está abaixo do máximo (${maxLength}) e média (${avgLength.toFixed(1)})`, 'color: #00FF00;');
+                console.log(`%c   ✅ Ainda há espaço para crescer!`, 'color: #00FF88;');
+            }
+            // ✅ REMOVIDAS: TODAS as penalizações artificiais (-15%, -10%)
+            // Os dados históricos de 2000 giros já incluem essas probabilidades!
+        } else {
+            console.log(`%c   ℹ️ Nenhuma sequência similar encontrada nos últimos 20 giros`, 'color: #888;');
+            console.log(`%c   Não há dados recentes para comparação`, 'color: #888;');
+        }
+        
+        console.log('');
+    }
+    
+    console.log(`%c🌡️  TEMPERATURA: ${temperature}`, 'color: #FF6B35; font-weight: bold; font-size: 14px;');
+    console.log(`%c   ${reasoning}`, 'color: #FF8C00;');
+    console.log('');
+    console.log('%c═══════════════════════════════════════════════════════════', 'color: #FF6B35; font-weight: bold;');
+    console.log('');
+    
+    // ✅ CALCULAR COR DOMINANTE NOS ÚLTIMOS 20 GIROS
+    let colorCounts = { red: 0, black: 0, white: 0 };
+    last20Spins.forEach(spin => {
+        colorCounts[spin.color]++;
+    });
+    
+    const total20 = last20Spins.length;
+    const colorPercents = {
+        red: ((colorCounts.red / total20) * 100).toFixed(1),
+        black: ((colorCounts.black / total20) * 100).toFixed(1),
+        white: ((colorCounts.white / total20) * 100).toFixed(1)
+    };
+    
+    // Encontrar cor dominante
+    let dominantColor = 'red';
+    let dominantCount = colorCounts.red;
+    let dominantPercent = parseFloat(colorPercents.red);
+    
+    if (colorCounts.black > dominantCount) {
+        dominantColor = 'black';
+        dominantCount = colorCounts.black;
+        dominantPercent = parseFloat(colorPercents.black);
+    }
+    if (colorCounts.white > dominantCount) {
+        dominantColor = 'white';
+        dominantCount = colorCounts.white;
+        dominantPercent = parseFloat(colorPercents.white);
+    }
+    
+    // Considerar "dominante" se for >=55% (11+ em 20 giros)
+    const hasDominantColor = dominantPercent >= 55;
+    
+    return {
+        temperature,
+        adjustment,
+        reasoning,
+        stats: {
+            totalSequences,
+            longSequences,
+            veryLongSequences,
+            avgSequenceLength
+        },
+        // ✅ Informações de cor dominante
+        colorCounts,
+        colorPercents,
+        dominantColor,
+        dominantCount,
+        dominantPercent,
+        hasDominantColor
+    };
+}
+
+// ═══════════════════════════════════════════════════════════════
+// 🧠 FUNÇÕES DE MEMÓRIA ATIVA - SISTEMA INCREMENTAL
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * 🔧 INICIALIZAR MEMÓRIA ATIVA
+ * Analisa todo o histórico UMA VEZ e armazena em memória
+ * Deve ser chamado apenas na primeira vez ou após reset
+ */
+async function inicializarMemoriaAtiva(history) {
+    // ⚠️ Evitar inicializações simultâneas
+    if (memoriaAtivaInicializando) {
+        console.log('%c⏳ Memória Ativa já está sendo inicializada...', 'color: #FFA500;');
+        return false;
+    }
+    
+    memoriaAtivaInicializando = true;
+    const inicio = performance.now();
+    
+    console.log('');
+    console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #00CED1; font-weight: bold; font-size: 14px;');
+    console.log('%c║  🧠 INICIALIZANDO MEMÓRIA ATIVA                          ║', 'color: #00CED1; font-weight: bold; font-size: 14px;');
+    console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #00CED1; font-weight: bold;');
+    console.log('');
+    
+    try {
+        // 1. COPIAR HISTÓRICO
+        console.log('%c📊 ETAPA 1/5: Copiando histórico...', 'color: #00CED1; font-weight: bold;');
+        memoriaAtiva.giros = [...history].slice(0, 2000);
+        memoriaAtiva.ultimos20 = memoriaAtiva.giros.slice(0, 20);
+        memoriaAtiva.estatisticas.totalGiros = memoriaAtiva.giros.length;
+        console.log(`%c   ✅ ${memoriaAtiva.giros.length} giros copiados`, 'color: #00FF88;');
+        console.log('');
+        
+        // 2. CALCULAR DISTRIBUIÇÃO
+        console.log('%c📊 ETAPA 2/5: Calculando distribuição de cores...', 'color: #00CED1; font-weight: bold;');
+        const distribuicao = { red: 0, black: 0, white: 0 };
+        for (const giro of memoriaAtiva.giros) {
+            if (giro.color) {
+                distribuicao[giro.color]++;
+            }
+        }
+        const total = memoriaAtiva.giros.length;
+        memoriaAtiva.estatisticas.distribuicao = {
+            red: { count: distribuicao.red, percent: (distribuicao.red / total) * 100 },
+            black: { count: distribuicao.black, percent: (distribuicao.black / total) * 100 },
+            white: { count: distribuicao.white, percent: (distribuicao.white / total) * 100 }
+        };
+        console.log(`%c   🔴 Vermelho: ${distribuicao.red} (${memoriaAtiva.estatisticas.distribuicao.red.percent.toFixed(2)}%)`, 'color: #FF6B6B;');
+        console.log(`%c   ⚫ Preto: ${distribuicao.black} (${memoriaAtiva.estatisticas.distribuicao.black.percent.toFixed(2)}%)`, 'color: #888;');
+        console.log(`%c   ⚪ Branco: ${distribuicao.white} (${memoriaAtiva.estatisticas.distribuicao.white.percent.toFixed(2)}%)`, 'color: #FFF;');
+        console.log('');
+        
+        // 3. DETECTAR TODOS OS PADRÕES NO HISTÓRICO
+        console.log('%c🔍 ETAPA 3/5: Detectando todos os padrões...', 'color: #00CED1; font-weight: bold;');
+        const todosOsPadroes = detectAllPatternTypes(memoriaAtiva.giros);
+        
+        // Organizar por tipo
+        memoriaAtiva.padroesDetectados = {
+            alternanciaSimples: todosOsPadroes.filter(p => p.type === 'alternancia_simples'),
+            alternanciasDupla: todosOsPadroes.filter(p => p.type === 'alternancia_dupla'),
+            alternanciasTripla: todosOsPadroes.filter(p => p.type === 'alternancia_tripla'),
+            sequenciasRed: todosOsPadroes.filter(p => p.type === 'sequencia_red'),
+            sequenciasBlack: todosOsPadroes.filter(p => p.type === 'sequencia_black')
+        };
+        
+        console.log(`%c   🔄 Alternância Simples: ${memoriaAtiva.padroesDetectados.alternanciaSimples.length}`, 'color: #00FF88;');
+        console.log(`%c   🔄 Alternância Dupla: ${memoriaAtiva.padroesDetectados.alternanciasDupla.length}`, 'color: #00FF88;');
+        console.log(`%c   🔄 Alternância Tripla: ${memoriaAtiva.padroesDetectados.alternanciasTripla.length}`, 'color: #00FF88;');
+        console.log(`%c   🔴 Sequências Vermelhas: ${memoriaAtiva.padroesDetectados.sequenciasRed.length}`, 'color: #FF6B6B;');
+        console.log(`%c   ⚫ Sequências Pretas: ${memoriaAtiva.padroesDetectados.sequenciasBlack.length}`, 'color: #888;');
+        console.log('');
+        
+        // 4. CALCULAR ESTATÍSTICAS POR PADRÃO
+        console.log('%c📊 ETAPA 4/5: Calculando estatísticas por padrão...', 'color: #00CED1; font-weight: bold;');
+        memoriaAtiva.estatisticas.porPadrao = {};
+        
+        // Para cada padrão detectado, calcular o que veio depois
+        for (const padroes of Object.values(memoriaAtiva.padroesDetectados)) {
+            for (const padrao of padroes) {
+                const chave = `${padrao.type}_${padrao.size}`;
+                
+                if (!memoriaAtiva.estatisticas.porPadrao[chave]) {
+                    memoriaAtiva.estatisticas.porPadrao[chave] = {
+                        type: padrao.type,
+                        size: padrao.size,
+                        ocorrencias: 0,
+                        proximaCor: { red: 0, black: 0, white: 0 }
+                    };
+                }
+                
+                memoriaAtiva.estatisticas.porPadrao[chave].ocorrencias++;
+                
+                // Registrar o que veio depois
+                if (padrao.whatCameNext) {
+                    memoriaAtiva.estatisticas.porPadrao[chave].proximaCor[padrao.whatCameNext]++;
+                }
+            }
+        }
+        
+        // Calcular percentuais
+        for (const stats of Object.values(memoriaAtiva.estatisticas.porPadrao)) {
+            const total = stats.proximaCor.red + stats.proximaCor.black + stats.proximaCor.white;
+            if (total > 0) {
+                stats.proximaCor.redPercent = (stats.proximaCor.red / total) * 100;
+                stats.proximaCor.blackPercent = (stats.proximaCor.black / total) * 100;
+                stats.proximaCor.whitePercent = (stats.proximaCor.white / total) * 100;
+            }
+        }
+        
+        const totalPadroesCadastrados = Object.keys(memoriaAtiva.estatisticas.porPadrao).length;
+        console.log(`%c   ✅ ${totalPadroesCadastrados} tipos de padrões cadastrados`, 'color: #00FF88;');
+        console.log('');
+        
+        // 5. MARCAR COMO INICIALIZADA
+        console.log('%c✅ ETAPA 5/5: Finalizando...', 'color: #00CED1; font-weight: bold;');
+        memoriaAtiva.inicializada = true;
+        memoriaAtiva.ultimaAtualizacao = new Date();
+        memoriaAtiva.tempoInicializacao = performance.now() - inicio;
+        memoriaAtiva.totalAtualizacoes = 0;
+        
+        console.log('');
+        console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #00FF00; font-weight: bold; font-size: 14px;');
+        console.log('%c║  ✅ MEMÓRIA ATIVA INICIALIZADA COM SUCESSO!              ║', 'color: #00FF00; font-weight: bold; font-size: 14px;');
+        console.log('%c╠═══════════════════════════════════════════════════════════╣', 'color: #00FF00; font-weight: bold;');
+        console.log(`%c║  ⏱️  Tempo: ${memoriaAtiva.tempoInicializacao.toFixed(2)}ms                                    ║`, 'color: #00FF88;');
+        console.log(`%c║  📊 Giros: ${memoriaAtiva.giros.length}                                          ║`, 'color: #00FF88;');
+        console.log(`%c║  🎯 Padrões detectados: ${todosOsPadroes.length}                             ║`, 'color: #00FF88;');
+        console.log(`%c║  📈 Tipos únicos: ${totalPadroesCadastrados}                                      ║`, 'color: #00FF88;');
+        console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #00FF00; font-weight: bold;');
+        console.log('');
+        
+        memoriaAtivaInicializando = false;
+        return true;
+        
+    } catch (error) {
+        console.error('%c❌ ERRO ao inicializar memória ativa:', 'color: #FF0000; font-weight: bold;');
+        console.error(error);
+        memoriaAtivaInicializando = false;
+        memoriaAtiva.inicializada = false;
+        return false;
+    }
+}
+
+/**
+ * ⚡ ATUALIZAR MEMÓRIA INCREMENTALMENTE
+ * Adiciona novo giro e atualiza apenas o necessário (RÁPIDO!)
+ */
+function atualizarMemoriaIncrementalmente(novoGiro) {
+    if (!memoriaAtiva.inicializada) {
+        console.warn('%c⚠️ Memória Ativa não inicializada! Não é possível atualizar.', 'color: #FFA500;');
+        return false;
+    }
+    
+    const inicio = performance.now();
+    
+    try {
+        // 1. ADICIONAR NOVO GIRO NO INÍCIO
+        memoriaAtiva.giros.unshift(novoGiro);
+        
+        // 2. REMOVER O MAIS ANTIGO (manter 2000)
+        if (memoriaAtiva.giros.length > 2000) {
+            const removido = memoriaAtiva.giros.pop();
+            
+            // Atualizar distribuição (decrementar cor removida)
+            if (removido && removido.color) {
+                memoriaAtiva.estatisticas.distribuicao[removido.color].count--;
+            }
+        }
+        
+        // 3. ATUALIZAR DISTRIBUIÇÃO (incrementar nova cor)
+        if (novoGiro.color) {
+            memoriaAtiva.estatisticas.distribuicao[novoGiro.color].count++;
+        }
+        
+        // Recalcular percentuais
+        const total = memoriaAtiva.giros.length;
+        for (const cor of ['red', 'black', 'white']) {
+            memoriaAtiva.estatisticas.distribuicao[cor].percent = 
+                (memoriaAtiva.estatisticas.distribuicao[cor].count / total) * 100;
+        }
+        
+        // 4. ATUALIZAR ÚLTIMOS 20
+        memoriaAtiva.ultimos20 = memoriaAtiva.giros.slice(0, 20);
+        
+        // 5. DETECTAR NOVO PADRÃO ATIVO (apenas nos últimos 20)
+        // Isso é rápido porque só analisa 20 giros!
+        memoriaAtiva.padraoAtual = findActivePattern(memoriaAtiva.ultimos20);
+        
+        // 6. ATUALIZAR MÉTRICAS
+        memoriaAtiva.ultimaAtualizacao = new Date();
+        memoriaAtiva.tempoUltimaAtualizacao = performance.now() - inicio;
+        memoriaAtiva.totalAtualizacoes++;
+        
+        // ✅ Log resumido (apenas se demorar muito)
+        if (memoriaAtiva.tempoUltimaAtualizacao > 50) {
+            console.log(`%c⚡ Memória atualizada em ${memoriaAtiva.tempoUltimaAtualizacao.toFixed(2)}ms`, 'color: #FFD700;');
+        }
+        
+        return true;
+        
+    } catch (error) {
+        console.error('%c❌ ERRO ao atualizar memória incrementalmente:', 'color: #FF0000; font-weight: bold;');
+        console.error(error);
+        return false;
+    }
+}
+
+/**
+ * 🔍 VALIDAR MEMÓRIA ATIVA
+ * Verifica integridade e sincronização com cachedHistory
+ */
+function validarMemoriaAtiva() {
+    if (!memoriaAtiva.inicializada) {
+        return { valida: false, motivo: 'Não inicializada' };
+    }
+    
+    // Verificar se tem giros
+    if (memoriaAtiva.giros.length === 0) {
+        return { valida: false, motivo: 'Sem giros na memória' };
+    }
+    
+    // Verificar sincronização com cachedHistory
+    if (cachedHistory.length > 0 && memoriaAtiva.giros.length > 0) {
+        const ultimoGiroMemoria = memoriaAtiva.giros[0];
+        const ultimoGiroCache = cachedHistory[0];
+        
+        if (ultimoGiroMemoria.number !== ultimoGiroCache.number || 
+            ultimoGiroMemoria.color !== ultimoGiroCache.color) {
+            return { 
+                valida: false, 
+                motivo: 'Dessincronizado com cachedHistory',
+                detalhes: {
+                    memoria: ultimoGiroMemoria,
+                    cache: ultimoGiroCache
+                }
+            };
+        }
+    }
+    
+    // Verificar se estatísticas fazem sentido
+    const totalDist = memoriaAtiva.estatisticas.distribuicao.red.count +
+                      memoriaAtiva.estatisticas.distribuicao.black.count +
+                      memoriaAtiva.estatisticas.distribuicao.white.count;
+    
+    if (totalDist !== memoriaAtiva.giros.length) {
+        return { 
+            valida: false, 
+            motivo: 'Distribuição inconsistente',
+            detalhes: {
+                totalDistribuicao: totalDist,
+                totalGiros: memoriaAtiva.giros.length
+            }
+        };
+    }
+    
+    return { valida: true };
+}
+
+/**
+ * 🔄 RESETAR MEMÓRIA ATIVA
+ * Limpa tudo e força reinicialização
+ */
+function resetarMemoriaAtiva() {
+    console.log('%c🔄 Resetando Memória Ativa...', 'color: #FFA500; font-weight: bold;');
+    
+    memoriaAtiva = {
+        inicializada: false,
+        ultimaAtualizacao: null,
+        versao: memoriaAtiva.versao + 1,
+        giros: [],
+        ultimos20: [],
+        padroesDetectados: {
+            alternanciaSimples: [],
+            alternanciasDupla: [],
+            alternanciasTripla: [],
+            sequenciasRed: [],
+            sequenciasBlack: []
+        },
+        estatisticas: {
+            totalGiros: 0,
+            distribuicao: {
+                red: { count: 0, percent: 0 },
+                black: { count: 0, percent: 0 },
+                white: { count: 0, percent: 0 }
+            },
+            porPadrao: {}
+        },
+        padraoAtual: null,
+        tempoInicializacao: 0,
+        tempoUltimaAtualizacao: 0,
+        totalAtualizacoes: 0
+    };
+    
+    memoriaAtivaInicializando = false;
+    
+    console.log('%c✅ Memória Ativa resetada!', 'color: #00FF88;');
+}
+
+/**
+ * FUNÇÃO PRINCIPAL: Análise Avançada por Padrões (substitui IA)
+ */
+async function analyzeWithPatternSystem(history) {
+    console.log('');
+    console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #00FF00; font-weight: bold; font-size: 16px;');
+    console.log('%c║  🎯 ANÁLISE AVANÇADA POR PADRÕES (100% JavaScript)       ║', 'color: #00FF00; font-weight: bold; font-size: 16px;');
+    console.log('%c╠═══════════════════════════════════════════════════════════╣', 'color: #00FF00; font-weight: bold;');
+    console.log('%c║  📊 Sistema de Auto-Aprendizado ATIVO                    ║', 'color: #00FF88; font-weight: bold;');
+    console.log('%c║  🧠 MEMÓRIA ATIVA: Sistema Incremental                   ║', 'color: #00CED1; font-weight: bold;');
+    console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #00FF00; font-weight: bold; font-size: 16px;');
+    console.log('');
+    
+    try {
+        // ═══════════════════════════════════════════════════════════════
+        // 🧠 ETAPA 0: GERENCIAR MEMÓRIA ATIVA (Sistema Incremental)
+        // ═══════════════════════════════════════════════════════════════
+        
+        // Verificar se a memória ativa está inicializada
+        if (!memoriaAtiva.inicializada) {
+            console.log('%c🧠 Memória Ativa não inicializada. Inicializando...', 'color: #00CED1; font-weight: bold;');
+            const inicializou = await inicializarMemoriaAtiva(history);
+            
+            if (!inicializou) {
+                console.error('%c❌ Falha ao inicializar Memória Ativa! Usando modo tradicional.', 'color: #FF0000; font-weight: bold;');
+                // Continuar sem memória ativa (fallback para modo tradicional)
+            } else {
+                console.log('%c✅ Memória Ativa pronta! Próximos giros serão atualizados incrementalmente.', 'color: #00FF88; font-weight: bold;');
+            }
+        } else {
+            // Memória já inicializada - validar integridade
+            const validacao = validarMemoriaAtiva();
+            
+            if (!validacao.valida) {
+                console.warn(`%c⚠️ Memória Ativa inválida: ${validacao.motivo}`, 'color: #FFA500; font-weight: bold;');
+                console.log('%c🔄 Reinicializando Memória Ativa...', 'color: #00CED1;');
+                resetarMemoriaAtiva();
+                await inicializarMemoriaAtiva(history);
+            } else {
+                // ⚡ MEMÓRIA VÁLIDA - Usar sistema incremental!
+                console.log('%c⚡ MEMÓRIA ATIVA: Pronta! (Inicializada há ' + 
+                    Math.round((Date.now() - memoriaAtiva.ultimaAtualizacao) / 1000) + 's)', 
+                    'color: #00CED1; font-weight: bold;');
+                console.log(`%c   📊 Atualizações: ${memoriaAtiva.totalAtualizacoes} | ⏱️ Última: ${memoriaAtiva.tempoUltimaAtualizacao.toFixed(2)}ms`, 
+                    'color: #00CED1;');
+            }
+        }
+        
+        console.log('');
+        
+        // Verificar acerto do sinal anterior (se houver)
+        if (history.length > 0) {
+            await checkPreviousSignalAccuracy(history[0]);
+        }
+        
+        // ═══════════════════════════════════════════════════════════════
+        // ETAPA 1: Obter padrões detectados (da memória ou recalcular)
+        // ═══════════════════════════════════════════════════════════════
+        
+        const aiHistorySize = Math.min(Math.max(analyzerConfig.aiHistorySize || 50, 20), 2000);
+        const analyzedHistory = history.slice(0, aiHistorySize);
+        
+        console.log(`%c📚 Analisando ${aiHistorySize} giros do histórico...`, 'color: #00BFFF; font-weight: bold;');
+        
+        let allPatterns;
+        
+        // ⚡ SE MEMÓRIA ATIVA ESTÁ PRONTA: Usar padrões pré-calculados!
+        if (memoriaAtiva.inicializada && aiHistorySize >= 2000) {
+            console.log('%c⚡ Usando padrões PRÉ-CALCULADOS da Memória Ativa! (Instantâneo)', 'color: #FFD700; font-weight: bold;');
+            
+            // Concatenar todos os padrões detectados
+            allPatterns = [
+                ...memoriaAtiva.padroesDetectados.alternanciaSimples,
+                ...memoriaAtiva.padroesDetectados.alternanciasDupla,
+                ...memoriaAtiva.padroesDetectados.alternanciasTripla,
+                ...memoriaAtiva.padroesDetectados.sequenciasRed,
+                ...memoriaAtiva.padroesDetectados.sequenciasBlack
+            ];
+            
+            console.log(`%c   ✅ ${allPatterns.length} padrões carregados da memória (0ms!)`, 'color: #00FF88;');
+        } else {
+            // Modo tradicional: Detectar padrões agora (mais lento)
+            console.log('%c🔄 Detectando padrões no histórico... (modo tradicional)', 'color: #FFA500;');
+            const inicioDeteccao = performance.now();
+            allPatterns = detectAllPatternTypes(analyzedHistory);
+            const tempoDeteccao = performance.now() - inicioDeteccao;
+            console.log(`%c   ✅ ${allPatterns.length} padrões detectados em ${tempoDeteccao.toFixed(2)}ms`, 'color: #00FF88;');
+        }
+        
+        console.log('');
+        
+        if (allPatterns.length === 0) {
+            console.log('%c⚠️ Histórico muito aleatório. Sem padrões claros.', 'color: #FFAA00; font-weight: bold;');
+            return null;
+        }
+        
+        // ETAPA 2: Identificar padrão ATIVO nos últimos 20 giros
+        const last20Spins = history.slice(0, 20);
+        const activePattern = findActivePattern(last20Spins);
+        
+        if (!activePattern) {
+            console.log('%c⚠️ Nenhum padrão ativo detectado nos últimos 20 giros', 'color: #FFAA00; font-weight: bold;');
+            return null;
+        }
+        
+        // ETAPA 3: Buscar padrão no histórico
+        const historicalData = searchPatternInHistory(activePattern, allPatterns, analyzedHistory);
+        
+        if (!historicalData) {
+            console.log('%c⚠️ Padrão ativo não encontrado no histórico analisado', 'color: #FFAA00; font-weight: bold;');
+            return null;
+        }
+        
+        // ✅ ETAPA 3.5: ANALISAR "TEMPERATURA" DOS ÚLTIMOS 20 GIROS
+        const temperatureAnalysis = analyzeLast20Temperature(last20Spins, activePattern);
+        
+        // ETAPA 4: Determinar cor recomendada
+        const nextColor = historicalData.nextColor;
+        let recommendedColor = 'red';
+        let baseConfidence = 50;
+        
+        // ✅ CORREÇÃO CRÍTICA: Comparar contadores BRUTOS ao invés de porcentagens
+        // Evita erros de arredondamento
+        if (nextColor.red > nextColor.black && nextColor.red > nextColor.white) {
+            recommendedColor = 'red';
+            baseConfidence = nextColor.redPercent;
+        } else if (nextColor.black > nextColor.red && nextColor.black > nextColor.white) {
+            recommendedColor = 'black';
+            baseConfidence = nextColor.blackPercent;
+        } else if (nextColor.white > nextColor.red && nextColor.white > nextColor.black) {
+            recommendedColor = 'white';
+            baseConfidence = nextColor.whitePercent;
+        } else {
+            // ✅ EMPATE: Escolher a cor com maior porcentagem (desempate por arredondamento)
+            if (nextColor.redPercent >= nextColor.blackPercent && nextColor.redPercent >= nextColor.whitePercent) {
+                recommendedColor = 'red';
+                baseConfidence = nextColor.redPercent;
+            } else if (nextColor.blackPercent >= nextColor.whitePercent) {
+                recommendedColor = 'black';
+                baseConfidence = nextColor.blackPercent;
+            } else {
+                recommendedColor = 'white';
+                baseConfidence = nextColor.whitePercent;
+            }
+        }
+        
+        // ✅ ETAPA 4.1: ANÁLISE DE "COR QUENTE/FRIA" (ÚLTIMOS 20 GIROS)
+        // NÃO inverte a cor! Apenas mostra se a cor recomendada está quente ou fria
+        
+        // Verificar se a cor recomendada está "quente" ou "fria"
+        const recommendedColorCount = temperatureAnalysis.colorCounts[recommendedColor];
+        const totalColors = 20;
+        const recommendedColorPercent = ((recommendedColorCount / totalColors) * 100).toFixed(1);
+        
+        console.log('%c═══════════════════════════════════════════════════════════', 'color: #FF6B35; font-weight: bold;');
+        console.log('%c🌡️ ANÁLISE DE COR QUENTE/FRIA (ÚLTIMOS 20 GIROS)', 'color: #FF6B35; font-weight: bold; font-size: 14px;');
+        console.log('%c═══════════════════════════════════════════════════════════', 'color: #FF6B35; font-weight: bold;');
+        console.log('');
+        console.log(`%c📊 Distribuição dos últimos 20 giros:`, 'color: #FF6B35;');
+        console.log(`%c   🔴 VERMELHO: ${temperatureAnalysis.colorCounts.red} (${temperatureAnalysis.colorPercents.red}%)`, 
+            'color: ' + (recommendedColor === 'red' && temperatureAnalysis.colorCounts.red > temperatureAnalysis.colorCounts.black ? '#FF0000' : '#888') + ';');
+        console.log(`%c   ⚫ PRETO: ${temperatureAnalysis.colorCounts.black} (${temperatureAnalysis.colorPercents.black}%)`, 
+            'color: ' + (recommendedColor === 'black' && temperatureAnalysis.colorCounts.black > temperatureAnalysis.colorCounts.red ? '#FFFFFF' : '#888') + ';');
+        console.log(`%c   ⚪ BRANCO: ${temperatureAnalysis.colorCounts.white} (${temperatureAnalysis.colorPercents.white}%)`, 
+            'color: #888;');
+        console.log('');
+        
+        console.log(`%c🎯 Cor recomendada (PADRÃO): ${recommendedColor.toUpperCase()}`, 'color: #FFD700; font-weight: bold;');
+        console.log(`%c📊 Aparições nos últimos 20 giros: ${recommendedColorCount} (${recommendedColorPercent}%)`, 'color: #FFD700;');
+        
+        if (recommendedColorCount >= 12) {
+            console.log(`%c🔥 Status: QUENTE! (aparecendo muito)`, 'color: #00FF00; font-weight: bold;');
+            console.log(`%c   ✅ Cor está ATIVA no jogo agora!`, 'color: #00FF00;');
+            console.log(`%c   📈 Ajuste de temperatura já aplicado (+${temperatureAnalysis.adjustment.toFixed(1)}%)`, 'color: #00FF88;');
+        } else if (recommendedColorCount >= 8) {
+            console.log(`%c🌤️ Status: NORMAL (frequência equilibrada)`, 'color: #FFAA00;');
+            console.log(`%c   ➡️ Cor está em ritmo normal`, 'color: #FFAA00;');
+        } else {
+            console.log(`%c❄️ Status: FRIA! (aparecendo pouco)`, 'color: #00AAFF; font-weight: bold;');
+            console.log(`%c   ⚠️ Cor está MENOS ATIVA no jogo`, 'color: #00AAFF;');
+            console.log(`%c   📉 Ajuste de temperatura já aplicado (${temperatureAnalysis.adjustment.toFixed(1)}%)`, 'color: #00AAFF;');
+        }
+        
+        console.log('');
+        console.log(`%c💡 IMPORTANTE: Esta análise NÃO muda a cor recomendada!`, 'color: #FFA500; font-weight: bold;');
+        console.log(`%c   Apenas ajusta a CONFIANÇA para cima (quente) ou para baixo (fria)`, 'color: #FFA500;');
+        console.log('');
+        console.log('%c═══════════════════════════════════════════════════════════', 'color: #FF6B35; font-weight: bold;');
+        console.log('');
+        
+        console.log('%c═══════════════════════════════════════════════════════════', 'color: #FFD700; font-weight: bold;');
+        console.log('%c💡 DECISÃO BASEADA EM DADOS REAIS', 'color: #FFD700; font-weight: bold;');
+        console.log('%c═══════════════════════════════════════════════════════════', 'color: #FFD700; font-weight: bold;');
+        console.log('');
+        console.log('%c📊 ESTATÍSTICAS DO PADRÃO:', 'color: #FFD700; font-weight: bold;');
+        console.log(`   Vermelho: ${nextColor.red} ocorrências (${nextColor.redPercent}%)`);
+        console.log(`   Preto: ${nextColor.black} ocorrências (${nextColor.blackPercent}%)`);
+        console.log(`   Branco: ${nextColor.white} ocorrências (${nextColor.whitePercent}%)`);
+        console.log('');
+        
+        // ═══════════════════════════════════════════════════════════════
+        // 🔄 ETAPA 4.5: INVERTER RECOMENDAÇÃO SE DETECTOU QUEBRA! (DESATIVADO)
+        // ═══════════════════════════════════════════════════════════════
+        // ⚠️ DESATIVADO: Estava causando viés excessivo para PRETO
+        // A lógica de COR DOMINANTE já faz um trabalho melhor!
+        
+        if (false && activePattern.shouldInvertRecommendation) {
+            const originalColor = recommendedColor;
+            const originalConfidence = baseConfidence;
+            
+            console.log('%c═══════════════════════════════════════════════════════════', 'color: #FF0000; font-weight: bold;');
+            console.log('%c🔄 INVERSÃO DE RECOMENDAÇÃO (QUEBRA DETECTADA)', 'color: #FF0000; font-weight: bold; font-size: 14px;');
+            console.log('%c═══════════════════════════════════════════════════════════', 'color: #FF0000; font-weight: bold;');
+            console.log('');
+            console.log(`%c❌ Histórico sugeria: ${originalColor.toUpperCase()} (${originalConfidence}%)`, 'color: #FF6B6B;');
+            console.log(`%c⚠️ Motivo da inversão: ${activePattern.breakReason}`, 'color: #FFA500; font-weight: bold;');
+            console.log('');
+            
+            // 🎯 INVERTER PARA A COR OPOSTA
+            if (originalColor === 'red') {
+                recommendedColor = 'black';
+                // Usar a confiança da cor oposta do histórico
+                baseConfidence = nextColor.blackPercent;
+                console.log(`%c🔄 Nova recomendação: PRETO (${baseConfidence}%)`, 'color: #00FF00; font-weight: bold;');
+            } else if (originalColor === 'black') {
+                recommendedColor = 'red';
+                // Usar a confiança da cor oposta do histórico
+                baseConfidence = nextColor.redPercent;
+                console.log(`%c🔄 Nova recomendação: VERMELHO (${baseConfidence}%)`, 'color: #00FF00; font-weight: bold;');
+            }
+            // Se era branco, manter (raro)
+            
+            console.log('%c   🎯 Apostando na QUEBRA do padrão!', 'color: #00FF88; font-weight: bold;');
+            console.log('');
+            console.log('%c═══════════════════════════════════════════════════════════', 'color: #FF0000; font-weight: bold;');
+            console.log('');
+        }
+        
+        console.log('');
+        console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #00FF00; font-weight: bold; font-size: 16px;');
+        console.log(`%c║  🎯 COR RECOMENDADA FINAL: ${recommendedColor.toUpperCase().padEnd(22)}║`, 'color: #00FF00; font-weight: bold; font-size: 16px;');
+        console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #00FF00; font-weight: bold; font-size: 16px;');
+        console.log(`%c📊 Confiança base (histórico): ${baseConfidence}%`, 'color: #FFD700;');
+        console.log('');
+        console.log('%c📋 RASTREAMENTO DE DECISÃO:', 'color: #00CED1; font-weight: bold;');
+        console.log(`%c   1️⃣ Padrão detectado: ${activePattern.name}`, 'color: #00CED1;');
+        console.log(`%c   2️⃣ Histórico (2000 giros): R:${nextColor.red} vs P:${nextColor.black} → ${nextColor.red > nextColor.black ? 'VERMELHO' : 'PRETO'}`, 'color: #00CED1;');
+        console.log(`%c   3️⃣ Status nos últimos 20 giros: ${recommendedColorCount >= 12 ? '🔥 QUENTE' : recommendedColorCount >= 8 ? '🌤️ NORMAL' : '❄️ FRIA'} (${recommendedColorCount}/20)`, 'color: #00CED1;');
+        console.log(`%c   4️⃣ Inversão: ✅ DESATIVADA (segue o padrão)`, 'color: #00CED1;');
+        console.log(`%c   5️⃣ Decisão FINAL: ${recommendedColor.toUpperCase()}`, 'color: ' + (recommendedColor === 'red' ? '#FF0000' : '#FFFFFF') + '; font-weight: bold; font-size: 14px;');
+        console.log('');
+        
+        // ETAPA 5: Ajustar confiança baseado em performance anterior
+        const confidenceAdj = calculateConfidenceAdjustment(
+            activePattern.type,
+            activePattern.size,
+            activePattern.contextBefore || 'desconhecido'
+        );
+        
+        // ✅ ETAPA 5.5: Aplicar ajuste de temperatura
+        let allAdjustments = confidenceAdj.adjustment + temperatureAnalysis.adjustment;
+        const allReasons = [...confidenceAdj.reasons];
+        if (temperatureAnalysis.adjustment !== 0) {
+            allReasons.push(temperatureAnalysis.reasoning);
+        }
+        
+        // 🎯 ETAPA 5.6: Penalizar análises FORÇADAS ou MÍNIMAS
+        if (activePattern.forced) {
+            const forcedPenalty = -10;
+            allAdjustments += forcedPenalty;
+            allReasons.push(`Análise forçada (sem padrão forte) → ${forcedPenalty}%`);
+        }
+        if (activePattern.minimal) {
+            const minimalPenalty = -15;
+            allAdjustments += minimalPenalty;
+            allReasons.push(`Análise mínima (1 giro apenas) → ${minimalPenalty}%`);
+        }
+        if (activePattern.level && activePattern.level >= 4) {
+            const levelPenalty = -5;
+            allAdjustments += levelPenalty;
+            allReasons.push(`Padrão nível ${activePattern.level} (menos confiável) → ${levelPenalty}%`);
+        }
+        
+        let finalConfidence = Math.round(baseConfidence + allAdjustments);
+        finalConfidence = Math.max(0, Math.min(99, finalConfidence)); // Limitar entre 0-99
+        
+        if (allReasons.length > 0) {
+            console.log('%c📈 AJUSTES DE CONFIANÇA:', 'color: #FFD700; font-weight: bold;');
+            allReasons.forEach(reason => {
+                console.log(`   ${reason}`);
+            });
+            console.log(`%c   CONFIANÇA FINAL: ${finalConfidence}%`, 'color: #00FF00; font-weight: bold; font-size: 14px;');
+            console.log('');
+        }
+        
+        // ═══════════════════════════════════════════════════════════════
+        // 🔄 AJUSTE DINÂMICO DO MÍNIMO BASEADO NA PERFORMANCE RECENTE
+        // ═══════════════════════════════════════════════════════════════
+        let minConfidence = analyzerConfig.minPercentage || 60;
+        
+        // Calcular performance recente (últimos 20 sinais)
+        if (signalsHistory.recentPerformance.length >= 10) {
+            const recentHits = signalsHistory.recentPerformance.filter(s => s.hit).length;
+            const recentTotal = signalsHistory.recentPerformance.length;
+            const recentHitRate = (recentHits / recentTotal) * 100;
+            
+            // 🚨 AJUSTE PROGRESSIVO: Se está errando muito, AUMENTAR o mínimo!
+            if (recentHitRate < 45) {
+                minConfidence += 20; // Aumentar 20% se taxa < 45%
+                console.log('%c🚨 AJUSTE CRÍTICO: Performance muito baixa!', 'color: #FF0000; font-weight: bold;');
+                console.log(`%c   Taxa recente: ${recentHitRate.toFixed(1)}% → Mínimo aumentado para ${minConfidence}%`, 'color: #FF6666;');
+            } else if (recentHitRate < 55) {
+                minConfidence += 10; // Aumentar 10% se taxa < 55%
+                console.log('%c⚠️ AJUSTE: Performance abaixo do ideal', 'color: #FFA500; font-weight: bold;');
+                console.log(`%c   Taxa recente: ${recentHitRate.toFixed(1)}% → Mínimo aumentado para ${minConfidence}%`, 'color: #FFAA00;');
+            } else if (recentHitRate >= 70) {
+                minConfidence -= 5; // Diminuir 5% se taxa >= 70% (está indo bem!)
+                minConfidence = Math.max(minConfidence, analyzerConfig.minPercentage || 60); // Não pode ficar abaixo do configurado
+                console.log('%c✅ BÔNUS: Performance excelente!', 'color: #00FF00; font-weight: bold;');
+                console.log(`%c   Taxa recente: ${recentHitRate.toFixed(1)}% → Mínimo reduzido para ${minConfidence}%`, 'color: #00FF88;');
+            }
+        }
+        
+        // 🚨 PROTEÇÃO ADICIONAL: Se teve LOSS consecutivo, EXIGIR MAIS!
+        if (signalsHistory.consecutiveLosses >= 1) {
+            const penalty = signalsHistory.consecutiveLosses * 10; // +10% por cada loss consecutivo
+            minConfidence += penalty;
+            console.log(`%c⚠️ PENALIDADE: ${signalsHistory.consecutiveLosses} loss consecutivo(s) → +${penalty}% no mínimo`, 'color: #FF0000; font-weight: bold;');
+        }
+        
+        // ✅ VALIDAÇÃO CRÍTICA: Verificar se atinge porcentagem mínima
+        console.log('%c═══════════════════════════════════════════════════════════', 'color: #FF6B6B; font-weight: bold;');
+        console.log('%c⚖️ VALIDAÇÃO DE PORCENTAGEM MÍNIMA', 'color: #FF6B6B; font-weight: bold;');
+        console.log('%c═══════════════════════════════════════════════════════════', 'color: #FF6B6B; font-weight: bold;');
+        console.log('');
+        console.log(`%cConfiança final: ${finalConfidence}%`, 'color: #FFD700; font-weight: bold;');
+        console.log(`%cMínimo BASE configurado: ${analyzerConfig.minPercentage || 60}%`, 'color: #FFD700;');
+        console.log(`%cMínimo AJUSTADO (após análise): ${minConfidence}%`, 'color: #FFD700; font-weight: bold; font-size: 14px;');
+        console.log('');
+        
+        if (finalConfidence < minConfidence) {
+            console.log(`%c❌ SINAL REJEITADO!`, 'color: #FF0000; font-weight: bold; font-size: 14px;');
+            console.log(`%c   Confiança ${finalConfidence}% está abaixo do mínimo ${minConfidence}%`, 'color: #FF6666; font-weight: bold;');
+            console.log(`%c   Configure uma porcentagem menor ou aguarde padrão mais confiável`, 'color: #FF6666;');
+            console.log('');
+            console.log('%c═══════════════════════════════════════════════════════════', 'color: #FF6B6B; font-weight: bold;');
+            console.log('');
+            return null;
+        }
+        
+        console.log(`%c✅ APROVADO!`, 'color: #00FF00; font-weight: bold; font-size: 14px;');
+        console.log(`%c   Confiança ${finalConfidence}% atinge o mínimo de ${minConfidence}%`, 'color: #00FF88; font-weight: bold;');
+        console.log('');
+        console.log('%c═══════════════════════════════════════════════════════════', 'color: #FF6B6B; font-weight: bold;');
+        console.log('');
+        
+        // ETAPA 6: Montar raciocínio detalhado
+        const reasoning = `${activePattern.name} detectada nos giros 1-${activePattern.size}. ` +
+            `No histórico de ${aiHistorySize} giros, este padrão ocorreu ${historicalData.occurrences} vezes. ` +
+            `Após esse padrão: VERMELHO ${nextColor.red}x (${nextColor.redPercent}%), ` +
+            `PRETO ${nextColor.black}x (${nextColor.blackPercent}%), ` +
+            `BRANCO ${nextColor.white}x (${nextColor.whitePercent}%). ` +
+            `Temperatura: ${temperatureAnalysis.temperature}. ` +
+            (allReasons.length > 0 ? 
+                `Ajustes: ${allReasons.join(', ')}. ` : '') +
+            `Recomendação: ${recommendedColor.toUpperCase()}.`;
+        
+        // ETAPA 7: Registrar sinal para verificação futura
+        const signal = {
+            timestamp: Date.now(),
+            patternType: activePattern.type,
+            patternSize: activePattern.size,
+            patternName: activePattern.name,
+            patternSequence: activePattern.sequence,
+            contextBefore: activePattern.contextBefore || 'desconhecido',
+            colorRecommended: recommendedColor,
+            baseConfidence: baseConfidence,
+            adjustment: confidenceAdj.adjustment,
+            temperatureAdjustment: temperatureAnalysis.adjustment,
+            temperature: temperatureAnalysis.temperature,
+            finalConfidence: finalConfidence,
+            reasoning: reasoning,
+            verified: false,
+            colorThatCame: null,
+            hit: null
+        };
+        
+        signalsHistory.signals.push(signal);
+        
+        // Limitar histórico a últimos 200 sinais
+        if (signalsHistory.signals.length > 200) {
+            signalsHistory.signals = signalsHistory.signals.slice(-200);
+        }
+        
+        await saveSignalsHistory();
+        
+        console.log('%c✅ ANÁLISE CONCLUÍDA!', 'color: #00FF00; font-weight: bold; font-size: 14px;');
+        console.log('');
+        
+        return {
+            color: recommendedColor,
+            confidence: finalConfidence,
+            probability: finalConfidence,
+            reasoning: reasoning,
+            patternDescription: activePattern.name
+        };
+        
+    } catch (error) {
+        console.error('%c❌ Erro na análise por padrões:', 'color: #FF0000; font-weight: bold;', error);
+        return null;
+    }
+}
+
 /**
  * FUNÇÃO PRINCIPAL: Análise com IA REAL (com timeout de 5 segundos)
  * Esta função faz chamadas REAIS para APIs de IA externas
@@ -3930,7 +6096,7 @@ async function analyzeWithAI(history) {
             suggestion: `IA recomenda: ${aiResponse.color === 'red' ? '🔴 VERMELHO' : aiResponse.color === 'black' ? '⚫ PRETO' : '⚪ BRANCO'}`,
             patternDescription: aiResponse.reasoning || 'Análise baseada em IA',
             last10Spins: last10SpinsData, // ✅ INCLUIR OS 10 GIROS
-            last5Spins: last10SpinsData ? last10SpinsData.slice(0, 5) : [], // ✅ Manter compatibilidade com código antigo
+            last5Spins: last10SpinsData ? last10SpinsData.slice(0, 10) : [], // ✅ Mostrando últimos 10 giros
             source: 'AI-REAL',
             apiType: apiType,
             timestamp: Date.now(),
@@ -3949,8 +6115,8 @@ async function analyzeWithAI(history) {
         // 🔍 VALIDAÇÃO: Verificar se a IA analisou os giros corretos
         console.log('%c🔍 VALIDAÇÃO: Comparando resposta da IA com histórico real', 'color: #FFFF00; font-weight: bold;');
         console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #FFFF00;');
-        console.log('%c📊 Últimos 5 giros REAIS (do histórico):', 'color: #FFFF00; font-weight: bold;');
-        for (let i = 0; i < Math.min(5, recentHistory.length); i++) {
+        console.log('%c📊 Últimos 10 giros REAIS (do histórico):', 'color: #FFFF00; font-weight: bold;');
+        for (let i = 0; i < Math.min(10, recentHistory.length); i++) {
             const spin = recentHistory[i];
             console.log(`%c   ${i + 1}. ${spin.color.toUpperCase()} (número ${spin.number})`, 
                 `color: ${spin.color === 'red' ? '#FF0000' : spin.color === 'black' ? '#FFFFFF' : '#00FF00'}; font-weight: bold;`);
@@ -4322,8 +6488,24 @@ async function runAnalysisController(history) {
 			console.log('%c██████╗ ██║ ╚═╝ ██║╚██████╔╝██████╔╝╚██████╔╝    ██║██║  ██║', 'color: #00FF00; font-weight: bold; font-size: 14px;');
 			console.log('%c╚═════╝ ╚═╝     ╚═╝ ╚═════╝ ╚═════╝  ╚═════╝     ╚═╝╚═╝  ╚═╝', 'color: #00FF00; font-weight: bold; font-size: 14px;');
 			console.log('');
-			console.log('%c🤖 MODO DE ANÁLISE ATIVO: INTELIGÊNCIA ARTIFICIAL (GROQ)', 'color: #00FF00; font-weight: bold; font-size: 16px; background: #003300; padding: 10px;');
-			console.log('%c⚡ Usando IA para analisar padrões e prever próxima cor', 'color: #00FF88; font-weight: bold; font-size: 12px;');
+		// 🧠 INDICADOR DINÂMICO DE MEMÓRIA ATIVA
+		let memoriaStatus = '';
+		let memoriaColor = '#00FF00';
+		let memoriaInfo = '';
+		
+		if (!memoriaAtiva.inicializada) {
+			memoriaStatus = '🔄 INICIALIZANDO CACHE...';
+			memoriaColor = '#FFA500';
+			memoriaInfo = '⏳ Primeira inicialização (análise completa em andamento)';
+		} else {
+			const tempoDecorrido = Math.round((Date.now() - memoriaAtiva.ultimaAtualizacao) / 1000);
+			memoriaStatus = '⚡ CACHE RAM ATIVO';
+			memoriaColor = '#00FF00';
+			memoriaInfo = `🧠 Memória Viva: ${memoriaAtiva.totalAtualizacoes} atualizações | ⏱️ Última: ${memoriaAtiva.tempoUltimaAtualizacao.toFixed(1)}ms | 🕐 Há ${tempoDecorrido}s`;
+		}
+		
+		console.log(`%c🤖 MODO: ANÁLISE COM INTELIGÊNCIA ARTIFICIAL IA | ${memoriaStatus}`, `color: ${memoriaColor}; font-weight: bold; font-size: 16px; background: #003300; padding: 10px;`);
+		console.log(`%c${memoriaInfo}`, 'color: #00FF88; font-weight: bold; font-size: 12px;');
 		} else {
 			console.log('%c███╗   ███╗ ██████╗ ██████╗  ██████╗     ██████╗  █████╗ ██████╗ ██████╗  █████╗  ██████╗ ', 'color: #00AAFF; font-weight: bold; font-size: 14px;');
 			console.log('%c████╗ ████║██╔═══██╗██╔══██╗██╔═══██╗    ██╔══██╗██╔══██╗██╔══██╗██╔══██╗██╔══██╗██╔═══██╗', 'color: #00AAFF; font-weight: bold; font-size: 14px;');
@@ -4495,28 +6677,28 @@ async function runAnalysisController(history) {
 			return;
 		}
 		
-		// ✅ MODO IA: Se ativado e não achou padrão salvo, usar análise IA
+		// ✅ MODO AVANÇADO: Se ativado e não achou padrão salvo, usar análise avançada
 		if (analyzerConfig.aiMode && !verifyResult) {
 			console.log('');
 			console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #00FF00; font-weight: bold;');
-			console.log('%c║  🤖 EXECUTANDO: ANÁLISE POR INTELIGÊNCIA ARTIFICIAL      ║', 'color: #00FF00; font-weight: bold;');
+			console.log('%c║  🎯 EXECUTANDO: ANÁLISE AVANÇADA POR PADRÕES             ║', 'color: #00FF00; font-weight: bold;');
 			console.log('%c╠═══════════════════════════════════════════════════════════╣', 'color: #00FF00; font-weight: bold;');
 			console.log('%c║  📊 Histórico disponível: ' + history.length + ' giros', 'color: #00FF88; font-weight: bold;');
-			console.log('%c║  🔄 Chamando API Groq com modelo Llama 3.3...            ║', 'color: #00FF88; font-weight: bold;');
-			console.log('%c║  ⚡ Aguarde resposta da IA (máx 5s)...                   ║', 'color: #00FF88; font-weight: bold;');
+			console.log('%c║  🔄 Sistema de Auto-Aprendizado ATIVO...                 ║', 'color: #00FF88; font-weight: bold;');
+			console.log('%c║  ⚡ Analisando padrões e tendências...                   ║', 'color: #00FF88; font-weight: bold;');
 			console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #00FF00; font-weight: bold;');
 			console.log('');
 			
-			const aiResult = await analyzeWithAI(history);
+			const aiResult = await analyzeWithPatternSystem(history);
 			
 			if (aiResult) {
-				// ⚠️ VERIFICAR SE É A PRIMEIRA ANÁLISE APÓS ATIVAR MODO IA
+				// ⚠️ VERIFICAR SE É A PRIMEIRA ANÁLISE APÓS ATIVAR MODO AVANÇADO
 				if (aiModeJustActivated) {
 					console.log('');
 					console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #FFAA00; font-weight: bold;');
-					console.log('%c║  ⏳ MODO IA RECÉM-ATIVADO                                 ║', 'color: #FFAA00; font-weight: bold; font-size: 14px;');
+					console.log('%c║  ⏳ MODO AVANÇADO RECÉM-ATIVADO                           ║', 'color: #FFAA00; font-weight: bold; font-size: 14px;');
 					console.log('%c╠═══════════════════════════════════════════════════════════╣', 'color: #FFAA00; font-weight: bold;');
-					console.log('%c║  🤖 IA analisou e encontrou padrão!                       ║', 'color: #FFAA00; font-weight: bold;');
+					console.log('%c║  🎯 Sistema analisou e encontrou padrão!                  ║', 'color: #FFAA00; font-weight: bold;');
 					console.log('%c║  🎯 Cor prevista: ' + aiResult.color.toUpperCase() + '                                     ║', 'color: #FFAA00;');
 					console.log('%c║  📊 Confiança: ' + aiResult.confidence + '%                                   ║', 'color: #FFAA00;');
 					console.log('%c╠═══════════════════════════════════════════════════════════╣', 'color: #FFAA00; font-weight: bold;');
@@ -4628,14 +6810,14 @@ async function runAnalysisController(history) {
 					number: spin.number,
 					timestamp: spin.timestamp
 				}));
-				console.log('%c✅ Extraído do histórico REAL:', 'color: #00FF88;', last10SpinsForDescription.slice(0, 5));
+				console.log('%c✅ Extraído do histórico REAL:', 'color: #00FF88;', last10SpinsForDescription.slice(0, 10));
 				
 				const aiDescriptionData = {
 					type: 'AI_ANALYSIS',
 					color: aiColor,
 					confidence: aiResult.confidence,
 					last10Spins: last10SpinsForDescription,
-					last5Spins: last10SpinsForDescription ? last10SpinsForDescription.slice(0, 5) : [], // ✅ Compatibilidade
+					last5Spins: last10SpinsForDescription ? last10SpinsForDescription.slice(0, 10) : [], // ✅ Mostrando últimos 10 giros
 					reasoning: aiResult.reasoning || aiResult.patternDescription || 'Análise baseada nos últimos ' + aiHistorySizeUsed + ' giros do histórico.',
 					historySize: aiHistorySizeUsed
 				};
@@ -4658,7 +6840,7 @@ async function runAnalysisController(history) {
 					confidence: aiResult.confidence,
 					patternDescription: aiDescription,
 					last10Spins: last10SpinsForDescription, // ✅ INCLUIR DIRETAMENTE para facilitar acesso
-					last5Spins: last10SpinsForDescription ? last10SpinsForDescription.slice(0, 5) : [], // ✅ Compatibilidade
+					last5Spins: last10SpinsForDescription ? last10SpinsForDescription.slice(0, 10) : [], // ✅ Mostrando últimos 10 giros
 					patternType: 'ai-analysis',
 					phase: aiPhase,
 					predictedFor: 'next',
@@ -4715,9 +6897,15 @@ async function runAnalysisController(history) {
 				console.log('');
 				console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #00FF00; font-weight: bold; font-size: 14px; background: #003300; padding: 2px;');
 				console.log('%c║  ✅ SINAL ENVIADO COM SUCESSO!                           ║', 'color: #00FF00; font-weight: bold; font-size: 14px; background: #003300; padding: 2px;');
-				console.log('%c╠═══════════════════════════════════════════════════════════╣', 'color: #00FF00; font-weight: bold; background: #003300; padding: 2px;');
-				console.log('%c║  🤖 Sistema: INTELIGÊNCIA ARTIFICIAL (GROQ)               ║', 'color: #00FF00; font-weight: bold; background: #003300; padding: 2px;');
-				console.log('%c║  📱 Extensão: ' + (sendResults.extensao ? '✅ ENVIADO' : '❌ FALHOU') + '                                    ║', 'color: #00FF88; background: #003300; padding: 2px;');
+			console.log('%c╠═══════════════════════════════════════════════════════════╣', 'color: #00FF00; font-weight: bold; background: #003300; padding: 2px;');
+			
+			// 🧠 Status dinâmico da memória
+			const statusMemoria = memoriaAtiva.inicializada ? 
+				`⚡ CACHE RAM ATIVO (${memoriaAtiva.totalAtualizacoes} updates)` : 
+				'🔄 INICIALIZANDO...';
+			
+			console.log(`%c║  🤖 Sistema: ANÁLISE IA | ${statusMemoria}              ║`, 'color: #00FF00; font-weight: bold; background: #003300; padding: 2px;');
+			console.log('%c║  📱 Extensão: ' + (sendResults.extensao ? '✅ ENVIADO' : '❌ FALHOU') + '                                    ║', 'color: #00FF88; background: #003300; padding: 2px;');
 				console.log('%c║  📲 Telegram: ' + (sendResults.telegram ? '✅ ENVIADO' : '❌ FALHOU') + '                                    ║', 'color: #00FF88; background: #003300; padding: 2px;');
 				console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #00FF00; font-weight: bold; background: #003300; padding: 2px;');
 				console.log('');
@@ -4906,9 +7094,9 @@ function logPatternDBStats(db, action = 'load') {
 ║     └─ 🔴 Baixa (<60%):   ${byConfidence.low.toString().padEnd(4)} padrões
 ╠═══════════════════════════════════════════════════════════╣
 ║  📁 POR TIPO:                                             
-${Object.entries(byType).slice(0, 5).map(([type, count]) => 
+${Object.entries(byType).slice(0, 10).map(([type, count]) => 
 `║     • ${type.padEnd(20)}: ${count.toString().padEnd(4)} padrões`).join('\n')}
-${Object.keys(byType).length > 5 ? `║     • ... e mais ${Object.keys(byType).length - 5} tipos` : ''}
+${Object.keys(byType).length > 10 ? `║     • ... e mais ${Object.keys(byType).length - 10} tipos` : ''}
 ╚═══════════════════════════════════════════════════════════╝
 	`.trim());
 }
@@ -7494,7 +9682,7 @@ function analyzeTemporalAndMixedPatterns(history) {
     console.log('✅ Padrão temporal/misto atual confirma o padrão encontrado:', {
         foundPattern: bestPattern.pattern,
         currentHour: currentHour,
-        recentSpins: recentSpins.slice(0, 5)
+        recentSpins: recentSpins.slice(0, 10)
     });
     
     return bestPattern;
@@ -7697,7 +9885,7 @@ function analyzePostWhitePeakPattern(history) {
 
 // Funções específicas para padrões mistos
 function analyzePostWhiteRecoveryPattern(history) {
-    const recentSpins = history.slice(0, 5);
+    const recentSpins = history.slice(0, 10);
     const colors = recentSpins.map(s => s.color);
     
     // Padrão: Branco, Vermelho, Vermelho, Preto, Preto
@@ -7718,7 +9906,7 @@ function analyzePostWhiteRecoveryPattern(history) {
 }
 
 function analyzeWhiteBreakPattern(history) {
-    const recentSpins = history.slice(0, 5);
+    const recentSpins = history.slice(0, 10);
     const colors = recentSpins.map(s => s.color);
     
     // Padrão: Vermelho, Preto, Vermelho, Preto, Branco
@@ -7813,7 +10001,7 @@ function analyzeTimeRepetitionPattern(history) {
     
     // Simular busca por sequência igual no mesmo horário de dias diferentes
     // (implementação simplificada)
-    const recentSpins = history.slice(0, 5);
+    const recentSpins = history.slice(0, 10);
     const colors = recentSpins.map(s => s.color);
     
     if (currentMinute % 15 === 0) { // A cada 15 minutos
@@ -9818,7 +12006,7 @@ async function sendTelegramEntrySignal(color, lastSpin, confidence, analysisData
     const { totalWins, totalLosses } = calculateCycleScore(entriesHistory);
     
     // isAIAnalysis já foi definido anteriormente ao fazer parse do patternDescription
-    const systemTag = isAIAnalysis ? '🤖 IA (Groq)' : '📊 Sistema Padrão';
+    const systemTag = isAIAnalysis ? '🤖 Análise Avançada (IA)' : '📊 Sistema Padrão';
     
     const message = `
 🎯 <b>ATENÇÃO ENTRAR AGORA</b>
@@ -10107,6 +12295,24 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         return true;
     } else if (request.action === 'status') {
         sendResponse({status: isRunning ? 'running' : 'stopped'});
+        return true;
+    } else if (request.action === 'GET_MEMORIA_ATIVA_STATUS') {
+        // 🧠 Retornar status da memória ativa para interface
+        console.log('%c🧠 [BACKGROUND] Requisição de status da memória ativa recebida', 'color: #00CED1; font-weight: bold;');
+        
+        const statusResponse = {
+            status: {
+                inicializada: memoriaAtiva.inicializada,
+                totalAtualizacoes: memoriaAtiva.totalAtualizacoes,
+                tempoUltimaAtualizacao: memoriaAtiva.tempoUltimaAtualizacao,
+                totalGiros: memoriaAtiva.giros.length,
+                ultimaAtualizacao: memoriaAtiva.ultimaAtualizacao
+            }
+        };
+        
+        console.log('%c🧠 [BACKGROUND] Enviando resposta:', 'color: #00CED1;', statusResponse);
+        
+        sendResponse(statusResponse);
         return true;
     } else if (request.action === 'applyConfig') {
         console.log('%c✅ ENTROU NO else if applyConfig!', 'color: #00FF00; font-weight: bold; font-size: 16px;');

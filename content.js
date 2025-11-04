@@ -347,8 +347,8 @@
             margin-bottom: 16px;
         `;
         message.innerHTML = `
-            <p style="margin: 0 0 12px 0;">O <strong>Nível Diamante</strong> requer uma chave API da Groq para funcionar.</p>
-            <p style="margin: 0; font-size: 13px; color: #8da2bb;">Configure sua chave API primeiro para poder ativar este modo.</p>
+            <p style="margin: 0 0 12px 0;">O <strong>Nível Diamante</strong> utiliza análise avançada por padrões com sistema de auto-aprendizado.</p>
+            <p style="margin: 0; font-size: 13px; color: #8da2bb;">Sistema 100% JavaScript - sem necessidade de chave API externa.</p>
         `;
         
         // Container dos botões
@@ -607,12 +607,113 @@
         if (isActive) {
             toggleElement.classList.add('active');
             if (modeName) modeName.textContent = '💎 Nível Diamante Ativo';
-            if (modeApi) modeApi.textContent = 'IA com API Groq';
+            
+            // 🧠 Atualizar status dinâmico da memória ativa
+            if (modeApi) {
+                atualizarStatusMemoriaAtiva(modeApi);
+            }
         } else {
             toggleElement.classList.remove('active');
             if (modeName) modeName.textContent = 'Nível Diamante';
-            if (modeApi) modeApi.textContent = 'IA com API Groq';
+            if (modeApi) modeApi.textContent = 'ANÁLISE COM INTELIGÊNCIA ARTIFICIAL IA';
         }
+    }
+
+    // 🧠 Atualizar status da memória ativa na interface
+    async function atualizarStatusMemoriaAtiva(elemento) {
+        console.log('%c╔══════════════════════════════════════════════════════════╗', 'color: #00CED1; font-weight: bold;');
+        console.log('%c║  🧠 [CONTENT] INICIANDO ATUALIZAÇÃO DO STATUS          ║', 'color: #00CED1; font-weight: bold;');
+        console.log('%c╚══════════════════════════════════════════════════════════╝', 'color: #00CED1; font-weight: bold;');
+        
+        try {
+            console.log('%c📤 [CONTENT] Enviando mensagem GET_MEMORIA_ATIVA_STATUS...', 'color: #00CED1;');
+            console.log('%c   Elemento alvo:', 'color: #00CED1;', elemento);
+            console.log('%c   chrome.runtime exists?', 'color: #00CED1;', !!chrome.runtime);
+            console.log('%c   chrome.runtime.sendMessage exists?', 'color: #00CED1;', !!chrome.runtime.sendMessage);
+            
+            // Pedir status da memória ativa do background.js
+            const response = await chrome.runtime.sendMessage({ action: 'GET_MEMORIA_ATIVA_STATUS' });
+            
+            console.log('%c╔══════════════════════════════════════════════════════════╗', 'color: #00FF88; font-weight: bold;');
+            console.log('%c║  📥 [CONTENT] RESPOSTA RECEBIDA!                       ║', 'color: #00FF88; font-weight: bold;');
+            console.log('%c╚══════════════════════════════════════════════════════════╝', 'color: #00FF88; font-weight: bold;');
+            console.log('%c   Resposta completa:', 'color: #00FF88;', response);
+            console.log('%c   response.status exists?', 'color: #00FF88;', !!response?.status);
+            
+            if (response && response.status) {
+                const status = response.status;
+                console.log('%c✅ [CONTENT] Status válido recebido!', 'color: #00FF88; font-weight: bold;');
+                console.log('%c   📊 Detalhes do status:', 'color: #00FF88;');
+                console.log('%c      ├─ inicializada:', 'color: #00FF88;', status.inicializada);
+                console.log('%c      ├─ totalAtualizacoes:', 'color: #00FF88;', status.totalAtualizacoes);
+                console.log('%c      ├─ tempoUltimaAtualizacao:', 'color: #00FF88;', status.tempoUltimaAtualizacao);
+                console.log('%c      └─ totalGiros:', 'color: #00FF88;', status.totalGiros);
+                
+                if (!status.inicializada) {
+                    // Memória está inicializando
+                    console.log('%c🟠 [UI] Atualizando para: INICIALIZANDO MEMÓRIA...', 'color: #FFA500; font-weight: bold;');
+                    elemento.textContent = 'ANÁLISE IA | 🔄 INICIALIZANDO MEMÓRIA...';
+                    elemento.style.color = '#FFA500'; // Laranja
+                } else {
+                    // Memória está ativa
+                    const updates = status.totalAtualizacoes || 0;
+                    
+                    const textoNovo = `ANÁLISE IA | MEMÓRIA ATIVA (${updates} updates)`;
+                    console.log('%c🟢 [UI] Atualizando para:', 'color: #00FF00; font-weight: bold;', textoNovo);
+                    
+                    elemento.textContent = textoNovo;
+                    elemento.style.color = '#00FF00'; // Verde
+                }
+                
+                console.log('%c✅ [UI] Texto do elemento após atualização:', 'color: #00FF88;', elemento.textContent);
+            } else {
+                // Fallback se não conseguir pegar status
+                console.warn('%c⚠️ [CONTENT] Resposta inválida ou vazia!', 'color: #FFA500; font-weight: bold;');
+                console.warn('%c   response:', 'color: #FFA500;', response);
+                console.warn('%c   response.status:', 'color: #FFA500;', response?.status);
+                elemento.textContent = 'ANÁLISE COM INTELIGÊNCIA ARTIFICIAL IA';
+                elemento.style.color = '#00FF88';
+            }
+        } catch (error) {
+            console.error('%c╔══════════════════════════════════════════════════════════╗', 'color: #FF0000; font-weight: bold;');
+            console.error('%c║  ❌ [CONTENT] ERRO AO OBTER STATUS!                    ║', 'color: #FF0000; font-weight: bold;');
+            console.error('%c╚══════════════════════════════════════════════════════════╝', 'color: #FF0000; font-weight: bold;');
+            console.error('%c   Erro:', 'color: #FF0000;', error);
+            console.error('%c   Stack:', 'color: #FF0000;', error.stack);
+            elemento.textContent = 'ANÁLISE COM INTELIGÊNCIA ARTIFICIAL IA';
+            elemento.style.color = '#00FF88';
+        }
+        
+        console.log('%c═══════════════════════════════════════════════════════════', 'color: #00CED1;');
+        console.log('');
+    }
+    
+    // ⚡ Atualizar status da memória ativa periodicamente (a cada 5 segundos)
+    let intervaloAtualizacaoMemoria = null;
+    
+    function iniciarAtualizacaoMemoria() {
+        // Limpar intervalo anterior se existir
+        if (intervaloAtualizacaoMemoria) {
+            clearInterval(intervaloAtualizacaoMemoria);
+        }
+        
+        // Atualizar a cada 5 segundos quando modo IA estiver ativo
+        intervaloAtualizacaoMemoria = setInterval(async () => {
+            try {
+                const result = await chrome.storage.local.get(['analyzerConfig']);
+                if (result.analyzerConfig && result.analyzerConfig.aiMode) {
+                    const toggleElement = document.getElementById('aiModeToggle');
+                    if (toggleElement) {
+                        const modeApi = toggleElement.querySelector('.mode-api');
+                        if (modeApi) {
+                            await atualizarStatusMemoriaAtiva(modeApi);
+                        }
+                    }
+                }
+            } catch (error) {
+                console.warn('⚠️ Erro ao atualizar status da memória:', error);
+            }
+        }, 5000); // 5 segundos
     }
 
     // Create sidebar
@@ -654,7 +755,7 @@
                     <h3 class="header-title">Double Analyzer</h3>
                     <div class="ai-mode-toggle" id="aiModeToggle" title="Ativar/Desativar Nível Diamante">
                         <span class="mode-name">Nível Diamante</span>
-                        <span class="mode-api">IA com API Groq</span>
+                        <span class="mode-api">ANÁLISE COM INTELIGÊNCIA ARTIFICIAL IA</span>
                     </div>
                 </div>
                 <button class="toggle-btn" id="toggleSidebar">−</button>
@@ -982,6 +1083,10 @@
         console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #00FF88; font-weight: bold;');
         console.log('');
         
+        // 🧠 Iniciar atualização periódica do status da memória ativa
+        console.log('%c🧠 Iniciando sistema de atualização de status da memória ativa...', 'color: #00CED1; font-weight: bold;');
+        iniciarAtualizacaoMemoria();
+        
         // Load saved position and size
         loadSidebarState(sidebar);
         
@@ -1037,12 +1142,24 @@
         const aiModeToggle = document.getElementById('aiModeToggle');
         if (aiModeToggle) {
             // Carregar estado inicial
-            chrome.storage.local.get(['analyzerConfig'], function(result) {
+            chrome.storage.local.get(['analyzerConfig'], async function(result) {
                 const config = result.analyzerConfig || {};
                 const isAIMode = config.aiMode || false;
                 updateAIModeUI(aiModeToggle, isAIMode);
                 // ✅ Aplicar estado dos campos ao carregar
                 toggleAIConfigFields(isAIMode);
+                
+                // 🧠 Se modo IA já estiver ativo, atualizar status imediatamente
+                if (isAIMode) {
+                    console.log('%c🧠 Modo IA já ativo! Atualizando status da memória...', 'color: #00CED1; font-weight: bold;');
+                    const modeApi = aiModeToggle.querySelector('.mode-api');
+                    if (modeApi) {
+                        // Aguardar 1 segundo para dar tempo do background inicializar
+                        setTimeout(async () => {
+                            await atualizarStatusMemoriaAtiva(modeApi);
+                        }, 1000);
+                    }
+                }
             });
             
             // Listener de clique
@@ -1071,25 +1188,10 @@
                     
                     // ✅ LOG DE DEBUG - Ver o que foi carregado
                     console.log('🔧 Config carregada do storage:', {
-                        aiMode: config.aiMode,
-                        aiApiKey: config.aiApiKey ? `Sim (${config.aiApiKey.substring(0, 8)}...)` : 'Não'
+                        aiMode: config.aiMode
                     });
                     
-                    // Verificar chave API (apenas aviso, mas permite ativar)
-                    if (newAIMode && (!config.aiApiKey || config.aiApiKey.trim() === '')) {
-                        // ✅ Usar modal customizado ao invés de window.confirm
-                        showAIKeyWarningModal(function(confirmed) {
-                            if (!confirmed) {
-                                return; // Usuário cancelou
-                            }
-                            
-                            // Usuário confirmou - continuar com ativação
-                            activateAIMode(config, newAIMode, aiModeToggle);
-                        });
-                        return; // Importante: return aqui para não executar código abaixo
-                    }
-                    
-                    // Se tem chave API, ativar direto
+                    // ✅ Ativar direto (não precisa mais de chave API - sistema é 100% JavaScript)
                     activateAIMode(config, newAIMode, aiModeToggle);
                 });
             });
