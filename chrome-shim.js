@@ -260,6 +260,7 @@
             console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #FFD700; font-weight: bold;');
             console.log('%c📨 chrome.tabs.sendMessage capturado!', 'color: #FFD700; font-weight: bold;');
             console.log('%c   Type:', 'color: #FFD700;', message.type);
+            console.log('%c   Data:', 'color: #FFD700;', message.data);
             console.log('%c   TabId:', 'color: #FFD700;', tabId);
             console.log('%c   Listeners registrados:', 'color: #FFD700;', messageListeners.length);
             console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #FFD700; font-weight: bold;');

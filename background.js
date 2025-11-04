@@ -2249,17 +2249,26 @@ async function processNewSpinFromServer(spinData) {
                 console.warn('⚠️ Erro ao carregar configurações/estado, usando padrão:', e);
             }
             
-            // Enviar novo giro para popup
+            // ✅ Enviar novo giro para TODOS os content.js abertos (ATUALIZAÇÃO INSTANTÂNEA DO HISTÓRICO)
             try {
-                chrome.runtime.sendMessage({
-                    action: 'NEW_SPIN',
-                    data: {
-                        lastSpin: { number: rollNumber, color: rollColor, timestamp: latestSpin.created_at },
-                        // Não enviar histórico - o popup busca do servidor a cada 3s
-                    }
+                // 📢 Enviar para TODAS as tabs com content.js injetado
+                chrome.tabs.query({}, (tabs) => {
+                    tabs.forEach(tab => {
+                        try {
+                            chrome.tabs.sendMessage(tab.id, {
+                                type: 'NEW_SPIN',  // ✅ CORRIGIDO: era "action", agora é "type"
+                                data: {
+                                    lastSpin: { number: rollNumber, color: rollColor, timestamp: latestSpin.created_at }
+                                }
+                            });
+                        } catch (e) {
+                            // Ignorar tabs sem content.js (normal)
+                        }
+                    });
                 });
+                console.log('⚡ Novo giro enviado para TODOS os content.js - histórico será atualizado INSTANTANEAMENTE!');
             } catch (e) {
-                console.log('ℹ️ Popup não está aberto');
+                console.log('ℹ️ Erro ao enviar mensagem para content.js:', e.message);
             }
             
             // ❌ REMOVIDO: Chamada duplicada de runAnalysisController

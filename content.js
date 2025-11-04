@@ -2986,7 +2986,10 @@
                 }
             });
         } else if (request.type === 'NEW_SPIN') {
-            console.log('⚡ Novo giro recebido via WebSocket - atualizando histórico INSTANTANEAMENTE!');
+            console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #00ff88; font-weight: bold;');
+            console.log('%c⚡ NOVO GIRO RECEBIDO! ATUALIZANDO HISTÓRICO INSTANTANEAMENTE!', 'color: #00ff88; font-weight: bold;');
+            console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #00ff88; font-weight: bold;');
+            console.log('📊 Dados do giro:', request.data.lastSpin);
             
             // ✅ ATUALIZAR HISTÓRICO INSTANTANEAMENTE (SEM REQUISIÇÃO HTTP)
             if (request.data && request.data.lastSpin) {
@@ -2995,6 +2998,10 @@
                 
                 // ✅ NOVO: Atualizar histórico INSTANTANEAMENTE (sem fazer requisição HTTP)
                 updateHistoryUIInstant(request.data.lastSpin);
+                
+                console.log('✅ Histórico atualizado com sucesso! (SEM DELAY - INSTANTÂNEO)');
+            } else {
+                console.error('❌ ERRO: Dados do giro inválidos!', request.data);
             }
         } else if (request.type === 'CLEAR_ANALYSIS') {
             updateSidebar({ analysis: null, pattern: null });
