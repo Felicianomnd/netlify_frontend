@@ -1547,28 +1547,27 @@
 @media (max-width: 768px) {
     #blaze-double-analyzer {
         width: 100%;
-        height: auto;
-        min-height: 100vh;
-        position: relative;
-        transform: none !important;
+        height: 100vh;
+        position: fixed;
         top: 0;
         right: 0;
         left: 0;
+        transform: none !important;
         margin: 0;
         border-radius: 0;
         max-width: 100%;
-        max-height: none;
+        max-height: 100vh;
     }
     
-    /* ✅ Garantir que o conteúdo não fique escondido */
+    /* ✅ Garantir espaço para a última entrada */
     .analyzer-content {
-        height: auto !important;
-        min-height: calc(100vh - 80px);
-        padding-bottom: 40px !important;
-        overflow-y: visible !important;
+        height: calc(100vh - 80px) !important;
+        overflow-y: auto !important;
+        overflow-x: hidden;
+        padding-bottom: 60px !important;
     }
     
-    /* ✅ Header fixo em mobile */
+    /* ✅ Header fixo no topo */
     .analyzer-header {
         position: sticky;
         top: 0;
