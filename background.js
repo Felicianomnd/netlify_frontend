@@ -5833,8 +5833,11 @@ function analyzeLast20Temperature(last20Spins, activePattern) {
  * Deve ser chamado apenas na primeira vez ou após reset
  */
 async function inicializarMemoriaAtiva(history) {
-    // ☁️ NÃO INICIALIZAR SE PROPLUS ESTÁ ATIVO (servidor gerencia a memória)
-    if (proPlusCache.isActive) {
+    // ☁️ VERIFICAR SE PROPLUS ESTÁ ATIVO **ANTES** DE INICIALIZAR
+    console.log('🔍 Verificando status ProPlus antes de inicializar memória...');
+    const isProPlusActive = await checkAndSendProPlusSignal(true); // Forçar verificação imediata
+    
+    if (isProPlusActive) {
         console.log('');
         console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #667eea; font-weight: bold; font-size: 14px;');
         console.log('%c║  ☁️ PROPLUS ATIVO - MEMÓRIA GERENCIADA NO SERVIDOR      ║', 'color: #667eea; font-weight: bold; font-size: 14px;');
@@ -5845,6 +5848,8 @@ async function inicializarMemoriaAtiva(history) {
         console.log('');
         return false;
     }
+    
+    console.log('✅ ProPlus não ativo - inicializando memória localmente');
     
     // ⚠️ Evitar inicializações simultâneas
     if (memoriaAtivaInicializando) {
@@ -7236,8 +7241,10 @@ async function analyzeWithPatternSystem(history) {
         }
         
         // ✅ MARCAR MEMÓRIA ATIVA COMO INICIALIZADA (para UI)
-        // ⚠️ NÃO INICIALIZAR SE PROPLUS ESTÁ ATIVO (memória gerenciada no servidor)
-        if (!proPlusCache.isActive) {
+        // ⚠️ VERIFICAR NOVAMENTE SE PROPLUS FOI ATIVADO (memória gerenciada no servidor)
+        const isProPlusActive = await checkAndSendProPlusSignal(false); // Usar cache rápido
+        
+        if (!isProPlusActive) {
             if (!memoriaAtiva.inicializada) {
                 memoriaAtiva.inicializada = true;
                 memoriaAtiva.ultimaAtualizacao = Date.now();
@@ -13785,34 +13792,40 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         // 🧠 Retornar status da memória ativa para interface
         console.log('%c🧠 [BACKGROUND] Requisição de status da memória ativa recebida', 'color: #00CED1; font-weight: bold;');
         
-        // ☁️ SE PROPLUS ESTÁ ATIVO, NÃO RETORNAR STATUS DE MEMÓRIA LOCAL
-        if (proPlusCache.isActive) {
-            console.log('%c☁️ [BACKGROUND] ProPlus ativo - memória gerenciada no servidor', 'color: #667eea; font-weight: bold;');
+        // ☁️ VERIFICAR PROPLUS EM TEMPO REAL (não confiar no cache antigo)
+        (async () => {
+            const isProPlusActive = await checkAndSendProPlusSignal(false); // Verificar com cache
+            
+            if (isProPlusActive) {
+                console.log('%c☁️ [BACKGROUND] ProPlus ativo - memória gerenciada no servidor', 'color: #667eea; font-weight: bold;');
+                const statusResponse = {
+                    status: {
+                        inicializada: false,
+                        proPlusActive: true,
+                        message: 'Memória gerenciada no servidor (ProPlus ativo)'
+                    }
+                };
+                sendResponse(statusResponse);
+                return;
+            }
+            
             const statusResponse = {
                 status: {
-                    inicializada: false,
-                    proPlusActive: true,
-                    message: 'Memória gerenciada no servidor (ProPlus ativo)'
+                    inicializada: memoriaAtiva.inicializada,
+                    totalAtualizacoes: memoriaAtiva.totalAtualizacoes,
+                    tempoUltimaAtualizacao: memoriaAtiva.tempoUltimaAtualizacao,
+                    totalGiros: memoriaAtiva.giros.length,
+                    ultimaAtualizacao: memoriaAtiva.ultimaAtualizacao,
+                    proPlusActive: false
                 }
             };
+            
+            console.log('%c🧠 [BACKGROUND] Enviando resposta:', 'color: #00CED1;', statusResponse);
+            
             sendResponse(statusResponse);
-            return true;
-        }
+        })();
         
-        const statusResponse = {
-            status: {
-                inicializada: memoriaAtiva.inicializada,
-                totalAtualizacoes: memoriaAtiva.totalAtualizacoes,
-                tempoUltimaAtualizacao: memoriaAtiva.tempoUltimaAtualizacao,
-                totalGiros: memoriaAtiva.giros.length,
-                ultimaAtualizacao: memoriaAtiva.ultimaAtualizacao
-            }
-        };
-        
-        console.log('%c🧠 [BACKGROUND] Enviando resposta:', 'color: #00CED1;', statusResponse);
-        
-        sendResponse(statusResponse);
-        return true;
+        return true; // Manter canal aberto para sendResponse assíncrono
     } else if (request.action === 'applyConfig') {
         console.log('%c✅ ENTROU NO else if applyConfig!', 'color: #00FF00; font-weight: bold; font-size: 16px;');
         (async () => {

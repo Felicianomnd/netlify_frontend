@@ -643,10 +643,20 @@
                 const status = response.status;
                 console.log('%c✅ [CONTENT] Status válido recebido!', 'color: #00FF88; font-weight: bold;');
                 console.log('%c   📊 Detalhes do status:', 'color: #00FF88;');
+                console.log('%c      ├─ proPlusActive:', 'color: #00FF88;', status.proPlusActive);
                 console.log('%c      ├─ inicializada:', 'color: #00FF88;', status.inicializada);
                 console.log('%c      ├─ totalAtualizacoes:', 'color: #00FF88;', status.totalAtualizacoes);
                 console.log('%c      ├─ tempoUltimaAtualizacao:', 'color: #00FF88;', status.tempoUltimaAtualizacao);
                 console.log('%c      └─ totalGiros:', 'color: #00FF88;', status.totalGiros);
+                
+                // ☁️ SE PROPLUS ATIVO, MOSTRAR STATUS DO SERVIDOR
+                if (status.proPlusActive) {
+                    console.log('%c☁️ [UI] ProPlus ativo - mostrando status do servidor', 'color: #667eea; font-weight: bold;');
+                    elemento.textContent = 'ANÁLISE IA | ☁️ SERVIDOR PROPLUS 24/7';
+                    elemento.style.color = '#667eea'; // Roxo
+                    console.log('%c✅ [UI] Texto do elemento após atualização:', 'color: #667eea;', elemento.textContent);
+                    return;
+                }
                 
                 if (!status.inicializada) {
                     // Memória está inicializando
@@ -3336,8 +3346,10 @@
             const originalIndex = entries.indexOf(e);
             const time = new Date(e.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
             const cls = e.color;
-            const badge = e.color === 'white' ? blazeWhiteSVG(16) : `<span>${e.number}</span>`;
-            const isWin = e.result === 'WIN';
+            // ✅ USAR spinNumber (do servidor) ou number (local) - priorizar spinNumber
+            const numGiro = e.spinNumber || e.number || '?';
+            const badge = e.color === 'white' ? blazeWhiteSVG(16) : `<span>${numGiro}</span>`;
+            const isWin = e.result === 'WIN' || e.result === 'win';
             
             // ═══════════════════════════════════════════════════════════════
             // ✅ SISTEMA DE MARTINGALE - INDICADORES VISUAIS
@@ -3402,7 +3414,9 @@
                 }
             }
             
-            const title = `Giro: ${e.number} • Cor: ${e.color} • ${time} • Resultado: ${e.result}${e.martingaleStage ? ' • Estágio: '+e.martingaleStage : ''}${e.confidence? ' • Confiança: '+e.confidence.toFixed(1)+'%' : ''}`;
+            // ✅ USAR spinNumber (do servidor) ou number (local)
+            const numGiro = e.spinNumber || e.number || '?';
+            const title = `Giro: ${numGiro} • Cor: ${e.color} • ${time} • Resultado: ${e.result}${e.martingaleStage ? ' • Estágio: '+e.martingaleStage : ''}${e.confidence? ' • Confiança: '+e.confidence.toFixed(1)+'%' : ''}`;
             
             // CORREÇÃO: Sempre usar a confidence original que foi exibida no sinal
             const confTop = (typeof e.confidence === 'number') ? `${e.confidence.toFixed(0)}%` : '';
@@ -3861,10 +3875,12 @@
                         confidence: signal.confidence,
                         timestamp: signal.timestamp,
                         result: signal.result,
-                        gales: signal.gales || 0
+                        gales: signal.gales || 0,
+                        spinNumber: signal.spinNumber, // ✅ Número do giro
+                        spinColor: signal.spinColor    // ✅ Cor do giro
                     }));
                     renderEntriesPanel(entries);
-                    console.log('✅ Entradas atualizadas instantaneamente!');
+                    console.log('✅ Entradas atualizadas instantaneamente! (' + entries.length + ' entradas)');
                 }
                 
                 console.log('');
@@ -4047,9 +4063,12 @@
                     confidence: signal.confidence,
                     timestamp: signal.timestamp,
                     result: signal.result, // 'win', 'loss', ou null
-                    gales: signal.gales || 0
+                    gales: signal.gales || 0,
+                    spinNumber: signal.spinNumber, // ✅ Número do giro
+                    spinColor: signal.spinColor    // ✅ Cor do giro
                 }));
                 renderEntriesPanel(entries);
+                console.log(`✅ ${entries.length} entradas do servidor exibidas com números de giro`);
             }
             
             // ✅ INICIAR SINCRONIZAÇÃO CONTÍNUA
