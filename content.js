@@ -1498,19 +1498,6 @@
                             <span class="stat-value" id="lastUpdate">-</span>
                         </div>
                     </div>
-                    
-                    <!-- 🆕 Container de histórico criado imediatamente (será populado via servidor) -->
-                    <div id="spin-history-bar-ext">
-                        <div class="spin-history-label">
-                            <span>ÚLTIMOS GIROS</span>
-                            <div class="spin-count-info">
-                                <span class="displaying-count">Carregando...</span>
-                            </div>
-                        </div>
-                        <div class="spin-history-bar-blaze" style="text-align: center; padding: 20px; color: #888;">
-                            ⏳ Aguardando dados do servidor...
-                        </div>
-                    </div>
                 </div>
             </div>
         `;
@@ -4096,7 +4083,7 @@
     // ATUALIZAÇÃO AUTOMÁTICA DO HISTÓRICO DE GIROS DO SERVIDOR
     // ═══════════════════════════════════════════════════════════════════════════════
     
-    const API_URL = 'https://blaze-analyzer-api.onrender.com';
+    const API_URL = 'https://blaze-giros-api-v2-1.onrender.com';
     let isUpdatingHistory = false;
     let lastHistoryUpdate = null;
     let isWebSocketConnected = true; // Assume conectado inicialmente
