@@ -2093,28 +2093,18 @@
         if (clearEntriesBtn) {
             clearEntriesBtn.addEventListener('click', function() {
                 // Usar modal customizado em vez do confirm() nativo
-                showCustomConfirm('Limpar histórico de entradas?', clearEntriesBtn).then(confirmed => {
+                showCustomConfirm('Limpar histórico de entradas?', clearEntriesBtn).then(async confirmed => {
                     if (confirmed) {
-                    try {
-                        chrome.storage.local.set({ entriesHistory: [] }, function() {
-                            console.log('Histórico de entradas limpo');
-                            renderEntriesPanel([]);
-                            
-                            // ✅ Notificar background.js para limpar o calibrador também
-                            chrome.runtime.sendMessage({ 
-                                action: 'clearEntriesAndObserver' 
-                            }, function(response) {
-                                if (response && response.status === 'success') {
-                                    console.log('✅ Calibrador sincronizado após limpar entradas');
-                                    // Atualizar UI do calibrador
-                                    loadObserverStats();
-                                }
-                            });
-                        });
-                    } catch (e) {
-                        console.error('Falha ao limpar entradas:', e);
+                        try {
+                            console.log('🗑️ Iniciando limpeza de histórico...');
+                            console.log('☁️ ProPlus ativo?', isProPlusActive);
+                            // ✅ CHAMAR A FUNÇÃO QUE LIMPA NO SERVIDOR SE PROPLUS ATIVO
+                            await clearEntriesHistory();
+                            console.log('✅ Histórico limpo com sucesso!');
+                        } catch (e) {
+                            console.error('❌ Falha ao limpar entradas:', e);
+                        }
                     }
-                }
                 });
             });
         }
@@ -3499,12 +3489,22 @@
     
     // Clear entries history function
     async function clearEntriesHistory() {
+        console.log('╔═══════════════════════════════════════════════════════════╗');
+        console.log('║  🗑️ LIMPANDO HISTÓRICO DE ENTRADAS                       ║');
+        console.log('╚═══════════════════════════════════════════════════════════╝');
+        console.log('   ProPlus ativo?', isProPlusActive);
+        
         // ☁️ SE PROPLUS ESTÁ ATIVO, LIMPAR NO SERVIDOR
         if (isProPlusActive) {
             try {
                 const token = localStorage.getItem('authToken');
+                console.log('   Token encontrado?', !!token);
+                
                 if (token) {
                     const apiUrl = getApiUrl();
+                    console.log('   API URL:', apiUrl);
+                    console.log('   Endpoint:', `${apiUrl}/api/sync/limpar-historico`);
+                    
                     const response = await fetch(`${apiUrl}/api/sync/limpar-historico`, {
                         method: 'DELETE',
                         headers: {
@@ -3513,18 +3513,28 @@
                         }
                     });
                     
+                    console.log('   Resposta HTTP:', response.status);
+                    
                     if (response.ok) {
+                        const data = await response.json();
                         console.log('☁️ Histórico limpo no servidor (ProPlus)');
+                        console.log('   Dados:', data);
                         
                         // ✅ NOTIFICAR BACKGROUND.JS PARA SINCRONIZAR INSTANTANEAMENTE
                         chrome.runtime.sendMessage({ 
                             action: 'syncProPlusNow' 
                         });
+                    } else {
+                        console.error('❌ Erro HTTP:', response.status, response.statusText);
                     }
+                } else {
+                    console.warn('⚠️ Sem token - não pode limpar no servidor');
                 }
             } catch (error) {
-                console.warn('⚠️ Erro ao limpar histórico no servidor:', error);
+                console.error('❌ Erro ao limpar histórico no servidor:', error);
             }
+        } else {
+            console.log('📱 ProPlus não ativo - limpando apenas localmente');
         }
         
         // Limpar localmente também
