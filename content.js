@@ -500,6 +500,9 @@
             // ✅ Habilitar/Desabilitar campos irrelevantes para IA
             toggleAIConfigFields(newAIMode);
             
+            // ❌ NÃO SINCRONIZAR aiMode - cada dispositivo tem seu próprio modo ativo!
+            // As configurações (minPercentage, aiApiKey, etc) são sincronizadas via botão Salvar
+            
             // Notificar background.js
             chrome.runtime.sendMessage({
                 action: 'aiModeChanged',
@@ -1073,6 +1076,10 @@
         }
         
         try {
+            // ✅ REMOVER aiMode da sincronização - cada dispositivo tem seu próprio modo!
+            const configToSync = { ...config };
+            delete configToSync.aiMode;
+            
             const apiUrl = getApiUrl();
             const response = await fetch(`${apiUrl}/api/user/settings`, {
                 method: 'POST',
@@ -1080,7 +1087,7 @@
                     'Content-Type': 'application/json',
                     'Authorization': `Bearer ${token}`
                 },
-                body: JSON.stringify({ settings: config })
+                body: JSON.stringify({ settings: configToSync })
             });
             
             if (!response.ok) {
@@ -3678,13 +3685,22 @@
     
     async function loadSettings() {
         try {
-            // ✅ TENTAR CARREGAR DO SERVIDOR PRIMEIRO (se autenticado)
+            // ✅ CARREGAR CONFIGURAÇÃO LOCAL ATUAL PRIMEIRO (para preservar aiMode)
+            const localResult = await chrome.storage.local.get(['analyzerConfig']);
+            const localConfig = localResult.analyzerConfig || {};
+            const localAIMode = localConfig.aiMode; // Preservar modo ativo local
+            
+            // ✅ TENTAR CARREGAR DO SERVIDOR (se autenticado)
             const serverConfig = await loadConfigFromServer();
             
             if (serverConfig) {
-                // Se tem configuração no servidor, salvar localmente e usar ela
+                // Se tem configuração no servidor, mesclar com aiMode local
                 console.log('✅ Usando configurações do servidor (sincronizado)');
-                await chrome.storage.local.set({ analyzerConfig: serverConfig });
+                const mergedConfig = {
+                    ...serverConfig,
+                    aiMode: localAIMode // ✅ PRESERVAR aiMode local
+                };
+                await chrome.storage.local.set({ analyzerConfig: mergedConfig });
             }
             
             // Carregar do localStorage (que agora pode ter sido atualizado do servidor)
