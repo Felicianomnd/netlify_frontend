@@ -1498,6 +1498,19 @@
                             <span class="stat-value" id="lastUpdate">-</span>
                         </div>
                     </div>
+                    
+                    <!-- 🆕 Container de histórico criado imediatamente (será populado via servidor) -->
+                    <div id="spin-history-bar-ext">
+                        <div class="spin-history-label">
+                            <span>ÚLTIMOS GIROS</span>
+                            <div class="spin-count-info">
+                                <span class="displaying-count">Carregando...</span>
+                            </div>
+                        </div>
+                        <div class="spin-history-bar-blaze" style="text-align: center; padding: 20px; color: #888;">
+                            ⏳ Aguardando dados do servidor...
+                        </div>
+                    </div>
                 </div>
             </div>
         `;
@@ -4142,11 +4155,57 @@
                     currentHistoryData = currentHistoryData.slice(0, 2000);
                 }
             }
+        } else {
+            // 🆕 Se não há histórico ainda, inicializar com o novo giro
+            currentHistoryData = [newSpin];
         }
         
         // ✅ RE-RENDERIZAR HISTÓRICO INSTANTANEAMENTE
-        const historyContainer = document.getElementById('spin-history-bar-ext');
-        if (historyContainer && currentHistoryData.length > 0) {
+        let historyContainer = document.getElementById('spin-history-bar-ext');
+        
+        // 🆕 Se o container não existe, criar ele primeiro!
+        if (!historyContainer) {
+            console.log('🆕 Container de histórico não existe - CRIANDO AGORA!');
+            const statsSection = document.querySelector('.stats-section');
+            if (statsSection) {
+                const wrap = document.createElement('div');
+                wrap.id = 'spin-history-bar-ext';
+                wrap.innerHTML = renderSpinHistory(currentHistoryData);
+                statsSection.appendChild(wrap);
+                console.log(`✅ Histórico criado instantaneamente: ${currentHistoryData.length} giro(s)`);
+                
+                // 🆕 Adicionar event listener para o botão "Carregar Mais" (criação inicial)
+                const loadMoreBtn = document.getElementById('loadMoreHistoryBtn');
+                if (loadMoreBtn) {
+                    loadMoreBtn.addEventListener('click', function handleLoadMore() {
+                        const remaining = currentHistoryData.length - currentHistoryDisplayLimit;
+                        const increment = 500;
+                        const addAmount = remaining > increment ? increment : remaining;
+                        
+                        currentHistoryDisplayLimit += addAmount;
+                        console.log(`📊 Carregando mais ${addAmount} giros. Total exibido: ${currentHistoryDisplayLimit}`);
+                        
+                        const container = document.getElementById('spin-history-bar-ext');
+                        if (container) {
+                            container.innerHTML = renderSpinHistory(currentHistoryData);
+                        }
+                        
+                        // Re-adicionar event listener
+                        const newLoadMoreBtn = document.getElementById('loadMoreHistoryBtn');
+                        if (newLoadMoreBtn) {
+                            newLoadMoreBtn.addEventListener('click', handleLoadMore);
+                        }
+                    });
+                }
+                return; // Container criado com sucesso!
+            } else {
+                console.error('❌ ERRO: .stats-section não encontrado! Não foi possível criar o histórico.');
+                return;
+            }
+        }
+        
+        // Container já existe - apenas atualizar
+        if (currentHistoryData.length > 0) {
             // SALVAR posição do scroll (sempre no topo para novos giros)
             historyContainer.innerHTML = renderSpinHistory(currentHistoryData);
             historyContainer.style.display = 'block';
@@ -4156,7 +4215,7 @@
             // ✅ Re-adicionar event listener para o botão "Carregar Mais"
             const loadMoreBtn = document.getElementById('loadMoreHistoryBtn');
             if (loadMoreBtn) {
-                loadMoreBtn.addEventListener('click', function() {
+                loadMoreBtn.addEventListener('click', function handleLoadMore() {
                     const remaining = currentHistoryData.length - currentHistoryDisplayLimit;
                     const increment = 500;
                     const addAmount = remaining > increment ? increment : remaining;
@@ -4169,7 +4228,7 @@
                     // Re-adicionar event listener
                     const newLoadMoreBtn = document.getElementById('loadMoreHistoryBtn');
                     if (newLoadMoreBtn) {
-                        newLoadMoreBtn.addEventListener('click', arguments.callee);
+                        newLoadMoreBtn.addEventListener('click', handleLoadMore);
                     }
                 });
             }
@@ -4482,7 +4541,7 @@
         return Math.round(finalConfidence * 10) / 10; // Arredondar para 1 casa decimal
     }
     
-    // Iniciar atualização automática do histórico
-    setTimeout(startAutoHistoryUpdate, 2500);
+    // Iniciar atualização automática do histórico (IMEDIATAMENTE!)
+    setTimeout(startAutoHistoryUpdate, 100); // 🚀 Reduzido de 2500ms para 100ms para exibição instantânea
     
 })();
