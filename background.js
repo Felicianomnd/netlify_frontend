@@ -2184,9 +2184,12 @@ async function checkAndSendProPlusSignal() {
         const data = await response.json();
         
         if (data.success && data.proPlusActive && data.lastSignal) {
-            // ✅ ENVIAR SINAL PROPLUS INSTANTANEAMENTE PARA CONTENT.JS
-            console.log('☁️ Enviando sinal ProPlus para content.js (WebSocket):', data.lastSignal);
-            sendMessageToContent('PROPLUS_SIGNAL', data.lastSignal);
+            // ✅ ENVIAR SINAL PROPLUS + HISTÓRICO DE ENTRADAS INSTANTANEAMENTE
+            console.log('☁️ Enviando sinal ProPlus + entradas para content.js (WebSocket)');
+            sendMessageToContent('PROPLUS_SIGNAL', {
+                ...data.lastSignal,
+                signalsHistory: data.signalsHistory || [] // ✅ Incluir histórico de entradas
+            });
         }
     } catch (error) {
         // Ignorar erro silenciosamente (não atrapalha fluxo normal)
@@ -2211,8 +2214,40 @@ async function processNewSpinFromServer(spinData) {
                 }
             });
             
-            // ☁️ VERIFICAR SE USUÁRIO TEM PROPLUS ATIVO E BUSCAR SINAL DO SERVIDOR
-            checkAndSendProPlusSignal();
+            // ☁️ VERIFICAR SE USUÁRIO TEM PROPLUS ATIVO
+            const result = await chrome.storage.local.get(['authToken']);
+            const authToken = result.authToken;
+            
+            if (authToken) {
+                const authApiUrl = API_CONFIG.authURL || 'https://blaze-analyzer-api-v2.onrender.com';
+                const response = await fetch(`${authApiUrl}/api/sync/estado`, {
+                    headers: {
+                        'Authorization': `Bearer ${authToken}`,
+                        'Content-Type': 'application/json'
+                    },
+                    signal: AbortSignal.timeout(2000)
+                }).catch(() => null);
+                
+                if (response && response.ok) {
+                    const data = await response.json();
+                    
+                    // ✅ SE PROPLUS ESTÁ ATIVO, NÃO RODAR ANÁLISE LOCAL
+                    if (data.success && data.proPlusActive) {
+                        console.log('☁️ ProPlus ATIVO - Pulando análise local (servidor analisa)');
+                        
+                        // Enviar sinal do servidor
+                        if (data.lastSignal) {
+                            sendMessageToContent('PROPLUS_SIGNAL', {
+                                ...data.lastSignal,
+                                signalsHistory: data.signalsHistory || []
+                            });
+                        }
+                        
+                        // ✅ PARAR AQUI - NÃO CONTINUAR COM ANÁLISE LOCAL
+                        return;
+                    }
+                }
+            }
         
         // ✅ Usar CACHE EM MEMÓRIA (não salvar em chrome.storage.local)
         let history = [...cachedHistory];  // Cópia do cache
@@ -13789,6 +13824,14 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                 console.error('%c❌ Erro ao alterar modo IA:', 'color: #FF0000; font-weight: bold;', e);
                 sendResponse({ status: 'error', error: String(e) });
             }
+        })();
+        return true;
+    } else if (request.action === 'syncProPlusNow') {
+        // ☁️ SINCRONIZAR PROPLUS INSTANTANEAMENTE (quando histórico é limpo)
+        (async () => {
+            console.log('☁️ Sincronização ProPlus forçada (histórico limpo)');
+            await checkAndSendProPlusSignal();
+            sendResponse({ status: 'success' });
         })();
         return true;
     } else if (request.action === 'clearEntriesAndObserver') {

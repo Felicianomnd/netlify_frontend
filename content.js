@@ -3221,17 +3221,22 @@
         lastUpdate.textContent = new Date().toLocaleTimeString();
 
         // Atualizar painel de entradas se disponível
-        if (data.entriesHistory) {
-            renderEntriesPanel(data.entriesHistory);
+        // ☁️ NÃO EXIBIR ENTRADAS LOCAIS SE PROPLUS ESTÁ ATIVO
+        if (!isProPlusActive) {
+            if (data.entriesHistory) {
+                renderEntriesPanel(data.entriesHistory);
+            } else {
+                // Buscar do storage se não foi fornecido
+                try {
+                    chrome.storage.local.get(['entriesHistory'], function(res) {
+                        if (res && res.entriesHistory) {
+                            renderEntriesPanel(res.entriesHistory);
+                        }
+                    });
+                } catch(_) {}
+            }
         } else {
-            // Buscar do storage se não foi fornecido
-            try {
-                chrome.storage.local.get(['entriesHistory'], function(res) {
-                    if (res && res.entriesHistory) {
-                        renderEntriesPanel(res.entriesHistory);
-                    }
-                });
-            } catch(_) {}
+            console.log('☁️ ProPlus ativo - ignorando entradas locais');
         }
 
         // HISTÓRICO agora vem EXCLUSIVAMENTE do servidor (updateHistoryUIFromServer)
@@ -3462,6 +3467,11 @@
                     
                     if (response.ok) {
                         console.log('☁️ Histórico limpo no servidor (ProPlus)');
+                        
+                        // ✅ NOTIFICAR BACKGROUND.JS PARA SINCRONIZAR INSTANTANEAMENTE
+                        chrome.runtime.sendMessage({ 
+                            action: 'syncProPlusNow' 
+                        });
                     }
                 }
             } catch (error) {
@@ -3738,6 +3748,12 @@
     // Listen for messages from background script
     chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         if (request.type === 'NEW_ANALYSIS') {
+            // ☁️ IGNORAR ANÁLISE LOCAL SE PROPLUS ESTÁ ATIVO
+            if (isProPlusActive) {
+                console.log('☁️ ProPlus ativo - ignorando análise local (servidor analisa)');
+                return;
+            }
+            
             console.log('%c🔍 [NEW_ANALYSIS] Recebido!', 'color: #00FFFF; font-weight: bold;');
             console.log('%c   📦 request.data:', 'color: #00FFFF;', request.data);
             console.log('%c   🎲 last5Spins existe?', 'color: #00FFFF;', request.data.last5Spins ? '✅ SIM' : '❌ NÃO');
@@ -3772,14 +3788,22 @@
                 console.error('❌ ERRO: Dados do giro inválidos!', request.data);
             }
         } else if (request.type === 'CLEAR_ANALYSIS') {
-            updateSidebar({ analysis: null, pattern: null });
+            // ☁️ IGNORAR SE PROPLUS ESTÁ ATIVO (sinais vêm do servidor)
+            if (!isProPlusActive) {
+                updateSidebar({ analysis: null, pattern: null });
+            }
         } else if (request.type === 'PATTERN_BANK_UPDATE') {
             // Atualizar banco de padrões quando novos forem descobertos
             console.log('📂 Banco de padrões atualizado');
             loadPatternBank();
         } else if (request.type === 'ENTRIES_UPDATE') {
             // Atualizar histórico de entradas (WIN/LOSS)
-            updateSidebar({ entriesHistory: request.data });
+            // ☁️ IGNORAR SE PROPLUS ESTÁ ATIVO (entradas vêm do servidor)
+            if (!isProPlusActive) {
+                updateSidebar({ entriesHistory: request.data });
+            } else {
+                console.log('☁️ ProPlus ativo - ignorando ENTRIES_UPDATE local');
+            }
         } else if (request.type === 'OBSERVER_UPDATE') {
             // Atualizar Calibrador de porcentagens automaticamente
             console.log('╔═══════════════════════════════════════════════════════════╗');
@@ -3799,6 +3823,20 @@
                 displayProPlusSignal(request.data);
                 sessionStorage.setItem('lastProPlusSignalTimestamp', request.data.timestamp);
                 console.log('✅ Sinal ProPlus exibido instantaneamente!');
+                
+                // ✅ ATUALIZAR ENTRADAS TAMBÉM (do servidor, instantâneo)
+                if (request.data.signalsHistory) {
+                    const entries = request.data.signalsHistory.map(signal => ({
+                        color: signal.color,
+                        confidence: signal.confidence,
+                        timestamp: signal.timestamp,
+                        result: signal.result,
+                        gales: signal.gales || 0
+                    }));
+                    renderEntriesPanel(entries);
+                    console.log('✅ Entradas atualizadas instantaneamente!');
+                }
+                
                 console.log('');
             }
         } else if (request.type === 'WEBSOCKET_STATUS') {
@@ -4113,65 +4151,14 @@
     
     // Escutar mensagens do background.js (WebSocket - tempo real)
     let isProPlusActive = false;
-    let proPlusSyncInterval = null;
     
     function startProPlusSync() {
         isProPlusActive = true;
-        console.log('✅ Modo ProPlus ativo - aguardando sinais do WebSocket em tempo real');
-        
-        // Sincronizar entradas do servidor a cada 30 segundos
-        if (proPlusSyncInterval) {
-            clearInterval(proPlusSyncInterval);
-        }
-        
-        proPlusSyncInterval = setInterval(async () => {
-            const token = localStorage.getItem('authToken');
-            if (!token) {
-                stopProPlusSync();
-                return;
-            }
-            
-            try {
-                const apiUrl = getApiUrl();
-                const response = await fetch(`${apiUrl}/api/sync/estado`, {
-                    headers: {
-                        'Authorization': `Bearer ${token}`,
-                        'Content-Type': 'application/json'
-                    }
-                });
-                
-                if (!response.ok) return;
-                
-                const data = await response.json();
-                
-                if (data.success && data.proPlusActive && data.signalsHistory) {
-                    // Atualizar entradas com sinais do servidor
-                    const entries = data.signalsHistory.map(signal => ({
-                        color: signal.color,
-                        confidence: signal.confidence,
-                        timestamp: signal.timestamp,
-                        result: signal.result,
-                        gales: signal.gales || 0
-                    }));
-                    renderEntriesPanel(entries);
-                }
-                
-            } catch (error) {
-                console.error('❌ Erro ao sincronizar entradas ProPlus:', error);
-            }
-        }, 30000); // A cada 30 segundos
-        
-        console.log('🔄 Sincronização de entradas ProPlus iniciada (30s)');
+        console.log('✅ Modo ProPlus ativo - sinais e entradas via WebSocket INSTANTÂNEO');
     }
     
     function stopProPlusSync() {
         isProPlusActive = false;
-        
-        if (proPlusSyncInterval) {
-            clearInterval(proPlusSyncInterval);
-            proPlusSyncInterval = null;
-        }
-        
         console.log('🛑 Modo ProPlus desativado');
     }
     
