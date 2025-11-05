@@ -583,17 +583,35 @@ async function connectToProPlusSocket() {
         }
         
         let authToken = null;
-        try {
-            const response = await chrome.tabs.sendMessage(tabs[0].id, { 
-                action: 'GET_AUTH_TOKEN' 
-            });
-            authToken = response?.token;
-        } catch (e) {
-            console.warn('⚠️ Erro ao buscar token do localStorage:', e.message);
+        
+        // ✅ TENTAR BUSCAR TOKEN ATÉ 3 VEZES (com delay de 100ms entre tentativas)
+        for (let attempt = 1; attempt <= 3; attempt++) {
+            try {
+                console.log(`🔑 [Socket.IO] Tentativa ${attempt}/3 de buscar token...`);
+                const response = await chrome.tabs.sendMessage(tabs[0].id, { 
+                    action: 'GET_AUTH_TOKEN' 
+                });
+                authToken = response?.token;
+                
+                if (authToken) {
+                    console.log('🔑 [Socket.IO] Token recuperado: ✅ ENCONTRADO');
+                    break;
+                } else {
+                    console.log(`⚠️ [Socket.IO] Tentativa ${attempt}/3: Token não encontrado`);
+                    if (attempt < 3) {
+                        await new Promise(resolve => setTimeout(resolve, 100));
+                    }
+                }
+            } catch (e) {
+                console.warn(`⚠️ [Socket.IO] Tentativa ${attempt}/3 falhou:`, e.message);
+                if (attempt < 3) {
+                    await new Promise(resolve => setTimeout(resolve, 100));
+                }
+            }
         }
         
         if (!authToken) {
-            console.log('⚠️ Sem token - não conectando ao Socket.IO ProPlus');
+            console.log('⚠️ Sem token após 3 tentativas - não conectando ao Socket.IO ProPlus');
             return;
         }
         
@@ -2263,18 +2281,36 @@ async function checkAndSendProPlusSignal(forceCheck = false) {
         }
         
         let authToken = null;
-        try {
-            const response = await chrome.tabs.sendMessage(tabs[0].id, { 
-                action: 'GET_AUTH_TOKEN' 
-            });
-            authToken = response?.token;
-            console.log('🔑 Token recuperado do localStorage:', authToken ? '✅ ENCONTRADO' : '❌ NÃO ENCONTRADO');
-        } catch (e) {
-            console.warn('⚠️ Erro ao buscar token do localStorage:', e.message);
+        
+        // ✅ TENTAR BUSCAR TOKEN ATÉ 3 VEZES (com delay de 100ms entre tentativas)
+        // Isso resolve o problema de timing onde content.js ainda não registrou seu listener
+        for (let attempt = 1; attempt <= 3; attempt++) {
+            try {
+                console.log(`🔑 Tentativa ${attempt}/3 de buscar token...`);
+                const response = await chrome.tabs.sendMessage(tabs[0].id, { 
+                    action: 'GET_AUTH_TOKEN' 
+                });
+                authToken = response?.token;
+                
+                if (authToken) {
+                    console.log('🔑 Token recuperado do localStorage: ✅ ENCONTRADO');
+                    break; // Token encontrado, sair do loop
+                } else {
+                    console.log(`⚠️ Tentativa ${attempt}/3: Token não encontrado na resposta`);
+                    if (attempt < 3) {
+                        await new Promise(resolve => setTimeout(resolve, 100)); // Aguardar 100ms antes da próxima tentativa
+                    }
+                }
+            } catch (e) {
+                console.warn(`⚠️ Tentativa ${attempt}/3 falhou:`, e.message);
+                if (attempt < 3) {
+                    await new Promise(resolve => setTimeout(resolve, 100)); // Aguardar 100ms antes da próxima tentativa
+                }
+            }
         }
         
         if (!authToken) {
-            console.log('❌ Sem token - ProPlus não pode ser verificado');
+            console.log('❌ Sem token após 3 tentativas - ProPlus não pode ser verificado');
             proPlusCache.isActive = false;
             proPlusCache.lastCheck = now;
             return false;

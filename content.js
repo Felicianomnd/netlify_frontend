@@ -3808,14 +3808,22 @@
         // ✅ RESPONDER REQUISIÇÃO DE TOKEN DO BACKGROUND.JS
         if (request.action === 'GET_AUTH_TOKEN') {
             try {
+                console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #FFD700; font-weight: bold;');
+                console.log('%c🔑 [CONTENT] GET_AUTH_TOKEN RECEBIDO!', 'color: #FFD700; font-weight: bold;');
+                console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #FFD700; font-weight: bold;');
+                
                 const token = localStorage.getItem('authToken');
-                console.log('🔑 [CONTENT] Token solicitado pelo background.js:', token ? '✅ ENCONTRADO' : '❌ NÃO ENCONTRADO');
+                console.log('🔑 [CONTENT] Token recuperado do localStorage:', token ? '✅ ENCONTRADO' : '❌ NÃO ENCONTRADO');
                 if (token) {
                     console.log('🔑 [CONTENT] Token (primeiros 20 chars):', token.substring(0, 20) + '...');
                 }
+                
+                console.log('📤 [CONTENT] Enviando resposta com token:', token ? '✅ SIM' : '❌ NULL');
                 sendResponse({ token: token });
+                console.log('✅ [CONTENT] Resposta enviada com sucesso!');
+                console.log('');
             } catch (e) {
-                console.error('❌ Erro ao buscar token do localStorage:', e);
+                console.error('❌ [CONTENT] Erro ao buscar token do localStorage:', e);
                 sendResponse({ token: null });
             }
             return true; // Manter canal aberto para sendResponse assíncrono
@@ -3988,6 +3996,7 @@
     console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #00FF88; font-weight: bold;');
     console.log('%c✅ CONTENT.JS LISTENER REGISTRADO!', 'color: #00FF88; font-weight: bold;');
     console.log('%c   chrome.runtime.onMessage.addListener → PRONTO', 'color: #00FF88;');
+    console.log('%c   🔑 Pronto para responder GET_AUTH_TOKEN', 'color: #FFD700; font-weight: bold;');
     console.log('%c   Aguardando mensagens: NEW_ANALYSIS, NEW_SPIN, etc', 'color: #00FF88;');
     console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #00FF88; font-weight: bold;');
     console.log('');
