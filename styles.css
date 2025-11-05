@@ -3507,38 +3507,45 @@
     display: flex;
     flex-direction: column;
     gap: 6px;
-    padding: 10px 12px;
+    padding: 12px 14px;
     background: #0a0f14;
     border: 1px solid #333;
-    border-radius: 6px;
-    margin-bottom: 8px;
-    transition: all 0.2s;
+    border-radius: 8px;
+    margin-bottom: 10px;
+    transition: all 0.3s;
 }
 
 .view-pattern-item:hover {
     background: #101520;
     border-color: #00d4ff;
+    box-shadow: 0 2px 8px rgba(0, 212, 255, 0.2);
+    transform: translateX(2px);
 }
 
 .view-pattern-name {
     color: #00d4ff;
-    font-size: 12px;
+    font-size: 13px;
     font-weight: bold;
     padding-right: 30px;
-    margin-bottom: 2px;
+    margin-bottom: 4px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
 }
 
 .view-pattern-row {
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: 6px;
     flex-wrap: wrap;
+    margin-top: 6px;
 }
 
 .view-pattern-sequence {
-    display: flex;
+    display: inline-flex;
     align-items: center;
-    gap: 4px;
+    gap: 0;
     flex-wrap: wrap;
 }
 

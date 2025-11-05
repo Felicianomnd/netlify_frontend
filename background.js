@@ -3903,8 +3903,15 @@ async function checkForCustomPatterns(history) {
     console.log('');
     
     const colors = history.map(spin => spin.color);
-    console.log('%c📜 ÚLTIMOS 15 GIROS DO HISTÓRICO:', 'color: #00d4ff; font-weight: bold;');
-    console.log(`   ${colors.slice(0, 15).join(' → ')}`);
+    
+    // Mostrar em ordem cronológica (do mais antigo para o mais recente)
+    const last15Reversed = colors.slice(0, 15).reverse();
+    const last15Display = last15Reversed.map(c => c === 'red' ? '🔴' : c === 'black' ? '⚫' : '⚪').join(' → ');
+    
+    console.log('%c📜 ÚLTIMOS 15 GIROS DO HISTÓRICO (ordem cronológica):', 'color: #00d4ff; font-weight: bold;');
+    console.log(`%c   ↑ PASSADO ──────────────────────── PRESENTE ↑`, 'color: #888; font-style: italic;');
+    console.log(`%c   ${last15Display}`, 'color: #FFD700; font-weight: bold;');
+    console.log(`%c   ${last15Reversed.join(' → ')}`, 'color: #888;');
     console.log('');
     
     let patternIndex = 0;
@@ -3914,8 +3921,24 @@ async function checkForCustomPatterns(history) {
         console.log(`%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, 'color: #00d4ff;');
         console.log(`%c🔍 PADRÃO #${patternIndex}: "${customPattern.name}"`, 'color: #00d4ff; font-weight: bold;');
         console.log(`   Status: ${customPattern.active ? '✅ ATIVO' : '❌ INATIVO'}`);
-        console.log(`   Sequência configurada: [${customPattern.sequence.join(' → ')}]`);
-        console.log(`   Cor anterior: ${customPattern.beforeColor}`);
+        console.log('');
+        console.log(`%c   📋 SEQUÊNCIA CONFIGURADA (ordem cronológica):`, 'color: #FFD700; font-weight: bold;');
+        console.log(`%c      [ANTERIOR] → [1º] → [2º] → [3º] → ... → [ÚLTIMO/ATUAL]`, 'color: #888; font-style: italic;');
+        
+        // Construir visualização com cor anterior
+        const beforeColorDisplay = customPattern.beforeColor === 'red-white' ? '🔴/⚪' :
+                                    customPattern.beforeColor === 'black-white' ? '⚫/⚪' :
+                                    customPattern.beforeColor === 'red' ? '🔴' :
+                                    customPattern.beforeColor === 'black' ? '⚫' :
+                                    customPattern.beforeColor === 'white' ? '⚪' : '❓';
+        
+        const sequenceDisplay = customPattern.sequence.map((c, idx) => {
+            const symbol = c === 'red' ? '🔴' : c === 'black' ? '⚫' : '⚪';
+            return `[${idx + 1}º: ${symbol}]`;
+        }).join(' → ');
+        
+        console.log(`%c      ${beforeColorDisplay} (anterior) → ${sequenceDisplay}`, 'color: #FFD700; font-weight: bold;');
+        console.log(`%c      ↑ PASSADO ────────────────────────────── PRESENTE ↑`, 'color: #888;');
         
         if (!customPattern.active) {
             console.log(`%c   ⏭️ PULANDO: Padrão está INATIVO`, 'color: #888;');
@@ -3924,17 +3947,21 @@ async function checkForCustomPatterns(history) {
         
         const patternLength = customPattern.sequence.length;
         
-        // Verificar se o padrão atual (últimos giros) bate com o padrão customizado
-        const currentSequence = colors.slice(0, patternLength);
+        // Histórico vem do MAIS RECENTE para o MAIS ANTIGO
+        // Mas padrão é configurado na ordem cronológica (do mais antigo para o mais recente)
+        // Então precisamos REVERTER a sequência atual para comparar!
+        const currentSequenceRaw = colors.slice(0, patternLength);
+        const currentSequence = [...currentSequenceRaw].reverse(); // ✅ INVERTER para ordem cronológica
         
         console.log('');
-        console.log(`%c   📋 COMPARANDO SEQUÊNCIAS:`, 'color: #FFD700; font-weight: bold;');
-        console.log(`      Esperado: [${customPattern.sequence.join(' → ')}]`);
-        console.log(`      Atual:    [${currentSequence.join(' → ')}]`);
-        console.log(`      Tamanho:  ${patternLength} giros`);
+        console.log(`%c   📋 COMPARANDO SEQUÊNCIAS (ordem cronológica):`, 'color: #FFD700; font-weight: bold;');
+        console.log(`%c      📍 IMPORTANTE: Ordem da ESQUERDA → DIREITA (1º giro → último giro)`, 'color: #FFD700;');
+        console.log(`      🎯 Esperado: [${customPattern.sequence.join(' → ')}]`);
+        console.log(`      📊 Atual:    [${currentSequence.join(' → ')}]`);
+        console.log(`      📏 Tamanho:  ${patternLength} giros`);
         console.log('');
         
-        // Comparar posição por posição
+        // Comparar posição por posição (agora ambos estão em ordem cronológica)
         let matchDetails = [];
         for (let i = 0; i < patternLength; i++) {
             const match = (currentSequence[i] === customPattern.sequence[i]);
@@ -3946,11 +3973,13 @@ async function checkForCustomPatterns(history) {
             });
         }
         
-        console.log('%c      COMPARAÇÃO DETALHADA:', 'color: #FFD700;');
+        console.log('%c      COMPARAÇÃO DETALHADA (posição por posição):', 'color: #FFD700;');
         matchDetails.forEach(detail => {
             const status = detail.match ? '✅' : '❌';
             const color = detail.match ? '#00FF88' : '#FF6666';
-            console.log(`%c      ${status} Posição ${detail.position}: esperado "${detail.expected}" | real "${detail.actual}"`, `color: ${color};`);
+            const expectedSymbol = detail.expected === 'red' ? '🔴' : detail.expected === 'black' ? '⚫' : '⚪';
+            const actualSymbol = detail.actual === 'red' ? '🔴' : detail.actual === 'black' ? '⚫' : detail.actual === 'white' ? '⚪' : '❓';
+            console.log(`%c      ${status} ${detail.position}º giro: esperado ${expectedSymbol} (${detail.expected}) | real ${actualSymbol} (${detail.actual})`, `color: ${color};`);
         });
         
         const isCurrentMatch = matchDetails.every(d => d.match);
@@ -3959,24 +3988,34 @@ async function checkForCustomPatterns(history) {
         
         if (isCurrentMatch) {
             // Verificar cor anterior (se especificada)
+            // Lembrar: colors[patternLength] é a cor que veio ANTES da sequência (no histórico invertido)
             const colorBefore = (patternLength < colors.length) ? colors[patternLength] : null;
+            const colorBeforeSymbol = colorBefore === 'red' ? '🔴' : colorBefore === 'black' ? '⚫' : colorBefore === 'white' ? '⚪' : '❓';
             
-            console.log(`\n   🔍 VALIDANDO COR ANTERIOR:`);
-            console.log(`      Cor esperada (configurada): ${customPattern.beforeColor}`);
-            console.log(`      Cor real que veio antes: ${colorBefore || 'N/A (sem dados)'}`);
+            console.log(`\n   🔍 VALIDANDO COR ANTERIOR (que veio ANTES da sequência):`);
+            
+            const beforeColorExpected = customPattern.beforeColor === 'red-white' ? '🔴/⚪ (vermelho OU branco)' :
+                                       customPattern.beforeColor === 'black-white' ? '⚫/⚪ (preto OU branco)' :
+                                       customPattern.beforeColor === 'red' ? '🔴 (vermelho)' :
+                                       customPattern.beforeColor === 'black' ? '⚫ (preto)' :
+                                       customPattern.beforeColor === 'white' ? '⚪ (branco)' :
+                                       customPattern.beforeColor === 'any' ? '❓ (qualquer)' : customPattern.beforeColor;
+            
+            console.log(`      Esperado: ${beforeColorExpected}`);
+            console.log(`      Real: ${colorBeforeSymbol} (${colorBefore || 'N/A'})`);
             
             // ✅ Validar cor anterior com as novas opções
             let isBeforeColorValid = false;
             if (customPattern.beforeColor === 'red-white') {
                 isBeforeColorValid = (colorBefore === 'red' || colorBefore === 'white');
-                console.log(`      Validação: ${colorBefore} é vermelho OU branco? ${isBeforeColorValid ? '✅ SIM' : '❌ NÃO'}`);
+                console.log(`      ${isBeforeColorValid ? '✅' : '❌'} ${colorBefore} é vermelho OU branco? ${isBeforeColorValid ? 'SIM' : 'NÃO'}`);
             } else if (customPattern.beforeColor === 'black-white') {
                 isBeforeColorValid = (colorBefore === 'black' || colorBefore === 'white');
-                console.log(`      Validação: ${colorBefore} é preto OU branco? ${isBeforeColorValid ? '✅ SIM' : '❌ NÃO'}`);
+                console.log(`      ${isBeforeColorValid ? '✅' : '❌'} ${colorBefore} é preto OU branco? ${isBeforeColorValid ? 'SIM' : 'NÃO'}`);
             } else {
                 // Retrocompatibilidade com modelos antigos
                 isBeforeColorValid = (customPattern.beforeColor === 'any' || colorBefore === customPattern.beforeColor);
-                console.log(`      Validação: ${colorBefore} é ${customPattern.beforeColor}? ${isBeforeColorValid ? '✅ SIM' : '❌ NÃO'}`);
+                console.log(`      ${isBeforeColorValid ? '✅' : '❌'} ${colorBefore} é ${customPattern.beforeColor}? ${isBeforeColorValid ? 'SIM' : 'NÃO'}`);
             }
             
             if (isBeforeColorValid) {
@@ -4053,9 +4092,37 @@ async function checkForCustomPatterns(history) {
 // Listener para atualização de padrões customizados
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     if (request.type === 'CUSTOM_PATTERNS_UPDATED') {
-        console.log('🔄 Padrões customizados atualizados, recarregando cache...');
+        console.log('');
+        console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #00FF88; font-weight: bold;');
+        console.log('%c║  🔄 PADRÕES CUSTOMIZADOS ATUALIZADOS!                    ║', 'color: #00FF88; font-weight: bold;');
+        console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #00FF88; font-weight: bold;');
+        
+        const oldCache = [...customPatternsCache];
         customPatternsCache = request.data || [];
-        console.log(`✅ Cache atualizado: ${customPatternsCache.length} padrão(ões)`);
+        
+        console.log(`📊 Padrões no cache antigo: ${oldCache.length}`);
+        console.log(`📊 Padrões no cache novo: ${customPatternsCache.length}`);
+        
+        if (customPatternsCache.length > 0) {
+            console.log('%c📋 LISTA ATUALIZADA DE PADRÕES:', 'color: #00FF88; font-weight: bold;');
+            customPatternsCache.forEach((pattern, index) => {
+                const wasUpdated = oldCache.find(p => p.id === pattern.id && 
+                    (p.name !== pattern.name || 
+                     JSON.stringify(p.sequence) !== JSON.stringify(pattern.sequence) ||
+                     p.beforeColor !== pattern.beforeColor));
+                const isNew = !oldCache.find(p => p.id === pattern.id);
+                
+                let status = '';
+                if (isNew) status = ' ✨ NOVO';
+                else if (wasUpdated) status = ' ✏️ EDITADO';
+                
+                console.log(`   ${index + 1}. "${pattern.name}" | [${pattern.sequence.join(' → ')}] | Anterior: ${pattern.beforeColor}${status}`);
+            });
+        }
+        
+        console.log('%c✅ CACHE ATUALIZADO - Próximo sinal usará os padrões mais recentes!', 'color: #00FF88; font-weight: bold;');
+        console.log('');
+        
         sendResponse({ success: true });
         return true;
     }

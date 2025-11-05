@@ -898,6 +898,14 @@
     function closeCustomPatternModal() {
         const modal = document.getElementById('customPatternModal');
         modal.style.display = 'none';
+        
+        // Resetar botão de salvar (remover modo edição)
+        const saveBtn = document.getElementById('saveCustomPatternBtn');
+        if (saveBtn) {
+            saveBtn.textContent = '💾 Salvar Modelo';
+            saveBtn.removeAttribute('data-editing-id');
+        }
+        
         console.log('❌ Modal de padrão customizado fechado');
     }
     
@@ -1217,6 +1225,11 @@
         const sequenceDiv = document.getElementById('customPatternSequence');
         const colorBadges = sequenceDiv.querySelectorAll('.sequence-color-item');
         const beforeColorRadio = document.querySelector('input[name="beforeColor"]:checked');
+        const saveBtn = document.getElementById('saveCustomPatternBtn');
+        
+        // Verificar se está em modo edição
+        const editingId = saveBtn ? saveBtn.getAttribute('data-editing-id') : null;
+        const isEditMode = !!editingId;
         
         // Validações
         if (!name) {
@@ -1233,25 +1246,53 @@
         const sequence = Array.from(colorBadges).map(badge => badge.dataset.color);
         const beforeColor = beforeColorRadio ? beforeColorRadio.value : 'any';
         
-        // Criar objeto do modelo
-        const newPattern = {
-            id: 'custom_' + Date.now(),
-            name: name,
-            sequence: sequence,
-            beforeColor: beforeColor,
-            active: true,
-            createdAt: new Date().toISOString()
-        };
-        
         // Salvar no storage local
         try {
             const result = await chrome.storage.local.get(['customPatterns']);
             let patterns = result.customPatterns || [];
-            patterns.push(newPattern);
+            
+            if (isEditMode) {
+                // MODO EDIÇÃO: Atualizar padrão existente
+                console.log('📝 MODO EDIÇÃO ATIVO');
+                console.log('   ID do padrão sendo editado:', editingId);
+                console.log('   Total de padrões antes:', patterns.length);
+                
+                const index = patterns.findIndex(p => p.id === editingId);
+                console.log('   Índice encontrado:', index);
+                
+                if (index !== -1) {
+                    const oldPattern = {...patterns[index]};
+                    patterns[index] = {
+                        ...patterns[index],
+                        name: name,
+                        sequence: sequence,
+                        beforeColor: beforeColor,
+                        updatedAt: new Date().toISOString()
+                    };
+                    console.log('✏️ Padrão ATUALIZADO:');
+                    console.log('   Antes:', oldPattern);
+                    console.log('   Depois:', patterns[index]);
+                    console.log('   Total de padrões depois:', patterns.length);
+                } else {
+                    console.error('❌ ERRO: Padrão não encontrado para editar!');
+                }
+            } else {
+                // MODO CRIAÇÃO: Criar novo padrão
+                console.log('➕ MODO CRIAÇÃO ATIVO');
+                const newPattern = {
+                    id: 'custom_' + Date.now(),
+                    name: name,
+                    sequence: sequence,
+                    beforeColor: beforeColor,
+                    active: true,
+                    createdAt: new Date().toISOString()
+                };
+                patterns.push(newPattern);
+                console.log('✅ Novo padrão criado:', newPattern);
+                console.log('   Total de padrões:', patterns.length);
+            }
             
             await chrome.storage.local.set({ customPatterns: patterns });
-            
-            console.log('✅ Modelo customizado salvo localmente:', newPattern);
             
             // ✅ SINCRONIZAR COM O SERVIDOR
             const synced = await syncPatternsToServer(patterns);
@@ -1259,20 +1300,52 @@
                 console.log('✅ Padrão sincronizado com a conta do usuário');
             }
             
-            // Fechar modal PRIMEIRO
+            // Resetar botão (remover modo edição)
+            if (saveBtn) {
+                saveBtn.textContent = '💾 Salvar Modelo';
+                saveBtn.removeAttribute('data-editing-id');
+            }
+            
+            // Fechar modal de criação
             closeCustomPatternModal();
             
             // Atualizar lista
-            loadCustomPatternsList();
+            await loadCustomPatternsList();
             
-            // Notificar background.js
+            // ✅ Se estava editando, reabrir modal de visualização
+            if (isEditMode) {
+                setTimeout(() => {
+                    const viewModal = document.getElementById('viewPatternsModal');
+                    if (viewModal) {
+                        viewModal.style.display = 'flex';
+                        console.log('✅ Modal de visualização reaberto após edição');
+                    }
+                }, 100);
+            }
+            
+            // Notificar background.js para atualizar cache imediatamente
+            console.log('📤 Enviando atualização para background.js...');
+            console.log(`   Total de padrões: ${patterns.length}`);
+            if (isEditMode) {
+                const editedPattern = patterns.find(p => p.id === editingId);
+                console.log(`   Padrão editado: "${editedPattern?.name}"`);
+                console.log(`   Nova sequência: [${editedPattern?.sequence.join(' → ')}]`);
+            }
+            
             chrome.runtime.sendMessage({ 
                 type: 'CUSTOM_PATTERNS_UPDATED', 
                 data: patterns 
+            }, (response) => {
+                if (response?.success) {
+                    console.log('✅ Background.js confirmou atualização do cache!');
+                } else {
+                    console.warn('⚠️ Sem resposta do background.js');
+                }
             });
             
             // Toast simples (2 segundos)
-            showToast('✓ Modelo salvo' + (synced ? ' e sincronizado' : ''));
+            const message = isEditMode ? '✓ Padrão atualizado' : '✓ Modelo salvo';
+            showToast(message + (synced ? ' e sincronizado' : ''));
             
         } catch (error) {
             console.error('❌ Erro ao salvar modelo:', error);
@@ -1323,29 +1396,86 @@
                 if (patterns.length === 0) {
                     viewPatternsList.innerHTML = '<div style="text-align: center; padding: 20px; color: #888;">Nenhum padrão criado ainda</div>';
                 } else {
-                    viewPatternsList.innerHTML = patterns.map(pattern => {
-                        const sequenceHTML = pattern.sequence.map(color => {
-                            return `<span class="spin-color-circle-small ${color}"></span>`;
-                        }).join(' ');
+                    // Inverter a ordem para mostrar o mais recente primeiro
+                    const patternsReversed = [...patterns].reverse();
+                    
+                    viewPatternsList.innerHTML = patternsReversed.map((pattern, index) => {
+                        // ✅ Marcar o primeiro da lista invertida como "RECENTE" (último cadastrado)
+                        const isNewest = (index === 0);
                         
-                        // ✅ Cor anterior com quadradinhos visuais
+                        // ✅ Cor anterior com texto DENTRO do ícone (METADE/METADE para combinações)
                         let beforeColorHTML = '';
                         if (pattern.beforeColor === 'red-white') {
-                            beforeColorHTML = '<span class="spin-color-circle-small red"></span> <span style="font-size: 9px; color: #666;">ou</span> <span class="spin-color-circle-small white"></span>';
+                            // Ícone dividido QUADRADO: metade vermelha, metade branca (MESMAS CORES E TAMANHO DOS OUTROS)
+                            beforeColorHTML = `
+                                <div style="position: relative; display: inline-block;">
+                                    <span style="display: block; width: 24px; height: 24px; border-radius: 4px; background: linear-gradient(to right, #ff0000 0%, #ff0000 50%, #ffffff 50%, #ffffff 100%); border: 1px solid rgba(255, 255, 255, 0.2); box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);"></span>
+                                    <span style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 6px; color: rgba(0,0,0,0.9); font-weight: bold; white-space: nowrap; pointer-events: none; text-shadow: 0 0 2px rgba(255,255,255,0.8);">ANT</span>
+                                </div>
+                            `;
                         } else if (pattern.beforeColor === 'black-white') {
-                            beforeColorHTML = '<span class="spin-color-circle-small black"></span> <span style="font-size: 9px; color: #666;">ou</span> <span class="spin-color-circle-small white"></span>';
+                            // Ícone dividido QUADRADO: metade preta, metade branca (MESMAS CORES E TAMANHO DOS OUTROS)
+                            beforeColorHTML = `
+                                <div style="position: relative; display: inline-block;">
+                                    <span style="display: block; width: 24px; height: 24px; border-radius: 4px; background: linear-gradient(to right, #2a2a2a 0%, #2a2a2a 50%, #ffffff 50%, #ffffff 100%); border: 1px solid rgba(255, 255, 255, 0.2); box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);"></span>
+                                    <span style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 6px; color: rgba(255,255,255,0.9); font-weight: bold; white-space: nowrap; pointer-events: none; text-shadow: 0 0 2px rgba(0,0,0,0.8);">ANT</span>
+                                </div>
+                            `;
                         } else {
-                            beforeColorHTML = '<span class="spin-color-circle-small ' + pattern.beforeColor + '"></span>';
+                            // Ícone único normal
+                            beforeColorHTML = `
+                                <div style="position: relative; display: inline-block;">
+                                    <span class="spin-color-circle-small ${pattern.beforeColor}"></span>
+                                    <span style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 6px; color: rgba(255,255,255,0.7); font-weight: bold; white-space: nowrap; pointer-events: none;">ANT</span>
+                                </div>
+                            `;
                         }
                         
+                        // ✅ Construir a sequência com setas e "RECENTE" DENTRO dos ícones
+                        const sequenceHTML = pattern.sequence.map((color, idx) => {
+                            const isLast = (idx === pattern.sequence.length - 1);
+                            
+                            if (isLast) {
+                                // Último ícone: adicionar "RECENTE" dentro
+                                return `
+                                    <div style="position: relative; display: inline-block;">
+                                        <span class="spin-color-circle-small ${color}"></span>
+                                        <span style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 5px; color: #00d4ff; font-weight: bold; white-space: nowrap; pointer-events: none;">REC</span>
+                                    </div>
+                                `;
+                            } else {
+                                // Ícones intermediários: adicionar seta dentro
+                                return `
+                                    <div style="position: relative; display: inline-block;">
+                                        <span class="spin-color-circle-small ${color}"></span>
+                                        <span style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 10px; color: rgba(255,255,255,0.5); font-weight: bold; pointer-events: none;">→</span>
+                                    </div>
+                                `;
+                            }
+                        }).join('');
+                        
                         return `
-                            <div class="view-pattern-item">
-                                <div class="view-pattern-name">${pattern.name}</div>
-                                <div class="view-pattern-row">
-                                    <div class="view-pattern-sequence">${sequenceHTML}</div>
-                                    <div class="view-pattern-before">Anterior: ${beforeColorHTML}</div>
+                            <div class="view-pattern-item" style="${isNewest ? 'border: 2px solid #00ff88; box-shadow: 0 0 10px rgba(0, 255, 136, 0.3);' : ''}">
+                                <div class="view-pattern-name">
+                                    ${pattern.name}
+                                    ${isNewest ? '<span style="background: #00ff88; color: #000; font-size: 9px; padding: 2px 6px; border-radius: 3px; margin-left: 8px; font-weight: bold;">MAIS RECENTE</span>' : ''}
                                 </div>
-                                <button class="view-pattern-remove" onclick="removeCustomPatternFromView('${pattern.id}')">✕</button>
+                                <div style="display: flex; align-items: center; gap: 2px; flex-wrap: wrap; margin-top: 6px;">
+                                    ${beforeColorHTML}
+                                    ${sequenceHTML}
+                                </div>
+                                <div style="position: absolute; top: 8px; right: 8px; display: flex; gap: 10px; align-items: center;">
+                                    <button style="background: transparent; border: none; color: #00d4ff; font-size: 11px; cursor: pointer; padding: 4px 8px; transition: all 0.2s; font-weight: bold;" 
+                                            onmouseover="this.style.color='#00ff88'; this.style.textDecoration='underline';" 
+                                            onmouseout="this.style.color='#00d4ff'; this.style.textDecoration='none';"
+                                            onclick="editCustomPatternFromView('${pattern.id}')" 
+                                            title="Editar padrão">Editar</button>
+                                    <button style="background: transparent; border: none; color: #ff6666; font-size: 16px; cursor: pointer; padding: 4px; transition: all 0.2s;" 
+                                            onmouseover="this.style.opacity='1'; this.style.transform='scale(1.2)';" 
+                                            onmouseout="this.style.opacity='0.6'; this.style.transform='scale(1)';"
+                                            onclick="removeCustomPatternFromView('${pattern.id}')" 
+                                            title="Remover padrão">✕</button>
+                                </div>
                             </div>
                         `;
                     }).join('');
@@ -1358,6 +1488,93 @@
             console.error('❌ Erro ao carregar modelos:', error);
         }
     }
+    
+    // Editar modelo customizado (do modal de visualização)
+    window.editCustomPatternFromView = async function(patternId) {
+        try {
+            const result = await chrome.storage.local.get(['customPatterns']);
+            const patterns = result.customPatterns || [];
+            const pattern = patterns.find(p => p.id === patternId);
+            
+            if (!pattern) {
+                showToast('✗ Padrão não encontrado');
+                return;
+            }
+            
+            console.log('✏️ Editando padrão:', pattern);
+            
+            // Fechar modal de visualização
+            const viewModal = document.getElementById('viewPatternsModal');
+            if (viewModal) {
+                viewModal.style.display = 'none';
+            }
+            
+            // Abrir modal de criação em modo edição (IDs CORRETOS)
+            const modal = document.getElementById('customPatternModal');
+            if (!modal) {
+                console.error('❌ Modal customPatternModal não encontrado!');
+                showToast('✗ Erro ao abrir editor');
+                return;
+            }
+            
+            modal.style.display = 'flex';
+            
+            // Preencher campos com dados do padrão (IDs CORRETOS)
+            const nameInput = document.getElementById('customPatternName');
+            const sequenceDiv = document.getElementById('customPatternSequence');
+            const saveBtn = document.getElementById('saveCustomPatternBtn');
+            
+            console.log('📝 Preenchendo campos...');
+            console.log('   Nome input:', nameInput);
+            console.log('   Sequência div:', sequenceDiv);
+            console.log('   Botão salvar:', saveBtn);
+            
+            // Preencher nome
+            if (nameInput) {
+                nameInput.value = pattern.name;
+                console.log('   ✅ Nome preenchido:', pattern.name);
+            }
+            
+            // Limpar e reconstruir sequência (MESMO FORMATO DO ORIGINAL)
+            if (sequenceDiv) {
+                sequenceDiv.innerHTML = '';
+                pattern.sequence.forEach((color, index) => {
+                    const colorBadge = document.createElement('div');
+                    colorBadge.className = `sequence-color-item ${color}`;
+                    colorBadge.dataset.color = color;
+                    colorBadge.innerHTML = `<span class="spin-color-circle-small ${color}"></span>`;
+                    
+                    // Adicionar evento de clique para remover (igual ao original)
+                    colorBadge.addEventListener('click', function() {
+                        this.remove();
+                    });
+                    
+                    sequenceDiv.appendChild(colorBadge);
+                });
+                console.log('   ✅ Sequência reconstruída:', pattern.sequence);
+            }
+            
+            // Selecionar cor anterior (radio buttons)
+            const beforeColorRadio = document.querySelector(`input[name="beforeColor"][value="${pattern.beforeColor}"]`);
+            if (beforeColorRadio) {
+                beforeColorRadio.checked = true;
+                console.log('   ✅ Cor anterior selecionada:', pattern.beforeColor);
+            }
+            
+            // Mudar botão para modo "Salvar Edição"
+            if (saveBtn) {
+                saveBtn.textContent = '💾 Salvar Edição';
+                saveBtn.setAttribute('data-editing-id', patternId);
+                console.log('   ✅ Botão configurado para modo edição');
+            }
+            
+            console.log('✅ Modal de edição aberto com sucesso!');
+            
+        } catch (error) {
+            console.error('❌ Erro ao editar padrão:', error);
+            showToast('✗ Erro ao editar');
+        }
+    };
     
     // Remover modelo customizado (do modal de visualização)
     window.removeCustomPatternFromView = async function(patternId) {
