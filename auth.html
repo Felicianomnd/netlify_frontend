@@ -572,30 +572,96 @@
             hideMessage();
         }
 
-        // Gerar fingerprint do HARDWARE (não muda entre navegadores)
+        // Gerar fingerprint ÚNICO do HARDWARE (não muda entre navegadores)
         function generateHardwareFingerprint() {
             try {
-                // ✅ USAR APENAS INFORMAÇÕES QUE NÃO MUDAM ENTRE NAVEGADORES NO MESMO PC
-                const screen = `${window.screen.width}x${window.screen.height}x${window.screen.colorDepth}`;
-                const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-                const platform = navigator.platform;
-                const cores = navigator.hardwareConcurrency || 0;
-                
-                // ❌ REMOVIDO: language (pode ser diferente entre navegadores)
-                // ❌ REMOVIDO: deviceMemory (não disponível em todos navegadores)
-                
-                // Combinar apenas informações ESTÁVEIS do hardware
-                const hardwareId = `${screen}|${timezone}|${platform}|${cores}`;
-                
                 console.log('');
                 console.log('═══════════════════════════════════════════════════════════');
-                console.log('🖥️ GERANDO FINGERPRINT DE HARDWARE');
+                console.log('🖥️ GERANDO FINGERPRINT ÚNICO DE HARDWARE');
                 console.log('═══════════════════════════════════════════════════════════');
+                
+                // 1. TELA - Informação mais estável (resolução física do dispositivo)
+                const screenWidth = window.screen.width;
+                const screenHeight = window.screen.height;
+                const screenColorDepth = window.screen.colorDepth;
+                const screenPixelDepth = window.screen.pixelDepth || screenColorDepth;
+                const screen = `${screenWidth}x${screenHeight}x${screenColorDepth}x${screenPixelDepth}`;
                 console.log('📺 Tela:', screen);
+                
+                // 2. TIMEZONE - Muito estável (não muda a menos que usuário viaje)
+                const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
                 console.log('🌍 Timezone:', timezone);
+                
+                // 3. PLATFORM - Sistema operacional
+                const platform = navigator.platform;
                 console.log('💻 Platform:', platform);
+                
+                // 4. CPU CORES - Número de núcleos da CPU
+                const cores = navigator.hardwareConcurrency || 0;
                 console.log('⚙️ CPU Cores:', cores);
-                console.log('🔑 Fingerprint:', hardwareId);
+                
+                // 5. MEMÓRIA RAM (se disponível) - Hardware físico
+                const memory = navigator.deviceMemory || 0;
+                console.log('🧠 RAM (GB):', memory || 'N/A');
+                
+                // 6. IDIOMA DO SISTEMA (não do navegador)
+                const languages = navigator.languages ? navigator.languages.join(',') : navigator.language;
+                console.log('🌐 Idiomas:', languages);
+                
+                // 7. TAMANHO DISPONÍVEL DA TELA (com barras do sistema)
+                const availWidth = window.screen.availWidth;
+                const availHeight = window.screen.availHeight;
+                console.log('📐 Tela disponível:', `${availWidth}x${availHeight}`);
+                
+                // 8. ORIENTAÇÃO DA TELA (landscape/portrait)
+                const orientation = screen.orientation ? screen.orientation.type : 'unknown';
+                console.log('🔄 Orientação:', orientation);
+                
+                // 9. TOUCH SUPPORT - Identifica mobile vs desktop
+                const touchSupport = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+                console.log('👆 Touch:', touchSupport ? 'Sim' : 'Não');
+                
+                // 10. PIXEL RATIO - DPI da tela
+                const pixelRatio = window.devicePixelRatio || 1;
+                console.log('🔍 Pixel Ratio:', pixelRatio);
+                
+                // 11. VENDOR - Fabricante do navegador/sistema
+                const vendor = navigator.vendor || 'unknown';
+                console.log('🏢 Vendor:', vendor);
+                
+                // 12. WEBGL - Informações da GPU (se disponível)
+                let gpuInfo = 'unknown';
+                try {
+                    const canvas = document.createElement('canvas');
+                    const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
+                    if (gl) {
+                        const debugInfo = gl.getExtension('WEBGL_debug_renderer_info');
+                        if (debugInfo) {
+                            gpuInfo = gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL);
+                        }
+                    }
+                    console.log('🎮 GPU:', gpuInfo);
+                } catch (e) {
+                    console.log('🎮 GPU: N/A');
+                }
+                
+                // COMBINAR TODAS AS INFORMAÇÕES EM UM FINGERPRINT ÚNICO
+                const hardwareId = [
+                    screen,
+                    timezone,
+                    platform,
+                    cores,
+                    memory,
+                    availWidth + 'x' + availHeight,
+                    pixelRatio,
+                    touchSupport ? 'touch' : 'notouch',
+                    vendor,
+                    gpuInfo
+                ].join('|');
+                
+                console.log('');
+                console.log('🔑 FINGERPRINT FINAL:', hardwareId);
+                console.log('📏 Tamanho:', hardwareId.length, 'caracteres');
                 console.log('═══════════════════════════════════════════════════════════');
                 console.log('');
                 
