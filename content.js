@@ -986,14 +986,29 @@
     
     // Sincronizar padrões com o servidor
     async function syncPatternsToServer(patterns) {
+        console.log('');
+        console.log('═══════════════════════════════════════════════════════════');
+        console.log('💾 SINCRONIZANDO PADRÕES COM O SERVIDOR');
+        console.log('═══════════════════════════════════════════════════════════');
+        
         const token = localStorage.getItem('authToken');
         if (!token) {
-            console.log('⚠️ Usuário não autenticado - salvando apenas localmente');
+            console.log('❌ Usuário não autenticado - salvando apenas localmente');
+            console.log('═══════════════════════════════════════════════════════════');
             return false;
         }
         
+        console.log('✅ Token de autenticação encontrado');
+        console.log('📦 Padrões a serem salvos:', patterns.length);
+        patterns.forEach((p, i) => {
+            console.log(`   ${i + 1}. ${p.name} (${p.sequence.join(' → ')})`);
+        });
+        console.log('');
+        
         try {
             const apiUrl = getApiUrl();
+            console.log('🌐 Enviando para:', `${apiUrl}/api/user/custom-patterns`);
+            
             const response = await fetch(`${apiUrl}/api/user/custom-patterns`, {
                 method: 'POST',
                 headers: {
@@ -1003,31 +1018,59 @@
                 body: JSON.stringify({ patterns })
             });
             
+            console.log('📨 Status da resposta:', response.status, response.statusText);
+            
+            if (!response.ok) {
+                console.error('❌ Servidor retornou erro:', response.status);
+                const errorText = await response.text();
+                console.error('❌ Resposta:', errorText);
+                console.log('═══════════════════════════════════════════════════════════');
+                return false;
+            }
+            
             const data = await response.json();
+            console.log('📋 Resposta do servidor:', data);
             
             if (data.success) {
-                console.log('✅ Padrões sincronizados com o servidor:', data.message);
+                console.log('✅✅✅ PADRÕES SINCRONIZADOS COM SUCESSO!');
+                console.log('═══════════════════════════════════════════════════════════');
+                console.log('');
                 return true;
             } else {
-                console.error('❌ Erro ao sincronizar com servidor:', data.error);
+                console.error('❌ Servidor retornou sucesso=false:', data.error);
+                console.log('═══════════════════════════════════════════════════════════');
                 return false;
             }
         } catch (error) {
-            console.error('❌ Erro na requisição ao servidor:', error);
+            console.error('❌❌❌ ERRO CRÍTICO na requisição:', error);
+            console.error('📋 Stack:', error.stack);
+            console.log('═══════════════════════════════════════════════════════════');
+            console.log('');
             return false;
         }
     }
     
     // Carregar padrões do servidor
     async function loadPatternsFromServer() {
+        console.log('');
+        console.log('═══════════════════════════════════════════════════════════');
+        console.log('📥 CARREGANDO PADRÕES DO SERVIDOR');
+        console.log('═══════════════════════════════════════════════════════════');
+        
         const token = localStorage.getItem('authToken');
         if (!token) {
-            console.log('⚠️ Usuário não autenticado - carregando apenas do localStorage');
+            console.log('❌ Usuário não autenticado - carregando apenas do localStorage');
+            console.log('═══════════════════════════════════════════════════════════');
             return null;
         }
         
+        console.log('✅ Token de autenticação encontrado');
+        console.log('');
+        
         try {
             const apiUrl = getApiUrl();
+            console.log('🌐 Buscando de:', `${apiUrl}/api/user/custom-patterns`);
+            
             const response = await fetch(`${apiUrl}/api/user/custom-patterns`, {
                 method: 'GET',
                 headers: {
@@ -1035,30 +1078,45 @@
                 }
             });
             
+            console.log('📨 Status da resposta:', response.status, response.statusText);
+            
             // ✅ VERIFICAR STATUS ANTES DE PARSEAR JSON
             if (!response.ok) {
+                console.error('❌ Servidor retornou erro:', response.status);
+                const errorText = await response.text();
+                console.error('❌ Resposta:', errorText);
+                
                 if (response.status === 401 || response.status === 403) {
-                    console.warn('⚠️ Token retornou erro 401/403 - mas NÃO vou deslogar automaticamente');
+                    console.warn('⚠️ Erro de autenticação - mas NÃO vou deslogar automaticamente');
                     console.warn('⚠️ Pode ser erro temporário do servidor ou de rede');
-                    // ❌ NÃO REMOVER TOKEN AUTOMATICAMENTE - usuário pode estar offline
-                    // O token será verificado em background no index.html
-                } else {
-                    console.error(`❌ Servidor retornou erro: ${response.status}`);
                 }
+                
+                console.log('═══════════════════════════════════════════════════════════');
                 return null;
             }
             
             const data = await response.json();
+            console.log('📋 Resposta do servidor:', data);
             
             if (data.success) {
-                console.log(`✅ ${data.patterns.length} padrão(ões) carregado(s) do servidor`);
+                console.log('✅✅✅ PADRÕES CARREGADOS COM SUCESSO!');
+                console.log('📦 Total de padrões:', data.patterns.length);
+                data.patterns.forEach((p, i) => {
+                    console.log(`   ${i + 1}. ${p.name} (${p.sequence.join(' → ')})`);
+                });
+                console.log('═══════════════════════════════════════════════════════════');
+                console.log('');
                 return data.patterns;
             } else {
-                console.error('❌ Erro ao carregar do servidor:', data.error);
+                console.error('❌ Servidor retornou sucesso=false:', data.error);
+                console.log('═══════════════════════════════════════════════════════════');
                 return null;
             }
         } catch (error) {
-            console.error('❌ Erro na requisição ao servidor:', error);
+            console.error('❌❌❌ ERRO CRÍTICO ao carregar padrões:', error);
+            console.error('📋 Stack:', error.stack);
+            console.log('═══════════════════════════════════════════════════════════');
+            console.log('');
             return null;
         }
     }
