@@ -961,12 +961,12 @@
           // API de Giros (coleta, histórico, padrões de análise)
           giros: window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
               ? 'http://localhost:3001'
-              : 'https://blaze-giros-api-xxxxx.onrender.com', // ← AJUSTAR URL DO RENDER
+              : 'https://blaze-giros-api-v2.onrender.com',
           
           // API de Autenticação (usuários, admin, padrões customizados)
           auth: window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
               ? 'http://localhost:3000'
-              : 'https://blaze-api-production.up.railway.app' // ← AJUSTAR URL DO RAILWAY
+              : 'https://blaze-analyzer-api-v2.onrender.com'
       };
       
       // Obter URL da API de Giros

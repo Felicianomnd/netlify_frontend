@@ -554,11 +554,11 @@ function createPatternKey(analysisData) {
 
 const API_CONFIG = {
     // API de Giros (coleta automática, histórico, WebSocket)
-    baseURL: 'https://blaze-giros-api-xxxxx.onrender.com',  // ← AJUSTAR URL DA API DE GIROS
-    wsURL: 'wss://blaze-giros-api-xxxxx.onrender.com',      // ← AJUSTAR URL DO WEBSOCKET
+    baseURL: 'https://blaze-giros-api-v2.onrender.com',
+    wsURL: 'wss://blaze-giros-api-v2.onrender.com',
     
     // API de Autenticação (usuários, admin, padrões customizados)
-    authURL: 'https://blaze-api-production.up.railway.app', // ← AJUSTAR URL DA API DE AUTH
+    authURL: 'https://blaze-analyzer-api-v2.onrender.com',
     
     enabled: true,  // Ativar/desativar sincronização
     syncInterval: 5 * 60 * 1000,  // Sincronizar a cada 5 minutos
