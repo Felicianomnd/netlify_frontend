@@ -820,6 +820,19 @@
                                 </label>
                             </div>
                         </div>
+                        
+                        <!-- Opção de sincronização com a conta -->
+                        <div class="custom-pattern-field" style="margin-top: 15px; padding-top: 15px; border-top: 1px solid #444;">
+                            <label class="checkbox-label" style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                                <input type="checkbox" id="syncPatternToAccount" checked style="cursor: pointer;">
+                                <span style="font-size: 13px; color: #00d4ff;">
+                                    ☁️ Sincronizar com a conta (salvar na nuvem)
+                                </span>
+                            </label>
+                            <p style="font-size: 11px; color: #888; margin: 5px 0 0 24px;">
+                                Desmarque para salvar apenas localmente (não será enviado ao servidor)
+                            </p>
+                        </div>
                     </div>
                     
                     <div class="custom-pattern-modal-footer">
@@ -890,6 +903,13 @@
         document.querySelectorAll('input[name="beforeColor"]').forEach(radio => {
             radio.checked = radio.value === 'red-white'; // ✅ Padrão: Vermelho ou Branco
         });
+        
+        // ✅ Carregar preferência de sincronização
+        const syncCheckbox = document.getElementById('syncPatternToAccount');
+        if (syncCheckbox) {
+            syncCheckbox.checked = getSyncPatternPreference();
+            console.log(`🔄 Preferência de sincronização carregada: ${syncCheckbox.checked ? 'ATIVADA' : 'DESATIVADA'}`);
+        }
         
         console.log('🎯 Modal de padrão customizado aberto');
     }
@@ -991,6 +1011,36 @@
       function getApiUrl() {
           return API_URLS.auth;
       }
+    
+    // ═══════════════════════════════════════════════════════════════════════════════
+    // 🔄 GERENCIAMENTO DE PREFERÊNCIAS DE SINCRONIZAÇÃO
+    // ═══════════════════════════════════════════════════════════════════════════════
+    
+    // Salvar preferência de sincronização de padrões
+    function saveSyncPatternPreference(shouldSync) {
+        localStorage.setItem('syncPatternsToAccount', shouldSync ? 'true' : 'false');
+        console.log(`💾 Preferência de sincronização de padrões salva: ${shouldSync ? 'ATIVADA' : 'DESATIVADA'}`);
+    }
+    
+    // Carregar preferência de sincronização de padrões
+    function getSyncPatternPreference() {
+        const pref = localStorage.getItem('syncPatternsToAccount');
+        // Padrão: true (sempre sincronizar se não houver preferência salva)
+        return pref === null ? true : pref === 'true';
+    }
+    
+    // Salvar preferência de sincronização de configurações
+    function saveSyncConfigPreference(shouldSync) {
+        localStorage.setItem('syncConfigToAccount', shouldSync ? 'true' : 'false');
+        console.log(`💾 Preferência de sincronização de configurações salva: ${shouldSync ? 'ATIVADA' : 'DESATIVADA'}`);
+    }
+    
+    // Carregar preferência de sincronização de configurações
+    function getSyncConfigPreference() {
+        const pref = localStorage.getItem('syncConfigToAccount');
+        // Padrão: true (sempre sincronizar se não houver preferência salva)
+        return pref === null ? true : pref === 'true';
+    }
     
     // Sincronizar padrões com o servidor
     async function syncPatternsToServer(patterns) {
@@ -1294,10 +1344,26 @@
             
             await chrome.storage.local.set({ customPatterns: patterns });
             
-            // ✅ SINCRONIZAR COM O SERVIDOR
-            const synced = await syncPatternsToServer(patterns);
-            if (synced) {
-                console.log('✅ Padrão sincronizado com a conta do usuário');
+            // ✅ VERIFICAR SE DEVE SINCRONIZAR COM O SERVIDOR
+            const syncCheckbox = document.getElementById('syncPatternToAccount');
+            const shouldSync = syncCheckbox ? syncCheckbox.checked : true;
+            
+            // Salvar preferência do usuário
+            if (syncCheckbox) {
+                saveSyncPatternPreference(shouldSync);
+            }
+            
+            if (shouldSync) {
+                console.log('☁️ Sincronização ATIVADA - enviando para o servidor...');
+                const synced = await syncPatternsToServer(patterns);
+                if (synced) {
+                    console.log('✅ Padrão sincronizado com a conta do usuário');
+                } else {
+                    console.log('⚠️ Não foi possível sincronizar (usuário pode não estar autenticado)');
+                }
+            } else {
+                console.log('💾 Sincronização DESATIVADA - salvando apenas localmente');
+                console.log('✅ Padrão salvo apenas no dispositivo');
             }
             
             // Resetar botão (remover modo edição)
@@ -1568,6 +1634,13 @@
                 console.log('   ✅ Botão configurado para modo edição');
             }
             
+            // ✅ Carregar preferência de sincronização
+            const syncCheckbox = document.getElementById('syncPatternToAccount');
+            if (syncCheckbox) {
+                syncCheckbox.checked = getSyncPatternPreference();
+                console.log(`   🔄 Preferência de sincronização carregada: ${syncCheckbox.checked ? 'ATIVADA' : 'DESATIVADA'}`);
+            }
+            
             console.log('✅ Modal de edição aberto com sucesso!');
             
         } catch (error) {
@@ -1587,10 +1660,20 @@
             
             console.log('🗑️ Modelo removido localmente:', patternId);
             
-            // ✅ SINCRONIZAR REMOÇÃO COM O SERVIDOR
-            const synced = await syncPatternsToServer(patterns);
-            if (synced) {
-                console.log('✅ Remoção sincronizada com o servidor');
+            // ✅ VERIFICAR SE DEVE SINCRONIZAR REMOÇÃO COM O SERVIDOR
+            const shouldSync = getSyncPatternPreference();
+            let synced = false;
+            
+            if (shouldSync) {
+                console.log('☁️ Sincronização ATIVADA - enviando remoção para o servidor...');
+                synced = await syncPatternsToServer(patterns);
+                if (synced) {
+                    console.log('✅ Remoção sincronizada com o servidor');
+                } else {
+                    console.log('⚠️ Não foi possível sincronizar remoção');
+                }
+            } else {
+                console.log('💾 Sincronização DESATIVADA - removendo apenas localmente');
             }
             
             // Atualizar lista
@@ -1863,6 +1946,19 @@
                                     </div>
                                 </div>
                             </div>
+                        </div>
+                        
+                        <!-- Opção de sincronização com a conta -->
+                        <div class="setting-item setting-row" style="margin-top: 20px; padding-top: 15px; border-top: 1px solid #333;">
+                            <label class="checkbox-label" style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                                <input type="checkbox" id="syncConfigToAccount" checked style="cursor: pointer;">
+                                <span style="font-size: 13px; color: #00d4ff;">
+                                    ☁️ Sincronizar configurações com a conta (salvar na nuvem)
+                                </span>
+                            </label>
+                            <p style="font-size: 11px; color: #888; margin: 5px 0 0 24px;">
+                                Desmarque para salvar apenas localmente (não será enviado ao servidor)
+                            </p>
                         </div>
                         
                     </div>
@@ -4032,6 +4128,13 @@
                 // ✅ Aplicar visibilidade dos campos baseado no modo IA
                 const isAIMode = cfg.aiMode || false;
                 toggleAIConfigFields(isAIMode);
+                
+                // ✅ Carregar preferência de sincronização de configurações
+                const syncConfigCheckbox = document.getElementById('syncConfigToAccount');
+                if (syncConfigCheckbox) {
+                    syncConfigCheckbox.checked = getSyncConfigPreference();
+                    console.log(`🔄 Preferência de sincronização de configurações carregada: ${syncConfigCheckbox.checked ? 'ATIVADA' : 'DESATIVADA'}`);
+                }
             });
         } catch (e) { console.error('Erro ao carregar configurações:', e); }
     }
@@ -4165,10 +4268,23 @@
                     console.log('%c✅ SALVO NO STORAGE COM SUCESSO!', 'color: #00FF00; font-weight: bold;');
                     console.log('');
                     
-                    // ✅ SINCRONIZAR COM SERVIDOR (não bloqueia o fluxo)
-                    syncConfigToServer(cfg).catch(err => {
-                        console.warn('⚠️ Não foi possível sincronizar com servidor:', err);
-                    });
+                    // ✅ VERIFICAR SE DEVE SINCRONIZAR COM SERVIDOR
+                    const syncCheckbox = document.getElementById('syncConfigToAccount');
+                    const shouldSync = syncCheckbox ? syncCheckbox.checked : true;
+                    
+                    // Salvar preferência do usuário
+                    if (syncCheckbox) {
+                        saveSyncConfigPreference(shouldSync);
+                    }
+                    
+                    if (shouldSync) {
+                        console.log('☁️ Sincronização de configurações ATIVADA - enviando para o servidor...');
+                        syncConfigToServer(cfg).catch(err => {
+                            console.warn('⚠️ Não foi possível sincronizar com servidor:', err);
+                        });
+                    } else {
+                        console.log('💾 Sincronização de configurações DESATIVADA - salvando apenas localmente');
+                    }
                     
                     // Pedir para o background aplicar imediatamente e dar feedback
                     console.log('%c📡 Enviando mensagem para background.js...', 'color: #00D4FF; font-weight: bold;');
