@@ -549,12 +549,17 @@ function createPatternKey(analysisData) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// 🌐 SINCRONIZAÇÃO COM API (Render.com)
+// 🌐 SINCRONIZAÇÃO COM API - DUAS APIS SEPARADAS
 // ═══════════════════════════════════════════════════════════════════════════════
 
 const API_CONFIG = {
-    baseURL: 'https://blaze-analyzer-api.onrender.com',  // ✅ API online no Render.com
-    wsURL: 'wss://blaze-analyzer-api.onrender.com',  // ✅ WebSocket URL
+    // API de Giros (coleta automática, histórico, WebSocket)
+    baseURL: 'https://blaze-giros-api-xxxxx.onrender.com',  // ← AJUSTAR URL DA API DE GIROS
+    wsURL: 'wss://blaze-giros-api-xxxxx.onrender.com',      // ← AJUSTAR URL DO WEBSOCKET
+    
+    // API de Autenticação (usuários, admin, padrões customizados)
+    authURL: 'https://blaze-api-production.up.railway.app', // ← AJUSTAR URL DA API DE AUTH
+    
     enabled: true,  // Ativar/desativar sincronização
     syncInterval: 5 * 60 * 1000,  // Sincronizar a cada 5 minutos
     timeout: 10000,  // Timeout de 10 segundos

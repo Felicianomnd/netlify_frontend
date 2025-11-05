@@ -953,33 +953,31 @@
     
     // ═══════════════════════════════════════════════════════════════
     // 🌐 API HELPER - SINCRONIZAÇÃO COM SERVIDOR
-    // ═══════════════════════════════════════════════════════════════
-    
-    // ═══════════════════════════════════════════════════════════════
-    // 🌐 CONFIGURAÇÃO DE URLs - DUAS APIS SEPARADAS
-    // ═══════════════════════════════════════════════════════════════
-    
-    const API_URLS = {
-        // API de Giros (coleta, histórico, padrões de análise)
-        giros: window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
-            ? 'http://localhost:3001'
-            : 'https://blaze-giros-api-xxxxx.onrender.com', // ← AJUSTAR URL DO RENDER
-        
-        // API de Autenticação (usuários, admin, padrões customizados)
-        auth: window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
-            ? 'http://localhost:3000'
-            : 'https://blaze-auth-api-xxxxx.onrender.com' // ← AJUSTAR URL DO RENDER
-    };
-    
-    // Obter URL da API de Giros
-    function getGirosApiUrl() {
-        return API_URLS.giros;
-    }
-    
-    // Obter URL da API de Auth (para compatibilidade com código antigo)
-    function getApiUrl() {
-        return API_URLS.auth;
-    }
+      // ═══════════════════════════════════════════════════════════════
+      // 🌐 CONFIGURAÇÃO DE URLs - DUAS APIS SEPARADAS
+      // ═══════════════════════════════════════════════════════════════
+      
+      const API_URLS = {
+          // API de Giros (coleta, histórico, padrões de análise)
+          giros: window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+              ? 'http://localhost:3001'
+              : 'https://blaze-giros-api-xxxxx.onrender.com', // ← AJUSTAR URL DO RENDER
+          
+          // API de Autenticação (usuários, admin, padrões customizados)
+          auth: window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+              ? 'http://localhost:3000'
+              : 'https://blaze-api-production.up.railway.app' // ← AJUSTAR URL DO RAILWAY
+      };
+      
+      // Obter URL da API de Giros
+      function getGirosApiUrl() {
+          return API_URLS.giros;
+      }
+      
+      // Obter URL da API de Auth (para compatibilidade com código antigo)
+      function getApiUrl() {
+          return API_URLS.auth;
+      }
     
     // Sincronizar padrões com o servidor
     async function syncPatternsToServer(patterns) {
