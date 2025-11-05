@@ -13834,6 +13834,11 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     } else if (request.action === 'status') {
         sendResponse({status: isRunning ? 'running' : 'stopped'});
         return true;
+    } else if (request.action === 'GET_AUTH_TOKEN') {
+        // ✅ Esta mensagem é destinada ao content.js, não ao background.js
+        // O background.js deve ignorar e deixar o content.js responder
+        console.log('🔑 [BACKGROUND] Ignorando GET_AUTH_TOKEN (destinado ao content.js)');
+        return false; // Não processar aqui
     } else if (request.action === 'GET_MEMORIA_ATIVA_STATUS') {
         // 🧠 Retornar status da memória ativa para interface
         console.log('%c🧠 [BACKGROUND] Requisição de status da memória ativa recebida', 'color: #00CED1; font-weight: bold;');

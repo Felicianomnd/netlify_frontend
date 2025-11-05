@@ -313,6 +313,14 @@
             }
         },
         
+        // ✅ ADICIONAR onActivated para evitar erro
+        onActivated: {
+            addListener: function(callback) {
+                console.log('📡 chrome.tabs.onActivated.addListener registrado (não faz nada no modo web)');
+                // No modo web, não há abas para monitorar
+            }
+        },
+        
         query: function(queryInfo, callback) {
             // ⚠️ CRÍTICO: Retornar URL da Blaze para passar na verificação hasBlazeTabOpen()
             // Isso engana o background.js fazendo ele pensar que há uma aba da Blaze aberta
@@ -335,56 +343,62 @@
             console.log('%c📨 chrome.tabs.sendMessage capturado!', 'color: #FFD700; font-weight: bold;');
             console.log('%c   Type:', 'color: #FFD700;', message.type);
             console.log('%c   Data:', 'color: #FFD700;', message.data);
+            console.log('%c   Action:', 'color: #FFD700;', message.action);
             console.log('%c   TabId:', 'color: #FFD700;', tabId);
             console.log('%c   Listeners registrados:', 'color: #FFD700;', messageListeners.length);
             console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #FFD700; font-weight: bold;');
             
-            // ⚠️ CRÍTICO: Chamar os listeners de chrome.runtime.onMessage DIRETAMENTE
-            // (content.js escuta via chrome.runtime.onMessage.addListener)
-            setTimeout(() => {
-                let responded = false;
-                const sendResponse = (response) => {
-                    if (!responded) {
-                        responded = true;
-                        if (callback) callback(response);
-                    }
-                };
-                
-                console.log(`%c🔄 Chamando ${messageListeners.length} listener(s)...`, 'color: #00AAFF; font-weight: bold;');
-                
-                // Chamar todos os listeners registrados
-                let listenerCount = 0;
-                let willRespondAsync = false;
-                messageListeners.forEach((listener, index) => {
-                    try {
-                        console.log(`%c   → Listener ${index + 1}/${messageListeners.length}`, 'color: #00AAFF;');
-                        // Passar a mensagem como se fosse de chrome.runtime.sendMessage
-                        const result = listener(message, {}, sendResponse);
-                        listenerCount++;
-                        if (result === true) {
-                            willRespondAsync = true;
-                            console.log(`%c   ✅ Listener ${index + 1} aceitou (async)`, 'color: #00FF88;');
-                        } else {
-                            console.log(`%c   ✅ Listener ${index + 1} processou (sync)`, 'color: #00FF88;');
+            // ✅ CRÍTICO: Retornar uma Promise que resolve com a resposta REAL
+            return new Promise((resolve) => {
+                // ⚠️ CRÍTICO: Chamar os listeners de chrome.runtime.onMessage DIRETAMENTE
+                // (content.js escuta via chrome.runtime.onMessage.addListener)
+                setTimeout(() => {
+                    let responded = false;
+                    const sendResponse = (response) => {
+                        if (!responded) {
+                            responded = true;
+                            console.log('%c   ✅ sendResponse chamado com:', 'color: #00FF88;', response);
+                            resolve(response); // ✅ Resolver com a resposta REAL
+                            if (callback) callback(response);
                         }
-                    } catch (error) {
-                        console.error(`%c   ❌ Erro no listener ${index + 1}:`, 'color: #FF0000;', error);
+                    };
+                    
+                    console.log(`%c🔄 Chamando ${messageListeners.length} listener(s)...`, 'color: #00AAFF; font-weight: bold;');
+                    
+                    // Chamar todos os listeners registrados
+                    let listenerCount = 0;
+                    let willRespondAsync = false;
+                    messageListeners.forEach((listener, index) => {
+                        try {
+                            console.log(`%c   → Listener ${index + 1}/${messageListeners.length}`, 'color: #00AAFF;');
+                            // Passar a mensagem como se fosse de chrome.runtime.sendMessage
+                            const result = listener(message, {}, sendResponse);
+                            listenerCount++;
+                            if (result === true) {
+                                willRespondAsync = true;
+                                console.log(`%c   ✅ Listener ${index + 1} aceitou (async)`, 'color: #00FF88;');
+                            } else {
+                                console.log(`%c   ✅ Listener ${index + 1} processou (sync)`, 'color: #00FF88;');
+                            }
+                        } catch (error) {
+                            console.error(`%c   ❌ Erro no listener ${index + 1}:`, 'color: #FF0000;', error);
+                        }
+                    });
+                    
+                    console.log(`%c✅ ${listenerCount} listener(s) chamado(s) com sucesso!`, 'color: #00FF88; font-weight: bold;');
+                    console.log('');
+                    
+                    // ⚠️ CRÍTICO: Só responder com padrão se ninguém respondeu E nenhum listener vai responder depois
+                    if (!responded && !willRespondAsync) {
+                        console.log('%c   📤 Nenhum listener respondeu - enviando resposta padrão', 'color: #FFA500;');
+                        const defaultResponse = { success: true };
+                        resolve(defaultResponse);
+                        if (callback) callback(defaultResponse);
+                    } else if (willRespondAsync && !responded) {
+                        console.log('%c   ⏳ Aguardando resposta assíncrona do listener...', 'color: #00AAFF;');
                     }
-                });
-                
-                console.log(`%c✅ ${listenerCount} listener(s) chamado(s) com sucesso!`, 'color: #00FF88; font-weight: bold;');
-                console.log('');
-                
-                // ⚠️ CRÍTICO: Só responder com padrão se ninguém respondeu E nenhum listener vai responder depois
-                if (!responded && !willRespondAsync && callback) {
-                    console.log('%c   📤 Nenhum listener respondeu - enviando resposta padrão', 'color: #FFA500;');
-                    callback({ success: true });
-                } else if (willRespondAsync && !responded) {
-                    console.log('%c   ⏳ Aguardando resposta assíncrona do listener...', 'color: #00AAFF;');
-                }
-            }, 0);
-            
-            return Promise.resolve({ success: true });
+                }, 0);
+            });
         },
 
         getCurrent: function(callback) {
