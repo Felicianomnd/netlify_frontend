@@ -1032,6 +1032,19 @@
                 }
             });
             
+            // ✅ VERIFICAR STATUS ANTES DE PARSEAR JSON
+            if (!response.ok) {
+                if (response.status === 401 || response.status === 403) {
+                    console.error('❌ Token inválido ou expirado! Faça login novamente.');
+                    // Token expirado - limpar e redirecionar
+                    localStorage.removeItem('authToken');
+                    localStorage.removeItem('user');
+                } else {
+                    console.error(`❌ Servidor retornou erro: ${response.status}`);
+                }
+                return null;
+            }
+            
             const data = await response.json();
             
             if (data.success) {
@@ -1043,6 +1056,90 @@
             }
         } catch (error) {
             console.error('❌ Erro na requisição ao servidor:', error);
+            return null;
+        }
+    }
+    
+    // ═══════════════════════════════════════════════════════════════════════════════
+    // 🔧 SINCRONIZAÇÃO DE CONFIGURAÇÕES COM O SERVIDOR
+    // ═══════════════════════════════════════════════════════════════════════════════
+    
+    // Salvar configurações no servidor
+    async function syncConfigToServer(config) {
+        const token = localStorage.getItem('authToken');
+        if (!token) {
+            console.log('⚠️ Usuário não autenticado - salvando apenas localmente');
+            return false;
+        }
+        
+        try {
+            const apiUrl = getApiUrl();
+            const response = await fetch(`${apiUrl}/api/user/settings`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify({ settings: config })
+            });
+            
+            if (!response.ok) {
+                if (response.status === 401 || response.status === 403) {
+                    console.error('❌ Token inválido! Faça login novamente.');
+                    localStorage.removeItem('authToken');
+                }
+                return false;
+            }
+            
+            const data = await response.json();
+            
+            if (data.success) {
+                console.log('✅ Configurações sincronizadas com a conta do usuário');
+                return true;
+            }
+            
+            return false;
+        } catch (error) {
+            console.error('❌ Erro ao sincronizar configurações:', error);
+            return false;
+        }
+    }
+    
+    // Carregar configurações do servidor
+    async function loadConfigFromServer() {
+        const token = localStorage.getItem('authToken');
+        if (!token) {
+            console.log('⚠️ Usuário não autenticado - carregando apenas do localStorage');
+            return null;
+        }
+        
+        try {
+            const apiUrl = getApiUrl();
+            const response = await fetch(`${apiUrl}/api/user/settings`, {
+                method: 'GET',
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                }
+            });
+            
+            if (!response.ok) {
+                if (response.status === 401 || response.status === 403) {
+                    console.error('❌ Token inválido! Faça login novamente.');
+                    localStorage.removeItem('authToken');
+                }
+                return null;
+            }
+            
+            const data = await response.json();
+            
+            if (data.success && data.settings) {
+                console.log('✅ Configurações carregadas do servidor');
+                return data.settings;
+            }
+            
+            return null;
+        } catch (error) {
+            console.error('❌ Erro ao carregar configurações do servidor:', error);
             return null;
         }
     }
@@ -3579,8 +3676,18 @@
         });
     }
     
-    function loadSettings() {
+    async function loadSettings() {
         try {
+            // ✅ TENTAR CARREGAR DO SERVIDOR PRIMEIRO (se autenticado)
+            const serverConfig = await loadConfigFromServer();
+            
+            if (serverConfig) {
+                // Se tem configuração no servidor, salvar localmente e usar ela
+                console.log('✅ Usando configurações do servidor (sincronizado)');
+                await chrome.storage.local.set({ analyzerConfig: serverConfig });
+            }
+            
+            // Carregar do localStorage (que agora pode ter sido atualizado do servidor)
             chrome.storage.local.get(['analyzerConfig'], function(res) {
                 const cfg = res && res.analyzerConfig ? res.analyzerConfig : {};
                 const minOcc = document.getElementById('cfgMinOccurrences');
@@ -3754,7 +3861,7 @@
                 console.log('   aiMode preservado:', cfg.aiMode);
                 console.log('   Objeto completo:', cfg);
                 
-                chrome.storage.local.set({ analyzerConfig: cfg }, function() {
+                chrome.storage.local.set({ analyzerConfig: cfg }, async function() {
                     if (chrome.runtime.lastError) {
                         console.error('%c❌ ERRO ao salvar no storage!', 'color: #FF0000; font-weight: bold;');
                         console.error(chrome.runtime.lastError);
@@ -3764,6 +3871,11 @@
                     
                     console.log('%c✅ SALVO NO STORAGE COM SUCESSO!', 'color: #00FF00; font-weight: bold;');
                     console.log('');
+                    
+                    // ✅ SINCRONIZAR COM SERVIDOR (não bloqueia o fluxo)
+                    syncConfigToServer(cfg).catch(err => {
+                        console.warn('⚠️ Não foi possível sincronizar com servidor:', err);
+                    });
                     
                     // Pedir para o background aplicar imediatamente e dar feedback
                     console.log('%c📡 Enviando mensagem para background.js...', 'color: #00D4FF; font-weight: bold;');
