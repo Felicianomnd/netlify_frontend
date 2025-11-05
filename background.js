@@ -3757,7 +3757,23 @@ async function loadCustomPatterns() {
     try {
         const result = await chrome.storage.local.get(['customPatterns']);
         customPatternsCache = result.customPatterns || [];
-        console.log(`🎯 ${customPatternsCache.length} padrão(ões) customizado(s) carregado(s)`);
+        
+        console.log('');
+        console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #00d4ff; font-weight: bold;');
+        console.log('%c║  🎯 CARREGANDO PADRÕES CUSTOMIZADOS                      ║', 'color: #00d4ff; font-weight: bold;');
+        console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #00d4ff; font-weight: bold;');
+        console.log(`📊 Total de padrões no storage: ${customPatternsCache.length}`);
+        
+        if (customPatternsCache.length > 0) {
+            console.log('%c📋 LISTA DE PADRÕES CARREGADOS:', 'color: #00d4ff; font-weight: bold;');
+            customPatternsCache.forEach((pattern, index) => {
+                console.log(`   ${index + 1}. "${pattern.name}" | Sequência: ${pattern.sequence.join(' → ')} | Ativo: ${pattern.active ? '✅' : '❌'}`);
+            });
+        } else {
+            console.log('%c⚠️ Nenhum padrão customizado encontrado no storage!', 'color: #FFA500; font-weight: bold;');
+        }
+        console.log('');
+        
         return customPatternsCache;
     } catch (error) {
         console.error('❌ Erro ao carregar padrões customizados:', error);
@@ -3867,31 +3883,42 @@ function analyzeCustomPatternStatistics(matches) {
  * Verificar se o padrão atual bate com algum padrão customizado
  */
 async function checkForCustomPatterns(history) {
-    // Carregar padrões customizados (se não estiverem em cache)
-    if (customPatternsCache.length === 0) {
-        await loadCustomPatterns();
-    }
+    // ✅ SEMPRE recarregar do storage para pegar mudanças mais recentes
+    await loadCustomPatterns();
     
     if (customPatternsCache.length === 0) {
-        console.log('ℹ️ Nenhum padrão customizado cadastrado');
+        console.log('');
+        console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #FFA500; font-weight: bold;');
+        console.log('%c║  ⚠️ NENHUM PADRÃO CUSTOMIZADO ENCONTRADO                 ║', 'color: #FFA500; font-weight: bold;');
+        console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #FFA500; font-weight: bold;');
+        console.log('');
         return null;
     }
     
-    console.log('%c═══════════════════════════════════════════════════════════', 'color: #00d4ff; font-weight: bold;');
-    console.log('%c🎯 VERIFICANDO PADRÕES CUSTOMIZADOS', 'color: #00d4ff; font-weight: bold;');
-    console.log('%c═══════════════════════════════════════════════════════════', 'color: #00d4ff; font-weight: bold;');
-    console.log(`📊 Total de padrões carregados: ${customPatternsCache.length}`);
+    console.log('');
+    console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #00d4ff; font-weight: bold;');
+    console.log('%c║  🎯 VERIFICANDO PADRÕES CUSTOMIZADOS                     ║', 'color: #00d4ff; font-weight: bold;');
+    console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #00d4ff; font-weight: bold;');
+    console.log(`📊 Total de padrões carregados no cache: ${customPatternsCache.length}`);
+    console.log('');
     
     const colors = history.map(spin => spin.color);
-    console.log(`📜 Últimos 10 giros: ${colors.slice(0, 10).join(' → ')}`);
+    console.log('%c📜 ÚLTIMOS 15 GIROS DO HISTÓRICO:', 'color: #00d4ff; font-weight: bold;');
+    console.log(`   ${colors.slice(0, 15).join(' → ')}`);
+    console.log('');
     
+    let patternIndex = 0;
     // Verificar cada padrão customizado
     for (const customPattern of customPatternsCache) {
-        console.log(`\n🔍 Verificando padrão: "${customPattern.name}"`);
+        patternIndex++;
+        console.log(`%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, 'color: #00d4ff;');
+        console.log(`%c🔍 PADRÃO #${patternIndex}: "${customPattern.name}"`, 'color: #00d4ff; font-weight: bold;');
         console.log(`   Status: ${customPattern.active ? '✅ ATIVO' : '❌ INATIVO'}`);
+        console.log(`   Sequência configurada: [${customPattern.sequence.join(' → ')}]`);
+        console.log(`   Cor anterior: ${customPattern.beforeColor}`);
         
         if (!customPattern.active) {
-            console.log(`   ⏭️ Pulando padrão inativo`);
+            console.log(`%c   ⏭️ PULANDO: Padrão está INATIVO`, 'color: #888;');
             continue;
         }
         
@@ -3899,11 +3926,36 @@ async function checkForCustomPatterns(history) {
         
         // Verificar se o padrão atual (últimos giros) bate com o padrão customizado
         const currentSequence = colors.slice(0, patternLength);
-        const isCurrentMatch = currentSequence.every((color, index) => color === customPattern.sequence[index]);
         
-        console.log(`   📋 Padrão esperado: ${customPattern.sequence.join(' → ')}`);
-        console.log(`   📋 Sequência atual: ${currentSequence.join(' → ')}`);
-        console.log(`   ${isCurrentMatch ? '✅ SEQUÊNCIA BATE!' : '❌ Sequência não bate'}`);
+        console.log('');
+        console.log(`%c   📋 COMPARANDO SEQUÊNCIAS:`, 'color: #FFD700; font-weight: bold;');
+        console.log(`      Esperado: [${customPattern.sequence.join(' → ')}]`);
+        console.log(`      Atual:    [${currentSequence.join(' → ')}]`);
+        console.log(`      Tamanho:  ${patternLength} giros`);
+        console.log('');
+        
+        // Comparar posição por posição
+        let matchDetails = [];
+        for (let i = 0; i < patternLength; i++) {
+            const match = (currentSequence[i] === customPattern.sequence[i]);
+            matchDetails.push({
+                position: i + 1,
+                expected: customPattern.sequence[i],
+                actual: currentSequence[i] || 'N/A',
+                match: match
+            });
+        }
+        
+        console.log('%c      COMPARAÇÃO DETALHADA:', 'color: #FFD700;');
+        matchDetails.forEach(detail => {
+            const status = detail.match ? '✅' : '❌';
+            const color = detail.match ? '#00FF88' : '#FF6666';
+            console.log(`%c      ${status} Posição ${detail.position}: esperado "${detail.expected}" | real "${detail.actual}"`, `color: ${color};`);
+        });
+        
+        const isCurrentMatch = matchDetails.every(d => d.match);
+        console.log('');
+        console.log(`%c   ${isCurrentMatch ? '✅ SEQUÊNCIA BATE PERFEITAMENTE!' : '❌ Sequência NÃO bate'}`, `color: ${isCurrentMatch ? '#00FF88' : '#FF6666'}; font-weight: bold;`);
         
         if (isCurrentMatch) {
             // Verificar cor anterior (se especificada)
@@ -6165,10 +6217,23 @@ function buscarSequenciaNoHistorico(targetSequence, searchHistory, spinsToAnalyz
  */
 function analyzeSequenceViability(history, suggestedColor) {
     console.log('%c🧠 Analisando viabilidade da sequência...', 'color: #9C27B0; font-weight: bold;');
+    console.log(`%c   ➤ Cor sugerida pelas fases anteriores: ${suggestedColor.toUpperCase()}`, `color: ${suggestedColor === 'red' ? '#FF0000' : '#FFFFFF'}; font-weight: bold;`);
     
     // Detectar sequência atual (quantas cores consecutivas da mesma cor)
     let currentSequence = [];
     let currentColor = null;
+    
+    // 🔍 MOSTRAR OS ÚLTIMOS 10 GIROS PARA DEBUG
+    console.log('%c   📊 Últimos 10 giros (para debug):', 'color: #9C27B0;');
+    const last10 = history.slice(0, 10);
+    let debugString = '';
+    for (let i = 0; i < last10.length; i++) {
+        const spin = last10[i];
+        const colorSymbol = spin.color === 'red' ? '🔴' : (spin.color === 'black' ? '⚫' : '⚪');
+        debugString += `${colorSymbol}${spin.roll} `;
+    }
+    console.log(`%c      ${debugString}`, 'color: #9C27B0;');
+    console.log('');
     
     for (let i = 0; i < history.length; i++) {
         const spin = history[i];
@@ -6187,15 +6252,22 @@ function analyzeSequenceViability(history, suggestedColor) {
     const currentSequenceLength = currentSequence.length;
     const currentSequenceColor = currentColor;
     
-    console.log(`%c   Sequência atual detectada: ${currentSequenceLength} ${currentSequenceColor?.toUpperCase() || 'NENHUMA'}(s) consecutivo(s)`, 
-        `color: ${currentSequenceColor === 'red' ? '#FF0000' : '#FFFFFF'}; font-weight: bold;`);
+    console.log(`%c   🎯 Sequência atual detectada: ${currentSequenceLength} ${currentSequenceColor?.toUpperCase() || 'NENHUMA'}(s) CONSECUTIVO(S)`, 
+        `color: ${currentSequenceColor === 'red' ? '#FF0000' : '#FFFFFF'}; font-weight: bold; font-size: 14px;`);
+    console.log(`%c   🔍 Detalhes da sequência:`, 'color: #9C27B0;');
+    currentSequence.forEach((spin, idx) => {
+        console.log(`%c      ${idx + 1}º: ${spin.color.toUpperCase()} (${spin.roll})`, `color: ${spin.color === 'red' ? '#FF0000' : '#FFFFFF'};`);
+    });
+    console.log('');
     
     // Se sinal sugere a MESMA cor da sequência atual, significa que quer CONTINUAR a sequência
     const isExtendingSequence = (currentSequenceColor === suggestedColor);
     
+    console.log(`%c   🤔 Sinal sugere CONTINUAR a sequência? ${isExtendingSequence ? 'SIM ⚠️' : 'NÃO ✅'}`, 'color: #9C27B0; font-weight: bold;');
+    
     if (!isExtendingSequence) {
-        console.log('%c   ✅ Sinal sugere QUEBRA de sequência (inverter cor)', 'color: #00FF88;');
-        console.log('%c   Não precisa validar resistência (já está invertendo)', 'color: #00FF88;');
+        console.log('%c   ✅ Sinal sugere QUEBRA de sequência (inverter cor)', 'color: #00FF88; font-weight: bold;');
+        console.log('%c   📌 Não precisa validar resistência (já está invertendo)', 'color: #00FF88;');
         return {
             shouldInvert: false,
             reason: 'Sinal já sugere inversão de cor',
@@ -6207,11 +6279,16 @@ function analyzeSequenceViability(history, suggestedColor) {
     
     // Sinal quer CONTINUAR a sequência (ex: 3 pretos → sugerir 4º preto)
     const targetSequenceLength = currentSequenceLength + 1;
-    console.log(`%c   ⚠️ Sinal sugere CONTINUAR sequência → ${targetSequenceLength} ${suggestedColor.toUpperCase()}(s)`, 'color: #FFA500; font-weight: bold;');
+    console.log('');
+    console.log(`%c   ⚠️ ⚠️ ⚠️ ATENÇÃO! Sinal quer CONTINUAR a sequência! ⚠️ ⚠️ ⚠️`, 'color: #FF0000; font-weight: bold; font-size: 14px; background: #FFFF00;');
+    console.log(`%c   ➤ Sequência ATUAL: ${currentSequenceLength} ${suggestedColor.toUpperCase()}(s) consecutivo(s)`, `color: ${suggestedColor === 'red' ? '#FF0000' : '#FFFFFF'}; font-weight: bold;`);
+    console.log(`%c   ➤ Sinal pede: ${targetSequenceLength}º ${suggestedColor.toUpperCase()} (${targetSequenceLength} consecutivos!)`, `color: ${suggestedColor === 'red' ? '#FF0000' : '#FFFFFF'}; font-weight: bold;`);
+    console.log('');
     
     // Buscar no histórico: qual foi a MAIOR sequência dessa cor nos últimos giros?
     const analysisWindow = Math.min(history.length, 500); // Analisar até 500 giros
-    console.log(`%c   🔍 Analisando últimos ${analysisWindow} giros para buscar resistências similares...`, 'color: #9C27B0;');
+    console.log(`%c   🔍 Buscando no histórico dos últimos ${analysisWindow} giros...`, 'color: #9C27B0; font-weight: bold;');
+    console.log(`%c   🔍 Pergunta: JÁ ACONTECEU ${targetSequenceLength}+ ${suggestedColor.toUpperCase()}(s) consecutivos antes?`, 'color: #9C27B0; font-weight: bold;');
     
     let maxConsecutive = 0;
     let resistances = []; // Armazenar todas as resistências encontradas
@@ -6250,14 +6327,24 @@ function analyzeSequenceViability(history, suggestedColor) {
         }
     }
     
-    console.log(`%c   📊 Maior sequência encontrada no histórico: ${maxConsecutive} ${suggestedColor.toUpperCase()}(s)`, 
+    console.log('');
+    console.log(`%c   📊 RESULTADO DA BUSCA HISTÓRICA:`, 'color: #9C27B0; font-weight: bold; font-size: 13px;');
+    console.log(`%c      ➤ Máximo de ${suggestedColor.toUpperCase()}(s) consecutivos já encontrado: ${maxConsecutive}`, 
         `color: ${suggestedColor === 'red' ? '#FF0000' : '#FFFFFF'}; font-weight: bold;`);
+    console.log(`%c      ➤ Sinal quer: ${targetSequenceLength} ${suggestedColor.toUpperCase()}(s) consecutivos`, 
+        `color: ${suggestedColor === 'red' ? '#FF0000' : '#FFFFFF'}; font-weight: bold;`);
+    console.log('');
     
     // DECISÃO: A sequência sugerida é viável?
     if (targetSequenceLength > maxConsecutive) {
         // NUNCA aconteceu uma sequência tão grande!
-        console.log('%c   ❌ SEQUÊNCIA INVIÁVEL: Nunca aconteceu no histórico analisado!', 'color: #FF0000; font-weight: bold;');
-        console.log(`%c      Máximo histórico: ${maxConsecutive} | Sinal pede: ${targetSequenceLength}`, 'color: #FF6666;');
+        console.log('%c   ❌❌❌ DECISÃO: SEQUÊNCIA INVIÁVEL! ❌❌❌', 'color: #FFFFFF; font-weight: bold; font-size: 14px; background: #FF0000;');
+        console.log('%c   📌 NUNCA aconteceu no histórico analisado!', 'color: #FF0000; font-weight: bold;');
+        console.log(`%c      ➤ Máximo histórico: ${maxConsecutive} ${suggestedColor.toUpperCase()}(s)`, 'color: #FF6666; font-weight: bold;');
+        console.log(`%c      ➤ Sinal pede: ${targetSequenceLength} ${suggestedColor.toUpperCase()}(s)`, 'color: #FF6666; font-weight: bold;');
+        console.log('');
+        console.log('%c   🔄 AÇÃO: INVERTER SINAL IMEDIATAMENTE!', 'color: #FFFF00; font-weight: bold; font-size: 14px; background: #FF0000;');
+        console.log('');
         
         return {
             shouldInvert: true,
@@ -6462,29 +6549,73 @@ async function analyzeWithPatternSystem(history) {
         // ═══════════════════════════════════════════════════════════════
         const minIntervalSpins = analyzerConfig.minIntervalSpins || 0;
         
+        console.log('');
+        console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #00D4FF; font-weight: bold;');
+        console.log('%c║  ⏱️ VERIFICAÇÃO DE INTERVALO ENTRE SINAIS                ║', 'color: #00D4FF; font-weight: bold;');
+        console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #00D4FF; font-weight: bold;');
+        console.log(`📊 Intervalo mínimo configurado: ${minIntervalSpins} giro(s)`);
+        console.log(`📊 Giro atual: #${history[0]?.number || 'N/A'}`);
+        
         if (minIntervalSpins > 0) {
-            const entriesResult = await chrome.storage.local.get(['lastSignalSpinNumber']);
+            const entriesResult = await chrome.storage.local.get(['lastSignalSpinNumber', 'lastSignalTimestamp']);
             const lastSignalSpinNumber = entriesResult.lastSignalSpinNumber || null;
+            const lastSignalTimestamp = entriesResult.lastSignalTimestamp || null;
+            
+            console.log(`📊 Último sinal salvo: ${lastSignalSpinNumber ? '#' + lastSignalSpinNumber : 'Nenhum'}`);
+            if (lastSignalTimestamp) {
+                const timeSinceSignal = Date.now() - lastSignalTimestamp;
+                console.log(`⏰ Tempo desde último sinal: ${Math.round(timeSinceSignal / 1000)}s`);
+            }
             
             if (lastSignalSpinNumber !== null && history.length > 0) {
+                // ✅ CORREÇÃO: Buscar pelo número do giro no histórico
+                const currentSpinNumber = history[0].number;
+                
+                // Se for o MESMO giro, bloquear imediatamente (sinal duplicado)
+                if (currentSpinNumber === lastSignalSpinNumber) {
+                    console.log('');
+                    console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #FF0000; font-weight: bold;');
+                    console.log('%c║  🚫 SINAL BLOQUEADO - MESMO GIRO!                        ║', 'color: #FF0000; font-weight: bold;');
+                    console.log('%c╠═══════════════════════════════════════════════════════════╣', 'color: #FF0000; font-weight: bold;');
+                    console.log(`%c║  ⚠️ Giro atual: #${currentSpinNumber}                                    ║`, 'color: #FF6666;');
+                    console.log(`%c║  ⚠️ Último sinal: #${lastSignalSpinNumber}                                  ║`, 'color: #FF6666;');
+                    console.log('%c║  💡 Este giro JÁ teve sinal enviado!                     ║', 'color: #FF6666;');
+                    console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #FF0000; font-weight: bold;');
+                    console.log('');
+                    return null;
+                }
+                
                 // Encontrar a posição do último sinal no histórico
                 const lastSignalIndex = history.findIndex(spin => spin.number === lastSignalSpinNumber);
                 
+                console.log(`🔍 Procurando giro #${lastSignalSpinNumber} no histórico...`);
+                console.log(`   Posição encontrada: ${lastSignalIndex !== -1 ? lastSignalIndex : 'NÃO ENCONTRADO'}`);
+                
                 let spinsSinceLastSignal = 0;
                 if (lastSignalIndex !== -1) {
+                    // Encontrou no histórico - calcular quantos giros se passaram
                     spinsSinceLastSignal = lastSignalIndex;
+                    console.log(`   ✅ Giros decorridos (baseado na posição): ${spinsSinceLastSignal}`);
                 } else {
-                    // Não encontrou no histórico, permitir o sinal
-                    spinsSinceLastSignal = minIntervalSpins;
+                    // ✅ CORREÇÃO: Se não encontrou, tentar calcular pela diferença de números
+                    const numberDiff = currentSpinNumber - lastSignalSpinNumber;
+                    if (numberDiff > 0 && numberDiff < 1000) {
+                        spinsSinceLastSignal = numberDiff;
+                        console.log(`   ⚠️ Não encontrado no histórico, calculando pela diferença de números`);
+                        console.log(`   📊 Diferença: ${currentSpinNumber} - ${lastSignalSpinNumber} = ${spinsSinceLastSignal} giros`);
+                    } else {
+                        // Muito tempo passou, permitir
+                        spinsSinceLastSignal = minIntervalSpins + 1;
+                        console.log(`   ⚠️ Diferença muito grande ou inválida, permitindo sinal`);
+                    }
                 }
                 
                 console.log('');
-                console.log('%c🔍 VERIFICANDO INTERVALO ENTRE SINAIS:', 'color: #00D4FF; font-weight: bold;');
-                console.log(`   📊 Último sinal enviado no giro: #${lastSignalSpinNumber}`);
-                console.log(`   📊 Giro atual: #${history[0].number}`);
-                console.log(`   📊 Giros decorridos: ${spinsSinceLastSignal}`);
-                console.log(`   🎯 Intervalo mínimo configurado: ${minIntervalSpins} giros`);
-                console.log(`   📐 Lógica: Deve esperar ${minIntervalSpins} giros COMPLETOS, então só libera no ${minIntervalSpins + 1}º giro`);
+                console.log('%c📐 LÓGICA DE VALIDAÇÃO:', 'color: #FFD700; font-weight: bold;');
+                console.log(`   Intervalo mínimo: ${minIntervalSpins} giro(s)`);
+                console.log(`   Giros decorridos: ${spinsSinceLastSignal}`);
+                console.log(`   Deve esperar ${minIntervalSpins} giros COMPLETOS`);
+                console.log(`   Exemplo: Se min=2, bloqueia giros 1 e 2, libera no 3º`);
                 
                 // ✅ CORREÇÃO: Deve esperar minIntervalSpins giros COMPLETOS
                 // Exemplo: minIntervalSpins = 2
@@ -6831,13 +6962,14 @@ async function analyzeWithPatternSystem(history) {
         // ═══════════════════════════════════════════════════════════════
         // 📝 MONTAR RACIOCÍNIO DETALHADO
         // ═══════════════════════════════════════════════════════════════
-        const reasoning = `ANÁLISE NÍVEL DIAMANTE (4 Fases): ` +
+        const reasoning = `ANÁLISE NÍVEL DIAMANTE (5 Fases): ` +
             `FASE 1: Busca dos últimos 10 giros no histórico total (${historySize} giros) → ${fase1Result.color.toUpperCase()} (${fase1Result.occurrences} ocorrências, ${fase1Result.similarity}% similaridade). ` +
             `FASE 2: Análise dos 25% mais recentes (${recent25Percent} giros) → ${fase2Result.color.toUpperCase()} (${fase2Result.occurrences} ocorrências). ` +
             `FASE 3: Últimos 20 giros → Cor dominante: ${corDominante.toUpperCase()} (${corDominante === fase1Result.color ? 'CONFIRMA' : 'CONTRADIZ'} → ${fase3Adjustment >= 0 ? '+' : ''}${fase3Adjustment}%). ` +
+            `FASE 4: Validação de Resistência → ${viabilityResult.shouldInvert ? 'INVERTIDO' : 'MANTIDO'} (${viabilityResult.reason}). ` +
             (customPatternResult ? 
-                `FASE 4: Padrão customizado "${customPatternResult.patternName}" detectado → ${customPatternResult.color.toUpperCase()} (${customPatternResult.color === fase1Result.color ? 'CONFIRMA' : 'PRIORIDADE'}). ` : 
-                `FASE 4: Nenhum padrão customizado. `) +
+                `FASE 5: Padrão customizado "${customPatternResult.patternName}" detectado → ${customPatternResult.color.toUpperCase()} (${customPatternResult.color === fase4Color ? 'CONFIRMA' : 'PRIORIDADE'}). ` : 
+                `FASE 5: Nenhum padrão customizado. `) +
             `Decisão FINAL: ${finalColor.toUpperCase()} com ${finalConfidence}% de confiança.`;
         
         // Registrar sinal para verificação futura
@@ -7930,11 +8062,13 @@ async function runAnalysisController(history) {
 					analysis: analysis,
 					pattern: { description: analysis.patternDescription, confidence: analysis.confidence },
 					lastBet: { status: 'pending', phase: aiPhase, createdOnTimestamp: analysis.createdOnTimestamp },
-					lastSignalSpinNumber: history[0].number // ✅ CRÍTICO: Salvar número do giro para validação de intervalo
+					lastSignalSpinNumber: history[0].number, // ✅ CRÍTICO: Salvar número do giro para validação de intervalo
+					lastSignalTimestamp: Date.now() // ✅ Timestamp para debug
 				});
 				
 				console.log('%c✅ Análise IA salva em chrome.storage.local!', 'color: #00FF00; font-weight: bold; font-size: 13px;');
 				console.log(`%c📍 Número do giro registrado: #${history[0].number}`, 'color: #00D4FF; font-weight: bold;');
+				console.log(`%c⏰ Timestamp registrado: ${new Date().toLocaleTimeString()}`, 'color: #00D4FF; font-weight: bold;');
 				console.log('');
 				console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #00FF00; font-weight: bold;');
 				console.log('%c║  📋 DESCRIÇÃO DO PADRÃO (ENVIADA PARA O USUÁRIO):        ║', 'color: #00FF00; font-weight: bold;');
