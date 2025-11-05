@@ -554,8 +554,8 @@ function createPatternKey(analysisData) {
 
 const API_CONFIG = {
     // API de Giros (coleta automática, histórico, WebSocket)
-    baseURL: 'https://blaze-giros-api-v2.onrender.com',
-    wsURL: 'wss://blaze-giros-api-v2.onrender.com',
+    baseURL: 'https://blaze-giros-api-v2-1.onrender.com',
+    wsURL: 'wss://blaze-giros-api-v2-1.onrender.com',
     
     // API de Autenticação (usuários, admin, padrões customizados)
     authURL: 'https://blaze-analyzer-api-v2.onrender.com',
