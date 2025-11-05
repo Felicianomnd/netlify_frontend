@@ -609,21 +609,33 @@
         // Gerar fingerprint do HARDWARE (não muda entre navegadores)
         function generateHardwareFingerprint() {
             try {
-                // Coletar informações que identificam o COMPUTADOR, não o navegador
+                // ✅ USAR APENAS INFORMAÇÕES QUE NÃO MUDAM ENTRE NAVEGADORES NO MESMO PC
                 const screen = `${window.screen.width}x${window.screen.height}x${window.screen.colorDepth}`;
                 const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-                const language = navigator.language;
                 const platform = navigator.platform;
                 const cores = navigator.hardwareConcurrency || 0;
-                const memory = navigator.deviceMemory || 0;
                 
-                // Combinar tudo em uma string única que identifica o hardware
-                const hardwareId = `${screen}|${timezone}|${language}|${platform}|${cores}|${memory}`;
+                // ❌ REMOVIDO: language (pode ser diferente entre navegadores)
+                // ❌ REMOVIDO: deviceMemory (não disponível em todos navegadores)
                 
-                console.log('🖥️ Hardware fingerprint gerado:', hardwareId);
+                // Combinar apenas informações ESTÁVEIS do hardware
+                const hardwareId = `${screen}|${timezone}|${platform}|${cores}`;
+                
+                console.log('');
+                console.log('═══════════════════════════════════════════════════════════');
+                console.log('🖥️ GERANDO FINGERPRINT DE HARDWARE');
+                console.log('═══════════════════════════════════════════════════════════');
+                console.log('📺 Tela:', screen);
+                console.log('🌍 Timezone:', timezone);
+                console.log('💻 Platform:', platform);
+                console.log('⚙️ CPU Cores:', cores);
+                console.log('🔑 Fingerprint:', hardwareId);
+                console.log('═══════════════════════════════════════════════════════════');
+                console.log('');
+                
                 return hardwareId;
             } catch (error) {
-                console.error('Erro ao gerar fingerprint:', error);
+                console.error('❌ Erro ao gerar fingerprint:', error);
                 return 'unknown';
             }
         }
