@@ -2653,7 +2653,7 @@
             }).join('')}
         </div>
         ${hasMore ? `
-        <div style="text-align: center; margin-top: 10px;">
+        <div style="text-align: center; margin-top: 12px; margin-bottom: 15px; padding: 8px 0;">
             <button id="loadMoreHistoryBtn" class="load-more-history-btn">
                 Carregar Mais ${remainingSpins > 500 ? '(+500)' : '(+' + remainingSpins + ')'}
             </button>
