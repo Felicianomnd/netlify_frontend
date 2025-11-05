@@ -6230,14 +6230,19 @@ function analyzeSequenceViability(history, suggestedColor) {
     for (let i = 0; i < last10.length; i++) {
         const spin = last10[i];
         const colorSymbol = spin.color === 'red' ? '🔴' : (spin.color === 'black' ? '⚫' : '⚪');
-        debugString += `${colorSymbol}${spin.roll} `;
+        const number = spin.number !== undefined ? spin.number : spin.roll;
+        debugString += `${colorSymbol}${number} `;
     }
     console.log(`%c      ${debugString}`, 'color: #9C27B0;');
     console.log('');
     
     for (let i = 0; i < history.length; i++) {
         const spin = history[i];
-        if (spin.color === 'white') continue; // Ignorar brancos
+        
+        // Brancos QUEBRAM a sequência!
+        if (spin.color === 'white') {
+            break;
+        }
         
         if (currentColor === null) {
             currentColor = spin.color;
@@ -6245,7 +6250,7 @@ function analyzeSequenceViability(history, suggestedColor) {
         } else if (spin.color === currentColor) {
             currentSequence.push(spin);
         } else {
-            break; // Quebrou a sequência
+            break; // Quebrou a sequência (cor diferente)
         }
     }
     
@@ -6256,7 +6261,8 @@ function analyzeSequenceViability(history, suggestedColor) {
         `color: ${currentSequenceColor === 'red' ? '#FF0000' : '#FFFFFF'}; font-weight: bold; font-size: 14px;`);
     console.log(`%c   🔍 Detalhes da sequência:`, 'color: #9C27B0;');
     currentSequence.forEach((spin, idx) => {
-        console.log(`%c      ${idx + 1}º: ${spin.color.toUpperCase()} (${spin.roll})`, `color: ${spin.color === 'red' ? '#FF0000' : '#FFFFFF'};`);
+        const number = spin.number !== undefined ? spin.number : spin.roll;
+        console.log(`%c      ${idx + 1}º: ${spin.color.toUpperCase()} (${number})`, `color: ${spin.color === 'red' ? '#FF0000' : '#FFFFFF'};`);
     });
     console.log('');
     
@@ -6298,7 +6304,6 @@ function analyzeSequenceViability(history, suggestedColor) {
     
     for (let i = 0; i < analysisWindow; i++) {
         const spin = history[i];
-        if (spin.color === 'white') continue;
         
         if (spin.color === suggestedColor) {
             if (lastColor !== suggestedColor) {
@@ -6314,7 +6319,7 @@ function analyzeSequenceViability(history, suggestedColor) {
             
             lastColor = suggestedColor;
         } else {
-            // Sequência quebrou - salvar resistência se foi >= currentSequenceLength
+            // Cor diferente (black, white, ou outra) QUEBRA a sequência!
             if (currentStreak >= currentSequenceLength && currentStreak < targetSequenceLength) {
                 resistances.push({
                     length: currentStreak,
@@ -6363,7 +6368,6 @@ function analyzeSequenceViability(history, suggestedColor) {
     
     for (let i = 0; i < analysisWindow; i++) {
         const spin = history[i];
-        if (spin.color === 'white') continue;
         
         if (spin.color === suggestedColor) {
             if (tempLastColor !== suggestedColor) {
@@ -6379,6 +6383,7 @@ function analyzeSequenceViability(history, suggestedColor) {
             
             tempLastColor = suggestedColor;
         } else {
+            // Qualquer cor diferente QUEBRA a sequência!
             tempStreak = 0;
             tempLastColor = spin.color;
         }
@@ -6432,7 +6437,6 @@ function analyzeSequenceViability(history, suggestedColor) {
         
         for (let i = 0; i < analysisWindow; i++) {
             const spin = history[i];
-            if (spin.color === 'white') continue;
             
             if (spin.color === suggestedColor) {
                 if (tempLastColor !== suggestedColor) {
@@ -6449,6 +6453,7 @@ function analyzeSequenceViability(history, suggestedColor) {
                 
                 tempLastColor = suggestedColor;
             } else {
+                // Qualquer cor diferente QUEBRA a sequência!
                 tempStreak = 0;
                 tempLastColor = spin.color;
             }
@@ -6531,8 +6536,8 @@ async function analyzeWithPatternSystem(history) {
     console.log('%c║  ⚡ FASE 1: Busca 10 Giros no Histórico Total           ║', 'color: #00FF88;');
     console.log('%c║  🔥 FASE 2: Análise 25% Mais Recentes (Cor Quente)      ║', 'color: #00FF88;');
     console.log('%c║  🌡️ FASE 3: Últimos 20 Giros (Dominância ±4-6%)        ║', 'color: #00FF88;');
-    console.log('%c║  🧠 FASE 4: Validação de Resistência (Inteligente)      ║', 'color: #00FF88;');
-    console.log('%c║  🎯 FASE 5: Padrões Customizados (Prioridade Máxima)    ║', 'color: #00FF88;');
+    console.log('%c║  🎯 FASE 4: Padrões Customizados (PRIORIDADE ABSOLUTA)  ║', 'color: #FFD700; font-weight: bold;');
+    console.log('%c║  🧠 FASE 5: Validação de Resistência (se sem padrão)    ║', 'color: #00FF88;');
     console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #00FF00; font-weight: bold; font-size: 16px;');
     console.log('');
     
@@ -6770,110 +6775,128 @@ async function analyzeWithPatternSystem(history) {
         console.log('');
         
         // ═══════════════════════════════════════════════════════════════
-        // 🧠 FASE 4 (NOVA): VALIDAÇÃO DE RESISTÊNCIA (INTELIGENTE)
-        // ═══════════════════════════════════════════════════════════════
-        console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #9C27B0; font-weight: bold;');
-        console.log('%c║  🧠 FASE 4: VALIDAÇÃO DE RESISTÊNCIA (INTELIGENTE)      ║', 'color: #9C27B0; font-weight: bold; font-size: 14px;');
-        console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #9C27B0; font-weight: bold;');
-        console.log('');
-        
-        // Analisar viabilidade da sequência sugerida
-        const viabilityResult = analyzeSequenceViability(history, fase1Result.color);
-        
-        let fase4Color = fase1Result.color;
-        let fase4Adjustment = 0;
-        let fase4Reason = '';
-        
-        if (viabilityResult.shouldInvert) {
-            // 🔄 INVERTER O SINAL!
-            const oppositeColor = fase1Result.color === 'red' ? 'black' : 'red';
-            fase4Color = oppositeColor;
-            
-            console.log('');
-            console.log('%c🔄 DECISÃO: INVERTER SINAL!', 'color: #FF6B6B; font-weight: bold; font-size: 14px;');
-            console.log(`%c   Sinal original: ${fase1Result.color.toUpperCase()}`, `color: ${fase1Result.color === 'red' ? '#FF0000' : '#FFFFFF'}; font-weight: bold;`);
-            console.log(`%c   Novo sinal: ${oppositeColor.toUpperCase()}`, `color: ${oppositeColor === 'red' ? '#FF0000' : '#FFFFFF'}; font-weight: bold; font-size: 16px;`);
-            console.log(`%c   Motivo: ${viabilityResult.reason}`, 'color: #FFD700;');
-            console.log('');
-            
-            // Ajustar confiança (reduzir um pouco por estar invertendo)
-            fase4Adjustment = -8; // Reduzir 8% por inverter
-            fase4Reason = `INVERTE → ${oppositeColor.toUpperCase()} (${viabilityResult.reason}) → ${fase4Adjustment}%`;
-            
-        } else {
-            console.log('');
-            console.log('%c✅ DECISÃO: MANTER SINAL!', 'color: #00FF88; font-weight: bold; font-size: 14px;');
-            console.log(`%c   Sinal mantido: ${fase1Result.color.toUpperCase()}`, `color: ${fase1Result.color === 'red' ? '#FF0000' : '#FFFFFF'}; font-weight: bold;`);
-            console.log(`%c   Motivo: ${viabilityResult.reason}`, 'color: #FFD700;');
-            console.log('');
-            
-            // Sem ajuste ou pequeno bônus
-            if (viabilityResult.isViable) {
-                fase4Adjustment = 3; // +3% por sequência viável
-                fase4Reason = `Sequência viável historicamente → +${fase4Adjustment}%`;
-            }
-        }
-        
-        console.log(`%c✅ FASE 4 CONCLUÍDA!`, 'color: #00FF88; font-weight: bold;');
-        console.log('');
-        
-        // ═══════════════════════════════════════════════════════════════
-        // 🎯 FASE 5: PADRÕES CUSTOMIZADOS (PRIORIDADE MÁXIMA)
+        // 🎯 FASE 4: PADRÕES CUSTOMIZADOS (PRIORIDADE ABSOLUTA!)
         // ═══════════════════════════════════════════════════════════════
         console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #FF00FF; font-weight: bold;');
-        console.log('%c║  🎯 FASE 5: PADRÕES CUSTOMIZADOS (PRIORIDADE MÁXIMA)    ║', 'color: #FF00FF; font-weight: bold; font-size: 14px;');
+        console.log('%c║  🎯 FASE 4: PADRÕES CUSTOMIZADOS (PRIORIDADE ABSOLUTA!) ║', 'color: #FF00FF; font-weight: bold; font-size: 14px;');
         console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #FF00FF; font-weight: bold;');
         console.log('');
         
         // Verificar se há padrões customizados ativos
         const customPatternResult = await checkForCustomPatterns(history);
         
-        let finalColor = fase4Color; // Usar cor da Fase 4 (pode ter sido invertida!)
-        let baseConfidence = fase1Result.confidence;
-        let allAdjustments = fase3Adjustment + fase4Adjustment;
-        let allReasons = [fase3Reason];
-        if (fase4Reason) allReasons.push(fase4Reason);
+        let fase4Color = fase1Result.color; // Começar com a cor da Fase 1
+        let fase4Adjustment = 0;
+        let fase4Reason = '';
+        let hasCustomPattern = false;
         let patternDescription = 'Análise Nível Diamante - 5 Fases';
         
         if (customPatternResult) {
             // ✅ PADRÃO CUSTOMIZADO ENCONTRADO!
-            console.log('%c🎯 PADRÃO CUSTOMIZADO DETECTADO!', 'color: #FF00FF; font-weight: bold; font-size: 14px;');
+            hasCustomPattern = true;
+            console.log('%c🎯🎯🎯 PADRÃO CUSTOMIZADO DETECTADO! 🎯🎯🎯', 'color: #FF00FF; font-weight: bold; font-size: 16px; background: #FFD700;');
             console.log(`%c   Padrão: ${customPatternResult.patternName}`, 'color: #FF00FF; font-weight: bold;');
-            console.log(`%c   Cor recomendada: ${customPatternResult.color.toUpperCase()}`, `color: ${customPatternResult.color === 'red' ? '#FF0000' : '#FFFFFF'}; font-weight: bold;`);
+            console.log(`%c   Cor recomendada: ${customPatternResult.color.toUpperCase()}`, `color: ${customPatternResult.color === 'red' ? '#FF0000' : '#FFFFFF'}; font-weight: bold; font-size: 14px;`);
             console.log(`%c   Confiança: ${customPatternResult.confidence}%`, 'color: #FF00FF;');
             console.log('');
             
-            // Verificar se a cor do padrão customizado CONFIRMA ou CONTRADIZ as fases anteriores
-            if (customPatternResult.color === fase4Color) {
-                // ✅ CENÁRIO A: Padrão customizado CONFIRMA as análises anteriores
-                console.log('%c✅ CENÁRIO A: Padrão customizado CONFIRMA análises anteriores!', 'color: #00FF00; font-weight: bold; font-size: 14px;');
-                console.log('%c   → AUMENTANDO MUITO a confiança (+15% a +25%)', 'color: #00FF88; font-weight: bold;');
+            // PADRÃO CUSTOMIZADO TEM PRIORIDADE ABSOLUTA!
+            fase4Color = customPatternResult.color;
+            
+            // Verificar se CONFIRMA ou CONTRADIZ a Fase 1
+            if (customPatternResult.color === fase1Result.color) {
+                // ✅ CONFIRMA: Grande bônus!
+                console.log('%c✅ PADRÃO CUSTOMIZADO CONFIRMA FASE 1!', 'color: #00FF00; font-weight: bold; font-size: 14px;');
+                console.log('%c   → AUMENTANDO MUITO a confiança (+20% a +30%)', 'color: #00FF88; font-weight: bold;');
                 
-                finalColor = customPatternResult.color;
-                const bonus = Math.floor(Math.random() * 11) + 15; // +15% a +25%
-                allAdjustments += bonus;
-                allReasons.push(`Padrão customizado CONFIRMA → +${bonus}%`);
+                fase4Adjustment = Math.floor(Math.random() * 11) + 20; // +20% a +30%
+                fase4Reason = `Padrão "${customPatternResult.patternName}" CONFIRMA → +${fase4Adjustment}%`;
                 patternDescription = `${customPatternResult.patternName} (CONFIRMADO)`;
             } else {
-                // ⚠️ CENÁRIO B: Padrão customizado CONTRADIZ as análises anteriores
-                console.log('%c⚠️ CENÁRIO B: Padrão customizado CONTRADIZ análises anteriores!', 'color: #FFA500; font-weight: bold; font-size: 14px;');
-                console.log('%c   → USANDO cor do padrão customizado (prioridade)', 'color: #FFAA00; font-weight: bold;');
-                console.log('%c   → DIMINUINDO um pouco a confiança (-5% a -10%)', 'color: #FFAA00;');
+                // ⚠️ CONTRADIZ: Mas PADRÃO TEM PRIORIDADE!
+                console.log('%c⚠️ PADRÃO CUSTOMIZADO CONTRADIZ FASE 1!', 'color: #FFA500; font-weight: bold; font-size: 14px;');
+                console.log('%c   🏆 MAS PADRÃO CUSTOMIZADO TEM PRIORIDADE ABSOLUTA!', 'color: #FFD700; font-weight: bold; font-size: 14px;');
+                console.log(`%c   → Mudando de ${fase1Result.color.toUpperCase()} para ${customPatternResult.color.toUpperCase()}`, 'color: #FFAA00; font-weight: bold;');
                 
-                finalColor = customPatternResult.color; // ✅ USAR cor do padrão customizado!
-                const penalty = -(Math.floor(Math.random() * 6) + 5); // -5% a -10%
-                allAdjustments += penalty;
-                allReasons.push(`Padrão customizado CONTRADIZ → ${penalty}%`);
+                fase4Adjustment = 10; // +10% mesmo contradizendo
+                fase4Reason = `Padrão "${customPatternResult.patternName}" (PRIORIDADE) → +${fase4Adjustment}%`;
                 patternDescription = `${customPatternResult.patternName} (PRIORIDADE)`;
             }
         } else {
             console.log('%cℹ️ Nenhum padrão customizado detectado', 'color: #888;');
-            console.log('%c   Usando cor das fases anteriores (Fase 4)', 'color: #888;');
+            console.log('%c   Mantendo cor da Fase 1', 'color: #888;');
         }
         console.log('');
         
+        console.log(`%c✅ FASE 4 CONCLUÍDA!`, 'color: #00FF88; font-weight: bold;');
+        console.log('');
+        
+        // ═══════════════════════════════════════════════════════════════
+        // 🧠 FASE 5: VALIDAÇÃO DE RESISTÊNCIA (SÓ SE NÃO HOUVER PADRÃO)
+        // ═══════════════════════════════════════════════════════════════
+        console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #9C27B0; font-weight: bold;');
+        console.log('%c║  🧠 FASE 5: VALIDAÇÃO DE RESISTÊNCIA (INTELIGENTE)      ║', 'color: #9C27B0; font-weight: bold; font-size: 14px;');
+        console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #9C27B0; font-weight: bold;');
+        console.log('');
+        
+        let fase5Color = fase4Color;
+        let fase5Adjustment = 0;
+        let fase5Reason = '';
+        
+        if (hasCustomPattern) {
+            // SE HOUVER PADRÃO CUSTOMIZADO, NÃO INVERTE!
+            console.log('%c🏆 PADRÃO CUSTOMIZADO ATIVO!', 'color: #FFD700; font-weight: bold; font-size: 14px;');
+            console.log('%c   → Validação de Resistência NÃO PODE INVERTER!', 'color: #FFD700; font-weight: bold;');
+            console.log(`%c   → Cor mantida: ${fase4Color.toUpperCase()}`, `color: ${fase4Color === 'red' ? '#FF0000' : '#FFFFFF'}; font-weight: bold;`);
+            console.log('');
+            fase5Reason = 'Padrão customizado tem prioridade - resistência não aplicada';
+        } else {
+            // SEM PADRÃO CUSTOMIZADO: Pode validar resistência
+            console.log('%cℹ️ Sem padrão customizado: Validando resistência...', 'color: #9C27B0;');
+            console.log('');
+            
+            const viabilityResult = analyzeSequenceViability(history, fase4Color);
+            
+            if (viabilityResult.shouldInvert) {
+                // 🔄 INVERTER O SINAL!
+                const oppositeColor = fase4Color === 'red' ? 'black' : 'red';
+                fase5Color = oppositeColor;
+                
+                console.log('');
+                console.log('%c🔄 DECISÃO: INVERTER SINAL!', 'color: #FF6B6B; font-weight: bold; font-size: 14px;');
+                console.log(`%c   Sinal original: ${fase4Color.toUpperCase()}`, `color: ${fase4Color === 'red' ? '#FF0000' : '#FFFFFF'}; font-weight: bold;`);
+                console.log(`%c   Novo sinal: ${oppositeColor.toUpperCase()}`, `color: ${oppositeColor === 'red' ? '#FF0000' : '#FFFFFF'}; font-weight: bold; font-size: 16px;`);
+                console.log(`%c   Motivo: ${viabilityResult.reason}`, 'color: #FFD700;');
+                console.log('');
+                
+                fase5Adjustment = -8; // Reduzir 8% por inverter
+                fase5Reason = `INVERTE → ${oppositeColor.toUpperCase()} (${viabilityResult.reason}) → ${fase5Adjustment}%`;
+            } else {
+                console.log('');
+                console.log('%c✅ DECISÃO: MANTER SINAL!', 'color: #00FF88; font-weight: bold; font-size: 14px;');
+                console.log(`%c   Sinal mantido: ${fase4Color.toUpperCase()}`, `color: ${fase4Color === 'red' ? '#FF0000' : '#FFFFFF'}; font-weight: bold;`);
+                console.log(`%c   Motivo: ${viabilityResult.reason}`, 'color: #FFD700;');
+                console.log('');
+                
+                if (viabilityResult.isViable) {
+                    fase5Adjustment = 3; // +3% por sequência viável
+                    fase5Reason = `Sequência viável historicamente → +${fase5Adjustment}%`;
+                }
+            }
+        }
+        
         console.log(`%c✅ FASE 5 CONCLUÍDA!`, 'color: #00FF88; font-weight: bold;');
         console.log('');
+        
+        // ═══════════════════════════════════════════════════════════════
+        // 📊 DECISÃO FINAL
+        // ═══════════════════════════════════════════════════════════════
+        let finalColor = fase5Color;
+        let baseConfidence = fase1Result.confidence;
+        let allAdjustments = fase3Adjustment + fase4Adjustment + fase5Adjustment;
+        let allReasons = [fase3Reason];
+        if (fase4Reason) allReasons.push(fase4Reason);
+        if (fase5Reason) allReasons.push(fase5Reason);
         
         // ═══════════════════════════════════════════════════════════════
         // 📊 CÁLCULO FINAL DE CONFIANÇA
@@ -6966,10 +6989,10 @@ async function analyzeWithPatternSystem(history) {
             `FASE 1: Busca dos últimos 10 giros no histórico total (${historySize} giros) → ${fase1Result.color.toUpperCase()} (${fase1Result.occurrences} ocorrências, ${fase1Result.similarity}% similaridade). ` +
             `FASE 2: Análise dos 25% mais recentes (${recent25Percent} giros) → ${fase2Result.color.toUpperCase()} (${fase2Result.occurrences} ocorrências). ` +
             `FASE 3: Últimos 20 giros → Cor dominante: ${corDominante.toUpperCase()} (${corDominante === fase1Result.color ? 'CONFIRMA' : 'CONTRADIZ'} → ${fase3Adjustment >= 0 ? '+' : ''}${fase3Adjustment}%). ` +
-            `FASE 4: Validação de Resistência → ${viabilityResult.shouldInvert ? 'INVERTIDO' : 'MANTIDO'} (${viabilityResult.reason}). ` +
             (customPatternResult ? 
-                `FASE 5: Padrão customizado "${customPatternResult.patternName}" detectado → ${customPatternResult.color.toUpperCase()} (${customPatternResult.color === fase4Color ? 'CONFIRMA' : 'PRIORIDADE'}). ` : 
-                `FASE 5: Nenhum padrão customizado. `) +
+                `FASE 4: ★ Padrão customizado "${customPatternResult.patternName}" → ${customPatternResult.color.toUpperCase()} (PRIORIDADE ABSOLUTA!). ` : 
+                `FASE 4: Nenhum padrão customizado. `) +
+            `FASE 5: ${fase5Reason}. ` +
             `Decisão FINAL: ${finalColor.toUpperCase()} com ${finalConfidence}% de confiança.`;
         
         // Registrar sinal para verificação futura
