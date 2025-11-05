@@ -104,8 +104,13 @@
     <!-- 🔐 VERIFICAÇÃO DE AUTENTICAÇÃO -->
     <script>
         // Verificar se usuário está logado
-        (function() {
+        (async function() {
             const authToken = localStorage.getItem('authToken');
+            const lastVerification = sessionStorage.getItem('lastAuthVerification');
+            const now = Date.now();
+            
+            console.log('🔐 Verificando autenticação...');
+            console.log('🔑 Token presente:', authToken ? 'SIM' : 'NÃO');
             
             if (!authToken) {
                 // Não está logado - redirecionar para tela de login
@@ -114,33 +119,78 @@
                 return;
             }
             
-            // Verificar se token é válido
-            fetch('https://blaze-analyzer-api-v2.onrender.com/api/auth/verify', {
-                headers: {
-                    'Authorization': 'Bearer ' + authToken
-                }
-            })
-            .then(response => {
+            // Se verificou nos últimos 5 minutos, não precisa verificar de novo
+            if (lastVerification && (now - parseInt(lastVerification)) < 300000) {
+                console.log('✅ Token verificado recentemente (cache de 5 min) - pulando verificação');
+                return;
+            }
+            
+            try {
+                // Verificar se token é válido
+                console.log('📡 Verificando token com o servidor...');
+                const response = await fetch('https://blaze-analyzer-api-v2.onrender.com/api/auth/verify', {
+                    headers: {
+                        'Authorization': 'Bearer ' + authToken
+                    }
+                });
+                
+                console.log('📨 Resposta do servidor:', response.status, response.statusText);
+                
                 if (!response.ok) {
-                    throw new Error('Token inválido');
+                    throw new Error(`Token inválido (${response.status})`);
                 }
-                return response.json();
-            })
-            .then(data => {
-                if (data.success) {
+                
+                const data = await response.json();
+                console.log('📋 Dados recebidos:', data);
+                
+                if (data.success && data.user) {
                     console.log('✅ Usuário autenticado:', data.user.name);
-                    // Salvar dados do usuário
+                    console.log('📧 Email:', data.user.email);
+                    console.log('📅 Status:', data.user.status);
+                    
+                    // Salvar dados do usuário atualizados
                     localStorage.setItem('user', JSON.stringify(data.user));
+                    
+                    // Marcar verificação como feita (válido por 5 minutos)
+                    sessionStorage.setItem('lastAuthVerification', now.toString());
+                    
+                    // Verificar status da conta
+                    if (data.user.status === 'expired') {
+                        console.warn('⚠️ Conta expirada - redirecionando...');
+                        alert('Sua assinatura expirou. Entre em contato para renovar.');
+                        localStorage.removeItem('authToken');
+                        localStorage.removeItem('user');
+                        sessionStorage.removeItem('lastAuthVerification');
+                        window.location.href = 'auth.html';
+                        return;
+                    }
+                    
+                    if (data.user.status === 'blocked') {
+                        console.warn('⚠️ Conta bloqueada - redirecionando...');
+                        alert('Sua conta foi bloqueada. Entre em contato com o suporte.');
+                        localStorage.removeItem('authToken');
+                        localStorage.removeItem('user');
+                        sessionStorage.removeItem('lastAuthVerification');
+                        window.location.href = 'auth.html';
+                        return;
+                    }
+                    
+                    console.log('✅ Autenticação bem-sucedida! Carregando extensão...');
                 } else {
-                    throw new Error('Token inválido');
+                    throw new Error('Resposta inválida do servidor');
                 }
-            })
-            .catch(error => {
+            } catch (error) {
                 console.error('❌ Erro na autenticação:', error);
+                console.error('📋 Detalhes:', error.message);
+                
+                // Limpar dados e redirecionar
                 localStorage.removeItem('authToken');
                 localStorage.removeItem('user');
+                sessionStorage.removeItem('lastAuthVerification');
+                
+                console.log('↪️ Redirecionando para login...');
                 window.location.href = 'auth.html';
-            });
+            }
         })();
     </script>
     
