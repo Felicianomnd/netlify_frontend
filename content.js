@@ -11,6 +11,11 @@
     console.log('');
     
     // ═══════════════════════════════════════════════════════════════════════════════
+    // ☁️ VARIÁVEL GLOBAL: Status do ProPlus (DEVE ESTAR NO TOPO!)
+    // ═══════════════════════════════════════════════════════════════════════════════
+    let isProPlusActive = false;
+    
+    // ═══════════════════════════════════════════════════════════════════════════════
     // VARIÁVEL GLOBAL: Controle de exibição do histórico por camadas
     // ═══════════════════════════════════════════════════════════════════════════════
     let currentHistoryDisplayLimit = 500; // Começa exibindo 500, pode aumentar em camadas de 500
@@ -3414,8 +3419,7 @@
                 }
             }
             
-            // ✅ USAR spinNumber (do servidor) ou number (local)
-            const numGiro = e.spinNumber || e.number || '?';
+            // ✅ Usar numGiro que já foi declarado acima (linha ~3355)
             const title = `Giro: ${numGiro} • Cor: ${e.color} • ${time} • Resultado: ${e.result}${e.martingaleStage ? ' • Estágio: '+e.martingaleStage : ''}${e.confidence? ' • Confiança: '+e.confidence.toFixed(1)+'%' : ''}`;
             
             // CORREÇÃO: Sempre usar a confidence original que foi exibida no sinal
@@ -4210,7 +4214,7 @@
     }
     
     // Escutar mensagens do background.js (WebSocket - tempo real)
-    let isProPlusActive = false;
+    // ☁️ isProPlusActive já foi declarado no TOPO do arquivo (linha ~15)
     
     function startProPlusSync() {
         isProPlusActive = true;
