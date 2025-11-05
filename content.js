@@ -4091,29 +4091,41 @@
     
     // Buscar giros do servidor (TODOS os 2000)
     async function fetchHistoryFromServer() {
-        if (isUpdatingHistory) return; // Evitar chamadas simultâneas
+        if (isUpdatingHistory) {
+            console.log('⏳ Já está buscando histórico - aguarde...');
+            return;
+        }
         
         try {
             isUpdatingHistory = true;
+            console.log(`🌐 Buscando giros do servidor: ${API_URL}/api/giros?limit=2000`);
+            
             const response = await fetch(`${API_URL}/api/giros?limit=2000`, {
                 signal: AbortSignal.timeout(8000) // Timeout maior para mais dados
             });
             
+            console.log(`📡 Resposta recebida - Status: ${response.status}`);
+            
             if (!response.ok) {
-                throw new Error('Servidor offline');
+                throw new Error(`Servidor retornou status ${response.status}`);
             }
             
             const data = await response.json();
+            console.log(`📊 Dados recebidos:`, data);
             
-            if (data.success && data.data && data.data.length > 0) {
+            if (data.success && data.data) {
+                console.log(`✅ Sucesso! ${data.data.length} giros recebidos do servidor`);
                 lastHistoryUpdate = new Date();
                 return data.data;
+            } else {
+                console.warn('⚠️ Resposta sem dados ou success=false');
+                return [];
             }
-            
-            return null;
         } catch (error) {
-            console.warn('⚠️ Erro ao buscar giros do servidor:', error.message);
-            return null;
+            console.error('❌ Erro ao buscar giros do servidor:', error);
+            console.error('   URL:', `${API_URL}/api/giros?limit=2000`);
+            console.error('   Erro:', error.message);
+            return [];
         } finally {
             isUpdatingHistory = false;
         }
@@ -4233,11 +4245,22 @@
     // ═══════════════════════════════════════════════════════════════
     // Atualizar UI com giros do servidor
     async function updateHistoryUIFromServer() {
+        console.log('🔄 updateHistoryUIFromServer() chamada');
         const spins = await fetchHistoryFromServer();
+        
+        console.log(`📥 Giros recebidos: ${spins ? spins.length : 0}`);
+        
+        // ✅ ATUALIZAR currentHistoryData com os giros do servidor
+        if (spins && spins.length > 0) {
+            currentHistoryData = spins;
+            console.log(`✅ currentHistoryData atualizado com ${spins.length} giros`);
+        }
         
         if (spins && spins.length > 0) {
             // Atualizar o elemento de histórico
             const historyContainer = document.getElementById('spin-history-bar-ext');
+            console.log(`📦 Container existe? ${historyContainer ? 'SIM' : 'NÃO'}`);
+            
             if (historyContainer) {
                 // ✅ SALVAR posição do scroll ANTES de atualizar (container interno com scroll)
                 const scrollContainer = historyContainer.querySelector('.spin-history-bar-blaze');
@@ -4340,6 +4363,38 @@
             const totalSpins = document.getElementById('totalSpins');
             if (totalSpins) {
                 totalSpins.textContent = spins.length;
+            }
+        } else {
+            // ⚠️ Nenhum giro disponível ainda
+            console.log('⚠️ Nenhum giro disponível no servidor ainda');
+            
+            const historyContainer = document.getElementById('spin-history-bar-ext');
+            if (!historyContainer) {
+                // Criar container com mensagem de "aguardando giros"
+                const statsSection = document.querySelector('.stats-section');
+                if (statsSection) {
+                    const wrap = document.createElement('div');
+                    wrap.id = 'spin-history-bar-ext';
+                    wrap.innerHTML = `
+                        <div class="spin-history-label">
+                            <span>ÚLTIMOS GIROS</span>
+                            <div class="spin-count-info">
+                                <span class="displaying-count">Aguardando servidor...</span>
+                            </div>
+                        </div>
+                        <div class="spin-history-bar-blaze" style="text-align: center; padding: 20px; color: #888;">
+                            ⏳ Aguardando primeiro giro da Blaze...
+                        </div>
+                    `;
+                    statsSection.appendChild(wrap);
+                    console.log('📦 Container criado com mensagem de "aguardando"');
+                }
+            }
+            
+            // Atualizar total de giros como 0
+            const totalSpins = document.getElementById('totalSpins');
+            if (totalSpins) {
+                totalSpins.textContent = '0';
             }
         }
     }
