@@ -101,30 +101,95 @@
     <!-- 5. content.js (cria a sidebar - INTACTO)                                        -->
     <!-- ═══════════════════════════════════════════════════════════════════════════════ -->
 
-    <!-- 🔐 VERIFICAÇÃO DE AUTENTICAÇÃO - SIMPLIFICADA -->
+    <!-- 🔐 VERIFICAÇÃO DE AUTENTICAÇÃO - SUPER DETALHADA PARA DEBUG -->
     <script>
-        // ✅ SOLUÇÃO DEFINITIVA: Verificar apenas se tem token, sem chamadas ao servidor no refresh
+        // ✅ DEBUG: Verificar TUDO sobre localStorage
         (function() {
+            console.log('');
+            console.log('██████████████████████████████████████████████████████████████');
+            console.log('██  VERIFICAÇÃO DE AUTENTICAÇÃO - DEBUG COMPLETO');
+            console.log('██████████████████████████████████████████████████████████████');
+            console.log('');
+            
+            // 1. Verificar se localStorage está disponível
+            console.log('1️⃣ VERIFICANDO DISPONIBILIDADE DO localStorage:');
+            try {
+                const test = 'test';
+                localStorage.setItem('test', test);
+                const retrieved = localStorage.getItem('test');
+                localStorage.removeItem('test');
+                console.log('   ✅ localStorage está FUNCIONANDO');
+                console.log('   ✅ Pode gravar e ler dados');
+            } catch (e) {
+                console.error('   ❌ localStorage NÃO FUNCIONA!');
+                console.error('   ❌ Erro:', e.message);
+                console.error('   ❌ Navegador em modo privado ou localStorage desabilitado?');
+            }
+            console.log('');
+            
+            // 2. Listar TUDO que tem no localStorage
+            console.log('2️⃣ CONTEÚDO COMPLETO DO localStorage:');
+            console.log('   Total de itens:', localStorage.length);
+            for (let i = 0; i < localStorage.length; i++) {
+                const key = localStorage.key(i);
+                const value = localStorage.getItem(key);
+                console.log(`   - ${key}:`, value ? value.substring(0, 100) : 'null');
+            }
+            console.log('');
+            
+            // 3. Verificar especificamente authToken e user
+            console.log('3️⃣ VERIFICANDO DADOS DE AUTENTICAÇÃO:');
             const authToken = localStorage.getItem('authToken');
             const user = localStorage.getItem('user');
+            const lastAuthCheck = localStorage.getItem('lastAuthCheck');
             
-            console.log('═══════════════════════════════════════════════════════════');
-            console.log('🔐 VERIFICAÇÃO DE AUTENTICAÇÃO');
-            console.log('═══════════════════════════════════════════════════════════');
-            console.log('🔑 Token:', authToken ? 'PRESENTE' : 'AUSENTE');
-            console.log('👤 User:', user ? 'PRESENTE' : 'AUSENTE');
+            console.log('   🔑 authToken:');
+            console.log('      Existe?', authToken ? 'SIM' : 'NÃO');
+            console.log('      Tipo:', typeof authToken);
+            console.log('      Tamanho:', authToken ? authToken.length : 0);
+            console.log('      Início:', authToken ? authToken.substring(0, 30) + '...' : 'N/A');
+            console.log('');
             
-            // Se não tem token OU não tem user, redirecionar para login
+            console.log('   👤 user:');
+            console.log('      Existe?', user ? 'SIM' : 'NÃO');
+            console.log('      Tipo:', typeof user);
+            console.log('      Tamanho:', user ? user.length : 0);
+            console.log('      Conteúdo:', user ? user.substring(0, 100) + '...' : 'N/A');
+            console.log('');
+            
+            console.log('   ⏰ lastAuthCheck:');
+            console.log('      Existe?', lastAuthCheck ? 'SIM' : 'NÃO');
+            console.log('      Valor:', lastAuthCheck);
+            console.log('');
+            
+            // 4. Verificar URL atual
+            console.log('4️⃣ INFORMAÇÕES DA PÁGINA:');
+            console.log('   URL:', window.location.href);
+            console.log('   Host:', window.location.host);
+            console.log('   Pathname:', window.location.pathname);
+            console.log('');
+            
+            // 5. DECISÃO
+            console.log('5️⃣ DECISÃO DE AUTENTICAÇÃO:');
             if (!authToken || !user) {
-                console.log('❌ Não autenticado - redirecionando para login...');
-                console.log('═══════════════════════════════════════════════════════════');
+                console.log('   ❌ RESULTADO: NÃO AUTENTICADO');
+                console.log('   ❌ Motivo:', !authToken ? 'Token ausente' : 'User ausente');
+                console.log('   🔄 AÇÃO: Redirecionando para auth.html...');
+                console.log('');
+                console.log('██████████████████████████████████████████████████████████████');
+                console.log('');
                 window.location.href = 'auth.html';
                 return;
             }
             
-            // ✅ TEM TOKEN E USER - CARREGAR EXTENSÃO IMEDIATAMENTE
-            console.log('✅ AUTENTICADO - Carregando extensão...');
-            console.log('═══════════════════════════════════════════════════════════');
+            // ✅ AUTENTICADO!
+            console.log('   ✅ RESULTADO: AUTENTICADO COM SUCESSO!');
+            console.log('   ✅ Token presente e válido');
+            console.log('   ✅ User presente');
+            console.log('   🚀 AÇÃO: Carregando extensão...');
+            console.log('');
+            console.log('██████████████████████████████████████████████████████████████');
+            console.log('');
             
             // Verificação periódica em background (1x por dia) sem bloquear a UI
             const lastCheck = localStorage.getItem('lastAuthCheck');

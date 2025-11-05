@@ -1038,10 +1038,10 @@
             // ✅ VERIFICAR STATUS ANTES DE PARSEAR JSON
             if (!response.ok) {
                 if (response.status === 401 || response.status === 403) {
-                    console.error('❌ Token inválido ou expirado! Faça login novamente.');
-                    // Token expirado - limpar e redirecionar
-                    localStorage.removeItem('authToken');
-                    localStorage.removeItem('user');
+                    console.warn('⚠️ Token retornou erro 401/403 - mas NÃO vou deslogar automaticamente');
+                    console.warn('⚠️ Pode ser erro temporário do servidor ou de rede');
+                    // ❌ NÃO REMOVER TOKEN AUTOMATICAMENTE - usuário pode estar offline
+                    // O token será verificado em background no index.html
                 } else {
                     console.error(`❌ Servidor retornou erro: ${response.status}`);
                 }
@@ -1092,8 +1092,9 @@
             
             if (!response.ok) {
                 if (response.status === 401 || response.status === 403) {
-                    console.error('❌ Token inválido! Faça login novamente.');
-                    localStorage.removeItem('authToken');
+                    console.warn('⚠️ Erro 401/403 ao sincronizar configurações - ignorando');
+                    console.warn('⚠️ Pode ser erro temporário - NÃO vou deslogar');
+                    // ❌ NÃO REMOVER TOKEN - pode ser erro temporário
                 }
                 return false;
             }
@@ -1131,8 +1132,9 @@
             
             if (!response.ok) {
                 if (response.status === 401 || response.status === 403) {
-                    console.error('❌ Token inválido! Faça login novamente.');
-                    localStorage.removeItem('authToken');
+                    console.warn('⚠️ Erro 401/403 ao carregar configurações - ignorando');
+                    console.warn('⚠️ Pode ser erro temporário - NÃO vou deslogar');
+                    // ❌ NÃO REMOVER TOKEN - pode ser erro temporário
                 }
                 return null;
             }

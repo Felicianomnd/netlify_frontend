@@ -635,21 +635,74 @@
                 const data = await response.json();
                 
                 if (data.success) {
-                    console.log('✅ Login bem-sucedido!');
-                    console.log('💾 Salvando no localStorage...');
+                    console.log('');
+                    console.log('██████████████████████████████████████████████████████████████');
+                    console.log('██  LOGIN BEM-SUCEDIDO - SALVANDO NO localStorage');
+                    console.log('██████████████████████████████████████████████████████████████');
+                    console.log('');
+                    
+                    console.log('📦 DADOS RECEBIDOS DO SERVIDOR:');
+                    console.log('   Token:', data.token ? data.token.substring(0, 30) + '...' : 'AUSENTE');
+                    console.log('   User:', data.user ? data.user.email : 'AUSENTE');
+                    console.log('');
+                    
+                    // Testar localStorage antes
+                    console.log('🧪 TESTANDO localStorage ANTES DE SALVAR:');
+                    try {
+                        localStorage.setItem('test_key_123', 'test_value');
+                        const test = localStorage.getItem('test_key_123');
+                        localStorage.removeItem('test_key_123');
+                        console.log('   ✅ localStorage está FUNCIONANDO');
+                    } catch (e) {
+                        console.error('   ❌ ERRO ao testar localStorage:', e);
+                        alert('ERRO: Navegador em modo privado ou localStorage desabilitado!');
+                        return;
+                    }
+                    console.log('');
                     
                     // Salvar token e dados do usuário
-                    localStorage.setItem('authToken', data.token);
-                    localStorage.setItem('user', JSON.stringify(data.user));
-                    localStorage.setItem('lastAuthCheck', Date.now().toString());
+                    console.log('💾 SALVANDO DADOS NO localStorage:');
+                    try {
+                        localStorage.setItem('authToken', data.token);
+                        console.log('   ✅ authToken salvo');
+                        
+                        localStorage.setItem('user', JSON.stringify(data.user));
+                        console.log('   ✅ user salvo');
+                        
+                        localStorage.setItem('lastAuthCheck', Date.now().toString());
+                        console.log('   ✅ lastAuthCheck salvo');
+                    } catch (e) {
+                        console.error('   ❌ ERRO ao salvar:', e);
+                        alert('ERRO ao salvar dados: ' + e.message);
+                        return;
+                    }
+                    console.log('');
                     
-                    console.log('✅ Dados salvos com sucesso!');
-                    console.log('  - authToken:', data.token.substring(0, 20) + '...');
-                    console.log('  - user:', data.user.email);
+                    // Verificar se salvou mesmo
+                    console.log('🔍 VERIFICANDO SE SALVOU CORRETAMENTE:');
+                    const savedToken = localStorage.getItem('authToken');
+                    const savedUser = localStorage.getItem('user');
+                    const savedCheck = localStorage.getItem('lastAuthCheck');
+                    
+                    console.log('   authToken:', savedToken ? 'PRESENTE ('+savedToken.length+' caracteres)' : '❌ AUSENTE');
+                    console.log('   user:', savedUser ? 'PRESENTE ('+savedUser.length+' caracteres)' : '❌ AUSENTE');
+                    console.log('   lastAuthCheck:', savedCheck ? 'PRESENTE' : '❌ AUSENTE');
+                    console.log('');
+                    
+                    if (!savedToken || !savedUser) {
+                        console.error('❌❌❌ CRÍTICO: Dados NÃO foram salvos!');
+                        alert('ERRO CRÍTICO: Não foi possível salvar os dados. Verifique se o navegador não está em modo privado.');
+                        return;
+                    }
+                    
+                    console.log('✅✅✅ TUDO CERTO! Dados salvos com sucesso!');
+                    console.log('');
+                    console.log('██████████████████████████████████████████████████████████████');
+                    console.log('');
                     
                     showMessage('Login realizado com sucesso!', 'success');
                     setTimeout(() => {
-                        console.log('↪️ Redirecionando para index.html...');
+                        console.log('🔄 Redirecionando para index.html em 3, 2, 1...');
                         window.location.href = 'index.html';
                     }, 1000);
                 } else {
