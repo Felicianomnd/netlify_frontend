@@ -588,6 +588,9 @@
             btn.disabled = true;
             btn.innerHTML = '<div class="loader"></div> Entrando...';
             
+            console.log('🔗 API_URL configurada:', API_URL);
+            console.log('🔗 URL de login:', `${API_URL}/auth/login`);
+            
             try {
                 const response = await fetch(`${API_URL}/auth/login`, {
                     method: 'POST',
@@ -613,7 +616,9 @@
                     }
                 }
             } catch (error) {
-                showMessage('Erro ao conectar com o servidor', 'error');
+                console.error('❌ Erro no login:', error);
+                console.error('❌ Detalhes:', error.message);
+                showMessage('Erro ao conectar com o servidor: ' + error.message, 'error');
             } finally {
                 btn.disabled = false;
                 btn.innerHTML = 'Entrar';
