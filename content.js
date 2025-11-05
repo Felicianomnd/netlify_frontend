@@ -4091,40 +4091,30 @@
     
     // Buscar giros do servidor (TODOS os 2000)
     async function fetchHistoryFromServer() {
-        if (isUpdatingHistory) {
-            console.log('⏳ Já está buscando histórico - aguarde...');
-            return;
-        }
+        if (isUpdatingHistory) return;
         
         try {
             isUpdatingHistory = true;
-            console.log(`🌐 Buscando giros do servidor: ${API_URL}/api/giros?limit=2000`);
             
             const response = await fetch(`${API_URL}/api/giros?limit=2000`, {
-                signal: AbortSignal.timeout(8000) // Timeout maior para mais dados
+                signal: AbortSignal.timeout(8000)
             });
             
-            console.log(`📡 Resposta recebida - Status: ${response.status}`);
-            
             if (!response.ok) {
-                throw new Error(`Servidor retornou status ${response.status}`);
+                throw new Error(`Servidor offline - Status ${response.status}`);
             }
             
             const data = await response.json();
-            console.log(`📊 Dados recebidos:`, data);
             
             if (data.success && data.data) {
-                console.log(`✅ Sucesso! ${data.data.length} giros recebidos do servidor`);
+                console.log(`✅ ${data.data.length} giros carregados do servidor`);
                 lastHistoryUpdate = new Date();
                 return data.data;
-            } else {
-                console.warn('⚠️ Resposta sem dados ou success=false');
-                return [];
             }
+            
+            return [];
         } catch (error) {
-            console.error('❌ Erro ao buscar giros do servidor:', error);
-            console.error('   URL:', `${API_URL}/api/giros?limit=2000`);
-            console.error('   Erro:', error.message);
+            console.warn('⚠️ Servidor temporariamente offline:', error.message);
             return [];
         } finally {
             isUpdatingHistory = false;
@@ -4136,8 +4126,6 @@
     // ═══════════════════════════════════════════════════════════════
     function updateHistoryUIInstant(newSpin) {
         if (!newSpin || !newSpin.number) return;
-        
-        console.log('⚡ ATUALIZANDO HISTÓRICO INSTANTANEAMENTE (SEM HTTP):', newSpin);
         
         // ✅ ADICIONAR NOVO GIRO NO INÍCIO DO HISTÓRICO LOCAL
         if (currentHistoryData.length > 0) {
@@ -4164,14 +4152,12 @@
         
         // 🆕 Se o container não existe, criar ele primeiro!
         if (!historyContainer) {
-            console.log('🆕 Container de histórico não existe - CRIANDO AGORA!');
             const statsSection = document.querySelector('.stats-section');
             if (statsSection) {
                 const wrap = document.createElement('div');
                 wrap.id = 'spin-history-bar-ext';
                 wrap.innerHTML = renderSpinHistory(currentHistoryData);
                 statsSection.appendChild(wrap);
-                console.log(`✅ Histórico criado instantaneamente: ${currentHistoryData.length} giro(s)`);
                 
                 // 🆕 Adicionar event listener para o botão "Carregar Mais" (criação inicial)
                 const loadMoreBtn = document.getElementById('loadMoreHistoryBtn');
@@ -4197,10 +4183,8 @@
                     });
                 }
                 return; // Container criado com sucesso!
-            } else {
-                console.error('❌ ERRO: .stats-section não encontrado! Não foi possível criar o histórico.');
-                return;
             }
+            return;
         }
         
         // Container já existe - apenas atualizar
@@ -4208,8 +4192,6 @@
             // SALVAR posição do scroll (sempre no topo para novos giros)
             historyContainer.innerHTML = renderSpinHistory(currentHistoryData);
             historyContainer.style.display = 'block';
-            
-            console.log(`✅ Histórico atualizado INSTANTANEAMENTE: ${currentHistoryData.length} giros (sem HTTP)`);
             
             // ✅ Re-adicionar event listener para o botão "Carregar Mais"
             const loadMoreBtn = document.getElementById('loadMoreHistoryBtn');
@@ -4245,21 +4227,16 @@
     // ═══════════════════════════════════════════════════════════════
     // Atualizar UI com giros do servidor
     async function updateHistoryUIFromServer() {
-        console.log('🔄 updateHistoryUIFromServer() chamada');
         const spins = await fetchHistoryFromServer();
-        
-        console.log(`📥 Giros recebidos: ${spins ? spins.length : 0}`);
         
         // ✅ ATUALIZAR currentHistoryData com os giros do servidor
         if (spins && spins.length > 0) {
             currentHistoryData = spins;
-            console.log(`✅ currentHistoryData atualizado com ${spins.length} giros`);
         }
         
         if (spins && spins.length > 0) {
             // Atualizar o elemento de histórico
             const historyContainer = document.getElementById('spin-history-bar-ext');
-            console.log(`📦 Container existe? ${historyContainer ? 'SIM' : 'NÃO'}`);
             
             if (historyContainer) {
                 // ✅ SALVAR posição do scroll ANTES de atualizar (container interno com scroll)
@@ -4277,26 +4254,20 @@
                 
                 // ✅ RESTAURAR posição do scroll DEPOIS de atualizar (só se não estava no topo)
                 if (wasScrolledDown && scrollPosition > 0) {
-                    // Aguardar múltiplos frames para garantir que DOM foi totalmente atualizado
                     setTimeout(() => {
                         const newScrollContainer = historyContainer.querySelector('.spin-history-bar-blaze');
                         if (newScrollContainer) {
                             newScrollContainer.scrollTop = scrollPosition;
-                            console.log(`📌 Scroll restaurado para posição: ${scrollPosition}px`);
                             
-                            // Tentar novamente após mais um frame caso não tenha funcionado
                             requestAnimationFrame(() => {
                                 const finalContainer = historyContainer.querySelector('.spin-history-bar-blaze');
                                 if (finalContainer && finalContainer.scrollTop !== scrollPosition) {
                                     finalContainer.scrollTop = scrollPosition;
-                                    console.log(`📌 Scroll restaurado (tentativa 2): ${scrollPosition}px`);
                                 }
                             });
                         }
-                    }, 50); // Aumentar delay para garantir renderização completa
+                    }, 50);
                 }
-                
-                console.log(`✅ Histórico atualizado (HTTP): ${spins.length} giros do servidor`);
                 
                 // ✅ Adicionar event listener para o botão "Carregar Mais"
                 const loadMoreBtn = document.getElementById('loadMoreHistoryBtn');
@@ -4327,7 +4298,6 @@
                     wrap.id = 'spin-history-bar-ext';
                     wrap.innerHTML = renderSpinHistory(spins);
                     statsSection.appendChild(wrap);
-                    console.log(`✅ Histórico criado: ${spins.length} giros do servidor`);
                     
                     // ✅ Adicionar event listener para o botão "Carregar Mais" (criação inicial)
                     const loadMoreBtn = document.getElementById('loadMoreHistoryBtn');
@@ -4366,8 +4336,6 @@
             }
         } else {
             // ⚠️ Nenhum giro disponível ainda
-            console.log('⚠️ Nenhum giro disponível no servidor ainda');
-            
             const historyContainer = document.getElementById('spin-history-bar-ext');
             if (!historyContainer) {
                 // Criar container com mensagem de "aguardando giros"
@@ -4387,7 +4355,6 @@
                         </div>
                     `;
                     statsSection.appendChild(wrap);
-                    console.log('📦 Container criado com mensagem de "aguardando"');
                 }
             }
             
@@ -4583,7 +4550,8 @@
         return Math.round(finalConfidence * 10) / 10; // Arredondar para 1 casa decimal
     }
     
-    // Iniciar atualização automática do histórico (IMEDIATAMENTE!)
-    setTimeout(startAutoHistoryUpdate, 100); // 🚀 Reduzido de 2500ms para 100ms para exibição instantânea
+    // Iniciar atualização automática do histórico (INSTANTÂNEO!)
+    // ⚡ Executar IMEDIATAMENTE sem delay - 0ms
+    setTimeout(startAutoHistoryUpdate, 0);
     
 })();
