@@ -657,6 +657,13 @@
                 // ☁️ SE PROPLUS ATIVO, MOSTRAR STATUS DO SERVIDOR
                 if (status.proPlusActive) {
                     console.log('%c☁️ [UI] ProPlus ativo - mostrando status do servidor', 'color: #667eea; font-weight: bold;');
+                    
+                    // ✅ ATUALIZAR FLAG GLOBAL
+                    if (!isProPlusActive) {
+                        console.log('%c🔄 [UI] Ativando flag isProPlusActive pela primeira vez', 'color: #667eea; font-weight: bold;');
+                        isProPlusActive = true;
+                    }
+                    
                     elemento.textContent = 'ANÁLISE IA | ☁️ SERVIDOR PROPLUS 24/7';
                     elemento.style.color = '#667eea'; // Roxo
                     console.log('%c✅ [UI] Texto do elemento após atualização:', 'color: #667eea;', elemento.textContent);
@@ -3909,13 +3916,15 @@
                 // ✅ ATUALIZAR ENTRADAS TAMBÉM (do servidor, instantâneo)
                 if (request.data.signalsHistory) {
                     const entries = request.data.signalsHistory.map(signal => ({
-                        color: signal.color,
+                        // ✅ USAR spinColor (cor real do giro) ao invés de color (cor recomendada)
+                        // Isso mostra o resultado real, não a previsão
+                        color: signal.spinColor || signal.color, // Priorizar spinColor
                         confidence: signal.confidence,
                         timestamp: signal.timestamp,
                         result: signal.result,
                         gales: signal.gales || 0,
                         spinNumber: signal.spinNumber, // ✅ Número do giro
-                        spinColor: signal.spinColor    // ✅ Cor do giro
+                        spinColor: signal.spinColor    // ✅ Cor do giro (resultado real)
                     }));
                     renderEntriesPanel(entries);
                     console.log('✅ Entradas atualizadas instantaneamente! (' + entries.length + ' entradas)');
@@ -4098,13 +4107,14 @@
                 console.log(`📊 Exibindo ${data.signalsHistory.length} sinais do servidor como entradas`);
                 // Converter sinais para formato de entradas
                 const entries = data.signalsHistory.map(signal => ({
-                    color: signal.color,
+                    // ✅ USAR spinColor (cor real do giro) ao invés de color (cor recomendada)
+                    color: signal.spinColor || signal.color, // Priorizar spinColor
                     confidence: signal.confidence,
                     timestamp: signal.timestamp,
                     result: signal.result, // 'win', 'loss', ou null
                     gales: signal.gales || 0,
                     spinNumber: signal.spinNumber, // ✅ Número do giro
-                    spinColor: signal.spinColor    // ✅ Cor do giro
+                    spinColor: signal.spinColor    // ✅ Cor do giro (resultado real)
                 }));
                 renderEntriesPanel(entries);
                 console.log(`✅ ${entries.length} entradas do servidor exibidas com números de giro`);

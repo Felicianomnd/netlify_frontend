@@ -13881,7 +13881,8 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         
         // ☁️ VERIFICAR PROPLUS EM TEMPO REAL (não confiar no cache antigo)
         (async () => {
-            const isProPlusActive = await checkAndSendProPlusSignal(false); // Verificar com cache
+            // ✅ FORÇAR VERIFICAÇÃO IMEDIATA (TRUE) PARA SEMPRE VERIFICAR NO SERVIDOR
+            const isProPlusActive = await checkAndSendProPlusSignal(true); // Forçar verificação no servidor
             
             if (isProPlusActive) {
                 console.log('%c☁️ [BACKGROUND] ProPlus ativo - memória gerenciada no servidor', 'color: #667eea; font-weight: bold;');
