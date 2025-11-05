@@ -886,6 +886,36 @@
                     }
                 });
             }
+            
+            // Botão "🔥 Padrão Quente" - SEMPRE ATIVO E AUTOMÁTICO
+            const btnHotPattern = document.getElementById('btnHotPattern');
+            if (btnHotPattern) {
+                // ATIVAR AUTOMATICAMENTE ao carregar
+                btnHotPattern.classList.add('active');
+                setHotPatternState(true);
+                
+                // Mostrar "Buscando..."
+                showHotPatternStatus('searching');
+                
+                console.log('🔥 Modo Padrão Quente ATIVADO AUTOMATICAMENTE');
+                
+                // Notificar background.js
+                chrome.runtime.sendMessage({ 
+                    action: 'enableHotPattern' 
+                });
+                
+                // Buscar padrão AUTOMATICAMENTE após 500ms
+                setTimeout(() => {
+                    console.log('📡 Solicitando análise automática inicial...');
+                    chrome.runtime.sendMessage({ 
+                        action: 'requestImmediateAnalysis' 
+                    });
+                }, 500);
+                
+                // Remover funcionalidade de clique (agora é sempre ativo)
+                btnHotPattern.style.cursor = 'default';
+                btnHotPattern.title = 'Padrão Quente sempre ativo (atualiza automaticamente)';
+            }
         }, 100);
     }
     
@@ -1037,6 +1067,101 @@
         const pref = localStorage.getItem('syncConfigToAccount');
         // Padrão: true (sempre sincronizar se não houver preferência salva)
         return pref === null ? true : pref === 'true';
+    }
+    
+    // ═══════════════════════════════════════════════════════════════════════════════
+    // 🔥 MODO PADRÃO QUENTE
+    // ═══════════════════════════════════════════════════════════════════════════════
+    
+    // Obter estado do modo Padrão Quente
+    function getHotPatternState() {
+        const state = localStorage.getItem('hotPatternMode');
+        return state === 'true';
+    }
+    
+    // Salvar estado do modo Padrão Quente
+    function setHotPatternState(isActive) {
+        localStorage.setItem('hotPatternMode', isActive ? 'true' : 'false');
+        console.log(`🔥 Modo Padrão Quente: ${isActive ? 'ATIVADO' : 'DESATIVADO'}`);
+    }
+    
+    // Mostrar status visual do Padrão Quente (DENTRO DO BOTÃO)
+    function showHotPatternStatus(status, patternData = null) {
+        const btn = document.getElementById('btnHotPattern');
+        if (!btn) return;
+        
+        if (status === 'disabled') {
+            btn.innerHTML = '🔥 Padrão Quente';
+            btn.style.height = 'auto';
+            btn.style.padding = '8px 14px';
+            return;
+        }
+        
+        if (status === 'searching') {
+            btn.style.height = 'auto';
+            btn.style.padding = '12px 14px';
+            btn.innerHTML = `
+                <div style="display: flex; flex-direction: column; gap: 4px; align-items: center;">
+                    <div style="font-size: 12px; font-weight: 600;">🔍 Buscando...</div>
+                    <div style="font-size: 9px; opacity: 0.7;">Analisando últimos 50 giros</div>
+                </div>
+            `;
+        } else if (status === 'found' && patternData) {
+            // ✅ FORMATO CORRETO:
+            // [🔴] → [⚫ 19:27] → [🔴 19:26] → [🔴 19:25]
+            //  ↑         ↑ padrão histórico (mais recente ao mais antigo)
+            // previsão
+            // (FUTURO)
+            
+            // 1. Criar ícone da PREVISÃO (SEM horário, pois é o FUTURO)
+            const predictionHTML = `<span class="spin-color-circle-small ${patternData.prediction}"></span>`;
+            
+            // 2. Criar ícones do PADRÃO com horários de CADA giro
+            const patternCirclesHTML = patternData.pattern.map((color, index) => {
+                let timeString = '';
+                
+                // Se temos os timestamps de cada giro do padrão
+                if (patternData.patternTimestamps && patternData.patternTimestamps[index]) {
+                    const date = new Date(patternData.patternTimestamps[index]);
+                    const hours = String(date.getHours()).padStart(2, '0');
+                    const minutes = String(date.getMinutes()).padStart(2, '0');
+                    timeString = `${hours}:${minutes}`;
+                }
+                
+                if (timeString) {
+                    return `<span class="spin-color-circle-small ${color}" style="position: relative; display: inline-flex; align-items: center; justify-content: center;">
+                        <span style="position: absolute; font-size: 7px; font-weight: bold; color: white; text-shadow: 0 0 3px rgba(0,0,0,1), 0 0 2px rgba(0,0,0,1); z-index: 1; line-height: 1;">${timeString}</span>
+                    </span>`;
+                } else {
+                    return `<span class="spin-color-circle-small ${color}"></span>`;
+                }
+            }).join('');
+            
+            btn.style.height = 'auto';
+            btn.style.padding = '10px 14px';
+            btn.innerHTML = `
+                <div style="display: flex; flex-direction: column; gap: 6px; align-items: center; width: 100%;">
+                    <div style="font-size: 11px; font-weight: 600;">🔥 Padrão Quente</div>
+                    <div style="display: flex; gap: 4px; align-items: center; justify-content: center;">
+                        ${predictionHTML}
+                        <span style="font-size: 10px; font-weight: bold;">→</span>
+                        ${patternCirclesHTML}
+                    </div>
+                    <div style="font-size: 9px; opacity: 0.8;">
+                        ${patternData.occurrences} ocorrência${patternData.occurrences > 1 ? 's' : ''}
+                    </div>
+                </div>
+            `;
+        } else if (status === 'not_found') {
+            btn.style.height = 'auto';
+            btn.style.padding = '12px 14px';
+            btn.innerHTML = `
+                <div style="display: flex; flex-direction: column; gap: 4px; align-items: center;">
+                    <div style="font-size: 12px; font-weight: 600;">⚠️ Não encontrado</div>
+                    <div style="font-size: 9px; opacity: 0.7;">Nenhum padrão com 100% WIN</div>
+                </div>
+            `;
+        }
     }
     
     // Sincronizar padrões com o servidor
@@ -1941,20 +2066,16 @@
                         <!-- MODELOS CUSTOMIZADOS DE ANÁLISE (NÍVEL DIAMANTE) -->
                         <!-- ═══════════════════════════════════════════════════════ -->
                         <div class="setting-item setting-row" id="customPatternsContainer" style="margin-top: 20px; padding-top: 15px; border-top: 1px solid #333;">
-                            <div style="width: 100%;">
-                                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0;">
-                                    <label style="font-weight: bold; color: #00d4ff; font-size: 13px;">
-                                        Modelos de Análise Customizados
-                                    </label>
-                                    <div style="display: flex; gap: 8px;">
-                                        <button id="btnViewCustomPatterns" class="btn-view-patterns" style="display: none;">
-                                            ✓ Padrões Ativos (<span id="patternsCount">0</span>)
-                                        </button>
-                                        <button id="btnAddCustomPattern" class="btn-add-custom-pattern">
-                                            ➕ Adicionar Modelo
-                                        </button>
-                                    </div>
-                                </div>
+                            <div style="width: 100%; display: flex; gap: 8px; flex-wrap: wrap; justify-content: center;">
+                                <button id="btnHotPattern" class="btn-hot-pattern" style="flex: 1; min-width: 140px;">
+                                    🔥 Padrão Quente
+                                </button>
+                                <button id="btnViewCustomPatterns" class="btn-view-patterns" style="display: none; flex: 1; min-width: 140px;">
+                                    ✓ Padrões Ativos (<span id="patternsCount">0</span>)
+                                </button>
+                                <button id="btnAddCustomPattern" class="btn-add-custom-pattern" style="flex: 1; min-width: 140px;">
+                                    ➕ Adicionar Modelo
+                                </button>
                             </div>
                         </div>
                         
@@ -3771,6 +3892,32 @@
             console.log('📊 Dados recebidos:', request.data);
             updateObserverUI(request.data);
             console.log('✅ updateObserverUI executado!');
+        } else if (request.type === 'HOT_PATTERN_FOUND') {
+            // Padrão quente encontrado!
+            console.log('🔥 Padrão Quente ENCONTRADO!', request.data);
+            
+            // Cancelar timeout
+            if (window.hotPatternTimeout) {
+                clearTimeout(window.hotPatternTimeout);
+                window.hotPatternTimeout = null;
+            }
+            
+            showHotPatternStatus('found', request.data);
+        } else if (request.type === 'HOT_PATTERN_NOT_FOUND') {
+            // Nenhum padrão quente encontrado
+            console.log('⚠️ Nenhum padrão quente encontrado');
+            
+            // Cancelar timeout
+            if (window.hotPatternTimeout) {
+                clearTimeout(window.hotPatternTimeout);
+                window.hotPatternTimeout = null;
+            }
+            
+            showHotPatternStatus('not_found');
+        } else if (request.type === 'HOT_PATTERN_SEARCHING') {
+            // Padrão foi abandonado, buscando novo
+            console.log('🔍 Padrão abandonado - buscando novo automaticamente...');
+            showHotPatternStatus('searching');
         } else if (request.type === 'WEBSOCKET_STATUS') {
             // ✅ GERENCIAR STATUS DO WEBSOCKET
             isWebSocketConnected = request.data.connected;

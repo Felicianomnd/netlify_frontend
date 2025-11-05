@@ -3498,6 +3498,46 @@
     background: #00bb77;
 }
 
+.btn-hot-pattern {
+    padding: 8px 14px;
+    background: #1a2e3e;
+    border: 2px solid #ff6b35;
+    border-radius: 6px;
+    color: #ff6b35;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s;
+    font-family: 'Segoe UI', 'Roboto', 'Helvetica Neue', Arial, sans-serif;
+    position: relative;
+    min-height: 38px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.btn-hot-pattern:hover {
+    background: rgba(255, 107, 53, 0.1);
+    transform: scale(1.02);
+}
+
+.btn-hot-pattern.active {
+    background: linear-gradient(135deg, #ff6b35 0%, #f7931e 100%);
+    color: #fff;
+    border-color: #ff6b35;
+    box-shadow: 0 0 15px rgba(255, 107, 53, 0.5);
+    animation: pulse-hot 2s infinite;
+}
+
+@keyframes pulse-hot {
+    0%, 100% {
+        box-shadow: 0 0 15px rgba(255, 107, 53, 0.5);
+    }
+    50% {
+        box-shadow: 0 0 25px rgba(255, 107, 53, 0.8);
+    }
+}
+
 /* ═══════════════════════════════════════════════════════════════════════════════ */
 /* 🎯 MODAL DE VISUALIZAÇÃO DE PADRÕES                                             */
 /* ═══════════════════════════════════════════════════════════════════════════════ */
