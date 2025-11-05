@@ -2161,6 +2161,38 @@ async function collectDoubleData() {
                 return 'unknown';
             }
 
+// ☁️ Verificar ProPlus e enviar sinal instantaneamente
+async function checkAndSendProPlusSignal() {
+    try {
+        // Buscar token do storage
+        const result = await chrome.storage.local.get(['authToken']);
+        const authToken = result.authToken;
+        
+        if (!authToken) return;
+        
+        const authApiUrl = API_CONFIG.authURL || 'https://blaze-analyzer-api-v2.onrender.com';
+        const response = await fetch(`${authApiUrl}/api/sync/estado`, {
+            headers: {
+                'Authorization': `Bearer ${authToken}`,
+                'Content-Type': 'application/json'
+            },
+            signal: AbortSignal.timeout(3000)
+        });
+        
+        if (!response.ok) return;
+        
+        const data = await response.json();
+        
+        if (data.success && data.proPlusActive && data.lastSignal) {
+            // ✅ ENVIAR SINAL PROPLUS INSTANTANEAMENTE PARA CONTENT.JS
+            console.log('☁️ Enviando sinal ProPlus para content.js (WebSocket):', data.lastSignal);
+            sendMessageToContent('PROPLUS_SIGNAL', data.lastSignal);
+        }
+    } catch (error) {
+        // Ignorar erro silenciosamente (não atrapalha fluxo normal)
+    }
+}
+
 // Processar novo giro vindo do servidor
 async function processNewSpinFromServer(spinData) {
     try {
@@ -2178,6 +2210,9 @@ async function processNewSpinFromServer(spinData) {
                     timestamp: latestSpin.created_at
                 }
             });
+            
+            // ☁️ VERIFICAR SE USUÁRIO TEM PROPLUS ATIVO E BUSCAR SINAL DO SERVIDOR
+            checkAndSendProPlusSignal();
         
         // ✅ Usar CACHE EM MEMÓRIA (não salvar em chrome.storage.local)
         let history = [...cachedHistory];  // Cópia do cache

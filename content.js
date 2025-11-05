@@ -3764,6 +3764,19 @@
             console.log('📊 Dados recebidos:', request.data);
             updateObserverUI(request.data);
             console.log('✅ updateObserverUI executado!');
+        } else if (request.type === 'PROPLUS_SIGNAL') {
+            // ✅ SINAL PROPLUS RECEBIDO VIA WEBSOCKET (TEMPO REAL)
+            if (isProPlusActive) {
+                console.log('');
+                console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #667eea; font-weight: bold;');
+                console.log('%c☁️ SINAL PROPLUS RECEBIDO (TEMPO REAL)!', 'color: #667eea; font-weight: bold;');
+                console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #667eea; font-weight: bold;');
+                console.log('📊 Dados:', request.data);
+                displayProPlusSignal(request.data);
+                sessionStorage.setItem('lastProPlusSignalTimestamp', request.data.timestamp);
+                console.log('✅ Sinal ProPlus exibido instantaneamente!');
+                console.log('');
+            }
         } else if (request.type === 'WEBSOCKET_STATUS') {
             // ✅ GERENCIAR STATUS DO WEBSOCKET
             isWebSocketConnected = request.data.connected;
@@ -3902,6 +3915,8 @@
             if (!data.proPlusActive) {
                 console.log('📱 ProPlus não ativo - usando análise local');
                 console.log('═══════════════════════════════════════════════════════════');
+                // Parar sincronização se estava ativa
+                stopProPlusSync();
                 return;
             }
             
@@ -3917,7 +3932,11 @@
             if (data.lastSignal) {
                 console.log(`🎯 Último sinal: ${data.lastSignal.color.toUpperCase()} (${data.lastSignal.confidence}%)`);
                 displayProPlusSignal(data.lastSignal);
+                sessionStorage.setItem('lastProPlusSignalTimestamp', data.lastSignal.timestamp);
             }
+            
+            // ✅ INICIAR SINCRONIZAÇÃO CONTÍNUA
+            startProPlusSync();
             
             console.log('═══════════════════════════════════════════════════════════');
             console.log('');
@@ -3998,9 +4017,73 @@
     
     // Exibir último sinal do ProPlus
     function displayProPlusSignal(signal) {
-        // TODO: Integrar com a interface de sinais existente
-        // Por enquanto, apenas log
-        console.log('🎯 Sinal ProPlus disponível:', signal);
+        console.log('🎯 Exibindo sinal ProPlus na interface:', signal);
+        
+        // Encontrar o container de resultado
+        const resultDiv = document.getElementById('result');
+        if (!resultDiv) {
+            console.warn('⚠️ Container de resultado não encontrado');
+            return;
+        }
+        
+        // Formatar a cor para exibição
+        const colorDisplay = signal.color === 'red' ? 'VERMELHO' : 'PRETO';
+        const colorClass = signal.color === 'red' ? 'red' : 'black';
+        
+        // Montar o HTML do sinal (mesmo formato da análise local)
+        const signalHTML = `
+            <div class="signal-card ${colorClass}-signal">
+                <div class="signal-header">
+                    <div class="signal-badge">☁️ PROPLUS</div>
+                    <div class="signal-time">${new Date(signal.timestamp).toLocaleTimeString('pt-BR')}</div>
+                </div>
+                <div class="signal-main">
+                    <div class="signal-color ${colorClass}">
+                        <span class="color-label">${colorDisplay}</span>
+                        <div class="color-circle ${colorClass}"></div>
+                    </div>
+                    <div class="signal-info">
+                        <div class="confidence-bar">
+                            <div class="confidence-label">Confiança:</div>
+                            <div class="confidence-value">${signal.confidence}%</div>
+                            <div class="confidence-fill" style="width: ${signal.confidence}%"></div>
+                        </div>
+                        <div class="gales-info">
+                            <span class="gales-label">🎰 Gales:</span>
+                            <span class="gales-value">${signal.gales}</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="signal-reasoning">
+                    <details>
+                        <summary>📋 Raciocínio da Análise</summary>
+                        <pre>${signal.reasoning || 'Análise completa (5 fases)'}</pre>
+                    </details>
+                </div>
+                <div class="signal-footer">
+                    <small>🎲 Baseado no giro #${signal.spinNumber} (${signal.spinColor})</small>
+                </div>
+            </div>
+        `;
+        
+        // Atualizar o container
+        resultDiv.innerHTML = signalHTML;
+        resultDiv.style.display = 'block';
+        
+        console.log('✅ Sinal ProPlus exibido na interface');
+    }
+    
+    // Escutar mensagens do background.js (WebSocket - tempo real)
+    let isProPlusActive = false;
+    
+    function startProPlusSync() {
+        isProPlusActive = true;
+        console.log('✅ Modo ProPlus ativo - aguardando sinais do WebSocket em tempo real');
+    }
+    
+    function stopProPlusSync() {
+        isProPlusActive = false;
+        console.log('🛑 Modo ProPlus desativado');
     }
     
     // Initialize sidebar when page loads
