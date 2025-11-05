@@ -532,54 +532,20 @@
         let userData = null;
         let paymentSettings = null;
 
-        // Verificar se já está logado
-        window.addEventListener('DOMContentLoaded', async () => {
+        // Verificar se já está logado - SIMPLIFICADO
+        window.addEventListener('DOMContentLoaded', () => {
             console.log('🔐 [AUTH] Verificando se usuário já está logado...');
             const token = localStorage.getItem('authToken');
+            const user = localStorage.getItem('user');
             
-            if (token) {
-                console.log('🔑 [AUTH] Token encontrado, verificando validade...');
-                const isValid = await verifyToken(token);
-                
-                if (isValid) {
-                    console.log('✅ [AUTH] Token válido! Redirecionando para index.html...');
-                    window.location.href = 'index.html';
-                } else {
-                    console.log('❌ [AUTH] Token inválido ou expirado - limpando localStorage...');
-                    localStorage.removeItem('authToken');
-                    localStorage.removeItem('user');
-                }
+            // Se tem token E user, redirecionar imediatamente
+            if (token && user) {
+                console.log('✅ [AUTH] Já está logado! Redirecionando para index.html...');
+                window.location.href = 'index.html';
             } else {
-                console.log('ℹ️ [AUTH] Nenhum token encontrado - usuário não está logado');
+                console.log('ℹ️ [AUTH] Não está logado - exibindo tela de login');
             }
         });
-
-        async function verifyToken(token) {
-            try {
-                console.log('📡 [AUTH] Enviando requisição de verificação...');
-                const response = await fetch(`${API_URL}/auth/verify`, {
-                    headers: { 'Authorization': `Bearer ${token}` }
-                });
-                
-                console.log(`📨 [AUTH] Resposta recebida: ${response.status} ${response.statusText}`);
-                
-                if (response.ok) {
-                    const data = await response.json();
-                    console.log('📋 [AUTH] Dados do usuário:', data);
-                    
-                    if (data.success && data.user) {
-                        // Atualizar dados do usuário no localStorage
-                        localStorage.setItem('user', JSON.stringify(data.user));
-                        return true;
-                    }
-                }
-                
-                return false;
-            } catch (error) {
-                console.error('❌ [AUTH] Erro ao verificar token:', error);
-                return false;
-            }
-        }
 
         function switchTab(tab) {
             document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
@@ -670,11 +636,16 @@
                 
                 if (data.success) {
                     console.log('✅ Login bem-sucedido!');
+                    console.log('💾 Salvando no localStorage...');
+                    
+                    // Salvar token e dados do usuário
                     localStorage.setItem('authToken', data.token);
                     localStorage.setItem('user', JSON.stringify(data.user));
+                    localStorage.setItem('lastAuthCheck', Date.now().toString());
                     
-                    // Marcar que token foi verificado agora (evitar re-verificação imediata)
-                    localStorage.setItem('lastAuthVerification', Date.now().toString());
+                    console.log('✅ Dados salvos com sucesso!');
+                    console.log('  - authToken:', data.token.substring(0, 20) + '...');
+                    console.log('  - user:', data.user.email);
                     
                     showMessage('Login realizado com sucesso!', 'success');
                     setTimeout(() => {
@@ -879,8 +850,15 @@
                 const data = await response.json();
                 
                 if (data.success) {
+                    console.log('✅ Conta ativada com sucesso!');
+                    console.log('💾 Salvando no localStorage...');
+                    
                     localStorage.setItem('authToken', data.token);
                     localStorage.setItem('user', JSON.stringify(data.user));
+                    localStorage.setItem('lastAuthCheck', Date.now().toString());
+                    
+                    console.log('✅ Dados salvos!');
+                    
                     showMessage('Conta ativada com sucesso!', 'success');
                     setTimeout(() => window.location.href = 'index.html', 1500);
                 } else {

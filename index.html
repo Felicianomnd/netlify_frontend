@@ -101,129 +101,72 @@
     <!-- 5. content.js (cria a sidebar - INTACTO)                                        -->
     <!-- ═══════════════════════════════════════════════════════════════════════════════ -->
 
-    <!-- 🔐 VERIFICAÇÃO DE AUTENTICAÇÃO -->
+    <!-- 🔐 VERIFICAÇÃO DE AUTENTICAÇÃO - SIMPLIFICADA -->
     <script>
-        // Verificar se usuário está logado
-        (async function() {
+        // ✅ SOLUÇÃO DEFINITIVA: Verificar apenas se tem token, sem chamadas ao servidor no refresh
+        (function() {
             const authToken = localStorage.getItem('authToken');
             const user = localStorage.getItem('user');
-            const lastVerification = localStorage.getItem('lastAuthVerification'); // ✅ Mudado para localStorage
-            const now = Date.now();
             
-            console.log('');
             console.log('═══════════════════════════════════════════════════════════');
             console.log('🔐 VERIFICAÇÃO DE AUTENTICAÇÃO');
             console.log('═══════════════════════════════════════════════════════════');
-            console.log('🔑 Token presente:', authToken ? 'SIM (' + authToken.substring(0, 20) + '...)' : 'NÃO');
-            console.log('👤 User presente:', user ? 'SIM' : 'NÃO');
-            console.log('⏰ Última verificação:', lastVerification ? new Date(parseInt(lastVerification)).toLocaleString() : 'Nunca');
-            console.log('🕐 Agora:', new Date(now).toLocaleString());
+            console.log('🔑 Token:', authToken ? 'PRESENTE' : 'AUSENTE');
+            console.log('👤 User:', user ? 'PRESENTE' : 'AUSENTE');
             
-            if (!authToken) {
-                // Não está logado - redirecionar para tela de login
-                console.log('❌ Usuário não autenticado - redirecionando para login...');
+            // Se não tem token OU não tem user, redirecionar para login
+            if (!authToken || !user) {
+                console.log('❌ Não autenticado - redirecionando para login...');
                 console.log('═══════════════════════════════════════════════════════════');
                 window.location.href = 'auth.html';
                 return;
             }
             
-            // ✅ SIMPLIFICADO: Confiar no token local durante a sessão
-            // Apenas verificar com servidor 1x por dia ou se não tem lastVerification
-            const ONE_DAY = 24 * 60 * 60 * 1000; // 24 horas
+            // ✅ TEM TOKEN E USER - CARREGAR EXTENSÃO IMEDIATAMENTE
+            console.log('✅ AUTENTICADO - Carregando extensão...');
+            console.log('═══════════════════════════════════════════════════════════');
             
-            if (lastVerification && (now - parseInt(lastVerification)) < ONE_DAY) {
-                const hoursAgo = Math.floor((now - parseInt(lastVerification)) / 3600000);
-                console.log(`✅ Token verificado há ${hoursAgo} hora(s) - pulando verificação`);
-                console.log('✅ AUTENTICAÇÃO OK - Carregando extensão...');
-                console.log('═══════════════════════════════════════════════════════════');
-                console.log('');
-                return;
-            }
+            // Verificação periódica em background (1x por dia) sem bloquear a UI
+            const lastCheck = localStorage.getItem('lastAuthCheck');
+            const now = Date.now();
+            const ONE_DAY = 24 * 60 * 60 * 1000;
             
-            // Se chegou aqui, precisa verificar
-            console.log('🔍 Primeira verificação da sessão ou passou 24h - verificando com servidor...');
-            
-            try {
-                // Verificar se token é válido
-                console.log('📡 Verificando token com o servidor...');
-                const response = await fetch('https://blaze-analyzer-api-v2.onrender.com/api/auth/verify', {
-                    headers: {
-                        'Authorization': 'Bearer ' + authToken
+            if (!lastCheck || (now - parseInt(lastCheck)) > ONE_DAY) {
+                // Verificar em background (não bloqueia carregamento)
+                setTimeout(async () => {
+                    try {
+                        console.log('🔍 Verificação em background (não bloqueia UI)...');
+                        const response = await fetch('https://blaze-analyzer-api-v2.onrender.com/api/auth/verify', {
+                            headers: { 'Authorization': 'Bearer ' + authToken }
+                        });
+                        
+                        if (response.ok) {
+                            const data = await response.json();
+                            if (data.success && data.user) {
+                                // Atualizar dados do usuário
+                                localStorage.setItem('user', JSON.stringify(data.user));
+                                localStorage.setItem('lastAuthCheck', now.toString());
+                                console.log('✅ Verificação em background concluída');
+                                
+                                // Se conta expirou ou foi bloqueada, avisar
+                                if (data.user.status === 'expired' || data.user.status === 'blocked') {
+                                    const msg = data.user.status === 'expired' 
+                                        ? 'Sua assinatura expirou. Entre em contato para renovar.'
+                                        : 'Sua conta foi bloqueada. Entre em contato com o suporte.';
+                                    alert(msg);
+                                    localStorage.clear();
+                                    window.location.href = 'auth.html';
+                                }
+                            }
+                        } else {
+                            console.warn('⚠️ Token inválido na verificação em background');
+                            // NÃO redirecionar automaticamente - usuário pode estar offline
+                        }
+                    } catch (error) {
+                        console.warn('⚠️ Erro na verificação em background (ignorado):', error.message);
+                        // NÃO fazer nada - pode ser erro de rede temporário
                     }
-                });
-                
-                console.log('📨 Resposta do servidor:', response.status, response.statusText);
-                
-                if (!response.ok) {
-                    throw new Error(`Token inválido (${response.status})`);
-                }
-                
-                const data = await response.json();
-                console.log('📋 Dados recebidos:', data);
-                
-                if (data.success && data.user) {
-                    console.log('✅ Usuário autenticado:', data.user.name);
-                    console.log('📧 Email:', data.user.email);
-                    console.log('📅 Status:', data.user.status);
-                    
-                    // Salvar dados do usuário atualizados
-                    localStorage.setItem('user', JSON.stringify(data.user));
-                    
-                    // Marcar verificação como feita (válido por 24 horas)
-                    localStorage.setItem('lastAuthVerification', now.toString());
-                    
-                    // Verificar status da conta
-                    if (data.user.status === 'expired') {
-                        console.warn('⚠️ Conta expirada - redirecionando...');
-                        alert('Sua assinatura expirou. Entre em contato para renovar.');
-                        localStorage.removeItem('authToken');
-                        localStorage.removeItem('user');
-                        localStorage.removeItem('lastAuthVerification');
-                        window.location.href = 'auth.html';
-                        return;
-                    }
-                    
-                    if (data.user.status === 'blocked') {
-                        console.warn('⚠️ Conta bloqueada - redirecionando...');
-                        alert('Sua conta foi bloqueada. Entre em contato com o suporte.');
-                        localStorage.removeItem('authToken');
-                        localStorage.removeItem('user');
-                        localStorage.removeItem('lastAuthVerification');
-                        window.location.href = 'auth.html';
-                        return;
-                    }
-                    
-                    console.log('✅ Autenticação bem-sucedida! Carregando extensão...');
-                    console.log('═══════════════════════════════════════════════════════════');
-                    console.log('');
-                } else {
-                    throw new Error('Resposta inválida do servidor');
-                }
-            } catch (error) {
-                console.log('');
-                console.log('═══════════════════════════════════════════════════════════');
-                console.log('❌ ERRO NA VERIFICAÇÃO DE AUTENTICAÇÃO');
-                console.log('═══════════════════════════════════════════════════════════');
-                console.error('🔴 Tipo do erro:', error.constructor.name);
-                console.error('🔴 Mensagem:', error.message);
-                console.error('🔴 Stack:', error.stack);
-                console.log('');
-                console.log('📋 Estado antes do erro:');
-                console.log('  - Token:', localStorage.getItem('authToken') ? 'Presente' : 'Ausente');
-                console.log('  - User:', localStorage.getItem('user') ? 'Presente' : 'Ausente');
-                console.log('  - LastVerification:', localStorage.getItem('lastAuthVerification') || 'Nenhuma');
-                console.log('');
-                
-                // ⚠️ NÃO LIMPAR AUTOMATICAMENTE - pode ser erro temporário de rede!
-                // Tentar novamente em 3 segundos
-                console.log('⏳ Pode ser erro temporário de rede...');
-                console.log('🔄 Tentando novamente em 3 segundos...');
-                console.log('═══════════════════════════════════════════════════════════');
-                
-                setTimeout(() => {
-                    console.log('🔄 Recarregando página para nova tentativa...');
-                    window.location.reload();
-                }, 3000);
+                }, 2000); // 2 segundos após carregar
             }
         })();
     </script>
