@@ -2,9 +2,11 @@
 (function() {
     'use strict';
     
+    const scriptStartTime = Date.now();
     console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #00AAFF; font-weight: bold;');
     console.log('%c🚀 CONTENT.JS INICIANDO...', 'color: #00AAFF; font-weight: bold; font-size: 14px;');
     console.log('%c   Versão WEB', 'color: #00AAFF;');
+    console.log('%c⏱️ [TIMING] Início do script:', new Date().toLocaleTimeString());
     console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #00AAFF; font-weight: bold;');
     console.log('');
     
@@ -1539,6 +1541,10 @@
         // 🧠 Iniciar atualização periódica do status da memória ativa
         console.log('%c🧠 Iniciando sistema de atualização de status da memória ativa...', 'color: #00CED1; font-weight: bold;');
         iniciarAtualizacaoMemoria();
+        
+        // ⚡ CARREGAR HISTÓRICO DO SERVIDOR (agora que a sidebar existe)
+        console.log('%c⏱️ [TIMING] Sidebar criada! Carregando histórico...', 'color: #00FF88; font-weight: bold;');
+        setTimeout(startAutoHistoryUpdate, 0);
         
         // Load saved position and size
         loadSidebarState(sidebar);
@@ -3386,16 +3392,18 @@
     if (document.readyState === 'loading') {
         console.log('%c   → Aguardando DOMContentLoaded...', 'color: #FFA500;');
         document.addEventListener('DOMContentLoaded', function() {
-            console.log('%c✅ DOMContentLoaded disparado!', 'color: #00FF88;');
-            console.log('%c⏱️ Aguardando 1s para criar sidebar...', 'color: #00FF88;');
-            setTimeout(createSidebar, 1000); // Wait for page to fully load
-            setTimeout(loadInitialData, 1500);
+            const domLoadTime = Date.now() - scriptStartTime;
+            console.log(`%c✅ DOMContentLoaded em ${domLoadTime}ms`, 'color: #00FF88;');
+            console.log('%c⚡ Criando sidebar IMEDIATAMENTE...', 'color: #00FF88;');
+            setTimeout(createSidebar, 0); // Criar imediatamente
+            setTimeout(loadInitialData, 100); // 100ms depois
         });
     } else {
-        console.log('%c   → Documento já carregado!', 'color: #00FF88;');
-        console.log('%c⏱️ Aguardando 1s para criar sidebar...', 'color: #00FF88;');
-        setTimeout(createSidebar, 1000);
-        setTimeout(loadInitialData, 1500);
+        const domReadyTime = Date.now() - scriptStartTime;
+        console.log(`%c✅ Documento já carregado (${domReadyTime}ms)`, 'color: #00FF88;');
+        console.log('%c⚡ Criando sidebar IMEDIATAMENTE...', 'color: #00FF88;');
+        setTimeout(createSidebar, 0); // Criar imediatamente
+        setTimeout(loadInitialData, 100); // 100ms depois
     }
     
     // Update data every 3 seconds
@@ -4096,9 +4104,15 @@
         try {
             isUpdatingHistory = true;
             
+            const startTime = Date.now();
+            console.log('⏱️ [TIMING] Iniciando fetch em:', new Date().toLocaleTimeString());
+            
             const response = await fetch(`${API_URL}/api/giros?limit=2000`, {
                 signal: AbortSignal.timeout(8000)
             });
+            
+            const fetchTime = Date.now() - startTime;
+            console.log(`⏱️ [TIMING] Fetch completou em ${fetchTime}ms`);
             
             if (!response.ok) {
                 throw new Error(`Servidor offline - Status ${response.status}`);
@@ -4106,15 +4120,19 @@
             
             const data = await response.json();
             
+            const totalTime = Date.now() - startTime;
+            console.log(`⏱️ [TIMING] JSON parseado em ${totalTime}ms total`);
+            
             if (data.success && data.data) {
-                console.log(`✅ ${data.data.length} giros carregados do servidor`);
+                console.log(`✅ ${data.data.length} giros carregados em ${totalTime}ms`);
                 lastHistoryUpdate = new Date();
                 return data.data;
             }
             
             return [];
         } catch (error) {
-            console.warn('⚠️ Servidor temporariamente offline:', error.message);
+            const totalTime = Date.now() - (Date.now() - 8000);
+            console.error(`❌ [TIMING] Erro após timeout/erro:`, error.message);
             return [];
         } finally {
             isUpdatingHistory = false;
@@ -4398,14 +4416,7 @@
     
     // Iniciar histórico (atualiza instantaneamente via WebSocket)
     function startAutoHistoryUpdate() {
-        console.log('%c═══════════════════════════════════════════════════════════', 'color: #00d4ff; font-weight: bold;');
-        console.log('%c🔄 HISTÓRICO INTELIGENTE COM FALLBACK', 'color: #00d4ff; font-weight: bold; font-size: 14px;');
-        console.log('%c═══════════════════════════════════════════════════════════', 'color: #00d4ff; font-weight: bold;');
-        console.log('📊 Carregando até 2000 giros do servidor (UMA VEZ - ao iniciar)');
-        console.log('🎯 Exibindo os 500 mais recentes na tela');
-        console.log('⚡ WebSocket CONECTADO → Atualização INSTANTÂNEA (sem HTTP)');
-        console.log('🔄 WebSocket DESCONECTADO → Polling a cada 2 segundos (fallback)');
-        console.log('%c═══════════════════════════════════════════════════════════\n', 'color: #00d4ff; font-weight: bold;');
+        console.log('⏱️ [TIMING] startAutoHistoryUpdate() chamado em:', new Date().toLocaleTimeString());
         
         // ✅ Carregar histórico inicial UMA VEZ (ao abrir extensão)
         updateHistoryUIFromServer();
@@ -4550,8 +4561,7 @@
         return Math.round(finalConfidence * 10) / 10; // Arredondar para 1 casa decimal
     }
     
-    // Iniciar atualização automática do histórico (INSTANTÂNEO!)
-    // ⚡ Executar IMEDIATAMENTE sem delay - 0ms
-    setTimeout(startAutoHistoryUpdate, 0);
+    // ⚠️ REMOVIDO: O histórico agora é carregado APÓS a sidebar ser criada
+    // Ver createSidebar() para o novo local de inicialização
     
 })();
