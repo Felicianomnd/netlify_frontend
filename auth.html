@@ -579,6 +579,28 @@
             hideMessage();
         }
 
+        // Gerar fingerprint do HARDWARE (não muda entre navegadores)
+        function generateHardwareFingerprint() {
+            try {
+                // Coletar informações que identificam o COMPUTADOR, não o navegador
+                const screen = `${window.screen.width}x${window.screen.height}x${window.screen.colorDepth}`;
+                const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+                const language = navigator.language;
+                const platform = navigator.platform;
+                const cores = navigator.hardwareConcurrency || 0;
+                const memory = navigator.deviceMemory || 0;
+                
+                // Combinar tudo em uma string única que identifica o hardware
+                const hardwareId = `${screen}|${timezone}|${language}|${platform}|${cores}|${memory}`;
+                
+                console.log('🖥️ Hardware fingerprint gerado:', hardwareId);
+                return hardwareId;
+            } catch (error) {
+                console.error('Erro ao gerar fingerprint:', error);
+                return 'unknown';
+            }
+        }
+        
         async function handleLogin(event) {
             event.preventDefault();
             const email = document.getElementById('loginEmail').value;
@@ -591,11 +613,18 @@
             console.log('🔗 API_URL configurada:', API_URL);
             console.log('🔗 URL de login:', `${API_URL}/auth/login`);
             
+            // Gerar fingerprint do hardware (identifica COMPUTADOR, não navegador)
+            const hardwareInfo = generateHardwareFingerprint();
+            
             try {
                 const response = await fetch(`${API_URL}/auth/login`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ email, password })
+                    body: JSON.stringify({ 
+                        email, 
+                        password,
+                        hardwareInfo  // ✅ Enviar fingerprint de hardware
+                    })
                 });
                 
                 const data = await response.json();
