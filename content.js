@@ -3929,6 +3929,27 @@
     
     // Mostrar badge ProPlus na sidebar
     function showProPlusBadge(data) {
+        // ✅ ADICIONAR "PRO PLUS" AO LADO DO TÍTULO
+        const headerTitle = document.querySelector('.header-title');
+        if (headerTitle && !headerTitle.querySelector('.proplus-label')) {
+            const proPlusLabel = document.createElement('span');
+            proPlusLabel.className = 'proplus-label';
+            proPlusLabel.style.cssText = `
+                font-size: 10px;
+                font-weight: 600;
+                color: #667eea;
+                margin-left: 8px;
+                padding: 2px 8px;
+                background: linear-gradient(135deg, rgba(102, 126, 234, 0.15) 0%, rgba(118, 75, 162, 0.15) 100%);
+                border: 1px solid #667eea;
+                border-radius: 8px;
+                vertical-align: middle;
+            `;
+            proPlusLabel.textContent = 'PRO PLUS';
+            proPlusLabel.title = `Análise 24/7 na nuvem ATIVA\nSinais: ${data.statistics.total} | Win Rate: ${data.statistics.winRate}%`;
+            headerTitle.appendChild(proPlusLabel);
+        }
+        
         // Encontrar o header da sidebar
         const sidebarHeader = document.querySelector('.sidebar-header');
         if (!sidebarHeader) return;
