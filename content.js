@@ -3862,6 +3862,126 @@
         }
     }
     
+    // ═══════════════════════════════════════════════════════════════════════════════
+    // 🚀 SINCRONIZAÇÃO PROPLUS (ANÁLISE 24/7 NA NUVEM)
+    // ═══════════════════════════════════════════════════════════════════════════════
+    
+    async function syncProPlusState() {
+        const token = localStorage.getItem('authToken');
+        if (!token) {
+            console.log('☁️ ProPlus: Usuário não autenticado');
+            return;
+        }
+        
+        try {
+            console.log('');
+            console.log('═══════════════════════════════════════════════════════════');
+            console.log('☁️ SINCRONIZANDO ESTADO PROPLUS');
+            console.log('═══════════════════════════════════════════════════════════');
+            
+            const apiUrl = getApiUrl();
+            const response = await fetch(`${apiUrl}/api/sync/estado`, {
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                }
+            });
+            
+            if (!response.ok) {
+                console.warn('⚠️ Erro ao sincronizar ProPlus:', response.status);
+                return;
+            }
+            
+            const data = await response.json();
+            
+            if (!data.success) {
+                console.warn('⚠️ Sincronização ProPlus falhou:', data.error);
+                return;
+            }
+            
+            if (!data.proPlusActive) {
+                console.log('📱 ProPlus não ativo - usando análise local');
+                console.log('═══════════════════════════════════════════════════════════');
+                return;
+            }
+            
+            // ProPlus está ativo!
+            console.log('✅ ProPlus ATIVO! Análise 24/7 na nuvem');
+            console.log(`📊 Total de sinais: ${data.statistics.total}`);
+            console.log(`✅ Win Rate: ${data.statistics.winRate}%`);
+            
+            // Mostrar badge ProPlus na interface
+            showProPlusBadge(data);
+            
+            // Exibir último sinal (se houver)
+            if (data.lastSignal) {
+                console.log(`🎯 Último sinal: ${data.lastSignal.color.toUpperCase()} (${data.lastSignal.confidence}%)`);
+                displayProPlusSignal(data.lastSignal);
+            }
+            
+            console.log('═══════════════════════════════════════════════════════════');
+            console.log('');
+            
+        } catch (error) {
+            console.error('❌ Erro ao sincronizar ProPlus:', error);
+        }
+    }
+    
+    // Mostrar badge ProPlus na sidebar
+    function showProPlusBadge(data) {
+        // Encontrar o header da sidebar
+        const sidebarHeader = document.querySelector('.sidebar-header');
+        if (!sidebarHeader) return;
+        
+        // Remover badge anterior se existir
+        const existingBadge = document.getElementById('proplus-badge');
+        if (existingBadge) {
+            existingBadge.remove();
+        }
+        
+        // Criar badge
+        const badge = document.createElement('div');
+        badge.id = 'proplus-badge';
+        badge.style.cssText = `
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            box-shadow: 0 2px 8px rgba(102, 126, 234, 0.4);
+            animation: pulse 2s infinite;
+        `;
+        badge.innerHTML = `☁️ ProPlus`;
+        badge.title = `Análise 24/7 na nuvem ATIVA\nSinais: ${data.statistics.total} | Win Rate: ${data.statistics.winRate}%`;
+        
+        sidebarHeader.style.position = 'relative';
+        sidebarHeader.appendChild(badge);
+        
+        // Adicionar animação pulse
+        const style = document.createElement('style');
+        style.textContent = `
+            @keyframes pulse {
+                0%, 100% { opacity: 1; transform: scale(1); }
+                50% { opacity: 0.8; transform: scale(1.05); }
+            }
+        `;
+        document.head.appendChild(style);
+    }
+    
+    // Exibir último sinal do ProPlus
+    function displayProPlusSignal(signal) {
+        // TODO: Integrar com a interface de sinais existente
+        // Por enquanto, apenas log
+        console.log('🎯 Sinal ProPlus disponível:', signal);
+    }
+    
     // Initialize sidebar when page loads
     console.log('%c🔍 VERIFICANDO ESTADO DO DOCUMENTO...', 'color: #00AAFF; font-weight: bold;');
     console.log(`%c   document.readyState: ${document.readyState}`, 'color: #00AAFF;');
@@ -3874,6 +3994,7 @@
             console.log('%c⚡ Criando sidebar IMEDIATAMENTE...', 'color: #00FF88;');
             setTimeout(createSidebar, 0); // Criar imediatamente
             setTimeout(loadInitialData, 100); // 100ms depois
+            setTimeout(syncProPlusState, 500); // ☁️ Sincronizar ProPlus após 500ms
         });
     } else {
         const domReadyTime = Date.now() - scriptStartTime;
@@ -3881,6 +4002,7 @@
         console.log('%c⚡ Criando sidebar IMEDIATAMENTE...', 'color: #00FF88;');
         setTimeout(createSidebar, 0); // Criar imediatamente
         setTimeout(loadInitialData, 100); // 100ms depois
+        setTimeout(syncProPlusState, 500); // ☁️ Sincronizar ProPlus após 500ms
     }
     
     // Update data every 3 seconds
