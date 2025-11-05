@@ -826,12 +826,9 @@
                             <label class="checkbox-label" style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
                                 <input type="checkbox" id="syncPatternToAccount" checked style="cursor: pointer;">
                                 <span style="font-size: 13px; color: #00d4ff;">
-                                    ☁️ Sincronizar com a conta (salvar na nuvem)
+                                    ☁️ Sincronizar modelos
                                 </span>
                             </label>
-                            <p style="font-size: 11px; color: #888; margin: 5px 0 0 24px;">
-                                Desmarque para salvar apenas localmente (não será enviado ao servidor)
-                            </p>
                         </div>
                     </div>
                     
@@ -1966,12 +1963,9 @@
                             <label class="checkbox-label" style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
                                 <input type="checkbox" id="syncConfigToAccount" checked style="cursor: pointer;">
                                 <span style="font-size: 13px; color: #00d4ff;">
-                                    ☁️ Sincronizar configurações com a conta (salvar na nuvem)
+                                    ☁️ Sincronizar configurações
                                 </span>
                             </label>
-                            <p style="font-size: 11px; color: #888; margin: 5px 0 0 24px;">
-                                Desmarque para salvar apenas localmente (não será enviado ao servidor)
-                            </p>
                         </div>
                         
                     </div>
