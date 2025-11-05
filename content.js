@@ -3795,6 +3795,22 @@
     
     // Listen for messages from background script
     chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+        // ✅ RESPONDER REQUISIÇÃO DE TOKEN DO BACKGROUND.JS
+        if (request.action === 'GET_AUTH_TOKEN') {
+            try {
+                const token = localStorage.getItem('authToken');
+                console.log('🔑 [CONTENT] Token solicitado pelo background.js:', token ? '✅ ENCONTRADO' : '❌ NÃO ENCONTRADO');
+                if (token) {
+                    console.log('🔑 [CONTENT] Token (primeiros 20 chars):', token.substring(0, 20) + '...');
+                }
+                sendResponse({ token: token });
+            } catch (e) {
+                console.error('❌ Erro ao buscar token do localStorage:', e);
+                sendResponse({ token: null });
+            }
+            return true; // Manter canal aberto para sendResponse assíncrono
+        }
+        
         if (request.type === 'NEW_ANALYSIS') {
             // ☁️ IGNORAR ANÁLISE LOCAL SE PROPLUS ESTÁ ATIVO
             if (isProPlusActive) {

@@ -575,8 +575,22 @@ let socketIOConnection = null;
 
 async function connectToProPlusSocket() {
     try {
-        const result = await chrome.storage.local.get(['authToken']);
-        const authToken = result.authToken;
+        // ✅ BUSCAR TOKEN DO LOCALSTORAGE VIA CONTENT SCRIPT
+        const tabs = await chrome.tabs.query({ url: '*://blaze.com/*' });
+        if (!tabs || tabs.length === 0) {
+            console.log('⚠️ Nenhuma aba da Blaze aberta - não conectando ao Socket.IO ProPlus');
+            return;
+        }
+        
+        let authToken = null;
+        try {
+            const response = await chrome.tabs.sendMessage(tabs[0].id, { 
+                action: 'GET_AUTH_TOKEN' 
+            });
+            authToken = response?.token;
+        } catch (e) {
+            console.warn('⚠️ Erro ao buscar token do localStorage:', e.message);
+        }
         
         if (!authToken) {
             console.log('⚠️ Sem token - não conectando ao Socket.IO ProPlus');
@@ -2239,15 +2253,34 @@ async function checkAndSendProPlusSignal(forceCheck = false) {
             }
         }
         
-        // Buscar token do storage
-        const result = await chrome.storage.local.get(['authToken']);
-        const authToken = result.authToken;
-        
-        if (!authToken) {
+        // ✅ BUSCAR TOKEN DO LOCALSTORAGE VIA CONTENT SCRIPT
+        // Background não tem acesso ao localStorage, então pedir para content.js
+        const tabs = await chrome.tabs.query({ url: '*://blaze.com/*' });
+        if (!tabs || tabs.length === 0) {
             proPlusCache.isActive = false;
             proPlusCache.lastCheck = now;
             return false;
         }
+        
+        let authToken = null;
+        try {
+            const response = await chrome.tabs.sendMessage(tabs[0].id, { 
+                action: 'GET_AUTH_TOKEN' 
+            });
+            authToken = response?.token;
+            console.log('🔑 Token recuperado do localStorage:', authToken ? '✅ ENCONTRADO' : '❌ NÃO ENCONTRADO');
+        } catch (e) {
+            console.warn('⚠️ Erro ao buscar token do localStorage:', e.message);
+        }
+        
+        if (!authToken) {
+            console.log('❌ Sem token - ProPlus não pode ser verificado');
+            proPlusCache.isActive = false;
+            proPlusCache.lastCheck = now;
+            return false;
+        }
+        
+        console.log('🔍 Verificando ProPlus no servidor...');
         
         const authApiUrl = API_CONFIG.authURL || 'https://blaze-analyzer-api-v2.onrender.com';
         const response = await fetch(`${authApiUrl}/api/sync/estado`, {
@@ -2266,18 +2299,31 @@ async function checkAndSendProPlusSignal(forceCheck = false) {
         
         const data = await response.json();
         
+        console.log('📡 Resposta do servidor:', {
+            success: data.success,
+            proPlusActive: data.proPlusActive,
+            hasLastSignal: !!data.lastSignal,
+            signalsCount: data.signalsHistory?.length || 0
+        });
+        
         // Atualizar cache
         proPlusCache.isActive = data.success && data.proPlusActive;
         proPlusCache.lastCheck = now;
         
-        if (data.success && data.proPlusActive && data.lastSignal) {
-            // ✅ ENVIAR SINAL PROPLUS + HISTÓRICO DE ENTRADAS INSTANTANEAMENTE
-            console.log('☁️ Enviando sinal ProPlus + entradas para content.js (WebSocket)');
-            sendMessageToContent('PROPLUS_SIGNAL', {
-                ...data.lastSignal,
-                signalsHistory: data.signalsHistory || [] // ✅ Incluir histórico de entradas
-            });
+        if (data.success && data.proPlusActive) {
+            console.log('✅ PROPLUS ATIVO DETECTADO!');
+            
+            if (data.lastSignal) {
+                // ✅ ENVIAR SINAL PROPLUS + HISTÓRICO DE ENTRADAS INSTANTANEAMENTE
+                console.log('☁️ Enviando sinal ProPlus + entradas para content.js (WebSocket)');
+                sendMessageToContent('PROPLUS_SIGNAL', {
+                    ...data.lastSignal,
+                    signalsHistory: data.signalsHistory || [] // ✅ Incluir histórico de entradas
+                });
+            }
             return true;
+        } else {
+            console.log('❌ ProPlus NÃO ativo para este usuário');
         }
         
         return false;
