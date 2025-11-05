@@ -560,93 +560,12 @@ const API_CONFIG = {
     // API de Autenticação (usuários, admin, padrões customizados)
     authURL: 'https://blaze-analyzer-api-v2.onrender.com',
     
-    // ☁️ Socket.IO para ProPlus (broadcast em tempo real)
-    socketIOURL: 'https://blaze-analyzer-api-v2.onrender.com',
-    
     enabled: true,  // Ativar/desativar sincronização
     syncInterval: 5 * 60 * 1000,  // Sincronizar a cada 5 minutos
     timeout: 10000,  // Timeout de 10 segundos
     retryAttempts: 3,
     useWebSocket: true  // ✅ Usar WebSocket ao invés de polling
 };
-
-// ☁️ SOCKET.IO - CONEXÃO EM TEMPO REAL PARA PROPLUS
-let socketIOConnection = null;
-
-async function connectToProPlusSocket() {
-    try {
-        // ✅ BUSCAR TOKEN DO LOCALSTORAGE VIA CONTENT SCRIPT
-        const tabs = await chrome.tabs.query({ url: '*://blaze.com/*' });
-        if (!tabs || tabs.length === 0) {
-            console.log('⚠️ Nenhuma aba da Blaze aberta - não conectando ao Socket.IO ProPlus');
-            return;
-        }
-        
-        let authToken = null;
-        
-        // ✅ TENTAR BUSCAR TOKEN ATÉ 3 VEZES (com delay de 100ms entre tentativas)
-        for (let attempt = 1; attempt <= 3; attempt++) {
-            try {
-                console.log(`🔑 [Socket.IO] Tentativa ${attempt}/3 de buscar token...`);
-                const response = await chrome.tabs.sendMessage(tabs[0].id, { 
-                    action: 'GET_AUTH_TOKEN' 
-                });
-                authToken = response?.token;
-                
-                if (authToken) {
-                    console.log('🔑 [Socket.IO] Token recuperado: ✅ ENCONTRADO');
-                    break;
-                } else {
-                    console.log(`⚠️ [Socket.IO] Tentativa ${attempt}/3: Token não encontrado`);
-                    if (attempt < 3) {
-                        await new Promise(resolve => setTimeout(resolve, 100));
-                    }
-                }
-            } catch (e) {
-                console.warn(`⚠️ [Socket.IO] Tentativa ${attempt}/3 falhou:`, e.message);
-                if (attempt < 3) {
-                    await new Promise(resolve => setTimeout(resolve, 100));
-                }
-            }
-        }
-        
-        if (!authToken) {
-            console.log('⚠️ Sem token após 3 tentativas - não conectando ao Socket.IO ProPlus');
-            return;
-        }
-        
-        // Carregar Socket.IO client (via CDN - funcionará no service worker)
-        console.log('☁️ Conectando ao Socket.IO ProPlus...');
-        
-        // Usar fetch para conectar (service worker não tem io())
-        // Vamos usar EventSource para SSE como alternativa
-        const eventSource = new EventSource(`${API_CONFIG.authURL}/api/sync/stream?token=${authToken}`);
-        
-        eventSource.onmessage = (event) => {
-            const data = JSON.parse(event.data);
-            console.log('☁️ Evento ProPlus recebido:', data);
-            
-            if (data.type === 'new-signal') {
-                // Enviar para content.js
-                sendMessageToContent('PROPLUS_SIGNAL', data.data);
-            } else if (data.type === 'history-cleared') {
-                // Notificar content.js para limpar interface
-                sendMessageToContent('PROPLUS_HISTORY_CLEARED');
-            }
-        };
-        
-        eventSource.onerror = () => {
-            console.error('❌ Erro na conexão Socket.IO ProPlus');
-            eventSource.close();
-        };
-        
-        socketIOConnection = eventSource;
-        console.log('✅ Conectado ao Socket.IO ProPlus');
-        
-    } catch (error) {
-        console.error('❌ Erro ao conectar Socket.IO ProPlus:', error);
-    }
-}
 
 let apiStatus = {
     isOnline: false,
@@ -2021,16 +1940,6 @@ async function startDataCollection() {
         return;
     }
     
-    // ☁️ VERIFICAR PROPLUS NO INÍCIO (popular cache e conectar Socket.IO)
-    checkAndSendProPlusSignal(true).then((isActive) => {
-        if (isActive) {
-            // Conectar ao Socket.IO para receber atualizações em tempo real
-            connectToProPlusSocket();
-        }
-    }).catch(() => {
-        // Ignorar erro - continuar normalmente mesmo se falhar
-    });
-    
     isRunning = true;
     
     // ✅ CARREGAR CONFIGURAÇÕES E ESTADO DO MARTINGALE DO STORAGE IMEDIATAMENTE
@@ -2252,124 +2161,6 @@ async function collectDoubleData() {
                 return 'unknown';
             }
 
-// ☁️ CACHE DO STATUS PROPLUS (para não fazer requisição a cada giro)
-let proPlusCache = {
-    isActive: false,
-    lastCheck: 0,
-    checkInterval: 60000 // Verificar apenas a cada 60 segundos
-};
-
-// ☁️ Verificar ProPlus e enviar sinal instantaneamente
-async function checkAndSendProPlusSignal(forceCheck = false) {
-    try {
-        // Verificar cache primeiro (não fazer requisição a cada giro)
-        const now = Date.now();
-        if (!forceCheck && (now - proPlusCache.lastCheck) < proPlusCache.checkInterval) {
-            // Usar cache
-            if (!proPlusCache.isActive) {
-                return false; // ProPlus não está ativo
-            }
-        }
-        
-        // ✅ BUSCAR TOKEN DO LOCALSTORAGE VIA CONTENT SCRIPT
-        // Background não tem acesso ao localStorage, então pedir para content.js
-        const tabs = await chrome.tabs.query({ url: '*://blaze.com/*' });
-        if (!tabs || tabs.length === 0) {
-            proPlusCache.isActive = false;
-            proPlusCache.lastCheck = now;
-            return false;
-        }
-        
-        let authToken = null;
-        
-        // ✅ TENTAR BUSCAR TOKEN ATÉ 3 VEZES (com delay de 100ms entre tentativas)
-        // Isso resolve o problema de timing onde content.js ainda não registrou seu listener
-        for (let attempt = 1; attempt <= 3; attempt++) {
-            try {
-                console.log(`🔑 Tentativa ${attempt}/3 de buscar token...`);
-                const response = await chrome.tabs.sendMessage(tabs[0].id, { 
-                    action: 'GET_AUTH_TOKEN' 
-                });
-                authToken = response?.token;
-                
-                if (authToken) {
-                    console.log('🔑 Token recuperado do localStorage: ✅ ENCONTRADO');
-                    break; // Token encontrado, sair do loop
-                } else {
-                    console.log(`⚠️ Tentativa ${attempt}/3: Token não encontrado na resposta`);
-                    if (attempt < 3) {
-                        await new Promise(resolve => setTimeout(resolve, 100)); // Aguardar 100ms antes da próxima tentativa
-                    }
-                }
-            } catch (e) {
-                console.warn(`⚠️ Tentativa ${attempt}/3 falhou:`, e.message);
-                if (attempt < 3) {
-                    await new Promise(resolve => setTimeout(resolve, 100)); // Aguardar 100ms antes da próxima tentativa
-                }
-            }
-        }
-        
-        if (!authToken) {
-            console.log('❌ Sem token após 3 tentativas - ProPlus não pode ser verificado');
-            proPlusCache.isActive = false;
-            proPlusCache.lastCheck = now;
-            return false;
-        }
-        
-        console.log('🔍 Verificando ProPlus no servidor...');
-        
-        const authApiUrl = API_CONFIG.authURL || 'https://blaze-analyzer-api-v2.onrender.com';
-        const response = await fetch(`${authApiUrl}/api/sync/estado`, {
-            headers: {
-                'Authorization': `Bearer ${authToken}`,
-                'Content-Type': 'application/json'
-            },
-            signal: AbortSignal.timeout(2000)
-        });
-        
-        if (!response.ok) {
-            proPlusCache.isActive = false;
-            proPlusCache.lastCheck = now;
-            return false;
-        }
-        
-        const data = await response.json();
-        
-        console.log('📡 Resposta do servidor:', {
-            success: data.success,
-            proPlusActive: data.proPlusActive,
-            hasLastSignal: !!data.lastSignal,
-            signalsCount: data.signalsHistory?.length || 0
-        });
-        
-        // Atualizar cache
-        proPlusCache.isActive = data.success && data.proPlusActive;
-        proPlusCache.lastCheck = now;
-        
-        if (data.success && data.proPlusActive) {
-            console.log('✅ PROPLUS ATIVO DETECTADO!');
-            
-            if (data.lastSignal) {
-                // ✅ ENVIAR SINAL PROPLUS + HISTÓRICO DE ENTRADAS INSTANTANEAMENTE
-                console.log('☁️ Enviando sinal ProPlus + entradas para content.js (WebSocket)');
-                sendMessageToContent('PROPLUS_SIGNAL', {
-                    ...data.lastSignal,
-                    signalsHistory: data.signalsHistory || [] // ✅ Incluir histórico de entradas
-                });
-            }
-            return true;
-        } else {
-            console.log('❌ ProPlus NÃO ativo para este usuário');
-        }
-        
-        return false;
-    } catch (error) {
-        // Ignorar erro silenciosamente (não atrapalha fluxo normal)
-        proPlusCache.isActive = false;
-        return false;
-    }
-}
-
 // Processar novo giro vindo do servidor
 async function processNewSpinFromServer(spinData) {
     try {
@@ -2387,15 +2178,6 @@ async function processNewSpinFromServer(spinData) {
                     timestamp: latestSpin.created_at
                 }
             });
-            
-            // ☁️ VERIFICAR SE USUÁRIO TEM PROPLUS ATIVO (usa cache, rápido)
-            const proPlusActive = await checkAndSendProPlusSignal();
-            
-            // ✅ SE PROPLUS ESTÁ ATIVO, NÃO RODAR ANÁLISE LOCAL
-            if (proPlusActive) {
-                console.log('☁️ ProPlus ATIVO - Pulando análise local (servidor analisa)');
-                return; // PARAR AQUI - NÃO CONTINUAR COM ANÁLISE LOCAL
-            }
         
         // ✅ Usar CACHE EM MEMÓRIA (não salvar em chrome.storage.local)
         let history = [...cachedHistory];  // Cópia do cache
@@ -4102,7 +3884,7 @@ function analyzeCustomPatternStatistics(matches) {
  */
 async function checkForCustomPatterns(history) {
     // ✅ SEMPRE recarregar do storage para pegar mudanças mais recentes
-    await loadCustomPatterns();
+        await loadCustomPatterns();
     
     if (customPatternsCache.length === 0) {
         console.log('');
@@ -5915,24 +5697,6 @@ function analyzeLast20Temperature(last20Spins, activePattern) {
  * Deve ser chamado apenas na primeira vez ou após reset
  */
 async function inicializarMemoriaAtiva(history) {
-    // ☁️ VERIFICAR SE PROPLUS ESTÁ ATIVO **ANTES** DE INICIALIZAR
-    console.log('🔍 Verificando status ProPlus antes de inicializar memória...');
-    const isProPlusActive = await checkAndSendProPlusSignal(true); // Forçar verificação imediata
-    
-    if (isProPlusActive) {
-        console.log('');
-        console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #667eea; font-weight: bold; font-size: 14px;');
-        console.log('%c║  ☁️ PROPLUS ATIVO - MEMÓRIA GERENCIADA NO SERVIDOR      ║', 'color: #667eea; font-weight: bold; font-size: 14px;');
-        console.log('%c╠═══════════════════════════════════════════════════════════╣', 'color: #667eea; font-weight: bold;');
-        console.log('%c║  A memória e análises são processadas 24/7 no servidor   ║', 'color: #667eea;');
-        console.log('%c║  Não é necessário inicializar memória localmente          ║', 'color: #667eea;');
-        console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #667eea; font-weight: bold;');
-        console.log('');
-        return false;
-    }
-    
-    console.log('✅ ProPlus não ativo - inicializando memória localmente');
-    
     // ⚠️ Evitar inicializações simultâneas
     if (memoriaAtivaInicializando) {
         console.log('%c⏳ Memória Ativa já está sendo inicializada...', 'color: #FFA500;');
@@ -7323,22 +7087,15 @@ async function analyzeWithPatternSystem(history) {
         }
         
         // ✅ MARCAR MEMÓRIA ATIVA COMO INICIALIZADA (para UI)
-        // ⚠️ VERIFICAR NOVAMENTE SE PROPLUS FOI ATIVADO (memória gerenciada no servidor)
-        const isProPlusActive = await checkAndSendProPlusSignal(false); // Usar cache rápido
-        
-        if (!isProPlusActive) {
-            if (!memoriaAtiva.inicializada) {
-                memoriaAtiva.inicializada = true;
-                memoriaAtiva.ultimaAtualizacao = Date.now();
-                memoriaAtiva.totalAtualizacoes = 1;
-                memoriaAtiva.giros = history.slice(0, 2000);
-                console.log('%c✅ Memória Ativa marcada como INICIALIZADA!', 'color: #00FF00; font-weight: bold;');
-            } else {
-                memoriaAtiva.totalAtualizacoes++;
-                memoriaAtiva.ultimaAtualizacao = Date.now();
-            }
+        if (!memoriaAtiva.inicializada) {
+            memoriaAtiva.inicializada = true;
+            memoriaAtiva.ultimaAtualizacao = Date.now();
+            memoriaAtiva.totalAtualizacoes = 1;
+            memoriaAtiva.giros = history.slice(0, 2000);
+            console.log('%c✅ Memória Ativa marcada como INICIALIZADA!', 'color: #00FF00; font-weight: bold;');
         } else {
-            console.log('%c☁️ ProPlus ativo - memória gerenciada no servidor (não inicializar localmente)', 'color: #667eea; font-weight: bold;');
+            memoriaAtiva.totalAtualizacoes++;
+            memoriaAtiva.ultimaAtualizacao = Date.now();
         }
         
         console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #00FFFF; font-weight: bold;');
@@ -13870,50 +13627,24 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     } else if (request.action === 'status') {
         sendResponse({status: isRunning ? 'running' : 'stopped'});
         return true;
-    } else if (request.action === 'GET_AUTH_TOKEN') {
-        // ✅ Esta mensagem é destinada ao content.js, não ao background.js
-        // O background.js deve ignorar e deixar o content.js responder
-        console.log('🔑 [BACKGROUND] Ignorando GET_AUTH_TOKEN (destinado ao content.js)');
-        return false; // Não processar aqui
     } else if (request.action === 'GET_MEMORIA_ATIVA_STATUS') {
         // 🧠 Retornar status da memória ativa para interface
         console.log('%c🧠 [BACKGROUND] Requisição de status da memória ativa recebida', 'color: #00CED1; font-weight: bold;');
         
-        // ☁️ VERIFICAR PROPLUS EM TEMPO REAL (não confiar no cache antigo)
-        (async () => {
-            // ✅ FORÇAR VERIFICAÇÃO IMEDIATA (TRUE) PARA SEMPRE VERIFICAR NO SERVIDOR
-            const isProPlusActive = await checkAndSendProPlusSignal(true); // Forçar verificação no servidor
-            
-            if (isProPlusActive) {
-                console.log('%c☁️ [BACKGROUND] ProPlus ativo - memória gerenciada no servidor', 'color: #667eea; font-weight: bold;');
-                const statusResponse = {
-                    status: {
-                        inicializada: false,
-                        proPlusActive: true,
-                        message: 'Memória gerenciada no servidor (ProPlus ativo)'
-                    }
-                };
-                sendResponse(statusResponse);
-                return;
+        const statusResponse = {
+            status: {
+                inicializada: memoriaAtiva.inicializada,
+                totalAtualizacoes: memoriaAtiva.totalAtualizacoes,
+                tempoUltimaAtualizacao: memoriaAtiva.tempoUltimaAtualizacao,
+                totalGiros: memoriaAtiva.giros.length,
+                ultimaAtualizacao: memoriaAtiva.ultimaAtualizacao
             }
-            
-            const statusResponse = {
-                status: {
-                    inicializada: memoriaAtiva.inicializada,
-                    totalAtualizacoes: memoriaAtiva.totalAtualizacoes,
-                    tempoUltimaAtualizacao: memoriaAtiva.tempoUltimaAtualizacao,
-                    totalGiros: memoriaAtiva.giros.length,
-                    ultimaAtualizacao: memoriaAtiva.ultimaAtualizacao,
-                    proPlusActive: false
-                }
-            };
-            
-            console.log('%c🧠 [BACKGROUND] Enviando resposta:', 'color: #00CED1;', statusResponse);
-            
-            sendResponse(statusResponse);
-        })();
+        };
         
-        return true; // Manter canal aberto para sendResponse assíncrono
+        console.log('%c🧠 [BACKGROUND] Enviando resposta:', 'color: #00CED1;', statusResponse);
+        
+        sendResponse(statusResponse);
+        return true;
     } else if (request.action === 'applyConfig') {
         console.log('%c✅ ENTROU NO else if applyConfig!', 'color: #00FF00; font-weight: bold; font-size: 16px;');
         (async () => {
@@ -14023,14 +13754,6 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                 console.error('%c❌ Erro ao alterar modo IA:', 'color: #FF0000; font-weight: bold;', e);
                 sendResponse({ status: 'error', error: String(e) });
             }
-        })();
-        return true;
-    } else if (request.action === 'syncProPlusNow') {
-        // ☁️ SINCRONIZAR PROPLUS INSTANTANEAMENTE (quando histórico é limpo)
-        (async () => {
-            console.log('☁️ Sincronização ProPlus forçada (histórico limpo)');
-            await checkAndSendProPlusSignal(true); // forceCheck = true
-            sendResponse({ status: 'success' });
         })();
         return true;
     } else if (request.action === 'clearEntriesAndObserver') {

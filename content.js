@@ -11,11 +11,6 @@
     console.log('');
     
     // ═══════════════════════════════════════════════════════════════════════════════
-    // ☁️ VARIÁVEL GLOBAL: Status do ProPlus (DEVE ESTAR NO TOPO!)
-    // ═══════════════════════════════════════════════════════════════════════════════
-    let isProPlusActive = false;
-    
-    // ═══════════════════════════════════════════════════════════════════════════════
     // VARIÁVEL GLOBAL: Controle de exibição do histórico por camadas
     // ═══════════════════════════════════════════════════════════════════════════════
     let currentHistoryDisplayLimit = 500; // Começa exibindo 500, pode aumentar em camadas de 500
@@ -614,17 +609,6 @@
 
     // 🧠 Atualizar status da memória ativa na interface
     async function atualizarStatusMemoriaAtiva(elemento) {
-        // ☁️ NÃO ATUALIZAR STATUS DE MEMÓRIA SE PROPLUS ESTÁ ATIVO
-        if (isProPlusActive) {
-            console.log('%c☁️ [CONTENT] ProPlus ativo - não atualizar status de memória local', 'color: #667eea; font-weight: bold;');
-            // Mostrar que está usando servidor
-            if (elemento) {
-                elemento.textContent = 'ANÁLISE IA | ☁️ SERVIDOR PROPLUS';
-                elemento.style.color = '#667eea';
-            }
-            return;
-        }
-        
         console.log('%c╔══════════════════════════════════════════════════════════╗', 'color: #00CED1; font-weight: bold;');
         console.log('%c║  🧠 [CONTENT] INICIANDO ATUALIZAÇÃO DO STATUS          ║', 'color: #00CED1; font-weight: bold;');
         console.log('%c╚══════════════════════════════════════════════════════════╝', 'color: #00CED1; font-weight: bold;');
@@ -648,27 +632,10 @@
                 const status = response.status;
                 console.log('%c✅ [CONTENT] Status válido recebido!', 'color: #00FF88; font-weight: bold;');
                 console.log('%c   📊 Detalhes do status:', 'color: #00FF88;');
-                console.log('%c      ├─ proPlusActive:', 'color: #00FF88;', status.proPlusActive);
                 console.log('%c      ├─ inicializada:', 'color: #00FF88;', status.inicializada);
                 console.log('%c      ├─ totalAtualizacoes:', 'color: #00FF88;', status.totalAtualizacoes);
                 console.log('%c      ├─ tempoUltimaAtualizacao:', 'color: #00FF88;', status.tempoUltimaAtualizacao);
                 console.log('%c      └─ totalGiros:', 'color: #00FF88;', status.totalGiros);
-                
-                // ☁️ SE PROPLUS ATIVO, MOSTRAR STATUS DO SERVIDOR
-                if (status.proPlusActive) {
-                    console.log('%c☁️ [UI] ProPlus ativo - mostrando status do servidor', 'color: #667eea; font-weight: bold;');
-                    
-                    // ✅ ATUALIZAR FLAG GLOBAL
-                    if (!isProPlusActive) {
-                        console.log('%c🔄 [UI] Ativando flag isProPlusActive pela primeira vez', 'color: #667eea; font-weight: bold;');
-                        isProPlusActive = true;
-                    }
-                    
-                    elemento.textContent = 'ANÁLISE IA | ☁️ SERVIDOR PROPLUS 24/7';
-                    elemento.style.color = '#667eea'; // Roxo
-                    console.log('%c✅ [UI] Texto do elemento após atualização:', 'color: #667eea;', elemento.textContent);
-                    return;
-                }
                 
                 if (!status.inicializada) {
                     // Memória está inicializando
@@ -713,17 +680,6 @@
     let intervaloAtualizacaoMemoria = null;
     
     function iniciarAtualizacaoMemoria() {
-        // ☁️ NÃO INICIAR ATUALIZAÇÃO SE PROPLUS ESTÁ ATIVO
-        if (isProPlusActive) {
-            console.log('%c☁️ [CONTENT] ProPlus ativo - não iniciar atualização periódica de memória', 'color: #667eea; font-weight: bold;');
-            // Limpar intervalo se existir
-            if (intervaloAtualizacaoMemoria) {
-                clearInterval(intervaloAtualizacaoMemoria);
-                intervaloAtualizacaoMemoria = null;
-            }
-            return;
-        }
-        
         // Limpar intervalo anterior se existir
         if (intervaloAtualizacaoMemoria) {
             clearInterval(intervaloAtualizacaoMemoria);
@@ -731,14 +687,6 @@
         
         // Atualizar a cada 5 segundos quando modo IA estiver ativo
         intervaloAtualizacaoMemoria = setInterval(async () => {
-            // ☁️ Verificar se ProPlus foi ativado durante o intervalo
-            if (isProPlusActive) {
-                console.log('%c☁️ [CONTENT] ProPlus ativado - parando atualização periódica de memória', 'color: #667eea; font-weight: bold;');
-                clearInterval(intervaloAtualizacaoMemoria);
-                intervaloAtualizacaoMemoria = null;
-                return;
-            }
-            
             try {
                 const result = await chrome.storage.local.get(['analyzerConfig']);
                 if (result.analyzerConfig && result.analyzerConfig.aiMode) {
@@ -2100,18 +2048,28 @@
         if (clearEntriesBtn) {
             clearEntriesBtn.addEventListener('click', function() {
                 // Usar modal customizado em vez do confirm() nativo
-                showCustomConfirm('Limpar histórico de entradas?', clearEntriesBtn).then(async confirmed => {
+                showCustomConfirm('Limpar histórico de entradas?', clearEntriesBtn).then(confirmed => {
                     if (confirmed) {
-                        try {
-                            console.log('🗑️ Iniciando limpeza de histórico...');
-                            console.log('☁️ ProPlus ativo?', isProPlusActive);
-                            // ✅ CHAMAR A FUNÇÃO QUE LIMPA NO SERVIDOR SE PROPLUS ATIVO
-                            await clearEntriesHistory();
-                            console.log('✅ Histórico limpo com sucesso!');
-                        } catch (e) {
-                            console.error('❌ Falha ao limpar entradas:', e);
-                        }
+                    try {
+                        chrome.storage.local.set({ entriesHistory: [] }, function() {
+                            console.log('Histórico de entradas limpo');
+                            renderEntriesPanel([]);
+                            
+                            // ✅ Notificar background.js para limpar o calibrador também
+                            chrome.runtime.sendMessage({ 
+                                action: 'clearEntriesAndObserver' 
+                            }, function(response) {
+                                if (response && response.status === 'success') {
+                                    console.log('✅ Calibrador sincronizado após limpar entradas');
+                                    // Atualizar UI do calibrador
+                                    loadObserverStats();
+                                }
+                            });
+                        });
+                    } catch (e) {
+                        console.error('Falha ao limpar entradas:', e);
                     }
+                }
                 });
             });
         }
@@ -3263,22 +3221,17 @@
         lastUpdate.textContent = new Date().toLocaleTimeString();
 
         // Atualizar painel de entradas se disponível
-        // ☁️ NÃO EXIBIR ENTRADAS LOCAIS SE PROPLUS ESTÁ ATIVO
-        if (!isProPlusActive) {
-            if (data.entriesHistory) {
-                renderEntriesPanel(data.entriesHistory);
-            } else {
-                // Buscar do storage se não foi fornecido
-                try {
-                    chrome.storage.local.get(['entriesHistory'], function(res) {
-                        if (res && res.entriesHistory) {
-                            renderEntriesPanel(res.entriesHistory);
-                        }
-                    });
-                } catch(_) {}
-            }
+        if (data.entriesHistory) {
+            renderEntriesPanel(data.entriesHistory);
         } else {
-            console.log('☁️ ProPlus ativo - ignorando entradas locais');
+            // Buscar do storage se não foi fornecido
+            try {
+                chrome.storage.local.get(['entriesHistory'], function(res) {
+                    if (res && res.entriesHistory) {
+                        renderEntriesPanel(res.entriesHistory);
+                    }
+                });
+            } catch(_) {}
         }
 
         // HISTÓRICO agora vem EXCLUSIVAMENTE do servidor (updateHistoryUIFromServer)
@@ -3348,10 +3301,8 @@
             const originalIndex = entries.indexOf(e);
             const time = new Date(e.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
             const cls = e.color;
-            // ✅ USAR spinNumber (do servidor) ou number (local) - priorizar spinNumber
-            const numGiro = e.spinNumber || e.number || '?';
-            const badge = e.color === 'white' ? blazeWhiteSVG(16) : `<span>${numGiro}</span>`;
-            const isWin = e.result === 'WIN' || e.result === 'win';
+            const badge = e.color === 'white' ? blazeWhiteSVG(16) : `<span>${e.number}</span>`;
+            const isWin = e.result === 'WIN';
             
             // ═══════════════════════════════════════════════════════════════
             // ✅ SISTEMA DE MARTINGALE - INDICADORES VISUAIS
@@ -3416,8 +3367,7 @@
                 }
             }
             
-            // ✅ Usar numGiro que já foi declarado acima (linha ~3355)
-            const title = `Giro: ${numGiro} • Cor: ${e.color} • ${time} • Resultado: ${e.result}${e.martingaleStage ? ' • Estágio: '+e.martingaleStage : ''}${e.confidence? ' • Confiança: '+e.confidence.toFixed(1)+'%' : ''}`;
+            const title = `Giro: ${e.number} • Cor: ${e.color} • ${time} • Resultado: ${e.result}${e.martingaleStage ? ' • Estágio: '+e.martingaleStage : ''}${e.confidence? ' • Confiança: '+e.confidence.toFixed(1)+'%' : ''}`;
             
             // CORREÇÃO: Sempre usar a confidence original que foi exibida no sinal
             const confTop = (typeof e.confidence === 'number') ? `${e.confidence.toFixed(0)}%` : '';
@@ -3495,58 +3445,9 @@
     }
     
     // Clear entries history function
-    async function clearEntriesHistory() {
-        console.log('╔═══════════════════════════════════════════════════════════╗');
-        console.log('║  🗑️ LIMPANDO HISTÓRICO DE ENTRADAS                       ║');
-        console.log('╚═══════════════════════════════════════════════════════════╝');
-        console.log('   ProPlus ativo?', isProPlusActive);
-        
-        // ☁️ SE PROPLUS ESTÁ ATIVO, LIMPAR NO SERVIDOR
-        if (isProPlusActive) {
-            try {
-                const token = localStorage.getItem('authToken');
-                console.log('   Token encontrado?', !!token);
-                
-                if (token) {
-                    const apiUrl = getApiUrl();
-                    console.log('   API URL:', apiUrl);
-                    console.log('   Endpoint:', `${apiUrl}/api/sync/limpar-historico`);
-                    
-                    const response = await fetch(`${apiUrl}/api/sync/limpar-historico`, {
-                        method: 'DELETE',
-                        headers: {
-                            'Authorization': `Bearer ${token}`,
-                            'Content-Type': 'application/json'
-                        }
-                    });
-                    
-                    console.log('   Resposta HTTP:', response.status);
-                    
-                    if (response.ok) {
-                        const data = await response.json();
-                        console.log('☁️ Histórico limpo no servidor (ProPlus)');
-                        console.log('   Dados:', data);
-                        
-                        // ✅ NOTIFICAR BACKGROUND.JS PARA SINCRONIZAR INSTANTANEAMENTE
-                        chrome.runtime.sendMessage({ 
-                            action: 'syncProPlusNow' 
-                        });
-                    } else {
-                        console.error('❌ Erro HTTP:', response.status, response.statusText);
-                    }
-                } else {
-                    console.warn('⚠️ Sem token - não pode limpar no servidor');
-                }
-            } catch (error) {
-                console.error('❌ Erro ao limpar histórico no servidor:', error);
-            }
-        } else {
-            console.log('📱 ProPlus não ativo - limpando apenas localmente');
-        }
-        
-        // Limpar localmente também
+    function clearEntriesHistory() {
         chrome.storage.local.set({ entriesHistory: [] }, function() {
-            console.log('📱 Histórico de entradas limpo localmente');
+            console.log('Histórico de entradas limpo');
             renderEntriesPanel([]);
             
             // ✅ Notificar background.js para limpar o calibrador também
@@ -3812,37 +3713,7 @@
     
     // Listen for messages from background script
     chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-        // ✅ RESPONDER REQUISIÇÃO DE TOKEN DO BACKGROUND.JS
-        if (request.action === 'GET_AUTH_TOKEN') {
-            try {
-                console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #FFD700; font-weight: bold;');
-                console.log('%c🔑 [CONTENT] GET_AUTH_TOKEN RECEBIDO!', 'color: #FFD700; font-weight: bold;');
-                console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #FFD700; font-weight: bold;');
-                
-                const token = localStorage.getItem('authToken');
-                console.log('🔑 [CONTENT] Token recuperado do localStorage:', token ? '✅ ENCONTRADO' : '❌ NÃO ENCONTRADO');
-                if (token) {
-                    console.log('🔑 [CONTENT] Token (primeiros 20 chars):', token.substring(0, 20) + '...');
-                }
-                
-                console.log('📤 [CONTENT] Enviando resposta com token:', token ? '✅ SIM' : '❌ NULL');
-                sendResponse({ token: token });
-                console.log('✅ [CONTENT] Resposta enviada com sucesso!');
-                console.log('');
-            } catch (e) {
-                console.error('❌ [CONTENT] Erro ao buscar token do localStorage:', e);
-                sendResponse({ token: null });
-            }
-            return true; // Manter canal aberto para sendResponse assíncrono
-        }
-        
         if (request.type === 'NEW_ANALYSIS') {
-            // ☁️ IGNORAR ANÁLISE LOCAL SE PROPLUS ESTÁ ATIVO
-            if (isProPlusActive) {
-                console.log('☁️ ProPlus ativo - ignorando análise local (servidor analisa)');
-                return;
-            }
-            
             console.log('%c🔍 [NEW_ANALYSIS] Recebido!', 'color: #00FFFF; font-weight: bold;');
             console.log('%c   📦 request.data:', 'color: #00FFFF;', request.data);
             console.log('%c   🎲 last5Spins existe?', 'color: #00FFFF;', request.data.last5Spins ? '✅ SIM' : '❌ NÃO');
@@ -3877,22 +3748,14 @@
                 console.error('❌ ERRO: Dados do giro inválidos!', request.data);
             }
         } else if (request.type === 'CLEAR_ANALYSIS') {
-            // ☁️ IGNORAR SE PROPLUS ESTÁ ATIVO (sinais vêm do servidor)
-            if (!isProPlusActive) {
-                updateSidebar({ analysis: null, pattern: null });
-            }
+            updateSidebar({ analysis: null, pattern: null });
         } else if (request.type === 'PATTERN_BANK_UPDATE') {
             // Atualizar banco de padrões quando novos forem descobertos
             console.log('📂 Banco de padrões atualizado');
             loadPatternBank();
         } else if (request.type === 'ENTRIES_UPDATE') {
             // Atualizar histórico de entradas (WIN/LOSS)
-            // ☁️ IGNORAR SE PROPLUS ESTÁ ATIVO (entradas vêm do servidor)
-            if (!isProPlusActive) {
-                updateSidebar({ entriesHistory: request.data });
-            } else {
-                console.log('☁️ ProPlus ativo - ignorando ENTRIES_UPDATE local');
-            }
+            updateSidebar({ entriesHistory: request.data });
         } else if (request.type === 'OBSERVER_UPDATE') {
             // Atualizar Calibrador de porcentagens automaticamente
             console.log('╔═══════════════════════════════════════════════════════════╗');
@@ -3901,48 +3764,6 @@
             console.log('📊 Dados recebidos:', request.data);
             updateObserverUI(request.data);
             console.log('✅ updateObserverUI executado!');
-        } else if (request.type === 'PROPLUS_SIGNAL') {
-            // ✅ SINAL PROPLUS RECEBIDO VIA WEBSOCKET (TEMPO REAL)
-            if (isProPlusActive) {
-                console.log('');
-                console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #667eea; font-weight: bold;');
-                console.log('%c☁️ SINAL PROPLUS RECEBIDO (TEMPO REAL)!', 'color: #667eea; font-weight: bold;');
-                console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #667eea; font-weight: bold;');
-                console.log('📊 Dados:', request.data);
-                displayProPlusSignal(request.data);
-                sessionStorage.setItem('lastProPlusSignalTimestamp', request.data.timestamp);
-                console.log('✅ Sinal ProPlus exibido instantaneamente!');
-                
-                // ✅ ATUALIZAR ENTRADAS TAMBÉM (do servidor, instantâneo)
-                if (request.data.signalsHistory) {
-                    const entries = request.data.signalsHistory.map(signal => ({
-                        // ✅ USAR spinColor (cor real do giro) ao invés de color (cor recomendada)
-                        // Isso mostra o resultado real, não a previsão
-                        color: signal.spinColor || signal.color, // Priorizar spinColor
-                        confidence: signal.confidence,
-                        timestamp: signal.timestamp,
-                        result: signal.result,
-                        gales: signal.gales || 0,
-                        spinNumber: signal.spinNumber, // ✅ Número do giro
-                        spinColor: signal.spinColor    // ✅ Cor do giro (resultado real)
-                    }));
-                    renderEntriesPanel(entries);
-                    console.log('✅ Entradas atualizadas instantaneamente! (' + entries.length + ' entradas)');
-                }
-                
-                console.log('');
-            }
-        } else if (request.type === 'PROPLUS_HISTORY_CLEARED') {
-            // ☁️ HISTÓRICO LIMPO NO SERVIDOR - LIMPAR INTERFACE INSTANTANEAMENTE
-            if (isProPlusActive) {
-                console.log('');
-                console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #667eea; font-weight: bold;');
-                console.log('%c☁️ HISTÓRICO LIMPO NO SERVIDOR (TEMPO REAL)!', 'color: #667eea; font-weight: bold;');
-                console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #667eea; font-weight: bold;');
-                renderEntriesPanel([]);
-                console.log('✅ Interface limpa instantaneamente!');
-                console.log('');
-            }
         } else if (request.type === 'WEBSOCKET_STATUS') {
             // ✅ GERENCIAR STATUS DO WEBSOCKET
             isWebSocketConnected = request.data.connected;
@@ -4005,7 +3826,6 @@
     console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #00FF88; font-weight: bold;');
     console.log('%c✅ CONTENT.JS LISTENER REGISTRADO!', 'color: #00FF88; font-weight: bold;');
     console.log('%c   chrome.runtime.onMessage.addListener → PRONTO', 'color: #00FF88;');
-    console.log('%c   🔑 Pronto para responder GET_AUTH_TOKEN', 'color: #FFD700; font-weight: bold;');
     console.log('%c   Aguardando mensagens: NEW_ANALYSIS, NEW_SPIN, etc', 'color: #00FF88;');
     console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #00FF88; font-weight: bold;');
     console.log('');
@@ -4042,235 +3862,6 @@
         }
     }
     
-    // ═══════════════════════════════════════════════════════════════════════════════
-    // 🚀 SINCRONIZAÇÃO PROPLUS (ANÁLISE 24/7 NA NUVEM)
-    // ═══════════════════════════════════════════════════════════════════════════════
-    
-    async function syncProPlusState() {
-        const token = localStorage.getItem('authToken');
-        if (!token) {
-            console.log('☁️ ProPlus: Usuário não autenticado');
-            return;
-        }
-        
-        try {
-            console.log('');
-            console.log('═══════════════════════════════════════════════════════════');
-            console.log('☁️ SINCRONIZANDO ESTADO PROPLUS');
-            console.log('═══════════════════════════════════════════════════════════');
-            
-            const apiUrl = getApiUrl();
-            const response = await fetch(`${apiUrl}/api/sync/estado`, {
-                headers: {
-                    'Authorization': `Bearer ${token}`,
-                    'Content-Type': 'application/json'
-                }
-            });
-            
-            if (!response.ok) {
-                console.warn('⚠️ Erro ao sincronizar ProPlus:', response.status);
-                return;
-            }
-            
-            const data = await response.json();
-            
-            if (!data.success) {
-                console.warn('⚠️ Sincronização ProPlus falhou:', data.error);
-                return;
-            }
-            
-            if (!data.proPlusActive) {
-                console.log('📱 ProPlus não ativo - usando análise local');
-                console.log('═══════════════════════════════════════════════════════════');
-                // Parar sincronização se estava ativa
-                stopProPlusSync();
-                return;
-            }
-            
-            // ProPlus está ativo!
-            console.log('✅ ProPlus ATIVO! Análise 24/7 na nuvem');
-            console.log(`📊 Total de sinais: ${data.statistics.total}`);
-            console.log(`✅ Win Rate: ${data.statistics.winRate}%`);
-            
-            // Mostrar badge ProPlus na interface
-            showProPlusBadge(data);
-            
-            // Exibir último sinal (se houver)
-            if (data.lastSignal) {
-                console.log(`🎯 Último sinal: ${data.lastSignal.color.toUpperCase()} (${data.lastSignal.confidence}%)`);
-                displayProPlusSignal(data.lastSignal);
-                sessionStorage.setItem('lastProPlusSignalTimestamp', data.lastSignal.timestamp);
-            }
-            
-            // ✅ EXIBIR HISTÓRICO DE SINAIS COMO ENTRADAS
-            if (data.signalsHistory && data.signalsHistory.length > 0) {
-                console.log(`📊 Exibindo ${data.signalsHistory.length} sinais do servidor como entradas`);
-                // Converter sinais para formato de entradas
-                const entries = data.signalsHistory.map(signal => ({
-                    // ✅ USAR spinColor (cor real do giro) ao invés de color (cor recomendada)
-                    color: signal.spinColor || signal.color, // Priorizar spinColor
-                    confidence: signal.confidence,
-                    timestamp: signal.timestamp,
-                    result: signal.result, // 'win', 'loss', ou null
-                    gales: signal.gales || 0,
-                    spinNumber: signal.spinNumber, // ✅ Número do giro
-                    spinColor: signal.spinColor    // ✅ Cor do giro (resultado real)
-                }));
-                renderEntriesPanel(entries);
-                console.log(`✅ ${entries.length} entradas do servidor exibidas com números de giro`);
-            }
-            
-            // ✅ INICIAR SINCRONIZAÇÃO CONTÍNUA
-            startProPlusSync();
-            
-            console.log('═══════════════════════════════════════════════════════════');
-            console.log('');
-            
-        } catch (error) {
-            console.error('❌ Erro ao sincronizar ProPlus:', error);
-        }
-    }
-    
-    // Mostrar badge ProPlus na sidebar
-    function showProPlusBadge(data) {
-        // ✅ ADICIONAR "PRO PLUS" AO LADO DO TÍTULO
-        const headerTitle = document.querySelector('.header-title');
-        if (headerTitle && !headerTitle.querySelector('.proplus-label')) {
-            const proPlusLabel = document.createElement('span');
-            proPlusLabel.className = 'proplus-label';
-            proPlusLabel.style.cssText = `
-                font-size: 10px;
-                font-weight: 600;
-                color: #667eea;
-                margin-left: 8px;
-                padding: 2px 8px;
-                background: linear-gradient(135deg, rgba(102, 126, 234, 0.15) 0%, rgba(118, 75, 162, 0.15) 100%);
-                border: 1px solid #667eea;
-                border-radius: 8px;
-                vertical-align: middle;
-            `;
-            proPlusLabel.textContent = 'PRO PLUS';
-            proPlusLabel.title = `Análise 24/7 na nuvem ATIVA\nSinais: ${data.statistics.total} | Win Rate: ${data.statistics.winRate}%`;
-            headerTitle.appendChild(proPlusLabel);
-        }
-        
-        // Encontrar o header da sidebar
-        const sidebarHeader = document.querySelector('.sidebar-header');
-        if (!sidebarHeader) return;
-        
-        // Remover badge anterior se existir
-        const existingBadge = document.getElementById('proplus-badge');
-        if (existingBadge) {
-            existingBadge.remove();
-        }
-        
-        // Criar badge
-        const badge = document.createElement('div');
-        badge.id = 'proplus-badge';
-        badge.style.cssText = `
-            position: absolute;
-            top: 10px;
-            right: 10px;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            padding: 4px 10px;
-            border-radius: 12px;
-            font-size: 11px;
-            font-weight: 600;
-            display: flex;
-            align-items: center;
-            gap: 4px;
-            box-shadow: 0 2px 8px rgba(102, 126, 234, 0.4);
-            animation: pulse 2s infinite;
-        `;
-        badge.innerHTML = `☁️ ProPlus`;
-        badge.title = `Análise 24/7 na nuvem ATIVA\nSinais: ${data.statistics.total} | Win Rate: ${data.statistics.winRate}%`;
-        
-        sidebarHeader.style.position = 'relative';
-        sidebarHeader.appendChild(badge);
-        
-        // Adicionar animação pulse
-        const style = document.createElement('style');
-        style.textContent = `
-            @keyframes pulse {
-                0%, 100% { opacity: 1; transform: scale(1); }
-                50% { opacity: 0.8; transform: scale(1.05); }
-            }
-        `;
-        document.head.appendChild(style);
-    }
-    
-    // Exibir último sinal do ProPlus
-    function displayProPlusSignal(signal) {
-        console.log('🎯 Exibindo sinal ProPlus na interface:', signal);
-        
-        // Encontrar o container de resultado
-        const resultDiv = document.getElementById('result');
-        if (!resultDiv) {
-            console.warn('⚠️ Container de resultado não encontrado');
-            return;
-        }
-        
-        // Formatar a cor para exibição
-        const colorDisplay = signal.color === 'red' ? 'VERMELHO' : 'PRETO';
-        const colorClass = signal.color === 'red' ? 'red' : 'black';
-        
-        // Montar o HTML do sinal (mesmo formato da análise local)
-        const signalHTML = `
-            <div class="signal-card ${colorClass}-signal">
-                <div class="signal-header">
-                    <div class="signal-badge">☁️ PROPLUS</div>
-                    <div class="signal-time">${new Date(signal.timestamp).toLocaleTimeString('pt-BR')}</div>
-                </div>
-                <div class="signal-main">
-                    <div class="signal-color ${colorClass}">
-                        <span class="color-label">${colorDisplay}</span>
-                        <div class="color-circle ${colorClass}"></div>
-                    </div>
-                    <div class="signal-info">
-                        <div class="confidence-bar">
-                            <div class="confidence-label">Confiança:</div>
-                            <div class="confidence-value">${signal.confidence}%</div>
-                            <div class="confidence-fill" style="width: ${signal.confidence}%"></div>
-                        </div>
-                        <div class="gales-info">
-                            <span class="gales-label">🎰 Gales:</span>
-                            <span class="gales-value">${signal.gales}</span>
-                        </div>
-                    </div>
-                </div>
-                <div class="signal-reasoning">
-                    <details>
-                        <summary>📋 Raciocínio da Análise</summary>
-                        <pre>${signal.reasoning || 'Análise completa (5 fases)'}</pre>
-                    </details>
-                </div>
-                <div class="signal-footer">
-                    <small>🎲 Baseado no giro #${signal.spinNumber} (${signal.spinColor})</small>
-                </div>
-            </div>
-        `;
-        
-        // Atualizar o container
-        resultDiv.innerHTML = signalHTML;
-        resultDiv.style.display = 'block';
-        
-        console.log('✅ Sinal ProPlus exibido na interface');
-    }
-    
-    // Escutar mensagens do background.js (WebSocket - tempo real)
-    // ☁️ isProPlusActive já foi declarado no TOPO do arquivo (linha ~15)
-    
-    function startProPlusSync() {
-        isProPlusActive = true;
-        console.log('✅ Modo ProPlus ativo - sinais e entradas via WebSocket INSTANTÂNEO');
-    }
-    
-    function stopProPlusSync() {
-        isProPlusActive = false;
-        console.log('🛑 Modo ProPlus desativado');
-    }
-    
     // Initialize sidebar when page loads
     console.log('%c🔍 VERIFICANDO ESTADO DO DOCUMENTO...', 'color: #00AAFF; font-weight: bold;');
     console.log(`%c   document.readyState: ${document.readyState}`, 'color: #00AAFF;');
@@ -4283,7 +3874,6 @@
             console.log('%c⚡ Criando sidebar IMEDIATAMENTE...', 'color: #00FF88;');
             setTimeout(createSidebar, 0); // Criar imediatamente
             setTimeout(loadInitialData, 100); // 100ms depois
-            setTimeout(syncProPlusState, 500); // ☁️ Sincronizar ProPlus após 500ms
         });
     } else {
         const domReadyTime = Date.now() - scriptStartTime;
@@ -4291,7 +3881,6 @@
         console.log('%c⚡ Criando sidebar IMEDIATAMENTE...', 'color: #00FF88;');
         setTimeout(createSidebar, 0); // Criar imediatamente
         setTimeout(loadInitialData, 100); // 100ms depois
-        setTimeout(syncProPlusState, 500); // ☁️ Sincronizar ProPlus após 500ms
     }
     
     // Update data every 3 seconds
