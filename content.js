@@ -1422,17 +1422,30 @@
     // Carregar lista de modelos customizados
     async function loadCustomPatternsList() {
         try {
-            // ✅ TENTAR CARREGAR DO SERVIDOR PRIMEIRO (se autenticado)
-            const serverPatterns = await loadPatternsFromServer();
             let patterns = [];
             
-            if (serverPatterns !== null) {
-                // Carregar do servidor e atualizar localStorage
-                patterns = serverPatterns;
-                await chrome.storage.local.set({ customPatterns: patterns });
-                console.log('✅ Padrões carregados do servidor e sincronizados localmente');
+            // ✅ VERIFICAR SE USUÁRIO QUER SINCRONIZAR
+            const shouldSync = getSyncPatternPreference();
+            
+            if (shouldSync) {
+                console.log('☁️ Sincronização de padrões ATIVADA - tentando carregar do servidor...');
+                // ✅ TENTAR CARREGAR DO SERVIDOR PRIMEIRO (se autenticado)
+                const serverPatterns = await loadPatternsFromServer();
+                
+                if (serverPatterns !== null) {
+                    // Carregar do servidor e atualizar localStorage
+                    patterns = serverPatterns;
+                    await chrome.storage.local.set({ customPatterns: patterns });
+                    console.log('✅ Padrões carregados do servidor e sincronizados localmente');
+                } else {
+                    // Carregar do localStorage (fallback se servidor falhar)
+                    const result = await chrome.storage.local.get(['customPatterns']);
+                    patterns = result.customPatterns || [];
+                    console.log('⚠️ Não foi possível carregar do servidor - usando padrões locais');
+                }
             } else {
-                // Carregar do localStorage (fallback)
+                console.log('💾 Sincronização de padrões DESATIVADA - usando APENAS padrões locais');
+                // Carregar APENAS do localStorage
                 const result = await chrome.storage.local.get(['customPatterns']);
                 patterns = result.customPatterns || [];
                 console.log('✅ Padrões carregados do localStorage');
@@ -4063,17 +4076,27 @@
             const localConfig = localResult.analyzerConfig || {};
             const localAIMode = localConfig.aiMode; // Preservar modo ativo local
             
-            // ✅ TENTAR CARREGAR DO SERVIDOR (se autenticado)
-            const serverConfig = await loadConfigFromServer();
+            // ✅ VERIFICAR SE USUÁRIO QUER SINCRONIZAR
+            const shouldSync = getSyncConfigPreference();
             
-            if (serverConfig) {
-                // Se tem configuração no servidor, mesclar com aiMode local
-                console.log('✅ Usando configurações do servidor (sincronizado)');
-                const mergedConfig = {
-                    ...serverConfig,
-                    aiMode: localAIMode // ✅ PRESERVAR aiMode local
-                };
-                await chrome.storage.local.set({ analyzerConfig: mergedConfig });
+            if (shouldSync) {
+                console.log('☁️ Sincronização ATIVADA - tentando carregar do servidor...');
+                // ✅ TENTAR CARREGAR DO SERVIDOR (se autenticado)
+                const serverConfig = await loadConfigFromServer();
+                
+                if (serverConfig) {
+                    // Se tem configuração no servidor, mesclar com aiMode local
+                    console.log('✅ Usando configurações do servidor (sincronizado)');
+                    const mergedConfig = {
+                        ...serverConfig,
+                        aiMode: localAIMode // ✅ PRESERVAR aiMode local
+                    };
+                    await chrome.storage.local.set({ analyzerConfig: mergedConfig });
+                } else {
+                    console.log('⚠️ Não foi possível carregar do servidor - usando configuração local');
+                }
+            } else {
+                console.log('💾 Sincronização DESATIVADA - usando APENAS configuração local');
             }
             
             // Carregar do localStorage (que agora pode ter sido atualizado do servidor)
