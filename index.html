@@ -106,24 +106,42 @@
         // Verificar se usuário está logado
         (async function() {
             const authToken = localStorage.getItem('authToken');
-            const lastVerification = sessionStorage.getItem('lastAuthVerification');
+            const user = localStorage.getItem('user');
+            const lastVerification = localStorage.getItem('lastAuthVerification'); // ✅ Mudado para localStorage
             const now = Date.now();
             
-            console.log('🔐 Verificando autenticação...');
-            console.log('🔑 Token presente:', authToken ? 'SIM' : 'NÃO');
+            console.log('');
+            console.log('═══════════════════════════════════════════════════════════');
+            console.log('🔐 VERIFICAÇÃO DE AUTENTICAÇÃO');
+            console.log('═══════════════════════════════════════════════════════════');
+            console.log('🔑 Token presente:', authToken ? 'SIM (' + authToken.substring(0, 20) + '...)' : 'NÃO');
+            console.log('👤 User presente:', user ? 'SIM' : 'NÃO');
+            console.log('⏰ Última verificação:', lastVerification ? new Date(parseInt(lastVerification)).toLocaleString() : 'Nunca');
+            console.log('🕐 Agora:', new Date(now).toLocaleString());
             
             if (!authToken) {
                 // Não está logado - redirecionar para tela de login
                 console.log('❌ Usuário não autenticado - redirecionando para login...');
+                console.log('═══════════════════════════════════════════════════════════');
                 window.location.href = 'auth.html';
                 return;
             }
             
-            // Se verificou nos últimos 5 minutos, não precisa verificar de novo
-            if (lastVerification && (now - parseInt(lastVerification)) < 300000) {
-                console.log('✅ Token verificado recentemente (cache de 5 min) - pulando verificação');
+            // ✅ SIMPLIFICADO: Confiar no token local durante a sessão
+            // Apenas verificar com servidor 1x por dia ou se não tem lastVerification
+            const ONE_DAY = 24 * 60 * 60 * 1000; // 24 horas
+            
+            if (lastVerification && (now - parseInt(lastVerification)) < ONE_DAY) {
+                const hoursAgo = Math.floor((now - parseInt(lastVerification)) / 3600000);
+                console.log(`✅ Token verificado há ${hoursAgo} hora(s) - pulando verificação`);
+                console.log('✅ AUTENTICAÇÃO OK - Carregando extensão...');
+                console.log('═══════════════════════════════════════════════════════════');
+                console.log('');
                 return;
             }
+            
+            // Se chegou aqui, precisa verificar
+            console.log('🔍 Primeira verificação da sessão ou passou 24h - verificando com servidor...');
             
             try {
                 // Verificar se token é válido
@@ -151,8 +169,8 @@
                     // Salvar dados do usuário atualizados
                     localStorage.setItem('user', JSON.stringify(data.user));
                     
-                    // Marcar verificação como feita (válido por 5 minutos)
-                    sessionStorage.setItem('lastAuthVerification', now.toString());
+                    // Marcar verificação como feita (válido por 24 horas)
+                    localStorage.setItem('lastAuthVerification', now.toString());
                     
                     // Verificar status da conta
                     if (data.user.status === 'expired') {
@@ -160,7 +178,7 @@
                         alert('Sua assinatura expirou. Entre em contato para renovar.');
                         localStorage.removeItem('authToken');
                         localStorage.removeItem('user');
-                        sessionStorage.removeItem('lastAuthVerification');
+                        localStorage.removeItem('lastAuthVerification');
                         window.location.href = 'auth.html';
                         return;
                     }
@@ -170,26 +188,42 @@
                         alert('Sua conta foi bloqueada. Entre em contato com o suporte.');
                         localStorage.removeItem('authToken');
                         localStorage.removeItem('user');
-                        sessionStorage.removeItem('lastAuthVerification');
+                        localStorage.removeItem('lastAuthVerification');
                         window.location.href = 'auth.html';
                         return;
                     }
                     
                     console.log('✅ Autenticação bem-sucedida! Carregando extensão...');
+                    console.log('═══════════════════════════════════════════════════════════');
+                    console.log('');
                 } else {
                     throw new Error('Resposta inválida do servidor');
                 }
             } catch (error) {
-                console.error('❌ Erro na autenticação:', error);
-                console.error('📋 Detalhes:', error.message);
+                console.log('');
+                console.log('═══════════════════════════════════════════════════════════');
+                console.log('❌ ERRO NA VERIFICAÇÃO DE AUTENTICAÇÃO');
+                console.log('═══════════════════════════════════════════════════════════');
+                console.error('🔴 Tipo do erro:', error.constructor.name);
+                console.error('🔴 Mensagem:', error.message);
+                console.error('🔴 Stack:', error.stack);
+                console.log('');
+                console.log('📋 Estado antes do erro:');
+                console.log('  - Token:', localStorage.getItem('authToken') ? 'Presente' : 'Ausente');
+                console.log('  - User:', localStorage.getItem('user') ? 'Presente' : 'Ausente');
+                console.log('  - LastVerification:', localStorage.getItem('lastAuthVerification') || 'Nenhuma');
+                console.log('');
                 
-                // Limpar dados e redirecionar
-                localStorage.removeItem('authToken');
-                localStorage.removeItem('user');
-                sessionStorage.removeItem('lastAuthVerification');
+                // ⚠️ NÃO LIMPAR AUTOMATICAMENTE - pode ser erro temporário de rede!
+                // Tentar novamente em 3 segundos
+                console.log('⏳ Pode ser erro temporário de rede...');
+                console.log('🔄 Tentando novamente em 3 segundos...');
+                console.log('═══════════════════════════════════════════════════════════');
                 
-                console.log('↪️ Redirecionando para login...');
-                window.location.href = 'auth.html';
+                setTimeout(() => {
+                    console.log('🔄 Recarregando página para nova tentativa...');
+                    window.location.reload();
+                }, 3000);
             }
         })();
     </script>

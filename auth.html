@@ -662,7 +662,7 @@
                     localStorage.setItem('user', JSON.stringify(data.user));
                     
                     // Marcar que token foi verificado agora (evitar re-verificação imediata)
-                    sessionStorage.setItem('lastAuthVerification', Date.now().toString());
+                    localStorage.setItem('lastAuthVerification', Date.now().toString());
                     
                     showMessage('Login realizado com sucesso!', 'success');
                     setTimeout(() => {
