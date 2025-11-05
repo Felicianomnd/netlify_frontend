@@ -3839,6 +3839,17 @@
                 
                 console.log('');
             }
+        } else if (request.type === 'PROPLUS_HISTORY_CLEARED') {
+            // ☁️ HISTÓRICO LIMPO NO SERVIDOR - LIMPAR INTERFACE INSTANTANEAMENTE
+            if (isProPlusActive) {
+                console.log('');
+                console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #667eea; font-weight: bold;');
+                console.log('%c☁️ HISTÓRICO LIMPO NO SERVIDOR (TEMPO REAL)!', 'color: #667eea; font-weight: bold;');
+                console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #667eea; font-weight: bold;');
+                renderEntriesPanel([]);
+                console.log('✅ Interface limpa instantaneamente!');
+                console.log('');
+            }
         } else if (request.type === 'WEBSOCKET_STATUS') {
             // ✅ GERENCIAR STATUS DO WEBSOCKET
             isWebSocketConnected = request.data.connected;

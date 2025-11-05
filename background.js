@@ -560,12 +560,61 @@ const API_CONFIG = {
     // API de Autenticação (usuários, admin, padrões customizados)
     authURL: 'https://blaze-analyzer-api-v2.onrender.com',
     
+    // ☁️ Socket.IO para ProPlus (broadcast em tempo real)
+    socketIOURL: 'https://blaze-analyzer-api-v2.onrender.com',
+    
     enabled: true,  // Ativar/desativar sincronização
     syncInterval: 5 * 60 * 1000,  // Sincronizar a cada 5 minutos
     timeout: 10000,  // Timeout de 10 segundos
     retryAttempts: 3,
     useWebSocket: true  // ✅ Usar WebSocket ao invés de polling
 };
+
+// ☁️ SOCKET.IO - CONEXÃO EM TEMPO REAL PARA PROPLUS
+let socketIOConnection = null;
+
+async function connectToProPlusSocket() {
+    try {
+        const result = await chrome.storage.local.get(['authToken']);
+        const authToken = result.authToken;
+        
+        if (!authToken) {
+            console.log('⚠️ Sem token - não conectando ao Socket.IO ProPlus');
+            return;
+        }
+        
+        // Carregar Socket.IO client (via CDN - funcionará no service worker)
+        console.log('☁️ Conectando ao Socket.IO ProPlus...');
+        
+        // Usar fetch para conectar (service worker não tem io())
+        // Vamos usar EventSource para SSE como alternativa
+        const eventSource = new EventSource(`${API_CONFIG.authURL}/api/sync/stream?token=${authToken}`);
+        
+        eventSource.onmessage = (event) => {
+            const data = JSON.parse(event.data);
+            console.log('☁️ Evento ProPlus recebido:', data);
+            
+            if (data.type === 'new-signal') {
+                // Enviar para content.js
+                sendMessageToContent('PROPLUS_SIGNAL', data.data);
+            } else if (data.type === 'history-cleared') {
+                // Notificar content.js para limpar interface
+                sendMessageToContent('PROPLUS_HISTORY_CLEARED');
+            }
+        };
+        
+        eventSource.onerror = () => {
+            console.error('❌ Erro na conexão Socket.IO ProPlus');
+            eventSource.close();
+        };
+        
+        socketIOConnection = eventSource;
+        console.log('✅ Conectado ao Socket.IO ProPlus');
+        
+    } catch (error) {
+        console.error('❌ Erro ao conectar Socket.IO ProPlus:', error);
+    }
+}
 
 let apiStatus = {
     isOnline: false,
@@ -1940,6 +1989,16 @@ async function startDataCollection() {
         return;
     }
     
+    // ☁️ VERIFICAR PROPLUS NO INÍCIO (popular cache e conectar Socket.IO)
+    checkAndSendProPlusSignal(true).then((isActive) => {
+        if (isActive) {
+            // Conectar ao Socket.IO para receber atualizações em tempo real
+            connectToProPlusSocket();
+        }
+    }).catch(() => {
+        // Ignorar erro - continuar normalmente mesmo se falhar
+    });
+    
     isRunning = true;
     
     // ✅ CARREGAR CONFIGURAÇÕES E ESTADO DO MARTINGALE DO STORAGE IMEDIATAMENTE
@@ -2161,14 +2220,34 @@ async function collectDoubleData() {
                 return 'unknown';
             }
 
+// ☁️ CACHE DO STATUS PROPLUS (para não fazer requisição a cada giro)
+let proPlusCache = {
+    isActive: false,
+    lastCheck: 0,
+    checkInterval: 60000 // Verificar apenas a cada 60 segundos
+};
+
 // ☁️ Verificar ProPlus e enviar sinal instantaneamente
-async function checkAndSendProPlusSignal() {
+async function checkAndSendProPlusSignal(forceCheck = false) {
     try {
+        // Verificar cache primeiro (não fazer requisição a cada giro)
+        const now = Date.now();
+        if (!forceCheck && (now - proPlusCache.lastCheck) < proPlusCache.checkInterval) {
+            // Usar cache
+            if (!proPlusCache.isActive) {
+                return false; // ProPlus não está ativo
+            }
+        }
+        
         // Buscar token do storage
         const result = await chrome.storage.local.get(['authToken']);
         const authToken = result.authToken;
         
-        if (!authToken) return;
+        if (!authToken) {
+            proPlusCache.isActive = false;
+            proPlusCache.lastCheck = now;
+            return false;
+        }
         
         const authApiUrl = API_CONFIG.authURL || 'https://blaze-analyzer-api-v2.onrender.com';
         const response = await fetch(`${authApiUrl}/api/sync/estado`, {
@@ -2176,12 +2255,20 @@ async function checkAndSendProPlusSignal() {
                 'Authorization': `Bearer ${authToken}`,
                 'Content-Type': 'application/json'
             },
-            signal: AbortSignal.timeout(3000)
+            signal: AbortSignal.timeout(2000)
         });
         
-        if (!response.ok) return;
+        if (!response.ok) {
+            proPlusCache.isActive = false;
+            proPlusCache.lastCheck = now;
+            return false;
+        }
         
         const data = await response.json();
+        
+        // Atualizar cache
+        proPlusCache.isActive = data.success && data.proPlusActive;
+        proPlusCache.lastCheck = now;
         
         if (data.success && data.proPlusActive && data.lastSignal) {
             // ✅ ENVIAR SINAL PROPLUS + HISTÓRICO DE ENTRADAS INSTANTANEAMENTE
@@ -2190,9 +2277,14 @@ async function checkAndSendProPlusSignal() {
                 ...data.lastSignal,
                 signalsHistory: data.signalsHistory || [] // ✅ Incluir histórico de entradas
             });
+            return true;
         }
+        
+        return false;
     } catch (error) {
         // Ignorar erro silenciosamente (não atrapalha fluxo normal)
+        proPlusCache.isActive = false;
+        return false;
     }
 }
 
@@ -2214,39 +2306,13 @@ async function processNewSpinFromServer(spinData) {
                 }
             });
             
-            // ☁️ VERIFICAR SE USUÁRIO TEM PROPLUS ATIVO
-            const result = await chrome.storage.local.get(['authToken']);
-            const authToken = result.authToken;
+            // ☁️ VERIFICAR SE USUÁRIO TEM PROPLUS ATIVO (usa cache, rápido)
+            const proPlusActive = await checkAndSendProPlusSignal();
             
-            if (authToken) {
-                const authApiUrl = API_CONFIG.authURL || 'https://blaze-analyzer-api-v2.onrender.com';
-                const response = await fetch(`${authApiUrl}/api/sync/estado`, {
-                    headers: {
-                        'Authorization': `Bearer ${authToken}`,
-                        'Content-Type': 'application/json'
-                    },
-                    signal: AbortSignal.timeout(2000)
-                }).catch(() => null);
-                
-                if (response && response.ok) {
-                    const data = await response.json();
-                    
-                    // ✅ SE PROPLUS ESTÁ ATIVO, NÃO RODAR ANÁLISE LOCAL
-                    if (data.success && data.proPlusActive) {
-                        console.log('☁️ ProPlus ATIVO - Pulando análise local (servidor analisa)');
-                        
-                        // Enviar sinal do servidor
-                        if (data.lastSignal) {
-                            sendMessageToContent('PROPLUS_SIGNAL', {
-                                ...data.lastSignal,
-                                signalsHistory: data.signalsHistory || []
-                            });
-                        }
-                        
-                        // ✅ PARAR AQUI - NÃO CONTINUAR COM ANÁLISE LOCAL
-                        return;
-                    }
-                }
+            // ✅ SE PROPLUS ESTÁ ATIVO, NÃO RODAR ANÁLISE LOCAL
+            if (proPlusActive) {
+                console.log('☁️ ProPlus ATIVO - Pulando análise local (servidor analisa)');
+                return; // PARAR AQUI - NÃO CONTINUAR COM ANÁLISE LOCAL
             }
         
         // ✅ Usar CACHE EM MEMÓRIA (não salvar em chrome.storage.local)
@@ -13830,7 +13896,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         // ☁️ SINCRONIZAR PROPLUS INSTANTANEAMENTE (quando histórico é limpo)
         (async () => {
             console.log('☁️ Sincronização ProPlus forçada (histórico limpo)');
-            await checkAndSendProPlusSignal();
+            await checkAndSendProPlusSignal(true); // forceCheck = true
             sendResponse({ status: 'success' });
         })();
         return true;
