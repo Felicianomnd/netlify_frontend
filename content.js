@@ -609,6 +609,17 @@
 
     // 🧠 Atualizar status da memória ativa na interface
     async function atualizarStatusMemoriaAtiva(elemento) {
+        // ☁️ NÃO ATUALIZAR STATUS DE MEMÓRIA SE PROPLUS ESTÁ ATIVO
+        if (isProPlusActive) {
+            console.log('%c☁️ [CONTENT] ProPlus ativo - não atualizar status de memória local', 'color: #667eea; font-weight: bold;');
+            // Mostrar que está usando servidor
+            if (elemento) {
+                elemento.textContent = 'ANÁLISE IA | ☁️ SERVIDOR PROPLUS';
+                elemento.style.color = '#667eea';
+            }
+            return;
+        }
+        
         console.log('%c╔══════════════════════════════════════════════════════════╗', 'color: #00CED1; font-weight: bold;');
         console.log('%c║  🧠 [CONTENT] INICIANDO ATUALIZAÇÃO DO STATUS          ║', 'color: #00CED1; font-weight: bold;');
         console.log('%c╚══════════════════════════════════════════════════════════╝', 'color: #00CED1; font-weight: bold;');
@@ -680,6 +691,17 @@
     let intervaloAtualizacaoMemoria = null;
     
     function iniciarAtualizacaoMemoria() {
+        // ☁️ NÃO INICIAR ATUALIZAÇÃO SE PROPLUS ESTÁ ATIVO
+        if (isProPlusActive) {
+            console.log('%c☁️ [CONTENT] ProPlus ativo - não iniciar atualização periódica de memória', 'color: #667eea; font-weight: bold;');
+            // Limpar intervalo se existir
+            if (intervaloAtualizacaoMemoria) {
+                clearInterval(intervaloAtualizacaoMemoria);
+                intervaloAtualizacaoMemoria = null;
+            }
+            return;
+        }
+        
         // Limpar intervalo anterior se existir
         if (intervaloAtualizacaoMemoria) {
             clearInterval(intervaloAtualizacaoMemoria);
@@ -687,6 +709,14 @@
         
         // Atualizar a cada 5 segundos quando modo IA estiver ativo
         intervaloAtualizacaoMemoria = setInterval(async () => {
+            // ☁️ Verificar se ProPlus foi ativado durante o intervalo
+            if (isProPlusActive) {
+                console.log('%c☁️ [CONTENT] ProPlus ativado - parando atualização periódica de memória', 'color: #667eea; font-weight: bold;');
+                clearInterval(intervaloAtualizacaoMemoria);
+                intervaloAtualizacaoMemoria = null;
+                return;
+            }
+            
             try {
                 const result = await chrome.storage.local.get(['analyzerConfig']);
                 if (result.analyzerConfig && result.analyzerConfig.aiMode) {

@@ -5833,6 +5833,19 @@ function analyzeLast20Temperature(last20Spins, activePattern) {
  * Deve ser chamado apenas na primeira vez ou após reset
  */
 async function inicializarMemoriaAtiva(history) {
+    // ☁️ NÃO INICIALIZAR SE PROPLUS ESTÁ ATIVO (servidor gerencia a memória)
+    if (proPlusCache.isActive) {
+        console.log('');
+        console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #667eea; font-weight: bold; font-size: 14px;');
+        console.log('%c║  ☁️ PROPLUS ATIVO - MEMÓRIA GERENCIADA NO SERVIDOR      ║', 'color: #667eea; font-weight: bold; font-size: 14px;');
+        console.log('%c╠═══════════════════════════════════════════════════════════╣', 'color: #667eea; font-weight: bold;');
+        console.log('%c║  A memória e análises são processadas 24/7 no servidor   ║', 'color: #667eea;');
+        console.log('%c║  Não é necessário inicializar memória localmente          ║', 'color: #667eea;');
+        console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #667eea; font-weight: bold;');
+        console.log('');
+        return false;
+    }
+    
     // ⚠️ Evitar inicializações simultâneas
     if (memoriaAtivaInicializando) {
         console.log('%c⏳ Memória Ativa já está sendo inicializada...', 'color: #FFA500;');
@@ -7223,15 +7236,20 @@ async function analyzeWithPatternSystem(history) {
         }
         
         // ✅ MARCAR MEMÓRIA ATIVA COMO INICIALIZADA (para UI)
-        if (!memoriaAtiva.inicializada) {
-            memoriaAtiva.inicializada = true;
-            memoriaAtiva.ultimaAtualizacao = Date.now();
-            memoriaAtiva.totalAtualizacoes = 1;
-            memoriaAtiva.giros = history.slice(0, 2000);
-            console.log('%c✅ Memória Ativa marcada como INICIALIZADA!', 'color: #00FF00; font-weight: bold;');
+        // ⚠️ NÃO INICIALIZAR SE PROPLUS ESTÁ ATIVO (memória gerenciada no servidor)
+        if (!proPlusCache.isActive) {
+            if (!memoriaAtiva.inicializada) {
+                memoriaAtiva.inicializada = true;
+                memoriaAtiva.ultimaAtualizacao = Date.now();
+                memoriaAtiva.totalAtualizacoes = 1;
+                memoriaAtiva.giros = history.slice(0, 2000);
+                console.log('%c✅ Memória Ativa marcada como INICIALIZADA!', 'color: #00FF00; font-weight: bold;');
+            } else {
+                memoriaAtiva.totalAtualizacoes++;
+                memoriaAtiva.ultimaAtualizacao = Date.now();
+            }
         } else {
-            memoriaAtiva.totalAtualizacoes++;
-            memoriaAtiva.ultimaAtualizacao = Date.now();
+            console.log('%c☁️ ProPlus ativo - memória gerenciada no servidor (não inicializar localmente)', 'color: #667eea; font-weight: bold;');
         }
         
         console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #00FFFF; font-weight: bold;');
@@ -13766,6 +13784,20 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     } else if (request.action === 'GET_MEMORIA_ATIVA_STATUS') {
         // 🧠 Retornar status da memória ativa para interface
         console.log('%c🧠 [BACKGROUND] Requisição de status da memória ativa recebida', 'color: #00CED1; font-weight: bold;');
+        
+        // ☁️ SE PROPLUS ESTÁ ATIVO, NÃO RETORNAR STATUS DE MEMÓRIA LOCAL
+        if (proPlusCache.isActive) {
+            console.log('%c☁️ [BACKGROUND] ProPlus ativo - memória gerenciada no servidor', 'color: #667eea; font-weight: bold;');
+            const statusResponse = {
+                status: {
+                    inicializada: false,
+                    proPlusActive: true,
+                    message: 'Memória gerenciada no servidor (ProPlus ativo)'
+                }
+            };
+            sendResponse(statusResponse);
+            return true;
+        }
         
         const statusResponse = {
             status: {
