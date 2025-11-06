@@ -720,15 +720,15 @@
                 
                 if (!status.inicializada) {
                     // Memória está inicializando
-                    console.log('%c🟠 [UI] Atualizando para: Inicializando...', 'color: #FFA500; font-weight: bold;');
-                    elemento.textContent = '⚡ Inicializando sistema avançado...';
+                    console.log('%c🟠 [UI] Atualizando para: Inicializando IA...', 'color: #FFA500; font-weight: bold;');
+                    elemento.textContent = '⚡ Inicializando IA...';
                     elemento.style.color = 'rgba(255, 255, 255, 0.7)';
                     elemento.style.fontWeight = '400';
                 } else {
                     // Memória está ativa
                     const updates = status.totalAtualizacoes || 0;
                     
-                    const textoNovo = `Sistema ativo • ${updates} análises`;
+                    const textoNovo = `IA ativada • ${updates} análises`;
                     console.log('%c🟢 [UI] Atualizando para:', 'color: #00FF00; font-weight: bold;', textoNovo);
                     
                     elemento.textContent = textoNovo;
@@ -742,7 +742,7 @@
                 console.warn('%c⚠️ [CONTENT] Resposta inválida ou vazia!', 'color: #FFA500; font-weight: bold;');
                 console.warn('%c   response:', 'color: #FFA500;', response);
                 console.warn('%c   response.status:', 'color: #FFA500;', response?.status);
-                elemento.textContent = 'Sistema avançado ativo';
+                elemento.textContent = 'IA ativada';
                 elemento.style.color = 'rgba(255, 255, 255, 0.9)';
                 elemento.style.fontWeight = '500';
             }
@@ -752,7 +752,7 @@
             console.error('%c╚══════════════════════════════════════════════════════════╝', 'color: #FF0000; font-weight: bold;');
             console.error('%c   Erro:', 'color: #FF0000;', error);
             console.error('%c   Stack:', 'color: #FF0000;', error.stack);
-            elemento.textContent = 'Sistema avançado ativo';
+            elemento.textContent = 'IA ativada';
             elemento.style.color = 'rgba(255, 255, 255, 0.9)';
             elemento.style.fontWeight = '500';
         }
