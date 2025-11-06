@@ -2892,10 +2892,17 @@
         width: 100% !important;
         max-width: 100% !important;
         box-sizing: border-box !important;
+        padding-right: 45px !important; /* ✅ Espaço para o botão de minimizar */
     }
     
     .analyzer-header h3 {
         font-size: 16px !important;
+    }
+    
+    /* ✅ BOTÃO DE MINIMIZAR NO MOBILE */
+    .toggle-btn {
+        z-index: 100 !important; /* ✅ Garantir que fique acima */
+        pointer-events: auto !important; /* ✅ Garantir que seja clicável */
     }
     
     /* ✅ AJUSTAR BOTÕES DO HEADER */
@@ -3036,12 +3043,14 @@
     
     /* ✅ AJUSTAR TOGGLE DIAMANTE */
     .ai-mode-toggle {
-        width: calc(100% - 16px) !important;
+        width: 100% !important;
         max-width: 100% !important;
         padding: 8px 12px !important;
-        margin: 0 8px !important;
+        margin: 0 !important;
         box-sizing: border-box !important;
         font-size: 12px !important;
+        position: relative !important;
+        z-index: 10 !important; /* ✅ Abaixo do botão de minimizar */
     }
     
     .ai-mode-toggle .mode-name {
