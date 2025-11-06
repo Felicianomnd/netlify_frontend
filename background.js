@@ -2415,14 +2415,31 @@ async function processNewSpinFromServer(spinData) {
                                 finalResult: 'WIN'                  // Resultado final do ciclo
                             };
                             
-                            console.log('📝 Entrada WIN criada com Martingale:', {
-                                stage: winEntry.martingaleStage,
-                                wonAt: winEntry.wonAt,
-                                color: winEntry.color,
-                                number: winEntry.number
-                            });
+                            console.log('');
+                            console.log('%c╔══════════════════════════════════════════════════════════════════════════════╗', 'color: #00FF00; font-weight: bold; font-size: 14px;');
+                            console.log('%c║  📝 DEBUG COMPLETO: SALVANDO ENTRADA WIN                                    ║', 'color: #00FF00; font-weight: bold; font-size: 14px;');
+                            console.log('%c╚══════════════════════════════════════════════════════════════════════════════╝', 'color: #00FF00; font-weight: bold; font-size: 14px;');
+                            console.log('%c📊 DADOS DA ENTRADA WIN:', 'color: #00FF88; font-weight: bold;');
+                            console.log('   ➤ Timestamp:', winEntry.timestamp);
+                            console.log('   ➤ Número:', winEntry.number);
+                            console.log('   ➤ Cor:', winEntry.color);
+                            console.log('   ➤ Fase:', winEntry.phase);
+                            console.log('   ➤ Resultado:', winEntry.result);
+                            console.log('   ➤ Confiança:', winEntry.confidence + '%');
+                            console.log('   ➤ Martingale Stage:', winEntry.martingaleStage);
+                            console.log('   ➤ Won At:', winEntry.wonAt);
+                            console.log('   ➤ Final Result:', winEntry.finalResult);
+                            console.log('');
+                            console.log('%c📋 ESTADO DO HISTÓRICO ANTES DE ADICIONAR:', 'color: #00FFFF; font-weight: bold;');
+                            console.log('   ➤ entriesHistory existe?', !!entriesHistory);
+                            console.log('   ➤ entriesHistory.length ANTES:', entriesHistory.length);
+                            console.log('');
                             
                             entriesHistory.unshift(winEntry);
+                            
+                            console.log('%c✅ ENTRADA ADICIONADA AO HISTÓRICO!', 'color: #00FF00; font-weight: bold; font-size: 14px;');
+                            console.log('   ➤ entriesHistory.length DEPOIS:', entriesHistory.length);
+                            console.log('');
                             
                             // ✅ Calcular estatísticas WIN/LOSS baseado em CICLOS COMPLETOS
                             const { totalWins, totalLosses } = calculateCycleScore(entriesHistory);
@@ -2479,6 +2496,15 @@ async function processNewSpinFromServer(spinData) {
                                 });
                             }
                             
+                            console.log('%c💾 SALVANDO NO CHROME.STORAGE.LOCAL...', 'color: #FFD700; font-weight: bold; font-size: 14px;');
+                            console.log('   ➤ analysis: null (limpar)');
+                            console.log('   ➤ pattern: null (limpar)');
+                            console.log('   ➤ lastBet.status: win');
+                            console.log('   ➤ entriesHistory.length:', entriesHistory.length);
+                            console.log('   ➤ martingaleState.active:', martingaleState.active);
+                            console.log('   ➤ rigorLevel: 75 (reset)');
+                            console.log('');
+                            
                             await chrome.storage.local.set({ 
                                 analysis: null, 
                                 pattern: null,
@@ -2487,12 +2513,31 @@ async function processNewSpinFromServer(spinData) {
                                 martingaleState,  // ✅ Salvar estado do Martingale
                                 rigorLevel: 75 // RESET: Volta para 75% após WIN
                             });
+                            
+                            console.log('%c✅ SALVO COM SUCESSO NO STORAGE!', 'color: #00FF00; font-weight: bold; font-size: 14px;');
+                            console.log('');
+                            
                             sendMessageToContent('CLEAR_ANALYSIS');
                             
                             // ✅ Enviar atualização de entradas para UI
-                            console.log('📤 Enviando ENTRIES_UPDATE para UI...');
-                            console.log('📊 Total de entradas:', entriesHistory.length);
-                            sendMessageToContent('ENTRIES_UPDATE', entriesHistory);
+                            console.log('%c📤 ENVIANDO ENTRIES_UPDATE PARA UI...', 'color: #00D4FF; font-weight: bold; font-size: 14px;');
+                            console.log('   ➤ Type: ENTRIES_UPDATE');
+                            console.log('   ➤ Total de entradas:', entriesHistory.length);
+                            console.log('   ➤ Primeira entrada:', entriesHistory[0] ? {
+                                result: entriesHistory[0].result,
+                                color: entriesHistory[0].color,
+                                number: entriesHistory[0].number,
+                                phase: entriesHistory[0].phase
+                            } : 'N/A');
+                            console.log('');
+                            
+                            const uiUpdateResult = sendMessageToContent('ENTRIES_UPDATE', entriesHistory);
+                            console.log('%c📨 Resultado do envio para UI:', uiUpdateResult ? 'color: #00FF00;' : 'color: #FF0000;', uiUpdateResult);
+                            console.log('');
+                            console.log('%c╔══════════════════════════════════════════════════════════════════════════════╗', 'color: #00FF00; font-weight: bold;');
+                            console.log('%c║  ✅ ENTRADA WIN PROCESSADA COMPLETAMENTE!                                   ║', 'color: #00FF00; font-weight: bold;');
+                            console.log('%c╚══════════════════════════════════════════════════════════════════════════════╝', 'color: #00FF00; font-weight: bold;');
+                            console.log('');
                         } else {
                             console.log('');
                             console.log('╔═══════════════════════════════════════════════════════════╗');
@@ -2578,7 +2623,30 @@ async function processNewSpinFromServer(spinData) {
                                         finalResult: 'RET'
                                     };
                                     
+                                    console.log('');
+                                    console.log('%c╔══════════════════════════════════════════════════════════════════════════════╗', 'color: #FF0000; font-weight: bold; font-size: 14px;');
+                                    console.log('%c║  📝 DEBUG COMPLETO: SALVANDO ENTRADA LOSS (SEM GALES)                      ║', 'color: #FF0000; font-weight: bold; font-size: 14px;');
+                                    console.log('%c╚══════════════════════════════════════════════════════════════════════════════╝', 'color: #FF0000; font-weight: bold; font-size: 14px;');
+                                    console.log('%c📊 DADOS DA ENTRADA LOSS:', 'color: #FF6666; font-weight: bold;');
+                                    console.log('   ➤ Timestamp:', lossEntry.timestamp);
+                                    console.log('   ➤ Número:', lossEntry.number);
+                                    console.log('   ➤ Cor:', lossEntry.color);
+                                    console.log('   ➤ Fase:', lossEntry.phase);
+                                    console.log('   ➤ Resultado:', lossEntry.result);
+                                    console.log('   ➤ Confiança:', lossEntry.confidence + '%');
+                                    console.log('   ➤ Martingale Stage:', lossEntry.martingaleStage);
+                                    console.log('   ➤ Final Result:', lossEntry.finalResult);
+                                    console.log('');
+                                    console.log('%c📋 ESTADO DO HISTÓRICO ANTES DE ADICIONAR:', 'color: #00FFFF; font-weight: bold;');
+                                    console.log('   ➤ entriesHistory existe?', !!entriesHistory);
+                                    console.log('   ➤ entriesHistory.length ANTES:', entriesHistory.length);
+                                    console.log('');
+                                    
                                     entriesHistory.unshift(lossEntry);
+                                    
+                                    console.log('%c✅ ENTRADA ADICIONADA AO HISTÓRICO!', 'color: #00FF00; font-weight: bold; font-size: 14px;');
+                                    console.log('   ➤ entriesHistory.length DEPOIS:', entriesHistory.length);
+                                    console.log('');
                                     
                                     // ✅ Calcular estatísticas WIN/LOSS
                                     const { totalWins, totalLosses } = calculateCycleScore(entriesHistory);
@@ -2589,6 +2657,13 @@ async function processNewSpinFromServer(spinData) {
                                     
                                     resetMartingaleState();
                                     
+                                    console.log('%c💾 SALVANDO NO CHROME.STORAGE.LOCAL...', 'color: #FFD700; font-weight: bold; font-size: 14px;');
+                                    console.log('   ➤ analysis: null (limpar)');
+                                    console.log('   ➤ pattern: null (limpar)');
+                                    console.log('   ➤ lastBet.status: loss');
+                                    console.log('   ➤ entriesHistory.length:', entriesHistory.length);
+                                    console.log('');
+                                    
                                     await chrome.storage.local.set({ 
                                         analysis: null, 
                                         pattern: null,
@@ -2597,8 +2672,30 @@ async function processNewSpinFromServer(spinData) {
                                         martingaleState
                                     });
                                     
+                                    console.log('%c✅ SALVO COM SUCESSO NO STORAGE!', 'color: #00FF00; font-weight: bold; font-size: 14px;');
+                                    console.log('');
+                                    
                                     sendMessageToContent('CLEAR_ANALYSIS');
-                                    sendMessageToContent('ENTRIES_UPDATE', entriesHistory);
+                                    
+                                    console.log('%c📤 ENVIANDO ENTRIES_UPDATE PARA UI...', 'color: #00D4FF; font-weight: bold; font-size: 14px;');
+                                    console.log('   ➤ Type: ENTRIES_UPDATE');
+                                    console.log('   ➤ Total de entradas:', entriesHistory.length);
+                                    console.log('   ➤ Primeira entrada:', entriesHistory[0] ? {
+                                        result: entriesHistory[0].result,
+                                        color: entriesHistory[0].color,
+                                        number: entriesHistory[0].number,
+                                        phase: entriesHistory[0].phase,
+                                        finalResult: entriesHistory[0].finalResult
+                                    } : 'N/A');
+                                    console.log('');
+                                    
+                                    const uiUpdateResult = sendMessageToContent('ENTRIES_UPDATE', entriesHistory);
+                                    console.log('%c📨 Resultado do envio para UI:', uiUpdateResult ? 'color: #00FF00;' : 'color: #FF0000;', uiUpdateResult);
+                                    console.log('');
+                                    console.log('%c╔══════════════════════════════════════════════════════════════════════════════╗', 'color: #00FF00; font-weight: bold;');
+                                    console.log('%c║  ✅ ENTRADA LOSS PROCESSADA COMPLETAMENTE!                                  ║', 'color: #00FF00; font-weight: bold;');
+                                    console.log('%c╚══════════════════════════════════════════════════════════════════════════════╝', 'color: #00FF00; font-weight: bold;');
+                                    console.log('');
                                     return;
                                 }
                                 
@@ -4086,20 +4183,29 @@ async function checkForCustomPatterns(history) {
                 const matches = findCustomPatternInHistory(customPattern, history);
                 const stats = analyzeCustomPatternStatistics(matches);
                 
-                // ✅ NOVA LÓGICA: Enviar sinal mesmo com poucas ocorrências (confiança reduzida)
-                if (stats && stats.occurrences >= 1) { // Mínimo 1 ocorrência
-                    // Determinar cor recomendada
-                    const recommendedColor = stats.nextColor.redPercent > stats.nextColor.blackPercent ? 'red' : 'black';
-                    let confidence = Math.max(stats.nextColor.redPercent, stats.nextColor.blackPercent);
+                console.log('');
+                console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #FFD700; font-weight: bold;');
+                console.log('%c║  📊 ANÁLISE SIMPLES DO PADRÃO                            ║', 'color: #FFD700; font-weight: bold;');
+                console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #FFD700; font-weight: bold;');
+                
+                // ✅ LÓGICA SIMPLES: Encontrou pelo menos 1x? Recomenda a cor com maior %
+                if (stats && stats.occurrences >= 1) {
+                    console.log(`📈 Total de ocorrências encontradas: ${stats.occurrences}`);
+                    console.log(`🔴 Vermelho veio depois: ${stats.nextColor.redPercent}%`);
+                    console.log(`⚫ Preto veio depois: ${stats.nextColor.blackPercent}%`);
+                    console.log(`⚪ Branco veio depois: ${stats.nextColor.whitePercent}%`);
+                    console.log('');
                     
-                    // ✅ Ajustar confiança baseado no número de ocorrências
-                    let confidenceAdjustment = '';
-                    if (stats.occurrences < 3) {
-                        const originalConfidence = confidence;
-                        confidence = Math.max(40, Math.floor(confidence * 0.7)); // Reduzir 30% mas mínimo 40%
-                        confidenceAdjustment = ` (ajustado de ${originalConfidence}% por poucas ocorrências)`;
-                        console.log(`⚠️ Padrão com ${stats.occurrences} ocorrência(s) - Confiança reduzida${confidenceAdjustment}`);
-                    }
+                    // Determinar cor com maior frequência (SIMPLES!)
+                    const redPercent = stats.nextColor.redPercent;
+                    const blackPercent = stats.nextColor.blackPercent;
+                    const recommendedColor = redPercent > blackPercent ? 'red' : 'black';
+                    const confidence = Math.max(redPercent, blackPercent);
+                    
+                    console.log(`%c✅ PADRÃO CUSTOMIZADO APROVADO!`, 'color: #00FF88; font-weight: bold; font-size: 14px;');
+                    console.log(`%c🎯 COR RECOMENDADA: ${recommendedColor === 'red' ? '🔴 VERMELHO' : '⚫ PRETO'}`, 'color: #00FF88; font-weight: bold;');
+                    console.log(`%c📊 Confiança: ${confidence}%`, 'color: #00FF88; font-weight: bold;');
+                    console.log('');
                     
                     return {
                         pattern: customPattern,
@@ -4107,31 +4213,16 @@ async function checkForCustomPatterns(history) {
                         recommendedColor: recommendedColor,
                         confidence: confidence,
                         reasoning: `Padrão customizado "${customPattern.name}" detectado! ` +
-                                  `Historicamente, em ${stats.occurrences} ocorrência(s), ` +
-                                  `a cor ${recommendedColor === 'red' ? '🔴 VERMELHA' : '⚫ PRETA'} veio depois em ${Math.max(stats.nextColor.redPercent, stats.nextColor.blackPercent)}% dos casos.${confidenceAdjustment}`
+                                  `Sistema encontrou ${stats.occurrences} ocorrência(s) no histórico. ` +
+                                  `A cor ${recommendedColor === 'red' ? '🔴 VERMELHA' : '⚫ PRETA'} veio depois em ${confidence}% dos casos.`
                     };
                 } else {
-                    // ✅ FALLBACK EXTREMO: Se o padrão foi detectado mas não há histórico,
-                    // usar análise básica baseada na última cor
-                    console.log(`⚠️ Padrão encontrado, mas sem dados estatísticos no histórico`);
-                    console.log(`   📊 Usando análise básica...`);
-                    
-                    // Usar a cor oposta à última como fallback
-                    const lastColor = colors[0];
-                    const fallbackColor = lastColor === 'red' ? 'black' : 'red';
-                    const fallbackConfidence = 45; // Confiança baixa
-                    
-                    console.log(`   🎯 Cor detectada: ${fallbackColor.toUpperCase()}`);
-                    console.log(`   📊 Confiança: ${fallbackConfidence}% (baixa - sem histórico)`);
-                    
-                    return {
-                        pattern: customPattern,
-                        stats: { occurrences: 0, nextColor: { redPercent: 50, blackPercent: 50, whitePercent: 0 } },
-                        recommendedColor: fallbackColor,
-                        confidence: fallbackConfidence,
-                        reasoning: `Padrão customizado "${customPattern.name}" detectado! ` +
-                                  `Sem dados históricos disponíveis. Análise baseada em probabilidade padrão.`
-                    };
+                    // Padrão nunca apareceu no histórico
+                    console.log(`%c⚠️ ATENÇÃO! Padrão NUNCA apareceu no histórico`, 'color: #FFA500; font-weight: bold; font-size: 14px;');
+                    console.log(`%c   Padrão detectado: "${customPattern.name}"`, 'color: #FFA500;');
+                    console.log(`%c   Sem dados históricos para análise`, 'color: #FFA500;');
+                    console.log('');
+                    // Continuar verificando próximo padrão
                 }
             } else {
                 console.log(`\n   ❌ COR ANTERIOR NÃO VÁLIDA!`);
@@ -6308,13 +6399,35 @@ function analyzeCurrentContext(last20Spins, activePattern) {
  * @returns {Object} - {color, confidence, occurrences, similarity}
  */
 function buscarSequenciaNoHistorico(targetSequence, searchHistory, spinsToAnalyze = 100) {
-    console.log(`%c🔍 Buscando sequência no histórico de ${searchHistory.length} giros...`, 'color: #00D4FF;');
+    console.log('');
+    console.log('%c╔═══════════════════════════════════════════════════════════════════════════════╗', 'color: #00D4FF; font-weight: bold;');
+    console.log('%c║  🔍 DEBUG DETALHADO: buscarSequenciaNoHistorico                             ║', 'color: #00D4FF; font-weight: bold;');
+    console.log('%c╚═══════════════════════════════════════════════════════════════════════════════╝', 'color: #00D4FF; font-weight: bold;');
+    console.log(`%c📊 PARÂMETROS DA BUSCA:`, 'color: #00D4FF; font-weight: bold;');
+    console.log(`   ➤ Tamanho do histórico de busca: ${searchHistory.length} giros`);
+    console.log(`   ➤ Tamanho da sequência alvo: ${targetSequence.length} giros`);
+    console.log(`   ➤ Giros para analisar após match: ${spinsToAnalyze}`);
     
     // Extrair apenas as cores da sequência alvo
     const targetColors = targetSequence.map(spin => spin.color);
     
+    console.log('');
+    console.log('%c🎯 SEQUÊNCIA ALVO (Últimos 10 giros):', 'color: #FFD700; font-weight: bold;');
+    for (let i = 0; i < targetSequence.length; i++) {
+        const spin = targetSequence[i];
+        const colorEmoji = spin.color === 'red' ? '🔴' : spin.color === 'black' ? '⚫' : '⚪';
+        console.log(`   ${i + 1}. ${colorEmoji} ${spin.color.toUpperCase()} (#${spin.number || '?'})`);
+    }
+    console.log(`   → Padrão: ${targetColors.map(c => c === 'red' ? '🔴' : c === 'black' ? '⚫' : '⚪').join(' ')}`);
+    console.log('');
+    
     let exactMatches = [];
     let similarMatches = []; // Matches com 60%+ de similaridade
+    let highMatches = [];    // Matches com 80%+ de similaridade
+    
+    console.log('%c🔍 INICIANDO VARREDURA DO HISTÓRICO...', 'color: #00D4FF; font-weight: bold;');
+    console.log(`   Analisando ${searchHistory.length - spinsToAnalyze - 10} posições no histórico`);
+    console.log('');
     
     // Buscar no histórico (começando do índice 10, pois precisamos de 10 giros anteriores)
     for (let i = 10; i < searchHistory.length - spinsToAnalyze; i++) {
@@ -6333,54 +6446,143 @@ function buscarSequenciaNoHistorico(targetSequence, searchHistory, spinsToAnalyz
         if (similarity === 100) {
             // Match exato!
             exactMatches.push(i);
+            console.log(`%c   ✅ MATCH EXATO encontrado na posição ${i}! (100% similaridade)`, 'color: #00FF00; font-weight: bold;');
+        } else if (similarity >= 80) {
+            // Match com 80%+ de similaridade
+            highMatches.push({ index: i, similarity: similarity });
+            console.log(`%c   ⭐ MATCH ALTO encontrado na posição ${i} (${similarity}% similaridade)`, 'color: #FFD700;');
         } else if (similarity >= 60) {
             // Match com 60%+ de similaridade
             similarMatches.push({ index: i, similarity: similarity });
         }
     }
     
-    console.log(`%c   ✅ Matches exatos: ${exactMatches.length}`, 'color: #00FF88;');
-    console.log(`%c   ⚡ Matches similares (60%+): ${similarMatches.length}`, 'color: #00FF88;');
+    console.log('');
+    console.log('%c📊 RESULTADO DA VARREDURA:', 'color: #00FF88; font-weight: bold; font-size: 14px;');
+    console.log(`%c   ✅ Matches EXATOS (100%): ${exactMatches.length}`, exactMatches.length > 0 ? 'color: #00FF00; font-weight: bold;' : 'color: #FF6666;');
+    console.log(`%c   ⭐ Matches ALTOS (80-99%): ${highMatches.length}`, highMatches.length > 0 ? 'color: #FFD700; font-weight: bold;' : 'color: #FF6666;');
+    console.log(`%c   ⚡ Matches SIMILARES (60-79%): ${similarMatches.length}`, similarMatches.length > 0 ? 'color: #00FF88;' : 'color: #FF6666;');
+    console.log(`%c   📊 TOTAL de matches com 60%+: ${exactMatches.length + highMatches.length + similarMatches.length}`, 'color: #00D4FF; font-weight: bold;');
+    console.log('');
     
     // Analisar o que veio DEPOIS dessas ocorrências
     let nextColorCounts = { red: 0, black: 0, white: 0 };
     let totalOccurrences = 0;
-    let avgSimilarity = 100;
+    let avgSimilarity = 0;
+    let matchesUsed = [];
+    
+    console.log('%c🎯 ANALISANDO O QUE VEIO DEPOIS DOS MATCHES...', 'color: #FFD700; font-weight: bold;');
+    console.log('');
     
     if (exactMatches.length > 0) {
-        // Usar matches exatos
-        console.log(`%c   🎯 Usando ${exactMatches.length} match(es) exato(s)`, 'color: #00FF00; font-weight: bold;');
+        // PRIORIDADE 1: Usar matches exatos (100%)
+        console.log(`%c   ✅ USANDO ${exactMatches.length} MATCH(ES) EXATO(S) (100% similaridade)`, 'color: #00FF00; font-weight: bold; font-size: 14px;');
+        console.log('');
         
-        exactMatches.forEach(matchIndex => {
+        exactMatches.forEach((matchIndex, idx) => {
+            console.log(`%c   📍 Match ${idx + 1}/${exactMatches.length} (posição ${matchIndex})`, 'color: #00FF88;');
+            
             // Analisar os próximos X giros após o match
             const nextSpins = searchHistory.slice(matchIndex, matchIndex + spinsToAnalyze);
+            console.log(`      ➤ Analisando ${nextSpins.length} giros após este match`);
+            
+            let localCounts = { red: 0, black: 0, white: 0 };
             nextSpins.forEach(spin => {
                 if (spin.color in nextColorCounts) {
                     nextColorCounts[spin.color]++;
+                    localCounts[spin.color]++;
                 }
             });
+            
+            console.log(`      ➤ Distribuição: 🔴 ${localCounts.red} | ⚫ ${localCounts.black} | ⚪ ${localCounts.white}`);
         });
         
         totalOccurrences = exactMatches.length;
         avgSimilarity = 100;
-    } else if (similarMatches.length > 0) {
-        // Usar matches similares (60%+)
-        console.log(`%c   ⚡ Usando ${similarMatches.length} match(es) similar(es) (60%+)`, 'color: #FFAA00; font-weight: bold;');
+        matchesUsed = exactMatches.map(i => ({ index: i, similarity: 100 }));
         
-        similarMatches.forEach(match => {
+        console.log('');
+        console.log(`%c   ✅ TOTAL DE OCORRÊNCIAS EXATAS: ${totalOccurrences}`, 'color: #00FF00; font-weight: bold; font-size: 14px;');
+        
+    } else if (highMatches.length > 0) {
+        // PRIORIDADE 2: Usar matches altos (80-99%)
+        console.log(`%c   ⭐ USANDO ${highMatches.length} MATCH(ES) DE ALTA SIMILARIDADE (80-99%)`, 'color: #FFD700; font-weight: bold; font-size: 14px;');
+        console.log('');
+        
+        highMatches.forEach((match, idx) => {
+            console.log(`%c   📍 Match ${idx + 1}/${highMatches.length} (posição ${match.index}, ${match.similarity}% similar)`, 'color: #FFD700;');
+            
             const nextSpins = searchHistory.slice(match.index, match.index + spinsToAnalyze);
+            console.log(`      ➤ Analisando ${nextSpins.length} giros após este match`);
+            
+            let localCounts = { red: 0, black: 0, white: 0 };
             nextSpins.forEach(spin => {
                 if (spin.color in nextColorCounts) {
                     nextColorCounts[spin.color]++;
+                    localCounts[spin.color]++;
                 }
             });
+            
+            console.log(`      ➤ Distribuição: 🔴 ${localCounts.red} | ⚫ ${localCounts.black} | ⚪ ${localCounts.white}`);
         });
         
-        totalOccurrences = similarMatches.length;
-        avgSimilarity = Math.round(similarMatches.reduce((sum, m) => sum + m.similarity, 0) / similarMatches.length);
+        totalOccurrences = highMatches.length;
+        avgSimilarity = Math.round(highMatches.reduce((sum, m) => sum + m.similarity, 0) / highMatches.length);
+        matchesUsed = highMatches;
+        
+        console.log('');
+        console.log(`%c   ⭐ TOTAL DE OCORRÊNCIAS DE ALTA SIMILARIDADE: ${totalOccurrences}`, 'color: #FFD700; font-weight: bold; font-size: 14px;');
+        console.log(`%c   📊 Similaridade média: ${avgSimilarity}%`, 'color: #FFD700; font-weight: bold;');
+        
+    } else if (similarMatches.length > 0) {
+        // PRIORIDADE 3: Usar matches similares (60-79%)
+        console.log(`%c   ⚡ USANDO ${similarMatches.length} MATCH(ES) DE MÉDIA SIMILARIDADE (60-79%)`, 'color: #00FF88; font-weight: bold; font-size: 14px;');
+        console.log('');
+        
+        // Usar no máximo os 10 melhores matches similares (para não poluir demais)
+        const topSimilarMatches = similarMatches
+            .sort((a, b) => b.similarity - a.similarity)
+            .slice(0, 10);
+        
+        console.log(`%c   📊 Usando os ${topSimilarMatches.length} melhores matches (dos ${similarMatches.length} encontrados)`, 'color: #00FF88;');
+        console.log('');
+        
+        topSimilarMatches.forEach((match, idx) => {
+            console.log(`%c   📍 Match ${idx + 1}/${topSimilarMatches.length} (posição ${match.index}, ${match.similarity}% similar)`, 'color: #00FF88;');
+            
+            const nextSpins = searchHistory.slice(match.index, match.index + spinsToAnalyze);
+            
+            let localCounts = { red: 0, black: 0, white: 0 };
+            nextSpins.forEach(spin => {
+                if (spin.color in nextColorCounts) {
+                    nextColorCounts[spin.color]++;
+                    localCounts[spin.color]++;
+                }
+            });
+            
+            if (idx < 3) { // Mostrar detalhes só dos 3 primeiros
+                console.log(`      ➤ Analisando ${nextSpins.length} giros após este match`);
+                console.log(`      ➤ Distribuição: 🔴 ${localCounts.red} | ⚫ ${localCounts.black} | ⚪ ${localCounts.white}`);
+            }
+        });
+        
+        totalOccurrences = topSimilarMatches.length;
+        avgSimilarity = Math.round(topSimilarMatches.reduce((sum, m) => sum + m.similarity, 0) / topSimilarMatches.length);
+        matchesUsed = topSimilarMatches;
+        
+        console.log('');
+        console.log(`%c   ⚡ TOTAL DE OCORRÊNCIAS SIMILARES USADAS: ${totalOccurrences}`, 'color: #00FF88; font-weight: bold; font-size: 14px;');
+        console.log(`%c   📊 Similaridade média: ${avgSimilarity}%`, 'color: #00FF88; font-weight: bold;');
+        
     } else {
-        // Nenhum match encontrado → Usar análise de frequência simples
-        console.log(`%c   ⚠️ Nenhum match encontrado. Usando frequência geral.`, 'color: #FFA500;');
+        // FALLBACK: Nenhum match encontrado → Usar análise de frequência simples
+        console.log('');
+        console.log(`%c   ⚠️⚠️⚠️ NENHUM MATCH ENCONTRADO! ⚠️⚠️⚠️`, 'color: #FF0000; font-weight: bold; font-size: 16px;');
+        console.log(`%c   ⚠️ O padrão dos últimos 10 giros NÃO apareceu no histórico!`, 'color: #FF6666; font-weight: bold;');
+        console.log(`%c   ⚠️ Isso é NORMAL em um jogo aleatório!`, 'color: #FFA500; font-weight: bold;');
+        console.log('');
+        console.log(`%c   🔄 FALLBACK: Usando análise de frequência geral dos últimos ${spinsToAnalyze} giros`, 'color: #FFA500; font-weight: bold;');
+        console.log('');
         
         const recentSpins = searchHistory.slice(0, spinsToAnalyze);
         recentSpins.forEach(spin => {
@@ -6391,9 +6593,20 @@ function buscarSequenciaNoHistorico(targetSequence, searchHistory, spinsToAnalyz
         
         totalOccurrences = 0;
         avgSimilarity = 0;
+        
+        console.log(`%c   📊 Frequência geral: 🔴 ${nextColorCounts.red} | ⚫ ${nextColorCounts.black} | ⚪ ${nextColorCounts.white}`, 'color: #FFA500;');
     }
+    console.log('');
     
-    // Determinar cor recomendada
+    // Determinar cor recomendada baseada na distribuição
+    console.log('%c📊 CALCULANDO COR RECOMENDADA...', 'color: #FFD700; font-weight: bold;');
+    console.log('');
+    console.log(`%c   Distribuição total após todos os matches:`, 'color: #00D4FF; font-weight: bold;');
+    console.log(`%c      🔴 VERMELHO: ${nextColorCounts.red} giros`, 'color: #FF0000; font-weight: bold;');
+    console.log(`%c      ⚫ PRETO: ${nextColorCounts.black} giros`, 'color: #FFFFFF; font-weight: bold;');
+    console.log(`%c      ⚪ BRANCO: ${nextColorCounts.white} giros`, 'color: #00FF00;');
+    console.log('');
+    
     let recommendedColor = 'red';
     let maxCount = nextColorCounts.red;
     
@@ -6402,43 +6615,101 @@ function buscarSequenciaNoHistorico(targetSequence, searchHistory, spinsToAnalyz
         maxCount = nextColorCounts.black;
     }
     
+    console.log(`%c   🎯 Cor com MAIOR frequência: ${recommendedColor.toUpperCase()} (${maxCount} giros)`, 
+        `color: ${recommendedColor === 'red' ? '#FF0000' : '#FFFFFF'}; font-weight: bold; font-size: 14px;`);
+    console.log('');
+    
     // Calcular confiança baseada na distribuição
     const totalColors = nextColorCounts.red + nextColorCounts.black + nextColorCounts.white;
     let confidence = totalColors > 0 ? Math.round((maxCount / totalColors) * 100) : 50;
     
+    console.log(`%c   📈 Cálculo de confiança:`, 'color: #00D4FF; font-weight: bold;');
+    console.log(`%c      Total de giros analisados: ${totalColors}`, 'color: #00D4FF;');
+    console.log(`%c      Frequência da cor vencedora: ${maxCount}/${totalColors}`, 'color: #00D4FF;');
+    console.log(`%c      Confiança inicial: ${confidence}%`, 'color: #00D4FF; font-weight: bold;');
+    console.log('');
+    
     // Ajustar confiança baseada em ocorrências
     if (totalOccurrences === 0) {
+        const oldConfidence = confidence;
         confidence = Math.max(confidence - 10, 40); // Penalidade se não encontrou pattern
+        console.log(`%c   ⚠️ PENALIDADE: Nenhum match encontrado → Reduzindo ${oldConfidence}% para ${confidence}%`, 'color: #FFA500; font-weight: bold;');
+        console.log('');
     }
     
-    console.log(`%c   📊 Distribuição após sequência:`, 'color: #00D4FF;');
-    console.log(`%c      🔴 VERMELHO: ${nextColorCounts.red}`, 'color: #FF0000;');
-    console.log(`%c      ⚫ PRETO: ${nextColorCounts.black}`, 'color: #FFFFFF;');
-    console.log(`%c      ⚪ BRANCO: ${nextColorCounts.white}`, 'color: #00FF00;');
-    console.log(`%c   🎯 Cor recomendada: ${recommendedColor.toUpperCase()} (${confidence}%)`, `color: ${recommendedColor === 'red' ? '#FF0000' : '#FFFFFF'}; font-weight: bold;`);
+    // ✅ VALIDAÇÃO RIGOROSA: ALERTAR SE POUCOS MATCHES
+    console.log('%c🔍 VALIDAÇÃO DE QUALIDADE DA ANÁLISE:', 'color: #FFD700; font-weight: bold;');
+    console.log('');
     
-    // ✅ VALIDAÇÃO RIGOROSA: MÍNIMO 5 OCORRÊNCIAS
-    const MIN_OCCURRENCES = 5;
-    if (totalOccurrences < MIN_OCCURRENCES) {
+    const MIN_OCCURRENCES_WARNING = 5;
+    const MIN_OCCURRENCES_CRITICAL = 2;
+    
+    if (totalOccurrences === 0) {
+        console.log(`%c   ⚠️⚠️⚠️ CRÍTICO: NENHUM MATCH ENCONTRADO! ⚠️⚠️⚠️`, 'color: #FF0000; font-weight: bold; font-size: 14px;');
+        console.log(`%c   ➤ O padrão dos últimos 10 giros NUNCA apareceu no histórico`, 'color: #FF6666; font-weight: bold;');
+        console.log(`%c   ➤ Usando frequência geral como fallback`, 'color: #FF6666; font-weight: bold;');
+        console.log(`%c   ➤ Confiança reduzida para: ${confidence}%`, 'color: #FFA500; font-weight: bold;');
         console.log('');
-        console.log(`%c⚠️⚠️⚠️ DADOS INSUFICIENTES! ⚠️⚠️⚠️`, 'color: #FF0000; font-weight: bold; font-size: 14px;');
-        console.log(`%c   Ocorrências encontradas: ${totalOccurrences}`, 'color: #FF6666; font-weight: bold;');
-        console.log(`%c   Mínimo exigido: ${MIN_OCCURRENCES}`, 'color: #FF6666; font-weight: bold;');
-        console.log(`%c   ⚠️ NÃO HÁ BASE ESTATÍSTICA SÓLIDA!`, 'color: #FF0000; font-weight: bold;');
-        console.log(`%c   ⚠️ Reduzindo confiança para 40-45%`, 'color: #FFA500; font-weight: bold;');
+    } else if (totalOccurrences < MIN_OCCURRENCES_CRITICAL) {
+        console.log(`%c   ⚠️ ALERTA: MUITO POUCOS MATCHES!`, 'color: #FF6666; font-weight: bold; font-size: 14px;');
+        console.log(`%c   ➤ Matches encontrados: ${totalOccurrences}`, 'color: #FF6666; font-weight: bold;');
+        console.log(`%c   ➤ Recomendado: pelo menos ${MIN_OCCURRENCES_WARNING}+ matches`, 'color: #FF6666; font-weight: bold;');
+        console.log(`%c   ➤ Base estatística MUITO FRACA!`, 'color: #FF0000; font-weight: bold;');
         console.log('');
         
-        // Reduzir confiança drasticamente
+        const oldConfidence = confidence;
         confidence = Math.min(confidence, 45);
+        console.log(`%c   ⚠️ PENALIDADE: Confiança limitada a ${confidence}% (era ${oldConfidence}%)`, 'color: #FFA500; font-weight: bold;');
+        console.log('');
+    } else if (totalOccurrences < MIN_OCCURRENCES_WARNING) {
+        console.log(`%c   ⚠️ ATENÇÃO: Poucos matches encontrados`, 'color: #FFA500; font-weight: bold;');
+        console.log(`%c   ➤ Matches encontrados: ${totalOccurrences}`, 'color: #FFA500;');
+        console.log(`%c   ➤ Recomendado: pelo menos ${MIN_OCCURRENCES_WARNING}+ matches`, 'color: #FFA500;');
+        console.log(`%c   ➤ Base estatística razoável, mas não ideal`, 'color: #FFA500;');
+        console.log('');
+        
+        const oldConfidence = confidence;
+        confidence = Math.min(confidence, 50);
+        console.log(`%c   ⚠️ Confiança limitada a ${confidence}% (era ${oldConfidence}%)`, 'color: #FFA500;');
+        console.log('');
+    } else {
+        console.log(`%c   ✅ Base estatística SÓLIDA!`, 'color: #00FF00; font-weight: bold; font-size: 14px;');
+        console.log(`%c   ➤ Matches encontrados: ${totalOccurrences}`, 'color: #00FF88; font-weight: bold;');
+        console.log(`%c   ➤ Similaridade média: ${avgSimilarity}%`, 'color: #00FF88; font-weight: bold;');
+        console.log(`%c   ➤ Análise baseada em dados REAIS do histórico!`, 'color: #00FF00; font-weight: bold;');
+        console.log('');
     }
     
-    return {
+    console.log('%c═══════════════════════════════════════════════════════════════════════════════', 'color: #00D4FF; font-weight: bold;');
+    console.log('%c🏁 RESULTADO FINAL DA BUSCA:', 'color: #00FF00; font-weight: bold; font-size: 16px;');
+    console.log('%c═══════════════════════════════════════════════════════════════════════════════', 'color: #00D4FF; font-weight: bold;');
+    console.log(`%c   🎯 Cor recomendada: ${recommendedColor.toUpperCase()}`, `color: ${recommendedColor === 'red' ? '#FF0000' : '#FFFFFF'}; font-weight: bold; font-size: 16px;`);
+    console.log(`%c   📊 Confiança: ${confidence}%`, 'color: #FFD700; font-weight: bold; font-size: 16px;');
+    console.log(`%c   🔢 Ocorrências do padrão: ${totalOccurrences}x`, 'color: #00FF88; font-weight: bold; font-size: 16px;');
+    console.log(`%c   📈 Similaridade média: ${avgSimilarity}%`, 'color: #00FF88; font-weight: bold; font-size: 16px;');
+    console.log('%c═══════════════════════════════════════════════════════════════════════════════', 'color: #00D4FF; font-weight: bold;');
+    console.log('');
+    
+    const result = {
         color: recommendedColor,
         confidence: confidence,
         occurrences: totalOccurrences,
         similarity: avgSimilarity,
-        distribution: nextColorCounts
+        distribution: nextColorCounts,
+        // Dados extras para debug
+        matchesBreakdown: {
+            exact: exactMatches.length,
+            high: highMatches.length,
+            similar: similarMatches.length,
+            used: matchesUsed.length
+        }
     };
+    
+    console.log('%c📦 Objeto retornado:', 'color: #00FFFF; font-weight: bold;');
+    console.log(result);
+    console.log('');
+    
+    return result;
 }
 
 /**
@@ -6806,28 +7077,28 @@ function verifyHotPatternStillValid(history, savedPattern) {
 }
 
 /**
- * 🔥 DETECTAR PADRÃO QUENTE NOS ÚLTIMOS 50 GIROS
- * Encontra padrões de 3-5 cores que estão "quentes" (alto win rate, sem 2 LOSS consecutivos)
+ * 🔥 DETECTAR PADRÃO QUENTE NOS ÚLTIMOS 75 GIROS
+ * Encontra padrões de 4-6 giros com maior taxa de acerto
+ * ⚙️ DETERMINÍSTICO: Sempre retorna o mesmo padrão com o mesmo histórico
+ * ⏱️ RÁPIDO: Executa em <100ms (otimizado, sem logs excessivos)
  */
 function detectHotPattern(history) {
+    const startTime = performance.now(); // ⏱️ MEDIR TEMPO
+    
     try {
         console.log('');
         console.log('═══════════════════════════════════════════════════════════');
-        console.log('🔥 DETECTANDO PADRÃO QUENTE (Últimos 50 giros)');
+        console.log('🔥 DETECTANDO PADRÃO QUENTE');
         console.log('═══════════════════════════════════════════════════════════');
-        console.log(`🔍 DEBUG: history existe? ${!!history}`);
-        console.log(`🔍 DEBUG: history.length = ${history ? history.length : 'N/A'}`);
         
-        if (!history || history.length < 10) {
-            console.log('⚠️ Histórico insuficiente para detectar padrão quente');
+        if (!history || history.length < 12) {
+            console.log('⚠️ Histórico insuficiente (mínimo 12 giros)');
             return null;
         }
     
-    // Pegar últimos 50 giros
-    const last50 = history.slice(0, Math.min(50, history.length));
-    console.log(`📊 Analisando ${last50.length} giros mais recentes`);
-    console.log('🔍 Buscando padrões de tamanho 3 a 5 giros');
-    console.log('✅ Critério: Cor prevista deve aparecer pelo menos 2 vezes após o padrão');
+    // Pegar últimos 75 giros (aumentado de 50 para 75)
+    const last50 = history.slice(0, Math.min(75, history.length));
+    console.log(`📊 Analisando ${last50.length} giros (últimos 75) - buscando padrões 4-6 giros...`);
     
     // Debug: mostrar os últimos 15 giros
     const preview = last50.slice(0, 15).map(s => {
@@ -6840,13 +7111,9 @@ function detectHotPattern(history) {
     
     const candidatos = [];
     
-    console.log('🔄 Iniciando busca por padrões de 3-5 giros...');
-    
-    // Testar padrões de tamanho 3, 4 e 5
-    for (let patternSize = 3; patternSize <= 5; patternSize++) {
-        console.log(`   • Testando tamanho ${patternSize}...`);
+    // Testar padrões de tamanho 4, 5 e 6 (MÍNIMO 4 GIROS)
+    for (let patternSize = 4; patternSize <= 6; patternSize++) {
         if (last50.length < patternSize + 1) {
-            console.log(`     ⚠️ Histórico muito curto para tamanhos de ${patternSize}`);
             continue;
         }
         
@@ -6882,8 +7149,6 @@ function detectHotPattern(history) {
             // Contar previsões (qual cor mais saiu depois desse padrão)
             patternMap[patternKey].predictions[result]++;
         }
-        
-        console.log(`     ✓ Mapeamento completo: ${Object.keys(patternMap).length} padrões únicos encontrados`);
         
         // Analisar cada padrão encontrado
         let validPatterns = 0;
@@ -6944,19 +7209,15 @@ function detectHotPattern(history) {
             });
             validPatterns++;
         }
-        
-        console.log(`     ✓ Padrões válidos encontrados (2+ vezes, cor 2+): ${validPatterns}`);
     }
     
-    console.log(`🔍 Total de candidatos após busca 3-5 giros: ${candidatos.length}`);
+    console.log(`   ✓ ${candidatos.length} candidatos encontrados (4-6 giros)`);
     
-    // ✅ SE NÃO ENCONTROU com 3-5 giros, tentar com padrões MENORES (2 giros)
+    // ✅ SE NÃO ENCONTROU com 4-6 giros, tentar com padrões MENORES (3 giros)
     if (candidatos.length === 0) {
-        console.log('⚠️ Nenhum padrão de 3-5 giros encontrado');
-        console.log('🔄 Buscando padrões menores (2 giros)...');
-        console.log('');
+        console.log('   ⚠️ Nenhum padrão de 4-6 giros, tentando 3 giros (fallback)...');
         
-        const patternSize = 2;
+        const patternSize = 3;
         if (last50.length >= patternSize + 1) {
             const patternMap = {};
             
@@ -7029,58 +7290,33 @@ function detectHotPattern(history) {
         }
         
         if (candidatos.length === 0) {
-            console.log('');
-            console.log('❌ NENHUM PADRÃO ENCONTRADO (nem com 2 giros)!');
-            console.log('⚠️ Histórico pode ser muito aleatório ou insuficiente');
-            console.log('');
+            console.log('   ❌ Nenhum padrão encontrado (histórico aleatório ou insuficiente)');
             return null;
         }
-        
-        console.log(`✅ ${candidatos.length} padrão(ões) de 2 giros encontrado(s)!`);
-        console.log('');
     }
     
-    console.log('');
-    console.log(`✅ ${candidatos.length} padrão(ões) quente(s) encontrado(s) no total!`);
-    console.log('');
+    console.log(`   ✅ ${candidatos.length} padrão(ões) encontrado(s)`);
     
-    // Agrupar por tamanho para estatísticas
-    const porTamanho = {};
-    candidatos.forEach(c => {
-        const tam = c.pattern.length;
-        if (!porTamanho[tam]) porTamanho[tam] = 0;
-        porTamanho[tam]++;
-    });
-    
-    console.log('📊 Distribuição por tamanho:');
-    Object.keys(porTamanho).sort().forEach(tam => {
-        console.log(`   • ${tam} giros: ${porTamanho[tam]} padrão(ões)`);
-    });
-    console.log('');
-    
-    console.log('🏆 Top candidatos:');
-    // Mostrar top 5 ou todos se forem menos de 5
-    const topCandidates = candidatos.slice(0, Math.min(5, candidatos.length));
-    topCandidates.forEach((c, idx) => {
-        const patternStr = c.pattern.map(color => {
-            if (color === 'red') return '🔴';
-            if (color === 'black') return '⚫';
-            return '⚪';
-        }).join(' ');
-        const predStr = c.prediction === 'red' ? '🔴' : (c.prediction === 'black' ? '⚫' : '⚪');
-        console.log(`   ${idx + 1}. ${patternStr} → ${predStr}`);
-        console.log(`      • Padrão apareceu ${c.occurrences}x`);
-        console.log(`      • Cor prevista (${c.prediction}) saiu ${c.totalWins}x`);
-        console.log(`      • Taxa: ${((c.totalWins / c.occurrences) * 100).toFixed(0)}%`);
-    });
-    console.log('');
-    
-    // Ordenar por:
+    // Ordenar por (DETERMINÍSTICO):
     // 1. Maior win rate (deve ser 100%)
     // 2. Maior número de ocorrências da cor prevista
+    // 3. Mais recente (timestamp maior = mais recente)
+    // 4. Maior número total de ocorrências do padrão
     candidatos.sort((a, b) => {
+        // 1º critério: win rate
         if (b.winRate !== a.winRate) return b.winRate - a.winRate;
-        return b.totalWins - a.totalWins; // Mudado de occurrences para totalWins
+        
+        // 2º critério: total de wins
+        if (b.totalWins !== a.totalWins) return b.totalWins - a.totalWins;
+        
+        // 3º critério: MAIS RECENTE (timestamp da última ocorrência)
+        // Timestamp maior = mais recente
+        if (b.lastOccurrenceTimestamp !== a.lastOccurrenceTimestamp) {
+            return new Date(b.lastOccurrenceTimestamp) - new Date(a.lastOccurrenceTimestamp);
+        }
+        
+        // 4º critério: mais ocorrências totais
+        return b.occurrences - a.occurrences;
     });
     
     const melhor = candidatos[0];
@@ -7098,7 +7334,19 @@ function detectHotPattern(history) {
     console.log(`   🎯 Previsão: ${predDisplay}`);
     console.log(`   📊 Padrão apareceu: ${melhor.occurrences} vezes nos últimos 50 giros`);
     console.log(`   ✅ Cor prevista (${melhor.prediction.toUpperCase()}) saiu: ${melhor.totalWins} vezes`);
-    console.log(`   🎯 Frequência: ${((melhor.totalWins / melhor.occurrences) * 100).toFixed(1)}% - Quando "${patternDisplay}" aparece, ${melhor.totalWins} de ${melhor.occurrences} vezes sai ${predDisplay}`);
+    console.log(`   🎯 Frequência: ${((melhor.totalWins / melhor.occurrences) * 100).toFixed(1)}%`);
+    console.log(`   ⏰ Última vez que apareceu: ${new Date(melhor.lastOccurrenceTimestamp).toLocaleTimeString('pt-BR')}`);
+    console.log('');
+    console.log('💡 POR QUE ESTE PADRÃO FOI ESCOLHIDO:');
+    console.log(`   1️⃣ Win Rate: ${(melhor.winRate * 100).toFixed(1)}% (critério principal)`);
+    console.log(`   2️⃣ Total de Wins: ${melhor.totalWins}x (cor prevista acertou)`);
+    console.log(`   3️⃣ Recente: apareceu às ${new Date(melhor.lastOccurrenceTimestamp).toLocaleTimeString('pt-BR')} (desempate)`);
+    console.log(`   4️⃣ Ocorrências totais: ${melhor.occurrences}x (último critério)`);
+    console.log('');
+    console.log('✅ Este padrão é DETERMINÍSTICO - sempre será o mesmo com o mesmo histórico!');
+    
+    const elapsedTime = (performance.now() - startTime).toFixed(2);
+    console.log(`⏱️ TEMPO DE EXECUÇÃO: ${elapsedTime}ms`);
     console.log('═══════════════════════════════════════════════════════════');
     console.log('');
     
@@ -7855,16 +8103,59 @@ async function analyzeWithPatternSystem(history) {
                 </div>
             `;
         } else {
-            // Raciocínio completo das 5 fases
-            reasoning = `ANÁLISE NÍVEL DIAMANTE (5 Fases): ` +
-            `FASE 1: Busca dos últimos 10 giros no histórico total (${historySize} giros) → ${fase1Result.color.toUpperCase()} (${fase1Result.occurrences} ocorrências, ${fase1Result.similarity}% similaridade). ` +
-            `FASE 2: Análise dos 25% mais recentes (${recent25Percent} giros) → ${fase2Result.color.toUpperCase()} (${fase2Result.occurrences} ocorrências). ` +
-            `FASE 3: Últimos 20 giros → Cor dominante: ${corDominante.toUpperCase()} (${corDominante === fase1Result.color ? 'CONFIRMA' : 'CONTRADIZ'} → ${fase3Adjustment >= 0 ? '+' : ''}${fase3Adjustment}%). ` +
-            (customPatternResult ? 
-                    `FASE 4: ★ Padrão customizado "${customPatternResult.patternName}" → ${customPatternResult.color.toUpperCase()} (PRIORIDADE ABSOLUTA!). ` : 
-                `FASE 4: Nenhum padrão customizado. `) +
-                `FASE 5: ${fase5Reason}. ` +
-            `Decisão FINAL: ${finalColor.toUpperCase()} com ${finalConfidence}% de confiança.`;
+            // Raciocínio completo das 5 fases (MELHORADO)
+            
+            // Mensagem sobre matches encontrados na FASE 1
+            let fase1Description = '';
+            if (fase1Result.occurrences === 0) {
+                fase1Description = `FASE 1: Padrão NUNCA apareceu no histórico de ${historySize} giros → Usando frequência geral como fallback (confiança reduzida).`;
+            } else if (fase1Result.occurrences < 3) {
+                fase1Description = `FASE 1: Padrão encontrado POUCAS vezes no histórico (${fase1Result.occurrences}x em ${historySize} giros, ${fase1Result.similarity}% similaridade) → Base estatística FRACA! ${fase1Result.color.toUpperCase()} recomendado.`;
+            } else if (fase1Result.similarity < 100) {
+                const matchType = fase1Result.similarity >= 80 ? 'alta' : 'média';
+                fase1Description = `FASE 1: Encontrado ${fase1Result.occurrences} padrões com similaridade ${matchType} (${fase1Result.similarity}%) em ${historySize} giros → ${fase1Result.color.toUpperCase()} recomendado com base nesses matches.`;
+            } else {
+                fase1Description = `FASE 1: Padrão EXATO encontrado ${fase1Result.occurrences}x no histórico de ${historySize} giros (100% similaridade) → ${fase1Result.color.toUpperCase()} tem forte base estatística!`;
+            }
+            
+            // Mensagem sobre FASE 2
+            let fase2Description = '';
+            if (fase2Result.occurrences === 0) {
+                fase2Description = `FASE 2: Padrão não encontrado nos ${recent25Percent} giros recentes (25% do histórico) → Cor quente: ${fase2Result.color.toUpperCase()} (por frequência geral).`;
+            } else if (fase2Result.occurrences < fase1Result.occurrences) {
+                fase2Description = `FASE 2: Nos giros RECENTES (${recent25Percent}), encontrado ${fase2Result.occurrences}x → Cor "quente": ${fase2Result.color.toUpperCase()}.`;
+            } else {
+                fase2Description = `FASE 2: Padrão MUITO ATIVO recentemente! Encontrado ${fase2Result.occurrences}x nos últimos ${recent25Percent} giros → Cor "quente": ${fase2Result.color.toUpperCase()}.`;
+            }
+            
+            // Mensagem sobre FASE 3
+            const fase3Emoji = corDominante === fase1Result.color ? '✅' : '⚠️';
+            const fase3Text = corDominante === fase1Result.color ? 'CONFIRMA' : 'CONTRADIZ';
+            const fase3Description = `FASE 3: Dominância nos últimos 20 giros → ${corDominante.toUpperCase()} ${fase3Emoji} ${fase3Text} a análise (ajuste: ${fase3Adjustment >= 0 ? '+' : ''}${fase3Adjustment}%).`;
+            
+            // Mensagem sobre FASE 4
+            let fase4Description = '';
+            if (customPatternResult) {
+                fase4Description = `FASE 4: ⭐ PADRÃO CUSTOMIZADO DETECTADO! "${customPatternResult.patternName}" → ${customPatternResult.color.toUpperCase()} (PRIORIDADE ABSOLUTA! ${fase4Adjustment >= 0 ? '+' : ''}${fase4Adjustment}%).`;
+            } else {
+                fase4Description = `FASE 4: Nenhum padrão customizado ativo no momento.`;
+            }
+            
+            // Mensagem sobre FASE 5
+            const fase5Description = `FASE 5: ${fase5Reason}.`;
+            
+            // Montar raciocínio completo
+            reasoning = `🔍 ANÁLISE NÍVEL DIAMANTE (5 Fases Progressivas):\n` +
+                `${fase1Description}\n` +
+                `${fase2Description}\n` +
+                `${fase3Description}\n` +
+                `${fase4Description}\n` +
+                `${fase5Description}\n` +
+                `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+                `🎯 DECISÃO FINAL: ${finalColor.toUpperCase()}\n` +
+                `📊 Confiança: ${finalConfidence}%\n` +
+                `📈 Base: ${fase1Result.occurrences > 0 ? `${fase1Result.occurrences} ocorrências reais` : 'Frequência geral (padrão raro)'}\n` +
+                `${fase1Result.matchesBreakdown ? `🔢 Matches: ${fase1Result.matchesBreakdown.exact} exatos, ${fase1Result.matchesBreakdown.high} altos, ${fase1Result.matchesBreakdown.similar} similares` : ''}`;
         }
         
         // Registrar sinal para verificação futura
@@ -8807,15 +9098,20 @@ async function runAnalysisController(history) {
 				verifyResult.phase = martingaleState.stage;
 			}
 			
-			console.log('╔═══════════════════════════════════════════════════════════╗');
-			console.log('║  💾 SALVANDO ANÁLISE EM CHROME.STORAGE.LOCAL             ║');
-			console.log('╚═══════════════════════════════════════════════════════════╝');
-			console.log('📊 Dados da análise:');
-			console.log('   Cor:', verifyResult.color);
-			console.log('   Confiança:', verifyResult.confidence);
-			console.log('   Fase:', verifyResult.phase || 'G0');
-			console.log('   CreatedOn:', verifyResult.createdOnTimestamp);
-			console.log('   PredictedFor:', verifyResult.predictedFor);
+			console.log('');
+			console.log('%c╔══════════════════════════════════════════════════════════════════════════════╗', 'color: #FFD700; font-weight: bold; font-size: 16px;');
+			console.log('%c║  💾 SALVANDO SINAL/ENTRADA EM CHROME.STORAGE.LOCAL                         ║', 'color: #FFD700; font-weight: bold; font-size: 16px;');
+			console.log('%c╚══════════════════════════════════════════════════════════════════════════════╝', 'color: #FFD700; font-weight: bold; font-size: 16px;');
+			console.log('%c📊 DADOS COMPLETOS DO SINAL:', 'color: #FFD700; font-weight: bold;');
+			console.log('   ➤ Cor:', verifyResult.color);
+			console.log('   ➤ Confiança:', verifyResult.confidence + '%');
+			console.log('   ➤ Fase:', verifyResult.phase || 'G0');
+			console.log('   ➤ CreatedOn (timestamp):', verifyResult.createdOnTimestamp);
+			console.log('   ➤ PredictedFor:', verifyResult.predictedFor);
+			console.log('   ➤ PatternDescription:', verifyResult.patternDescription);
+			console.log('   ➤ Modo:', analyzerConfig.aiMode ? 'NÍVEL DIAMANTE (IA)' : 'ANÁLISE PADRÃO');
+			console.log('');
+			console.log('%c💾 Salvando objeto analysis no storage...', 'color: #00FFFF; font-weight: bold;');
 			
 			await chrome.storage.local.set({
 				analysis: verifyResult,
@@ -8823,7 +9119,9 @@ async function runAnalysisController(history) {
 				lastBet: { status: 'pending', phase: verifyResult.phase || 'G0', createdOnTimestamp: verifyResult.createdOnTimestamp }
 			});
 			
-			console.log('✅ Análise salva em chrome.storage.local!');
+			console.log('%c✅ SINAL SALVO COM SUCESSO NO STORAGE!', 'color: #00FF00; font-weight: bold; font-size: 14px;');
+			console.log('%c   ➤ Agora aguardando próximo giro para verificar WIN/LOSS...', 'color: #00FF88;');
+			console.log('');
 			
 			// ✅ ENVIAR SINAIS PARA AMBOS OS CANAIS (INDEPENDENTES)
 			const sendResults = {

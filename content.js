@@ -581,6 +581,51 @@
             }
         });
         
+        // ✅ BANCO DE PADRÕES: Ocultar quando Nível Diamante está ativo
+        // O Banco de Padrões só é usado no modo de análise padrão
+        const patternBankSection = document.querySelector('.pattern-bank-section');
+        if (patternBankSection) {
+            if (isAIMode) {
+                // Modo Diamante: OCULTAR banco de padrões
+                patternBankSection.style.display = 'none';
+                console.log('📂 Banco de Padrões ocultado (Modo Nível Diamante ativo)');
+            } else {
+                // Modo Padrão: MOSTRAR banco de padrões
+                patternBankSection.style.display = '';
+                console.log('📂 Banco de Padrões visível (Modo Padrão ativo)');
+            }
+        }
+        
+        // ✅ VISUAL FEEDBACK: Mudar cor de fundo quando Nível Diamante está ativo
+        // Fundo da extensão: 15% mais claro | Header: 25% mais verde
+        const sidebar = document.getElementById('blaze-double-analyzer');
+        if (sidebar) {
+            if (isAIMode) {
+                // Modo Diamante: ATIVAR visual diferenciado
+                sidebar.classList.add('diamond-mode-active');
+                console.log('💎 Visual Nível Diamante ativado (fundo +15% claro, header +25% verde)');
+            } else {
+                // Modo Padrão: REMOVER visual diferenciado
+                sidebar.classList.remove('diamond-mode-active');
+                console.log('📊 Visual Modo Padrão ativado (cores normais)');
+            }
+        }
+        
+        // ✅ BOTÕES DE PADRÕES CUSTOMIZADOS: Visíveis apenas no Nível Diamante
+        // (Padrão Quente, Padrões Ativos, Adicionar Modelo)
+        const customPatternsContainer = document.getElementById('customPatternsContainer');
+        if (customPatternsContainer) {
+            if (isAIMode) {
+                // Modo Diamante: MOSTRAR botões de padrões customizados
+                customPatternsContainer.style.display = '';
+                console.log('🔥 Botões de Padrões Customizados visíveis (Modo Nível Diamante)');
+            } else {
+                // Modo Padrão: OCULTAR botões de padrões customizados
+                customPatternsContainer.style.display = 'none';
+                console.log('🔒 Botões de Padrões Customizados ocultos (Modo Padrão)');
+            }
+        }
+        
     }
     
     // ═══════════════════════════════════════════════════════════════════════════════
@@ -818,6 +863,21 @@
                                         <span class="color-circle white"></span>
                                     </span>
                                 </label>
+                            </div>
+                        </div>
+                        
+                        <!-- Aviso sobre análise dinâmica -->
+                        <div class="custom-pattern-field" style="margin-top: 10px; padding: 10px; background: rgba(0, 212, 255, 0.1); border: 1px solid rgba(0, 212, 255, 0.3); border-radius: 6px;">
+                            <div style="display: flex; align-items: flex-start; gap: 8px;">
+                                <span style="font-size: 16px;">💡</span>
+                                <div style="flex: 1;">
+                                    <div style="color: #00d4ff; font-size: 11px; font-weight: bold; margin-bottom: 4px;">
+                                        Como funciona a análise?
+                                    </div>
+                                    <div style="color: #999; font-size: 10px; line-height: 1.4;">
+                                        Você define apenas a <strong style="color: #fff;">sequência do padrão</strong>. Quando este padrão aparecer, o sistema irá <strong style="color: #fff;">analisar automaticamente</strong> qual cor veio depois nas ocorrências passadas. Se uma cor aparecer em <strong style="color: #00ff88;">≥70%</strong> das vezes, o sistema envia o sinal. Caso contrário, rejeita.
+                                    </div>
+                                </div>
                             </div>
                         </div>
                         
@@ -1091,7 +1151,7 @@
         if (!btn) return;
         
         if (status === 'disabled') {
-            btn.innerHTML = '🔥 Padrão Quente';
+            btn.innerHTML = 'Padrão Quente';
             btn.style.height = 'auto';
             btn.style.padding = '8px 14px';
             return;
@@ -1103,7 +1163,7 @@
             btn.innerHTML = `
                 <div style="display: flex; flex-direction: column; gap: 4px; align-items: center;">
                     <div style="font-size: 12px; font-weight: 600;">🔍 Buscando...</div>
-                    <div style="font-size: 9px; opacity: 0.7;">Analisando últimos 50 giros</div>
+                    <div style="font-size: 9px; opacity: 0.7;">Analisando últimos 75 giros</div>
                 </div>
             `;
         } else if (status === 'found' && patternData) {
@@ -1141,7 +1201,7 @@
             btn.style.padding = '10px 14px';
             btn.innerHTML = `
                 <div style="display: flex; flex-direction: column; gap: 6px; align-items: center; width: 100%;">
-                    <div style="font-size: 11px; font-weight: 600;">🔥 Padrão Quente</div>
+                    <div style="font-size: 11px; font-weight: 600;">Padrão Quente</div>
                     <div style="display: flex; gap: 4px; align-items: center; justify-content: center;">
                         ${predictionHTML}
                         <span style="font-size: 10px; font-weight: bold;">→</span>
@@ -1665,6 +1725,11 @@
                                     ${beforeColorHTML}
                                     ${sequenceHTML}
                                 </div>
+                                <div style="margin-top: 8px; padding: 6px 8px; background: rgba(0, 212, 255, 0.08); border-left: 2px solid rgba(0, 212, 255, 0.4); border-radius: 3px;">
+                                    <div style="font-size: 9px; color: #00d4ff; line-height: 1.3;">
+                                        <strong>💡 Análise Dinâmica:</strong> Quando este padrão aparecer, o sistema analisará automaticamente qual cor teve ≥70% de frequência no histórico.
+                                    </div>
+                                </div>
                                 <div style="position: absolute; top: 8px; right: 8px; display: flex; gap: 10px; align-items: center;">
                                     <button style="background: transparent; border: none; color: #00d4ff; font-size: 11px; cursor: pointer; padding: 4px 8px; transition: all 0.2s; font-weight: bold;" 
                                             onmouseover="this.style.color='#00ff88'; this.style.textDecoration='underline';" 
@@ -2068,7 +2133,7 @@
                         <div class="setting-item setting-row" id="customPatternsContainer" style="margin-top: 20px; padding-top: 15px; border-top: 1px solid #333;">
                             <div style="width: 100%; display: flex; gap: 8px; flex-wrap: wrap; justify-content: center;">
                                 <button id="btnHotPattern" class="btn-hot-pattern" style="flex: 1; min-width: 140px;">
-                                    🔥 Padrão Quente
+                                    Padrão Quente
                                 </button>
                                 <button id="btnViewCustomPatterns" class="btn-view-patterns" style="display: none; flex: 1; min-width: 140px;">
                                     ✓ Padrões Ativos (<span id="patternsCount">0</span>)
@@ -2371,15 +2436,15 @@
             modal.innerHTML = `
                 <div class="pattern-modal-content">
                     <div class="pattern-modal-header">
-                        <h3>🎯 Padrão da Entrada</h3>
+                        <h3>Padrão da Entrada</h3>
                         <button class="pattern-modal-close">&times;</button>
                     </div>
                     <div class="pattern-modal-body">
                         <div class="entry-info">
                             <div class="entry-color-info">
-                                <span class="entry-label">Cor Recomendada:</span>
+                                <span class="entry-label">Cor:</span>
                                 <div class="entry-color-display ${entry.color}">
-                                    ${entry.color === 'white' ? blazeWhiteSVG(24) : ''}
+                                    ${entry.color === 'white' ? blazeWhiteSVG(18) : ''}
                                 </div>
                                 <span class="entry-color-name">${entry.color === 'red' ? 'Vermelho' : entry.color === 'black' ? 'Preto' : 'Branco'}</span>
                             </div>
@@ -2437,7 +2502,7 @@
         modal.innerHTML = `
             <div class="pattern-modal-content">
                 <div class="pattern-modal-header">
-                    <h3>⚠️ Padrão Não Disponível</h3>
+                    <h3>Padrão Não Disponível</h3>
                     <button class="pattern-modal-close">&times;</button>
                 </div>
                 <div class="pattern-modal-body">
@@ -2448,7 +2513,7 @@
                             <div class="entry-summary-item">
                                 <span class="summary-label">Entrada:</span>
                                 <div class="entry-color-display ${entry.color}">
-                                    ${entry.color === 'white' ? blazeWhiteSVG(20) : ''}
+                                    ${entry.color === 'white' ? blazeWhiteSVG(16) : ''}
                                 </div>
                                 <span class="summary-value">${entry.color === 'red' ? 'Vermelho' : entry.color === 'black' ? 'Preto' : 'Branco'} (${entry.number})</span>
                             </div>
@@ -2567,10 +2632,14 @@
                     white-space: pre-wrap;
                     font-family: 'Segoe UI', 'Roboto', sans-serif;
                     font-size: 13px;
-                    line-height: 1.8;
+                    line-height: 1.6;
                     color: #e8e8ff;
                     text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
-                ">${aiData.reasoning}</div>
+                ">${aiData.reasoning.replace(/FASE 1:/g, '<span style="color: #00d4ff; font-weight: bold;">FASE 1:</span>')
+                                  .replace(/FASE 2:/g, '<span style="color: #00d4ff; font-weight: bold;">FASE 2:</span>')
+                                  .replace(/FASE 3:/g, '<span style="color: #00d4ff; font-weight: bold;">FASE 3:</span>')
+                                  .replace(/FASE 4:/g, '<span style="color: #00d4ff; font-weight: bold;">FASE 4:</span>')
+                                  .replace(/FASE 5:/g, '<span style="color: #00d4ff; font-weight: bold;">FASE 5:</span>')}</div>
             </div>
         </div>`;
     }
@@ -2771,10 +2840,14 @@
                                 white-space: pre-wrap;
                                 font-family: 'Segoe UI', 'Roboto', sans-serif;
                                 font-size: 13px;
-                                line-height: 1.8;
+                                line-height: 1.6;
                                 color: #e8e8ff;
                                 text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
-                            ">${aiData.reasoning}</div>
+                            ">${aiData.reasoning.replace(/FASE 1:/g, '<span style="color: #00d4ff; font-weight: bold;">FASE 1:</span>')
+                                              .replace(/FASE 2:/g, '<span style="color: #00d4ff; font-weight: bold;">FASE 2:</span>')
+                                              .replace(/FASE 3:/g, '<span style="color: #00d4ff; font-weight: bold;">FASE 3:</span>')
+                                              .replace(/FASE 4:/g, '<span style="color: #00d4ff; font-weight: bold;">FASE 4:</span>')
+                                              .replace(/FASE 5:/g, '<span style="color: #00d4ff; font-weight: bold;">FASE 5:</span>')}</div>
                         </div>
                     </div>`;
                 } else {
