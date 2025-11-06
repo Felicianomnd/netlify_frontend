@@ -952,19 +952,57 @@ async function checkAPIStatus() {
 
 // Buscar giros do servidor
 async function fetchGirosFromAPI() {
-    if (!API_CONFIG.enabled) return null;
+    if (!API_CONFIG.enabled) {
+        console.log('⚠️ API_CONFIG.enabled = false - não buscará giros do servidor');
+        return null;
+    }
     
     try {
+        console.log('═══════════════════════════════════════════════════════════');
+        console.log('📥 INICIANDO BUSCA DE GIROS DO SERVIDOR...');
+        console.log('   URL:', `${API_CONFIG.baseURL}/api/giros?limit=2000`);
+        console.log('   Timeout: 20 segundos');
+        console.log('═══════════════════════════════════════════════════════════');
+        
+        const startTime = Date.now();
+        
         // Usar timeout maior para busca inicial de 2000 giros (20s)
         const response = await fetchWithTimeout(`${API_CONFIG.baseURL}/api/giros?limit=2000`, {}, 20000);
+        
+        const elapsedTime = ((Date.now() - startTime) / 1000).toFixed(2);
+        console.log(`⏱️ Tempo de resposta: ${elapsedTime}s`);
+        
         if (response.ok) {
             const data = await response.json();
+            console.log('✅ Resposta recebida com sucesso!');
+            console.log('   data.success:', data.success);
+            console.log('   data.data existe?', !!data.data);
+            console.log('   data.data.length:', data.data ? data.data.length : 'N/A');
+            
             if (data.success && data.data) {
-                console.log(`📥 Servidor: ${data.data.length} giros recebidos`);
+                console.log(`%c✅ SERVIDOR RETORNOU ${data.data.length} GIROS!`, 'color: #00ff00; font-weight: bold; font-size: 14px;');
+                console.log('   Primeiro giro (mais recente):', data.data[0]);
+                console.log('   Último giro (mais antigo):', data.data[data.data.length - 1]);
+                console.log('═══════════════════════════════════════════════════════════');
                 return data.data;
+            } else {
+                console.log('⚠️ Resposta do servidor sem dados válidos');
+                console.log('   Estrutura recebida:', Object.keys(data));
+                console.log('═══════════════════════════════════════════════════════════');
             }
+        } else {
+            console.log('❌ Resposta com erro do servidor');
+            console.log('   Status:', response.status);
+            console.log('   StatusText:', response.statusText);
+            console.log('═══════════════════════════════════════════════════════════');
         }
     } catch (error) {
+        console.log('❌ ERRO AO BUSCAR GIROS DO SERVIDOR!');
+        console.log('   Tipo de erro:', error.name);
+        console.log('   Mensagem:', error.message);
+        console.log('   Stack:', error.stack);
+        console.log('═══════════════════════════════════════════════════════════');
+        
         // Não mostrar erro assustador se for timeout - servidor pode estar ocupado
         if (error.message.includes('Timeout')) {
             console.log('⏳ Servidor ocupado - Continuará sincronizando em tempo real...');
@@ -1056,6 +1094,18 @@ async function syncInitialData() {
         cachedHistory = [...serverGiros].slice(0, 2000);
         historyInitialized = true;
         console.log(`%c✅ Cache em memória populado: ${cachedHistory.length} giros`, 'color: #00ff00; font-weight: bold;');
+        
+        // ✅ ENVIAR ÚLTIMO GIRO E HISTÓRICO PARA A UI
+        const lastSpin = serverGiros[0]; // O mais recente está na posição 0
+        if (lastSpin) {
+            console.log('📤 Enviando último giro para UI:', lastSpin);
+            await chrome.storage.local.set({ lastSpin: lastSpin });
+            sendMessageToContent('NEW_SPIN', { 
+                lastSpin: lastSpin,
+                history: serverGiros 
+            });
+            console.log('%c✅ UI atualizada com histórico do servidor', 'color: #00ff00; font-weight: bold;');
+        }
     } else {
         console.log('ℹ️ Nenhum giro no servidor ainda');
         cachedHistory = [];
@@ -3157,6 +3207,18 @@ async function initializeHistoryIfNeeded() {
             cachedHistory = [...serverGiros].slice(0, 2000);
             historyInitialized = true;
             console.log(`📊 Cache em memória inicializado: ${cachedHistory.length} giros`);
+            
+            // ✅ ENVIAR ÚLTIMO GIRO E HISTÓRICO PARA A UI
+            const lastSpin = serverGiros[0]; // O mais recente está na posição 0
+            if (lastSpin) {
+                console.log('📤 Enviando último giro para UI:', lastSpin);
+                await chrome.storage.local.set({ lastSpin: lastSpin });
+                sendMessageToContent('NEW_SPIN', { 
+                    lastSpin: lastSpin,
+                    history: serverGiros 
+                });
+                console.log('%c✅ UI atualizada com histórico do servidor (initializeHistoryIfNeeded)', 'color: #00ff00; font-weight: bold;');
+            }
             return;
         }
         
@@ -10500,38 +10562,6 @@ async function performPatternAnalysis(history) {
     sendAnalysisStatus(`🔍 Iniciando análise multidimensional de IA com ${history.length} giros`);
     
     // ═══════════════════════════════════════════════════════════════════════════════
-    // 🎯 PRIORIDADE MÁXIMA: VERIFICAR PADRÕES CUSTOMIZADOS
-    // ═══════════════════════════════════════════════════════════════════════════════
-    console.log('');
-    console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #00d4ff; font-weight: bold;');
-    console.log('%c║  🎯 PRIORIDADE 1: PADRÕES CUSTOMIZADOS                   ║', 'color: #00d4ff; font-weight: bold;');
-    console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #00d4ff; font-weight: bold;');
-    console.log('');
-    
-    const customPatternResult = await checkForCustomPatterns(history);
-    
-    if (customPatternResult) {
-        console.log('%c🎯 ✅ PADRÃO CUSTOMIZADO ENCONTRADO E VALIDADO!', 'color: #00ff88; font-weight: bold; font-size: 14px;');
-        console.log('%c   Usando análise customizada com prioridade máxima', 'color: #00ff88;');
-        console.log('');
-        
-        // Retornar análise baseada no padrão customizado
-        return {
-            color: customPatternResult.recommendedColor,
-            confidence: customPatternResult.confidence,
-            reasoning: customPatternResult.reasoning,
-            patternDescription: `🎯 PADRÃO CUSTOMIZADO: "${customPatternResult.pattern.name}" | ` +
-                               `Sequência: ${customPatternResult.pattern.sequence.join('→')} | ` +
-                               `Ocorrências: ${customPatternResult.stats.occurrences}`,
-            isCustomPattern: true,
-            customPatternData: customPatternResult
-        };
-    } else {
-        console.log('%cℹ️ Nenhum padrão customizado ativo. Prosseguindo com análise padrão...', 'color: #888;');
-        console.log('');
-    }
-    
-    // ═══════════════════════════════════════════════════════════════════════════════
     // ANÁLISE PADRÃO (CONTINUA NORMALMENTE SE NÃO HOUVER PADRÃO CUSTOMIZADO)
     // ═══════════════════════════════════════════════════════════════════════════════
     
@@ -13670,6 +13700,10 @@ async function combineMultidimensionalAnalyses(colorAnalysis, numberAnalysis, ti
         contributions[analysis.type] = analysis.confidence * weight;
     });
     
+    // ✅ CRIAR TIMESTAMPS CORRETOS (números, não strings!)
+    const now = Date.now();
+    const nextSpinTimestamp = now + 30000; // 30 segundos para próximo giro
+    
     return {
         suggestion: 'Entrada na próxima rodada (análise multidimensional confirmada)',
         color: bestRecommendation.color,
@@ -13714,8 +13748,9 @@ async function combineMultidimensionalAnalyses(colorAnalysis, numberAnalysis, ti
             consensusCount: bestRecommendation.count,
             consensusBonus: bestRecommendation.count > 1 ? (bestRecommendation.count - 1) * 5 : 0
         }),
-        createdOnTimestamp: new Date().toISOString(),
-        predictedFor: 'next',
+        // ✅ TIMESTAMPS NUMÉRICOS para validação WIN/LOSS funcionar!
+        createdOnTimestamp: now,
+        predictedFor: nextSpinTimestamp,
         phase: 'G0',
         contributions: contributions,
         rigorLevel: minConfidence,

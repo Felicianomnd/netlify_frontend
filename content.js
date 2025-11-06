@@ -336,7 +336,7 @@
         `;
         header.innerHTML = `
             <div style="font-size: 36px; margin-bottom: 8px;">⚠️</div>
-            <h3 style="margin: 0; color: #FFD700; font-size: 18px;">Nível Diamante Bloqueado</h3>
+            <h3 style="margin: 0; color: #FFD700; font-size: 18px;">Análise Nível Diamante Bloqueada</h3>
         `;
         
         // Mensagem
@@ -349,7 +349,7 @@
             margin-bottom: 16px;
         `;
         message.innerHTML = `
-            <p style="margin: 0 0 12px 0;">O <strong>Nível Diamante</strong> utiliza análise avançada por padrões com sistema de auto-aprendizado.</p>
+            <p style="margin: 0 0 12px 0;">A <strong>Análise Nível Diamante</strong> utiliza análise avançada por padrões com sistema de auto-aprendizado.</p>
             <p style="margin: 0; font-size: 13px; color: #8da2bb;">Sistema 100% JavaScript - sem necessidade de chave API externa.</p>
         `;
         
@@ -639,16 +639,20 @@
         
         if (isActive) {
             toggleElement.classList.add('active');
-            if (modeName) modeName.textContent = '💎 Nível Diamante Ativo';
+            if (modeName) modeName.textContent = '💎 Análise Diamante Ativa';
             
             // 🧠 Atualizar status dinâmico da memória ativa
             if (modeApi) {
+                modeApi.style.display = 'block';
                 atualizarStatusMemoriaAtiva(modeApi);
             }
         } else {
             toggleElement.classList.remove('active');
-            if (modeName) modeName.textContent = 'Nível Diamante';
-            if (modeApi) modeApi.textContent = 'ANÁLISE COM INTELIGÊNCIA ARTIFICIAL IA';
+            if (modeName) modeName.textContent = 'Analisar a Nível Diamante';
+            if (modeApi) {
+                modeApi.textContent = '';
+                modeApi.style.display = 'none';
+            }
         }
     }
 
@@ -684,18 +688,20 @@
                 
                 if (!status.inicializada) {
                     // Memória está inicializando
-                    console.log('%c🟠 [UI] Atualizando para: INICIALIZANDO MEMÓRIA...', 'color: #FFA500; font-weight: bold;');
-                    elemento.textContent = 'ANÁLISE IA | 🔄 INICIALIZANDO MEMÓRIA...';
-                    elemento.style.color = '#FFA500'; // Laranja
+                    console.log('%c🟠 [UI] Atualizando para: Inicializando...', 'color: #FFA500; font-weight: bold;');
+                    elemento.textContent = '⚡ Inicializando sistema avançado...';
+                    elemento.style.color = 'rgba(255, 255, 255, 0.7)';
+                    elemento.style.fontWeight = '400';
                 } else {
                     // Memória está ativa
                     const updates = status.totalAtualizacoes || 0;
                     
-                    const textoNovo = `ANÁLISE IA | MEMÓRIA ATIVA (${updates} updates)`;
+                    const textoNovo = `Sistema ativo • ${updates} análises`;
                     console.log('%c🟢 [UI] Atualizando para:', 'color: #00FF00; font-weight: bold;', textoNovo);
                     
                     elemento.textContent = textoNovo;
-                    elemento.style.color = '#00FF00'; // Verde
+                    elemento.style.color = 'rgba(255, 255, 255, 0.9)';
+                    elemento.style.fontWeight = '500';
                 }
                 
                 console.log('%c✅ [UI] Texto do elemento após atualização:', 'color: #00FF88;', elemento.textContent);
@@ -704,8 +710,9 @@
                 console.warn('%c⚠️ [CONTENT] Resposta inválida ou vazia!', 'color: #FFA500; font-weight: bold;');
                 console.warn('%c   response:', 'color: #FFA500;', response);
                 console.warn('%c   response.status:', 'color: #FFA500;', response?.status);
-                elemento.textContent = 'ANÁLISE COM INTELIGÊNCIA ARTIFICIAL IA';
-                elemento.style.color = '#00FF88';
+                elemento.textContent = 'Sistema avançado ativo';
+                elemento.style.color = 'rgba(255, 255, 255, 0.9)';
+                elemento.style.fontWeight = '500';
             }
         } catch (error) {
             console.error('%c╔══════════════════════════════════════════════════════════╗', 'color: #FF0000; font-weight: bold;');
@@ -713,8 +720,9 @@
             console.error('%c╚══════════════════════════════════════════════════════════╝', 'color: #FF0000; font-weight: bold;');
             console.error('%c   Erro:', 'color: #FF0000;', error);
             console.error('%c   Stack:', 'color: #FF0000;', error.stack);
-            elemento.textContent = 'ANÁLISE COM INTELIGÊNCIA ARTIFICIAL IA';
-            elemento.style.color = '#00FF88';
+            elemento.textContent = 'Sistema avançado ativo';
+            elemento.style.color = 'rgba(255, 255, 255, 0.9)';
+            elemento.style.fontWeight = '500';
         }
         
         console.log('%c═══════════════════════════════════════════════════════════', 'color: #00CED1;');
@@ -1933,9 +1941,9 @@
             <div class="analyzer-header" id="sidebarHeader">
                 <div class="header-content">
                     <h3 class="header-title">Double Analyzer</h3>
-                    <div class="ai-mode-toggle" id="aiModeToggle" title="Ativar/Desativar Nível Diamante">
-                        <span class="mode-name">Nível Diamante</span>
-                        <span class="mode-api">ANÁLISE COM INTELIGÊNCIA ARTIFICIAL IA</span>
+                    <div class="ai-mode-toggle" id="aiModeToggle" title="Ativar/Desativar Análise a Nível Diamante">
+                        <span class="mode-name">Analisar a Nível Diamante</span>
+                        <span class="mode-api"></span>
                     </div>
                 </div>
                 <button class="toggle-btn" id="toggleSidebar">−</button>
@@ -2139,7 +2147,7 @@
                                     ✓ Padrões Ativos (<span id="patternsCount">0</span>)
                                 </button>
                                 <button id="btnAddCustomPattern" class="btn-add-custom-pattern" style="flex: 1; min-width: 140px;">
-                                    ➕ Adicionar Modelo
+                                    Adicionar Modelo
                                 </button>
                             </div>
                         </div>
@@ -2877,14 +2885,32 @@
             }
             
             console.log('📝 Não é IA, tentando fazer JSON.parse...');
+            console.log('📦 Tipo do parsed:', typeof parsed);
+            console.log('📦 Conteúdo do parsed:', parsed);
+            
             // Tentar fazer parse JSON para outros formatos
             try {
                 parsed = JSON.parse(parsed);
-                console.log('✅ JSON.parse bem-sucedido:', parsed);
+                console.log('✅ JSON.parse bem-sucedido!');
+                console.log('✅ Estrutura parseada:', Object.keys(parsed));
             } catch (e) {
                 console.error('❌ ERRO no JSON.parse:', e);
-                console.error('❌ Conteúdo que causou erro:', parsed);
-                return `<div class="pattern-error">Erro ao processar padrão</div>`;
+                console.error('❌ Tipo:', typeof parsed);
+                console.error('❌ Conteúdo:', parsed);
+                console.error('❌ Primeiros 200 chars:', String(parsed).substring(0, 200));
+                
+                // ✅ FALLBACK: Se não conseguir parsear, criar estrutura mínima
+                if (typeof parsed === 'string') {
+                    console.log('🔄 Criando estrutura fallback...');
+                    parsed = {
+                        expected_next: null,
+                        colorAnalysis: null,
+                        fallback: true,
+                        originalText: parsed
+                    };
+                } else {
+                    return `<div class="pattern-error">Erro ao processar padrão: ${e.message}</div>`;
+                }
             }
         }
 
@@ -2927,6 +2953,23 @@
             } else if (parsed.frequencyAnalysis) {
                 patternInfo = `Frequência: ${parsed.frequencyAnalysis.pattern}`;
                 occurrences = parsed.frequencyAnalysis.occurrences || 1;
+            } else if (parsed.fallback) {
+                // Se é fallback, mostrar mensagem genérica
+                const expectedColor = parsed.expected_next || 'unknown';
+                const colorEmoji = expectedColor === 'red' ? '🔴' : expectedColor === 'black' ? '⚫' : expectedColor === 'white' ? '⚪' : '❓';
+                const colorName = expectedColor === 'red' ? 'Vermelho' : expectedColor === 'black' ? 'Preto' : expectedColor === 'white' ? 'Branco' : 'Desconhecida';
+                patternInfo = `${colorEmoji} Análise de Padrões → ${colorName}`;
+                console.log(`🔄 Usando fallback, cor: ${colorName}`);
+            } else if (parsed.expected_next) {
+                // Se tem cor esperada mas sem padrão detalhado
+                const expectedColor = parsed.expected_next;
+                const colorEmoji = expectedColor === 'red' ? '🔴' : expectedColor === 'black' ? '⚫' : expectedColor === 'white' ? '⚪' : '❓';
+                const colorName = expectedColor === 'red' ? 'Vermelho' : expectedColor === 'black' ? 'Preto' : expectedColor === 'white' ? 'Branco' : 'Desconhecida';
+                patternInfo = `${colorEmoji} Previsão: ${colorName}`;
+                console.log(`🎯 Cor prevista: ${colorName}`);
+            } else {
+                patternInfo = `Padrão detectado`;
+                console.log('⚠️ Nenhuma informação específica do padrão disponível');
             }
         }
         
@@ -3137,6 +3180,13 @@
     }
 
     function renderSpinHistory(history = []) {
+        console.log('═══════════════════════════════════════════════════════════');
+        console.log('🎨 RENDERIZANDO HISTÓRICO DE GIROS NA UI');
+        console.log('   Total de giros recebidos:', history.length);
+        console.log('   Primeiro giro:', history[0]);
+        console.log('   Último giro:', history[history.length - 1]);
+        console.log('═══════════════════════════════════════════════════════════');
+        
         // ✅ Salvar histórico globalmente para poder re-renderizar com mais giros
         currentHistoryData = history;
         
@@ -3268,13 +3318,41 @@
                             // Fazer parse do JSON
                             parsed = typeof parsed === 'string' ? JSON.parse(parsed) : parsed;
                             
-                            // Verificar se é JSON estruturado de IA
+                            // ✅ VERIFICAR TIPO DE ANÁLISE
                             if (parsed.type === 'AI_ANALYSIS') {
                                 console.log('✅ DETECTADO: Análise por IA (formato JSON estruturado)');
                                 console.log('🎲 last5Spins no JSON:', parsed.last5Spins);
                                 isAIAnalysis = true;
-                                // Passar o objeto data.pattern completo para ter acesso a last5Spins
                                 patternInfo.innerHTML = renderPatternVisual(parsed, data.pattern);
+                            } else if (parsed.type === 'custom_pattern') {
+                                console.log('✅ DETECTADO: Padrão Customizado');
+                                console.log('📋 Nome:', parsed.name);
+                                console.log('🎯 Sequência:', parsed.sequence.join(' → '));
+                                console.log('📊 Ocorrências:', parsed.occurrences);
+                                console.log('🎲 Próxima cor esperada:', parsed.expected_next);
+                                
+                                // Renderizar padrão customizado
+                                const colorEmoji = parsed.expected_next === 'red' ? '🔴' : 
+                                                 parsed.expected_next === 'black' ? '⚫' : '⚪';
+                                const colorName = parsed.expected_next === 'red' ? 'VERMELHO' : 
+                                                parsed.expected_next === 'black' ? 'PRETO' : 'BRANCO';
+                                
+                                patternInfo.innerHTML = `
+                                    <div style="padding: 12px; background: var(--bg-tertiary); border-radius: 6px; border: 1px solid var(--border-color);">
+                                        <div style="font-size: 14px; font-weight: bold; color: var(--text-primary); margin-bottom: 8px;">
+                                            🎯 ${parsed.name}
+                                        </div>
+                                        <div style="font-size: 12px; color: var(--text-secondary); margin-bottom: 8px;">
+                                            Sequência: ${parsed.sequence.join(' → ')}
+                                        </div>
+                                        <div style="font-size: 13px; color: var(--text-primary); font-weight: bold; margin-top: 8px;">
+                                            ${colorEmoji} Recomendação: ${colorName}
+                                        </div>
+                                        <div style="font-size: 11px; color: var(--text-secondary); margin-top: 4px;">
+                                            ${parsed.occurrences} ocorrência(s) | ${parsed.stats.red}% ⭕ ${parsed.stats.black}% ⚫ ${parsed.stats.white}% ⚪
+                                        </div>
+                                    </div>
+                                `;
                             } else {
                                 console.log('📝 Análise padrão detectada');
                                 // anexar summary vindo do analysis se existir
@@ -3934,15 +4012,43 @@
             console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #00ff88; font-weight: bold;');
             console.log('%c⚡ NOVO GIRO RECEBIDO! ATUALIZANDO HISTÓRICO INSTANTANEAMENTE!', 'color: #00ff88; font-weight: bold;');
             console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #00ff88; font-weight: bold;');
-            console.log('📊 Dados do giro:', request.data.lastSpin);
+            console.log('📊 Dados do giro (lastSpin):', request.data.lastSpin);
+            console.log('📊 Histórico completo enviado?', !!request.data.history);
+            console.log('📊 Tamanho do histórico enviado:', request.data.history ? request.data.history.length : 'N/A');
             
             // ✅ ATUALIZAR HISTÓRICO INSTANTANEAMENTE (SEM REQUISIÇÃO HTTP)
             if (request.data && request.data.lastSpin) {
                 // Atualizar último giro na sidebar
                 updateSidebar({ lastSpin: request.data.lastSpin });
                 
-                // ✅ NOVO: Atualizar histórico INSTANTANEAMENTE (sem fazer requisição HTTP)
-                updateHistoryUIInstant(request.data.lastSpin);
+                // ✅ SE O HISTÓRICO COMPLETO FOI ENVIADO, USAR ELE (sincronização inicial)
+                if (request.data.history && request.data.history.length > 0) {
+                    console.log('%c🔥 HISTÓRICO COMPLETO RECEBIDO DO SERVIDOR! RENDERIZANDO TUDO...', 'color: #ff9900; font-weight: bold; font-size: 14px;');
+                    console.log(`   Total de giros: ${request.data.history.length}`);
+                    
+                    // Atualizar histórico global com TODOS os giros
+                    currentHistoryData = request.data.history;
+                    
+                    // Re-renderizar o histórico completo na UI
+                    let historyContainer = document.getElementById('spin-history-bar-ext');
+                    if (historyContainer) {
+                        historyContainer.innerHTML = renderSpinHistory(currentHistoryData);
+                    } else {
+                        // Criar container se não existir
+                        const statsSection = document.querySelector('.stats-section');
+                        if (statsSection) {
+                            const wrap = document.createElement('div');
+                            wrap.id = 'spin-history-bar-ext';
+                            wrap.innerHTML = renderSpinHistory(currentHistoryData);
+                            statsSection.appendChild(wrap);
+                        }
+                    }
+                    
+                    console.log('%c✅ HISTÓRICO COMPLETO RENDERIZADO COM SUCESSO!', 'color: #00ff00; font-weight: bold;');
+                } else {
+                    // ✅ Apenas 1 giro novo (atualização incremental)
+                    updateHistoryUIInstant(request.data.lastSpin);
+                }
                 
                 console.log('✅ Histórico atualizado com sucesso! (SEM DELAY - INSTANTÂNEO)');
             } else {
