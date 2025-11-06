@@ -396,23 +396,6 @@
     transform: scale(1.05);
 }
 
-.toggle-btn {
-    background: rgba(255, 255, 255, 0.2);
-    border: none;
-    color: white;
-    width: 30px;
-    height: 30px;
-    border-radius: 50%;
-    cursor: pointer;
-    font-size: 16px;
-    font-weight: bold;
-    transition: all 0.3s ease;
-}
-
-.toggle-btn:hover {
-    background: rgba(255, 255, 255, 0.3);
-    transform: scale(1.1);
-}
 
 .analyzer-content {
     padding: 15px;
@@ -2709,31 +2692,6 @@
     transition: all 0.3s ease;
 }
 
-.toggle-btn {
-    position: absolute;
-    right: 15px;
-    top: 50%;
-    transform: translateY(-50%);
-    background: rgba(255, 255, 255, 0.1);
-    border: 1px solid rgba(255, 255, 255, 0.2);
-    color: white;
-    font-size: 20px;
-    width: 28px;
-    height: 28px;
-    border-radius: 4px;
-    cursor: pointer;
-    transition: all 0.2s ease;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    line-height: 1;
-}
-
-.toggle-btn:hover {
-    background: rgba(255, 255, 255, 0.2);
-    border-color: rgba(255, 255, 255, 0.3);
-}
-
 /* ═══════════════════════════════════════════════════════════════════════════════ */
 /* 🔒 BOTÃO DE MOSTRAR/OCULTAR SENHA (PROFISSIONAL)                                */
 /* ═══════════════════════════════════════════════════════════════════════════════ */
@@ -2892,17 +2850,10 @@
         width: 100% !important;
         max-width: 100% !important;
         box-sizing: border-box !important;
-        padding-right: 45px !important; /* ✅ Espaço para o botão de minimizar */
     }
     
     .analyzer-header h3 {
         font-size: 16px !important;
-    }
-    
-    /* ✅ BOTÃO DE MINIMIZAR NO MOBILE */
-    .toggle-btn {
-        z-index: 100 !important; /* ✅ Garantir que fique acima */
-        pointer-events: auto !important; /* ✅ Garantir que seja clicável */
     }
     
     /* ✅ AJUSTAR BOTÕES DO HEADER */

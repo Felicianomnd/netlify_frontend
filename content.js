@@ -1978,7 +1978,6 @@
                         <span class="mode-api"></span>
                     </div>
                 </div>
-                <button class="toggle-btn" id="toggleSidebar">−</button>
             </div>
             <div class="analyzer-content" id="analyzerContent">
                 <div class="entries-panel" id="entriesPanel">
@@ -2261,20 +2260,6 @@
         
         // Update scaling based on initial size
         updateScaling(sidebar);
-        
-        // Add toggle functionality
-        const toggleBtn = document.getElementById('toggleSidebar');
-        const content = document.getElementById('analyzerContent');
-        
-        toggleBtn.addEventListener('click', function() {
-            if (content.style.display === 'none') {
-                content.style.display = 'block';
-                toggleBtn.textContent = '−';
-            } else {
-                content.style.display = 'none';
-                toggleBtn.textContent = '+';
-            }
-        });
         
         // Wire clear entries history (content-script context; inline handlers won't work)
         const clearEntriesBtn = document.getElementById('clearEntriesBtn');
@@ -3906,8 +3891,6 @@
         document.addEventListener('mouseup', dragEnd);
         
         function dragStart(e) {
-            if (e.target.classList.contains('toggle-btn')) return;
-            
             initialX = e.clientX - xOffset;
             initialY = e.clientY - yOffset;
             
