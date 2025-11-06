@@ -500,6 +500,38 @@
             // ✅ Habilitar/Desabilitar campos irrelevantes para IA
             toggleAIConfigFields(newAIMode);
             
+            // 🧠 Se modo IA foi ativado, atualizar status e iniciar intervalo
+            if (newAIMode) {
+                const modeApi = toggleElement.querySelector('.mode-api');
+                if (modeApi) {
+                    console.log('%c🧠 Modo IA ATIVADO! Iniciando atualização do status...', 'color: #00CED1; font-weight: bold;');
+                    
+                    // ✅ TENTAR MÚLTIPLAS VEZES PARA GARANTIR (importante no mobile)
+                    const tentarAtualizar = async (tentativa = 1, maxTentativas = 3) => {
+                        await atualizarStatusMemoriaAtiva(modeApi);
+                        
+                        // Se ainda estiver "Inicializando..." e não for a última tentativa, tentar novamente
+                        if (modeApi.textContent.includes('Inicializando') && tentativa < maxTentativas) {
+                            console.log(`%c🔄 Tentativa ${tentativa}/${maxTentativas} - Ainda inicializando, tentando novamente em 2s...`, 'color: #FFA500;');
+                            setTimeout(() => tentarAtualizar(tentativa + 1, maxTentativas), 2000);
+                        }
+                    };
+                    
+                    // Primeira tentativa após 1 segundo
+                    setTimeout(() => tentarAtualizar(), 1000);
+                    
+                    // ✅ INICIAR INTERVALO DE ATUALIZAÇÃO PERIÓDICA
+                    iniciarAtualizacaoMemoria();
+                }
+            } else {
+                // Se desativou, parar intervalo
+                if (intervaloAtualizacaoMemoria) {
+                    clearInterval(intervaloAtualizacaoMemoria);
+                    intervaloAtualizacaoMemoria = null;
+                    console.log('%c🛑 Intervalo de atualização da memória parado.', 'color: #FFA500;');
+                }
+            }
+            
             // ❌ NÃO SINCRONIZAR aiMode - cada dispositivo tem seu próprio modo ativo!
             // As configurações (minPercentage, aiApiKey, etc) são sincronizadas via botão Salvar
             
@@ -2291,10 +2323,22 @@
                     console.log('%c🧠 Modo IA já ativo! Atualizando status da memória...', 'color: #00CED1; font-weight: bold;');
                     const modeApi = aiModeToggle.querySelector('.mode-api');
                     if (modeApi) {
-                        // Aguardar 1 segundo para dar tempo do background inicializar
-                        setTimeout(async () => {
+                        // ✅ TENTAR MÚLTIPLAS VEZES PARA GARANTIR (importante no mobile)
+                        const tentarAtualizar = async (tentativa = 1, maxTentativas = 3) => {
                             await atualizarStatusMemoriaAtiva(modeApi);
-                        }, 1000);
+                            
+                            // Se ainda estiver "Inicializando..." e não for a última tentativa, tentar novamente
+                            if (modeApi.textContent.includes('Inicializando') && tentativa < maxTentativas) {
+                                console.log(`%c🔄 Tentativa ${tentativa}/${maxTentativas} - Ainda inicializando, tentando novamente em 2s...`, 'color: #FFA500;');
+                                setTimeout(() => tentarAtualizar(tentativa + 1, maxTentativas), 2000);
+                            }
+                        };
+                        
+                        // Primeira tentativa após 1 segundo
+                        setTimeout(() => tentarAtualizar(), 1000);
+                        
+                        // ✅ INICIAR INTERVALO DE ATUALIZAÇÃO PERIÓDICA
+                        iniciarAtualizacaoMemoria();
                     }
                 }
             });

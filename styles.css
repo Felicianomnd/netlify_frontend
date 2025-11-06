@@ -2877,11 +2877,15 @@
         position: sticky !important;
         top: 0 !important;
         z-index: 1000 !important;
-        background: linear-gradient(135deg, #0f3460 0%, #16213e 100%) !important;
         width: 100% !important;
         max-width: 100% !important;
         box-sizing: border-box !important;
         overflow: hidden !important;
+    }
+    
+    /* 💎 MODO DIAMANTE NO MOBILE - Header VERMELHO */
+    #blaze-double-analyzer.diamond-mode-active .analyzer-header {
+        background: linear-gradient(135deg, #dc2626 0%, #991b1b 100%) !important;
     }
     
     .header-content {
