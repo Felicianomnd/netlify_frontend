@@ -668,10 +668,17 @@
         
         const modeName = toggleElement.querySelector('.mode-name');
         const modeApi = toggleElement.querySelector('.mode-api');
+        const titleBadge = document.getElementById('titleBadge');
         
         if (isActive) {
             toggleElement.classList.add('active');
             if (modeName) modeName.textContent = '💎 Análise Diamante Ativa';
+            
+            // ✅ Mudar badge para IA
+            if (titleBadge) {
+                titleBadge.textContent = 'IA';
+                titleBadge.classList.add('badge-ia');
+            }
             
             // 🧠 Atualizar status dinâmico da memória ativa
             if (modeApi) {
@@ -680,7 +687,14 @@
             }
         } else {
             toggleElement.classList.remove('active');
-            if (modeName) modeName.textContent = 'Analisar a Nível Diamante';
+            if (modeName) modeName.textContent = 'Ativar Modo Diamante';
+            
+            // ✅ Mudar badge para PREMIUM
+            if (titleBadge) {
+                titleBadge.textContent = 'PREMIUM';
+                titleBadge.classList.remove('badge-ia');
+            }
+            
             if (modeApi) {
                 modeApi.textContent = '';
                 modeApi.style.display = 'none';
@@ -915,7 +929,7 @@
                                         Como funciona a análise?
                                     </div>
                                     <div style="color: #999; font-size: 10px; line-height: 1.4;">
-                                        Você define apenas a <strong style="color: #fff;">sequência do padrão</strong>. Quando este padrão aparecer, o sistema irá <strong style="color: #fff;">analisar automaticamente</strong> qual cor veio depois nas ocorrências passadas. Se uma cor aparecer em <strong style="color: #00ff88;">≥70%</strong> das vezes, o sistema envia o sinal. Caso contrário, rejeita.
+                                        Você define apenas a <strong style="color: #fff;">sequência do padrão</strong>. Quando este padrão aparecer, a IA irá <strong style="color: #fff;">analisar automaticamente</strong> qual cor veio depois nas ocorrências passadas. Se uma cor aparecer em <strong style="color: #00ff88;">≥70%</strong> das vezes, a IA envia o sinal. Caso contrário, rejeita.
                                     </div>
                                 </div>
                             </div>
@@ -983,6 +997,38 @@
                     const modal = document.getElementById('viewPatternsModal');
                     if (modal) {
                         modal.style.display = 'flex';
+                        
+                        // ✅ CENTRALIZAR MODAL COM BASE NA POSIÇÃO DA EXTENSÃO (com delay para renderização)
+                        setTimeout(() => {
+                            const sidebar = document.getElementById('blaze-double-analyzer');
+                            if (sidebar) {
+                                const rect = sidebar.getBoundingClientRect();
+                                const modalContent = modal.querySelector('.custom-pattern-modal-content');
+                                
+                                if (modalContent) {
+                                    // Centralizar horizontalmente com a sidebar
+                                    const sidebarCenterX = rect.left + (rect.width / 2);
+                                    const modalWidth = modalContent.offsetWidth || 500;
+                                    let leftPosition = sidebarCenterX - (modalWidth / 2);
+                                    
+                                    // Garantir que o modal não saia da tela
+                                    const margin = 20;
+                                    if (leftPosition < margin) leftPosition = margin;
+                                    if (leftPosition + modalWidth > window.innerWidth - margin) {
+                                        leftPosition = window.innerWidth - modalWidth - margin;
+                                    }
+                                    
+                                    // Centralizar verticalmente na tela
+                                    const modalHeight = modalContent.offsetHeight || 400;
+                                    let topPosition = (window.innerHeight - modalHeight) / 2;
+                                    if (topPosition < margin) topPosition = margin;
+                                    
+                                    modalContent.style.left = leftPosition + 'px';
+                                    modalContent.style.top = topPosition + 'px';
+                                    modalContent.style.transform = 'none';
+                                }
+                            }
+                        }, 10);
                     }
                 });
             }
@@ -1606,7 +1652,40 @@
                     const viewModal = document.getElementById('viewPatternsModal');
                     if (viewModal) {
                         viewModal.style.display = 'flex';
-                        console.log('✅ Modal de visualização reaberto após edição');
+                        
+                        // ✅ CENTRALIZAR MODAL COM BASE NA POSIÇÃO DA EXTENSÃO (com delay extra para renderização)
+                        setTimeout(() => {
+                            const sidebar = document.getElementById('blaze-double-analyzer');
+                            if (sidebar) {
+                                const rect = sidebar.getBoundingClientRect();
+                                const modalContent = viewModal.querySelector('.custom-pattern-modal-content');
+                                
+                                if (modalContent) {
+                                    // Centralizar horizontalmente com a sidebar
+                                    const sidebarCenterX = rect.left + (rect.width / 2);
+                                    const modalWidth = modalContent.offsetWidth || 500;
+                                    let leftPosition = sidebarCenterX - (modalWidth / 2);
+                                    
+                                    // Garantir que o modal não saia da tela
+                                    const margin = 20;
+                                    if (leftPosition < margin) leftPosition = margin;
+                                    if (leftPosition + modalWidth > window.innerWidth - margin) {
+                                        leftPosition = window.innerWidth - modalWidth - margin;
+                                    }
+                                    
+                                    // Centralizar verticalmente na tela
+                                    const modalHeight = modalContent.offsetHeight || 400;
+                                    let topPosition = (window.innerHeight - modalHeight) / 2;
+                                    if (topPosition < margin) topPosition = margin;
+                                    
+                                    modalContent.style.left = leftPosition + 'px';
+                                    modalContent.style.top = topPosition + 'px';
+                                    modalContent.style.transform = 'none';
+                                }
+                            }
+                        }, 10);
+                        
+                        console.log('✅ Modal de visualização reaberto e centralizado após edição');
                     }
                 }, 100);
             }
@@ -1700,7 +1779,16 @@
                     // Inverter a ordem para mostrar o mais recente primeiro
                     const patternsReversed = [...patterns].reverse();
                     
-                    viewPatternsList.innerHTML = patternsReversed.map((pattern, index) => {
+                    // ✅ Mensagem de análise dinâmica UMA VEZ no topo
+                    let dynamicAnalysisInfo = `
+                        <div style="margin-bottom: 12px; padding: 6px 10px; background: rgba(255, 255, 255, 0.03); border-left: 2px solid rgba(255, 255, 255, 0.2); border-radius: 3px;">
+                            <div style="font-size: 8px; color: rgba(255, 255, 255, 0.7); line-height: 1.2;">
+                                <strong style="color: rgba(255, 255, 255, 0.9);">Análise Dinâmica:</strong> Quando estes padrões aparecerem, a IA analisará automaticamente qual cor teve ≥70% de frequência no histórico.
+                            </div>
+                        </div>
+                    `;
+                    
+                    viewPatternsList.innerHTML = dynamicAnalysisInfo + patternsReversed.map((pattern, index) => {
                         // ✅ Marcar o primeiro da lista invertida como "RECENTE" (último cadastrado)
                         const isNewest = (index === 0);
                         
@@ -1732,16 +1820,15 @@
                             `;
                         }
                         
-                        // ✅ Construir a sequência com setas e "RECENTE" DENTRO dos ícones
+                        // ✅ Construir a sequência com setas DENTRO dos ícones
                         const sequenceHTML = pattern.sequence.map((color, idx) => {
                             const isLast = (idx === pattern.sequence.length - 1);
                             
                             if (isLast) {
-                                // Último ícone: adicionar "RECENTE" dentro
+                                // Último ícone: sem texto (cor será definida pela IA dinamicamente)
                                 return `
                                     <div style="position: relative; display: inline-block;">
                                         <span class="spin-color-circle-small ${color}"></span>
-                                        <span style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 5px; color: #00d4ff; font-weight: bold; white-space: nowrap; pointer-events: none;">REC</span>
                                     </div>
                                 `;
                             } else {
@@ -1756,19 +1843,14 @@
                         }).join('');
                         
                         return `
-                            <div class="view-pattern-item" style="${isNewest ? 'border: 2px solid #00ff88; box-shadow: 0 0 10px rgba(0, 255, 136, 0.3);' : ''}">
+                            <div class="view-pattern-item" style="${isNewest ? 'border: 2px solid #ef4444; box-shadow: 0 0 8px rgba(239, 68, 68, 0.3);' : ''}">
                                 <div class="view-pattern-name">
                                     ${pattern.name}
-                                    ${isNewest ? '<span style="background: #00ff88; color: #000; font-size: 9px; padding: 2px 6px; border-radius: 3px; margin-left: 8px; font-weight: bold;">MAIS RECENTE</span>' : ''}
+                                    ${isNewest ? '<span style="background: #ef4444; color: #ffffff; font-size: 9px; padding: 2px 6px; border-radius: 3px; margin-left: 8px; font-weight: bold;">MAIS RECENTE</span>' : ''}
                                 </div>
                                 <div style="display: flex; align-items: center; gap: 2px; flex-wrap: wrap; margin-top: 6px;">
                                     ${beforeColorHTML}
                                     ${sequenceHTML}
-                                </div>
-                                <div style="margin-top: 8px; padding: 6px 8px; background: rgba(0, 212, 255, 0.08); border-left: 2px solid rgba(0, 212, 255, 0.4); border-radius: 3px;">
-                                    <div style="font-size: 9px; color: #00d4ff; line-height: 1.3;">
-                                        <strong>💡 Análise Dinâmica:</strong> Quando este padrão aparecer, o sistema analisará automaticamente qual cor teve ≥70% de frequência no histórico.
-                                    </div>
                                 </div>
                                 <div style="position: absolute; top: 8px; right: 8px; display: flex; gap: 10px; align-items: center;">
                                     <button style="background: transparent; border: none; color: #00d4ff; font-size: 11px; cursor: pointer; padding: 4px 8px; transition: all 0.2s; font-weight: bold;" 
@@ -1892,13 +1974,48 @@
     // Remover modelo customizado (do modal de visualização)
     window.removeCustomPatternFromView = async function(patternId) {
         try {
+            console.log('');
+            console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #FF6666; font-weight: bold;');
+            console.log('%c║  🗑️ REMOVENDO PADRÃO CUSTOMIZADO                        ║', 'color: #FF6666; font-weight: bold;');
+            console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #FF6666; font-weight: bold;');
+            console.log(`   ID do padrão: ${patternId}`);
+            console.log('');
+            
             const result = await chrome.storage.local.get(['customPatterns']);
             let patterns = result.customPatterns || [];
+            
+            console.log(`📊 ANTES da exclusão: ${patterns.length} padrão(ões)`);
+            patterns.forEach((p, idx) => {
+                console.log(`   ${idx + 1}. "${p.name}" (ID: ${p.id}) ${p.id === patternId ? '← 🎯 ESTE SERÁ REMOVIDO' : ''}`);
+            });
+            console.log('');
+            
+            const patternToRemove = patterns.find(p => p.id === patternId);
+            if (patternToRemove) {
+                console.log(`%c🎯 Padrão encontrado para remoção: "${patternToRemove.name}"`, 'color: #FF6666; font-weight: bold;');
+                console.log(`   Sequência: ${patternToRemove.sequence.join(' → ')}`);
+            } else {
+                console.log(`%c❌ ERRO: Padrão ${patternId} NÃO encontrado!`, 'color: #FF0000; font-weight: bold;');
+                showToast('✗ Padrão não encontrado');
+                return;
+            }
+            console.log('');
+            
             patterns = patterns.filter(p => p.id !== patternId);
             
-            await chrome.storage.local.set({ customPatterns: patterns });
+            console.log(`📊 DEPOIS da exclusão: ${patterns.length} padrão(ões)`);
+            if (patterns.length > 0) {
+                patterns.forEach((p, idx) => {
+                    console.log(`   ${idx + 1}. "${p.name}" (ID: ${p.id})`);
+                });
+            } else {
+                console.log('   (Nenhum padrão restante)');
+            }
+            console.log('');
             
-            console.log('🗑️ Modelo removido localmente:', patternId);
+            await chrome.storage.local.set({ customPatterns: patterns });
+            console.log('%c✅ Storage local atualizado!', 'color: #00FF88; font-weight: bold;');
+            console.log('');
             
             // ✅ VERIFICAR SE DEVE SINCRONIZAR REMOÇÃO COM O SERVIDOR
             const shouldSync = getSyncPatternPreference();
@@ -1915,15 +2032,26 @@
             } else {
                 console.log('💾 Sincronização DESATIVADA - removendo apenas localmente');
             }
+            console.log('');
             
             // Atualizar lista
             loadCustomPatternsList();
             
             // Notificar background.js
+            console.log('%c📤 ENVIANDO ATUALIZAÇÃO PARA BACKGROUND.JS...', 'color: #FFD700; font-weight: bold;');
+            console.log(`   Tipo: CUSTOM_PATTERNS_UPDATED`);
+            console.log(`   Total de padrões: ${patterns.length}`);
             chrome.runtime.sendMessage({ 
                 type: 'CUSTOM_PATTERNS_UPDATED', 
                 data: patterns 
+            }, (response) => {
+                if (chrome.runtime.lastError) {
+                    console.error('%c❌ ERRO ao enviar mensagem:', 'color: #FF0000; font-weight: bold;', chrome.runtime.lastError);
+                } else {
+                    console.log('%c✅ Mensagem enviada com sucesso para background.js!', 'color: #00FF88; font-weight: bold;');
+                }
             });
+            console.log('');
             
             // Toast
             showToast('✓ Modelo removido' + (synced ? ' e sincronizado' : ''));
@@ -1972,9 +2100,9 @@
             </div>
             <div class="analyzer-header" id="sidebarHeader">
                 <div class="header-content">
-                    <h3 class="header-title">Double Analyzer</h3>
-                    <div class="ai-mode-toggle" id="aiModeToggle" title="Ativar/Desativar Análise a Nível Diamante">
-                        <span class="mode-name">Analisar a Nível Diamante</span>
+                    <h3 class="header-title">Double Analyzer <span class="title-badge" id="titleBadge">PREMIUM</span></h3>
+                    <div class="ai-mode-toggle" id="aiModeToggle" title="Ativar/Desativar Modo Diamante">
+                        <span class="mode-name">Ativar Modo Diamante</span>
                         <span class="mode-api"></span>
                     </div>
                 </div>
@@ -2504,6 +2632,43 @@
             // Adicionar ao body
             document.body.appendChild(modal);
             
+            // ✅ CENTRALIZAR MODAL COM BASE NA POSIÇÃO DA EXTENSÃO (com delay para renderização)
+            setTimeout(() => {
+                const sidebar = document.getElementById('blaze-double-analyzer');
+                if (sidebar) {
+                    const rect = sidebar.getBoundingClientRect();
+                    const modalContent = modal.querySelector('.pattern-modal-content');
+                    
+                    if (modalContent) {
+                        // Centralizar horizontalmente com a sidebar
+                        const sidebarCenterX = rect.left + (rect.width / 2);
+                        const modalWidth = modalContent.offsetWidth || 500;
+                        const leftPosition = sidebarCenterX - (modalWidth / 2);
+                        
+                        // Centralizar verticalmente no viewport
+                        const modalHeight = modalContent.offsetHeight || 300;
+                        const viewportHeight = window.innerHeight;
+                        const topPosition = (viewportHeight - modalHeight) / 2;
+                        
+                        // Garantir que não saia da tela (margens mínimas)
+                        const finalLeft = Math.max(20, Math.min(leftPosition, window.innerWidth - modalWidth - 20));
+                        const finalTop = Math.max(20, topPosition);
+                        
+                        modalContent.style.position = 'fixed';
+                        modalContent.style.left = `${finalLeft}px`;
+                        modalContent.style.top = `${finalTop}px`;
+                        modalContent.style.transform = 'none'; // Remove transform padrão
+                        
+                        console.log('✅ Modal de entrada centralizado com a extensão:', {
+                            sidebarRect: rect,
+                            modalWidth: modalWidth,
+                            modalHeight: modalHeight,
+                            finalPosition: { left: finalLeft, top: finalTop }
+                        });
+                    }
+                }
+            }, 10);
+            
             // Eventos do modal
             const closeBtn = modal.querySelector('.pattern-modal-close');
             closeBtn.onclick = function() {
@@ -2570,6 +2735,43 @@
         
         // Adicionar ao body
         document.body.appendChild(modal);
+        
+        // ✅ CENTRALIZAR MODAL COM BASE NA POSIÇÃO DA EXTENSÃO (com delay para renderização)
+        setTimeout(() => {
+            const sidebar = document.getElementById('blaze-double-analyzer');
+            if (sidebar) {
+                const rect = sidebar.getBoundingClientRect();
+                const modalContent = modal.querySelector('.pattern-modal-content');
+                
+                if (modalContent) {
+                    // Centralizar horizontalmente com a sidebar
+                    const sidebarCenterX = rect.left + (rect.width / 2);
+                    const modalWidth = modalContent.offsetWidth || 500;
+                    const leftPosition = sidebarCenterX - (modalWidth / 2);
+                    
+                    // Centralizar verticalmente no viewport
+                    const modalHeight = modalContent.offsetHeight || 300;
+                    const viewportHeight = window.innerHeight;
+                    const topPosition = (viewportHeight - modalHeight) / 2;
+                    
+                    // Garantir que não saia da tela (margens mínimas)
+                    const finalLeft = Math.max(20, Math.min(leftPosition, window.innerWidth - modalWidth - 20));
+                    const finalTop = Math.max(20, topPosition);
+                    
+                    modalContent.style.position = 'fixed';
+                    modalContent.style.left = `${finalLeft}px`;
+                    modalContent.style.top = `${finalTop}px`;
+                    modalContent.style.transform = 'none'; // Remove transform padrão
+                    
+                    console.log('✅ Modal "sem padrão" centralizado com a extensão:', {
+                        sidebarRect: rect,
+                        modalWidth: modalWidth,
+                        modalHeight: modalHeight,
+                        finalPosition: { left: finalLeft, top: finalTop }
+                    });
+                }
+            }
+        }, 10);
         
         // Eventos do modal
         const closeBtn = modal.querySelector('.pattern-modal-close');
@@ -3128,7 +3330,7 @@
                 // 1) Desenhar primeiro a COR ESPERADA e o separador "=" na extrema esquerda
                 if (expected) {
                     const expColor = expected === 'red' ? 'red' : expected === 'black' ? 'black' : 'white';
-                    const expInner = expColor === 'white' ? blazeWhiteSVG(16) : `<span></span>`;
+                    const expInner = expColor === 'white' ? blazeWhiteSVG(13) : `<span></span>`;
                     html += `<div class="pattern-spin">
                         <div class="pattern-quadrado ${expColor}">${expInner}</div>
                         <div class="pattern-time"></div>
@@ -3150,7 +3352,7 @@
                     // Determinar cor para exibição
                     const displayColor = color === 'red' ? 'red' : color === 'black' ? 'black' : 'white';
                     const isWhite = color === 'white';
-                    const inner = isWhite ? blazeWhiteSVG(16) : `<span>${number}</span>`;
+                    const inner = isWhite ? blazeWhiteSVG(13) : `<span>${number}</span>`;
                     
                     // Destacar a cor de disparo (trigger) com anel adicional e rótulo
                     const isTrigger = triggerColor && idx === 0 && triggerColor === (colors[0] === 'red' ? 'black' : colors[0] === 'black' ? 'red' : (colors[0] === 'white' ? 'red' : 'red')) ? false : false;
@@ -3168,7 +3370,7 @@
                 if (trigClr) {
                     const trigTime = trigTs ? new Date(trigTs).toLocaleString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : '';
                     const isTrigWhite = trigClr === 'white';
-                    const innerTrig = isTrigWhite ? blazeWhiteSVG(16) : `<span>${trigNum}</span>`;
+                    const innerTrig = isTrigWhite ? blazeWhiteSVG(13) : `<span>${trigNum}</span>`;
                     // Adicionar classe de alerta se cor de disparo for inválida
                     const invalidClass = (occDetail && occDetail.flag_invalid_disparo) ? ' invalid-trigger' : '';
                     html += `<div class="pattern-spin trigger-spin">
@@ -3883,14 +4085,20 @@
         let currentY;
         let initialX;
         let initialY;
-        let xOffset = 0;
-        let yOffset = 0;
+        
+        // ✅ INICIALIZAR COM A POSIÇÃO ATUAL DA SIDEBAR
+        let xOffset = parseInt(element.style.left) || 0;
+        let yOffset = parseInt(element.style.top) || 0;
         
         header.addEventListener('mousedown', dragStart);
         document.addEventListener('mousemove', drag);
         document.addEventListener('mouseup', dragEnd);
         
         function dragStart(e) {
+            // ✅ PEGAR A POSIÇÃO ATUAL NO MOMENTO DO CLIQUE
+            xOffset = parseInt(element.style.left) || 0;
+            yOffset = parseInt(element.style.top) || 0;
+            
             initialX = e.clientX - xOffset;
             initialY = e.clientY - yOffset;
             
