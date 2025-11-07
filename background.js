@@ -1,4 +1,4 @@
-﻿// Background service worker for Blaze Double Analyzer
+// Background service worker for Blaze Double Analyzer
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // 🚨 VERSÃO DO ARQUIVO - CONFIRMAÇÃO DE CARREGAMENTO
