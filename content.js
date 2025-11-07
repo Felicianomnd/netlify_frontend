@@ -570,10 +570,15 @@
         
         // ✅ CAMPOS DO MODO IA: Ocultar quando modo padrão está ativo
         const aiModeFields = [
-            'cfgMinPercentage',  // Porcentagem mínima (modo IA)
             'cfgAiApiKey',       // Chave API da IA
             'cfgAiHistorySize'   // Quantidade de giros para IA analisar
         ];
+        
+        // ✅ CONTAINERS ESPECIAIS (mostrar/ocultar o container inteiro)
+        const diamondContainer = document.getElementById('diamondModeContainer');
+        if (diamondContainer) {
+            diamondContainer.style.display = isAIMode ? '' : 'none';
+        }
         
         aiModeFields.forEach(fieldId => {
             const field = document.getElementById(fieldId);
@@ -702,6 +707,36 @@
         }
     }
 
+    // 🔄 Controle do intervalo de atualização automática
+    let intervalAtualizacaoMemoria = null;
+
+    // ⏸️ Parar atualização automática da memória
+    function pararAtualizacaoMemoria() {
+        if (intervalAtualizacaoMemoria) {
+            clearInterval(intervalAtualizacaoMemoria);
+            intervalAtualizacaoMemoria = null;
+            console.log('%c⏸️ Atualização automática da memória PAUSADA', 'color: #FFA500; font-weight: bold;');
+        }
+    }
+
+    // ▶️ Iniciar atualização automática da memória
+    function iniciarAtualizacaoMemoria() {
+        // Limpar intervalo anterior se existir
+        pararAtualizacaoMemoria();
+        
+        // Criar novo intervalo (atualiza a cada 3 segundos)
+        const toggleElement = document.getElementById('aiModeToggle');
+        if (toggleElement) {
+            const modeApi = toggleElement.querySelector('.mode-api');
+            if (modeApi) {
+                intervalAtualizacaoMemoria = setInterval(async () => {
+                    await atualizarStatusMemoriaAtiva(modeApi);
+                }, 3000);
+                console.log('%c▶️ Atualização automática da memória INICIADA', 'color: #00FF00; font-weight: bold;');
+            }
+        }
+    }
+
     // 🧠 Atualizar status da memória ativa na interface
     async function atualizarStatusMemoriaAtiva(elemento) {
         console.log('%c╔══════════════════════════════════════════════════════════╗', 'color: #00CED1; font-weight: bold;');
@@ -723,16 +758,16 @@
             console.log('%c   Resposta completa:', 'color: #00FF88;', response);
             console.log('%c   response.status exists?', 'color: #00FF88;', !!response?.status);
             
-            if (response && response.status) {
-                const status = response.status;
+            if (response && response.status === 'success') {
+                // ✅ CORREÇÃO: Usar o próprio response, não response.status
                 console.log('%c✅ [CONTENT] Status válido recebido!', 'color: #00FF88; font-weight: bold;');
                 console.log('%c   📊 Detalhes do status:', 'color: #00FF88;');
-                console.log('%c      ├─ inicializada:', 'color: #00FF88;', status.inicializada);
-                console.log('%c      ├─ totalAtualizacoes:', 'color: #00FF88;', status.totalAtualizacoes);
-                console.log('%c      ├─ tempoUltimaAtualizacao:', 'color: #00FF88;', status.tempoUltimaAtualizacao);
-                console.log('%c      └─ totalGiros:', 'color: #00FF88;', status.totalGiros);
+                console.log('%c      ├─ inicializada:', 'color: #00FF88;', response.inicializada);
+                console.log('%c      ├─ totalAtualizacoes:', 'color: #00FF88;', response.totalAtualizacoes);
+                console.log('%c      ├─ tempoUltimaAtualizacao:', 'color: #00FF88;', response.tempoUltimaAtualizacao);
+                console.log('%c      └─ totalGiros:', 'color: #00FF88;', response.totalGiros);
                 
-                if (!status.inicializada) {
+                if (!response.inicializada) {
                     // Memória está inicializando
                     console.log('%c🟠 [UI] Atualizando para: Inicializando IA...', 'color: #FFA500; font-weight: bold;');
                     elemento.textContent = '⚡ Inicializando IA...';
@@ -740,7 +775,7 @@
                     elemento.style.fontWeight = '400';
                 } else {
                     // Memória está ativa
-                    const updates = status.totalAtualizacoes || 0;
+                    const updates = response.totalAtualizacoes || 0;
                     
                     const textoNovo = `IA ativada • ${updates} análises`;
                     console.log('%c🟢 [UI] Atualizando para:', 'color: #00FF00; font-weight: bold;', textoNovo);
@@ -802,6 +837,172 @@
             }
         }, 5000); // 5 segundos
     }
+
+    // 📊 Mostrar status temporário da análise dos 6 níveis - DISPLAY ANIMADO
+    let timeoutAnalysisStatus = [];
+    
+    function showAnalysisStatus(data) {
+        console.log('%c🔍 showAnalysisStatus() chamado!', 'color: #FFD700; font-weight: bold;');
+        console.log('📊 Dados recebidos:', data);
+        
+        // ✅ CORREÇÃO: Se tiver níveis, SEMPRE mostrar a animação dos 6 níveis!
+        // Não importa se é SEM_SINAL, VETO ou APROVADO - sempre mostrar os níveis
+        
+        const toggleElement = document.getElementById('aiModeToggle');
+        if (!toggleElement) {
+            console.warn('⚠️ Elemento aiModeToggle não encontrado!');
+            return;
+        }
+        
+        const modeApi = toggleElement.querySelector('.mode-api');
+        if (!modeApi) {
+            console.warn('⚠️ Elemento .mode-api não encontrado!');
+            return;
+        }
+        
+        // Se não tem níveis para mostrar, usar o fallback rápido
+        if (!data.niveis || data.niveis.length === 0) {
+            if (data.reason === 'SEM_SINAL') {
+                showNoSignalStatus(data);
+            }
+            return;
+        }
+        
+        // Limpar timeouts anteriores
+        timeoutAnalysisStatus.forEach(t => clearTimeout(t));
+        timeoutAnalysisStatus = [];
+        
+        // Parar atualização automática temporariamente
+        if (intervaloAtualizacaoMemoria) {
+            clearInterval(intervaloAtualizacaoMemoria);
+        }
+        
+        // 🎬 ANIMAÇÃO SEQUENCIAL: Mostrar cada nível por 1.5s
+        const niveis = data.niveis || [];
+        let delay = 0;
+        
+        niveis.forEach((nivel, index) => {
+            const timeout = setTimeout(() => {
+                let mensagem = '';
+                let cor = '#FFFFFF';
+                
+                // Montar mensagem do nível
+                if (nivel.voto === 'red') {
+                    mensagem = `N${index + 1}: ✅ RED`;
+                    cor = '#FF0000';
+                } else if (nivel.voto === 'black') {
+                    mensagem = `N${index + 1}: ✅ BLACK`;
+                    cor = '#FFFFFF';
+                } else if (nivel.voto === 'veto') {
+                    mensagem = `N${index + 1}: 🛡️ VETO`;
+                    cor = '#FF6666';
+                } else if (nivel.voto === 'approve') {
+                    mensagem = `N${index + 1}: ✅ OK`;
+                    cor = '#00FF00';
+                } else {
+                    mensagem = `N${index + 1}: 🟡 NEUTRO`;
+                    cor = '#FFAA00';
+                }
+                
+                // Adicionar porcentagem se houver
+                if (nivel.porcentagem) {
+                    mensagem += ` (${nivel.porcentagem}%)`;
+                }
+                
+                // Atualizar UI
+                modeApi.textContent = mensagem;
+                modeApi.style.color = cor;
+                modeApi.style.fontWeight = '600';
+                modeApi.style.fontSize = '11px';
+                
+                console.log(`%c📊 [N${index + 1}] ${mensagem}`, `color: ${cor}; font-weight: bold;`);
+            }, delay);
+            
+            timeoutAnalysisStatus.push(timeout);
+            delay += 1500; // 1.5 segundos por nível
+        });
+        
+        // Após mostrar todos os níveis, mostrar resultado final por 3s
+        const timeoutFinal = setTimeout(() => {
+            let mensagemFinal = '';
+            let corFinal = '#FFFFFF';
+            
+            if (data.approved) {
+                // ✅ SINAL APROVADO
+                mensagemFinal = `✅ APROVADO • ${data.corIndicada.toUpperCase()} ${data.confidence}%`;
+                corFinal = '#00FF00';
+            } else if (data.reason === 'VETO_NIVEL_6') {
+                // 🛡️ VETADO POR NÍVEL 6
+                mensagemFinal = `🛡️ VETO N6 • Resistência`;
+                corFinal = '#FF6666';
+            } else if (data.reason === 'SEM_SINAL') {
+                // 🔍 SEM SINAL (análise executada mas não gerou entrada)
+                const totalVotos = (data.votosRed || 0) + (data.votosBlack || 0);
+                mensagemFinal = `🔍 SEM SINAL • ${totalVotos} votos`;
+                corFinal = '#888888';
+            } else if (data.reason === 'VOTOS_INSUFICIENTES') {
+                // ❌ REJEITADO POR VOTOS
+                mensagemFinal = `❌ ${(data.votosBlack || 0) + (data.votosRed || 0)}/${data.votosNecessarios || 3} VOTOS`;
+                corFinal = '#FF6666';
+            } else {
+                // ❌ OUTROS MOTIVOS DE REJEIÇÃO
+                mensagemFinal = `❌ NÃO APROVADO`;
+                corFinal = '#FF6666';
+            }
+            
+            modeApi.textContent = mensagemFinal;
+            modeApi.style.color = corFinal;
+            modeApi.style.fontWeight = '600';
+            
+            console.log(`%c📊 Resultado final: ${mensagemFinal}`, `color: ${corFinal}; font-weight: bold;`);
+        }, delay);
+        
+        timeoutAnalysisStatus.push(timeoutFinal);
+        
+            // Após resultado final (3s), voltar ao normal
+            const timeoutVoltarNormal = setTimeout(async () => {
+                console.log('%c⏱️ Voltando ao status normal...', 'color: #00CED1;');
+                await atualizarStatusMemoriaAtiva(modeApi);
+                iniciarAtualizacaoMemoria(); // Reativar atualização automática
+            }, delay + 3000); // delay dos níveis + 3s do resultado final
+
+            timeoutAnalysisStatus.push(timeoutVoltarNormal);
+        }
+        
+        // 📊 Tratamento especial para análises SEM_SINAL (rápido)
+        function showNoSignalStatus(data) {
+            console.log('%c🔍 Análise concluída - SEM SINAL', 'color: #888888; font-weight: bold;');
+            
+            const toggleElement = document.getElementById('aiModeToggle');
+            if (!toggleElement) return;
+            
+            const modeApi = toggleElement.querySelector('.mode-api');
+            if (!modeApi) return;
+            
+            // ✅ CORREÇÃO: Usar a variável correta do escopo
+            if (intervaloAtualizacaoMemoria) {
+                clearInterval(intervaloAtualizacaoMemoria);
+            }
+            
+            // Limpar timeouts anteriores
+            timeoutAnalysisStatus.forEach(t => clearTimeout(t));
+            timeoutAnalysisStatus = [];
+            
+            // Mostrar mensagem de "sem sinal" por 2 segundos
+            modeApi.textContent = '🔍 SEM SINAL';
+            modeApi.style.color = '#888888';
+            modeApi.style.fontWeight = '600';
+            modeApi.style.fontSize = '11px';
+            
+            // Após 2s, voltar ao normal
+            const timeout = setTimeout(async () => {
+                console.log('%c⏱️ Voltando ao status normal...', 'color: #00CED1;');
+                await atualizarStatusMemoriaAtiva(modeApi);
+                iniciarAtualizacaoMemoria(); // Reativar atualização automática
+            }, 2000);
+            
+            timeoutAnalysisStatus.push(timeout);
+        }
 
     // ═══════════════════════════════════════════════════════════════════════════════
     // 🎯 SISTEMA DE PADRÕES CUSTOMIZADOS (NÍVEL DIAMANTE)
@@ -2241,8 +2442,8 @@
                             <input type="number" id="cfgMinOccurrences" min="1" value="1" />
                         </div>
                         <div class="setting-item">
-                            <span class="setting-label">Porcentagem mínima (%):</span>
-                            <input type="number" id="cfgMinPercentage" min="1" max="100" value="60" placeholder="60" title="Porcentagem mínima de confiança para a IA enviar sinais" />
+                            <span class="setting-label">Giros para analisar (IA):</span>
+                            <input type="number" id="cfgAiHistorySize" min="10" max="2000" value="50" placeholder="50" title="Quantidade de giros que a IA vai analisar (mín: 10, máx: 2000)" />
                         </div>
                         <div class="setting-item">
                             <span class="setting-label">Ocorrências MÁXIMAS (0 = sem limite):</span>
@@ -2251,10 +2452,6 @@
                         <div class="setting-item">
                             <span class="setting-label">Intervalo mínimo (giros):</span>
                             <input type="number" id="cfgMinInterval" min="0" value="0" title="Quantidade mínima de giros entre sinais (0 = sem intervalo, envia sempre que encontrar padrão válido)" placeholder="Ex: 5 giros (0 = sem intervalo)" />
-                        </div>
-                        <div class="setting-item">
-                            <span class="setting-label">Giros para analisar (IA):</span>
-                            <input type="number" id="cfgAiHistorySize" min="10" max="2000" placeholder="50" title="Quantidade de giros que a IA vai analisar (mín: 10, máx: 2000)" />
                         </div>
                         <div class="setting-item">
                             <span class="setting-label">Tamanho MÍNIMO do padrão (giros):</span>
@@ -2297,15 +2494,31 @@
                         <!-- ═══════════════════════════════════════════════════════ -->
                         <!-- MODELOS CUSTOMIZADOS DE ANÁLISE (NÍVEL DIAMANTE) -->
                         <!-- ═══════════════════════════════════════════════════════ -->
-                        <div class="setting-item setting-row" id="customPatternsContainer" style="margin-top: 20px; padding-top: 15px; border-top: 1px solid #333;">
-                            <div style="width: 100%; display: flex; gap: 8px; flex-wrap: wrap; justify-content: center;">
-                                <button id="btnHotPattern" class="btn-hot-pattern" style="flex: 1; min-width: 140px;">
+                        <!-- CARD DO MODO DIAMOND (APENAS MODO IA) -->
+                        <div class="setting-item setting-row" id="diamondModeContainer" style="margin-top: 15px; padding-top: 15px; border-top: 1px solid #333;">
+                            <div style="width: 100%; display: flex; flex-direction: column; gap: 8px;">
+                                <label style="color: #FFD700; font-weight: bold; font-size: 13px; text-align: center; margin-bottom: 5px;">
+                                    💎 Modo de Análise Diamond
+                                </label>
+                                <select id="cfgDiamondMode" title="Selecione o nível de agressividade da análise Diamond" style="padding: 10px; background: #1a2332; color: #fff; border: 1px solid #FFD700; border-radius: 6px; font-size: 13px; cursor: pointer; width: 100%;">
+                                    <option value="aggressive">🔥 Agressivo (3+ níveis aprovam)</option>
+                                    <option value="moderate">⚡ Moderado (4+ níveis aprovam)</option>
+                                    <option value="conservative" selected>🛡️ Conservador (5+ níveis aprovam)</option>
+                                    <option value="ultra_conservative">🔒 Ultra Conservador (6 níveis aprovam)</option>
+                                </select>
+                            </div>
+                        </div>
+                        
+                        <!-- PADRÕES CUSTOMIZADOS -->
+                        <div class="setting-item setting-row" id="customPatternsContainer" style="margin-top: 15px; padding-top: 15px; border-top: 1px solid #333;">
+                            <div style="width: 100%; display: flex; gap: 6px; flex-wrap: wrap; justify-content: space-between;">
+                                <button id="btnHotPattern" class="btn-hot-pattern" style="flex: 1 1 calc(50% - 3px); min-width: 135px; padding: 10px 8px; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
                                     Padrão Quente
                                 </button>
-                                <button id="btnViewCustomPatterns" class="btn-view-patterns" style="display: none; flex: 1; min-width: 140px;">
+                                <button id="btnViewCustomPatterns" class="btn-view-patterns" style="display: none; flex: 1 1 calc(50% - 3px); min-width: 135px; padding: 10px 8px; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
                                     ✓ Padrões Ativos (<span id="patternsCount">0</span>)
                                 </button>
-                                <button id="btnAddCustomPattern" class="btn-add-custom-pattern" style="flex: 1; min-width: 140px;">
+                                <button id="btnAddCustomPattern" class="btn-add-custom-pattern" style="flex: 1 1 calc(50% - 3px); min-width: 135px; padding: 10px 8px; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
                                     Adicionar Modelo
                                 </button>
                             </div>
@@ -3545,9 +3758,41 @@
                             console.log('✅ DETECTADO: Análise por IA (formato texto antigo)');
                             isAIAnalysis = true;
                             patternInfo.innerHTML = renderPatternVisual(parsed, data.pattern);
+                        } else if (typeof parsed === 'string' && parsed.startsWith('Sistema 6 N')) {
+                            // ✅ NOVO: Sistema de 6 Níveis (string simples)
+                            console.log('✅ DETECTADO: Sistema de 6 Níveis (Análise Diamante)');
+                            isAIAnalysis = true; // É análise IA (Diamante)
+                            
+                            // Renderizar descrição simples
+                            patternInfo.innerHTML = `
+                                <div style="padding: 12px; background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); border-radius: 8px; border: 2px solid #FFD700;">
+                                    <div style="font-size: 14px; font-weight: bold; color: #FFD700; margin-bottom: 8px; display: flex; align-items: center; gap: 8px;">
+                                        💎 ${parsed}
+                                    </div>
+                                    <div style="font-size: 12px; color: rgba(255, 255, 255, 0.8); line-height: 1.6;">
+                                        ${data.reasoning ? data.reasoning.replace(/\n/g, '<br>') : 'Análise baseada em 6 níveis independentes'}
+                                    </div>
+                                </div>
+                            `;
                         } else {
-                            // Fazer parse do JSON
-                            parsed = typeof parsed === 'string' ? JSON.parse(parsed) : parsed;
+                            // Tentar fazer parse do JSON (análises antigas)
+                            try {
+                                parsed = typeof parsed === 'string' ? JSON.parse(parsed) : parsed;
+                            } catch (parseError) {
+                                // Se falhar o parse, tratar como string simples
+                                console.warn('⚠️ Não foi possível fazer parse do JSON, tratando como string simples');
+                                console.warn('⚠️ Conteúdo:', parsed);
+                                
+                                patternInfo.innerHTML = `
+                                    <div style="padding: 12px; background: var(--bg-tertiary); border-radius: 6px; border: 1px solid var(--border-color);">
+                                        <div style="font-size: 13px; color: var(--text-primary); line-height: 1.6;">
+                                            ${parsed}
+                                        </div>
+                                    </div>
+                                `;
+                                
+                                return; // Não continuar processamento
+                            }
                             
                             // ✅ VERIFICAR TIPO DE ANÁLISE
                             if (parsed.type === 'AI_ANALYSIS') {
@@ -3775,6 +4020,11 @@
         // - LOSS final (RET ou fim de ciclo) → SEMPRE MOSTRAR
         
         const filteredEntries = entries.filter(e => {
+            // ❌ ESCONDER entradas PENDENTES (aguardando resultado)
+            if (e.result === 'PENDING' || e.number === null) {
+                return false;
+            }
+            
             // ✅ Sempre mostrar WINs (qualquer estágio)
             if (e.result === 'WIN') return true;
             
@@ -3799,8 +4049,8 @@
                 return true;
             }
             
-            // Fallback: mostrar por padrão
-            return true;
+            // Fallback: não mostrar se não se encaixa em nenhuma categoria
+            return false;
         });
         
         console.log(`📊 Entradas: ${entries.length} total | ${filteredEntries.length} exibidas (${entries.length - filteredEntries.length} LOSSes intermediários ocultos)`);
@@ -3811,17 +4061,32 @@
             const originalIndex = entries.indexOf(e);
             const time = new Date(e.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
             const cls = e.color;
-            const badge = e.color === 'white' ? blazeWhiteSVG(16) : `<span>${e.number}</span>`;
+            
+            // ?? TRATAR ENTRADA PENDENTE (aguardando pr�ximo giro)
+            let badge;
+            if (e.result === 'PENDING' || e.number === null) {
+                // Entrada pendente - mostrar seta para indicar
+                badge = '<span style="font-size: 18px;">→</span>';
+            } else if (e.color === 'white') {
+                badge = blazeWhiteSVG(16);
+            } else {
+                badge = `<span>${e.number}</span>`;
+            }
+            
             const isWin = e.result === 'WIN';
+            const isPending = e.result === 'PENDING' || e.number === null;
             
             // ═══════════════════════════════════════════════════════════════
             // ✅ SISTEMA DE MARTINGALE - INDICADORES VISUAIS
             // ═══════════════════════════════════════════════════════════════
             
-            let barClass = isWin ? 'win' : 'loss';
+            let barClass = isPending ? 'pending' : (isWin ? 'win' : 'loss');
             let stageText = '';
             
-            if (e.martingaleStage) {
+            // ?? TRATAR ENTRADA PENDENTE
+            if (isPending) {
+                stageText = 'AGUARDANDO';
+            } else if (e.martingaleStage) {
                 // Novo sistema de Martingale (suporta G1 até G200)
                 if (isWin) {
                     // WIN - mostrar onde ganhou
@@ -3877,7 +4142,9 @@
                 }
             }
             
-            const title = `Giro: ${e.number} • Cor: ${e.color} • ${time} • Resultado: ${e.result}${e.martingaleStage ? ' • Estágio: '+e.martingaleStage : ''}${e.confidence? ' • Confiança: '+e.confidence.toFixed(1)+'%' : ''}`;
+            const title = isPending 
+                ? `Aguardando próximo giro • Apostando em: ${e.color.toUpperCase()} • ${time}${e.confidence? ' • Confiança: '+e.confidence.toFixed(1)+'%' : ''}`
+                : `Giro: ${e.number} • Cor: ${e.color} • ${time} • Resultado: ${e.result}${e.martingaleStage ? ' • Estágio: '+e.martingaleStage : ''}${e.confidence? ' • Confiança: '+e.confidence.toFixed(1)+'%' : ''}`;
             
             // CORREÇÃO: Sempre usar a confidence original que foi exibida no sinal
             const confTop = (typeof e.confidence === 'number') ? `${e.confidence.toFixed(0)}%` : '';
@@ -4328,6 +4595,11 @@
             }
             
             showHotPatternStatus('not_found');
+        } else if (request.type === 'ANALYSIS_STATUS') {
+            // 📊 Status da análise dos 6 níveis
+            console.log('%c📊 [ANALYSIS_STATUS] Recebido!', 'color: #FFD700; font-weight: bold;');
+            console.log('%c   📦 Dados:', 'color: #FFD700;', request.data);
+            showAnalysisStatus(request.data);
         } else if (request.type === 'HOT_PATTERN_SEARCHING') {
             // Padrão foi abandonado, buscando novo
             console.log('🔍 Padrão abandonado - buscando novo automaticamente...');
@@ -4668,10 +4940,10 @@
                 const maxGales = document.getElementById('cfgMaxGales');
                 const tgChatId = document.getElementById('cfgTgChatId');
                 const aiApiKey = document.getElementById('cfgAiApiKey');
-                const minPercentage = document.getElementById('cfgMinPercentage');
+                const diamondMode = document.getElementById('cfgDiamondMode');
                 const aiHistorySize = document.getElementById('cfgAiHistorySize');
                 if (minOcc) minOcc.value = cfg.minOccurrences != null ? cfg.minOccurrences : 1;
-                if (minPercentage) minPercentage.value = cfg.minPercentage != null ? cfg.minPercentage : 60;
+                if (diamondMode) diamondMode.value = cfg.diamondMode || 'conservative';
                 if (maxOcc) maxOcc.value = cfg.maxOccurrences != null ? cfg.maxOccurrences : 0;
                 if (minInt) minInt.value = cfg.minIntervalSpins != null ? cfg.minIntervalSpins : 0;
                 if (minSize) minSize.value = cfg.minPatternSize != null ? cfg.minPatternSize : 3;
@@ -4748,7 +5020,7 @@
                 };
                 
                 const minOcc = Math.max(parseInt(getElementValue('cfgMinOccurrences', '1'), 10), 1);
-                const minPercentage = Math.max(1, Math.min(100, parseInt(getElementValue('cfgMinPercentage', '60'), 10)));
+                const diamondMode = String(getElementValue('cfgDiamondMode', 'conservative')).trim();
                 const maxOcc = Math.max(parseInt(getElementValue('cfgMaxOccurrences', '0'), 10), 0);
                 const minInt = Math.max(parseInt(getElementValue('cfgMinInterval', '0'), 10), 0);
                 let minSize = Math.max(parseInt(getElementValue('cfgMinPatternSize', '2'), 10), 2);
@@ -4781,7 +5053,7 @@
                 console.log('%c✅ Histórico de sinais resetado!', 'color: #00FF88; font-weight: bold;');
                 
                 console.log('📝 Valores capturados dos campos:');
-                console.log('   • minPercentage:', minPercentage + '%');
+                console.log('   💎 diamondMode:', diamondMode);
                 console.log('   • minOccurrences:', minOcc);
                 console.log('   • maxOccurrences:', maxOcc);
                 console.log('   • minIntervalSpins:', minInt);
@@ -4814,7 +5086,7 @@
                 const cfg = {
                     ...currentConfig, // Preservar configurações existentes (incluindo aiMode)
                     minOccurrences: minOcc,
-                    minPercentage: minPercentage,
+                    diamondMode: diamondMode,
                     maxOccurrences: maxOcc,
                     minIntervalSpins: minInt,
                     minPatternSize: minSize,
