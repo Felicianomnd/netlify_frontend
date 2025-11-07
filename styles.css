@@ -391,6 +391,14 @@
     color: #888;
 }
 
+.ai-mode-toggle.active {
+    min-height: 80px !important;
+    max-height: 80px !important;
+    height: auto !important;
+    overflow: hidden !important;
+    gap: 0 !important;
+}
+
 .ai-mode-toggle:hover {
     background: rgba(255, 255, 255, 0.2);
     transform: scale(1.05);
@@ -2608,7 +2616,7 @@
     gap: 2px;
     padding: 6px 12px;
     background: var(--bg-tertiary);
-    border: 1px solid var(--border-color);
+    border: none;
     border-radius: 6px;
     cursor: pointer;
     transition: all 0.3s ease;
@@ -2616,14 +2624,19 @@
 
 .ai-mode-toggle:hover {
     background: var(--bg-secondary);
-    border-color: var(--border-color);
     transform: translateY(-1px);
 }
 
 .ai-mode-toggle.active {
     background: rgba(239, 68, 68, 0.15);
-    border: 1px solid #ffffff;
+    border: none;
     border-radius: 4px;
+    min-height: 80px !important;
+    max-height: 80px !important;
+    height: auto !important;
+    overflow: hidden !important;
+    padding: 6px 12px !important;
+    gap: 0 !important;
 }
 
 .mode-name {
@@ -2633,28 +2646,76 @@
     text-align: center;
     font-family: var(--font-primary);
     letter-spacing: 0.3px;
+    min-height: 20px !important;
+    max-height: 20px !important;
+    height: 20px !important;
+    line-height: 20px !important;
+    overflow: hidden !important;
+    white-space: nowrap !important;
+    text-overflow: ellipsis !important;
+    margin: 0 !important;
+    padding: 0 !important;
 }
 
 .ai-mode-toggle.active .mode-name {
     color: var(--text-primary);
 }
 
-.mode-api {
-    font-size: 12px;
-    font-weight: 500;
-    color: rgba(255, 255, 255, 0.9);
-    text-align: center;
-    font-family: 'Inter', 'Segoe UI', 'Roboto', 'Helvetica Neue', Arial, sans-serif;
-    letter-spacing: 0.5px;
-    line-height: 1.5;
-    display: none;
-    margin-top: 8px;
-    padding: 8px 16px;
-    background: linear-gradient(135deg, rgba(239, 68, 68, 0.08) 0%, rgba(220, 38, 38, 0.12) 100%);
-    border-radius: 6px;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    backdrop-filter: blur(10px);
-    transition: all 0.3s ease;
+.mode-api-container {
+    position: relative !important;
+    margin-top: 8px !important;
+    margin-bottom: 0 !important;
+    min-height: 50px !important;
+    max-height: 50px !important;
+    height: 50px !important;
+    min-width: 100% !important;
+    max-width: 100% !important;
+    width: 100% !important;
+    box-sizing: border-box !important;
+    overflow: hidden !important;
+    display: block !important;
+    flex-grow: 0 !important;
+    flex-shrink: 0 !important;
+    flex-basis: 50px !important;
+}
+
+.mode-api-header-simple {
+    display: block !important;
+    text-align: center !important;
+    padding-bottom: 4px !important;
+    padding-top: 0 !important;
+    margin-bottom: 4px !important;
+    margin-top: 0 !important;
+    border-bottom: 1px solid rgba(0, 255, 136, 0.2) !important;
+    max-height: 18px !important;
+    height: 18px !important;
+    overflow: hidden !important;
+}
+
+.mode-api-title-simple {
+    font-size: 11px !important;
+    font-weight: 700 !important;
+    color: rgba(0, 255, 136, 0.95) !important;
+    text-transform: uppercase !important;
+    letter-spacing: 1px !important;
+    display: inline-block !important;
+    line-height: 14px !important;
+}
+
+.mode-api-status {
+    display: block !important;
+    font-size: 10px !important;
+    font-weight: 500 !important;
+    color: rgba(255, 255, 255, 0.9) !important;
+    line-height: 1.2 !important;
+    text-align: center !important;
+    overflow: hidden !important;
+    white-space: nowrap !important;
+    text-overflow: ellipsis !important;
+    max-height: 14px !important;
+    height: 14px !important;
+    padding: 0 !important;
+    margin: 0 !important;
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════════ */
@@ -2975,8 +3036,20 @@
         z-index: 10 !important; /* ✅ Abaixo do botão de minimizar */
     }
     
+    .ai-mode-toggle.active {
+        min-height: 80px !important;
+        max-height: 80px !important;
+        height: auto !important;
+        overflow: hidden !important;
+        gap: 0 !important;
+    }
+    
     .ai-mode-toggle .mode-name {
         font-size: 12px !important;
+        min-height: 20px !important;
+        max-height: 20px !important;
+        height: 20px !important;
+        overflow: hidden !important;
     }
     
     /* ✅ AJUSTAR BOTÕES DE PADRÕES */
@@ -3152,6 +3225,14 @@
         font-size: 13px !important;
         padding: 6px 10px !important;
     }
+    
+    .ai-mode-toggle.active {
+        min-height: 80px !important;
+        max-height: 80px !important;
+        height: auto !important;
+        overflow: hidden !important;
+        gap: 0 !important;
+    }
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════════ */
@@ -3201,6 +3282,14 @@
     .ai-mode-toggle {
         font-size: 10px !important;
         padding: 6px 8px !important;
+    }
+    
+    .ai-mode-toggle.active {
+        min-height: 80px !important;
+        max-height: 80px !important;
+        height: auto !important;
+        overflow: hidden !important;
+        gap: 0 !important;
     }
     
     .btn-hot-pattern,
@@ -3253,6 +3342,14 @@
     .ai-mode-toggle {
         padding: 4px 8px !important;
         font-size: 10px !important;
+    }
+    
+    .ai-mode-toggle.active {
+        min-height: 80px !important;
+        max-height: 80px !important;
+        height: auto !important;
+        overflow: hidden !important;
+        gap: 0 !important;
     }
     
     .analyzer-body {

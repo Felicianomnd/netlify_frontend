@@ -502,16 +502,16 @@
             
             // 🧠 Se modo IA foi ativado, atualizar status e iniciar intervalo
             if (newAIMode) {
-                const modeApi = toggleElement.querySelector('.mode-api');
-                if (modeApi) {
+                const modeApiStatus = document.getElementById('modeApiStatus');
+                if (modeApiStatus) {
                     console.log('%c🧠 Modo IA ATIVADO! Iniciando atualização do status...', 'color: #00CED1; font-weight: bold;');
                     
                     // ✅ TENTAR MÚLTIPLAS VEZES PARA GARANTIR (importante no mobile)
                     const tentarAtualizar = async (tentativa = 1, maxTentativas = 3) => {
-                        await atualizarStatusMemoriaAtiva(modeApi);
+                        await atualizarStatusMemoriaAtiva(modeApiStatus);
                         
                         // Se ainda estiver "Inicializando..." e não for a última tentativa, tentar novamente
-                        if (modeApi.textContent.includes('Inicializando') && tentativa < maxTentativas) {
+                        if (modeApiStatus.textContent.includes('Inicializando') && tentativa < maxTentativas) {
                             console.log(`%c🔄 Tentativa ${tentativa}/${maxTentativas} - Ainda inicializando, tentando novamente em 2s...`, 'color: #FFA500;');
                             setTimeout(() => tentarAtualizar(tentativa + 1, maxTentativas), 2000);
                         }
@@ -570,7 +570,6 @@
         
         // ✅ CAMPOS DO MODO IA: Ocultar quando modo padrão está ativo
         const aiModeFields = [
-            'cfgMinPercentage',  // Porcentagem mínima (modo IA)
             'cfgAiApiKey',       // Chave API da IA
             'cfgAiHistorySize'   // Quantidade de giros para IA analisar
         ];
@@ -658,6 +657,20 @@
             }
         }
         
+        // ✅ INTENSIDADE DE SINAIS: Visível apenas no Nível Diamante
+        const signalIntensityContainer = document.getElementById('signalIntensityContainer');
+        if (signalIntensityContainer) {
+            if (isAIMode) {
+                // Modo Diamante: MOSTRAR seletor de intensidade
+                signalIntensityContainer.style.display = '';
+                console.log('🎚️ Seletor de Intensidade de Sinais visível (Modo Nível Diamante)');
+            } else {
+                // Modo Padrão: OCULTAR seletor de intensidade
+                signalIntensityContainer.style.display = 'none';
+                console.log('🔒 Seletor de Intensidade de Sinais oculto (Modo Padrão)');
+            }
+        }
+        
     }
     
     // ═══════════════════════════════════════════════════════════════════════════════
@@ -666,12 +679,39 @@
     function updateAIModeUI(toggleElement, isActive) {
         if (!toggleElement) return;
         
+        console.log('%c═══════════════════════════════════════════════════════════', 'color: #FFD700; font-weight: bold;');
+        console.log('%c⚙️ [DEBUG updateAIModeUI]', 'color: #FFD700; font-weight: bold;');
+        console.log('%c   isActive:', 'color: #FFD700;', isActive);
+        
         const modeName = toggleElement.querySelector('.mode-name');
-        const modeApi = toggleElement.querySelector('.mode-api');
+        const modeApiContainer = toggleElement.querySelector('.mode-api-container');
+        const modeApiStatus = document.getElementById('modeApiStatus');
         const titleBadge = document.getElementById('titleBadge');
         
         if (isActive) {
+            // 🔍 LOG: Altura ANTES
+            const heightBefore = window.getComputedStyle(toggleElement).height;
+            console.log('%c   📏 Toggle ANTES:', 'color: #FFA500;', heightBefore);
+            
             toggleElement.classList.add('active');
+            
+            // ✅ FORÇAR TAMANHO FIXO DO CONTAINER PAI
+            toggleElement.style.cssText = `
+                min-height: 80px !important;
+                max-height: 80px !important;
+                height: auto !important;
+                overflow: hidden !important;
+                padding: 6px 12px !important;
+                gap: 0 !important;
+            `;
+            
+            console.log('%c   ✅ Estilos inline aplicados ao toggle', 'color: #00FF88;');
+            console.log('%c   🎨 cssText:', 'color: #FFFF00;', toggleElement.style.cssText);
+            
+            // 🔍 LOG: Altura DEPOIS
+            const heightAfter = window.getComputedStyle(toggleElement).height;
+            console.log('%c   📏 Toggle DEPOIS:', 'color: #00FFFF;', heightAfter);
+            
             if (modeName) modeName.textContent = '💎 Análise Diamante Ativa';
             
             // ✅ Mudar badge para IA
@@ -681,12 +721,18 @@
             }
             
             // 🧠 Atualizar status dinâmico da memória ativa
-            if (modeApi) {
-                modeApi.style.display = 'block';
-                atualizarStatusMemoriaAtiva(modeApi);
+            if (modeApiContainer && modeApiStatus) {
+                modeApiContainer.style.display = 'block';
+                atualizarStatusMemoriaAtiva(modeApiStatus);
             }
+            
+            console.log('%c═══════════════════════════════════════════════════════════', 'color: #FFD700; font-weight: bold;');
         } else {
             toggleElement.classList.remove('active');
+            
+            // ✅ REMOVER ESTILOS INLINE
+            toggleElement.style.cssText = '';
+            
             if (modeName) modeName.textContent = 'Ativar Modo Diamante';
             
             // ✅ Mudar badge para PREMIUM
@@ -695,15 +741,52 @@
                 titleBadge.classList.remove('badge-ia');
             }
             
-            if (modeApi) {
-                modeApi.textContent = '';
-                modeApi.style.display = 'none';
+            if (modeApiContainer) {
+                modeApiContainer.style.display = 'none';
+            }
+            if (modeApiStatus) {
+                modeApiStatus.textContent = '';
             }
         }
     }
 
     // 🧠 Atualizar status da memória ativa na interface
     async function atualizarStatusMemoriaAtiva(elemento) {
+        const modeApiContainer = document.querySelector('.mode-api-container');
+        const aiModeToggle = document.querySelector('.ai-mode-toggle.active');
+        
+        console.log('%c═══════════════════════════════════════════════════════════', 'color: #00CED1; font-weight: bold;');
+        console.log('%c🧠 [DEBUG atualizarStatusMemoriaAtiva]', 'color: #00CED1; font-weight: bold;');
+        
+        // 🔍 LOG: Tamanhos NO INÍCIO
+        if (modeApiContainer && aiModeToggle) {
+            const containerHeight = window.getComputedStyle(modeApiContainer).height;
+            const toggleHeight = window.getComputedStyle(aiModeToggle).height;
+            console.log('%c   📏 NO INÍCIO:', 'color: #FFA500;', {
+                container: containerHeight,
+                toggle: toggleHeight
+            });
+        }
+        
+        // ✅ VERIFICAR SE ESTÁ EM ANÁLISE PROGRESSIVA - NÃO SOBRESCREVER!
+        const isProgressiveAnalysis = currentAnalysisStatus && (
+            currentAnalysisStatus.includes('Nível') ||
+            currentAnalysisStatus.includes('Iniciando análise') ||
+            currentAnalysisStatus.includes('Barreira') ||
+            currentAnalysisStatus.includes('aprovado') ||
+            currentAnalysisStatus.includes('rejeitado') ||
+            currentAnalysisStatus.includes('Rejeitado') ||
+            currentAnalysisStatus.includes('Análise:') ||
+            currentAnalysisStatus.includes('Aguarde novo giro')
+        );
+        
+        if (isProgressiveAnalysis) {
+            console.log('%c⏸️ [atualizarStatusMemoriaAtiva] ANÁLISE PROGRESSIVA EM ANDAMENTO - NÃO atualizar', 'color: #FFA500; font-weight: bold;');
+            console.log('%c   Status atual:', 'color: #FFA500;', currentAnalysisStatus);
+            console.log('%c═══════════════════════════════════════════════════════════', 'color: #00CED1; font-weight: bold;');
+            return; // ✅ NÃO sobrescrever durante análise progressiva
+        }
+        
         console.log('%c╔══════════════════════════════════════════════════════════╗', 'color: #00CED1; font-weight: bold;');
         console.log('%c║  🧠 [CONTENT] INICIANDO ATUALIZAÇÃO DO STATUS          ║', 'color: #00CED1; font-weight: bold;');
         console.log('%c╚══════════════════════════════════════════════════════════╝', 'color: #00CED1; font-weight: bold;');
@@ -732,33 +815,49 @@
                 console.log('%c      ├─ tempoUltimaAtualizacao:', 'color: #00FF88;', status.tempoUltimaAtualizacao);
                 console.log('%c      └─ totalGiros:', 'color: #00FF88;', status.totalGiros);
                 
+                const modeApiContainer = document.querySelector('.mode-api-container');
+                
                 if (!status.inicializada) {
                     // Memória está inicializando
                     console.log('%c🟠 [UI] Atualizando para: Inicializando IA...', 'color: #FFA500; font-weight: bold;');
-                    elemento.textContent = '⚡ Inicializando IA...';
-                    elemento.style.color = 'rgba(255, 255, 255, 0.7)';
-                    elemento.style.fontWeight = '400';
+                    elemento.textContent = '⚡ Inicializando...';
+                    if (modeApiContainer) {
+                        modeApiContainer.style.display = 'block';
+                    }
                 } else {
                     // Memória está ativa
                     const updates = status.totalAtualizacoes || 0;
                     
-                    const textoNovo = `IA ativada • ${updates} análises`;
-                    console.log('%c🟢 [UI] Atualizando para:', 'color: #00FF00; font-weight: bold;', textoNovo);
+                    console.log('%c🟢 [UI] Atualizando para: Memória ativada', 'color: #00FF00; font-weight: bold;');
                     
-                    elemento.textContent = textoNovo;
-                    elemento.style.color = 'rgba(255, 255, 255, 0.9)';
-                    elemento.style.fontWeight = '500';
+                    elemento.textContent = `memória ativada • ${updates} análises`;
+                    if (modeApiContainer) {
+                        modeApiContainer.style.display = 'block';
+                    }
                 }
                 
                 console.log('%c✅ [UI] Texto do elemento após atualização:', 'color: #00FF88;', elemento.textContent);
+                
+                // 🔍 LOG: Tamanhos NO FINAL
+                if (modeApiContainer && aiModeToggle) {
+                    const containerHeightFinal = window.getComputedStyle(modeApiContainer).height;
+                    const toggleHeightFinal = window.getComputedStyle(aiModeToggle).height;
+                    console.log('%c   📏 NO FINAL:', 'color: #00FFFF;', {
+                        container: containerHeightFinal,
+                        toggle: toggleHeightFinal
+                    });
+                }
             } else {
                 // Fallback se não conseguir pegar status
                 console.warn('%c⚠️ [CONTENT] Resposta inválida ou vazia!', 'color: #FFA500; font-weight: bold;');
                 console.warn('%c   response:', 'color: #FFA500;', response);
                 console.warn('%c   response.status:', 'color: #FFA500;', response?.status);
-                elemento.textContent = 'IA ativada';
-                elemento.style.color = 'rgba(255, 255, 255, 0.9)';
-                elemento.style.fontWeight = '500';
+                elemento.textContent = 'memória ativada';
+                
+                const modeApiContainer = document.querySelector('.mode-api-container');
+                if (modeApiContainer) {
+                    modeApiContainer.style.display = 'block';
+                }
             }
         } catch (error) {
             console.error('%c╔══════════════════════════════════════════════════════════╗', 'color: #FF0000; font-weight: bold;');
@@ -766,13 +865,65 @@
             console.error('%c╚══════════════════════════════════════════════════════════╝', 'color: #FF0000; font-weight: bold;');
             console.error('%c   Erro:', 'color: #FF0000;', error);
             console.error('%c   Stack:', 'color: #FF0000;', error.stack);
-            elemento.textContent = 'IA ativada';
-            elemento.style.color = 'rgba(255, 255, 255, 0.9)';
-            elemento.style.fontWeight = '500';
+            elemento.textContent = 'memória ativada';
+            
+            const modeApiContainer = document.querySelector('.mode-api-container');
+            if (modeApiContainer) {
+                modeApiContainer.style.display = 'block';
+            }
+        }
+        
+        // 🔍 LOG: Tamanhos NO FIM TOTAL
+        if (modeApiContainer && aiModeToggle) {
+            const containerHeightEnd = window.getComputedStyle(modeApiContainer).height;
+            const toggleHeightEnd = window.getComputedStyle(aiModeToggle).height;
+            console.log('%c   📏 NO FIM TOTAL:', 'color: #FF00FF;', {
+                container: containerHeightEnd,
+                toggle: toggleHeightEnd
+            });
+            console.log('%c   🎨 Estilos inline finais do container:', 'color: #FFFF00;', modeApiContainer.style.cssText);
+            console.log('%c   🎨 Estilos inline finais do toggle:', 'color: #FFFF00;', aiModeToggle.style.cssText);
         }
         
         console.log('%c═══════════════════════════════════════════════════════════', 'color: #00CED1;');
         console.log('');
+    }
+    
+    // 🔍 DEBUG: MutationObserver para rastrear mudanças de altura
+    function setupHeightObserver() {
+        const aiModeToggle = document.querySelector('.ai-mode-toggle');
+        const modeApiContainer = document.querySelector('.mode-api-container');
+        
+        if (!aiModeToggle || !modeApiContainer) return;
+        
+        const observer = new MutationObserver((mutations) => {
+            mutations.forEach((mutation) => {
+                if (mutation.type === 'attributes' && (mutation.attributeName === 'style' || mutation.attributeName === 'class')) {
+                    const toggleHeight = window.getComputedStyle(aiModeToggle).height;
+                    const containerHeight = window.getComputedStyle(modeApiContainer).height;
+                    
+                    console.log('%c🚨 [MUTATION OBSERVER] Mudança detectada!', 'color: #FF0000; font-weight: bold; font-size: 14px;');
+                    console.log('%c   Target:', 'color: #FF0000;', mutation.target);
+                    console.log('%c   Attribute:', 'color: #FF0000;', mutation.attributeName);
+                    console.log('%c   📏 Toggle height:', 'color: #FF0000;', toggleHeight);
+                    console.log('%c   📏 Container height:', 'color: #FF0000;', containerHeight);
+                    console.log('%c   Stack trace:', 'color: #FF0000;');
+                    console.trace();
+                }
+            });
+        });
+        
+        observer.observe(aiModeToggle, { 
+            attributes: true, 
+            attributeFilter: ['style', 'class']
+        });
+        
+        observer.observe(modeApiContainer, { 
+            attributes: true, 
+            attributeFilter: ['style', 'class']
+        });
+        
+        console.log('%c🔍 MutationObserver ativo para rastrear mudanças de altura', 'color: #00FF00; font-weight: bold;');
     }
     
     // ⚡ Atualizar status da memória ativa periodicamente (a cada 5 segundos)
@@ -789,12 +940,9 @@
             try {
                 const result = await chrome.storage.local.get(['analyzerConfig']);
                 if (result.analyzerConfig && result.analyzerConfig.aiMode) {
-                    const toggleElement = document.getElementById('aiModeToggle');
-                    if (toggleElement) {
-                        const modeApi = toggleElement.querySelector('.mode-api');
-                        if (modeApi) {
-                            await atualizarStatusMemoriaAtiva(modeApi);
-        }
+                    const modeApiStatus = document.getElementById('modeApiStatus');
+                    if (modeApiStatus) {
+                        await atualizarStatusMemoriaAtiva(modeApiStatus);
                     }
                 }
             } catch (error) {
@@ -2103,7 +2251,12 @@
                     <h3 class="header-title">Double Analyzer <span class="title-badge" id="titleBadge">PREMIUM</span></h3>
                     <div class="ai-mode-toggle" id="aiModeToggle" title="Ativar/Desativar Modo Diamante">
                         <span class="mode-name">Ativar Modo Diamante</span>
-                        <span class="mode-api"></span>
+                        <div class="mode-api-container" style="display: none;">
+                            <div class="mode-api-header-simple">
+                                <span class="mode-api-title-simple">IA</span>
+                            </div>
+                            <div class="mode-api-status" id="modeApiStatus"></div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -2241,10 +2394,6 @@
                             <input type="number" id="cfgMinOccurrences" min="1" value="1" />
                         </div>
                         <div class="setting-item">
-                            <span class="setting-label">Porcentagem mínima (%):</span>
-                            <input type="number" id="cfgMinPercentage" min="1" max="100" value="60" placeholder="60" title="Porcentagem mínima de confiança para a IA enviar sinais" />
-                        </div>
-                        <div class="setting-item">
                             <span class="setting-label">Ocorrências MÁXIMAS (0 = sem limite):</span>
                             <input type="number" id="cfgMaxOccurrences" min="0" value="0" placeholder="0 = sem limite" />
                         </div>
@@ -2311,6 +2460,39 @@
                             </div>
                         </div>
                         
+                        <!-- ═══════════════════════════════════════════════════════ -->
+                        <!-- INTENSIDADE DE SINAIS (NÍVEL DIAMANTE) -->
+                        <!-- ═══════════════════════════════════════════════════════ -->
+                        <div class="setting-item setting-row" id="signalIntensityContainer" style="margin-top: 15px;">
+                            <div style="width: 100%; display: flex; flex-direction: column; gap: 8px;">
+                                <label style="font-size: 13px; color: #ffffff; font-weight: 600; text-align: center;">
+                                    Intensidade de Sinais
+                                </label>
+                                <select id="signalIntensitySelect" style="
+                                    width: 100%;
+                                    padding: 10px 12px;
+                                    font-size: 13px;
+                                    font-weight: 600;
+                                    color: #ffffff;
+                                    background: #1a1a1a;
+                                    border: 1px solid #333;
+                                    border-radius: 8px;
+                                    cursor: pointer;
+                                    transition: all 0.3s ease;
+                                    outline: none;
+                                    text-align: center;
+                                ">
+                                    <option value="aggressive" style="background: #1a1a1a; color: #fff;">🔥 AGRESSIVO (3+ votos)</option>
+                                    <option value="moderate" selected style="background: #1a1a1a; color: #fff;">⚖️ MODERADO (4+ votos)</option>
+                                    <option value="conservative" style="background: #1a1a1a; color: #fff;">🛡️ CONSERVADOR (5 votos)</option>
+                                    <option value="ultraconservative" style="background: #1a1a1a; color: #fff;">💎 ULTRACONSERVADOR (todos)</option>
+                                </select>
+                                <div style="font-size: 11px; color: #888; text-align: center; padding: 0 10px;">
+                                    Define quantos níveis devem concordar para enviar sinal
+                                </div>
+                            </div>
+                        </div>
+                        
                         <!-- Opção de sincronização com a conta -->
                         <div class="setting-item setting-row" style="margin-top: 20px; padding-top: 15px; border-top: 1px solid #333;">
                             <label class="checkbox-label" style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
@@ -2363,6 +2545,11 @@
         console.log('%c   Sidebar injetada no DOM', 'color: #00FF88;');
         console.log('%c   ID: blaze-double-analyzer', 'color: #00FF88;');
         console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #00FF88; font-weight: bold;');
+        
+        // 🔍 DEBUG: Iniciar observador de mudanças de altura
+        setTimeout(() => {
+            setupHeightObserver();
+        }, 1000);
         console.log('');
         
         // ═══════════════════════════════════════════════════════════════
@@ -2434,14 +2621,14 @@
                 // 🧠 Se modo IA já estiver ativo, atualizar status imediatamente
                 if (isAIMode) {
                     console.log('%c🧠 Modo IA já ativo! Atualizando status da memória...', 'color: #00CED1; font-weight: bold;');
-                    const modeApi = aiModeToggle.querySelector('.mode-api');
-                    if (modeApi) {
+                    const modeApiStatus = document.getElementById('modeApiStatus');
+                    if (modeApiStatus) {
                         // ✅ TENTAR MÚLTIPLAS VEZES PARA GARANTIR (importante no mobile)
                         const tentarAtualizar = async (tentativa = 1, maxTentativas = 3) => {
-                            await atualizarStatusMemoriaAtiva(modeApi);
+                            await atualizarStatusMemoriaAtiva(modeApiStatus);
                             
                             // Se ainda estiver "Inicializando..." e não for a última tentativa, tentar novamente
-                            if (modeApi.textContent.includes('Inicializando') && tentativa < maxTentativas) {
+                            if (modeApiStatus.textContent.includes('Inicializando') && tentativa < maxTentativas) {
                                 console.log(`%c🔄 Tentativa ${tentativa}/${maxTentativas} - Ainda inicializando, tentando novamente em 2s...`, 'color: #FFA500;');
                                 setTimeout(() => tentarAtualizar(tentativa + 1, maxTentativas), 2000);
                             }
@@ -2463,7 +2650,6 @@
                     // ✅ IMPORTANTE: Mesclar com DEFAULT para garantir que temos todos os campos
                     const DEFAULT_CONFIG = {
                         minOccurrences: 5,
-                        minPercentage: 60,
                         maxOccurrences: 0,
                         minIntervalSpins: 0,
                         minPatternSize: 3,
@@ -2473,6 +2659,7 @@
                         consecutiveMartingale: false,
                         maxGales: 2,
                         telegramChatId: '',
+                        signalIntensity: 'moderate',
                         aiApiKey: '',
                         aiMode: false
                     };
@@ -4469,10 +4656,133 @@
     // Função para atualizar status de análise real
     function updateAnalysisStatus(status) {
         currentAnalysisStatus = status;
-        const suggestionText = document.getElementById('suggestionText');
-        if (suggestionText && suggestionText.textContent !== 'Aguardando análise...') {
-            suggestionText.textContent = status;
+        
+        // ✅ ATUALIZAR O CABEÇÁRIO (onde mostra "IA ativada")
+        const modeApiStatus = document.getElementById('modeApiStatus');
+        const modeApiContainer = document.querySelector('.mode-api-container');
+        const aiModeToggle = document.querySelector('.ai-mode-toggle.active');
+        
+        console.log('%c═══════════════════════════════════════════════════════════', 'color: #FF00FF; font-weight: bold;');
+        console.log('%c🔍 [DEBUG updateAnalysisStatus]', 'color: #FF00FF; font-weight: bold;');
+        console.log('%c   Status:', 'color: #FF00FF;', status);
+        
+        if (modeApiStatus) {
+            // ✅ Apenas a mensagem, SEM prefixo
+            modeApiStatus.textContent = status;
+            console.log('%c   ✅ Texto atualizado:', 'color: #00FF00;', status);
+            
+            if (modeApiContainer) {
+                // 🔍 LOG: Tamanhos ANTES
+                const heightBefore = window.getComputedStyle(modeApiContainer).height;
+                const toggleHeightBefore = aiModeToggle ? window.getComputedStyle(aiModeToggle).height : 'N/A';
+                console.log('%c   📏 ANTES:', 'color: #FFA500;', {
+                    container: heightBefore,
+                    toggle: toggleHeightBefore
+                });
+                
+                modeApiContainer.style.display = 'block';
+                
+                // ✅ APLICAR ESTILOS FIXOS (UMA VEZ SÓ)
+                if (!modeApiContainer.hasAttribute('data-styled')) {
+                    modeApiContainer.setAttribute('data-styled', 'true');
+                    
+                    // Container principal - TAMANHO ABSOLUTO FIXO
+                    modeApiContainer.style.cssText = `
+                        display: block !important;
+                        position: relative !important;
+                        margin-top: 8px !important;
+                        margin-bottom: 0 !important;
+                        min-height: 50px !important;
+                        max-height: 50px !important;
+                        height: 50px !important;
+                        min-width: 100% !important;
+                        max-width: 100% !important;
+                        width: 100% !important;
+                        box-sizing: border-box !important;
+                        background: linear-gradient(135deg, rgba(0, 255, 136, 0.08) 0%, rgba(0, 212, 255, 0.08) 100%) !important;
+                        border: none !important;
+                        border-radius: 8px !important;
+                        padding: 8px 12px !important;
+                        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.05) !important;
+                        backdrop-filter: blur(10px) !important;
+                        overflow: hidden !important;
+                        flex-grow: 0 !important;
+                        flex-shrink: 0 !important;
+                        flex-basis: 50px !important;
+                    `;
+                    
+                    // Header simples
+                    const headerSimple = modeApiContainer.querySelector('.mode-api-header-simple');
+                    if (headerSimple) {
+                        headerSimple.style.cssText = `
+                            display: block !important;
+                            text-align: center !important;
+                            padding-bottom: 4px !important;
+                            padding-top: 0 !important;
+                            margin-bottom: 4px !important;
+                            margin-top: 0 !important;
+                            border-bottom: 1px solid rgba(0, 255, 136, 0.2) !important;
+                            max-height: 18px !important;
+                            height: 18px !important;
+                            overflow: hidden !important;
+                        `;
+                        
+                        const titleSimple = headerSimple.querySelector('.mode-api-title-simple');
+                        if (titleSimple) {
+                            titleSimple.style.cssText = `
+                                font-size: 11px !important;
+                                font-weight: 700 !important;
+                                color: rgba(0, 255, 136, 0.95) !important;
+                                text-transform: uppercase !important;
+                                letter-spacing: 1px !important;
+                                display: inline-block !important;
+                                line-height: 14px !important;
+                            `;
+                        }
+                    }
+                    
+                    // Status - FIXO
+                    modeApiStatus.style.cssText = `
+                        display: block !important;
+                        font-size: 10px !important;
+                        font-weight: 500 !important;
+                        color: rgba(255, 255, 255, 0.9) !important;
+                        line-height: 1.2 !important;
+                        text-align: center !important;
+                        overflow: hidden !important;
+                        white-space: nowrap !important;
+                        text-overflow: ellipsis !important;
+                        max-height: 14px !important;
+                        height: 14px !important;
+                        padding: 0 !important;
+                        margin: 0 !important;
+                    `;
+                    
+                    console.log('%c   ✅ Estilos aplicados pela primeira vez', 'color: #00FF88;');
+                }
+                
+                // 🔍 LOG: Tamanhos DEPOIS
+                const heightAfter = window.getComputedStyle(modeApiContainer).height;
+                const toggleHeightAfter = aiModeToggle ? window.getComputedStyle(aiModeToggle).height : 'N/A';
+                console.log('%c   📏 DEPOIS:', 'color: #00FFFF;', {
+                    container: heightAfter,
+                    toggle: toggleHeightAfter,
+                    mudou: heightBefore !== heightAfter
+                });
+                
+                // 🔍 LOG: Estilos inline aplicados
+                console.log('%c   🎨 Estilos inline do container:', 'color: #FFFF00;', modeApiContainer.style.cssText);
+                if (aiModeToggle) {
+                    console.log('%c   🎨 Estilos inline do toggle:', 'color: #FFFF00;', aiModeToggle.style.cssText);
+                }
+            }
+            
+            console.log('%c✅ [updateAnalysisStatus] Atualizado cabeçário:', 'color: #00FF88; font-weight: bold;', status);
+            console.log('%c═══════════════════════════════════════════════════════════', 'color: #FF00FF; font-weight: bold;');
         }
+        
+        // ✅ NÃO modificar o suggestionText (deixar como "Aguardando análise...")
+        // O suggestionText só será atualizado quando houver um resultado final (NEW_ANALYSIS)
     }
 
     // Carregar e aplicar configurações na UI
@@ -4668,10 +4978,8 @@
                 const maxGales = document.getElementById('cfgMaxGales');
                 const tgChatId = document.getElementById('cfgTgChatId');
                 const aiApiKey = document.getElementById('cfgAiApiKey');
-                const minPercentage = document.getElementById('cfgMinPercentage');
                 const aiHistorySize = document.getElementById('cfgAiHistorySize');
                 if (minOcc) minOcc.value = cfg.minOccurrences != null ? cfg.minOccurrences : 1;
-                if (minPercentage) minPercentage.value = cfg.minPercentage != null ? cfg.minPercentage : 60;
                 if (maxOcc) maxOcc.value = cfg.maxOccurrences != null ? cfg.maxOccurrences : 0;
                 if (minInt) minInt.value = cfg.minIntervalSpins != null ? cfg.minIntervalSpins : 0;
                 if (minSize) minSize.value = cfg.minPatternSize != null ? cfg.minPatternSize : 3;
@@ -4682,7 +4990,14 @@
                 if (maxGales) maxGales.value = cfg.maxGales != null ? cfg.maxGales : 2;
                 if (tgChatId) tgChatId.value = cfg.telegramChatId || '';
                 if (aiApiKey) aiApiKey.value = cfg.aiApiKey || '';
-                if (aiHistorySize) aiHistorySize.value = cfg.aiHistorySize != null ? cfg.aiHistorySize : 50;
+                if (aiHistorySize) aiHistorySize.value = cfg.aiHistorySize != null ? cfg.aiHistorySize : 60;
+                
+                // 🎚️ Carregar intensidade de sinais
+                const signalIntensitySelect = document.getElementById('signalIntensitySelect');
+                if (signalIntensitySelect) {
+                    signalIntensitySelect.value = cfg.signalIntensity || 'moderate';
+                    console.log(`🎚️ Intensidade carregada: ${cfg.signalIntensity || 'moderate'}`);
+                }
                 
                 // 🔧 Carregar configurações avançadas (prompt customizado)
                 const advancedModeCheckbox = document.getElementById('cfgAdvancedMode');
@@ -4748,7 +5063,6 @@
                 };
                 
                 const minOcc = Math.max(parseInt(getElementValue('cfgMinOccurrences', '1'), 10), 1);
-                const minPercentage = Math.max(1, Math.min(100, parseInt(getElementValue('cfgMinPercentage', '60'), 10)));
                 const maxOcc = Math.max(parseInt(getElementValue('cfgMaxOccurrences', '0'), 10), 0);
                 const minInt = Math.max(parseInt(getElementValue('cfgMinInterval', '0'), 10), 0);
                 let minSize = Math.max(parseInt(getElementValue('cfgMinPatternSize', '2'), 10), 2);
@@ -4764,6 +5078,10 @@
                 // 🔧 Configurações avançadas (prompt customizado)
                 const advancedMode = document.getElementById('cfgAdvancedMode') ? document.getElementById('cfgAdvancedMode').checked : false;
                 const customPrompt = (document.getElementById('cfgCustomPrompt') ? document.getElementById('cfgCustomPrompt').value : '').trim();
+                
+                // 🎚️ Intensidade de sinais
+                const signalIntensitySelect = document.getElementById('signalIntensitySelect');
+                const signalIntensity = signalIntensitySelect ? signalIntensitySelect.value : 'moderate';
                 
                 // ✅ RESETAR HISTÓRICO DE SINAIS (limpar penalidades de losses consecutivos)
                 console.log('%c🔄 Resetando histórico de sinais (limpar losses consecutivos)...', 'color: #00D4FF; font-weight: bold;');
@@ -4781,7 +5099,6 @@
                 console.log('%c✅ Histórico de sinais resetado!', 'color: #00FF88; font-weight: bold;');
                 
                 console.log('📝 Valores capturados dos campos:');
-                console.log('   • minPercentage:', minPercentage + '%');
                 console.log('   • minOccurrences:', minOcc);
                 console.log('   • maxOccurrences:', maxOcc);
                 console.log('   • minIntervalSpins:', minInt);
@@ -4789,6 +5106,7 @@
                 console.log('   • maxPatternSize:', maxSize);
                 console.log('   • winPercentOthers:', winPct + '%');
                 console.log('   • aiHistorySize:', aiHistorySize);
+                console.log('   • signalIntensity:', signalIntensity);
                 
                 // ✅ VALIDAÇÃO: maxOccurrences não pode ser menor que minOccurrences (se não for 0)
                 if (maxOcc > 0 && maxOcc < minOcc) {
@@ -4814,7 +5132,6 @@
                 const cfg = {
                     ...currentConfig, // Preservar configurações existentes (incluindo aiMode)
                     minOccurrences: minOcc,
-                    minPercentage: minPercentage,
                     maxOccurrences: maxOcc,
                     minIntervalSpins: minInt,
                     minPatternSize: minSize,
@@ -4826,6 +5143,7 @@
                     telegramChatId: tgChatId,
                     aiApiKey: aiApiKey,
                     aiHistorySize: aiHistorySize,
+                    signalIntensity: signalIntensity,
                     advancedMode: advancedMode,
                     customPrompt: customPrompt
                 };
