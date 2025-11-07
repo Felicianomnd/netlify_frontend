@@ -277,10 +277,15 @@
     position: absolute;
     background: transparent;
     pointer-events: all;
+    transition: background 0.2s ease;
 }
 
 .resize-handle:hover {
-    background: rgba(255, 255, 255, 0.1);
+    background: rgba(0, 255, 136, 0.2);
+}
+
+.resize-handle:active {
+    background: rgba(0, 255, 136, 0.3);
 }
 
 .resize-n {
@@ -303,7 +308,7 @@
     top: 0;
     right: 0;
     bottom: 0;
-    width: 4px;
+    width: 8px;
     cursor: e-resize;
 }
 
@@ -311,7 +316,7 @@
     top: 0;
     left: 0;
     bottom: 0;
-    width: 4px;
+    width: 8px;
     cursor: w-resize;
 }
 
@@ -2762,7 +2767,9 @@
 /* ═══════════════════════════════════════════════════════════════════════════════ */
 @media only screen and (min-width: 1025px) {
     #blaze-double-analyzer {
-        width: clamp(400px, 25vw, 500px) !important;
+        width: clamp(400px, 25vw, 500px);
+        min-width: 300px;
+        max-width: 1200px;
         max-height: 95vh !important;
     }
     
@@ -2781,8 +2788,9 @@
 /* ═══════════════════════════════════════════════════════════════════════════════ */
 @media only screen and (min-width: 768px) and (max-width: 1024px) {
     #blaze-double-analyzer {
-        width: clamp(400px, 60vw, 500px) !important;
-        max-width: 90vw !important;
+        width: clamp(400px, 60vw, 500px);
+        min-width: 300px;
+        max-width: 90vw;
         max-height: 90vh !important;
     }
     
@@ -3241,8 +3249,12 @@
 
 @media only screen and (min-width: 769px) and (max-width: 1024px) {
     #blaze-double-analyzer {
-        width: 350px !important;
-        height: 650px !important;
+        width: 350px;
+        min-width: 300px;
+        max-width: 600px;
+        height: 650px;
+        min-height: 400px;
+        max-height: 95vh;
     }
     
     .analyzer-body {
@@ -3381,8 +3393,9 @@
 /* ═══════════════════════════════════════════════════════════════════════════════ */
 @media only screen and (min-width: 768px) and (max-width: 1024px) and (orientation: landscape) {
     #blaze-double-analyzer {
-        width: 600px !important;
-        max-width: 45vw !important;
+        width: 600px;
+        min-width: 400px;
+        max-width: 45vw;
     }
     
     .settings-grid {

@@ -535,6 +535,16 @@
             // ❌ NÃO SINCRONIZAR aiMode - cada dispositivo tem seu próprio modo ativo!
             // As configurações (minPercentage, aiApiKey, etc) são sincronizadas via botão Salvar
             
+            // ✅ RE-RENDERIZAR ENTRADAS PARA FILTRAR POR MODO
+            chrome.storage.local.get(['entriesHistory'], function(res) {
+                if (res && res.entriesHistory) {
+                    console.log(`🔄 Re-renderizando entradas para modo ${newAIMode ? 'DIAMANTE' : 'PADRÃO'}...`);
+                    console.log(`   Total de entradas no histórico: ${res.entriesHistory.length}`);
+                    renderEntriesPanel(res.entriesHistory);
+                    console.log('✅ Entradas filtradas e exibidas!');
+                }
+            });
+            
             // Notificar background.js
             chrome.runtime.sendMessage({
                 action: 'aiModeChanged',
@@ -741,19 +751,34 @@
                 titleBadge.classList.remove('badge-ia');
             }
             
+            // ✅ FORÇAR OCULTAR CONTAINER
             if (modeApiContainer) {
                 modeApiContainer.style.display = 'none';
+                console.log('%c🚫 Container IA OCULTO (modo DESATIVADO)', 'color: #FF6666; font-weight: bold;');
             }
             if (modeApiStatus) {
                 modeApiStatus.textContent = '';
+            }
+            
+            // ✅ PARAR INTERVALO DE ATUALIZAÇÃO
+            if (intervaloAtualizacaoMemoria) {
+                clearInterval(intervaloAtualizacaoMemoria);
+                intervaloAtualizacaoMemoria = null;
+                console.log('%c🛑 Intervalo parado (modo DESATIVADO)', 'color: #FFA500; font-weight: bold;');
             }
         }
     }
 
     // 🧠 Atualizar status da memória ativa na interface
     async function atualizarStatusMemoriaAtiva(elemento) {
-        const modeApiContainer = document.querySelector('.mode-api-container');
+        // ✅ VERIFICAR SE O MODO IA ESTÁ ATIVO - SE NÃO, NÃO FAZER NADA
         const aiModeToggle = document.querySelector('.ai-mode-toggle.active');
+        if (!aiModeToggle) {
+            console.log('%c🚫 [atualizarStatusMemoriaAtiva] Modo IA NÃO está ativo - ignorando', 'color: #FFA500; font-weight: bold;');
+            return;
+        }
+        
+        const modeApiContainer = document.querySelector('.mode-api-container');
         
         console.log('%c═══════════════════════════════════════════════════════════', 'color: #00CED1; font-weight: bold;');
         console.log('%c🧠 [DEBUG atualizarStatusMemoriaAtiva]', 'color: #00CED1; font-weight: bold;');
@@ -821,19 +846,15 @@
                     // Memória está inicializando
                     console.log('%c🟠 [UI] Atualizando para: Inicializando IA...', 'color: #FFA500; font-weight: bold;');
                     elemento.textContent = '⚡ Inicializando...';
-                    if (modeApiContainer) {
-                        modeApiContainer.style.display = 'block';
-                    }
+                    // ✅ NÃO mexer no display - já está gerenciado pelo updateAIModeUI
                 } else {
                     // Memória está ativa
                     const updates = status.totalAtualizacoes || 0;
                     
                     console.log('%c🟢 [UI] Atualizando para: Memória ativada', 'color: #00FF00; font-weight: bold;');
                     
-                    elemento.textContent = `memória ativada • ${updates} análises`;
-                    if (modeApiContainer) {
-                        modeApiContainer.style.display = 'block';
-                    }
+                    elemento.textContent = `Memória ativada • ${updates} análises`;
+                    // ✅ NÃO mexer no display - já está gerenciado pelo updateAIModeUI
                 }
                 
                 console.log('%c✅ [UI] Texto do elemento após atualização:', 'color: #00FF88;', elemento.textContent);
@@ -852,12 +873,8 @@
                 console.warn('%c⚠️ [CONTENT] Resposta inválida ou vazia!', 'color: #FFA500; font-weight: bold;');
                 console.warn('%c   response:', 'color: #FFA500;', response);
                 console.warn('%c   response.status:', 'color: #FFA500;', response?.status);
-                elemento.textContent = 'memória ativada';
-                
-                const modeApiContainer = document.querySelector('.mode-api-container');
-                if (modeApiContainer) {
-                    modeApiContainer.style.display = 'block';
-                }
+                elemento.textContent = 'Memória ativada';
+                // ✅ NÃO mexer no display - já está gerenciado pelo updateAIModeUI
             }
         } catch (error) {
             console.error('%c╔══════════════════════════════════════════════════════════╗', 'color: #FF0000; font-weight: bold;');
@@ -865,12 +882,8 @@
             console.error('%c╚══════════════════════════════════════════════════════════╝', 'color: #FF0000; font-weight: bold;');
             console.error('%c   Erro:', 'color: #FF0000;', error);
             console.error('%c   Stack:', 'color: #FF0000;', error.stack);
-            elemento.textContent = 'memória ativada';
-            
-            const modeApiContainer = document.querySelector('.mode-api-container');
-            if (modeApiContainer) {
-                modeApiContainer.style.display = 'block';
-            }
+            elemento.textContent = 'Memória ativada';
+            // ✅ NÃO mexer no display - já está gerenciado pelo updateAIModeUI
         }
         
         // 🔍 LOG: Tamanhos NO FIM TOTAL
@@ -1241,7 +1254,7 @@
         modal.style.display = 'none';
         
         // Resetar botão de salvar (remover modo edição)
-        const saveBtn = document.getElementById('saveCustomPatternBtn');
+        const saveBtn = document.getElementById('saveCustomPattern');
         if (saveBtn) {
             saveBtn.textContent = '💾 Salvar Modelo';
             saveBtn.removeAttribute('data-editing-id');
@@ -1691,7 +1704,7 @@
         const sequenceDiv = document.getElementById('customPatternSequence');
         const colorBadges = sequenceDiv.querySelectorAll('.sequence-color-item');
         const beforeColorRadio = document.querySelector('input[name="beforeColor"]:checked');
-        const saveBtn = document.getElementById('saveCustomPatternBtn');
+        const saveBtn = document.getElementById('saveCustomPattern');
         
         // Verificar se está em modo edição
         const editingId = saveBtn ? saveBtn.getAttribute('data-editing-id') : null;
@@ -2058,7 +2071,7 @@
             // Preencher campos com dados do padrão (IDs CORRETOS)
             const nameInput = document.getElementById('customPatternName');
             const sequenceDiv = document.getElementById('customPatternSequence');
-            const saveBtn = document.getElementById('saveCustomPatternBtn');
+            const saveBtn = document.getElementById('saveCustomPattern');
             
             console.log('📝 Preenchendo campos...');
             console.log('   Nome input:', nameInput);
@@ -2562,9 +2575,8 @@
         console.log('%c🎯 Carregando padrões customizados...', 'color: #00d4ff; font-weight: bold;');
         loadCustomPatternsList();
         
-        // 🧠 Iniciar atualização periódica do status da memória ativa
-        console.log('%c🧠 Iniciando sistema de atualização de status da memória ativa...', 'color: #00CED1; font-weight: bold;');
-        iniciarAtualizacaoMemoria();
+        // 🧠 NÃO iniciar o intervalo automaticamente - só quando o modo IA for ativado
+        console.log('%c🧠 Sistema de memória ativa preparado (aguardando ativação do modo IA)', 'color: #00CED1; font-weight: bold;');
         
         // ⚡ CARREGAR HISTÓRICO DO SERVIDOR (agora que a sidebar existe)
         console.log('%c⏱️ [TIMING] Sidebar criada! Carregando histórico...', 'color: #00FF88; font-weight: bold;');
@@ -2615,6 +2627,16 @@
                 const config = result.analyzerConfig || {};
                 const isAIMode = config.aiMode || false;
                 updateAIModeUI(aiModeToggle, isAIMode);
+                
+                // ✅ GARANTIR que o container está oculto se modo está DESATIVADO
+                if (!isAIMode) {
+                    const modeApiContainer = aiModeToggle.querySelector('.mode-api-container');
+                    if (modeApiContainer) {
+                        modeApiContainer.style.display = 'none';
+                        console.log('%c✅ Container IA forçado a ocultar (modo DESATIVADO)', 'color: #00FF88; font-weight: bold;');
+                    }
+                }
+                
                 // ✅ Aplicar estado dos campos ao carregar
                 toggleAIConfigFields(isAIMode);
                 
@@ -3691,7 +3713,16 @@
                     confidenceText.textContent = `${confidence.toFixed(1)}%`;
                     
                     // Update suggestion
-                    suggestionText.textContent = analysis.suggestion;
+                    // ✅ VERIFICAR SE É ANÁLISE DIAMANTE - Mostrar apenas "Análise por IA"
+                    const isDiamondMode = analysis.patternDescription && 
+                                          (analysis.patternDescription.includes('NÍVEL DIAMANTE') || 
+                                           analysis.patternDescription.includes('6 Níveis'));
+                    
+                    if (isDiamondMode) {
+                        suggestionText.textContent = 'Análise por IA';
+                    } else {
+                        suggestionText.textContent = analysis.suggestion;
+                    }
                     // Cor sugerida com o mesmo estilo do histórico (quadrado com anel)
                     suggestionColor.className = `suggestion-color suggestion-color-box ${analysis.color}`;
                     
@@ -3954,6 +3985,31 @@
         }
         
         // ═══════════════════════════════════════════════════════════════
+        // ✅ NOVO: DETECTAR MODO DE ANÁLISE ATIVO
+        // ═══════════════════════════════════════════════════════════════
+        const aiModeToggle = document.querySelector('.ai-mode-toggle.active');
+        const isDiamondMode = !!aiModeToggle;
+        const currentMode = isDiamondMode ? 'diamond' : 'standard';
+        
+        console.log(`🔍 Modo de análise ativo: ${currentMode.toUpperCase()}`);
+        
+        // ═══════════════════════════════════════════════════════════════
+        // ✅ FILTRAR ENTRADAS POR MODO DE ANÁLISE
+        // ═══════════════════════════════════════════════════════════════
+        // Mostrar apenas entradas do modo ativo
+        // Se uma entrada não tem analysisMode (entradas antigas), mostrar em ambos os modos
+        const entriesByMode = entries.filter(e => {
+            // Entradas antigas sem analysisMode → mostrar em ambos os modos
+            if (!e.analysisMode) return true;
+            
+            // Entradas novas com analysisMode → mostrar apenas se for do modo ativo
+            return e.analysisMode === currentMode;
+        });
+        
+        console.log(`   Total de entradas: ${entries.length}`);
+        console.log(`   Entradas do modo ${currentMode}: ${entriesByMode.length}`);
+        
+        // ═══════════════════════════════════════════════════════════════
         // ✅ FILTRAR ENTRADAS - MOSTRAR APENAS RESULTADOS FINAIS
         // ═══════════════════════════════════════════════════════════════
         // REGRA DE EXIBIÇÃO:
@@ -3961,7 +4017,7 @@
         // - LOSS intermediário (continuando para próximo Gale) → NUNCA MOSTRAR
         // - LOSS final (RET ou fim de ciclo) → SEMPRE MOSTRAR
         
-        const filteredEntries = entries.filter(e => {
+        const filteredEntries = entriesByMode.filter(e => {
             // ✅ Sempre mostrar WINs (qualquer estágio)
             if (e.result === 'WIN') return true;
             
@@ -3990,12 +4046,12 @@
             return true;
         });
         
-        console.log(`📊 Entradas: ${entries.length} total | ${filteredEntries.length} exibidas (${entries.length - filteredEntries.length} LOSSes intermediários ocultos)`);
+        console.log(`📊 Entradas: ${entries.length} total | ${entriesByMode.length} do modo ${currentMode} | ${filteredEntries.length} exibidas (${entriesByMode.length - filteredEntries.length} LOSSes intermediários ocultos)`);
         
         // Renderizar apenas as entradas filtradas
         const items = filteredEntries.map((e) => {
             // Encontrar índice original para manter referência correta ao clicar
-            const originalIndex = entries.indexOf(e);
+            const originalIndex = entriesByMode.indexOf(e);
             const time = new Date(e.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
             const cls = e.color;
             const badge = e.color === 'white' ? blazeWhiteSVG(16) : `<span>${e.number}</span>`;
@@ -4135,7 +4191,8 @@
         const wins = filteredEntries.filter(e => e.result === 'WIN').length;
         const losses = totalCycles - wins;
         const pct = totalCycles ? ((wins/totalCycles)*100).toFixed(1) : '0.0';
-        const totalEntries = entries.length;
+        // ✅ Contar apenas entradas do modo ativo, não de todos os modos
+        const totalEntries = entriesByMode.length;
         
         // Mostrar placar WIN/LOSS com porcentagem, total de ciclos e total de entradas
         hitEl.innerHTML = `<span class="win-score">WIN: ${wins}</span> <span class="loss-score">LOSS: ${losses}</span> <span class="percentage">(${pct}%)</span> <span class="total-entries">• Total: ${totalCycles} ciclos • ${totalEntries} entradas</span>`;
@@ -4485,6 +4542,14 @@
         } else if (request.type === 'ENTRIES_UPDATE') {
             // Atualizar histórico de entradas (WIN/LOSS)
             updateSidebar({ entriesHistory: request.data });
+            
+            // ✅ LIMPAR CAIXA DE RACIOCÍNIO (suggestionText) após resultado
+            const suggestionText = document.getElementById('suggestionText');
+            if (suggestionText && suggestionText.textContent === 'Análise por IA') {
+                // Resetar para mensagem padrão
+                suggestionText.textContent = 'Aguardando análise...';
+                console.log('✅ Caixa de raciocínio limpa após resultado');
+            }
         } else if (request.type === 'OBSERVER_UPDATE') {
             // Atualizar Calibrador de porcentagens automaticamente
             console.log('╔═══════════════════════════════════════════════════════════╗');
@@ -4549,23 +4614,35 @@
             const status = request.data && request.data.status ? request.data.status : request.status;
             updateAnalysisStatus(status);
         } else if (request.type === 'INITIAL_SEARCH_START') {
-            // Iniciar busca de padrões
+            // ✅ BUSCA DE PADRÕES (MODO PADRÃO) - SEMPRE NA CAIXA EMBAIXO
             console.log('🔍 Busca inicial de padrões iniciada (5 minutos)');
-            updateAnalysisStatus('Buscando padrões... (0/5000)');
+            const suggestionText = document.getElementById('suggestionText');
+            if (suggestionText) {
+                suggestionText.textContent = '🔍 Buscando padrões... 5m 0s | 0/5000';
+            }
         } else if (request.type === 'INITIAL_SEARCH_PROGRESS') {
-            // Atualizar progresso da busca
+            // ✅ ATUALIZAR CRONÔMETRO DECRESCENTE (SEMPRE VISÍVEL, SEM INTERRUPÇÃO)
             const total = request.data.total || 0;
             const remaining = request.data.remaining || 0;
             const minutes = Math.floor(remaining / 60000);
             const seconds = Math.floor((remaining % 60000) / 1000);
             console.log(`🔍 Busca inicial: ${total}/5000 padrões | ${minutes}m ${seconds}s restantes`);
-            updateAnalysisStatus(`Buscando padrões... (${total}/5000) | ${minutes}m ${seconds}s`);
+            
+            // ✅ SEMPRE atualizar a caixa de sugestão (modo padrão)
+            const suggestionText = document.getElementById('suggestionText');
+            if (suggestionText) {
+                suggestionText.textContent = `🔍 Buscando... ${minutes}m ${seconds}s | ${total}/5000`;
+            }
             loadPatternBank(); // Atualizar UI do banco
         } else if (request.type === 'INITIAL_SEARCH_COMPLETE') {
-            // Busca concluída
+            // ✅ BUSCA CONCLUÍDA
             const total = request.data.total || 0;
             console.log(`✅ Busca inicial concluída: ${total} padrões únicos encontrados!`);
-            updateAnalysisStatus('✅ Pronto para jogar!');
+            
+            const suggestionText = document.getElementById('suggestionText');
+            if (suggestionText) {
+                suggestionText.textContent = '✅ Pronto para jogar!';
+            }
             loadPatternBank(); // Atualizar UI do banco
             
             // Reabilitar botão de busca
@@ -4657,14 +4734,29 @@
     function updateAnalysisStatus(status) {
         currentAnalysisStatus = status;
         
-        // ✅ ATUALIZAR O CABEÇÁRIO (onde mostra "IA ativada")
-        const modeApiStatus = document.getElementById('modeApiStatus');
-        const modeApiContainer = document.querySelector('.mode-api-container');
+        // ✅ VERIFICAR SE O MODO IA ESTÁ ATIVO
         const aiModeToggle = document.querySelector('.ai-mode-toggle.active');
+        const isAIMode = !!aiModeToggle;
         
         console.log('%c═══════════════════════════════════════════════════════════', 'color: #FF00FF; font-weight: bold;');
         console.log('%c🔍 [DEBUG updateAnalysisStatus]', 'color: #FF00FF; font-weight: bold;');
         console.log('%c   Status:', 'color: #FF00FF;', status);
+        console.log('%c   Modo IA ativo?', 'color: #FF00FF;', isAIMode);
+        
+        // ✅ SE O MODO IA NÃO ESTIVER ATIVO, MOSTRAR NA CAIXA EMBAIXO (modo padrão)
+        if (!isAIMode) {
+            console.log('%c   📍 Modo PADRÃO - exibindo na caixa de sugestão', 'color: #FFD700; font-weight: bold;');
+            const suggestionText = document.getElementById('suggestionText');
+            if (suggestionText) {
+                suggestionText.textContent = status;
+            }
+            return; // NÃO atualizar o cabeçalho
+        }
+        
+        // ✅ MODO IA ATIVO - ATUALIZAR O CABEÇALHO
+        console.log('%c   💎 Modo DIAMANTE - exibindo no cabeçalho', 'color: #00FF88; font-weight: bold;');
+        const modeApiStatus = document.getElementById('modeApiStatus');
+        const modeApiContainer = document.querySelector('.mode-api-container');
         
         if (modeApiStatus) {
             // ✅ Apenas a mensagem, SEM prefixo
@@ -4680,7 +4772,7 @@
                     toggle: toggleHeightBefore
                 });
                 
-                modeApiContainer.style.display = 'block';
+                // ✅ NÃO mexer no display - já está gerenciado pelo updateAIModeUI
                 
                 // ✅ APLICAR ESTILOS FIXOS (UMA VEZ SÓ)
                 if (!modeApiContainer.hasAttribute('data-styled')) {

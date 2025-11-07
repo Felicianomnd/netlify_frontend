@@ -2488,7 +2488,9 @@ async function processNewSpinFromServer(spinData) {
                                 // ✅ CAMPOS DO MARTINGALE
                                 martingaleStage: martingaleStage,  // 'ENTRADA' | 'G1' | 'G2'
                                 wonAt: martingaleStage,             // Onde ganhou
-                                finalResult: 'WIN'                  // Resultado final do ciclo
+                                finalResult: 'WIN',                 // Resultado final do ciclo
+                                // ✅ NOVO: IDENTIFICAR MODO DE ANÁLISE
+                                analysisMode: analyzerConfig.aiMode ? 'diamond' : 'standard' // 'diamond' | 'standard'
                             };
                             
                             console.log('');
@@ -2696,7 +2698,9 @@ async function processNewSpinFromServer(spinData) {
                                             createdOnTimestamp: currentAnalysis.createdOnTimestamp
                                         },
                                         martingaleStage: 'ENTRADA',
-                                        finalResult: 'RET'
+                                        finalResult: 'RET',
+                                        // ✅ NOVO: IDENTIFICAR MODO DE ANÁLISE
+                                        analysisMode: analyzerConfig.aiMode ? 'diamond' : 'standard'
                                     };
                                     
                                     console.log('');
@@ -2804,7 +2808,9 @@ async function processNewSpinFromServer(spinData) {
                                     },
                                     martingaleStage: 'ENTRADA',
                                     finalResult: null,  // Ainda não é final, vai tentar G1
-                                    continuingToG1: true  // Flag indicando que continuará
+                                    continuingToG1: true,  // Flag indicando que continuará
+                                    // ✅ NOVO: IDENTIFICAR MODO DE ANÁLISE
+                                    analysisMode: analyzerConfig.aiMode ? 'diamond' : 'standard'
                                 };
                                 
                                 entriesHistory.unshift(entradaLossEntry);
@@ -3035,7 +3041,9 @@ async function processNewSpinFromServer(spinData) {
                                     },
                                     martingaleStage: 'G1',
                                     finalResult: null,  // Ainda não é final, vai tentar G2
-                                    continuingToG2: true  // Flag indicando que continuará
+                                    continuingToG2: true,  // Flag indicando que continuará
+                                    // ✅ NOVO: IDENTIFICAR MODO DE ANÁLISE
+                                    analysisMode: analyzerConfig.aiMode ? 'diamond' : 'standard'
                                 };
                                 
                                 entriesHistory.unshift(g1LossEntry);
@@ -3107,7 +3115,9 @@ async function processNewSpinFromServer(spinData) {
                                         createdOnTimestamp: currentAnalysis.createdOnTimestamp
                                     },
                                     martingaleStage: 'G2',
-                                    finalResult: 'RET'
+                                    finalResult: 'RET',
+                                    // ✅ NOVO: IDENTIFICAR MODO DE ANÁLISE
+                                    analysisMode: analyzerConfig.aiMode ? 'diamond' : 'standard'
                                 };
                                 
                                 entriesHistory.unshift(retEntry);
@@ -10013,14 +10023,16 @@ ${Object.keys(byType).length > 10 ? `║     • ... e mais ${Object.keys(byType
 }
 
 // Carrega o banco de padrões salvos
-async function loadPatternDB() {
+async function loadPatternDB(silent = false) {
 	const res = await chrome.storage.local.get(['patternDB']);
 	const db = res.patternDB && Array.isArray(res.patternDB.patterns_found)
 		? res.patternDB
 		: { patterns_found: [], version: 1 };
 	
-	// Log visual das estatísticas
-	logPatternDBStats(db, 'load');
+	// ✅ Log visual das estatísticas (DESABILITAR durante busca ativa para performance)
+	if (!silent && !initialSearchActive) {
+		logPatternDBStats(db, 'load');
+	}
 	
 	return db;
 }
@@ -10072,12 +10084,8 @@ async function clearAllPatterns() {
 	console.log('║  (Sincronizado automaticamente com entriesHistory)       ║');
 	console.log('╚═══════════════════════════════════════════════════════════╝');
 	
-	// 5. Enviar atualizações para UI
-	sendMessageToContent('PATTERN_BANK_UPDATE', { total: 0 });
-	// ❌ NÃO enviar CLEAR_ANALYSIS aqui, pois a análise pendente foi preservada
-	// sendMessageToContent('CLEAR_ANALYSIS');
-	// A UI carregará a análise pendente automaticamente do chrome.storage.local
-	sendAnalysisStatus('🔄 Padrões resetados - Análise pendente preservada');
+	// 5. ✅ NÃO enviar mensagens aqui - deixar para o fluxo de busca controlar
+	// O `startPatternSearch` enviará as mensagens apropriadas
 	
 	console.log('╔═══════════════════════════════════════════════════════════╗');
 	console.log('║  ✅ RESET PARCIAL - PADRÕES ZERADOS                      ║');
@@ -10142,7 +10150,7 @@ async function startInitialPatternSearch(history) {
 	initialSearchActive = true;
 	const startTime = Date.now();
 	const duration = 5 * 60 * 1000; // 5 minutos
-	const updateInterval = 10000; // Atualizar progresso a cada 10s
+	const updateInterval = 1000; // ✅ ATUALIZAR A CADA 1 SEGUNDO (cronômetro fluido)
 	
 	console.log('╔═══════════════════════════════════════════════════════════╗');
 	console.log('║  🔍 BUSCA INICIAL DE PADRÕES (5 MINUTOS)                 ║');
@@ -10152,25 +10160,30 @@ async function startInitialPatternSearch(history) {
 	console.log('║  🎯 Limite: 5000 padrões únicos                          ║');
 	console.log('╚═══════════════════════════════════════════════════════════╝');
 	
-	// Notificar content script para exibir progresso
+	// ✅ NOTIFICAR IMEDIATAMENTE COM 0 PADRÕES (antes da primeira iteração)
 	sendMessageToContent('INITIAL_SEARCH_START', { 
 		duration: duration,
 		startTime: startTime
 	});
 	
-	// Loop de busca contínua
+	// ✅ Loop de CRONÔMETRO (atualiza a cada 1s) + BUSCA de padrões (a cada 5s)
 	let iteration = 0;
+	let lastSearchTime = Date.now();
+	const searchInterval = 5000; // Buscar padrões a cada 5 segundos
+	
 	initialSearchInterval = setInterval(async () => {
 		iteration++;
 		const elapsed = Date.now() - startTime;
 		const remaining = duration - elapsed;
+		const minutes = Math.floor(remaining / 60000);
+		const seconds = Math.floor((remaining % 60000) / 1000);
 		
 		if (remaining <= 0 || elapsed >= duration) {
 			// Tempo esgotado - finalizar busca
 			clearInterval(initialSearchInterval);
 			initialSearchActive = false;
 			
-			const db = await loadPatternDB();
+			const db = await loadPatternDB(); // ✅ Aqui pode logar (busca finalizada)
 			const total = db.patterns_found ? db.patterns_found.length : 0;
 			
 			console.log('╔═══════════════════════════════════════════════════════════╗');
@@ -10187,45 +10200,56 @@ async function startInitialPatternSearch(history) {
 			return;
 		}
 		
-		// Executar descoberta de padrões
-		try {
-			const iterationStartTs = Date.now();
-			const iterationBudget = Math.min(8000, remaining); // Até 8s por iteração
+		// ✅ ATUALIZAR CRONÔMETRO NA UI (a cada 1s)
+		const db = await loadPatternDB(true); // silent = true (sem logs gigantes)
+		const total = db.patterns_found ? db.patterns_found.length : 0;
+		
+		// ✅ LOG A CADA 5 SEGUNDOS (não a cada 1s para não poluir)
+		if (iteration % 5 === 0) {
+			console.log(`⏱️ Cronômetro: ${minutes}m ${seconds}s | Padrões: ${total}/5000`);
+		}
+		
+		sendMessageToContent('INITIAL_SEARCH_PROGRESS', { 
+			total: total,
+			remaining: remaining,
+			iteration: iteration
+		});
+		
+		// ✅ BUSCAR PADRÕES apenas a cada 5 segundos (para não sobrecarregar)
+		const timeSinceLastSearch = Date.now() - lastSearchTime;
+		if (timeSinceLastSearch >= searchInterval) {
+			lastSearchTime = Date.now();
 			
-			await discoverAndPersistPatterns(history, iterationStartTs, iterationBudget);
-			
-			const db = await loadPatternDB();
-			const total = db.patterns_found ? db.patterns_found.length : 0;
-			const minutes = Math.floor(remaining / 60000);
-			const seconds = Math.floor((remaining % 60000) / 1000);
-			
-			console.log(`🔍 Busca inicial [${iteration}]: ${total}/5000 padrões | ${minutes}m ${seconds}s restantes`);
-			
-			// Atualizar UI
-			sendMessageToContent('INITIAL_SEARCH_PROGRESS', { 
-				total: total,
-				remaining: remaining,
-				iteration: iteration
-			});
-			
-			// Se atingiu o limite, parar
-			if (total >= 5000) {
-				clearInterval(initialSearchInterval);
-				initialSearchActive = false;
+			try {
+				const iterationStartTs = Date.now();
+				const iterationBudget = Math.min(8000, remaining); // Até 8s por iteração
 				
-				console.log('╔═══════════════════════════════════════════════════════════╗');
-				console.log('║  ✅ LIMITE DE PADRÕES ATINGIDO (5000)                    ║');
-				console.log('╠═══════════════════════════════════════════════════════════╣');
-				console.log('║  🎯 Pronto para jogar!                                   ║');
-				console.log('╚═══════════════════════════════════════════════════════════╝');
+				await discoverAndPersistPatterns(history, iterationStartTs, iterationBudget);
 				
-				sendMessageToContent('INITIAL_SEARCH_COMPLETE', { 
-					total: total,
-					duration: elapsed
-				});
+				const dbAfterSearch = await loadPatternDB(true); // silent = true
+				const totalAfterSearch = dbAfterSearch.patterns_found ? dbAfterSearch.patterns_found.length : 0;
+				
+				console.log(`🔍 Busca [iteração ${Math.floor(elapsed/5000)}]: ${totalAfterSearch}/5000 padrões | ${minutes}m ${seconds}s restantes`);
+				
+				// Se atingiu o limite, parar
+				if (totalAfterSearch >= 5000) {
+					clearInterval(initialSearchInterval);
+					initialSearchActive = false;
+					
+					console.log('╔═══════════════════════════════════════════════════════════╗');
+					console.log('║  ✅ LIMITE DE PADRÕES ATINGIDO (5000)                    ║');
+					console.log('╠═══════════════════════════════════════════════════════════╣');
+					console.log('║  🎯 Pronto para jogar!                                   ║');
+					console.log('╚═══════════════════════════════════════════════════════════╝');
+					
+					sendMessageToContent('INITIAL_SEARCH_COMPLETE', { 
+						total: totalAfterSearch,
+						duration: elapsed
+					});
+				}
+			} catch (error) {
+				console.error('❌ Erro na busca inicial:', error);
 			}
-		} catch (error) {
-			console.error('❌ Erro na busca inicial:', error);
 		}
 	}, updateInterval);
 }
@@ -10969,6 +10993,12 @@ function colorsForNumberSeq(seq) {
 // AI Pattern Analysis System - MULTIDIMENSIONAL
 async function performPatternAnalysis(history) {
     console.log('🔍 Iniciando análise multidimensional de IA com', history.length, 'giros', '| Rigor:', rigorLogString());
+    
+    // ✅ BLOQUEAR ANÁLISES DURANTE A BUSCA DE PADRÕES (5 minutos)
+    if (initialSearchActive) {
+        console.log('%c🚫 ANÁLISE BLOQUEADA - Busca de padrões em andamento (5 minutos)', 'color: #FFA500; font-weight: bold;');
+        return null; // Não enviar sinais durante a busca
+    }
     
     // Verificar se há dados suficientes para análise
     if (history.length < 50) {
@@ -15509,10 +15539,25 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                 
                 console.log(`✅ Iniciando busca de padrões com ${historyToAnalyze.length} giros em cache`);
                 
-                // Limpar padrões antigos
+                // ✅ PASSO 1: LIMPAR O BANCO DE PADRÕES
                 await clearAllPatterns();
                 
-                // Iniciar busca de 5 minutos com histórico do cache
+                // ✅ VERIFICAR SE REALMENTE ZEROU (DEBUG)
+                const dbCheck = await chrome.storage.local.get(['patternDB']);
+                const totalAfterClear = dbCheck.patternDB?.patterns_found?.length || 0;
+                console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #FF00FF; font-weight: bold;');
+                console.log('%c🔍 VERIFICAÇÃO PÓS-LIMPEZA:', 'color: #FF00FF; font-weight: bold;');
+                console.log(`   Padrões no banco: ${totalAfterClear}`);
+                console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #FF00FF; font-weight: bold;');
+                
+                // ✅ PASSO 2: NOTIFICAR UI IMEDIATAMENTE QUE O BANCO ESTÁ ZERADO (0/5000)
+                sendMessageToContent('PATTERN_BANK_UPDATE', { total: totalAfterClear });
+                console.log(`%c🗑️ Banco zerado na UI (${totalAfterClear}/5000)`, 'color: #FF6600; font-weight: bold;');
+                
+                // ✅ PASSO 3: Aguardar um pouco para garantir que a UI foi atualizada
+                await new Promise(resolve => setTimeout(resolve, 100));
+                
+                // ✅ PASSO 4: Iniciar busca de 5 minutos (isso enviará INITIAL_SEARCH_START)
                 await startInitialPatternSearch(historyToAnalyze);
                 
                 sendResponse({ status: 'started', historySize: historyToAnalyze.length });
