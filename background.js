@@ -3779,6 +3779,15 @@ function detectPatternsInHistory(history) {
             
             // Padrão: R-B-R-B-R-B ou B-R-B-R-B-R
             if (seq === 'RBRBRB' || seq === 'BRBRBR') {
+                // 🔥 VALIDAR COR DE DISPARO: Cor antes do padrão DEVE ser diferente da primeira cor
+                const colorBefore = simplifiedHistory[i + 7]; // Cor imediatamente antes do padrão
+                const firstPatternColor = seq[0]; // Primeira cor do padrão (R ou B)
+                
+                // Se requireTrigger estiver ativo, validar que cor de disparo ≠ primeira cor do padrão
+                if (analyzerConfig.requireTrigger && colorBefore && colorBefore === firstPatternColor) {
+                    continue; // ❌ Pular: Cor de disparo corrupting o padrão
+                }
+                
                 patterns.alternanciaSimples.count++;
                 if (next.color === 'red') patterns.alternanciaSimples.afterRed++;
                 else if (next.color === 'black') patterns.alternanciaSimples.afterBlack++;
@@ -3794,6 +3803,14 @@ function detectPatternsInHistory(history) {
             
             // Padrão: R-R-B-B-R-R-B-B ou B-B-R-R-B-B-R-R
             if (seq === 'RRBBRRBB' || seq === 'BBRRBBRR') {
+                // 🔥 VALIDAR COR DE DISPARO
+                const colorBefore = simplifiedHistory[i + 9];
+                const firstPatternColor = seq[0];
+                
+                if (analyzerConfig.requireTrigger && colorBefore && colorBefore === firstPatternColor) {
+                    continue; // ❌ Pular ocorrência inválida
+                }
+                
                 patterns.alternanciaDupla.count++;
                 if (next.color === 'red') patterns.alternanciaDupla.afterRed++;
                 else if (next.color === 'black') patterns.alternanciaDupla.afterBlack++;
@@ -3809,6 +3826,14 @@ function detectPatternsInHistory(history) {
             
             // Padrão: R-R-R-B-B-B-R-R-R ou B-B-B-R-R-R-B-B-B
             if (seq === 'RRRBBBRRR' || seq === 'BBBRRRBBB') {
+                // 🔥 VALIDAR COR DE DISPARO
+                const colorBefore = simplifiedHistory[i + 10];
+                const firstPatternColor = seq[0];
+                
+                if (analyzerConfig.requireTrigger && colorBefore && colorBefore === firstPatternColor) {
+                    continue; // ❌ Pular ocorrência inválida
+                }
+                
                 patterns.alternanciaTripla.count++;
                 if (next.color === 'red') patterns.alternanciaTripla.afterRed++;
                 else if (next.color === 'black') patterns.alternanciaTripla.afterBlack++;
@@ -3823,6 +3848,20 @@ function detectPatternsInHistory(history) {
             const seq = simplifiedHistory.slice(i + 1, i + 7).filter(c => c !== 'W').join('');
             
             if (seq === 'RRRRRR') {
+                // 🔥 VALIDAR COR DE DISPARO (ignorando brancos)
+                let colorBeforeIndex = i + 7;
+                let colorBefore = simplifiedHistory[colorBeforeIndex];
+                // Pular brancos para encontrar a cor de disparo real
+                while (colorBefore === 'W' && colorBeforeIndex < simplifiedHistory.length) {
+                    colorBeforeIndex++;
+                    colorBefore = simplifiedHistory[colorBeforeIndex];
+                }
+                const firstPatternColor = 'R'; // Sempre vermelho neste padrão
+                
+                if (analyzerConfig.requireTrigger && colorBefore && colorBefore === firstPatternColor) {
+                    continue; // ❌ Pular ocorrência inválida
+                }
+                
                 patterns.sequenciaVermelho6Plus.count++;
                 if (next.color === 'red') patterns.sequenciaVermelho6Plus.afterRed++;
                 else if (next.color === 'black') patterns.sequenciaVermelho6Plus.afterBlack++;
@@ -3837,6 +3876,20 @@ function detectPatternsInHistory(history) {
             const seq = simplifiedHistory.slice(i + 1, i + 7).filter(c => c !== 'W').join('');
             
             if (seq === 'BBBBBB') {
+                // 🔥 VALIDAR COR DE DISPARO (ignorando brancos)
+                let colorBeforeIndex = i + 7;
+                let colorBefore = simplifiedHistory[colorBeforeIndex];
+                // Pular brancos para encontrar a cor de disparo real
+                while (colorBefore === 'W' && colorBeforeIndex < simplifiedHistory.length) {
+                    colorBeforeIndex++;
+                    colorBefore = simplifiedHistory[colorBeforeIndex];
+                }
+                const firstPatternColor = 'B'; // Sempre preto neste padrão
+                
+                if (analyzerConfig.requireTrigger && colorBefore && colorBefore === firstPatternColor) {
+                    continue; // ❌ Pular ocorrência inválida
+                }
+                
                 patterns.sequenciaPreto6Plus.count++;
                 if (next.color === 'red') patterns.sequenciaPreto6Plus.afterRed++;
                 else if (next.color === 'black') patterns.sequenciaPreto6Plus.afterBlack++;
@@ -3851,6 +3904,20 @@ function detectPatternsInHistory(history) {
             const seq = simplifiedHistory.slice(i + 1, i + 6).filter(c => c !== 'W').join('');
             
             if (seq === 'RRRRR' || seq === 'BBBBB' || seq === 'RRRR' || seq === 'BBBB') {
+                // 🔥 VALIDAR COR DE DISPARO (ignorando brancos)
+                let colorBeforeIndex = i + 6;
+                let colorBefore = simplifiedHistory[colorBeforeIndex];
+                // Pular brancos para encontrar a cor de disparo real
+                while (colorBefore === 'W' && colorBeforeIndex < simplifiedHistory.length) {
+                    colorBeforeIndex++;
+                    colorBefore = simplifiedHistory[colorBeforeIndex];
+                }
+                const firstPatternColor = seq[0]; // R ou B (primeira cor do padrão)
+                
+                if (analyzerConfig.requireTrigger && colorBefore && colorBefore === firstPatternColor) {
+                    continue; // ❌ Pular ocorrência inválida
+                }
+                
                 patterns.sequenciaMesmaCor4a5.count++;
                 if (next.color === 'red') patterns.sequenciaMesmaCor4a5.afterRed++;
                 else if (next.color === 'black') patterns.sequenciaMesmaCor4a5.afterBlack++;
@@ -4077,6 +4144,16 @@ function findCustomPatternInHistory(customPattern, history) {
             // Verificar cor anterior (se especificada)
             const colorBefore = (i + patternLength < colors.length) ? colors[i + patternLength] : null;
             
+            // 🔥 VALIDAÇÃO CRÍTICA: Cor de disparo DEVE ser DIFERENTE da primeira cor do padrão
+            // Se padrão inicia com PRETO, cor de disparo NÃO pode ser PRETO
+            // Se padrão inicia com VERMELHO, cor de disparo NÃO pode ser VERMELHO
+            const firstPatternColor = customPattern.sequence[0];
+            if (colorBefore === firstPatternColor) {
+                // ❌ OCORRÊNCIA INVÁLIDA: Cor de disparo igual à primeira cor do padrão
+                // Isso corrompe o padrão! Se padrão é P,P,P e disparo é P, vira P,P,P,P (4 pretos!)
+                continue;
+            }
+            
             // ✅ Validar cor anterior com as novas opções
             let isBeforeColorValid = false;
             if (customPattern.beforeColor === 'red-white') {
@@ -4297,6 +4374,15 @@ async function checkForCustomPatterns(history) {
             
             console.log(`      Esperado: ${beforeColorExpected}`);
             console.log(`      Real: ${colorBeforeSymbol} (${colorBefore || 'N/A'})`);
+            
+            // 🔥 VALIDAÇÃO CRÍTICA: Cor de disparo DEVE ser DIFERENTE da primeira cor do padrão
+            const firstPatternColor = customPattern.sequence[0];
+            if (colorBefore === firstPatternColor) {
+                console.log(`%c   ❌ PADRÃO REJEITADO: Cor de disparo (${colorBeforeSymbol}) IGUAL à primeira cor do padrão!`, 'color: #FF6666; font-weight: bold;');
+                console.log(`%c      Isso corrompe o padrão! Se padrão é ${firstPatternColor.toUpperCase()} e disparo também é ${firstPatternColor.toUpperCase()}, o padrão fica diferente!`, 'color: #FF6666;');
+                console.log('');
+                continue; // ❌ PULAR este padrão
+            }
             
             // ✅ Validar cor anterior com as novas opções
             let isBeforeColorValid = false;
@@ -11268,7 +11354,7 @@ async function clearAllPatternsAndAnalysis() {
 	console.log('╚═══════════════════════════════════════════════════════════╝');
 }
 
-// Busca INICIAL de padrões por 5 minutos ao abrir a extensão
+// Busca INICIAL de padrões por 1min 30s ao abrir a extensão
 let initialSearchActive = false;
 let initialSearchInterval = null;
 
@@ -11285,14 +11371,14 @@ async function startInitialPatternSearch(history) {
 	
 	initialSearchActive = true;
 	const startTime = Date.now();
-	const duration = 5 * 60 * 1000; // 5 minutos
+	const duration = 90 * 1000; // 1 minuto e 30 segundos (90s)
 	const updateInterval = 1000; // ✅ ATUALIZAR A CADA 1 SEGUNDO (cronômetro fluido)
 	
 	console.log('╔═══════════════════════════════════════════════════════════╗');
-	console.log('║  🔍 BUSCA INICIAL DE PADRÕES (5 MINUTOS)                 ║');
+	console.log('║  🔍 BUSCA INICIAL DE PADRÕES (1min 30s)                  ║');
 	console.log('╠═══════════════════════════════════════════════════════════╣');
 	console.log(`║  📊 Histórico: ${history.length} giros disponíveis                    ║`);
-	console.log('║  ⏱️  Duração: 5 minutos                                   ║');
+	console.log('║  ⏱️  Duração: 1 minuto e 30 segundos                     ║');
 	console.log('║  🎯 Limite: 5000 padrões únicos                          ║');
 	console.log('╚═══════════════════════════════════════════════════════════╝');
 	
@@ -11794,6 +11880,26 @@ async function verifyWithSavedPatterns(history) {
 			}
 		}
 
+		// 🔥 VALIDAÇÃO CRÍTICA FINAL: Cor de disparo ATUAL deve ser válida
+		// Verificar se a cor de disparo ATUAL (antes do padrão head) é diferente da primeira cor do padrão
+		if (!analyzerConfig.aiMode && analyzerConfig.requireTrigger) {
+			if (!currentTrigger) {
+				console.log(`❌ Padrão salvo rejeitado no sinal final: sem cor de disparo atual`);
+				continue; // Sem trigger disponível
+			}
+			
+			const firstPatternColor = pat.pattern[0];
+			if (currentTrigger === firstPatternColor) {
+				console.log(`❌ Padrão salvo rejeitado no sinal final: cor de disparo atual INVÁLIDA`, {
+					pattern: pat.pattern.join('-'),
+					currentTrigger: currentTrigger,
+					firstPatternColor: firstPatternColor,
+					motivo: 'Cor de disparo IGUAL à primeira cor do padrão - corromperia o padrão!'
+				});
+				continue; // ❌ Cor de disparo INVÁLIDA - NÃO ENVIAR ENTRADA
+			}
+		}
+		
 		// Se assertCalc existe, já vem calibrado; senão, calibrar a confidence salva
 		const rawPatternConfidence = typeof pat.confidence === 'number' ? pat.confidence : 70;
 		const patternConfidence = assertCalc ? assertCalc.finalConfidence : applyCalibratedConfidence(rawPatternConfidence);
@@ -12130,9 +12236,9 @@ function colorsForNumberSeq(seq) {
 async function performPatternAnalysis(history) {
     console.log('🔍 Iniciando análise multidimensional de IA com', history.length, 'giros', '| Rigor:', rigorLogString());
     
-    // ✅ BLOQUEAR ANÁLISES DURANTE A BUSCA DE PADRÕES (5 minutos)
+    // ✅ BLOQUEAR ANÁLISES DURANTE A BUSCA DE PADRÕES (1min 30s)
     if (initialSearchActive) {
-        console.log('%c🚫 ANÁLISE BLOQUEADA - Busca de padrões em andamento (5 minutos)', 'color: #FFA500; font-weight: bold;');
+        console.log('%c🚫 ANÁLISE BLOQUEADA - Busca de padrões em andamento (1min 30s)', 'color: #FFA500; font-weight: bold;');
         return null; // Não enviar sinais durante a busca
     }
     
@@ -16716,7 +16822,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         return true;
     } else if (request.action === 'startPatternSearch') {
         console.log('%c✅ ENTROU NO else if startPatternSearch!', 'color: #00FFFF; font-weight: bold; font-size: 16px;');
-        // Iniciar busca manual de padrões (5 minutos)
+        // Iniciar busca manual de padrões (1min 30s)
         (async () => {
             try {
                 console.log('%c🔍 Iniciando busca manual de padrões...', 'color: #00FFFF; font-weight: bold;');
@@ -16763,7 +16869,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                 // ✅ PASSO 3: Aguardar um pouco para garantir que a UI foi atualizada
                 await new Promise(resolve => setTimeout(resolve, 100));
                 
-                // ✅ PASSO 4: Iniciar busca de 5 minutos (isso enviará INITIAL_SEARCH_START)
+                // ✅ PASSO 4: Iniciar busca de 1min 30s (isso enviará INITIAL_SEARCH_START)
                 await startInitialPatternSearch(historyToAnalyze);
                 
                 sendResponse({ status: 'started', historySize: historyToAnalyze.length });

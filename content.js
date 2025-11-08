@@ -2358,7 +2358,7 @@
                         </div>
                     </div>
                     <div class="bank-buttons">
-                        <button id="refreshBankBtn" class="refresh-bank-btn">Buscar Padrões (5min)</button>
+                        <button id="refreshBankBtn" class="refresh-bank-btn">Buscar Padrões (1m30s)</button>
                         <button id="resetBankBtn" class="reset-bank-btn">Resetar Padrões</button>
                     </div>
                 </div>
@@ -4723,10 +4723,10 @@
             updateAnalysisStatus(status);
         } else if (request.type === 'INITIAL_SEARCH_START') {
             // ✅ BUSCA DE PADRÕES (MODO PADRÃO) - SEMPRE NA CAIXA EMBAIXO
-            console.log('🔍 Busca inicial de padrões iniciada (5 minutos)');
+            console.log('🔍 Busca inicial de padrões iniciada (1min 30s)');
             const suggestionText = document.getElementById('suggestionText');
             if (suggestionText) {
-                suggestionText.textContent = '🔍 Buscando padrões... 5m 0s | 0/5000';
+                suggestionText.textContent = '🔍 Buscando padrões... 1m 30s | 0/5000';
             }
         } else if (request.type === 'INITIAL_SEARCH_PROGRESS') {
             // ✅ ATUALIZAR CRONÔMETRO DECRESCENTE (SEMPRE VISÍVEL, SEM INTERRUPÇÃO)
@@ -4756,7 +4756,7 @@
             // Reabilitar botão de busca
             const btn = document.getElementById('refreshBankBtn');
             if (btn) {
-                btn.textContent = 'Buscar Padrões (5min)';
+                btn.textContent = 'Buscar Padrões (1m30s)';
                 btn.disabled = false;
             }
         }
@@ -5606,7 +5606,7 @@
             btn.textContent = 'Buscando padrões...';
             btn.disabled = true;
             
-            // Enviar mensagem para background.js iniciar busca de 5 minutos
+            // Enviar mensagem para background.js iniciar busca de 1min 30s
             chrome.runtime.sendMessage({ action: 'startPatternSearch' }, function(response) {
                 if (response && response.status === 'started') {
                     console.log('✅ Busca de padrões iniciada!');
@@ -5614,13 +5614,13 @@
                 } else if (response && response.status === 'already_running') {
                     btn.textContent = 'Busca em andamento...';
                     setTimeout(function() {
-                        btn.textContent = 'Buscar Padrões (5min)';
+                        btn.textContent = 'Buscar Padrões (1m30s)';
                         btn.disabled = false;
                     }, 2000);
                 } else if (response && response.status === 'insufficient_data') {
                     btn.textContent = 'Histórico insuficiente';
                     setTimeout(function() {
-                        btn.textContent = 'Buscar Padrões (5min)';
+                        btn.textContent = 'Buscar Padrões (1m30s)';
                         btn.disabled = false;
                     }, 2000);
                 }
