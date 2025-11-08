@@ -2495,13 +2495,12 @@
                                     outline: none;
                                     text-align: center;
                                 ">
-                                    <option value="aggressive" style="background: #1a1a1a; color: #fff;">🔥 AGRESSIVO (5+ votos)</option>
-                                    <option value="moderate" selected style="background: #1a1a1a; color: #fff;">⚖️ MODERADO (6+ votos)</option>
-                                    <option value="conservative" style="background: #1a1a1a; color: #fff;">🛡️ CONSERVADOR (7 votos)</option>
-                                    <option value="ultraconservative" style="background: #1a1a1a; color: #fff;">💎 ULTRACONSERVADOR (8 votos - todos)</option>
+                                    <option value="aggressive" style="background: #1a1a1a; color: #fff;">🔥 AGRESSIVO (3 de 5)</option>
+                                    <option value="moderate" selected style="background: #1a1a1a; color: #fff;">⚖️ MODERADO (4 de 5)</option>
+                                    <option value="conservative" style="background: #1a1a1a; color: #fff;">🛡️ CONSERVADOR (5 de 5 - todos)</option>
                                 </select>
                                 <div style="font-size: 11px; color: #888; text-align: center; padding: 0 10px;">
-                                    Define quantos níveis devem concordar para enviar sinal
+                                    5 níveis votam • Define quantos devem concordar para enviar sinal
                                 </div>
                             </div>
                         </div>
@@ -3117,9 +3116,6 @@
                     .replace(/N4 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N4</span> -')
                     .replace(/N5 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N5</span> -')
                     .replace(/N6 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N6</span> -')
-                    .replace(/N7 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N7</span> -')
-                    .replace(/N8 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N8</span> -')
-                    .replace(/N9 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N9</span> -')
                     .replace(/🗳️/g, '<span style="color: #FFD700; font-weight: bold;">🗳️</span>')
                     .replace(/🏆/g, '<span style="color: #FFD700; font-weight: bold;">🏆</span>')
                     .replace(/🎚️/g, '<span style="color: #b794f6; font-weight: bold;">🎚️</span>')
@@ -3139,9 +3135,6 @@
             .replace(/N4 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N4</span> -')
             .replace(/N5 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N5</span> -')
             .replace(/N6 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N6</span> -')
-            .replace(/N7 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N7</span> -')
-            .replace(/N8 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N8</span> -')
-            .replace(/N9 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N9</span> -')
             .replace(/🗳️/g, '<span style="color: #FFD700; font-weight: bold;">🗳️</span>')
             .replace(/🏆/g, '<span style="color: #FFD700; font-weight: bold;">🏆</span>')
             .replace(/🎚️/g, '<span style="color: #b794f6; font-weight: bold;">🎚️</span>')
@@ -3354,9 +3347,6 @@
                                 .replace(/N4 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N4</span> -')
                                 .replace(/N5 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N5</span> -')
                                 .replace(/N6 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N6</span> -')
-                                .replace(/N7 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N7</span> -')
-                                .replace(/N8 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N8</span> -')
-                                .replace(/N9 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N9</span> -')
                                 .replace(/🗳️/g, '<span style="color: #FFD700; font-weight: bold;">🗳️</span>')
                                 .replace(/🏆/g, '<span style="color: #FFD700; font-weight: bold;">🏆</span>')
                                 .replace(/🎚️/g, '<span style="color: #b794f6; font-weight: bold;">🎚️</span>')
@@ -3378,9 +3368,6 @@
                         .replace(/N4 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N4</span> -')
                         .replace(/N5 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N5</span> -')
                         .replace(/N6 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N6</span> -')
-                        .replace(/N7 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N7</span> -')
-                        .replace(/N8 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N8</span> -')
-                        .replace(/N9 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N9</span> -')
                         .replace(/🗳️/g, '<span style="color: #FFD700; font-weight: bold;">🗳️</span>')
                         .replace(/🏆/g, '<span style="color: #FFD700; font-weight: bold;">🏆</span>')
                         .replace(/🎚️/g, '<span style="color: #b794f6; font-weight: bold;">🎚️</span>')
