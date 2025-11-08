@@ -2519,15 +2519,20 @@ async function processNewSpinFromServer(spinData) {
                             console.log('   ➤ entriesHistory.length DEPOIS:', entriesHistory.length);
                             console.log('');
                             
-                            // ✅ Calcular estatísticas WIN/LOSS baseado em CICLOS COMPLETOS
-                            const { totalWins, totalLosses } = calculateCycleScore(entriesHistory);
+                            // ✅ Calcular estatísticas WIN/LOSS FILTRADAS POR MODO
+                            const currentMode = analyzerConfig.aiMode ? 'diamond' : 'standard';
+                            const { wins: filteredWins, losses: filteredLosses } = calculateFilteredScore(entriesHistory, currentMode);
                             
-                            // ✅ Enviar confirmação de WIN ao Telegram (com informação de Martingale)
+                            console.log(`📊 Placar total: ${calculateCycleScore(entriesHistory).totalWins} wins / ${calculateCycleScore(entriesHistory).totalLosses} losses`);
+                            console.log(`📊 Placar ${currentMode}: ${filteredWins} wins / ${filteredLosses} losses`);
+                            
+                            // ✅ Enviar confirmação de WIN ao Telegram (com informação de Martingale e modo)
                             await sendTelegramMartingaleWin(
                                 martingaleStage, 
                                 { color: rollColor, number: rollNumber, timestamp: latestSpin.created_at },
-                                totalWins,
-                                totalLosses
+                                filteredWins,
+                                filteredLosses,
+                                currentMode
                             );
                             
                             // Registrar no observador inteligente
@@ -2728,12 +2733,16 @@ async function processNewSpinFromServer(spinData) {
                                     console.log('   ➤ entriesHistory.length DEPOIS:', entriesHistory.length);
                                     console.log('');
                                     
-                                    // ✅ Calcular estatísticas WIN/LOSS
-                                    const { totalWins, totalLosses } = calculateCycleScore(entriesHistory);
+                                    // ✅ Calcular estatísticas WIN/LOSS FILTRADAS POR MODO
+                                    const currentMode = analyzerConfig.aiMode ? 'diamond' : 'standard';
+                                    const { wins: filteredWins, losses: filteredLosses } = calculateFilteredScore(entriesHistory, currentMode);
+                                    
+                                    console.log(`📊 Placar total: ${calculateCycleScore(entriesHistory).totalWins} wins / ${calculateCycleScore(entriesHistory).totalLosses} losses`);
+                                    console.log(`📊 Placar ${currentMode}: ${filteredWins} wins / ${filteredLosses} losses`);
                                     
                                     // ✅ ENVIAR MENSAGEM DE RET AO TELEGRAM (sem Gales)
                                     console.log('📤 Enviando mensagem de RET ao Telegram (0 Gales configurados)...');
-                                    await sendTelegramMartingaleRET(totalWins, totalLosses);
+                                    await sendTelegramMartingaleRET(filteredWins, filteredLosses, currentMode);
                                     
                                     resetMartingaleState();
                                     
@@ -2893,15 +2902,21 @@ async function processNewSpinFromServer(spinData) {
                                             createdOnTimestamp: currentAnalysis.createdOnTimestamp
                                         },
                                         martingaleStage: currentStage,
-                                        finalResult: 'RET'
+                                        finalResult: 'RET',
+                                        // ✅ NOVO: IDENTIFICAR MODO DE ANÁLISE
+                                        analysisMode: analyzerConfig.aiMode ? 'diamond' : 'standard'
                                     };
                                     
                                     entriesHistory.unshift(retEntry);
                                     
-                                    // ✅ Calcular estatísticas WIN/LOSS baseado em CICLOS COMPLETOS
-                                    const { totalWins, totalLosses } = calculateCycleScore(entriesHistory);
+                                    // ✅ Calcular estatísticas WIN/LOSS FILTRADAS POR MODO
+                                    const currentMode = analyzerConfig.aiMode ? 'diamond' : 'standard';
+                                    const { wins: filteredWins, losses: filteredLosses } = calculateFilteredScore(entriesHistory, currentMode);
                                     
-                                    await sendTelegramMartingaleRET(totalWins, totalLosses);
+                                    console.log(`📊 Placar total: ${calculateCycleScore(entriesHistory).totalWins} wins / ${calculateCycleScore(entriesHistory).totalLosses} losses`);
+                                    console.log(`📊 Placar ${currentMode}: ${filteredWins} wins / ${filteredLosses} losses`);
+                                    
+                                    await sendTelegramMartingaleRET(filteredWins, filteredLosses, currentMode);
                                     
                                     // ✅ ATUALIZAR HISTÓRICO DE CORES QUENTES
                                     const colorSequence = [];
@@ -3122,7 +3137,14 @@ async function processNewSpinFromServer(spinData) {
                                 
                                 entriesHistory.unshift(retEntry);
                                 
-                                await sendTelegramMartingaleRET(totalWins, totalLosses + 1);
+                                // ✅ Calcular estatísticas WIN/LOSS FILTRADAS POR MODO
+                                const currentMode = analyzerConfig.aiMode ? 'diamond' : 'standard';
+                                const { wins: filteredWins, losses: filteredLosses } = calculateFilteredScore(entriesHistory, currentMode);
+                                
+                                console.log(`📊 Placar total: ${calculateCycleScore(entriesHistory).totalWins} wins / ${calculateCycleScore(entriesHistory).totalLosses} losses`);
+                                console.log(`📊 Placar ${currentMode}: ${filteredWins} wins / ${filteredLosses} losses`);
+                                
+                                await sendTelegramMartingaleRET(filteredWins, filteredLosses, currentMode);
                                 
                                 // ✅ ATUALIZAR HISTÓRICO DE CORES QUENTES
                                 console.log('📊 Atualizando histórico de cores quentes após RET...');
@@ -7508,7 +7530,7 @@ function detectHotPattern(history) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// 🎯 FUNÇÕES AUXILIARES PARA SISTEMA DE 6 NÍVEIS - MODO DIAMANTE
+// 🎯 FUNÇÕES AUXILIARES PARA SISTEMA DE 9 NÍVEIS - MODO DIAMANTE
 // ═══════════════════════════════════════════════════════════════════════════════
 
 /**
@@ -7526,29 +7548,40 @@ function identifySpinPosition(timestamp) {
 
 /**
  * NÍVEL 1: Análise de Cor Dominante
- * Analisa os últimos 30 giros e retorna a cor que mais saiu
+ * Analisa os últimos 15 giros e retorna a cor que mais saiu
  */
 function analyzeDominantColor(history) {
-    const last30 = history.slice(0, Math.min(30, history.length));
+    console.log('%c┌─────────────────────────────────────────────────────────┐', 'color: #9C27B0; font-weight: bold;');
+    console.log('%c│ 🔍 NÍVEL 1: ANÁLISE DE COR DOMINANTE (15 GIROS)       │', 'color: #9C27B0; font-weight: bold;');
+    console.log('%c└─────────────────────────────────────────────────────────┘', 'color: #9C27B0; font-weight: bold;');
+    
+    const last15 = history.slice(0, Math.min(15, history.length));
+    console.log(`   📊 Total de giros disponíveis: ${history.length}`);
+    console.log(`   📊 Analisando últimos: ${last15.length} giros`);
     
     let counts = { red: 0, black: 0, white: 0 };
-    last30.forEach(spin => {
+    last15.forEach(spin => {
         if (spin.color in counts) {
             counts[spin.color]++;
         }
     });
     
+    console.log(`   🔴 Vermelhos: ${counts.red} (${(counts.red / last15.length * 100).toFixed(1)}%)`);
+    console.log(`   ⚫ Pretos: ${counts.black} (${(counts.black / last15.length * 100).toFixed(1)}%)`);
+    console.log(`   ⚪ Brancos: ${counts.white} (${(counts.white / last15.length * 100).toFixed(1)}%)`);
+    
     // Determinar cor dominante (ignorar branco)
     const dominantColor = counts.red > counts.black ? 'red' : 'black';
+    console.log(`   🗳️ VOTA: ${dominantColor.toUpperCase()} (cor dominante)`);
     
     return {
         color: dominantColor,
         counts: counts,
-        total: last30.length,
+        total: last15.length,
         percentage: {
-            red: (counts.red / last30.length * 100).toFixed(1),
-            black: (counts.black / last30.length * 100).toFixed(1),
-            white: (counts.white / last30.length * 100).toFixed(1)
+            red: (counts.red / last15.length * 100).toFixed(1),
+            black: (counts.black / last15.length * 100).toFixed(1),
+            white: (counts.white / last15.length * 100).toFixed(1)
         }
     };
 }
@@ -7559,12 +7592,19 @@ function analyzeDominantColor(history) {
  * targetPosition: 1 ou 2 (qual giro queremos analisar)
  */
 function analyzeSpinPosition(history, targetPosition) {
-    const last60 = history.slice(0, Math.min(60, history.length));
+    console.log('%c┌─────────────────────────────────────────────────────────┐', 'color: #00D4FF; font-weight: bold;');
+    console.log(`%c│ 🔍 NÍVEL 2: POSIÇÃO DO GIRO (GIRO ${targetPosition})                  │`, 'color: #00D4FF; font-weight: bold;');
+    console.log('%c└─────────────────────────────────────────────────────────┘', 'color: #00D4FF; font-weight: bold;');
+    
+    const last30 = history.slice(0, Math.min(30, history.length));
+    console.log(`   📊 Total de giros disponíveis: ${history.length}`);
+    console.log(`   📊 Analisando últimos: ${last30.length} giros`);
+    console.log(`   🎯 Filtrando apenas: Giro ${targetPosition} de cada minuto`);
     
     let counts = { red: 0, black: 0, white: 0 };
     let analyzed = 0;
     
-    last60.forEach(spin => {
+    last30.forEach(spin => {
         if (!spin.timestamp) return;
         
         const position = identifySpinPosition(spin.timestamp);
@@ -7576,8 +7616,14 @@ function analyzeSpinPosition(history, targetPosition) {
         }
     });
     
+    console.log(`   📊 Total de Giro ${targetPosition} encontrados: ${analyzed}`);
+    console.log(`   🔴 Vermelhos: ${counts.red} (${analyzed > 0 ? (counts.red / analyzed * 100).toFixed(1) : '0.0'}%)`);
+    console.log(`   ⚫ Pretos: ${counts.black} (${analyzed > 0 ? (counts.black / analyzed * 100).toFixed(1) : '0.0'}%)`);
+    console.log(`   ⚪ Brancos: ${counts.white} (${analyzed > 0 ? (counts.white / analyzed * 100).toFixed(1) : '0.0'}%)`);
+    
     // Determinar cor dominante nessa posição (ignorar branco)
     const dominantColor = counts.red > counts.black ? 'red' : 'black';
+    console.log(`   🗳️ VOTA: ${dominantColor.toUpperCase()} (mais frequente no Giro ${targetPosition})`);
     
     return {
         color: dominantColor,
@@ -7597,7 +7643,15 @@ function analyzeSpinPosition(history, targetPosition) {
  * Faz duas contas: 1) Cor dominante no minuto, 2) Cor dominante na posição do giro
  */
 function analyzeMinuteSum(history, currentMinute, targetPosition) {
-    const last60 = history.slice(0, Math.min(60, history.length));
+    console.log('%c┌─────────────────────────────────────────────────────────┐', 'color: #FF6B35; font-weight: bold;');
+    console.log(`%c│ 🔍 NÍVEL 3: SOMA DOS MINUTOS (X${currentMinute % 10})                  │`, 'color: #FF6B35; font-weight: bold;');
+    console.log('%c└─────────────────────────────────────────────────────────┘', 'color: #FF6B35; font-weight: bold;');
+    
+    const last30 = history.slice(0, Math.min(30, history.length));
+    console.log(`   📊 Total de giros disponíveis: ${history.length}`);
+    console.log(`   📊 Analisando últimos: ${last30.length} giros`);
+    console.log(`   🕐 Filtrando minutos terminados em: ${currentMinute % 10} (:${currentMinute % 10}, :1${currentMinute % 10}, :2${currentMinute % 10}...)`);
+    console.log(`   🎯 Giro alvo: Giro ${targetPosition}`);
     
     // Primeira conta: Qual cor domina no minuto específico
     let minuteCounts = { red: 0, black: 0, white: 0 };
@@ -7605,7 +7659,7 @@ function analyzeMinuteSum(history, currentMinute, targetPosition) {
     // Segunda conta: Qual cor domina na posição do giro desse minuto
     let positionCounts = { red: 0, black: 0, white: 0 };
     
-    last60.forEach(spin => {
+    last30.forEach(spin => {
         if (!spin.timestamp) return;
         
         const date = new Date(spin.timestamp);
@@ -7626,12 +7680,28 @@ function analyzeMinuteSum(history, currentMinute, targetPosition) {
         }
     });
     
+    console.log(`   📊 CONTA 1 - Cor dominante no minuto X${currentMinute % 10}:`);
+    console.log(`      🔴 Vermelhos: ${minuteCounts.red} | ⚫ Pretos: ${minuteCounts.black} | ⚪ Brancos: ${minuteCounts.white}`);
+    
+    console.log(`   📊 CONTA 2 - Cor dominante no Giro ${targetPosition} do minuto X${currentMinute % 10}:`);
+    console.log(`      🔴 Vermelhos: ${positionCounts.red} | ⚫ Pretos: ${positionCounts.black} | ⚪ Brancos: ${positionCounts.white}`);
+    
     // Determinar vencedores
     const minuteWinner = minuteCounts.red > minuteCounts.black ? 'red' : 'black';
     const positionWinner = positionCounts.red > positionCounts.black ? 'red' : 'black';
     
+    console.log(`   🏆 Vencedor Conta 1: ${minuteWinner.toUpperCase()}`);
+    console.log(`   🏆 Vencedor Conta 2: ${positionWinner.toUpperCase()}`);
+    
     // Voto final: se ambos concordam, usar consenso. Se divergem, usar primeira conta
     const finalVote = minuteWinner === positionWinner ? minuteWinner : minuteWinner;
+    
+    if (minuteWinner === positionWinner) {
+        console.log(`   ✅ CONSENSO! Ambas as contas concordam`);
+    } else {
+        console.log(`   ⚠️ DIVERGÊNCIA! Usando Conta 1 (desempate)`);
+    }
+    console.log(`   🗳️ VOTA: ${finalVote.toUpperCase()}`);
     
     return {
         color: finalVote,
@@ -7648,7 +7718,13 @@ function analyzeMinuteSum(history, currentMinute, targetPosition) {
  * Compara últimos 10 giros com os 20 giros anteriores
  */
 function analyzeMomentum(history) {
+    console.log('%c┌─────────────────────────────────────────────────────────┐', 'color: #00AAFF; font-weight: bold;');
+    console.log('%c│ 🔍 NÍVEL 5: MOMENTUM (10 RECENTES vs 20 ANTERIORES)   │', 'color: #00AAFF; font-weight: bold;');
+    console.log('%c└─────────────────────────────────────────────────────────┘', 'color: #00AAFF; font-weight: bold;');
+    
     const last30 = history.slice(0, Math.min(30, history.length));
+    console.log(`   📊 Total de giros disponíveis: ${history.length}`);
+    console.log(`   📊 Analisando últimos: ${last30.length} giros`);
     
     if (last30.length < 30) {
         // Não há dados suficientes, usar o que tem
@@ -7656,8 +7732,14 @@ function analyzeMomentum(history) {
         const recent = Math.floor(available / 3); // 1/3 para recente
         const previous = available - recent;      // 2/3 para anterior
         
+        console.log(`   ⚠️ Dados insuficientes! Ajustando janelas:`);
+        console.log(`      Recentes: ${recent} giros | Anteriores: ${previous} giros`);
+        
         return analyzeMomentumWithSizes(last30, recent, previous);
     }
+    
+    console.log(`   📊 Janela recente: 10 últimos giros`);
+    console.log(`   📊 Janela anterior: 20 giros antes`);
     
     return analyzeMomentumWithSizes(last30, 10, 20);
 }
@@ -7689,12 +7771,28 @@ function analyzeMomentumWithSizes(history, recentSize, previousSize) {
     const previousRedPercent = previousTotal > 0 ? (previousCounts.red / previousTotal * 100) : 50;
     const previousBlackPercent = previousTotal > 0 ? (previousCounts.black / previousTotal * 100) : 50;
     
+    console.log(`   📊 JANELA RECENTE (${recentSize} giros):`);
+    console.log(`      🔴 Vermelhos: ${recentCounts.red} (${recentRedPercent.toFixed(1)}%)`);
+    console.log(`      ⚫ Pretos: ${recentCounts.black} (${recentBlackPercent.toFixed(1)}%)`);
+    
+    console.log(`   📊 JANELA ANTERIOR (${previousSize} giros):`);
+    console.log(`      🔴 Vermelhos: ${previousCounts.red} (${previousRedPercent.toFixed(1)}%)`);
+    console.log(`      ⚫ Pretos: ${previousCounts.black} (${previousBlackPercent.toFixed(1)}%)`);
+    
     // Determinar momentum
     const redMomentum = recentRedPercent - previousRedPercent;
     const blackMomentum = recentBlackPercent - previousBlackPercent;
     
+    console.log(`   📈 MOMENTUM:`);
+    console.log(`      🔴 Vermelho: ${redMomentum > 0 ? '+' : ''}${redMomentum.toFixed(1)}%`);
+    console.log(`      ⚫ Preto: ${blackMomentum > 0 ? '+' : ''}${blackMomentum.toFixed(1)}%`);
+    
     // Votar pela cor com momentum positivo
     const voteColor = redMomentum > blackMomentum ? 'red' : 'black';
+    
+    const trendType = redMomentum > 5 ? 'accelerating_red' : blackMomentum > 5 ? 'accelerating_black' : 'stable';
+    console.log(`   🎯 Tendência: ${trendType === 'accelerating_red' ? 'VERMELHO ACELERANDO ↗️' : trendType === 'accelerating_black' ? 'PRETO ACELERANDO ↗️' : 'ESTÁVEL →'}`);
+    console.log(`   🗳️ VOTA: ${voteColor.toUpperCase()}`);
     
     return {
         color: voteColor,
@@ -7723,20 +7821,35 @@ function analyzeMomentumWithSizes(history, recentSize, previousSize) {
  * NÍVEL 6: Barreira/Freio - Valida se a sequência é viável historicamente
  */
 function validateSequenceBarrier(history, predictedColor, configuredSize) {
+    console.log('%c┌─────────────────────────────────────────────────────────┐', 'color: #FF0000; font-weight: bold;');
+    console.log('%c│ 🔍 NÍVEL 6: BARREIRA (FREIO DE SEGURANÇA)             │', 'color: #FF0000; font-weight: bold;');
+    console.log('%c└─────────────────────────────────────────────────────────┘', 'color: #FF0000; font-weight: bold;');
+    
     const last = history.slice(0, Math.min(configuredSize, history.length));
+    console.log(`   📊 Total de giros disponíveis: ${history.length}`);
+    console.log(`   📊 Histórico configurado: ${configuredSize} giros`);
+    console.log(`   📊 Analisando últimos: ${last.length} giros`);
+    console.log(`   🎯 Cor prevista pelos outros níveis: ${predictedColor.toUpperCase()}`);
     
     // Contar quantos da cor prevista já saíram consecutivamente
+    // ⚠️ IMPORTANTE: BRANCO QUEBRA A SEQUÊNCIA!
     let currentStreak = 0;
     for (let i = 0; i < last.length; i++) {
         if (last[i].color === predictedColor) {
             currentStreak++;
-        } else if (last[i].color !== 'white') {
-            break; // Sequência quebrada
+        } else {
+            // ✅ QUALQUER outra cor (incluindo BRANCO) quebra a sequência!
+            break;
         }
     }
     
+    console.log(`   📊 Sequência atual de ${predictedColor.toUpperCase()}: ${currentStreak} giro(s)`);
+    
     // Verificar se sequência de (currentStreak + 1) já aconteceu
     const targetStreak = currentStreak + 1;
+    console.log(`   🎯 Se entrar agora, teremos: ${targetStreak} ${predictedColor.toUpperCase()} consecutivos`);
+    console.log(`   🔍 Verificando se essa sequência já aconteceu antes no histórico...`);
+    
     let maxStreakFound = 0;
     let streakCount = 0;
     let currentColor = null;
@@ -7750,13 +7863,24 @@ function validateSequenceBarrier(history, predictedColor, configuredSize) {
                 currentColor = predictedColor;
             }
             maxStreakFound = Math.max(maxStreakFound, streakCount);
-        } else if (last[i].color !== 'white') {
+        } else {
+            // ✅ QUALQUER outra cor (incluindo BRANCO) quebra a sequência!
             currentColor = last[i].color;
             streakCount = 1;
         }
     }
     
+    console.log(`   📊 Maior sequência de ${predictedColor.toUpperCase()} encontrada: ${maxStreakFound} giro(s)`);
+    
     const isViable = targetStreak <= maxStreakFound;
+    
+    if (isViable) {
+        console.log(`   ✅ APROVADO! Sequência de ${targetStreak} é historicamente viável`);
+        console.log(`   🚦 Sinal LIBERADO para prosseguir`);
+    } else {
+        console.log(`   ❌ BLOQUEADO! Sequência de ${targetStreak} NUNCA aconteceu antes (máx: ${maxStreakFound})`);
+        console.log(`   🛑 Sinal BLOQUEADO por segurança (sem precedente histórico)`);
+    }
     
     return {
         allowed: isViable,
@@ -7770,6 +7894,443 @@ function validateSequenceBarrier(history, predictedColor, configuredSize) {
 }
 
 /**
+ * NÍVEL 7: Análise de Padrão de Alternância
+ * Detecta se o jogo está em padrão alternante (R-P-R-P) ou grupos (R-R-P-P)
+ * Vota A FAVOR do padrão detectado (nunca contra!)
+ * Analisa conforme configuração do usuário (aiHistorySize), mínimo 12 giros
+ */
+function analyzeAlternancePattern(history, configuredSize = 12) {
+    console.log('%c┌─────────────────────────────────────────────────────────┐', 'color: #8E44AD; font-weight: bold;');
+    console.log('%c│ 🔍 NÍVEL 7: ALTERNÂNCIA (CONFIGURÁVEL)                │', 'color: #8E44AD; font-weight: bold;');
+    console.log('%c└─────────────────────────────────────────────────────────┘', 'color: #8E44AD; font-weight: bold;');
+    
+    // Usar o que o usuário configurou, mas com mínimo de 12 e máximo de 50
+    const effectiveSize = Math.max(12, Math.min(50, configuredSize));
+    const lastN = history.slice(0, Math.min(effectiveSize, history.length));
+    
+    console.log(`   📊 Total de giros disponíveis: ${history.length}`);
+    console.log(`   ⚙️ Histórico configurado pelo usuário: ${configuredSize} giros`);
+    console.log(`   📊 Tamanho efetivo (12-50): ${effectiveSize} giros`);
+    console.log(`   📊 Analisando últimos: ${lastN.length} giros`);
+    
+    // ═══════════════════════════════════════════════════════════════
+    // 🔥 CRÍTICO: SE HOUVER BRANCO, DESCARTAR TUDO ANTES DELE!
+    // ═══════════════════════════════════════════════════════════════
+    let validHistory = lastN;
+    
+    // Procurar o primeiro branco (mais recente)
+    const firstWhiteIndex = lastN.findIndex(spin => spin.color === 'white');
+    
+    if (firstWhiteIndex !== -1) {
+        // ⚠️ BRANCO ENCONTRADO! Descartar tudo a partir dele (inclusive)
+        validHistory = lastN.slice(0, firstWhiteIndex);
+        console.log(`   ⚪ BRANCO ENCONTRADO na posição ${firstWhiteIndex}!`);
+        console.log(`   🔄 RESETANDO análise! Descartando ${lastN.length - validHistory.length} giros`);
+        console.log(`   ✅ Giros válidos após o reset: ${validHistory.length}`);
+    } else {
+        console.log(`   ✅ Nenhum BRANCO encontrado - analisando todos os ${validHistory.length} giros`);
+    }
+    
+    if (validHistory.length < 4) {
+        console.log(`   ❌ Dados insuficientes após reset! Mínimo: 4 giros, disponível: ${validHistory.length}`);
+        return {
+            color: null,
+            pattern: 'insufficient_data',
+            confidence: 0,
+            details: `Apenas ${validHistory.length} giros após branco (mín: 4)`
+        };
+    }
+    
+    // Contar alternâncias (mudanças de cor)
+    let alternations = 0;
+    let consecutiveCount = 0;
+    let lastNonWhite = null;
+    let sequences = []; // Rastrear sequências
+    let currentSequence = { color: null, length: 0 };
+    
+    for (let i = 0; i < validHistory.length; i++) {
+        const spin = validHistory[i];
+        
+        // ✅ validHistory já não contém brancos após o reset, só cores válidas
+        
+        if (lastNonWhite && spin.color !== lastNonWhite) {
+            alternations++;
+            
+            // Finalizar sequência anterior
+            if (currentSequence.color) {
+                sequences.push({ ...currentSequence });
+            }
+            // Iniciar nova sequência
+            currentSequence = { color: spin.color, length: 1 };
+        } else if (spin.color === lastNonWhite) {
+            consecutiveCount++;
+            currentSequence.length++;
+        } else {
+            // Primeiro giro não-branco
+            currentSequence = { color: spin.color, length: 1 };
+        }
+        
+        lastNonWhite = spin.color;
+    }
+    
+    // Adicionar última sequência
+    if (currentSequence.color) {
+        sequences.push(currentSequence);
+    }
+    
+    const nonWhiteCount = validHistory.length; // Já não contém brancos após o reset
+    const alternationRate = nonWhiteCount > 1 ? (alternations / (nonWhiteCount - 1)) : 0;
+    
+    // ═══════════════════════════════════════════════════════════════
+    // 🔍 DETECTAR TIPO E TAMANHO DE ALTERNÂNCIA
+    // ═══════════════════════════════════════════════════════════════
+    
+    // Analisar tamanhos das sequências para detectar padrão de alternância
+    let isConsistentAlternation = false;
+    let alternationSize = 0;
+    
+    if (sequences.length >= 3) {
+        // Verificar se as sequências têm tamanhos similares (padrão de alternância)
+        const sizes = sequences.map(s => s.length);
+        const avgSize = sizes.reduce((a, b) => a + b, 0) / sizes.length;
+        const variance = sizes.reduce((sum, size) => sum + Math.pow(size - avgSize, 2), 0) / sizes.length;
+        
+        // Se variância baixa = sequências de tamanho consistente = alternância!
+        if (variance <= 1.0) {
+            isConsistentAlternation = true;
+            alternationSize = Math.round(avgSize);
+        }
+    }
+    
+    // Determinar padrão
+    let detectedPattern;
+    let voteColor;
+    let confidence;
+    
+    if (isConsistentAlternation && sequences.length >= 3) {
+        // ✅ PADRÃO DE ALTERNÂNCIA DETECTADO (qualquer tamanho)
+        if (alternationSize === 1) {
+            detectedPattern = 'alternating_simple';  // R-P-R-P
+        } else if (alternationSize === 2) {
+            detectedPattern = 'alternating_double';  // RR-PP-RR-PP
+        } else if (alternationSize === 3) {
+            detectedPattern = 'alternating_triple';  // RRR-PPP-RRR-PPP
+        } else {
+            detectedPattern = 'alternating_multiple'; // Outros tamanhos
+        }
+        
+        // Votar na COR OPOSTA ao último giro (para continuar alternando)
+        voteColor = lastNonWhite === 'red' ? 'black' : 'red';
+        confidence = 0.8;
+        
+    } else if (alternationRate > 0.7) {
+        // ALTA taxa de mudança, mas sem consistência = alternância simples provável
+        detectedPattern = 'alternating';
+        voteColor = lastNonWhite === 'red' ? 'black' : 'red';
+        confidence = alternationRate;
+        
+    } else if (alternationRate < 0.4 && sequences.length > 0) {
+        // PADRÃO DE GRUPOS (sem alternância)
+        detectedPattern = 'grouping';
+        // Votar na MESMA COR (continuar grupo)
+        voteColor = lastNonWhite;
+        confidence = 1 - alternationRate;
+        
+    } else {
+        // PADRÃO MISTO (sem padrão claro)
+        detectedPattern = 'mixed';
+        voteColor = null; // Voto neutro
+        confidence = 0;
+    }
+    
+    console.log(`   📊 Taxa de alternância: ${(alternationRate * 100).toFixed(1)}%`);
+    console.log(`   📊 Padrão detectado: ${detectedPattern.toUpperCase()}`);
+    if (alternationSize > 0) {
+        console.log(`   ✨ Tamanho da alternância: ${alternationSize} giro(s) por cor`);
+    }
+    console.log(`   📊 Sequências encontradas: ${sequences.length}`);
+    
+    if (voteColor) {
+        console.log(`   🗳️ VOTA: ${voteColor.toUpperCase()} (${detectedPattern === 'grouping' ? 'continuar grupo' : 'continuar alternância'})`);
+    } else {
+        console.log(`   ⚠️ VOTA: NULO (padrão misto/incerto)`);
+    }
+    
+    return {
+        color: voteColor,
+        pattern: detectedPattern,
+        alternationRate: (alternationRate * 100).toFixed(1),
+        alternationSize: alternationSize,
+        confidence: confidence,
+        sequences: sequences,
+        details: alternationSize > 0 
+            ? `${detectedPattern} (tamanho ${alternationSize})` 
+            : `${detectedPattern} (${(alternationRate * 100).toFixed(1)}% alternância)`
+    };
+}
+
+/**
+ * NÍVEL 8: Análise de Impacto de Zeros (Brancos)
+ * Após um branco, a tendência anterior costuma continuar
+ * Analisa os últimos 15 giros + 5 giros antes do último branco
+ */
+function analyzeZeroImpact(history) {
+    console.log('%c┌─────────────────────────────────────────────────────────┐', 'color: #16A085; font-weight: bold;');
+    console.log('%c│ 🔍 NÍVEL 8: ZEROS/BRANCOS (15 GIROS)                  │', 'color: #16A085; font-weight: bold;');
+    console.log('%c└─────────────────────────────────────────────────────────┘', 'color: #16A085; font-weight: bold;');
+    
+    const last15 = history.slice(0, Math.min(15, history.length));
+    
+    console.log(`   📊 Total de giros disponíveis: ${history.length}`);
+    console.log(`   📊 Analisando últimos: ${last15.length} giros`);
+    
+    if (last15.length < 3) {
+        console.log(`   ❌ Dados insuficientes! Mínimo: 3 giros`);
+        return {
+            color: null,
+            situation: 'insufficient_data',
+            whiteCount: 0,
+            confidence: 0,
+            details: 'Menos de 3 giros para análise'
+        };
+    }
+    
+    // Contar zeros nos últimos 15 giros
+    const whiteCount = last15.filter(s => s.color === 'white').length;
+    const whiteFrequency = whiteCount / last15.length;
+    
+    console.log(`   ⚪ Total de brancos: ${whiteCount}/${last15.length} (${(whiteFrequency * 100).toFixed(1)}%)`);
+    
+    // Verificar se último giro foi branco
+    const lastWasWhite = last15[0].color === 'white';
+    console.log(`   🎯 Último giro foi branco? ${lastWasWhite ? 'SIM ⚪' : 'NÃO'}`);
+    
+    let voteColor = null;
+    let situation;
+    let confidence = 1.0;
+    
+    if (lastWasWhite) {
+        // OPORTUNIDADE PÓS-ZERO!
+        // Analisar os 5 giros ANTES do branco
+        let preWhiteGiros = [];
+        for (let i = 1; i < Math.min(6, last15.length); i++) {
+            if (last15[i].color !== 'white') {
+                preWhiteGiros.push(last15[i]);
+            }
+        }
+        
+        if (preWhiteGiros.length > 0) {
+            // Contar cores antes do branco
+            let counts = { red: 0, black: 0 };
+            preWhiteGiros.forEach(spin => {
+                if (spin.color === 'red') counts.red++;
+                if (spin.color === 'black') counts.black++;
+            });
+            
+            // Votar na cor DOMINANTE antes do branco (continuar tendência)
+            voteColor = counts.red > counts.black ? 'red' : 'black';
+            situation = 'post_zero_opportunity';
+            confidence = 0.9; // Alta confiança após zero
+        } else {
+            situation = 'post_zero_no_data';
+            confidence = 0;
+        }
+    } else if (whiteFrequency > 0.25) {
+        // ALTA FREQUÊNCIA DE ZEROS (3+ em 15 giros)
+        situation = 'high_white_frequency';
+        // Voto fraco (cauteloso), mas não bloqueia
+        // Analisar últimos giros não-brancos para tendência
+        const nonWhite = last15.filter(s => s.color !== 'white');
+        if (nonWhite.length > 0) {
+            let counts = { red: 0, black: 0 };
+            nonWhite.slice(0, 5).forEach(spin => {
+                if (spin.color === 'red') counts.red++;
+                if (spin.color === 'black') counts.black++;
+            });
+            voteColor = counts.red > counts.black ? 'red' : 'black';
+            confidence = 0.3; // Confiança reduzida
+        }
+    } else {
+        // SITUAÇÃO NORMAL (poucos zeros)
+        situation = 'normal';
+        // Analisar últimos giros não-brancos para tendência
+        const nonWhite = last15.filter(s => s.color !== 'white');
+        if (nonWhite.length > 0) {
+            let counts = { red: 0, black: 0 };
+            nonWhite.slice(0, 5).forEach(spin => {
+                if (spin.color === 'red') counts.red++;
+                if (spin.color === 'black') counts.black++;
+            });
+            voteColor = counts.red > counts.black ? 'red' : 'black';
+            confidence = 0.7; // Confiança normal
+        }
+    }
+    
+    console.log(`   📊 Situação: ${situation.toUpperCase()}`);
+    console.log(`   📊 Confiança: ${(confidence * 100).toFixed(0)}%`);
+    
+    if (voteColor) {
+        console.log(`   🗳️ VOTA: ${voteColor.toUpperCase()}`);
+    } else {
+        console.log(`   ⚠️ VOTA: NULO (dados insuficientes ou situação incerta)`);
+    }
+    
+    return {
+        color: voteColor,
+        situation: situation,
+        whiteCount: whiteCount,
+        whiteFrequency: (whiteFrequency * 100).toFixed(1),
+        confidence: confidence,
+        details: `${situation} (${whiteCount} brancos em 15 giros)`
+    };
+}
+
+/**
+ * NÍVEL 9: Análise de Ciclos e Persistência
+ * Detecta ciclos de persistência e vota pela CONTINUAÇÃO da sequência
+ * Analisa conforme configuração do usuário (aiHistorySize), mínimo 20 giros
+ */
+function analyzePersistence(history, configuredSize = 20) {
+    console.log('%c┌─────────────────────────────────────────────────────────┐', 'color: #D35400; font-weight: bold;');
+    console.log('%c│ 🔍 NÍVEL 9: PERSISTÊNCIA (CONFIGURÁVEL)               │', 'color: #D35400; font-weight: bold;');
+    console.log('%c└─────────────────────────────────────────────────────────┘', 'color: #D35400; font-weight: bold;');
+    
+    // Usar o que o usuário configurou, mas com mínimo de 20 e máximo de 60
+    const effectiveSize = Math.max(20, Math.min(60, configuredSize));
+    const lastN = history.slice(0, Math.min(effectiveSize, history.length));
+    
+    console.log(`   📊 Total de giros disponíveis: ${history.length}`);
+    console.log(`   ⚙️ Histórico configurado pelo usuário: ${configuredSize} giros`);
+    console.log(`   📊 Tamanho efetivo (20-60): ${effectiveSize} giros`);
+    console.log(`   📊 Analisando últimos: ${lastN.length} giros`);
+    
+    // ═══════════════════════════════════════════════════════════════
+    // 🔥 CRÍTICO: SE HOUVER BRANCO, DESCARTAR TUDO ANTES DELE!
+    // ═══════════════════════════════════════════════════════════════
+    let validHistory = lastN;
+    
+    // Procurar o primeiro branco (mais recente)
+    const firstWhiteIndex = lastN.findIndex(spin => spin.color === 'white');
+    
+    if (firstWhiteIndex !== -1) {
+        // ⚠️ BRANCO ENCONTRADO! Descartar tudo a partir dele (inclusive)
+        validHistory = lastN.slice(0, firstWhiteIndex);
+        console.log(`   ⚪ BRANCO ENCONTRADO na posição ${firstWhiteIndex}!`);
+        console.log(`   🔄 RESETANDO análise! Descartando ${lastN.length - validHistory.length} giros`);
+        console.log(`   ✅ Giros válidos após o reset: ${validHistory.length}`);
+    } else {
+        console.log(`   ✅ Nenhum BRANCO encontrado - analisando todos os ${validHistory.length} giros`);
+    }
+    
+    if (validHistory.length < 5) {
+        console.log(`   ❌ Dados insuficientes após reset! Mínimo: 5 giros, disponível: ${validHistory.length}`);
+        return {
+            color: null,
+            currentSequence: 0,
+            averageSequence: 0,
+            confidence: 0,
+            details: `Apenas ${validHistory.length} giros após branco (mín: 5)`
+        };
+    }
+    
+    // Detectar todas as sequências de cada cor
+    // ✅ validHistory já não contém brancos após o reset
+    let sequences = { red: [], black: [] };
+    let currentColor = null;
+    let currentLength = 0;
+    
+    for (let i = validHistory.length - 1; i >= 0; i--) {
+        const spin = validHistory[i];
+        
+        // ✅ validHistory já não contém brancos, apenas cores válidas
+        
+        if (spin.color === currentColor) {
+            currentLength++;
+        } else {
+            if (currentColor && currentLength > 0) {
+                sequences[currentColor].push(currentLength);
+            }
+            currentColor = spin.color;
+            currentLength = 1;
+        }
+    }
+    
+    // Adicionar última sequência
+    if (currentColor && currentLength > 0) {
+        sequences[currentColor].push(currentLength);
+    }
+    
+    // Calcular médias
+    const avgRed = sequences.red.length > 0 
+        ? sequences.red.reduce((a, b) => a + b, 0) / sequences.red.length 
+        : 0;
+    const avgBlack = sequences.black.length > 0 
+        ? sequences.black.reduce((a, b) => a + b, 0) / sequences.black.length 
+        : 0;
+    
+    // Determinar sequência atual
+    const lastNonWhite = validHistory[0]; // Primeiro da validHistory (mais recente)
+    if (!lastNonWhite) {
+        return {
+            color: null,
+            currentSequence: 0,
+            averageSequence: 0,
+            confidence: 0,
+            details: 'Nenhum giro válido encontrado'
+        };
+    }
+    
+    // Contar sequência atual
+    let currentSequenceLength = 0;
+    for (let i = 0; i < validHistory.length; i++) {
+        if (validHistory[i].color === lastNonWhite.color) {
+            currentSequenceLength++;
+        } else {
+            // ✅ Outra cor quebra a sequência!
+            break;
+        }
+    }
+    
+    const avgForColor = lastNonWhite.color === 'red' ? avgRed : avgBlack;
+    
+    console.log(`   📊 Sequências de VERMELHO encontradas: ${sequences.red.length} (média: ${avgRed.toFixed(1)} giros)`);
+    console.log(`   📊 Sequências de PRETO encontradas: ${sequences.black.length} (média: ${avgBlack.toFixed(1)} giros)`);
+    console.log(`   📊 Última cor não-branca: ${lastNonWhite.color.toUpperCase()}`);
+    console.log(`   📊 Sequência atual de ${lastNonWhite.color.toUpperCase()}: ${currentSequenceLength} giro(s)`);
+    console.log(`   📊 Média histórica de ${lastNonWhite.color.toUpperCase()}: ${avgForColor.toFixed(1)} giros`);
+    
+    // Determinar voto
+    let voteColor = lastNonWhite.color; // SEMPRE vota na cor atual (persistência)
+    let confidence;
+    
+    if (currentSequenceLength < avgForColor) {
+        // Sequência ainda ABAIXO da média = ALTA confiança
+        confidence = 0.9;
+        console.log(`   ✅ Sequência ABAIXO da média → ALTA confiança na continuação`);
+    } else if (currentSequenceLength <= avgForColor + 1) {
+        // Sequência PRÓXIMA da média = MÉDIA confiança
+        confidence = 0.6;
+        console.log(`   ⚠️ Sequência PRÓXIMA da média → MÉDIA confiança`);
+    } else {
+        // Sequência ACIMA da média = BAIXA confiança (Nível 6 decide)
+        confidence = 0.3;
+        console.log(`   ⚠️ Sequência ACIMA da média → BAIXA confiança (Nível 6 decidirá)`);
+    }
+    
+    console.log(`   🗳️ VOTA: ${voteColor.toUpperCase()} (persistência - continuar sequência)`);
+    
+    return {
+        color: voteColor,
+        currentSequence: currentSequenceLength,
+        averageSequence: avgForColor.toFixed(1),
+        avgRed: avgRed.toFixed(1),
+        avgBlack: avgBlack.toFixed(1),
+        confidence: confidence,
+        details: `Seq. atual: ${currentSequenceLength} ${voteColor} (média: ${avgForColor.toFixed(1)})`
+    };
+}
+
+/**
  * ⏱️ HELPER: Sleep para delay entre níveis
  */
 function sleep(ms) {
@@ -7778,7 +8339,9 @@ function sleep(ms) {
 
 /**
  * FUNÇÃO PRINCIPAL: Análise Avançada - NÍVEL DIAMANTE
- * NOVO FLUXO: 6 Níveis com Sistema de Votação
+ * NOVO FLUXO: 9 Níveis com Sistema de Votação
+ * - 8 Níveis que votam (1, 2, 3, 4, 5, 7, 8, 9)
+ * - 1 Nível que bloqueia (6 - Barreira/Freio)
  */
 async function analyzeWithPatternSystem(history) {
     console.log('');
@@ -7788,8 +8351,8 @@ async function analyzeWithPatternSystem(history) {
     console.log('');
     
     // ✅ DEBUG: Enviar mensagem inicial
-    sendAnalysisStatus('🔍 Iniciando análise dos 6 níveis...');
-    console.log('✅ DEBUG: sendAnalysisStatus chamado - Iniciando análise dos 6 níveis...');
+    sendAnalysisStatus('🔍 Iniciando análise dos 9 níveis...');
+    console.log('✅ DEBUG: sendAnalysisStatus chamado - Iniciando análise dos 9 níveis...');
     await sleep(1000);
     
     // VALIDAÇÃO DE DADOS DE ENTRADA
@@ -7813,14 +8376,17 @@ async function analyzeWithPatternSystem(history) {
     console.log('');
     
         console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #00FF00; font-weight: bold; font-size: 16px;');
-        console.log('%c║  💎 NÍVEL DIAMANTE - ANÁLISE AVANÇADA 6 NÍVEIS           ║', 'color: #00FF00; font-weight: bold; font-size: 16px;');
+        console.log('%c║  💎 NÍVEL DIAMANTE - ANÁLISE AVANÇADA 9 NÍVEIS           ║', 'color: #00FF00; font-weight: bold; font-size: 16px;');
         console.log('%c╠═══════════════════════════════════════════════════════════╣', 'color: #00FF00; font-weight: bold;');
-        console.log('%c║  🎨 NÍVEL 1: Cor Dominante (30 giros)                   ║', 'color: #00FF88; font-weight: bold;');
-        console.log('%c║  🕐 NÍVEL 2: Posição do Giro (60 giros)                 ║', 'color: #00FF88;');
-        console.log('%c║  🕐 NÍVEL 3: Soma dos Minutos (60 giros)                ║', 'color: #00FF88;');
+        console.log('%c║  🎨 NÍVEL 1: Cor Dominante (15 giros)                   ║', 'color: #00FF88; font-weight: bold;');
+        console.log('%c║  🕐 NÍVEL 2: Posição do Giro (30 giros)                 ║', 'color: #00FF88;');
+        console.log('%c║  🕐 NÍVEL 3: Soma dos Minutos (30 giros)                ║', 'color: #00FF88;');
         console.log('%c║  🎯 NÍVEL 4: Padrões (Customizado → Quente → Nulo)     ║', 'color: #FFD700; font-weight: bold;');
         console.log('%c║  ⚡ NÍVEL 5: Momentum (10 vs 20 giros)                  ║', 'color: #00FF88;');
         console.log('%c║  🛑 NÍVEL 6: Barreira/Freio (validação histórica)      ║', 'color: #FF6666; font-weight: bold;');
+        console.log('%c║  🔷 NÍVEL 7: Padrão Alternância (12 giros)             ║', 'color: #8E44AD; font-weight: bold;');
+        console.log('%c║  🔷 NÍVEL 8: Impacto de Zeros (15 giros)               ║', 'color: #16A085; font-weight: bold;');
+        console.log('%c║  🔷 NÍVEL 9: Persistência/Ciclos (20 giros)            ║', 'color: #D35400; font-weight: bold;');
         console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #00FF00; font-weight: bold; font-size: 16px;');
     console.log('');
     
@@ -7860,6 +8426,10 @@ async function analyzeWithPatternSystem(history) {
             const lastSignalTimestamp = entriesResult.lastSignalTimestamp || null;
             
             console.log(`📊 Último sinal salvo: ${lastSignalSpinNumber ? '#' + lastSignalSpinNumber : 'Nenhum'}`);
+            if (lastSignalSpinNumber && lastSignalTimestamp) {
+                const tempoDecorrido = Math.round((Date.now() - lastSignalTimestamp) / 1000);
+                console.log(`   ⏱️ Salvo há ${tempoDecorrido}s (pode ser de sinal real ou de bloqueio inicial)`);
+            }
             
             if (lastSignalSpinNumber !== null && lastSignalTimestamp && history.length > 0) {
                 const timeSinceSignal = Date.now() - lastSignalTimestamp;
@@ -7905,7 +8475,7 @@ async function analyzeWithPatternSystem(history) {
                     console.log(`%c║  🎯 Intervalo mínimo: ${minIntervalSpins} giros${' '.repeat(Math.max(0, 32 - minIntervalSpins.toString().length))}║`, 'color: #FFAA00;');
                     console.log(`%c║  ⏳ Faltam: ${girosRestantes} giros (~${minutosRestantes.toFixed(1)}min = ~${segundosRestantes}s)${' '.repeat(Math.max(0, 15 - girosRestantes.toString().length - minutosRestantes.toFixed(1).length - segundosRestantes.toString().length))}║`, 'color: #FFAA00; font-weight: bold;');
                     console.log('%c╠═══════════════════════════════════════════════════════════╣', 'color: #FFAA00; font-weight: bold;');
-                    console.log('%c║  ✅ Análise dos 6 níveis será executada normalmente      ║', 'color: #00FF88;');
+                    console.log('%c║  ✅ Análise dos 9 níveis será executada normalmente      ║', 'color: #00FF88;');
                     console.log('%c║  🚫 Mas SINAL NÃO será enviado (intervalo insuficiente)  ║', 'color: #FFAA00;');
                     console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #FFAA00; font-weight: bold;');
                     console.log('');
@@ -8084,7 +8654,7 @@ async function analyzeWithPatternSystem(history) {
         }
         
         // ═══════════════════════════════════════════════════════════════
-        // 💎 NOVO FLUXO - NÍVEL DIAMANTE: 6 NÍVEIS COM VOTAÇÃO
+        // 💎 NOVO FLUXO - NÍVEL DIAMANTE: 9 NÍVEIS COM VOTAÇÃO
         // ═══════════════════════════════════════════════════════════════
         
         // ✅ Obter tamanho REAL do histórico disponível (para Nível 4 e 6)
@@ -8109,69 +8679,65 @@ async function analyzeWithPatternSystem(history) {
         }
         console.log('');
         
-        // ═══════════════════════════════════════════════════════════════
-        // 🎨 NÍVEL 1: COR DOMINANTE (30 GIROS FIXOS)
-        // ═══════════════════════════════════════════════════════════════
-        console.log('');
-        console.log('%c🔍 DEBUG: Iniciando análise dos 6 níveis...', 'color: #FFD700; font-weight: bold;');
-        console.log('');
+    // ═══════════════════════════════════════════════════════════════
+    // 🎨 NÍVEL 1: COR DOMINANTE (15 GIROS FIXOS)
+    // ═══════════════════════════════════════════════════════════════
+    console.log('');
+    console.log('%c🔍 DEBUG: Iniciando análise dos 9 níveis...', 'color: #FFD700; font-weight: bold;');
+    console.log('');
+    
+    console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #9C27B0; font-weight: bold;');
+    console.log('%c║  🎨 NÍVEL 1: COR DOMINANTE (15 GIROS)                   ║', 'color: #9C27B0; font-weight: bold; font-size: 14px;');
+    console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #9C27B0; font-weight: bold;');
+    console.log('');
+    
+    const nivel1 = analyzeDominantColor(history);
+    console.log('%c🔍 DEBUG - Nível 1 resultado:', 'color: #FFD700;', nivel1);
+    
+    console.log('%c📊 ANÁLISE DOS ÚLTIMOS 15 GIROS:', 'color: #9C27B0; font-weight: bold;');
+    console.log(`%c   🔴 Vermelho: ${nivel1.counts.red} (${nivel1.percentage.red}%)`, 'color: #FF0000;');
+    console.log(`%c   ⚫ Preto: ${nivel1.counts.black} (${nivel1.percentage.black}%)`, 'color: #FFFFFF;');
+    console.log(`%c   ⚪ Branco: ${nivel1.counts.white} (${nivel1.percentage.white}%)`, 'color: #888;');
+    console.log('');
+    console.log(`%c🗳️ NÍVEL 1 VOTA: ${nivel1.color.toUpperCase()}`, `color: ${nivel1.color === 'red' ? '#FF0000' : '#FFFFFF'}; font-weight: bold; font-size: 14px;`);
+    console.log('');
+    
+    // ⚡ NÃO EXIBIR na UI ainda (análise rápida, mostraremos depois)
         
-        console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #9C27B0; font-weight: bold;');
-        console.log('%c║  🎨 NÍVEL 1: COR DOMINANTE (30 GIROS)                   ║', 'color: #9C27B0; font-weight: bold; font-size: 14px;');
-        console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #9C27B0; font-weight: bold;');
-        console.log('');
-        
-        const nivel1 = analyzeDominantColor(history);
-        console.log('%c🔍 DEBUG - Nível 1 resultado:', 'color: #FFD700;', nivel1);
-        
-        console.log('%c📊 ANÁLISE DOS ÚLTIMOS 30 GIROS:', 'color: #9C27B0; font-weight: bold;');
-        console.log(`%c   🔴 Vermelho: ${nivel1.counts.red} (${nivel1.percentage.red}%)`, 'color: #FF0000;');
-        console.log(`%c   ⚫ Preto: ${nivel1.counts.black} (${nivel1.percentage.black}%)`, 'color: #FFFFFF;');
-        console.log(`%c   ⚪ Branco: ${nivel1.counts.white} (${nivel1.percentage.white}%)`, 'color: #888;');
-        console.log('');
-        console.log(`%c🗳️ NÍVEL 1 VOTA: ${nivel1.color.toUpperCase()}`, `color: ${nivel1.color === 'red' ? '#FF0000' : '#FFFFFF'}; font-weight: bold; font-size: 14px;`);
-        console.log('');
-        
-        // ✅ Exibir na UI e aguardar 1.5s
-        sendAnalysisStatus(`🎨 Nível 1: ${nivel1.color.toUpperCase()} (${nivel1.percentage[nivel1.color]}%)`);
-        await sleep(1500);
-        
-        // ═══════════════════════════════════════════════════════════════
-        // 🕐 NÍVEL 2: POSIÇÃO DO GIRO (60 GIROS FIXOS)
-        // ═══════════════════════════════════════════════════════════════
-        console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #00D4FF; font-weight: bold;');
-        console.log('%c║  🕐 NÍVEL 2: POSIÇÃO DO GIRO (60 GIROS)                 ║', 'color: #00D4FF; font-weight: bold; font-size: 14px;');
-        console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #00D4FF; font-weight: bold;');
-        console.log('');
-        
-        // Identificar qual giro acabou de sair (1 ou 2)
-        const lastSpinPosition = history[0].timestamp ? identifySpinPosition(history[0].timestamp) : 1;
-        const nextSpinPosition = lastSpinPosition === 1 ? 2 : 1;
-        
-        console.log(`%c🕐 Giro que ACABOU DE SAIR: Giro ${lastSpinPosition}`, 'color: #00D4FF; font-weight: bold;');
-        console.log(`%c🎯 Vamos PREVER: Giro ${nextSpinPosition} (próximo)`, 'color: #FFD700; font-weight: bold; font-size: 14px;');
-        console.log('');
-        
-        const nivel2 = analyzeSpinPosition(history, nextSpinPosition);
-        
-        console.log(`%c📊 ANÁLISE DOS GIRO ${nextSpinPosition} (últimos 60 giros):`, 'color: #00D4FF; font-weight: bold;');
+    // ═══════════════════════════════════════════════════════════════
+    // 🕐 NÍVEL 2: POSIÇÃO DO GIRO (30 GIROS FIXOS)
+    // ═══════════════════════════════════════════════════════════════
+    console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #00D4FF; font-weight: bold;');
+    console.log('%c║  🕐 NÍVEL 2: POSIÇÃO DO GIRO (30 GIROS)                 ║', 'color: #00D4FF; font-weight: bold; font-size: 14px;');
+    console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #00D4FF; font-weight: bold;');
+    console.log('');
+    
+    // Identificar qual giro acabou de sair (1 ou 2)
+    const lastSpinPosition = history[0].timestamp ? identifySpinPosition(history[0].timestamp) : 1;
+    const nextSpinPosition = lastSpinPosition === 1 ? 2 : 1;
+    
+    console.log(`%c🕐 Giro que ACABOU DE SAIR: Giro ${lastSpinPosition}`, 'color: #00D4FF; font-weight: bold;');
+    console.log(`%c🎯 Vamos PREVER: Giro ${nextSpinPosition} (próximo)`, 'color: #FFD700; font-weight: bold; font-size: 14px;');
+    console.log('');
+    
+    const nivel2 = analyzeSpinPosition(history, nextSpinPosition);
+    
+    console.log(`%c📊 ANÁLISE DOS GIRO ${nextSpinPosition} (últimos 30 giros):`, 'color: #00D4FF; font-weight: bold;');
         console.log(`%c   Total de Giro ${nextSpinPosition} analisados: ${nivel2.analyzed}`, 'color: #00D4FF;');
         console.log(`%c   🔴 Vermelho: ${nivel2.counts.red} (${nivel2.percentage.red}%)`, 'color: #FF0000;');
         console.log(`%c   ⚫ Preto: ${nivel2.counts.black} (${nivel2.percentage.black}%)`, 'color: #FFFFFF;');
         console.log('');
-        console.log(`%c🗳️ NÍVEL 2 VOTA: ${nivel2.color.toUpperCase()}`, `color: ${nivel2.color === 'red' ? '#FF0000' : '#FFFFFF'}; font-weight: bold; font-size: 14px;`);
-        console.log('');
+    console.log(`%c🗳️ NÍVEL 2 VOTA: ${nivel2.color.toUpperCase()}`, `color: ${nivel2.color === 'red' ? '#FF0000' : '#FFFFFF'}; font-weight: bold; font-size: 14px;`);
+    console.log('');
+    
+    // ⚡ NÃO EXIBIR na UI ainda (análise rápida, mostraremos depois)
         
-        // ✅ Exibir na UI e aguardar 1.5s
-        sendAnalysisStatus(`🕐 Nível 2: Giro ${nextSpinPosition} → ${nivel2.color.toUpperCase()} (${nivel2.percentage[nivel2.color]}%)`);
-        await sleep(1500);
-        
-        // ═══════════════════════════════════════════════════════════════
-        // 🕐 NÍVEL 3: SOMA DOS MINUTOS (60 GIROS FIXOS)
-        // ═══════════════════════════════════════════════════════════════
-        console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #FF6B35; font-weight: bold;');
-        console.log('%c║  🕐 NÍVEL 3: SOMA DOS MINUTOS (60 GIROS)                ║', 'color: #FF6B35; font-weight: bold; font-size: 14px;');
-        console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #FF6B35; font-weight: bold;');
+    // ═══════════════════════════════════════════════════════════════
+    // 🕐 NÍVEL 3: SOMA DOS MINUTOS (30 GIROS FIXOS)
+    // ═══════════════════════════════════════════════════════════════
+    console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #FF6B35; font-weight: bold;');
+    console.log('%c║  🕐 NÍVEL 3: SOMA DOS MINUTOS (30 GIROS)                ║', 'color: #FF6B35; font-weight: bold; font-size: 14px;');
+    console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #FF6B35; font-weight: bold;');
         console.log('');
         
         const currentDate = history[0].timestamp ? new Date(history[0].timestamp) : new Date();
@@ -8195,12 +8761,10 @@ async function analyzeWithPatternSystem(history) {
         console.log('');
         console.log(`%c${nivel3.consensus ? '✅ CONSENSO!' : '⚠️ DIVERGÊNCIA'}: ${nivel3.consensus ? 'Ambas as contas concordam' : 'Usando primeira conta'}`, `color: ${nivel3.consensus ? '#00FF00' : '#FFA500'}; font-weight: bold;`);
         console.log('');
-        console.log(`%c🗳️ NÍVEL 3 VOTA: ${nivel3.color.toUpperCase()}`, `color: ${nivel3.color === 'red' ? '#FF0000' : '#FFFFFF'}; font-weight: bold; font-size: 14px;`);
-        console.log('');
-        
-        // ✅ Exibir na UI e aguardar 1.5s
-        sendAnalysisStatus(`🕐 Nível 3: Minuto :X${currentMinute % 10} → ${nivel3.color.toUpperCase()}`);
-        await sleep(1500);
+    console.log(`%c🗳️ NÍVEL 3 VOTA: ${nivel3.color.toUpperCase()}`, `color: ${nivel3.color === 'red' ? '#FF0000' : '#FFFFFF'}; font-weight: bold; font-size: 14px;`);
+    console.log('');
+    
+    // ⚡ NÃO EXIBIR na UI ainda (análise rápida, mostraremos depois)
         
         // ═══════════════════════════════════════════════════════════════
         // 🎯 NÍVEL 4: PADRÕES (CUSTOMIZADO → QUENTE → NULO)
@@ -8211,14 +8775,15 @@ async function analyzeWithPatternSystem(history) {
         console.log('');
         
         let nivel4 = null;
-        let patternDescription = 'Análise Nível Diamante - 6 Níveis';
+        let patternDescription = 'Análise Nível Diamante - 9 Níveis';
         
-        // ETAPA 1: Verificar PADRÕES CUSTOMIZADOS
-        console.log('%c🎯 ETAPA 1: PADRÕES CUSTOMIZADOS', 'color: #FF00FF; font-weight: bold;');
-        console.log(`%c   Configuração do usuário: ${historySize} giros`, 'color: #FF00FF;');
-        console.log('');
-        
-        const customPatternResult = await checkForCustomPatterns(history);
+    // ETAPA 1: Verificar PADRÕES CUSTOMIZADOS
+    console.log('%c🎯 ETAPA 1: PADRÕES CUSTOMIZADOS', 'color: #FF00FF; font-weight: bold;');
+    console.log(`%c   Configuração do usuário: ${historySize} giros`, 'color: #FF00FF;');
+    console.log('');
+    
+    // ✅ USAR totalHistory (respeitando a configuração do usuário) em vez de history (todos os giros)
+    const customPatternResult = await checkForCustomPatterns(totalHistory);
         
         if (customPatternResult) {
             // ✅ PADRÃO CUSTOMIZADO ENCONTRADO!
@@ -8249,18 +8814,14 @@ async function analyzeWithPatternSystem(history) {
             }
         }
         
-        if (!nivel4) {
-            console.log('%c⚠️ NÍVEL 4 VOTA: NULO (não participa da votação)', 'color: #888; font-weight: bold; font-size: 14px;');
-            // ✅ Exibir na UI e aguardar 1.5s
-            sendAnalysisStatus(`🎯 Nível 4: Padrões → NULO`);
-        } else {
-            console.log(`%c🗳️ NÍVEL 4 VOTA: ${nivel4.color.toUpperCase()}`, `color: ${nivel4.color === 'red' ? '#FF0000' : '#FFFFFF'}; font-weight: bold; font-size: 14px;`);
-            // ✅ Exibir na UI e aguardar 1.5s
-            const sourceLabel = nivel4.source === 'custom' ? 'Custom' : 'Quente';
-            sendAnalysisStatus(`🎯 Nível 4: ${sourceLabel} → ${nivel4.color.toUpperCase()}`);
-        }
-        console.log('');
-        await sleep(1500);
+    if (!nivel4) {
+        console.log('%c⚠️ NÍVEL 4 VOTA: NULO (não participa da votação)', 'color: #888; font-weight: bold; font-size: 14px;');
+    } else {
+        console.log(`%c🗳️ NÍVEL 4 VOTA: ${nivel4.color.toUpperCase()}`, `color: ${nivel4.color === 'red' ? '#FF0000' : '#FFFFFF'}; font-weight: bold; font-size: 14px;`);
+    }
+    console.log('');
+    
+    // ⚡ NÃO EXIBIR na UI ainda (análise rápida, mostraremos depois)
         
         // ═══════════════════════════════════════════════════════════════
         // ⚡ NÍVEL 5: MOMENTUM (30 GIROS FIXOS)
@@ -8281,26 +8842,97 @@ async function analyzeWithPatternSystem(history) {
         console.log(`%c   ⚫ Preto: ${nivel5.momentum.black >= 0 ? '+' : ''}${nivel5.momentum.black}%`, 'color: #FFFFFF;');
         console.log(`%c   Tendência: ${nivel5.trending === 'accelerating_red' ? '🔥 Vermelho acelerando' : nivel5.trending === 'accelerating_black' ? '🔥 Preto acelerando' : '⚖️ Estável'}`, 'color: #FFD700; font-weight: bold;');
         console.log('');
-        console.log(`%c🗳️ NÍVEL 5 VOTA: ${nivel5.color.toUpperCase()}`, `color: ${nivel5.color === 'red' ? '#FF0000' : '#FFFFFF'}; font-weight: bold; font-size: 14px;`);
+    console.log(`%c🗳️ NÍVEL 5 VOTA: ${nivel5.color.toUpperCase()}`, `color: ${nivel5.color === 'red' ? '#FF0000' : '#FFFFFF'}; font-weight: bold; font-size: 14px;`);
+    console.log('');
+    
+    // ⚡ NÃO EXIBIR na UI ainda (análise rápida, mostraremos depois)
+        
+        // ═══════════════════════════════════════════════════════════════
+        // 🔷 NÍVEL 7: PADRÃO DE ALTERNÂNCIA (CONFIGURÁVEL PELO USUÁRIO)
+        // ═══════════════════════════════════════════════════════════════
+        console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #8E44AD; font-weight: bold;');
+        console.log('%c║  🔷 NÍVEL 7: PADRÃO DE ALTERNÂNCIA (CONFIGURÁVEL)      ║', 'color: #8E44AD; font-weight: bold; font-size: 14px;');
+        console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #8E44AD; font-weight: bold;');
         console.log('');
         
-        // ✅ Exibir na UI e aguardar 1.5s
-        const trendLabel = nivel5.trending === 'accelerating_red' ? 'Acelerando' : nivel5.trending === 'accelerating_black' ? 'Acelerando' : 'Estável';
-        sendAnalysisStatus(`⚡ Nível 5: Momentum → ${nivel5.color.toUpperCase()} (${trendLabel})`);
-        await sleep(1500);
+        const nivel7 = analyzeAlternancePattern(history, historySize);
+        
+        console.log('%c📊 ANÁLISE DE PADRÃO:', 'color: #8E44AD; font-weight: bold;');
+        console.log(`%c   Histórico analisado: ${Math.max(12, Math.min(50, historySize))} giros (configurável)`, 'color: #8E44AD;');
+        console.log(`%c   Padrão detectado: ${nivel7.pattern.toUpperCase()}`, 'color: #8E44AD; font-weight: bold;');
+        console.log(`%c   Taxa de alternância: ${nivel7.alternationRate}%`, 'color: #8E44AD;');
+        if (nivel7.alternationSize > 0) {
+            console.log(`%c   ✨ Tamanho da alternância: ${nivel7.alternationSize} giro(s) por cor`, 'color: #FFD700; font-weight: bold;');
+        }
+        console.log(`%c   Detalhes: ${nivel7.details}`, 'color: #8E44AD;');
+        console.log('');
+        
+        if (nivel7.color) {
+            console.log(`%c🗳️ NÍVEL 7 VOTA: ${nivel7.color.toUpperCase()}`, `color: ${nivel7.color === 'red' ? '#FF0000' : '#FFFFFF'}; font-weight: bold; font-size: 14px;`);
+        } else {
+            console.log(`%c⚠️ NÍVEL 7 VOTA: NULO (padrão misto - não participa)`, 'color: #888; font-weight: bold; font-size: 14px;');
+        }
+        console.log('');
+        
+        // ═══════════════════════════════════════════════════════════════
+        // 🔷 NÍVEL 8: IMPACTO DE ZEROS/BRANCOS (15 GIROS)
+        // ═══════════════════════════════════════════════════════════════
+        console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #16A085; font-weight: bold;');
+        console.log('%c║  🔷 NÍVEL 8: IMPACTO DE ZEROS (15 GIROS)               ║', 'color: #16A085; font-weight: bold; font-size: 14px;');
+        console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #16A085; font-weight: bold;');
+        console.log('');
+        
+        const nivel8 = analyzeZeroImpact(history);
+        
+        console.log('%c📊 ANÁLISE DE ZEROS:', 'color: #16A085; font-weight: bold;');
+        console.log(`%c   Situação: ${nivel8.situation.toUpperCase()}`, 'color: #16A085; font-weight: bold;');
+        console.log(`%c   Brancos detectados: ${nivel8.whiteCount} (${nivel8.whiteFrequency}%)`, 'color: #16A085;');
+        console.log(`%c   Detalhes: ${nivel8.details}`, 'color: #16A085;');
+        console.log('');
+        
+        if (nivel8.color) {
+            console.log(`%c🗳️ NÍVEL 8 VOTA: ${nivel8.color.toUpperCase()} (confiança: ${(nivel8.confidence * 100).toFixed(0)}%)`, `color: ${nivel8.color === 'red' ? '#FF0000' : '#FFFFFF'}; font-weight: bold; font-size: 14px;`);
+        } else {
+            console.log(`%c⚠️ NÍVEL 8 VOTA: NULO (dados insuficientes)`, 'color: #888; font-weight: bold; font-size: 14px;');
+        }
+        console.log('');
+        
+        // ═══════════════════════════════════════════════════════════════
+        // 🔷 NÍVEL 9: PERSISTÊNCIA E CICLOS (CONFIGURÁVEL PELO USUÁRIO)
+        // ═══════════════════════════════════════════════════════════════
+        console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #D35400; font-weight: bold;');
+        console.log('%c║  🔷 NÍVEL 9: PERSISTÊNCIA E CICLOS (CONFIGURÁVEL)      ║', 'color: #D35400; font-weight: bold; font-size: 14px;');
+        console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #D35400; font-weight: bold;');
+        console.log('');
+        
+        const nivel9 = analyzePersistence(history, historySize);
+        
+        console.log('%c📊 ANÁLISE DE PERSISTÊNCIA:', 'color: #D35400; font-weight: bold;');
+        console.log(`%c   Histórico analisado: ${Math.max(20, Math.min(60, historySize))} giros (configurável)`, 'color: #D35400;');
+        console.log(`%c   Sequência atual: ${nivel9.currentSequence} ${nivel9.color ? nivel9.color : 'N/A'}`, 'color: #D35400; font-weight: bold;');
+        console.log(`%c   Média histórica: ${nivel9.averageSequence} giros`, 'color: #D35400;');
+        console.log(`%c   Detalhes: ${nivel9.details}`, 'color: #D35400;');
+        console.log('');
+        
+        if (nivel9.color) {
+            console.log(`%c🗳️ NÍVEL 9 VOTA: ${nivel9.color.toUpperCase()} (confiança: ${(nivel9.confidence * 100).toFixed(0)}%)`, `color: ${nivel9.color === 'red' ? '#FF0000' : '#FFFFFF'}; font-weight: bold; font-size: 14px;`);
+        } else {
+            console.log(`%c⚠️ NÍVEL 9 VOTA: NULO (dados insuficientes)`, 'color: #888; font-weight: bold; font-size: 14px;');
+        }
+        console.log('');
         
         // ═══════════════════════════════════════════════════════════════
         // 🗳️ SISTEMA DE VOTAÇÃO
         // ═══════════════════════════════════════════════════════════════
         console.log('%c═══════════════════════════════════════════════════════════════════', 'color: #FFD700; font-weight: bold; font-size: 18px;');
-        console.log('%c🗳️ SISTEMA DE VOTAÇÃO - CONTAGEM DOS 5 NÍVEIS', 'color: #FFD700; font-weight: bold; font-size: 16px;');
+        console.log('%c🗳️ SISTEMA DE VOTAÇÃO - CONTAGEM DOS 8 NÍVEIS', 'color: #FFD700; font-weight: bold; font-size: 16px;');
         console.log('%c═══════════════════════════════════════════════════════════════════', 'color: #FFD700; font-weight: bold; font-size: 18px;');
         console.log('');
         
         let votes = { red: 0, black: 0, null: 0 };
         let voteDetails = [];
         
-        // Contar votos
+        // Contar votos dos 8 níveis (5 originais + 3 novos)
         if (nivel1.color === 'red') votes.red++; else votes.black++;
         voteDetails.push(`Nível 1: ${nivel1.color.toUpperCase()}`);
         
@@ -8320,6 +8952,31 @@ async function analyzeWithPatternSystem(history) {
         
         if (nivel5.color === 'red') votes.red++; else votes.black++;
         voteDetails.push(`Nível 5: ${nivel5.color.toUpperCase()}`);
+        
+        // ✅ NOVOS NÍVEIS 7, 8, 9
+        if (nivel7 && nivel7.color) {
+            if (nivel7.color === 'red') votes.red++; else votes.black++;
+            voteDetails.push(`Nível 7: ${nivel7.color.toUpperCase()}`);
+        } else {
+            votes.null++;
+            voteDetails.push(`Nível 7: NULO`);
+        }
+        
+        if (nivel8 && nivel8.color) {
+            if (nivel8.color === 'red') votes.red++; else votes.black++;
+            voteDetails.push(`Nível 8: ${nivel8.color.toUpperCase()}`);
+        } else {
+            votes.null++;
+            voteDetails.push(`Nível 8: NULO`);
+        }
+        
+        if (nivel9 && nivel9.color) {
+            if (nivel9.color === 'red') votes.red++; else votes.black++;
+            voteDetails.push(`Nível 9: ${nivel9.color.toUpperCase()}`);
+        } else {
+            votes.null++;
+            voteDetails.push(`Nível 9: NULO`);
+        }
         
         console.log('%c📊 DETALHAMENTO DOS VOTOS:', 'color: #FFD700; font-weight: bold;');
         voteDetails.forEach((detail, idx) => {
@@ -8375,28 +9032,73 @@ async function analyzeWithPatternSystem(history) {
         console.log(`%c${barrierResult.reason}`, barrierResult.allowed ? 'color: #00FF88; font-weight: bold;' : 'color: #FF6666; font-weight: bold;');
         console.log('');
         
-        // ✅ Exibir Nível 6 na UI
-        if (!barrierResult.allowed) {
-            sendAnalysisStatus(`🛑 Nível 6: Barreira → ❌ BLOQUEADO`);
-            await sleep(1500);
-            
-            // ✅ Mostrar motivo do bloqueio
-            sendAnalysisStatus(`❌ Sinal rejeitado: Sem precedente histórico`);
-            await sleep(2000);
-            
-            // ✅ Restaurar status "IA ativada"
-            await restoreIAStatus();
-            
-            console.log('%c🚫🚫🚫 SINAL BLOQUEADO PELA BARREIRA! 🚫🚫🚫', 'color: #FFFFFF; font-weight: bold; font-size: 16px; background: #FF0000;');
-            console.log('%c   Sequência sem precedente histórico!', 'color: #FF6666; font-weight: bold;');
-            console.log('%c   ❌ SINAL CANCELADO!', 'color: #FF0000; font-weight: bold; font-size: 14px;');
-            console.log('');
-            return null;
-        }
+    // ⚡ VERIFICAÇÃO: Se Nível 6 bloqueou, MOSTRAR FASES COM DELAY antes de rejeitar
+    if (!barrierResult.allowed) {
+        console.log('%c🚫🚫🚫 SINAL BLOQUEADO PELA BARREIRA! 🚫🚫🚫', 'color: #FFFFFF; font-weight: bold; font-size: 16px; background: #FF0000;');
+        console.log('%c   Sequência sem precedente histórico!', 'color: #FF6666; font-weight: bold;');
+        console.log('%c   ❌ SINAL SERÁ REJEITADO - Mostrando análise ao usuário...', 'color: #FF0000; font-weight: bold; font-size: 14px;');
+        console.log('');
         
-        // ✅ Barreira aprovada
-        sendAnalysisStatus(`🛑 Nível 6: Barreira → ✅ APROVADO`);
+        // ✅ MOSTRAR AS 9 FASES COM DELAY (para o usuário ver o processo)
+        sendAnalysisStatus(`🎨 Nível 1: ${nivel1.color.toUpperCase()} (${nivel1.percentage[nivel1.color]}%)`);
         await sleep(1500);
+        
+        sendAnalysisStatus(`🕐 Nível 2: Giro ${nextSpinPosition} → ${nivel2.color.toUpperCase()} (${nivel2.percentage[nivel2.color]}%)`);
+        await sleep(1500);
+        
+        sendAnalysisStatus(`🕐 Nível 3: Minuto :X${currentMinute % 10} → ${nivel3.color.toUpperCase()}`);
+        await sleep(1500);
+        
+        if (!nivel4) {
+            sendAnalysisStatus(`🎯 Nível 4: Padrões → NULO`);
+        } else {
+            const sourceLabel = nivel4.source === 'custom' ? 'Custom' : 'Quente';
+            sendAnalysisStatus(`🎯 Nível 4: ${sourceLabel} → ${nivel4.color.toUpperCase()}`);
+        }
+        await sleep(1500);
+        
+        const trendLabel = nivel5.trending === 'accelerating_red' ? 'Acelerando' : nivel5.trending === 'accelerating_black' ? 'Acelerando' : 'Estável';
+        sendAnalysisStatus(`⚡ Nível 5: Momentum → ${nivel5.color.toUpperCase()} (${trendLabel})`);
+        await sleep(1500);
+        
+        sendAnalysisStatus(`🛑 Nível 6: Barreira → ❌ BLOQUEADO`);
+        await sleep(1500);
+        
+        // ✅ NOVOS NÍVEIS 7, 8, 9 (mesmo bloqueado, mostrar para o usuário)
+        if (nivel7 && nivel7.color) {
+            sendAnalysisStatus(`🔷 Nível 7: Alternância → ${nivel7.color.toUpperCase()}`);
+        } else {
+            sendAnalysisStatus(`🔷 Nível 7: Alternância → NULO`);
+        }
+        await sleep(1500);
+        
+        if (nivel8 && nivel8.color) {
+            sendAnalysisStatus(`🔷 Nível 8: Zeros → ${nivel8.color.toUpperCase()}`);
+        } else {
+            sendAnalysisStatus(`🔷 Nível 8: Zeros → NULO`);
+        }
+        await sleep(1500);
+        
+        if (nivel9 && nivel9.color) {
+            sendAnalysisStatus(`🔷 Nível 9: Persistência → ${nivel9.color.toUpperCase()}`);
+        } else {
+            sendAnalysisStatus(`🔷 Nível 9: Persistência → NULO`);
+        }
+        await sleep(1500);
+        
+        // ✅ Mostrar motivo do bloqueio
+        sendAnalysisStatus(`❌ Sinal rejeitado: Sem precedente histórico`);
+        await sleep(2000);
+        
+        // ✅ Restaurar status "IA ativada"
+        await restoreIAStatus();
+        
+        console.log('%c   ❌ SINAL CANCELADO!', 'color: #FF0000; font-weight: bold; font-size: 14px;');
+        console.log('');
+        return null;
+    }
+    
+    // ⚡ Barreira aprovada - NÃO EXIBIR ainda (análise rápida, mostraremos depois se for rejeitado depois)
         
         console.log('%c✅ BARREIRA LIBERADA! Sequência é viável.', 'color: #00FF88; font-weight: bold; font-size: 14px;');
         console.log('');
@@ -8420,10 +9122,10 @@ async function analyzeWithPatternSystem(history) {
         console.log('');
         
         const intensityConfig = {
-            'aggressive': { min: 3, name: '🔥 AGRESSIVO', emoji: '🔥' },
-            'moderate': { min: 4, name: '⚖️ MODERADO', emoji: '⚖️' },
-            'conservative': { min: 5, name: '🛡️ CONSERVADOR', emoji: '🛡️' },
-            'ultraconservative': { min: 5, name: '💎 ULTRACONSERVADOR', emoji: '💎' }
+            'aggressive': { min: 5, name: '🔥 AGRESSIVO', emoji: '🔥' },        // 5 de 8 (62.5%) - perde até 3 votos
+            'moderate': { min: 6, name: '⚖️ MODERADO', emoji: '⚖️' },          // 6 de 8 (75%) - perde até 2 votos
+            'conservative': { min: 7, name: '🛡️ CONSERVADOR', emoji: '🛡️' },  // 7 de 8 (87.5%) - perde até 1 voto
+            'ultraconservative': { min: 8, name: '💎 ULTRACONSERVADOR', emoji: '💎' }  // 8 de 8 (100%) - todos devem concordar
         };
         
         const currentIntensity = intensityConfig[signalIntensity];
@@ -8439,7 +9141,7 @@ async function analyzeWithPatternSystem(history) {
         console.log('');
         
         console.log(`%c${currentIntensity.emoji} Modo ativo: ${currentIntensity.name}`, 'color: #9C27B0; font-weight: bold; font-size: 14px;');
-        console.log(`%c   Votos mínimos necessários: ${currentIntensity.min} de 6 níveis`, 'color: #9C27B0;');
+        console.log(`%c   Votos mínimos necessários: ${currentIntensity.min} de 9 níveis (8 votam)`, 'color: #9C27B0;');
         console.log(`%c   Votos obtidos para ${finalColor.toUpperCase()}: ${winningVotes}`, `color: ${finalColor === 'red' ? '#FF0000' : '#FFFFFF'}; font-weight: bold;`);
         console.log('');
         
@@ -8454,20 +9156,21 @@ async function analyzeWithPatternSystem(history) {
         console.log('');
         
         if (signalIntensity === 'ultraconservative') {
-            // ULTRACONSERVADOR: Todos devem concordar, mas Nível 4 pode ser NULO
-            if (!nivel4) {
-                // Nível 4 é NULO - aceitar como exceção
-                consensusValid = (winningVotes === 4);
-                console.log(`%c   💎 Modo Ultraconservador: Nível 4 é NULO (aceito como exceção)`, 'color: #FFD700; font-weight: bold;');
-                console.log(`%c   ➤ Necessário: 4 votos (todos exceto Nível 4)`, 'color: #9C27B0;');
-                console.log(`%c   ➤ Obtido: ${winningVotes} votos`, 'color: #9C27B0;');
-            } else {
-                // Todos os 5 níveis devem concordar
-                consensusValid = (winningVotes === 5);
-                console.log(`%c   💎 Modo Ultraconservador: Todos os níveis devem concordar`, 'color: #FFD700; font-weight: bold;');
-                console.log(`%c   ➤ Necessário: 5 votos (todos os níveis que votam)`, 'color: #9C27B0;');
-                console.log(`%c   ➤ Obtido: ${winningVotes} votos`, 'color: #9C27B0;');
-            }
+            // ULTRACONSERVADOR: Todos devem concordar
+            // Níveis que PODEM ser NULO: 4, 7, 8, 9
+            // Níveis OBRIGATÓRIOS: 1, 2, 3, 5
+            
+            // Contar quantos níveis votaram (não são nulos)
+            const totalVotantes = 8 - votes.null;
+            
+            // Todos os níveis que votaram devem concordar (100%)
+            consensusValid = (winningVotes === totalVotantes);
+            
+            console.log(`%c   💎 Modo Ultraconservador: Todos os níveis que votam devem concordar`, 'color: #FFD700; font-weight: bold;');
+            console.log(`%c   ➤ Níveis que votaram: ${totalVotantes}`, 'color: #9C27B0;');
+            console.log(`%c   ➤ Níveis NULOS: ${votes.null}`, 'color: #888;');
+            console.log(`%c   ➤ Necessário: ${totalVotantes} votos (100% dos que votaram)`, 'color: #9C27B0;');
+            console.log(`%c   ➤ Obtido: ${winningVotes} votos`, 'color: #9C27B0;');
         } else {
             // Outros modos: basta atingir o mínimo
             consensusValid = (winningVotes >= currentIntensity.min);
@@ -8477,26 +9180,74 @@ async function analyzeWithPatternSystem(history) {
         
         console.log('');
         
-        if (!consensusValid) {
-            // ✅ Mostrar motivo da rejeição
-            sendAnalysisStatus(`❌ Rejeitado: Consenso ${winningVotes}/${currentIntensity.min} insuficiente`);
-            await sleep(2000);
-            
-            // ✅ Restaurar status "IA ativada"
-            await restoreIAStatus();
-            
-            console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #FF6666; font-weight: bold;');
-            console.log('%c║  ❌ SINAL REJEITADO - CONSENSO INSUFICIENTE!             ║', 'color: #FF6666; font-weight: bold; font-size: 14px;');
-            console.log('%c╠═══════════════════════════════════════════════════════════╣', 'color: #FF6666; font-weight: bold;');
-            console.log(`%c║  ${currentIntensity.emoji} Modo: ${currentIntensity.name.padEnd(44)} ║`, 'color: #FF6666;');
-            console.log(`%c║  ➤ Votos necessários: ${currentIntensity.min.toString().padEnd(36)} ║`, 'color: #FF6666;');
-            console.log(`%c║  ➤ Votos obtidos: ${winningVotes.toString().padEnd(40)} ║`, 'color: #FF6666;');
-            console.log('%c╠═══════════════════════════════════════════════════════════╣', 'color: #FF6666; font-weight: bold;');
-            console.log('%c║  💡 Aumente o consenso ou mude para modo menos rigoroso  ║', 'color: #FFD700;');
-            console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #FF6666; font-weight: bold;');
-            console.log('');
-            return null;
+    if (!consensusValid) {
+        console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #FF6666; font-weight: bold;');
+        console.log('%c║  ❌ SINAL REJEITADO - CONSENSO INSUFICIENTE!             ║', 'color: #FF6666; font-weight: bold; font-size: 14px;');
+        console.log('%c╠═══════════════════════════════════════════════════════════╣', 'color: #FF6666; font-weight: bold;');
+        console.log(`%c║  ${currentIntensity.emoji} Modo: ${currentIntensity.name.padEnd(44)} ║`, 'color: #FF6666;');
+        console.log(`%c║  ➤ Votos necessários: ${currentIntensity.min.toString().padEnd(36)} ║`, 'color: #FF6666;');
+        console.log(`%c║  ➤ Votos obtidos: ${winningVotes.toString().padEnd(40)} ║`, 'color: #FF6666;');
+        console.log('%c╠═══════════════════════════════════════════════════════════╣', 'color: #FF6666; font-weight: bold;');
+        console.log('%c║  💡 Aumente o consenso ou mude para modo menos rigoroso  ║', 'color: #FFD700;');
+        console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #FF6666; font-weight: bold;');
+        console.log('');
+        
+        // ✅ MOSTRAR AS 9 FASES COM DELAY (para o usuário ver o processo)
+        sendAnalysisStatus(`🎨 Nível 1: ${nivel1.color.toUpperCase()} (${nivel1.percentage[nivel1.color]}%)`);
+        await sleep(1500);
+        
+        sendAnalysisStatus(`🕐 Nível 2: Giro ${nextSpinPosition} → ${nivel2.color.toUpperCase()} (${nivel2.percentage[nivel2.color]}%)`);
+        await sleep(1500);
+        
+        sendAnalysisStatus(`🕐 Nível 3: Minuto :X${currentMinute % 10} → ${nivel3.color.toUpperCase()}`);
+        await sleep(1500);
+        
+        if (!nivel4) {
+            sendAnalysisStatus(`🎯 Nível 4: Padrões → NULO`);
+        } else {
+            const sourceLabel = nivel4.source === 'custom' ? 'Custom' : 'Quente';
+            sendAnalysisStatus(`🎯 Nível 4: ${sourceLabel} → ${nivel4.color.toUpperCase()}`);
         }
+        await sleep(1500);
+        
+        const trendLabel = nivel5.trending === 'accelerating_red' ? 'Acelerando' : nivel5.trending === 'accelerating_black' ? 'Acelerando' : 'Estável';
+        sendAnalysisStatus(`⚡ Nível 5: Momentum → ${nivel5.color.toUpperCase()} (${trendLabel})`);
+        await sleep(1500);
+        
+        sendAnalysisStatus(`🛑 Nível 6: Barreira → ✅ APROVADO`);
+        await sleep(1500);
+        
+        // ✅ NOVOS NÍVEIS 7, 8, 9
+        if (nivel7 && nivel7.color) {
+            sendAnalysisStatus(`🔷 Nível 7: Alternância → ${nivel7.color.toUpperCase()}`);
+        } else {
+            sendAnalysisStatus(`🔷 Nível 7: Alternância → NULO`);
+        }
+        await sleep(1500);
+        
+        if (nivel8 && nivel8.color) {
+            sendAnalysisStatus(`🔷 Nível 8: Zeros → ${nivel8.color.toUpperCase()}`);
+        } else {
+            sendAnalysisStatus(`🔷 Nível 8: Zeros → NULO`);
+        }
+        await sleep(1500);
+        
+        if (nivel9 && nivel9.color) {
+            sendAnalysisStatus(`🔷 Nível 9: Persistência → ${nivel9.color.toUpperCase()}`);
+        } else {
+            sendAnalysisStatus(`🔷 Nível 9: Persistência → NULO`);
+        }
+        await sleep(1500);
+        
+        // ✅ Mostrar motivo da rejeição
+        sendAnalysisStatus(`❌ Rejeitado: Consenso ${winningVotes}/${currentIntensity.min} insuficiente`);
+        await sleep(2000);
+        
+        // ✅ Restaurar status "IA ativada"
+        await restoreIAStatus();
+        
+        return null;
+    }
         
         console.log('%c✅ CONSENSO ATINGIDO! Intensidade aprovada.', 'color: #00FF88; font-weight: bold; font-size: 14px;');
         console.log('');
@@ -8504,55 +9255,96 @@ async function analyzeWithPatternSystem(history) {
         // ═══════════════════════════════════════════════════════════════
         // ⏱️ VERIFICAÇÃO FINAL: INTERVALO BLOQUEADO?
         // ═══════════════════════════════════════════════════════════════
-        if (intervalBlocked) {
-            console.log('');
-            console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #FFAA00; font-weight: bold;');
-            console.log('%c║  🚫 SINAL BLOQUEADO - INTERVALO INSUFICIENTE!            ║', 'color: #FFAA00; font-weight: bold; font-size: 14px;');
-            console.log('%c╠═══════════════════════════════════════════════════════════╣', 'color: #FFAA00; font-weight: bold;');
-            console.log('%c║  ✅ Análise dos 6 níveis foi executada com sucesso       ║', 'color: #00FF88;');
-            console.log('%c║  ✅ Sistema recomendaria: ' + finalColor.toUpperCase().padEnd(34) + '║', 'color: #FFD700;');
-            console.log('%c║  🚫 MAS sinal não será enviado (aguarde intervalo)       ║', 'color: #FFAA00;');
-            console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #FFAA00; font-weight: bold;');
-            console.log('');
-            
-            // ✅ Mostrar resultado da análise e depois o motivo do bloqueio
-            sendAnalysisStatus(`✅ Análise: ${finalColor.toUpperCase()} (${winningVotes} votos)`);
-            await sleep(2000);
-            
-            sendAnalysisStatus(intervalMessage);
-            await sleep(2000);
-            
-            // ✅ Restaurar status "IA ativada"
-            await restoreIAStatus();
-            
-            return null;
+    if (intervalBlocked) {
+        console.log('');
+        console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #FFAA00; font-weight: bold;');
+        console.log('%c║  🚫 SINAL BLOQUEADO - INTERVALO INSUFICIENTE!            ║', 'color: #FFAA00; font-weight: bold; font-size: 14px;');
+        console.log('%c╠═══════════════════════════════════════════════════════════╣', 'color: #FFAA00; font-weight: bold;');
+        console.log('%c║  ✅ Análise dos 9 níveis foi executada com sucesso       ║', 'color: #00FF88;');
+        console.log('%c║  ✅ Sistema recomendaria: ' + finalColor.toUpperCase().padEnd(34) + '║', 'color: #FFD700;');
+        console.log('%c║  🚫 MAS sinal não será enviado (aguarde intervalo)       ║', 'color: #FFAA00;');
+        console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #FFAA00; font-weight: bold;');
+        console.log('');
+        
+        // ✅ MOSTRAR AS 6 FASES COM DELAY (para o usuário ver o processo)
+        sendAnalysisStatus(`🎨 Nível 1: ${nivel1.color.toUpperCase()} (${nivel1.percentage[nivel1.color]}%)`);
+        await sleep(1500);
+        
+        sendAnalysisStatus(`🕐 Nível 2: Giro ${nextSpinPosition} → ${nivel2.color.toUpperCase()} (${nivel2.percentage[nivel2.color]}%)`);
+        await sleep(1500);
+        
+        sendAnalysisStatus(`🕐 Nível 3: Minuto :X${currentMinute % 10} → ${nivel3.color.toUpperCase()}`);
+        await sleep(1500);
+        
+        if (!nivel4) {
+            sendAnalysisStatus(`🎯 Nível 4: Padrões → NULO`);
+        } else {
+            const sourceLabel = nivel4.source === 'custom' ? 'Custom' : 'Quente';
+            sendAnalysisStatus(`🎯 Nível 4: ${sourceLabel} → ${nivel4.color.toUpperCase()}`);
         }
+        await sleep(1500);
+        
+        const trendLabel = nivel5.trending === 'accelerating_red' ? 'Acelerando' : nivel5.trending === 'accelerating_black' ? 'Acelerando' : 'Estável';
+        sendAnalysisStatus(`⚡ Nível 5: Momentum → ${nivel5.color.toUpperCase()} (${trendLabel})`);
+        await sleep(1500);
+        
+        sendAnalysisStatus(`🛑 Nível 6: Barreira → ✅ APROVADO`);
+        await sleep(1500);
+        
+        // ✅ Mostrar resultado da análise (MODO DIAMANTE: mensagem fixa) e depois o motivo do bloqueio
+        if (analyzerConfig.aiMode) {
+            sendAnalysisStatus(`Sinal de entrada`);
+        } else {
+            sendAnalysisStatus(`✅ Análise: ${finalColor.toUpperCase()} (${winningVotes} votos)`);
+        }
+        await sleep(2000);
+        
+        sendAnalysisStatus(intervalMessage);
+        await sleep(2000);
+        
+        // ✅ Restaurar status "IA ativada"
+        await restoreIAStatus();
+        
+        return null;
+    }
         
         // ═══════════════════════════════════════════════════════════════
         // 📊 CÁLCULO DE CONFIANÇA (BASEADO NA VOTAÇÃO)
         // ═══════════════════════════════════════════════════════════════
         
-        // Calcular confiança baseado no consenso dos níveis
-        const totalVotes = votes.red + votes.black;
-        const consensusPercent = totalVotes > 0 ? (winningVotes / totalVotes) * 100 : 50;
-        
-        // Confiança base: 40-80% dependendo do consenso
-        // 3 votos de 5 (60%) = 50% confiança
-        // 4 votos de 5 (80%) = 65% confiança  
-        // 5 votos de 5 (100%) = 80% confiança
-        let rawConfidence = Math.round(40 + (consensusPercent - 50) * 0.8);
-        rawConfidence = Math.max(40, Math.min(80, rawConfidence));
+    // Calcular confiança baseado no consenso dos níveis
+    const totalVotes = votes.red + votes.black;
+    const consensusPercent = totalVotes > 0 ? (winningVotes / totalVotes) * 100 : 50;
+    
+    // ✅ CONFIANÇA BASE = CONSENSO PURO (sem transformações artificiais)
+    // O calibrador automático vai ajustar isso baseado no histórico REAL de acertos/erros
+    // 
+    // Exemplos:
+    // - 5 votos de 5 (100% consenso) → 100% confiança base → Calibrador ajusta para realidade
+    // - 4 votos de 5 (80% consenso) → 80% confiança base → Calibrador ajusta para realidade
+    // - 3 votos de 5 (60% consenso) → 60% confiança base → Calibrador ajusta para realidade
+    //
+    // Se o sistema indicou 100% mas acertou só 70% (baseado em 10+ entradas):
+    //   calibrationFactor = 0.70 / 1.00 = 0.70
+    //   finalConfidence = 100% × 0.70 = 70% ✅ (REALIDADE!)
+    let rawConfidence = Math.round(consensusPercent);
+    
+    // Garantir mínimo de 50% (se tiver pelo menos 3 votos) e máximo de 100%
+    rawConfidence = Math.max(50, Math.min(100, rawConfidence));
         
         console.log('%c═══════════════════════════════════════════════════════════════════', 'color: #FFD700; font-weight: bold; font-size: 18px;');
-        console.log('%c📊 RESUMO COMPLETO DOS 6 NÍVEIS:', 'color: #FFD700; font-weight: bold; font-size: 16px;');
-        console.log('%c═══════════════════════════════════════════════════════════════════', 'color: #FFD700; font-weight: bold; font-size: 18px;');
-        console.log('');
-        console.log(`%c🎨 NÍVEL 1: Cor Dominante (30 giros) → ${nivel1.color.toUpperCase()}`, 'color: #9C27B0; font-weight: bold;');
-        console.log(`%c🕐 NÍVEL 2: Posição Giro ${nextSpinPosition} (60 giros) → ${nivel2.color.toUpperCase()}`, 'color: #00D4FF; font-weight: bold;');
-        console.log(`%c🕐 NÍVEL 3: Soma Minutos :X${currentMinute % 10} (60 giros) → ${nivel3.color.toUpperCase()}`, 'color: #FF6B35; font-weight: bold;');
+        console.log('%c📊 RESUMO COMPLETO DOS 9 NÍVEIS:', 'color: #FFD700; font-weight: bold; font-size: 16px;');
+    console.log('%c═══════════════════════════════════════════════════════════════════', 'color: #FFD700; font-weight: bold; font-size: 18px;');
+    console.log('');
+    console.log(`%c🎨 NÍVEL 1: Cor Dominante (15 giros) → ${nivel1.color.toUpperCase()}`, 'color: #9C27B0; font-weight: bold;');
+    console.log(`%c🕐 NÍVEL 2: Posição Giro ${nextSpinPosition} (30 giros) → ${nivel2.color.toUpperCase()}`, 'color: #00D4FF; font-weight: bold;');
+    console.log(`%c🕐 NÍVEL 3: Soma Minutos :X${currentMinute % 10} (30 giros) → ${nivel3.color.toUpperCase()}`, 'color: #FF6B35; font-weight: bold;');
         console.log(`%c🎯 NÍVEL 4: Padrões → ${nivel4 ? nivel4.color.toUpperCase() + ' (' + (nivel4.source === 'custom' ? 'Customizado' : 'Quente') + ')' : 'NULO'}`, nivel4 ? 'color: #FF00FF; font-weight: bold;' : 'color: #888;');
         console.log(`%c⚡ NÍVEL 5: Momentum (10 vs 20) → ${nivel5.color.toUpperCase()}`, 'color: #00AAFF; font-weight: bold;');
         console.log(`%c🛑 NÍVEL 6: Barreira → ${barrierResult.allowed ? '✅ LIBERADO' : '🚫 BLOQUEADO'}`, barrierResult.allowed ? 'color: #00FF88; font-weight: bold;' : 'color: #FF6666; font-weight: bold;');
+        console.log(`%c🔷 NÍVEL 7: Alternância (12 giros) → ${nivel7 && nivel7.color ? nivel7.color.toUpperCase() : 'NULO'}`, nivel7 && nivel7.color ? 'color: #8E44AD; font-weight: bold;' : 'color: #888;');
+        console.log(`%c🔷 NÍVEL 8: Zeros (15 giros) → ${nivel8 && nivel8.color ? nivel8.color.toUpperCase() : 'NULO'}`, nivel8 && nivel8.color ? 'color: #16A085; font-weight: bold;' : 'color: #888;');
+        console.log(`%c🔷 NÍVEL 9: Persistência (20 giros) → ${nivel9 && nivel9.color ? nivel9.color.toUpperCase() : 'NULO'}`, nivel9 && nivel9.color ? 'color: #D35400; font-weight: bold;' : 'color: #888;');
         console.log('');
         console.log('%c═══════════════════════════════════════════════════════════════════', 'color: #FFD700; font-weight: bold;');
         console.log('');
@@ -8586,32 +9378,45 @@ async function analyzeWithPatternSystem(history) {
         console.log('');
         
         // ═══════════════════════════════════════════════════════════════
-        // 📝 MONTAR RACIOCÍNIO DETALHADO (6 NÍVEIS + VOTAÇÃO)
+        // 📝 MONTAR RACIOCÍNIO DETALHADO (9 NÍVEIS + VOTAÇÃO)
         // ═══════════════════════════════════════════════════════════════
         
-        // Montar raciocínio completo dos 6 níveis
-        const nivel1Description = `NÍVEL 1 (Cor Dominante): ${nivel1.color.toUpperCase()} dominante nos últimos 30 giros (🔴 ${nivel1.counts.red} vs ⚫ ${nivel1.counts.black})`;
-        const nivel2Description = `NÍVEL 2 (Posição Giro ${nextSpinPosition}): ${nivel2.color.toUpperCase()} mais frequente no Giro ${nextSpinPosition} (🔴 ${nivel2.counts.red} vs ⚫ ${nivel2.counts.black})`;
-        const nivel3Description = `NÍVEL 3 (Minuto :X${currentMinute % 10}): ${nivel3.color.toUpperCase()} ${nivel3.consensus ? '(consenso 2 contas)' : '(desempate 1ª conta)'}`;
+    // Montar raciocínio completo dos 9 níveis (formato compacto)
+    const nivel1Description = `N1 - Cor Dominante: ${nivel1.color.toUpperCase()} (🔴 ${nivel1.counts.red} vs ⚫ ${nivel1.counts.black} em 15 giros)`;
+        const nivel2Description = `N2 - Posição Giro: ${nivel2.color.toUpperCase()} (Giro ${nextSpinPosition}: 🔴 ${nivel2.counts.red} vs ⚫ ${nivel2.counts.black})`;
+        const nivel3Description = `N3 - Minuto X${currentMinute % 10}: ${nivel3.color.toUpperCase()} ${nivel3.consensus ? '(consenso)' : '(desempate)'}`;
         
         let nivel4Description = '';
         if (nivel4 && nivel4.source === 'custom') {
-            nivel4Description = `NÍVEL 4 (Padrões): ${nivel4.color.toUpperCase()} (Padrão Customizado "${patternDescription}")`;
+            nivel4Description = `N4 - Padrões: ${nivel4.color.toUpperCase()} (Custom)`;
         } else if (nivel4 && nivel4.source === 'hot') {
-            nivel4Description = `NÍVEL 4 (Padrões): ${nivel4.color.toUpperCase()} (Padrão Quente detectado)`;
+            nivel4Description = `N4 - Padrões: ${nivel4.color.toUpperCase()} (Quente)`;
         } else {
-            nivel4Description = `NÍVEL 4 (Padrões): NULO (nenhum padrão encontrado)`;
+            nivel4Description = `N4 - Padrões: NULO`;
         }
         
-        const nivel5Description = `NÍVEL 5 (Momentum): ${nivel5.color.toUpperCase()} (${nivel5.trending === 'accelerating_red' ? 'vermelho acelerando' : nivel5.trending === 'accelerating_black' ? 'preto acelerando' : 'tendência estável'})`;
+        const nivel5Description = `N5 - Momentum: ${nivel5.color.toUpperCase()} (${nivel5.trending === 'accelerating_red' ? 'acelerando ↗' : nivel5.trending === 'accelerating_black' ? 'acelerando ↗' : 'estável →'})`;
         
         // Descrição detalhada do Nível 6 (Barreira)
         let nivel6Description = '';
         if (barrierResult.allowed) {
-            nivel6Description = `NÍVEL 6 (Barreira): ✅ APROVADO - Sequência é historicamente viável (${barrierResult.reason})`;
+            nivel6Description = `N6 - Barreira: ✅ APROVADO`;
         } else {
-            nivel6Description = `NÍVEL 6 (Barreira): 🚫 BLOQUEADO - Sequência sem precedente histórico (${barrierResult.reason})`;
+            nivel6Description = `N6 - Barreira: 🚫 BLOQUEADO`;
         }
+        
+        // ✅ NOVOS NÍVEIS 7, 8, 9
+        const nivel7Description = nivel7 && nivel7.color ? 
+            `N7 - Alternância: ${nivel7.color.toUpperCase()} (${nivel7.pattern})` :
+            `N7 - Alternância: NULO`;
+        
+        const nivel8Description = nivel8 && nivel8.color ? 
+            `N8 - Zeros: ${nivel8.color.toUpperCase()} (${nivel8.whiteCount} brancos)` :
+            `N8 - Zeros: NULO`;
+        
+        const nivel9Description = nivel9 && nivel9.color ? 
+            `N9 - Persistência: ${nivel9.color.toUpperCase()} (seq. ${nivel9.currentSequence})` :
+            `N9 - Persistência: NULO`;
         
         // Descrição da intensidade de sinais
         const intensityName = {
@@ -8622,23 +9427,24 @@ async function analyzeWithPatternSystem(history) {
         }[signalIntensity] || '⚖️ MODERADO';
         
         // Montar votação
-        const votingDescription = `🗳️ VOTAÇÃO: 🔴 ${votes.red} VERMELHO | ⚫ ${votes.black} PRETO${votes.null > 0 ? ' | ⚪ ' + votes.null + ' NULO' : ''}`;
+        const votingDescription = `🗳️ ${votes.red} VERMELHO | ${votes.black} PRETO${votes.null > 0 ? ' | ' + votes.null + ' NULO' : ''}`;
         
-        const reasoning = `🔍 ANÁLISE NÍVEL DIAMANTE (6 Níveis + Votação):\n` +
-            `${nivel1Description}\n` +
+        const reasoning = `${nivel1Description}\n` +
             `${nivel2Description}\n` +
             `${nivel3Description}\n` +
             `${nivel4Description}\n` +
             `${nivel5Description}\n` +
             `${nivel6Description}\n` +
-            `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+            `${nivel7Description}\n` +
+            `${nivel8Description}\n` +
+            `${nivel9Description}\n` +
+            `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
             `${votingDescription}\n` +
-            `🏆 VENCEDOR: ${finalColor.toUpperCase()} (${winningVotes} votos, ${consensusPercent.toFixed(1)}% consenso)\n` +
-            `🎚️ INTENSIDADE: ${intensityName} (mín ${currentIntensity.min} de 6 níveis)\n` +
-            `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
-            `🎯 DECISÃO FINAL: ${finalColor.toUpperCase()}\n` +
-            `📊 Confiança: ${finalConfidence}%\n` +
-            `📈 Base: Sistema democrático de votação + validação de barreira`;
+            `🏆 ${finalColor.toUpperCase()} (${winningVotes}/${votes.red + votes.black} votos, ${consensusPercent.toFixed(1)}%)\n` +
+            `🎚️ ${intensityName} (mín ${currentIntensity.min}/9)\n` +
+            `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+            `🎯 DECISÃO: ${finalColor.toUpperCase()}\n` +
+            `📊 Confiança: ${finalConfidence}%`;
         
         // Registrar sinal para verificação futura
         const signal = {
@@ -8678,16 +9484,23 @@ async function analyzeWithPatternSystem(history) {
             memoriaAtiva.ultimaAtualizacao = Date.now();
         }
         
-        console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #00FFFF; font-weight: bold;');
-        console.log('%c🧠 RACIOCÍNIO COMPLETO:', 'color: #00FFFF; font-weight: bold; font-size: 14px;');
-        console.log(`%c${reasoning}`, 'color: #00FFFF;');
-        console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #00FFFF; font-weight: bold;');
-        console.log('');
-        
-        // LOG FINAL: RESUMO GERAL PARA DEBUG
-        // ✅ Mostrar resultado final
+    console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #00FFFF; font-weight: bold;');
+    console.log('%c🧠 RACIOCÍNIO COMPLETO:', 'color: #00FFFF; font-weight: bold; font-size: 14px;');
+    console.log(`%c${reasoning}`, 'color: #00FFFF;');
+    console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #00FFFF; font-weight: bold;');
+    console.log('');
+    
+    // ⚡⚡⚡ SINAL APROVADO! MOSTRAR IMEDIATAMENTE! ⚡⚡⚡
+    console.log('%c⚡⚡⚡ SINAL APROVADO! ENVIANDO IMEDIATAMENTE! ⚡⚡⚡', 'color: #00FF00; font-weight: bold; font-size: 16px;');
+    
+    // ✅ NO MODO DIAMANTE: Mensagem FIXA ("Sinal de entrada")
+    // ✅ OUTROS MODOS: Mensagem com votos (comportamento antigo)
+    if (analyzerConfig.aiMode) {
+        sendAnalysisStatus(`Sinal de entrada`);
+    } else {
         sendAnalysisStatus(`✅ Sinal aprovado: ${finalColor.toUpperCase()} (${winningVotes} votos)`);
-        await sleep(2000);
+    }
+    // ⚡ NÃO AGUARDAR! Usuário vê a cor IMEDIATAMENTE
         
         console.log('%c═══════════════════════════════════════════════════════════════════', 'color: #00FF00; font-weight: bold; font-size: 20px;');
         console.log('%c✅ SINAL APROVADO E PRONTO PARA ENVIO', 'color: #00FF00; font-weight: bold; font-size: 18px;');
@@ -8708,7 +9521,7 @@ async function analyzeWithPatternSystem(history) {
         console.log('%c✅ GARANTIAS:', 'color: #00FF00; font-weight: bold;');
         console.log('%c   ✓ Todos os dados vêm do histórico REAL da Blaze', 'color: #00FF88;');
         console.log('%c   ✓ Nenhum valor foi inventado ou simulado', 'color: #00FF88;');
-        console.log('%c   ✓ Todos os 6 níveis foram executados com rigor', 'color: #00FF88;');
+        console.log('%c   ✓ Todos os 9 níveis foram executados com rigor', 'color: #00FF88;');
         console.log('%c   ✓ Sistema democrático de votação aplicado', 'color: #00FF88;');
         console.log('%c   ✓ Barreira validou viabilidade histórica', 'color: #00FF88;');
         console.log('%c   ✓ Padrões customizados do usuário foram respeitados', 'color: #00FF88;');
@@ -9602,13 +10415,41 @@ async function runAnalysisController(history) {
 			console.log('   ➤ PatternDescription:', verifyResult.patternDescription);
 			console.log('   ➤ Modo:', analyzerConfig.aiMode ? 'NÍVEL DIAMANTE (IA)' : 'ANÁLISE PADRÃO');
 			console.log('');
-			console.log('%c💾 Salvando objeto analysis no storage...', 'color: #00FFFF; font-weight: bold;');
+		console.log('%c💾 Salvando objeto analysis no storage...', 'color: #00FFFF; font-weight: bold;');
+		
+		// ⚡⚡⚡ CRÍTICO: VERIFICAR SE O MODO AINDA É PADRÃO ⚡⚡⚡
+		// O usuário pode ter ativado o modo Diamante durante a análise de padrões salvos
+		const currentConfigPadrao = await chrome.storage.local.get(['analyzerConfig']);
+		if (currentConfigPadrao && currentConfigPadrao.analyzerConfig) {
+			const currentAiModePadrao = currentConfigPadrao.analyzerConfig.aiMode;
 			
-			await chrome.storage.local.set({
-				analysis: verifyResult,
-				pattern: { description: verifyResult.patternDescription, confidence: verifyResult.confidence },
-				lastBet: { status: 'pending', phase: verifyResult.phase || 'G0', createdOnTimestamp: verifyResult.createdOnTimestamp }
-			});
+			if (currentAiModePadrao) {
+				console.log('');
+				console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #FF0000; font-weight: bold;');
+				console.log('%c║  🚫 MODO FOI ALTERADO PARA DIAMANTE DURANTE ANÁLISE!     ║', 'color: #FF0000; font-weight: bold; font-size: 14px;');
+				console.log('%c╠═══════════════════════════════════════════════════════════╣', 'color: #FF0000; font-weight: bold;');
+				console.log('%c║  ⚠️ Análise de padrão salvo foi concluída                ║', 'color: #FFAA00;');
+				console.log('%c║  🚫 MAS modo agora é Diamante                            ║', 'color: #FF0000; font-weight: bold;');
+				console.log('%c║  ❌ CANCELANDO envio de sinal do Modo Padrão             ║', 'color: #FF0000; font-weight: bold;');
+				console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #FF0000; font-weight: bold;');
+				console.log('');
+				console.log('%c❌ SINAL CANCELADO! Usuário ativou Modo Diamante.', 'color: #FF0000; font-weight: bold; font-size: 16px;');
+				console.log('');
+				
+				// ✅ Atualizar config global para refletir mudança
+				analyzerConfig.aiMode = true;
+				
+				return; // ❌ CANCELAR - não enviar sinal de modo diferente
+			}
+			
+			console.log('%c✅ Modo Padrão ainda ativo - continuando com envio do sinal...', 'color: #00FF88; font-weight: bold;');
+		}
+		
+		await chrome.storage.local.set({
+			analysis: verifyResult,
+			pattern: { description: verifyResult.patternDescription, confidence: verifyResult.confidence },
+			lastBet: { status: 'pending', phase: verifyResult.phase || 'G0', createdOnTimestamp: verifyResult.createdOnTimestamp }
+		});
 			
 			console.log('%c✅ SINAL SALVO COM SUCESSO NO STORAGE!', 'color: #00FF00; font-weight: bold; font-size: 14px;');
 			console.log('%c   ➤ Agora aguardando próximo giro para verificar WIN/LOSS...', 'color: #00FF88;');
@@ -9664,11 +10505,39 @@ async function runAnalysisController(history) {
 			console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #00FF00; font-weight: bold;');
 			console.log('');
 			
-			const aiResult = await analyzeWithPatternSystem(history);
+		const aiResult = await analyzeWithPatternSystem(history);
+		
+		if (aiResult) {
+			// ⚡⚡⚡ CRÍTICO: VERIFICAR SE O MODO AINDA ESTÁ ATIVO ⚡⚡⚡
+			// A análise pode ter demorado e o usuário pode ter desativado o modo durante a execução
+			const currentConfig = await chrome.storage.local.get(['analyzerConfig']);
+			if (currentConfig && currentConfig.analyzerConfig) {
+				const currentAiMode = currentConfig.analyzerConfig.aiMode;
+				
+				if (!currentAiMode) {
+					console.log('');
+					console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #FF0000; font-weight: bold;');
+					console.log('%c║  🚫 MODO DIAMANTE FOI DESATIVADO DURANTE A ANÁLISE!      ║', 'color: #FF0000; font-weight: bold; font-size: 14px;');
+					console.log('%c╠═══════════════════════════════════════════════════════════╣', 'color: #FF0000; font-weight: bold;');
+					console.log('%c║  ⚠️ Análise foi concluída mas modo já mudou              ║', 'color: #FFAA00;');
+					console.log('%c║  🚫 CANCELANDO envio de sinal                            ║', 'color: #FF0000; font-weight: bold;');
+					console.log('%c║  ✅ Sistema agora está em Modo Padrão                    ║', 'color: #00FF88;');
+					console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #FF0000; font-weight: bold;');
+					console.log('');
+					console.log('%c❌ SINAL CANCELADO! Modo foi alterado pelo usuário.', 'color: #FF0000; font-weight: bold; font-size: 16px;');
+					console.log('');
+					
+					// ✅ Atualizar config global para refletir mudança
+					analyzerConfig.aiMode = false;
+					
+					return; // ❌ CANCELAR - não enviar sinal de modo diferente
+				}
+				
+				console.log('%c✅ Modo Diamante ainda ativo - continuando com envio do sinal...', 'color: #00FF88; font-weight: bold;');
+			}
 			
-			if (aiResult) {
-				// ⚠️ VERIFICAR SE É A PRIMEIRA ANÁLISE APÓS ATIVAR MODO AVANÇADO
-				if (aiModeJustActivated) {
+			// ⚠️ VERIFICAR SE É A PRIMEIRA ANÁLISE APÓS ATIVAR MODO AVANÇADO
+			if (aiModeJustActivated) {
 					console.log('');
 					console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #FFAA00; font-weight: bold;');
 					console.log('%c║  ⏳ MODO AVANÇADO RECÉM-ATIVADO                           ║', 'color: #FFAA00; font-weight: bold; font-size: 14px;');
@@ -9683,16 +10552,24 @@ async function runAnalysisController(history) {
 					console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #FFAA00; font-weight: bold;');
 					console.log('');
 					
-					// Desabilitar flag para permitir próximo sinal
-					aiModeJustActivated = false;
-					console.log('%c✅ Flag aiModeJustActivated = false (próximos sinais serão enviados)', 'color: #00FF88; font-weight: bold;');
-					console.log('');
-					
-					// Enviar status para UI informando que está aguardando
-					sendAnalysisStatus('⏳ Aguardando próximo giro para enviar sinal...');
-					
-					// RETURN - não enviar sinal
-					return;
+				// Desabilitar flag para permitir próximo sinal
+				aiModeJustActivated = false;
+				console.log('%c✅ Flag aiModeJustActivated = false (próximos sinais serão enviados)', 'color: #00FF88; font-weight: bold;');
+				console.log('');
+				
+				// ✅ SALVAR o giro atual como "último sinal" para respeitar intervalo mínimo configurado
+				await chrome.storage.local.set({
+					lastSignalSpinNumber: history[0]?.number || 0,
+					lastSignalTimestamp: Date.now()
+				});
+				console.log('%c📝 Giro atual salvo como "último sinal" para respeitar intervalo mínimo de ' + analyzerConfig.minIntervalSpins + ' giros', 'color: #FFD700; font-weight: bold;');
+				console.log('');
+				
+				// Enviar status para UI informando que está aguardando
+				sendAnalysisStatus('⏳ Aguardando próximo giro para enviar sinal...');
+				
+				// RETURN - não enviar sinal
+				return;
 				}
 				
 				// ⚠️ VERIFICAR SE HÁ MARTINGALE ATIVO
@@ -14994,6 +15871,34 @@ ${isAIAnalysis ? '🤖 <b>Análise: Inteligência Artificial</b>' : ''}
     }
 }
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// 🆕 FUNÇÃO: Calcular placar filtrado por modo de análise
+// ═══════════════════════════════════════════════════════════════════════════════
+function calculateFilteredScore(entriesHistory, analysisMode) {
+    // Filtrar entradas pelo modo de análise
+    const filteredEntries = entriesHistory.filter(e => {
+        // ✅ Entradas antigas sem analysisMode → tratar como MODO PADRÃO
+        const entryMode = e.analysisMode || 'standard';
+        
+        // Incluir apenas se for do modo especificado
+        return entryMode === analysisMode;
+    });
+    
+    // Filtrar apenas ciclos completos (WIN ou RET)
+    const completeCycles = filteredEntries.filter(e => {
+        if (e.result === 'WIN') return true;
+        if (e.result === 'LOSS' && e.finalResult === 'RET') return true;
+        return false;
+    });
+    
+    const wins = completeCycles.filter(e => e.result === 'WIN').length;
+    const losses = completeCycles.filter(e => e.result === 'LOSS').length;
+    
+    console.log(`📊 Placar filtrado (modo ${analysisMode}):`, { wins, losses, total: wins + losses });
+    
+    return { wins, losses };
+}
+
 // Função para enviar confirmação de WIN ao Telegram
 async function sendTelegramWinConfirmation(wins, losses) {
     console.log('💰 Enviando confirmação de WIN ao Telegram...');
@@ -15149,13 +16054,18 @@ ${colorEmoji} <b>${colorText}</b>
 }
 
 // Enviar sinal de WIN no Martingale
-async function sendTelegramMartingaleWin(stage, resultSpin, wins, losses) {
+async function sendTelegramMartingaleWin(stage, resultSpin, wins, losses, analysisMode = 'standard') {
     console.log(`✅ Enviando confirmação de WIN ${stage} ao Telegram...`);
+    console.log(`   Modo de análise: ${analysisMode}`);
     
     const total = wins + losses;
     const winRate = total > 0 ? ((wins / total) * 100).toFixed(1) : '0.0';
     const spinEmoji = resultSpin.color === 'red' ? '🔴' : resultSpin.color === 'black' ? '⚫' : '⚪';
     const spinColor = resultSpin.color === 'red' ? 'VERMELHO' : resultSpin.color === 'black' ? 'PRETO' : 'BRANCO';
+    
+    // ✅ Identificador do modo
+    const modeIcon = analysisMode === 'diamond' ? '💎' : '⚙️';
+    const modeName = analysisMode === 'diamond' ? 'Modo Diamante' : 'Modo Padrão';
     
     let stageMessage = '';
     if (stage === 'ENTRADA') {
@@ -15164,13 +16074,17 @@ async function sendTelegramMartingaleWin(stage, resultSpin, wins, losses) {
         stageMessage = '💰💰💰💰💰💰💰 <b>WIN G1</b> 💰💰💰💰💰💰💰';
     } else if (stage === 'G2') {
         stageMessage = '💰💰💰💰💰💰💰 <b>WIN G2</b> 💰💰💰💰💰💰💰';
+    } else if (stage.startsWith('G')) {
+        const galeNum = stage.substring(1);
+        stageMessage = `💰💰💰💰💰💰💰 <b>WIN G${galeNum}</b> 💰💰💰💰💰💰💰`;
     }
     
     const message = `
 ${stageMessage}
 ${spinEmoji} <b>${spinColor}</b>
+${modeIcon} <b>${modeName}</b>
 📊 Confiança: 88.5%
-📈 Placar: WIN: ${wins} | LOSS: ${losses}
+📈 Placar (${modeName}): WIN: ${wins} | LOSS: ${losses}
 ⏰ ${new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
     `.trim();
     
@@ -15180,17 +16094,23 @@ ${spinEmoji} <b>${spinColor}</b>
 }
 
 // Enviar sinal de RET (Loss Final)
-async function sendTelegramMartingaleRET(wins, losses) {
+async function sendTelegramMartingaleRET(wins, losses, analysisMode = 'standard') {
     console.log('⛔ Enviando sinal de RET ao Telegram...');
+    console.log(`   Modo de análise: ${analysisMode}`);
     
     const total = wins + losses;
     const winRate = total > 0 ? ((wins / total) * 100).toFixed(1) : '0.0';
     
+    // ✅ Identificador do modo
+    const modeIcon = analysisMode === 'diamond' ? '💎' : '⚙️';
+    const modeName = analysisMode === 'diamond' ? 'Modo Diamante' : 'Modo Padrão';
+    
     const message = `
 ❌❌❌❌❌❌❌ <b>LOSS NÃO PAGOU</b> ❌❌❌❌❌❌❌
 🔴 <b>Vermelho</b>
+${modeIcon} <b>${modeName}</b>
 📊 Confiança: 91.2%
-📈 Placar: WIN: ${wins} | LOSS: ${losses}
+📈 Placar (${modeName}): WIN: ${wins} | LOSS: ${losses}
 ⏰ ${new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
     `.trim();
     
@@ -15360,6 +16280,31 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                     console.log('%c🤖 Modo IA ' + (analyzerConfig.aiMode ? 'ATIVADO' : 'DESATIVADO'), 'color: ' + (analyzerConfig.aiMode ? '#00FF00' : '#FF6666') + '; font-weight: bold; font-size: 16px; background: ' + (analyzerConfig.aiMode ? '#003300' : '#330000') + '; padding: 5px;');
                     console.log('');
                     
+                    // ═══════════════════════════════════════════════════════════════
+                    // ✅ LIMPAR COMPLETAMENTE ANÁLISE ANTERIOR AO TROCAR DE MODO
+                    // ═══════════════════════════════════════════════════════════════
+                    console.log('%c🗑️ LIMPANDO ANÁLISE ANTERIOR DO MODO ANTIGO...', 'color: #FF6666; font-weight: bold;');
+                    
+                    // 1. Limpar análise e padrão do storage
+                    await chrome.storage.local.set({ 
+                        analysis: null, 
+                        pattern: null,
+                        lastBet: null
+                    });
+                    console.log('   ✅ Storage limpo (analysis, pattern, lastBet)');
+                    
+                    // 2. Resetar estado do Martingale se houver
+                    if (martingaleState.active) {
+                        console.log('   ✅ Resetando Martingale ativo');
+                        resetMartingaleState();
+                        await chrome.storage.local.set({ martingaleState });
+                    }
+                    
+                    // 3. Enviar mensagem para limpar UI no content.js
+                    sendMessageToContent('CLEAR_ANALYSIS');
+                    console.log('   ✅ UI limpa (mensagem CLEAR_ANALYSIS enviada)');
+                    console.log('');
+                    
                     // ✅ Se modo IA foi ATIVADO, marcar flag para aguardar 1 giro antes de enviar sinal
                     if (analyzerConfig.aiMode) {
                         aiModeJustActivated = true;
@@ -15368,6 +16313,8 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                     } else {
                         // Se desativou, limpar flag
                         aiModeJustActivated = false;
+                        console.log('%c✅ MODO PADRÃO ATIVADO: Sistema pronto para análise...', 'color: #00FF00; font-weight: bold; font-size: 13px; background: #003300; padding: 5px;');
+                        console.log('');
                     }
                     
                     logActiveConfiguration();

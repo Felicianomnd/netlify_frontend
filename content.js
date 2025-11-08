@@ -2495,10 +2495,10 @@
                                     outline: none;
                                     text-align: center;
                                 ">
-                                    <option value="aggressive" style="background: #1a1a1a; color: #fff;">🔥 AGRESSIVO (3+ votos)</option>
-                                    <option value="moderate" selected style="background: #1a1a1a; color: #fff;">⚖️ MODERADO (4+ votos)</option>
-                                    <option value="conservative" style="background: #1a1a1a; color: #fff;">🛡️ CONSERVADOR (5 votos)</option>
-                                    <option value="ultraconservative" style="background: #1a1a1a; color: #fff;">💎 ULTRACONSERVADOR (todos)</option>
+                                    <option value="aggressive" style="background: #1a1a1a; color: #fff;">🔥 AGRESSIVO (5+ votos)</option>
+                                    <option value="moderate" selected style="background: #1a1a1a; color: #fff;">⚖️ MODERADO (6+ votos)</option>
+                                    <option value="conservative" style="background: #1a1a1a; color: #fff;">🛡️ CONSERVADOR (7 votos)</option>
+                                    <option value="ultraconservative" style="background: #1a1a1a; color: #fff;">💎 ULTRACONSERVADOR (8 votos - todos)</option>
                                 </select>
                                 <div style="font-size: 11px; color: #888; text-align: center; padding: 0 10px;">
                                     Define quantos níveis devem concordar para enviar sinal
@@ -2596,19 +2596,48 @@
                 showCustomConfirm('Limpar histórico de entradas?', clearEntriesBtn).then(confirmed => {
                     if (confirmed) {
                     try {
-                        chrome.storage.local.set({ entriesHistory: [] }, function() {
-                            console.log('Histórico de entradas limpo');
-                            renderEntriesPanel([]);
+                        // ✅ NOVO: Limpar APENAS entradas do modo ativo
+                        chrome.storage.local.get(['entriesHistory'], function(result) {
+                            const allEntries = result.entriesHistory || [];
                             
-                            // ✅ Notificar background.js para limpar o calibrador também
-                            chrome.runtime.sendMessage({ 
-                                action: 'clearEntriesAndObserver' 
-                            }, function(response) {
-                                if (response && response.status === 'success') {
-                                    console.log('✅ Calibrador sincronizado após limpar entradas');
-                                    // Atualizar UI do calibrador
-                                    loadObserverStats();
-                                }
+                            // Detectar qual modo está ativo
+                            const aiModeToggle = document.querySelector('.ai-mode-toggle.active');
+                            const isDiamondMode = !!aiModeToggle;
+                            const currentMode = isDiamondMode ? 'diamond' : 'standard';
+                            
+                            console.log(`🗑️ Limpando entradas do modo: ${currentMode.toUpperCase()}`);
+                            console.log(`   Total de entradas antes: ${allEntries.length}`);
+                            
+                            // ✅ FILTRAR: Remover entradas do modo atual, manter de outros modos
+                            const filteredEntries = allEntries.filter(e => {
+                                // ✅ Entradas antigas sem analysisMode → tratar como MODO PADRÃO
+                                const entryMode = e.analysisMode || 'standard';
+                                
+                                // Manter apenas se for de OUTRO modo
+                                const shouldKeep = entryMode !== currentMode;
+                                
+                                console.log(`      Entrada: ${e.result} ${e.color || ''} | Modo: ${entryMode} | ${shouldKeep ? 'MANTER ✅' : 'REMOVER ❌'}`);
+                                
+                                return shouldKeep;
+                            });
+                            
+                            console.log(`   Total de entradas depois: ${filteredEntries.length}`);
+                            console.log(`   Entradas removidas: ${allEntries.length - filteredEntries.length}`);
+                            
+                            chrome.storage.local.set({ entriesHistory: filteredEntries }, function() {
+                                console.log(`✅ Histórico de entradas do modo ${currentMode} limpo`);
+                                renderEntriesPanel(filteredEntries);
+                                
+                                // ✅ Notificar background.js para limpar o calibrador também
+                                chrome.runtime.sendMessage({ 
+                                    action: 'clearEntriesAndObserver' 
+                                }, function(response) {
+                                    if (response && response.status === 'success') {
+                                        console.log('✅ Calibrador sincronizado após limpar entradas');
+                                        // Atualizar UI do calibrador
+                                        loadObserverStats();
+                                    }
+                                });
                             });
                         });
                     } catch (e) {
@@ -3022,39 +3051,38 @@
         }).join('');
         
         return `<div style="
-            background: linear-gradient(135deg, #1a0f2e 0%, #2a1f3e 100%);
-            border: 2px solid rgba(138, 43, 226, 0.6);
-            border-radius: 12px;
-            padding: 20px;
+            background: rgba(20, 20, 30, 0.95);
+            border: 1px solid rgba(100, 100, 200, 0.3);
+            border-radius: 8px;
+            padding: 15px;
             margin: 10px 0;
-            box-shadow: 0 4px 20px rgba(138, 43, 226, 0.3);
         ">
-            <div style="margin: 15px 0;">
-                <div style="color: #b794f6; font-weight: bold; font-size: 16px; margin-bottom: 10px;">
+            <div style="margin: 12px 0;">
+                <div style="color: #b794f6; font-weight: bold; font-size: 15px; margin-bottom: 8px;">
                     ${aiData.color === 'red' ? '🔴 Entrar na cor VERMELHA' : aiData.color === 'black' ? '⚫ Entrar na cor PRETA' : '⚪ Entrar na cor BRANCA'}
                 </div>
-                <div style="color: #e8e8ff; font-size: 13px; margin-bottom: 5px;">
+                <div style="color: #e8e8ff; font-size: 12px; margin-bottom: 5px;">
                     Confiança: ${aiData.confidence.toFixed(1)}%
                 </div>
             </div>
             
             <div style="
-                border-top: 1px solid rgba(138, 43, 226, 0.3);
-                padding-top: 15px;
-                margin-top: 15px;
+                border-top: 1px solid rgba(100, 100, 200, 0.2);
+                padding-top: 12px;
+                margin-top: 12px;
             ">
                 <div style="
                     color: #b794f6;
                     font-weight: bold;
-                    font-size: 14px;
-                    margin-bottom: 10px;
+                    font-size: 13px;
+                    margin-bottom: 8px;
                 ">💡 ÚLTIMOS 5 GIROS ANALISADOS:</div>
                 
                 <div style="
-                    background: rgba(0, 0, 0, 0.3);
-                    border-radius: 8px;
-                    padding: 15px;
-                    margin: 10px 0;
+                    background: rgba(0, 0, 0, 0.2);
+                    border-radius: 6px;
+                    padding: 12px;
+                    margin: 8px 0;
                     display: flex;
                     align-items: center;
                     justify-content: center;
@@ -3066,51 +3094,81 @@
             </div>
             
             <div style="
-                border-top: 1px solid rgba(138, 43, 226, 0.3);
-                padding-top: 15px;
-                margin-top: 15px;
+                border-top: 1px solid rgba(100, 100, 200, 0.2);
+                padding-top: 12px;
+                margin-top: 12px;
             ">
                 <div style="
                     color: #b794f6;
                     font-weight: bold;
-                    font-size: 14px;
-                    margin-bottom: 10px;
-                ">🧠 RACIOCÍNIO DA IA:</div>
+                    font-size: 13px;
+                    margin-bottom: 8px;
+                ">💎 RACIOCÍNIO:</div>
                 <div style="
                     white-space: pre-wrap;
-                    font-family: 'Segoe UI', 'Roboto', sans-serif;
-                    font-size: 13px;
-                    line-height: 1.6;
-                    color: #e8e8ff;
-                    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
-                ">${aiData.reasoning.replace(/FASE 1:/g, '<span style="color: #00d4ff; font-weight: bold;">FASE 1:</span>')
-                                  .replace(/FASE 2:/g, '<span style="color: #00d4ff; font-weight: bold;">FASE 2:</span>')
-                                  .replace(/FASE 3:/g, '<span style="color: #00d4ff; font-weight: bold;">FASE 3:</span>')
-                                  .replace(/FASE 4:/g, '<span style="color: #00d4ff; font-weight: bold;">FASE 4:</span>')
-                                  .replace(/FASE 5:/g, '<span style="color: #00d4ff; font-weight: bold;">FASE 5:</span>')}</div>
+                    font-family: 'Segoe UI', 'Roboto', monospace;
+                    font-size: 11.5px;
+                    line-height: 1.5;
+                    color: #d0d0e8;
+                ">${aiData.reasoning
+                    .replace(/N1 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N1</span> -')
+                    .replace(/N2 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N2</span> -')
+                    .replace(/N3 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N3</span> -')
+                    .replace(/N4 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N4</span> -')
+                    .replace(/N5 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N5</span> -')
+                    .replace(/N6 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N6</span> -')
+                    .replace(/N7 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N7</span> -')
+                    .replace(/N8 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N8</span> -')
+                    .replace(/N9 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N9</span> -')
+                    .replace(/🗳️/g, '<span style="color: #FFD700; font-weight: bold;">🗳️</span>')
+                    .replace(/🏆/g, '<span style="color: #FFD700; font-weight: bold;">🏆</span>')
+                    .replace(/🎚️/g, '<span style="color: #b794f6; font-weight: bold;">🎚️</span>')
+                    .replace(/🎯/g, '<span style="color: #00FF88; font-weight: bold;">🎯</span>')
+                    .replace(/📊/g, '<span style="color: #00d4ff; font-weight: bold;">📊</span>')
+                }</div>
             </div>
         </div>`;
     }
     
     // Função auxiliar para renderizar análise IA SEM círculos (formato antigo)
     function renderAIAnalysisOldFormat(aiData) {
+        const reasoning = (aiData.reasoning || 'Análise por IA')
+            .replace(/N1 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N1</span> -')
+            .replace(/N2 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N2</span> -')
+            .replace(/N3 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N3</span> -')
+            .replace(/N4 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N4</span> -')
+            .replace(/N5 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N5</span> -')
+            .replace(/N6 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N6</span> -')
+            .replace(/N7 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N7</span> -')
+            .replace(/N8 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N8</span> -')
+            .replace(/N9 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N9</span> -')
+            .replace(/🗳️/g, '<span style="color: #FFD700; font-weight: bold;">🗳️</span>')
+            .replace(/🏆/g, '<span style="color: #FFD700; font-weight: bold;">🏆</span>')
+            .replace(/🎚️/g, '<span style="color: #b794f6; font-weight: bold;">🎚️</span>')
+            .replace(/🎯/g, '<span style="color: #00FF88; font-weight: bold;">🎯</span>')
+            .replace(/📊/g, '<span style="color: #00d4ff; font-weight: bold;">📊</span>');
+        
         return `<div style="
-            background: linear-gradient(135deg, #1a0f2e 0%, #2a1f3e 100%);
-            border: 2px solid rgba(138, 43, 226, 0.6);
-            border-radius: 12px;
-            padding: 20px;
+            background: rgba(20, 20, 30, 0.95);
+            border: 1px solid rgba(100, 100, 200, 0.3);
+            border-radius: 8px;
+            padding: 15px;
             margin: 10px 0;
-            box-shadow: 0 4px 20px rgba(138, 43, 226, 0.3);
         ">
-            <pre style="
-                white-space: pre-wrap;
-                font-family: 'Segoe UI', 'Roboto', sans-serif;
+            <div style="
+                color: #b794f6;
+                font-weight: bold;
                 font-size: 13px;
-                line-height: 1.8;
-                color: #e8e8ff;
+                margin-bottom: 10px;
+            ">💎 RACIOCÍNIO:</div>
+            <div style="
+                white-space: pre-wrap;
+                font-family: 'Segoe UI', 'Roboto', monospace;
+                font-size: 11.5px;
+                line-height: 1.5;
+                color: #d0d0e8;
                 margin: 0;
-                text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
-            ">${aiData.reasoning || 'Análise por IA'}</pre>
+            ">${reasoning}</div>
         </div>`;
     }
     
@@ -3230,39 +3288,38 @@
                     }).join('');
                     
                     return `<div style="
-                        background: linear-gradient(135deg, #1a0f2e 0%, #2a1f3e 100%);
-                        border: 2px solid rgba(138, 43, 226, 0.6);
-                        border-radius: 12px;
-                        padding: 20px;
+                        background: rgba(20, 20, 30, 0.95);
+                        border: 1px solid rgba(100, 100, 200, 0.3);
+                        border-radius: 8px;
+                        padding: 15px;
                         margin: 10px 0;
-                        box-shadow: 0 4px 20px rgba(138, 43, 226, 0.3);
                     ">
-                        <div style="margin: 15px 0;">
-                            <div style="color: #b794f6; font-weight: bold; font-size: 16px; margin-bottom: 10px;">
+                        <div style="margin: 12px 0;">
+                            <div style="color: #b794f6; font-weight: bold; font-size: 15px; margin-bottom: 8px;">
                                 ${aiData.color === 'red' ? '🔴 Entrar na cor VERMELHA' : aiData.color === 'black' ? '⚫ Entrar na cor PRETA' : '⚪ Entrar na cor BRANCA'}
                             </div>
-                            <div style="color: #e8e8ff; font-size: 13px; margin-bottom: 5px;">
+                            <div style="color: #e8e8ff; font-size: 12px; margin-bottom: 5px;">
                                 Confiança: ${aiData.confidence.toFixed(1)}%
                             </div>
                         </div>
                         
                         <div style="
-                            border-top: 1px solid rgba(138, 43, 226, 0.3);
-                            padding-top: 15px;
-                            margin-top: 15px;
+                            border-top: 1px solid rgba(100, 100, 200, 0.2);
+                            padding-top: 12px;
+                            margin-top: 12px;
                         ">
                             <div style="
                                 color: #b794f6;
                                 font-weight: bold;
-                                font-size: 14px;
-                                margin-bottom: 10px;
+                                font-size: 13px;
+                                margin-bottom: 8px;
                             ">💡 ÚLTIMOS 5 GIROS ANALISADOS:</div>
                             
                             <div style="
-                                background: rgba(0, 0, 0, 0.3);
-                                border-radius: 8px;
-                                padding: 15px;
-                                margin: 10px 0;
+                                background: rgba(0, 0, 0, 0.2);
+                                border-radius: 6px;
+                                padding: 12px;
+                                margin: 8px 0;
                                 display: flex;
                                 align-items: center;
                                 justify-content: center;
@@ -3274,28 +3331,38 @@
                         </div>
                         
                         <div style="
-                            border-top: 1px solid rgba(138, 43, 226, 0.3);
-                            padding-top: 15px;
-                            margin-top: 15px;
+                            border-top: 1px solid rgba(100, 100, 200, 0.2);
+                            padding-top: 12px;
+                            margin-top: 12px;
                         ">
                             <div style="
                                 color: #b794f6;
                                 font-weight: bold;
-                                font-size: 14px;
-                                margin-bottom: 10px;
-                            ">🧠 RACIOCÍNIO DA IA:</div>
+                                font-size: 13px;
+                                margin-bottom: 8px;
+                            ">💎 RACIOCÍNIO:</div>
                             <div style="
                                 white-space: pre-wrap;
-                                font-family: 'Segoe UI', 'Roboto', sans-serif;
-                                font-size: 13px;
-                                line-height: 1.6;
-                                color: #e8e8ff;
-                                text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
-                            ">${aiData.reasoning.replace(/FASE 1:/g, '<span style="color: #00d4ff; font-weight: bold;">FASE 1:</span>')
-                                              .replace(/FASE 2:/g, '<span style="color: #00d4ff; font-weight: bold;">FASE 2:</span>')
-                                              .replace(/FASE 3:/g, '<span style="color: #00d4ff; font-weight: bold;">FASE 3:</span>')
-                                              .replace(/FASE 4:/g, '<span style="color: #00d4ff; font-weight: bold;">FASE 4:</span>')
-                                              .replace(/FASE 5:/g, '<span style="color: #00d4ff; font-weight: bold;">FASE 5:</span>')}</div>
+                                font-family: 'Segoe UI', 'Roboto', monospace;
+                                font-size: 11.5px;
+                                line-height: 1.5;
+                                color: #d0d0e8;
+                            ">${aiData.reasoning
+                                .replace(/N1 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N1</span> -')
+                                .replace(/N2 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N2</span> -')
+                                .replace(/N3 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N3</span> -')
+                                .replace(/N4 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N4</span> -')
+                                .replace(/N5 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N5</span> -')
+                                .replace(/N6 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N6</span> -')
+                                .replace(/N7 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N7</span> -')
+                                .replace(/N8 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N8</span> -')
+                                .replace(/N9 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N9</span> -')
+                                .replace(/🗳️/g, '<span style="color: #FFD700; font-weight: bold;">🗳️</span>')
+                                .replace(/🏆/g, '<span style="color: #FFD700; font-weight: bold;">🏆</span>')
+                                .replace(/🎚️/g, '<span style="color: #b794f6; font-weight: bold;">🎚️</span>')
+                                .replace(/🎯/g, '<span style="color: #00FF88; font-weight: bold;">🎯</span>')
+                                .replace(/📊/g, '<span style="color: #00d4ff; font-weight: bold;">📊</span>')
+                            }</div>
                         </div>
                     </div>`;
                 } else {
@@ -3303,23 +3370,44 @@
                     console.log('%c⚠️ CAIU NO ELSE - Formato antigo (sem círculos)', 'color: #FF0000; font-weight: bold;');
                     console.log('%c   ❓ Motivo: last5Spins não encontrado ou vazio', 'color: #FF0000;');
                     console.log('%c   📦 aiData completo:', 'color: #FF0000;', aiData);
+                    
+                    const reasoning = (aiData.text || aiData.reasoning || 'Análise por IA')
+                        .replace(/N1 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N1</span> -')
+                        .replace(/N2 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N2</span> -')
+                        .replace(/N3 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N3</span> -')
+                        .replace(/N4 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N4</span> -')
+                        .replace(/N5 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N5</span> -')
+                        .replace(/N6 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N6</span> -')
+                        .replace(/N7 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N7</span> -')
+                        .replace(/N8 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N8</span> -')
+                        .replace(/N9 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N9</span> -')
+                        .replace(/🗳️/g, '<span style="color: #FFD700; font-weight: bold;">🗳️</span>')
+                        .replace(/🏆/g, '<span style="color: #FFD700; font-weight: bold;">🏆</span>')
+                        .replace(/🎚️/g, '<span style="color: #b794f6; font-weight: bold;">🎚️</span>')
+                        .replace(/🎯/g, '<span style="color: #00FF88; font-weight: bold;">🎯</span>')
+                        .replace(/📊/g, '<span style="color: #00d4ff; font-weight: bold;">📊</span>');
+                    
                     return `<div style="
-                        background: linear-gradient(135deg, #1a0f2e 0%, #2a1f3e 100%);
-                        border: 2px solid rgba(138, 43, 226, 0.6);
-                        border-radius: 12px;
-                        padding: 20px;
+                        background: rgba(20, 20, 30, 0.95);
+                        border: 1px solid rgba(100, 100, 200, 0.3);
+                        border-radius: 8px;
+                        padding: 15px;
                         margin: 10px 0;
-                        box-shadow: 0 4px 20px rgba(138, 43, 226, 0.3);
                     ">
-                        <pre style="
-                            white-space: pre-wrap;
-                            font-family: 'Segoe UI', 'Roboto', sans-serif;
+                        <div style="
+                            color: #b794f6;
+                            font-weight: bold;
                             font-size: 13px;
-                            line-height: 1.8;
-                            color: #e8e8ff;
+                            margin-bottom: 10px;
+                        ">💎 RACIOCÍNIO:</div>
+                        <div style="
+                            white-space: pre-wrap;
+                            font-family: 'Segoe UI', 'Roboto', monospace;
+                            font-size: 11.5px;
+                            line-height: 1.5;
+                            color: #d0d0e8;
                             margin: 0;
-                            text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
-                        ">${aiData.text || aiData.reasoning}</pre>
+                        ">${reasoning}</div>
                     </div>`;
                 }
             }
@@ -3936,7 +4024,9 @@
                     suggestionColor.innerHTML = '<div class="spinner"></div>';
                 }
                 
+                // ✅ LIMPAR INFORMAÇÕES DO PADRÃO (remove dados das 6 fases do Modo Diamante)
                 patternInfo.textContent = 'Nenhum padrão detectado';
+                patternInfo.title = '';
                 const g1Wrap = document.getElementById('g1Status');
                 if (g1Wrap) g1Wrap.style.display = 'none';
                 // status indicator removed; entries panel shows progress
@@ -3997,13 +4087,13 @@
         // ✅ FILTRAR ENTRADAS POR MODO DE ANÁLISE
         // ═══════════════════════════════════════════════════════════════
         // Mostrar apenas entradas do modo ativo
-        // Se uma entrada não tem analysisMode (entradas antigas), mostrar em ambos os modos
+        // ✅ Entradas antigas sem analysisMode → tratar como MODO PADRÃO
         const entriesByMode = entries.filter(e => {
-            // Entradas antigas sem analysisMode → mostrar em ambos os modos
-            if (!e.analysisMode) return true;
+            // ✅ Entradas antigas sem analysisMode → tratar como MODO PADRÃO
+            const entryMode = e.analysisMode || 'standard';
             
-            // Entradas novas com analysisMode → mostrar apenas se for do modo ativo
-            return e.analysisMode === currentMode;
+            // Mostrar apenas se for do modo ativo
+            return entryMode === currentMode;
         });
         
         console.log(`   Total de entradas: ${entries.length}`);
@@ -4200,19 +4290,48 @@
     
     // Clear entries history function
     function clearEntriesHistory() {
-        chrome.storage.local.set({ entriesHistory: [] }, function() {
-            console.log('Histórico de entradas limpo');
-            renderEntriesPanel([]);
+        // ✅ NOVO: Limpar APENAS entradas do modo ativo
+        chrome.storage.local.get(['entriesHistory'], function(result) {
+            const allEntries = result.entriesHistory || [];
             
-            // ✅ Notificar background.js para limpar o calibrador também
-            chrome.runtime.sendMessage({ 
-                action: 'clearEntriesAndObserver' 
-            }, function(response) {
-                if (response && response.status === 'success') {
-                    console.log('✅ Calibrador sincronizado após limpar entradas');
-                    // Atualizar UI do calibrador
-                    loadObserverStats();
-                }
+            // Detectar qual modo está ativo
+            const aiModeToggle = document.querySelector('.ai-mode-toggle.active');
+            const isDiamondMode = !!aiModeToggle;
+            const currentMode = isDiamondMode ? 'diamond' : 'standard';
+            
+            console.log(`🗑️ Limpando entradas do modo: ${currentMode.toUpperCase()}`);
+            console.log(`   Total de entradas antes: ${allEntries.length}`);
+            
+            // ✅ FILTRAR: Remover entradas do modo atual, manter de outros modos
+            const filteredEntries = allEntries.filter(e => {
+                // ✅ Entradas antigas sem analysisMode → tratar como MODO PADRÃO
+                const entryMode = e.analysisMode || 'standard';
+                
+                // Manter apenas se for de OUTRO modo
+                const shouldKeep = entryMode !== currentMode;
+                
+                console.log(`      Entrada: ${e.result} ${e.color || ''} | Modo: ${entryMode} | ${shouldKeep ? 'MANTER ✅' : 'REMOVER ❌'}`);
+                
+                return shouldKeep;
+            });
+            
+            console.log(`   Total de entradas depois: ${filteredEntries.length}`);
+            console.log(`   Entradas removidas: ${allEntries.length - filteredEntries.length}`);
+            
+            chrome.storage.local.set({ entriesHistory: filteredEntries }, function() {
+                console.log(`✅ Histórico de entradas do modo ${currentMode} limpo`);
+                renderEntriesPanel(filteredEntries);
+                
+                // ✅ Notificar background.js para limpar o calibrador também
+                chrome.runtime.sendMessage({ 
+                    action: 'clearEntriesAndObserver' 
+                }, function(response) {
+                    if (response && response.status === 'success') {
+                        console.log('✅ Calibrador sincronizado após limpar entradas');
+                        // Atualizar UI do calibrador
+                        loadObserverStats();
+                    }
+                });
             });
         });
     }
@@ -4534,6 +4653,8 @@
                 console.error('❌ ERRO: Dados do giro inválidos!', request.data);
             }
         } else if (request.type === 'CLEAR_ANALYSIS') {
+            // ✅ LIMPAR STATUS DE ANÁLISE E FORÇAR RESET COMPLETO DA UI
+            currentAnalysisStatus = 'Aguardando análise...';
             updateSidebar({ analysis: null, pattern: null });
         } else if (request.type === 'PATTERN_BANK_UPDATE') {
             // Atualizar banco de padrões quando novos forem descobertos
