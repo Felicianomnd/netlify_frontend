@@ -4156,7 +4156,11 @@ function findCustomPatternInHistory(customPattern, history) {
     
     const colors = history.map(spin => spin.color);
     const patternLength = customPattern.sequence.length;
-    const matches = [];
+    
+    // ═══════════════════════════════════════════════════════════════════════════════
+    // 🔥 NOVA LÓGICA: Agrupar por trigger
+    // ═══════════════════════════════════════════════════════════════════════════════
+    const matchesByTrigger = new Map(); // Chave: trigger normalizada
     
     // Buscar no histórico (pegando mais giros para compensar possíveis whites)
     const extraForWhites = 5;
@@ -4181,15 +4185,12 @@ function findCustomPatternInHistory(customPattern, history) {
             const colorBefore = (i + patternLength < colors.length) ? colors[i + patternLength] : null;
             
             // 🔥 VALIDAÇÃO CRÍTICA: Cor de disparo DEVE ser DIFERENTE da primeira cor do padrão
-            // Se padrão inicia com PRETO, cor de disparo NÃO pode ser PRETO
-            // Se padrão inicia com VERMELHO, cor de disparo NÃO pode ser VERMELHO
             const firstPatternColor = customPattern.sequence[0];
             const colorBeforeNormalized = normalizeColorName(colorBefore);
             const firstPatternColorNormalized = normalizeColorName(firstPatternColor);
             
             if (colorBeforeNormalized && !validateDisparoColor(firstPatternColorNormalized, colorBeforeNormalized).valid) {
-                // ❌ OCORRÊNCIA INVÁLIDA: Cor de disparo igual à primeira cor do padrão
-                // Isso corrompe o padrão! Se padrão é P,P,P e disparo é P, vira P,P,P,P (4 pretos!)
+                // ❌ OCORRÊNCIA INVÁLIDA: trigger inválida
                 continue;
             }
             
@@ -4200,16 +4201,22 @@ function findCustomPatternInHistory(customPattern, history) {
             } else if (customPattern.beforeColor === 'black-white') {
                 isBeforeColorValid = (colorBefore === 'black' || colorBefore === 'white');
             } else {
-                // Retrocompatibilidade com modelos antigos ('any', 'red', 'black', 'white')
+                // Retrocompatibilidade com modelos antigos
                 isBeforeColorValid = (customPattern.beforeColor === 'any' || colorBefore === customPattern.beforeColor);
             }
             
             if (isBeforeColorValid) {
                 // ✅ PADRÃO ENCONTRADO!
-                const whatCameNext = (i > 0) ? colors[i - 1] : null; // Próximo giro (array invertido)
+                const whatCameNext = (i > 0) ? colors[i - 1] : null;
                 
                 if (whatCameNext && whatCameNext !== 'white') {
-                    matches.push({
+                    // ✅ Agrupar por trigger
+                    const triggerKey = colorBeforeNormalized || 'unknown';
+                    if (!matchesByTrigger.has(triggerKey)) {
+                        matchesByTrigger.set(triggerKey, []);
+                    }
+                    
+                    matchesByTrigger.get(triggerKey).push({
                         index: i,
                         colorBefore: colorBefore,
                         whatCameNext: whatCameNext
@@ -4219,9 +4226,31 @@ function findCustomPatternInHistory(customPattern, history) {
         }
     }
     
-    console.log(`   ✅ ${matches.length} ocorrência(s) encontrada(s)`);
+    // ═══════════════════════════════════════════════════════════════════════════════
+    // ✅ SELECIONAR APENAS O GRUPO COM TRIGGER MAIS FREQUENTE
+    // ═══════════════════════════════════════════════════════════════════════════════
     
-    return matches;
+    let bestTrigger = null;
+    let bestMatches = [];
+    
+    for (const [trigger, matches] of matchesByTrigger.entries()) {
+        if (matches.length > bestMatches.length) {
+            bestTrigger = trigger;
+            bestMatches = matches;
+        }
+    }
+    
+    if (matchesByTrigger.size > 1) {
+        console.log(`   ⚠️ Encontradas ocorrências com ${matchesByTrigger.size} triggers diferentes!`);
+        for (const [trigger, matches] of matchesByTrigger.entries()) {
+            console.log(`      - Trigger ${trigger}: ${matches.length} ocorrência(s)`);
+        }
+        console.log(`   ✅ Selecionado trigger mais frequente: ${bestTrigger} (${bestMatches.length} ocorrências)`);
+    }
+    
+    console.log(`   ✅ ${bestMatches.length} ocorrência(s) VÁLIDA(s) com trigger consistente`);
+    
+    return bestMatches;
 }
 
 /**
@@ -12819,72 +12848,90 @@ function discoverColorPatternsFast(colors, size, strideOffset) {
 	const out = [];
 	if (!Array.isArray(colors) || colors.length < size + 1) return out;
 	if (size < 3) return out; // garantir pelo menos 3 giros no padrão
-	const outcomesMap = new Map();
+	
+	// ═══════════════════════════════════════════════════════════════════════════════
+	// 🔥 NOVA LÓGICA: Agrupar por PADRÃO + TRIGGER (não só padrão)
+	// ═══════════════════════════════════════════════════════════════════════════════
+	// Isso garante que TODAS as ocorrências tenham a MESMA cor de disparo!
+	
+	const outcomesMap = new Map(); // Chave: "padrão|trigger"
+	
 	for (let i = size; i < colors.length - 1; i++) {
 		if (((i - size) % 5) !== strideOffset) continue; // espaçar varredura
 		const seq = colors.slice(i, i + size);
 		const nextColor = colors[i - 1];
 		const triggerColor = colors[i + size]; // cor imediatamente antes do padrão
+		
 		if (!triggerColor) continue;
 		if (!isValidTrigger(triggerColor, seq)) continue; // respeitar regra de disparo
-        const key = seq.join('-');
-		let bag = outcomesMap.get(key);
-        if (!bag) { bag = { seq, outcomes: [], triggers: [], triggerCounts: {}, count: 0 }; outcomesMap.set(key, bag); }
-		bag.outcomes.push(nextColor);
-		bag.count++;
+		
 		const normalizedTrigger = normalizeColorName(triggerColor);
 		if (!normalizedTrigger) continue;
-		bag.triggers.push(normalizedTrigger);
-		bag.triggerCounts[normalizedTrigger] = (bag.triggerCounts[normalizedTrigger] || 0) + 1;
+		
+		// ✅ CHAVE ÚNICA: padrão + trigger (ex: "red-black-red|black")
+		// Isso separa ocorrências com triggers diferentes em grupos distintos!
+		const key = `${seq.join('-')}|${normalizedTrigger}`;
+		
+		let bag = outcomesMap.get(key);
+		if (!bag) { 
+			bag = { 
+				seq, 
+				trigger: normalizedTrigger, // ✅ Trigger ÚNICA deste grupo
+				outcomes: [], 
+				count: 0 
+			}; 
+			outcomesMap.set(key, bag); 
+		}
+		
+		bag.outcomes.push(nextColor);
+		bag.count++;
 	}
+	
+	// ═══════════════════════════════════════════════════════════════════════════════
+	// ✅ PROCESSAR CADA GRUPO (padrão + trigger específica)
+	// ═══════════════════════════════════════════════════════════════════════════════
+	
 	for (const bag of outcomesMap.values()) {
-		if (bag.count < 2) continue;
+		if (bag.count < 2) continue; // Mínimo 2 ocorrências com a MESMA trigger
+		
 		const cnt = {};
 		for (const c of bag.outcomes) cnt[c] = (cnt[c] || 0) + 1;
-		// ✅ CORREÇÃO: Usar primeira chave disponível em vez de 'red' como padrão
+		
 		const keys = Object.keys(cnt);
 		if (keys.length === 0) continue;
+		
 		const winner = keys.reduce((a, b) => cnt[a] >= cnt[b] ? a : b);
 		const acc = (cnt[winner] / bag.outcomes.length) * 100;
-        if (acc >= 68) { // um pouco abaixo de 75 para descobrir mais padrões; filtro adicional via significância
+		
+		if (acc >= 68) { // um pouco abaixo de 75 para descobrir mais padrões
 			const signif = cnt[winner] / (bag.outcomes.length / 3);
 			if (signif >= 1.6) {
-				// Trigger mais frequente observado para esta sequência
-                // Mas garantir que a trigger seja diferente da primeira cor do padrão
-                let trigMost = Object.keys(bag.triggerCounts).reduce((a,b) => bag.triggerCounts[a] > bag.triggerCounts[b] ? a : b);
-                
-                // ✅ VALIDAÇÃO CRÍTICA: Normalizar e validar trigger antes de usar
-                const trigMostNormalized = normalizeColorName(trigMost);
-                const firstPatternColorNormalized = normalizeColorName(bag.seq[0]);
-                const triggerValidation = validateDisparoColor(firstPatternColorNormalized, trigMostNormalized);
-                
-                if (!triggerValidation.valid) {
-                    // Tentar outra trigger válida se existir
-                    const candidates = Object.keys(bag.triggerCounts)
-                        .map(t => normalizeColorName(t))
-                        .filter(t => t && validateDisparoColor(firstPatternColorNormalized, t).valid);
-                    
-                    if (candidates.length === 0) {
-                        console.log(`❌ Padrão descoberto rejeitado: nenhuma trigger válida encontrada`, {
-                            pattern: bag.seq.join('-'),
-                            firstColor: firstPatternColorNormalized,
-                            attemptedTriggers: Object.keys(bag.triggerCounts)
-                        });
-                        continue; // ❌ BUG CORRIGIDO: era "return", agora é "continue"
-                    }
-                    
-                    trigMost = candidates.sort((a,b)=> bag.triggerCounts[b]-bag.triggerCounts[a])[0];
-                    console.log(`✅ Trigger inválida substituída por válida:`, {
-                        pattern: bag.seq.join('-'),
-                        invalidTrigger: trigMostNormalized,
-                        validTrigger: trigMost
-                    });
-                }
-				// Calcular assertividade inteligente imediatamente
+				// ✅ VALIDAÇÃO FINAL: Garantir que trigger é válida para o padrão
+				const firstPatternColorNormalized = normalizeColorName(bag.seq[0]);
+				const triggerValidation = validateDisparoColor(firstPatternColorNormalized, bag.trigger);
+				
+				if (!triggerValidation.valid) {
+					console.log(`❌ Padrão REJEITADO: trigger inválida (não deveria acontecer aqui)`, {
+						pattern: bag.seq.join('-'),
+						trigger: bag.trigger,
+						firstColor: firstPatternColorNormalized,
+						reason: triggerValidation.reason
+					});
+					continue;
+				}
+				
+				// ✅ PADRÃO VÁLIDO: Todas as ocorrências têm a MESMA trigger!
+				console.log(`✅ Padrão descoberto com trigger consistente:`, {
+					pattern: bag.seq.join('-'),
+					trigger: bag.trigger,
+					occurrences: bag.count,
+					confidence: acc.toFixed(1) + '%'
+				});
+				
 				out.push({
 					type: 'color-discovery',
 					pattern: bag.seq,
-					triggerColor: trigMost,
+					triggerColor: bag.trigger,
 					expected_next: winner,
 					confidence: acc,
 					occurrences: bag.count
@@ -12892,6 +12939,7 @@ function discoverColorPatternsFast(colors, size, strideOffset) {
 			}
 		}
 	}
+	
 	return out;
 }
 
