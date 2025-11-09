@@ -3782,10 +3782,16 @@ function detectPatternsInHistory(history) {
                 // 🔥 VALIDAR COR DE DISPARO: Cor antes do padrão DEVE ser diferente da primeira cor
                 const colorBefore = simplifiedHistory[i + 7]; // Cor imediatamente antes do padrão
                 const firstPatternColor = seq[0]; // Primeira cor do padrão (R ou B)
+                const triggerColorNormalized = normalizeColorName(colorBefore === 'R' ? 'red' : colorBefore === 'B' ? 'black' : null);
+                const firstColorNormalized = normalizeColorName(firstPatternColor === 'R' ? 'red' : 'black');
                 
-                // Se requireTrigger estiver ativo, validar que cor de disparo ≠ primeira cor do padrão
-                if (analyzerConfig.requireTrigger && colorBefore && colorBefore === firstPatternColor) {
-                    continue; // ❌ Pular: Cor de disparo corrupting o padrão
+                if (analyzerConfig.requireTrigger) {
+                    if (!triggerColorNormalized) {
+                        continue; // Sem trigger válida
+                    }
+                    if (!validateDisparoColor(firstColorNormalized, triggerColorNormalized).valid) {
+                        continue;
+                    }
                 }
                 
                 patterns.alternanciaSimples.count++;
@@ -3806,9 +3812,12 @@ function detectPatternsInHistory(history) {
                 // 🔥 VALIDAR COR DE DISPARO
                 const colorBefore = simplifiedHistory[i + 9];
                 const firstPatternColor = seq[0];
+                const triggerColorNormalized = normalizeColorName(colorBefore === 'R' ? 'red' : colorBefore === 'B' ? 'black' : null);
+                const firstColorNormalized = normalizeColorName(firstPatternColor === 'R' ? 'red' : 'black');
                 
-                if (analyzerConfig.requireTrigger && colorBefore && colorBefore === firstPatternColor) {
-                    continue; // ❌ Pular ocorrência inválida
+                if (analyzerConfig.requireTrigger) {
+                    if (!triggerColorNormalized) continue;
+                    if (!validateDisparoColor(firstColorNormalized, triggerColorNormalized).valid) continue;
                 }
                 
                 patterns.alternanciaDupla.count++;
@@ -3829,9 +3838,12 @@ function detectPatternsInHistory(history) {
                 // 🔥 VALIDAR COR DE DISPARO
                 const colorBefore = simplifiedHistory[i + 10];
                 const firstPatternColor = seq[0];
+                const triggerColorNormalized = normalizeColorName(colorBefore === 'R' ? 'red' : colorBefore === 'B' ? 'black' : null);
+                const firstColorNormalized = normalizeColorName(firstPatternColor === 'R' ? 'red' : 'black');
                 
-                if (analyzerConfig.requireTrigger && colorBefore && colorBefore === firstPatternColor) {
-                    continue; // ❌ Pular ocorrência inválida
+                if (analyzerConfig.requireTrigger) {
+                    if (!triggerColorNormalized) continue;
+                    if (!validateDisparoColor(firstColorNormalized, triggerColorNormalized).valid) continue;
                 }
                 
                 patterns.alternanciaTripla.count++;
@@ -3857,9 +3869,12 @@ function detectPatternsInHistory(history) {
                     colorBefore = simplifiedHistory[colorBeforeIndex];
                 }
                 const firstPatternColor = 'R'; // Sempre vermelho neste padrão
+                const triggerColorNormalized = normalizeColorName(colorBefore === 'R' ? 'red' : colorBefore === 'B' ? 'black' : null);
+                const firstColorNormalized = 'red';
                 
-                if (analyzerConfig.requireTrigger && colorBefore && colorBefore === firstPatternColor) {
-                    continue; // ❌ Pular ocorrência inválida
+                if (analyzerConfig.requireTrigger) {
+                    if (!triggerColorNormalized) continue;
+                    if (!validateDisparoColor(firstColorNormalized, triggerColorNormalized).valid) continue;
                 }
                 
                 patterns.sequenciaVermelho6Plus.count++;
@@ -3885,9 +3900,12 @@ function detectPatternsInHistory(history) {
                     colorBefore = simplifiedHistory[colorBeforeIndex];
                 }
                 const firstPatternColor = 'B'; // Sempre preto neste padrão
+                const triggerColorNormalized = normalizeColorName(colorBefore === 'R' ? 'red' : colorBefore === 'B' ? 'black' : null);
+                const firstColorNormalized = 'black';
                 
-                if (analyzerConfig.requireTrigger && colorBefore && colorBefore === firstPatternColor) {
-                    continue; // ❌ Pular ocorrência inválida
+                if (analyzerConfig.requireTrigger) {
+                    if (!triggerColorNormalized) continue;
+                    if (!validateDisparoColor(firstColorNormalized, triggerColorNormalized).valid) continue;
                 }
                 
                 patterns.sequenciaPreto6Plus.count++;
@@ -3913,9 +3931,12 @@ function detectPatternsInHistory(history) {
                     colorBefore = simplifiedHistory[colorBeforeIndex];
                 }
                 const firstPatternColor = seq[0]; // R ou B (primeira cor do padrão)
+                const triggerColorNormalized = normalizeColorName(colorBefore === 'R' ? 'red' : colorBefore === 'B' ? 'black' : null);
+                const firstColorNormalized = normalizeColorName(firstPatternColor === 'R' ? 'red' : 'black');
                 
-                if (analyzerConfig.requireTrigger && colorBefore && colorBefore === firstPatternColor) {
-                    continue; // ❌ Pular ocorrência inválida
+                if (analyzerConfig.requireTrigger) {
+                    if (!triggerColorNormalized) continue;
+                    if (!validateDisparoColor(firstColorNormalized, triggerColorNormalized).valid) continue;
                 }
                 
                 patterns.sequenciaMesmaCor4a5.count++;
@@ -12001,25 +12022,27 @@ async function verifyWithSavedPatterns(history) {
 			const match = seqColors.every((c, idx) => c === pat.pattern[idx]);
 			if (match) {
 			const trigSpin = history[i + need];
-			const trigColor = trigSpin ? trigSpin.color : null;
+			const trigColorRaw = trigSpin ? trigSpin.color : null;
 			
-			// Só validar trigger se requireTrigger estiver ativo E modo padrão ativo
-			// ⚠️ MODO IA: Ignora validação de trigger
+			let triggerValid = true;
 			if (!analyzerConfig.aiMode && analyzerConfig.requireTrigger) {
-				if (!trigColor || !isValidTrigger(trigColor, pat.pattern)) continue;
+				triggerValid = !!trigColorRaw && isValidTrigger(trigColorRaw, pat.pattern);
 			}
-				// triggers podem variar; não exigir igualdade a pat.triggerColor
-				occCount++;
-				occNumbers.push(seq.map(s => s.number));
-				occTimestamps.push(seq.map(s => s.timestamp));
-				trigNumbers.push(trigSpin ? trigSpin.number : null);
-				trigTimestamps.push(trigSpin ? trigSpin.timestamp : null);
-			
-			// Criar registro de ocorrência com cor de disparo real
+			if (!triggerValid) continue;
+
 			const resultColor = history[i - 1] ? history[i - 1].color : null;
-			occurrenceDetails.push(
-				createOccurrenceRecord(pat.pattern, trigColor, resultColor, trigSpin, occCount)
-			);
+			const occurrenceRecord = createOccurrenceRecord(pat.pattern, trigColorRaw, resultColor, trigSpin, occCount + 1);
+
+			if (!analyzerConfig.aiMode && analyzerConfig.requireTrigger && occurrenceRecord.flag_invalid_disparo) {
+				continue;
+			}
+
+			occCount++;
+			occNumbers.push(seq.map(s => s.number));
+			occTimestamps.push(seq.map(s => s.timestamp));
+			trigNumbers.push(trigSpin ? trigSpin.number : null);
+			trigTimestamps.push(trigSpin ? trigSpin.timestamp : null);
+			occurrenceDetails.push(occurrenceRecord);
 			}
 		}
 
@@ -12564,8 +12587,10 @@ function discoverColorPatternsFast(colors, size, strideOffset) {
         if (!bag) { bag = { seq, outcomes: [], triggers: [], triggerCounts: {}, count: 0 }; outcomesMap.set(key, bag); }
 		bag.outcomes.push(nextColor);
 		bag.count++;
-		bag.triggers.push(triggerColor);
-		bag.triggerCounts[triggerColor] = (bag.triggerCounts[triggerColor] || 0) + 1;
+		const normalizedTrigger = normalizeColorName(triggerColor);
+		if (!normalizedTrigger) continue;
+		bag.triggers.push(normalizedTrigger);
+		bag.triggerCounts[normalizedTrigger] = (bag.triggerCounts[normalizedTrigger] || 0) + 1;
 	}
 	for (const bag of outcomesMap.values()) {
 		if (bag.count < 2) continue;
@@ -13067,15 +13092,17 @@ function validateDisparoColor(corInicial, corDisparo) {
 
 // Criar objeto de ocorrência individual (append-only)
 function createOccurrenceRecord(patternSequence, triggerColor, resultColor, spin, index) {
-    const corInicial = patternSequence[0];
-    const validation = validateDisparoColor(corInicial, triggerColor);
+    const corInicial = normalizeColorName(patternSequence[0]);
+    const triggerNormalized = normalizeColorName(triggerColor);
+    const resultNormalized = normalizeColorName(resultColor);
+    const validation = validateDisparoColor(corInicial, triggerNormalized);
     
     return {
         occurrence_id: spin ? (spin.created_at || spin.timestamp || `${Date.now()}_${index}`) : `${Date.now()}_${index}`,
         index: index,
         cor_inicial: corInicial,
-        cor_disparo: triggerColor,
-        resultado: resultColor,
+        cor_disparo: triggerNormalized,
+        resultado: resultNormalized,
         timestamp: spin ? (spin.timestamp || spin.created_at) : new Date().toISOString(),
         giro_numbers: Array.isArray(spin) ? spin.map(s => s.number) : (spin ? [spin.number] : []),
         flag_invalid_disparo: !validation.valid,
