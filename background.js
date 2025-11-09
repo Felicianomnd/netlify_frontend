@@ -11219,6 +11219,29 @@ async function runAnalysisController(history) {
 	const budgetMs = 5000; // 5s totais
 
 	try {
+		// ═══════════════════════════════════════════════════════════════
+		// 🔍 VALIDAÇÃO CRÍTICA: Verificar se history é um array válido
+		// ═══════════════════════════════════════════════════════════════
+		console.log('');
+		console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #FF00FF; font-weight: bold;');
+		console.log('%c║  🔍 [DEBUG] VALIDANDO PARÂMETRO history                  ║', 'color: #FF00FF; font-weight: bold;');
+		console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #FF00FF; font-weight: bold;');
+		console.log('📊 Tipo de history:', typeof history);
+		console.log('📊 É um array?', Array.isArray(history));
+		console.log('📊 Length:', history ? history.length : 'N/A');
+		console.log('📊 Primeiro elemento:', history && history[0] ? history[0] : 'N/A');
+		console.log('');
+		
+		if (!history || !Array.isArray(history) || history.length === 0) {
+			console.error('%c❌ ERRO CRÍTICO: history inválido!', 'color: #FF0000; font-weight: bold; font-size: 16px;');
+			console.error('   Tipo:', typeof history);
+			console.error('   É array?', Array.isArray(history));
+			console.error('   Length:', history ? history.length : 'N/A');
+			return null;
+		}
+		console.log('%c✅ history validado com sucesso!', 'color: #00FF00; font-weight: bold;');
+		console.log('');
+		
 		// ⚠️ CRÍTICO: RECARREGAR analyzerConfig do storage ANTES de cada análise
 		// Isso garante que mudanças feitas pelo usuário sejam respeitadas imediatamente
 		console.log('%c🔄 Recarregando configuração do storage...', 'color: #FFAA00; font-weight: bold;');
@@ -11474,6 +11497,12 @@ async function runAnalysisController(history) {
 		}
 		
 		// ✅ MODO AVANÇADO: Se ativado e não achou padrão salvo, usar análise avançada
+		console.log('');
+		console.log('%c🔍 [DEBUG] Verificando modo de análise...', 'color: #FF00FF; font-weight: bold;');
+		console.log('   analyzerConfig.aiMode:', analyzerConfig.aiMode);
+		console.log('   verifyResult:', verifyResult ? 'ENCONTROU PADRÃO' : 'NÃO ENCONTROU');
+		console.log('');
+		
 		if (analyzerConfig.aiMode && !verifyResult) {
 			console.log('');
 			console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #00FF00; font-weight: bold;');
@@ -11485,7 +11514,12 @@ async function runAnalysisController(history) {
 			console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #00FF00; font-weight: bold;');
 			console.log('');
 			
+			console.log('%c⏱️ Chamando analyzeWithPatternSystem...', 'color: #FFAA00; font-weight: bold;');
+		
 		const aiResult = await analyzeWithPatternSystem(history);
+		
+		console.log('%c⏱️ analyzeWithPatternSystem RETORNOU!', 'color: #FFAA00; font-weight: bold;');
+		console.log('   Resultado:', aiResult ? 'ENCONTROU SINAL' : 'NÃO ENCONTROU');
 		
 		if (aiResult) {
 			// ⚡⚡⚡ CRÍTICO: VERIFICAR SE O MODO AINDA ESTÁ ATIVO ⚡⚡⚡
@@ -11809,7 +11843,17 @@ async function runAnalysisController(history) {
 				// ✅ EXIBIR RODAPÉ FIXO COM SISTEMA ATIVO
 				displaySystemFooter();
 			} else {
-				console.log('⚠️ Nenhuma análise encontrada, limpando chrome.storage.local');
+				console.log('');
+				console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #FFAA00; font-weight: bold;');
+				console.log('%c║  ⚠️ NENHUM SINAL ENCONTRADO NESTE GIRO                   ║', 'color: #FFAA00; font-weight: bold;');
+				console.log('%c╠═══════════════════════════════════════════════════════════╣', 'color: #FFAA00; font-weight: bold;');
+				console.log('%c║  📊 Modo ativo:', 'color: #FFAA00;', analyzerConfig.aiMode ? 'DIAMANTE' : 'PADRÃO');
+				console.log('%c║  📊 Verificou banco de padrões?', 'color: #FFAA00;', verifyResult ? 'SIM (não encontrou)' : 'NÃO');
+				console.log('%c║  📊 Executou análise avançada?', 'color: #FFAA00;', analyzerConfig.aiMode ? 'SIM' : 'NÃO');
+				console.log('%c║  ✅ Aguardando próximo giro...                           ║', 'color: #00FF88;');
+				console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #FFAA00; font-weight: bold;');
+				console.log('');
+				
 				await chrome.storage.local.set({ analysis: null, pattern: null });
 				sendMessageToContent('CLEAR_ANALYSIS');
 				sendAnalysisStatus('⏳ Aguardando novo giro...');
@@ -11828,9 +11872,18 @@ async function runAnalysisController(history) {
 				spinsAvailable: { server: history.length, app: cachedHistory.length }
 			});
 			}
+		} else {
+			console.log('');
+			console.log('%c❌ [DEBUG] NÃO ENTROU NO if (analyzerConfig.aiMode && !verifyResult)!', 'color: #FF0000; font-weight: bold;');
+			console.log('   Motivo: analyzerConfig.aiMode =', analyzerConfig.aiMode, ' | verifyResult =', verifyResult ? 'ENCONTROU' : 'null/false');
+			console.log('');
 		}
 	} catch (e) {
-		console.error('Erro no controlador de análise:', e);
+		console.error('');
+		console.error('%c❌ ERRO NO CONTROLADOR DE ANÁLISE!', 'color: #FF0000; font-weight: bold; font-size: 16px;');
+		console.error('Detalhes do erro:', e);
+		console.error('Stack:', e.stack);
+		console.error('');
 	}
 }
 
