@@ -7632,6 +7632,94 @@ function identifySpinPosition(timestamp) {
     return seconds < 30 ? 1 : 2;
 }
 
+function buildRunsIgnoringWhite(history) {
+    const runs = [];
+    let currentColor = null;
+    let currentLength = 0;
+    
+    for (let i = history.length - 1; i >= 0; i--) { // do mais antigo ao mais recente
+        const spin = history[i];
+        if (!spin || !spin.color) continue;
+        const color = spin.color;
+        
+        if (color === 'white') {
+            if (currentLength > 0) {
+                runs.push({ color: currentColor, length: currentLength });
+                currentColor = null;
+                currentLength = 0;
+            }
+            continue;
+        }
+        
+        if (color === currentColor) {
+            currentLength++;
+        } else {
+            if (currentLength > 0) {
+                runs.push({ color: currentColor, length: currentLength });
+            }
+            currentColor = color;
+            currentLength = 1;
+        }
+    }
+    
+    if (currentLength > 0) {
+        runs.push({ color: currentColor, length: currentLength });
+    }
+    
+    return runs; // ordem cronológica (do mais antigo ao mais recente)
+}
+
+function computeCurrentAlternanceRuns(recentRuns, baseLength) {
+    if (!recentRuns || recentRuns.length === 0 || baseLength <= 0) return 0;
+    let count = 0;
+    let prevColor = null;
+    
+    for (let i = 0; i < recentRuns.length; i++) {
+        const run = recentRuns[i];
+        if (!run || !run.color) break;
+        if (Math.abs(run.length - baseLength) > 1) break;
+        if (prevColor && prevColor === run.color) break;
+        count++;
+        prevColor = run.color;
+    }
+    
+    return count;
+}
+
+function computeMaxAlternanceRuns(runsChronological, baseLength) {
+    if (!runsChronological || runsChronological.length === 0 || baseLength <= 0) return 0;
+    
+    let maxRuns = 0;
+    let currentRuns = 0;
+    let prevColor = null;
+    
+    for (let i = 0; i < runsChronological.length; i++) {
+        const run = runsChronological[i];
+        if (!run || !run.color) {
+            currentRuns = 0;
+            prevColor = null;
+            continue;
+        }
+        
+        if (Math.abs(run.length - baseLength) > 1) {
+            currentRuns = 0;
+            prevColor = run.color;
+            continue;
+        }
+        
+        if (prevColor && prevColor === run.color) {
+            currentRuns = 1;
+        } else {
+            currentRuns = currentRuns > 0 ? currentRuns + 1 : 1;
+        }
+        
+        prevColor = run.color;
+        maxRuns = Math.max(maxRuns, currentRuns);
+    }
+    
+    return maxRuns;
+}
+
 /**
  * NÍVEL 1: Análise de Cor Dominante
  * Analisa os últimos 15 giros e retorna a cor que mais saiu
@@ -8014,7 +8102,7 @@ function analyzeMinuteSpinBias(history, targetMinute, targetPosition, windowSize
  * NÍVEL 6: Barreira/Freio - Valida se a sequência é viável historicamente
  * Usa somente os últimos 50 giros para garantir proteção recente
  */
-function validateSequenceBarrier(history, predictedColor, configuredSize) {
+function validateSequenceBarrier(history, predictedColor, configuredSize, alternanceInfo = null) {
     console.log('%c┌─────────────────────────────────────────────────────────┐', 'color: #FF0000; font-weight: bold;');
     console.log('%c│ 🔍 NÍVEL 6: BARREIRA (FREIO DE SEGURANÇA)             │', 'color: #FF0000; font-weight: bold;');
     console.log('%c└─────────────────────────────────────────────────────────┘', 'color: #FF0000; font-weight: bold;');
@@ -8069,9 +8157,13 @@ function validateSequenceBarrier(history, predictedColor, configuredSize) {
     
     console.log(`   📊 Maior sequência de ${predictedColor.toUpperCase()} encontrada: ${maxStreakFound} giro(s)`);
     
-    const isViable = targetStreak <= maxStreakFound;
+    let allowed = targetStreak <= maxStreakFound;
+    let alternanceBlocked = false;
+    let reasonText = allowed
+        ? `✅ Sequência de ${targetStreak} ${predictedColor} já aconteceu ${maxStreakFound >= targetStreak ? 'antes' : ''}`
+        : `❌ Sequência de ${targetStreak} ${predictedColor} NUNCA aconteceu (máx: ${maxStreakFound})`;
     
-    if (isViable) {
+    if (allowed) {
         console.log(`   ✅ APROVADO! Sequência de ${targetStreak} é historicamente viável`);
         console.log(`   🚦 Sinal LIBERADO para prosseguir`);
     } else {
@@ -8079,14 +8171,26 @@ function validateSequenceBarrier(history, predictedColor, configuredSize) {
         console.log(`   🛑 Sinal BLOQUEADO por segurança (sem precedente histórico)`);
     }
     
+    if (alternanceInfo && alternanceInfo.override) {
+        const targetRuns = alternanceInfo.targetRuns || 0;
+        const maxRuns = alternanceInfo.maxRuns || 0;
+        if (maxRuns && targetRuns && targetRuns > maxRuns) {
+            console.log(`   ❌ BLOQUEADO! Alternância excede histórico (${targetRuns} blocos > ${maxRuns})`);
+            allowed = false;
+            alternanceBlocked = true;
+            reasonText = `❌ Alternância excede histórico (${targetRuns} > ${maxRuns})`;
+        } else {
+            console.log(`   ✅ Alternância dentro do histórico (${targetRuns}/${maxRuns || '∞'})`);
+        }
+    }
+    
     return {
-        allowed: isViable,
+        allowed,
         currentStreak: currentStreak,
         targetStreak: targetStreak,
         maxStreakFound: maxStreakFound,
-        reason: isViable ? 
-            `✅ Sequência de ${targetStreak} ${predictedColor} já aconteceu ${maxStreakFound >= targetStreak ? 'antes' : ''}` :
-            `❌ Sequência de ${targetStreak} ${predictedColor} NUNCA aconteceu (máx: ${maxStreakFound})`
+        reason: reasonText,
+        alternanceBlocked
     };
 }
 
@@ -8209,22 +8313,44 @@ function analyzeAlternancePattern(history, configuredSize = 12) {
     if (alternationSize > 0) {
         console.log(`   ✨ Tamanho da alternância (aprox.): ${alternationSize} giros por cor`);
     }
+    
+    const baseAlternanceSize = Math.max(1, alternationSize || 1);
+    const currentAlternanceRuns = computeCurrentAlternanceRuns(runs, baseAlternanceSize);
+    const runsChronological = buildRunsIgnoringWhite(history);
+    const maxHistoricalAlternanceRuns = computeMaxAlternanceRuns(runsChronological, baseAlternanceSize);
+    const targetAlternanceRuns = voteColor ? currentAlternanceRuns + 1 : currentAlternanceRuns;
+    const minimalRunsRequired = 3;
+    let awaitingConfirmation = false;
+    
+    if (voteColor && currentAlternanceRuns < minimalRunsRequired) {
+        console.log(`   ⚠️ Alternância em formação: ${currentAlternanceRuns} blocos detectados (< ${minimalRunsRequired}). Aguardando confirmação.`);
+        awaitingConfirmation = true;
+        voteColor = null;
+        confidence = 0;
+    }
+    
     if (whiteFoundIndex !== -1) {
         confidence = Math.min(confidence, 0.7);
         console.log('   ⚠️ Ajustando confiança devido a branco recente (máx 70%)');
     }
     console.log(`   🗳️ Voto sugerido: ${voteColor ? voteColor.toUpperCase() : 'NULO'} (confiança ${(confidence * 100).toFixed(0)}%)`);
+    if (voteColor) {
+        console.log(`   🔁 Alternância atual: ${currentAlternanceRuns} blocos • Próximo alvo: ${targetAlternanceRuns} • Máx histórico: ${maxHistoricalAlternanceRuns || 'N/A'}`);
+    }
     
     const details = voteColor
-        ? `${patternLabel}${alternationSize ? ` (tam ~${alternationSize})` : ''} • ${(alternationRate * 100).toFixed(1)}% alternância`
-        : `${patternLabel} • ${(alternationRate * 100).toFixed(1)}% alternância`;
+        ? `${patternLabel}${alternationSize ? ` (tam ~${alternationSize})` : ''} • ${(alternationRate * 100).toFixed(1)}% alternância • ${targetAlternanceRuns}/${maxHistoricalAlternanceRuns || '∞'} blocos`
+        : `${patternLabel} • ${(alternationRate * 100).toFixed(1)}% alternância${awaitingConfirmation ? ' • aguardando 3 blocos' : ''}`;
     
-    const strongAlternance =
+    const overrideCandidate =
         voteColor &&
         (
             (patternLabel.startsWith('Alternância') && confidence >= 0.55) ||
             (patternLabel === 'Alternância irregular' && alternationRate >= 0.7)
         );
+    const overrideAllowed = overrideCandidate &&
+        (!maxHistoricalAlternanceRuns || targetAlternanceRuns <= maxHistoricalAlternanceRuns);
+    const overrideActive = Boolean(overrideAllowed);
     
     return {
         color: voteColor,
@@ -8234,7 +8360,11 @@ function analyzeAlternancePattern(history, configuredSize = 12) {
         confidence,
         sequences: runs,
         details,
-        override: strongAlternance
+        override: overrideActive,
+        alternanceRuns: currentAlternanceRuns,
+        alternanceTargetRuns: targetAlternanceRuns,
+        alternanceMaxRuns: maxHistoricalAlternanceRuns,
+        alternanceBaseSize: baseAlternanceSize
     };
 }
 
@@ -9371,7 +9501,10 @@ async function analyzeWithPatternSystem(history) {
         const alternanceOverrideActive = Boolean(nivel7 && nivel7.override && alternanceColor);
         if (alternanceColor) {
             alternanceStrength = alternanceOverrideActive ? 1 : clamp01(nivel7.confidence ?? 0.5);
-            alternanceDetailsText = `${nivel7.pattern.toUpperCase()} (${Math.round(alternanceStrength * 100)}%)` +
+            const targetLabel = nivel7.alternanceTargetRuns && nivel7.alternanceMaxRuns
+                ? ` • ${nivel7.alternanceTargetRuns}/${nivel7.alternanceMaxRuns || '∞'} blocos`
+                : '';
+            alternanceDetailsText = `${nivel7.pattern.toUpperCase()} (${Math.round(alternanceStrength * 100)}%)${targetLabel}` +
                 (alternanceOverrideActive ? ' • Override' : '');
         }
         levelReports.push({
@@ -9450,8 +9583,14 @@ async function analyzeWithPatternSystem(history) {
         console.log(`%c📊 Configuração: ${historySize} giros para análise`, 'color: #FF0000;');
         console.log('');
 
-        const barrierResult = validateSequenceBarrier(history, predictedColor, historySize);
-        const barrierDetailsText = `Atual ${barrierResult.currentStreak} • alvo ${barrierResult.targetStreak} • máx ${barrierResult.maxStreakFound}`;
+        const barrierResult = validateSequenceBarrier(history, predictedColor, historySize, {
+            override: alternanceOverrideActive,
+            targetRuns: nivel7 ? nivel7.alternanceTargetRuns : null,
+            maxRuns: nivel7 ? nivel7.alternanceMaxRuns : null
+        });
+        const barrierDetailsText = barrierResult.alternanceBlocked
+            ? `Alternância excede histórico (${nivel7 ? nivel7.alternanceTargetRuns : '?'} > ${nivel7 ? nivel7.alternanceMaxRuns || '∞' : '?'})`
+            : `Atual ${barrierResult.currentStreak} • alvo ${barrierResult.targetStreak} • máx ${barrierResult.maxStreakFound}`;
 
         if (!barrierResult.allowed) {
             console.log('%c🚫🚫🚫 SINAL BLOQUEADO PELA BARREIRA! 🚫🚫🚫', 'color: #FFFFFF; font-weight: bold; font-size: 16px; background: #FF0000;');
@@ -9639,7 +9778,11 @@ async function analyzeWithPatternSystem(history) {
         console.log(`%c📊 Configuração: ${historySize} giros para análise`, 'color: #FF0000;');
         console.log('');
         
-        const barrierResult = validateSequenceBarrier(history, finalColor, historySize);
+        const barrierResult = validateSequenceBarrier(history, finalColor, historySize, {
+            override: alternanceOverrideActive,
+            targetRuns: nivel7 ? nivel7.alternanceTargetRuns : null,
+            maxRuns: nivel7 ? nivel7.alternanceMaxRuns : null
+        });
         
         console.log('%c🔍 VERIFICAÇÃO DE BARREIRA:', 'color: #FF0000; font-weight: bold;');
         console.log(`%c   Sequência atual: ${barrierResult.currentStreak} ${finalColor} consecutivos`, 'color: #FF0000;');
@@ -9693,7 +9836,10 @@ async function analyzeWithPatternSystem(history) {
         }
         await sleep(1500);
         
-        sendAnalysisStatus(`🛑 N6 - Barreira → ❌ BLOQUEADO`);
+        const barrierStatusText = barrierResult.alternanceBlocked
+            ? '🚫 BLOQUEADO (Alternância)'
+            : '❌ BLOQUEADO';
+        sendAnalysisStatus(`🛑 N6 - Barreira → ${barrierStatusText}`);
         await sleep(1500);
         
         // ✅ Mostrar motivo do bloqueio
@@ -9712,6 +9858,21 @@ async function analyzeWithPatternSystem(history) {
         
         console.log('%c✅ BARREIRA LIBERADA! Sequência é viável.', 'color: #00FF88; font-weight: bold; font-size: 14px;');
         console.log('');
+        
+        // ═══════════════════════════════════════════════════════════════
+        const votes = { red: 0, black: 0, null: 0 };
+        levelReports.forEach(lvl => {
+            if (lvl.id === 'N6') return;
+            if (!lvl.color || (alternanceOverride && lvl.id !== 'N3' && lvl.score === 0)) {
+                votes.null++;
+            } else if (lvl.color === 'red') {
+                votes.red++;
+            } else if (lvl.color === 'black') {
+                votes.black++;
+            } else {
+                votes.null++;
+            }
+        });
         
         // ═══════════════════════════════════════════════════════════════
         // 🎚️ VALIDAÇÃO DE INTENSIDADE DE SINAIS
@@ -9822,7 +9983,10 @@ async function analyzeWithPatternSystem(history) {
         }
         await sleep(1500);
         
-        sendAnalysisStatus(`🛑 N6 - Barreira → ✅ APROVADO`);
+        const barrierStatusText2 = barrierResult.alternanceBlocked
+            ? '🚫 BLOQUEADO (Alternância)'
+            : barrierResult.allowed ? '✅ APROVADO' : '🚫 BLOQUEADO';
+        sendAnalysisStatus(`🛑 N6 - Barreira → ${barrierStatusText2}`);
         await sleep(1500);
         
         const totalVotantes = 5;
@@ -9889,7 +10053,10 @@ async function analyzeWithPatternSystem(history) {
         }
         await sleep(1500);
         
-        sendAnalysisStatus(`🛑 N6 - Barreira → ✅ APROVADO`);
+        const barrierStatusText3 = barrierResult.alternanceBlocked
+            ? '🚫 BLOQUEADO (Alternância)'
+            : barrierResult.allowed ? '✅ APROVADO' : '🚫 BLOQUEADO';
+        sendAnalysisStatus(`🛑 N6 - Barreira → ${barrierStatusText3}`);
         await sleep(1500);
         
         // ✅ Mostrar resultado da análise (MODO DIAMANTE: mensagem fixa) e depois o motivo do bloqueio
@@ -9944,8 +10111,8 @@ async function analyzeWithPatternSystem(history) {
         console.log(`%c⚡ NÍVEL 2: Momentum (5 vs 15) → ${nivel5.color.toUpperCase()}`, 'color: #00AAFF; font-weight: bold;');
         console.log(`%c🛑 NÍVEL 6: Barreira → ${barrierResult.allowed ? '✅ LIBERADO' : '🚫 BLOQUEADO'}`, barrierResult.allowed ? 'color: #00FF88; font-weight: bold;' : 'color: #FF6666; font-weight: bold;');
         console.log(`%c🔷 NÍVEL 7: Alternância (12 giros) → ${nivel7 && nivel7.color ? nivel7.color.toUpperCase() : 'NULO'}`, nivel7 && nivel7.color ? 'color: #8E44AD; font-weight: bold;' : 'color: #888;');
-        console.log(`%c⚪ NÍVEL 5: Radar de Brancos (2000 giros) → ${nivel8 && nivel8.mode === 'force_white' ? '🚨 BRANCO' : (nivel8 && nivel8.color ? nivel8.color.toUpperCase() : 'NULO')}`, nivel8 && nivel8.mode === 'force_white' ? 'color: #FFFFFF; font-weight: bold; background: #FF6B35;' : (nivel8 && nivel8.color ? 'color: #16A085; font-weight: bold;' : 'color: #888;'));
-        console.log(`%c🔷 NÍVEL 9: Persistência (20 giros) → ${nivel9 && nivel9.color ? nivel9.color.toUpperCase() : 'NULO'}`, nivel9 && nivel9.color ? 'color: #D35400; font-weight: bold;' : 'color: #888;');
+        console.log(`%c🕑 NÍVEL 5: Ritmo por Giro (minuto alvo) → ${minuteBiasColor ? minuteBiasColor.toUpperCase() : 'NULO'}`, minuteBiasColor ? 'color: #1ABC9C; font-weight: bold;' : 'color: #888;');
+        console.log(`%c🛑 NÍVEL 6: Barreira → ${barrierResult.allowed ? '✅ LIBERADO' : '🚫 BLOQUEADO'}`, barrierResult.allowed ? 'color: #00FF88; font-weight: bold;' : 'color: #FF6666; font-weight: bold;');
         console.log('');
         console.log('%c═══════════════════════════════════════════════════════════════════', 'color: #FFD700; font-weight: bold;');
         console.log('');
@@ -9997,28 +10164,21 @@ async function analyzeWithPatternSystem(history) {
         
         const nivel2Description = `N2 - Momentum: ${nivel5.color.toUpperCase()} (${nivel5.trending === 'accelerating_red' ? 'acelerando ↗' : nivel5.trending === 'accelerating_black' ? 'acelerando ↗' : 'estável →'})`;
         
-        // Descrição detalhada do Nível 3 (Barreira)
-        let nivel3Description = '';
-        if (barrierResult.allowed) {
-            nivel3Description = `N3 - Barreira: ✅ APROVADO`;
-        } else {
-            nivel3Description = `N3 - Barreira: 🚫 BLOQUEADO`;
-        }
+        const nivel3Description = nivel7 && nivel7.color
+            ? `N3 - Alternância${nivel7.override ? ' (override)' : ''}: ${nivel7.color.toUpperCase()} (${nivel7.pattern} • ${nivel7.alternanceTargetRuns}/${nivel7.alternanceMaxRuns || '∞'} blocos)`
+            : `N3 - Alternância: NULO`;
         
-        // ✅ NÍVEIS 4, 5, 6
-        const nivel4Description = nivel7 && nivel7.color ? 
-            `N4 - Alternância: ${nivel7.color.toUpperCase()} (${nivel7.pattern})` :
-            `N4 - Alternância: NULO`;
+        const nivel4Description = nivel9 && nivel9.color ? 
+            `N4 - Persistência: ${nivel9.color.toUpperCase()} (seq. ${nivel9.currentSequence})` :
+            `N4 - Persistência: NULO`;
         
-        const nivel5Description = nivel8 && nivel8.mode === 'force_white' ? 
-            `N5 - Radar de Brancos: 🚨 BRANCO PREVISTO (score: ${nivel8.patternOccurrences ? nivel8.patternOccurrences.toFixed(1) : 'N/A'}/100)` :
-            (nivel8 && nivel8.color ? 
-                `N5 - Radar de Brancos: ${nivel8.color.toUpperCase()} (últimos ${nivel8.last5WhitesCount || 5} brancos)` :
-                `N5 - Radar de Brancos: NULO`);
+        const nivel5Description = minuteBiasColor
+            ? `N5 - Ritmo por Giro: ${minuteBiasColor.toUpperCase()} (${minuteBiasResult && minuteBiasResult.dominantPercent ? Math.round(minuteBiasResult.dominantPercent * 100) : Math.round((minuteBiasResult?.confidence || 0) * 100)}%)`
+            : `N5 - Ritmo por Giro: NULO`;
         
-        const nivel6Description = nivel9 && nivel9.color ? 
-            `N6 - Persistência: ${nivel9.color.toUpperCase()} (seq. ${nivel9.currentSequence})` :
-            `N6 - Persistência: NULO`;
+        const nivel6Description = barrierResult.allowed
+            ? `N6 - Barreira: ✅ LIBERADO`
+            : `N6 - Barreira: 🚫 BLOQUEADO`;
         
         // Descrição da intensidade de sinais
         const intensityName = {
