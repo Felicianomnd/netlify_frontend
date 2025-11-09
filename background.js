@@ -4169,7 +4169,10 @@ function findCustomPatternInHistory(customPattern, history) {
             // Se padrão inicia com PRETO, cor de disparo NÃO pode ser PRETO
             // Se padrão inicia com VERMELHO, cor de disparo NÃO pode ser VERMELHO
             const firstPatternColor = customPattern.sequence[0];
-            if (colorBefore === firstPatternColor) {
+            const colorBeforeNormalized = normalizeColorName(colorBefore);
+            const firstPatternColorNormalized = normalizeColorName(firstPatternColor);
+            
+            if (colorBeforeNormalized && !validateDisparoColor(firstPatternColorNormalized, colorBeforeNormalized).valid) {
                 // ❌ OCORRÊNCIA INVÁLIDA: Cor de disparo igual à primeira cor do padrão
                 // Isso corrompe o padrão! Se padrão é P,P,P e disparo é P, vira P,P,P,P (4 pretos!)
                 continue;
@@ -4398,9 +4401,14 @@ async function checkForCustomPatterns(history) {
             
             // 🔥 VALIDAÇÃO CRÍTICA: Cor de disparo DEVE ser DIFERENTE da primeira cor do padrão
             const firstPatternColor = customPattern.sequence[0];
-            if (colorBefore === firstPatternColor) {
+            const colorBeforeNormalized = normalizeColorName(colorBefore);
+            const firstPatternColorNormalized = normalizeColorName(firstPatternColor);
+            const disparoValidation = validateDisparoColor(firstPatternColorNormalized, colorBeforeNormalized);
+            
+            if (colorBeforeNormalized && !disparoValidation.valid) {
                 console.log(`%c   ❌ PADRÃO REJEITADO: Cor de disparo (${colorBeforeSymbol}) IGUAL à primeira cor do padrão!`, 'color: #FF6666; font-weight: bold;');
-                console.log(`%c      Isso corrompe o padrão! Se padrão é ${firstPatternColor.toUpperCase()} e disparo também é ${firstPatternColor.toUpperCase()}, o padrão fica diferente!`, 'color: #FF6666;');
+                console.log(`%c      Isso corrompe o padrão! Se padrão é ${firstPatternColor.toUpperCase()} e disparo também é ${colorBefore.toUpperCase()}, o padrão fica diferente!`, 'color: #FF6666;');
+                console.log(`%c      Validação: ${disparoValidation.reason}`, 'color: #FF6666;');
                 console.log('');
                 continue; // ❌ PULAR este padrão
             }
@@ -9576,16 +9584,35 @@ async function analyzeWithPatternSystem(history) {
             details: minuteBiasDetailsText
         });
 
-        const alternanceOverride = alternanceOverrideActive && alternanceColor;
-        if (alternanceOverride) {
-            console.log('%c⚡ Override de Alternância ativado! Outros níveis anulados.', 'color: #8E44AD; font-weight: bold;');
-            levelReports.forEach(lvl => {
-                if (lvl.id !== 'N3' && lvl.id !== 'N6') {
-                    lvl.details += ' • Anulado (Alternância)';
-                    lvl.score = 0;
-                    lvl.strength = 0;
-                }
-            });
+        // 🔥 NOVA LÓGICA: Alternância precisa de pelo menos 2 outros níveis concordando
+        let alternanceOverride = false;
+        if (alternanceOverrideActive && alternanceColor) {
+            // Contar quantos outros níveis concordam com a cor da alternância
+            const otherLevelsAgreeingCount = levelReports.filter(lvl => 
+                lvl.id !== 'N3' && lvl.id !== 'N6' && lvl.color === alternanceColor
+            ).length;
+            
+            console.log('%c🔍 Validando Override de Alternância...', 'color: #8E44AD; font-weight: bold;');
+            console.log(`   Cor da alternância: ${alternanceColor.toUpperCase()}`);
+            console.log(`   Outros níveis concordando: ${otherLevelsAgreeingCount}/4 (N1, N2, N4, N5)`);
+            
+            if (otherLevelsAgreeingCount >= 2) {
+                alternanceOverride = true;
+                console.log('%c   ✅ Override APROVADO! Pelo menos 2 níveis concordam.', 'color: #00FF88; font-weight: bold;');
+                console.log('%c   ⚡ Anulando outros níveis...', 'color: #8E44AD; font-weight: bold;');
+                
+                levelReports.forEach(lvl => {
+                    if (lvl.id !== 'N3' && lvl.id !== 'N6') {
+                        lvl.details += ' • Anulado (Alternância)';
+                        lvl.score = 0;
+                        lvl.strength = 0;
+                    }
+                });
+            } else {
+                console.log('%c   ❌ Override REJEITADO! Menos de 2 níveis concordam.', 'color: #FF6666; font-weight: bold;');
+                console.log('%c   ➤ Alternância detectada, mas sem consenso suficiente dos outros níveis.', 'color: #FFAA00;');
+                console.log('%c   ➤ Sistema continuará com votação normal.', 'color: #FFAA00;');
+            }
         }
 
         const scoreWithoutBarrier = levelReports.reduce((sum, lvl) => sum + (lvl.score * lvl.weight), 0);
@@ -12328,15 +12355,27 @@ async function verifyWithSavedPatterns(history) {
 			}
 			
 			const firstPatternColor = pat.pattern[0];
-			if (currentTrigger === firstPatternColor) {
+			const triggerNormalized = normalizeColorName(currentTrigger);
+			const firstNormalized = normalizeColorName(firstPatternColor);
+			const validation = validateDisparoColor(firstNormalized, triggerNormalized);
+			
+			if (!validation.valid) {
 				console.log(`❌ Padrão salvo rejeitado no sinal final: cor de disparo atual INVÁLIDA`, {
 					pattern: pat.pattern.join('-'),
 					currentTrigger: currentTrigger,
+					triggerNormalized: triggerNormalized,
 					firstPatternColor: firstPatternColor,
-					motivo: 'Cor de disparo IGUAL à primeira cor do padrão - corromperia o padrão!'
+					firstNormalized: firstNormalized,
+					motivo: validation.reason || 'Cor de disparo IGUAL ou inválida - corromperia o padrão!'
 				});
 				continue; // ❌ Cor de disparo INVÁLIDA - NÃO ENVIAR ENTRADA
 			}
+			
+			console.log(`✅ Validação final de trigger: APROVADA`, {
+				currentTrigger: triggerNormalized,
+				firstPatternColor: firstNormalized,
+				isOpposite: triggerNormalized === 'white' || (triggerNormalized === 'red' && firstNormalized === 'black') || (triggerNormalized === 'black' && firstNormalized === 'red')
+			});
 		}
 
 		// Se assertCalc existe, já vem calibrado; senão, calibrar a confidence salva
