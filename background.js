@@ -9652,10 +9652,10 @@ async function analyzeWithPatternSystem(history) {
             console.log('%c🔍 Validando Override de Alternância...', 'color: #8E44AD; font-weight: bold;');
             console.log(`   Cor da alternância: ${alternanceColor.toUpperCase()}`);
             console.log(`   Outros níveis concordando: ${otherLevelsAgreeingCount}/4 (N1, N2, N4, N5)`);
-            
-            // ═══════════════════════════════════════════════════════════════
+        
+        // ═══════════════════════════════════════════════════════════════
             // 🛡️ CONTROLE DE ENTRADAS: Máximo 2 entradas por alternância
-            // ═══════════════════════════════════════════════════════════════
+        // ═══════════════════════════════════════════════════════════════
             
             const alternanceSignature = `${nivel7.pattern}-${alternanceColor}`;
             const now = Date.now();
@@ -9721,7 +9721,7 @@ async function analyzeWithPatternSystem(history) {
                     alternanceEntryControl.lastResult = null; // Aguardando resultado
                     alternanceEntryControl.lastEntryTimestamp = now;
                     console.log('%c   🎯 Controle de alternância ATIVADO (1ª entrada)', 'color: #00FF88; font-weight: bold;');
-                } else {
+        } else {
                     // Incrementar contador para 2ª entrada
                     alternanceEntryControl.entryCount = 2;
                     alternanceEntryControl.lastEntryTimestamp = now;
@@ -9805,7 +9805,7 @@ async function analyzeWithPatternSystem(history) {
 
         console.log('%c✅ BARREIRA LIBERADA! Sequência é viável.', 'color: #00FF88; font-weight: bold; font-size: 14px;');
         console.log('');
-
+        
         const totalWeight = levelReports.reduce((sum, lvl) => sum + lvl.weight, 0);
         let weightedScore = totalWeight ? levelReports.reduce((sum, lvl) => sum + (lvl.score * lvl.weight), 0) : 0;
         if (alternanceOverride) {
@@ -9839,7 +9839,7 @@ async function analyzeWithPatternSystem(history) {
         console.log(`%c   Score combinado: ${(normalizedScore * 100).toFixed(1)}%`, 'color: #9C27B0;');
         console.log(`%c   Threshold mínimo: ${(currentIntensity.minScore * 100).toFixed(0)}%`, 'color: #9C27B0;');
         console.log('');
-
+        
         if (!thresholdMet && !alternanceOverride) {
             console.log('%c🚫 SINAL REJEITADO: SCORE ABAIXO DO LIMITE', 'color: #FF6666; font-weight: bold; font-size: 14px;');
             await emitLevelStatuses(levelReports);
@@ -12232,11 +12232,11 @@ async function verifyWithSavedPatterns(history) {
 				continue;
 			}
 
-			occCount++;
-			occNumbers.push(seq.map(s => s.number));
-			occTimestamps.push(seq.map(s => s.timestamp));
-			trigNumbers.push(trigSpin ? trigSpin.number : null);
-			trigTimestamps.push(trigSpin ? trigSpin.timestamp : null);
+				occCount++;
+				occNumbers.push(seq.map(s => s.number));
+				occTimestamps.push(seq.map(s => s.timestamp));
+				trigNumbers.push(trigSpin ? trigSpin.number : null);
+				trigTimestamps.push(trigSpin ? trigSpin.timestamp : null);
 			occurrenceDetails.push(occurrenceRecord);
 			}
 		}
