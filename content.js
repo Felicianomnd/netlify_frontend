@@ -5508,7 +5508,6 @@
             });
         } else if (request.type === 'NEW_SPIN') {
             console.log('%c⚡ NOVO GIRO!', 'color: #00ff88; font-weight: bold;');
-            console.log('📊 Giro:', request.data.lastSpin);
             
             // ⚡⚡⚡ ATUALIZAÇÃO INSTANTÂNEA - OPERAÇÕES SÍNCRONAS APENAS! ⚡⚡⚡
             if (request.data && request.data.lastSpin) {
@@ -5545,13 +5544,8 @@
                     updateHistoryUIInstant(newSpin);
                 });
                 
-                console.log('⚡ UI atualizada instantaneamente!');
-                
                 // ✅ SE O HISTÓRICO COMPLETO FOI ENVIADO, USAR ELE (sincronização inicial)
                 if (request.data.history && request.data.history.length > 0) {
-                    console.log('%c🔥 HISTÓRICO COMPLETO RECEBIDO!', 'color: #ff9900; font-weight: bold;');
-                    console.log(`   Total: ${request.data.history.length} giros`);
-                    
                     // Atualizar histórico global
                     currentHistoryData = request.data.history;
                     
@@ -5570,11 +5564,8 @@
                                 statsSection.appendChild(wrap);
                             }
                         }
-                        console.log('%c✅ HISTÓRICO COMPLETO RENDERIZADO!', 'color: #00ff00; font-weight: bold;');
                     });
                 }
-                
-                console.log('✅ Histórico atualizado com sucesso! (SEM DELAY - INSTANTÂNEO)');
             } else {
                 console.error('❌ ERRO: Dados do giro inválidos!', request.data);
             }

@@ -2309,36 +2309,48 @@ async function processNewSpinFromServer(spinData) {
                 }
             };
             
-            // ✅ OTIMIZAÇÃO: Enviar apenas para tabs da URL do Blaze (muito mais rápido!)
+            // ✅ ENVIAR PARA O UI IMEDIATAMENTE
             chrome.tabs.query({ url: '*://blaze.com/*' }, (tabs) => {
                 if (tabs && tabs.length > 0) {
                     tabs.forEach(tab => {
                         chrome.tabs.sendMessage(tab.id, spinMessage).catch(() => {
-                            // Ignorar silenciosamente tabs sem content.js
+                            // Ignorar tabs sem content.js
                         });
                     });
-                    console.log(`⚡ GIRO ENVIADO INSTANTANEAMENTE para ${tabs.length} tab(s) do Blaze!`);
+                    console.log(`⚡ GIRO ENVIADO INSTANTANEAMENTE para ${tabs.length} tab(s)!`);
+                } else {
+                    // Fallback: tentar enviar para todas as tabs
+                    chrome.tabs.query({}, (allTabs) => {
+                        if (allTabs && allTabs.length > 0) {
+                            allTabs.forEach(tab => {
+                                chrome.tabs.sendMessage(tab.id, spinMessage).catch(() => {});
+                            });
+                        }
+                    });
                 }
             });
             
             // ═══════════════════════════════════════════════════════════════════════════════
-            // 📦 AGORA SIM: Operações assíncronas/pesadas (NÃO BLOQUEIAM O UI!)
+            // 📦 OPERAÇÕES NECESSÁRIAS (UI já foi atualizado instantaneamente acima!)
             // ═══════════════════════════════════════════════════════════════════════════════
             
-            // Salvar no storage (em paralelo, não esperar)
-            chrome.storage.local.set({
+            // Salvar lastSpin no storage (para persistência)
+            await chrome.storage.local.set({
                 lastSpin: {
                     number: rollNumber,
                     color: rollColor,
                     timestamp: latestSpin.created_at
                 }
-            }).catch(e => console.warn('⚠️ Erro ao salvar lastSpin:', e));
+            });
             
-            // Buscar entriesHistory (não esperar, executar em paralelo)
+            // Buscar entriesHistory
             let entriesHistory = [];
-            chrome.storage.local.get(['entriesHistory']).then(result => {
-                entriesHistory = result.entriesHistory || [];
-            }).catch(e => console.warn('⚠️ Erro ao buscar entriesHistory:', e));
+            try {
+                const result = await chrome.storage.local.get(['entriesHistory']);
+                entriesHistory = result['entriesHistory'] || [];
+            } catch (e) {
+                console.warn('⚠️ Erro ao buscar entriesHistory:', e);
+            }
             
             // ⚡ ATUALIZAR MEMÓRIA ATIVA INCREMENTALMENTE (super rápido!)
             if (memoriaAtiva.inicializada) {
@@ -2352,18 +2364,19 @@ async function processNewSpinFromServer(spinData) {
                 // ✅ Se modo IA está ativo e memória não foi inicializada, inicializar agora
                 if (analyzerConfig.aiMode && cachedHistory.length >= 60) {
                     console.log('%c🧠 Inicializando Memória Ativa...', 'color: #00CED1; font-weight: bold;');
-                    inicializarMemoriaAtiva(cachedHistory).then(sucesso => {
-                        if (sucesso) {
-                            console.log('%c✅ Memória Ativa inicializada!', 'color: #00FF88; font-weight: bold;');
-                        } else {
-                            console.log('%c⚠️ Falha ao inicializar Memória Ativa', 'color: #FFAA00;');
-                        }
-                    });
+                    const sucesso = await inicializarMemoriaAtiva(cachedHistory);
+                    if (sucesso) {
+                        console.log('%c✅ Memória Ativa inicializada!', 'color: #00FF88; font-weight: bold;');
+                    } else {
+                        console.log('%c⚠️ Falha ao inicializar Memória Ativa', 'color: #FFAA00;');
+                    }
                 }
             }
             
             // ✅ CARREGAR CONFIGURAÇÕES E ESTADO DO MARTINGALE DO STORAGE
-            chrome.storage.local.get(['analyzerConfig', 'martingaleState']).then(storageData => {
+            try {
+                const storageData = await chrome.storage.local.get(['analyzerConfig', 'martingaleState']);
+                
                 // Carregar configurações
                 if (storageData.analyzerConfig) {
                     analyzerConfig = { ...DEFAULT_ANALYZER_CONFIG, ...storageData.analyzerConfig };
@@ -2373,20 +2386,19 @@ async function processNewSpinFromServer(spinData) {
                     });
                 }
                 
-                // Carregar estado do Martingale
+                // ⚠️ CRÍTICO: Carregar estado do Martingale do storage
                 if (storageData.martingaleState) {
                     martingaleState = storageData.martingaleState;
                     console.log('🔄 Estado do Martingale carregado:', {
                         active: martingaleState.active,
-                        stage: martingaleState.stage
+                        stage: martingaleState.stage,
+                        entryColor: martingaleState.entryColor,
+                        lossCount: martingaleState.lossCount
                     });
                 }
-            }).catch(e => console.warn('⚠️ Erro ao carregar configurações:', e));
-            
-            // ❌ REMOVIDO: Chamada duplicada de runAnalysisController
-            // A análise será executada APÓS processar WIN/LOSS (linha ~1094)
-            
-            // ✅ Cache já foi atualizado acima - não salvar em chrome.storage.local
+            } catch (e) {
+                console.warn('⚠️ Erro ao carregar configurações/estado, usando padrão:', e);
+            }
             
             console.log('╔═══════════════════════════════════════════════════════════╗');
             console.log('║  🎯 VERIFICANDO RECOMENDAÇÃO PENDENTE                    ║');
@@ -3203,9 +3215,9 @@ async function processNewSpinFromServer(spinData) {
                 }
                 console.log('═══════════════════════════════════════════════════════════\n');
                 
-                // Notificar content script sobre novo giro
+                // Notificar content script sobre novo giro (SEMPRE usar cachedHistory - array válido!)
                 sendMessageToContent('NEW_SPIN', { 
-                    history: history, 
+                    history: cachedHistory, 
                     lastSpin: { number: rollNumber, color: rollColor, timestamp: latestSpin.created_at } 
                 });
                 
@@ -3216,13 +3228,13 @@ async function processNewSpinFromServer(spinData) {
             console.log('%c║                                                                               ║', 'color: #FFD700; font-weight: bold; font-size: 16px; background: #333300; padding: 5px;');
             console.log('%c║       🎯 PRESTES A CHAMAR runAnalysisController()! 🎯                        ║', 'color: #FFD700; font-weight: bold; font-size: 16px; background: #333300; padding: 5px;');
             console.log('%c║                                                                               ║', 'color: #FFD700; font-weight: bold; font-size: 16px; background: #333300; padding: 5px;');
-            console.log('%c║       📊 Giros no histórico:', 'color: #FFD700; font-weight: bold; background: #333300; padding: 5px;', history ? history.length : 0);
+            console.log('%c║       📊 Giros no histórico:', 'color: #FFD700; font-weight: bold; background: #333300; padding: 5px;', cachedHistory ? cachedHistory.length : 0);
             console.log('%c║       🤖 Modo IA ativo:', 'color: #FFD700; font-weight: bold; background: #333300; padding: 5px;', analyzerConfig.aiMode);
             console.log('%c║                                                                               ║', 'color: #FFD700; font-weight: bold; font-size: 16px; background: #333300; padding: 5px;');
             console.log('%c╚═══════════════════════════════════════════════════════════════════════════════╝', 'color: #FFD700; font-weight: bold; font-size: 16px; background: #333300; padding: 5px;');
             console.log('');
             
-            await runAnalysisController(history);
+            await runAnalysisController(cachedHistory);
             
             console.log('');
             console.log('%c✅ runAnalysisController() FINALIZADO!', 'color: #00FF88; font-weight: bold; font-size: 16px; background: #003300; padding: 5px;');
