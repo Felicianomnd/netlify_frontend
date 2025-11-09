@@ -481,8 +481,18 @@
         // ✅ LOG DE DEBUG
         console.log('🔧 Salvando aiMode no storage:', newAIMode);
         console.log('🔧 Config completa sendo salva:', config);
+        
+        // ═══════════════════════════════════════════════════════════════════════════════
+        // ✅ SOLUÇÃO: Salvar modo específico da ABA no sessionStorage
+        // ═══════════════════════════════════════════════════════════════════════════════
+        // sessionStorage é ISOLADO POR ABA - cada aba mantém sua própria configuração
+        console.log(`%c💾 Salvando modo ESPECÍFICO desta ABA no sessionStorage...`, 'color: #00FF88; font-weight: bold;');
+        sessionStorage.setItem('tabSpecificAIMode', JSON.stringify(newAIMode));
+        console.log(`%c✅ Modo desta aba: ${newAIMode ? '💎 DIAMANTE' : '⚙️ PADRÃO'}`, 'color: #00FF88; font-weight: bold;');
+        
+        // ✅ Também salvar no chrome.storage.local (para ser padrão de novas abas)
         chrome.storage.local.set({ analyzerConfig: config }, function() {
-            console.log('✅ Configuração salva com sucesso!');
+            console.log('✅ Configuração global salva com sucesso!');
             updateAIModeUI(toggleElement, newAIMode);
             console.log(`🤖 Modo IA ${newAIMode ? 'ATIVADO' : 'DESATIVADO'}`);
             
@@ -2784,10 +2794,30 @@
         // ✅ Toggle de modo IA
         const aiModeToggle = document.getElementById('aiModeToggle');
         if (aiModeToggle) {
+            // ═══════════════════════════════════════════════════════════════════════════════
+            // ✅ SOLUÇÃO: Carregar modo específico da ABA primeiro (sessionStorage)
+            // ═══════════════════════════════════════════════════════════════════════════════
             // Carregar estado inicial
             chrome.storage.local.get(['analyzerConfig'], async function(result) {
                 const config = result.analyzerConfig || {};
-                const isAIMode = config.aiMode || false;
+                
+                // ✅ VERIFICAR SE ESTA ABA JÁ TEM UMA CONFIGURAÇÃO PRÓPRIA (sessionStorage)
+                const tabSpecificModeStr = sessionStorage.getItem('tabSpecificAIMode');
+                let isAIMode = config.aiMode || false; // Padrão do chrome.storage.local
+                
+                if (tabSpecificModeStr !== null) {
+                    // ✅ Esta aba tem uma configuração específica! Usar ela!
+                    isAIMode = JSON.parse(tabSpecificModeStr);
+                    console.log(`%c🔄 ABA ESPECÍFICA: Usando modo salvo desta aba (${isAIMode ? '💎 DIAMANTE' : '⚙️ PADRÃO'})`, 'color: #00FF88; font-weight: bold;');
+                } else {
+                    // ✅ Primeira vez nesta aba, usar padrão global e salvar no sessionStorage
+                    console.log(`%c🆕 NOVA ABA: Usando modo padrão global (${isAIMode ? '💎 DIAMANTE' : '⚙️ PADRÃO'})`, 'color: #FFA500; font-weight: bold;');
+                    sessionStorage.setItem('tabSpecificAIMode', JSON.stringify(isAIMode));
+                }
+                
+                // ✅ Atualizar config com o modo específico desta aba
+                config.aiMode = isAIMode;
+                
                 updateAIModeUI(aiModeToggle, isAIMode);
                 
                 // ✅ GARANTIR que o container está oculto se modo está DESATIVADO
@@ -2849,6 +2879,13 @@
                     };
                     
                     const config = { ...DEFAULT_CONFIG, ...(result.analyzerConfig || {}) };
+                    
+                    // ✅ USAR O MODO ESPECÍFICO DESTA ABA (sessionStorage) EM VEZ DO GLOBAL
+                    const tabSpecificModeStr = sessionStorage.getItem('tabSpecificAIMode');
+                    if (tabSpecificModeStr !== null) {
+                        config.aiMode = JSON.parse(tabSpecificModeStr);
+                    }
+                    
                     const newAIMode = !config.aiMode;
                     
                     // ✅ LOG DE DEBUG - Ver o que foi carregado
@@ -5458,9 +5495,19 @@
                     return;
                 }
                 
+                // ✅ PRESERVAR aiMode ESPECÍFICO DESTA ABA (sessionStorage)
+                const tabSpecificModeStr = sessionStorage.getItem('tabSpecificAIMode');
+                let tabSpecificAIMode = currentConfig.aiMode || false; // Fallback para padrão global
+                
+                if (tabSpecificModeStr !== null) {
+                    tabSpecificAIMode = JSON.parse(tabSpecificModeStr);
+                    console.log(`%c🔒 Preservando aiMode específico desta aba: ${tabSpecificAIMode ? '💎 DIAMANTE' : '⚙️ PADRÃO'}`, 'color: #00FF88; font-weight: bold;');
+                }
+                
                 // ✅ MESCLAR com configuração atual para preservar aiMode e outros estados
                 const cfg = {
-                    ...currentConfig, // Preservar configurações existentes (incluindo aiMode)
+                    ...currentConfig, // Preservar configurações existentes
+                    aiMode: tabSpecificAIMode, // ✅ USAR MODO ESPECÍFICO DESTA ABA!
                     minOccurrences: minOcc,
                     maxOccurrences: maxOcc,
                     minIntervalSpins: minInt,
@@ -5480,7 +5527,7 @@
                 
                 console.log('');
                 console.log('%c💾 Salvando em chrome.storage.local...', 'color: #00FF88; font-weight: bold;');
-                console.log('   aiMode preservado:', cfg.aiMode);
+                console.log('   aiMode preservado (específico desta aba):', cfg.aiMode);
                 console.log('   Objeto completo:', cfg);
                 
                 chrome.storage.local.set({ analyzerConfig: cfg }, async function() {

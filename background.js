@@ -421,6 +421,21 @@ let martingaleState = {
     patternsWithoutHistory: 0         // Contador de padrões sem histórico que deram LOSS
 };
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// CONTROLE DE ENTRADAS DE ALTERNÂNCIA (MODO DIAMANTE - NÍVEL 3)
+// ═══════════════════════════════════════════════════════════════════════════════
+let alternanceEntryControl = {
+    active: false,                    // Se há alternância ativa
+    patternSignature: null,           // Identificador do padrão de alternância (ex: "alternancia-simples")
+    entryColor: null,                 // Cor da entrada inicial
+    entryCount: 0,                    // Quantas entradas foram feitas (máx 2)
+    lastResult: null,                 // 'win' | 'loss' | null
+    lastEntryTimestamp: null,         // Timestamp da última entrada
+    blockedUntil: null,               // Timestamp até quando está bloqueado (após loss)
+    totalWins: 0,                     // Contador de wins da alternância
+    totalLosses: 0                    // Contador de losses da alternância
+};
+
 // Histórico de "cores quentes" por padrão
 // Estrutura: { "patternKey": { after1Loss: {red: 5, black: 3}, after2Loss: {red: 2, black: 8} } }
 let hotColorsHistory = {};
@@ -5656,6 +5671,45 @@ async function checkPreviousSignalAccuracy(newSpin) {
     lastSignal.hit = hit;
     lastSignal.verified = true;
     
+    // 🔥 ATUALIZAR CONTROLE DE ALTERNÂNCIA (SE ATIVO)
+    if (alternanceEntryControl.active && lastSignal.patternType === 'nivel-diamante') {
+        console.log('%c🔄 Atualizando controle de alternância...', 'color: #8E44AD; font-weight: bold;');
+        console.log(`   Resultado: ${hit ? 'WIN' : 'LOSS'}`);
+        console.log(`   Entrada atual: ${alternanceEntryControl.entryCount}/2`);
+        
+        alternanceEntryControl.lastResult = hit ? 'win' : 'loss';
+        
+        if (hit) {
+            alternanceEntryControl.totalWins++;
+            console.log(`%c   ✅ WIN registrado! Total: ${alternanceEntryControl.totalWins}W / ${alternanceEntryControl.totalLosses}L`, 'color: #00FF88; font-weight: bold;');
+        } else {
+            alternanceEntryControl.totalLosses++;
+            console.log(`%c   ❌ LOSS registrado! Total: ${alternanceEntryControl.totalWins}W / ${alternanceEntryControl.totalLosses}L`, 'color: #FF6666; font-weight: bold;');
+            
+            // 🔥 Se LOSS na 1ª entrada ou se já fez 2 entradas → RESETAR controle
+            if (alternanceEntryControl.entryCount <= 1 || alternanceEntryControl.entryCount >= 2) {
+                console.log('%c   🔄 RESETANDO controle de alternância', 'color: #FFAA00; font-weight: bold;');
+                alternanceEntryControl.active = false;
+                alternanceEntryControl.patternSignature = null;
+                alternanceEntryControl.entryColor = null;
+                alternanceEntryControl.entryCount = 0;
+                alternanceEntryControl.lastResult = null;
+                alternanceEntryControl.lastEntryTimestamp = null;
+            }
+        }
+        
+        // Se fez 2 entradas e teve WIN, resetar também
+        if (hit && alternanceEntryControl.entryCount >= 2) {
+            console.log('%c   ✅ 2 entradas completas! RESETANDO controle de alternância', 'color: #00FF88; font-weight: bold;');
+            alternanceEntryControl.active = false;
+            alternanceEntryControl.patternSignature = null;
+            alternanceEntryControl.entryColor = null;
+            alternanceEntryControl.entryCount = 0;
+            alternanceEntryControl.lastResult = null;
+            alternanceEntryControl.lastEntryTimestamp = null;
+        }
+    }
+    
     // Atualizar estatísticas por padrão
     const patternKey = `${lastSignal.patternType}_${lastSignal.patternSize}`;
     if (!signalsHistory.patternStats[patternKey]) {
@@ -9586,6 +9640,9 @@ async function analyzeWithPatternSystem(history) {
 
         // 🔥 NOVA LÓGICA: Alternância precisa de pelo menos 2 outros níveis concordando
         let alternanceOverride = false;
+        let alternanceBlocked = false;
+        let alternanceBlockReason = '';
+        
         if (alternanceOverrideActive && alternanceColor) {
             // Contar quantos outros níveis concordam com a cor da alternância
             const otherLevelsAgreeingCount = levelReports.filter(lvl => 
@@ -9596,7 +9653,53 @@ async function analyzeWithPatternSystem(history) {
             console.log(`   Cor da alternância: ${alternanceColor.toUpperCase()}`);
             console.log(`   Outros níveis concordando: ${otherLevelsAgreeingCount}/4 (N1, N2, N4, N5)`);
             
-            if (otherLevelsAgreeingCount >= 2) {
+            // ═══════════════════════════════════════════════════════════════
+            // 🛡️ CONTROLE DE ENTRADAS: Máximo 2 entradas por alternância
+            // ═══════════════════════════════════════════════════════════════
+            
+            const alternanceSignature = `${nivel7.pattern}-${alternanceColor}`;
+            const now = Date.now();
+            
+            // Verificar se é a mesma alternância que está ativa
+            if (alternanceEntryControl.active && alternanceEntryControl.patternSignature === alternanceSignature) {
+                console.log('%c   📊 Alternância já ativa:', 'color: #FFAA00; font-weight: bold;');
+                console.log(`      Entradas feitas: ${alternanceEntryControl.entryCount}/2`);
+                console.log(`      Último resultado: ${alternanceEntryControl.lastResult || 'N/A'}`);
+                console.log(`      Total: ${alternanceEntryControl.totalWins}W / ${alternanceEntryControl.totalLosses}L`);
+                
+                // 🔥 REGRA 1: Se teve LOSS na primeira entrada → BLOQUEAR IMEDIATAMENTE
+                if (alternanceEntryControl.lastResult === 'loss' && alternanceEntryControl.entryCount === 1) {
+                    alternanceBlocked = true;
+                    alternanceBlockReason = 'LOSS na 1ª entrada → bloqueado';
+                    console.log('%c   ❌ BLOQUEADO: LOSS na primeira entrada!', 'color: #FF0000; font-weight: bold;');
+                    console.log('%c      Sistema não fará mais entradas nesta alternância.', 'color: #FF6666;');
+                }
+                // 🔥 REGRA 2: Já fez 2 entradas → LIMITE ATINGIDO
+                else if (alternanceEntryControl.entryCount >= 2) {
+                    alternanceBlocked = true;
+                    alternanceBlockReason = `Limite de 2 entradas atingido`;
+                    console.log('%c   ❌ BLOQUEADO: Limite de 2 entradas atingido!', 'color: #FF0000; font-weight: bold;');
+                }
+                // ✅ REGRA 3: WIN na 1ª + tem entradas consecutivas configuradas → Pode fazer 2ª
+                else if (alternanceEntryControl.lastResult === 'win' && alternanceEntryControl.entryCount === 1) {
+                    if (!analyzerConfig.consecutiveMartingale) {
+                        alternanceBlocked = true;
+                        alternanceBlockReason = 'Entradas consecutivas desativadas';
+                        console.log('%c   ⏸️ BLOQUEADO: Entradas consecutivas desativadas pelo usuário', 'color: #FFAA00; font-weight: bold;');
+                    } else {
+                        console.log('%c   ✅ PERMITIDO: WIN na 1ª entrada + consecutivas ativas → pode fazer 2ª', 'color: #00FF88; font-weight: bold;');
+                    }
+                }
+            } else {
+                // Nova alternância detectada
+                console.log('%c   🆕 Nova alternância detectada!', 'color: #00AAFF; font-weight: bold;');
+            }
+            
+            // ═══════════════════════════════════════════════════════════════
+            
+            if (alternanceBlocked) {
+                console.log('%c   🚫 Alternância BLOQUEADA:', alternanceBlockReason, 'color: #FF6666; font-weight: bold;');
+            } else if (otherLevelsAgreeingCount >= 2) {
                 alternanceOverride = true;
                 console.log('%c   ✅ Override APROVADO! Pelo menos 2 níveis concordam.', 'color: #00FF88; font-weight: bold;');
                 console.log('%c   ⚡ Anulando outros níveis...', 'color: #8E44AD; font-weight: bold;');
@@ -9608,6 +9711,22 @@ async function analyzeWithPatternSystem(history) {
                         lvl.strength = 0;
                     }
                 });
+                
+                // 🎯 ATIVAR CONTROLE DE ALTERNÂNCIA (se ainda não estiver ativo)
+                if (!alternanceEntryControl.active || alternanceEntryControl.patternSignature !== alternanceSignature) {
+                    alternanceEntryControl.active = true;
+                    alternanceEntryControl.patternSignature = alternanceSignature;
+                    alternanceEntryControl.entryColor = alternanceColor;
+                    alternanceEntryControl.entryCount = 1; // Primeira entrada
+                    alternanceEntryControl.lastResult = null; // Aguardando resultado
+                    alternanceEntryControl.lastEntryTimestamp = now;
+                    console.log('%c   🎯 Controle de alternância ATIVADO (1ª entrada)', 'color: #00FF88; font-weight: bold;');
+                } else {
+                    // Incrementar contador para 2ª entrada
+                    alternanceEntryControl.entryCount = 2;
+                    alternanceEntryControl.lastEntryTimestamp = now;
+                    console.log('%c   🎯 Controle de alternância: 2ª entrada registrada', 'color: #00FF88; font-weight: bold;');
+                }
             } else {
                 console.log('%c   ❌ Override REJEITADO! Menos de 2 níveis concordam.', 'color: #FF6666; font-weight: bold;');
                 console.log('%c   ➤ Alternância detectada, mas sem consenso suficiente dos outros níveis.', 'color: #FFAA00;');
@@ -9640,6 +9759,20 @@ async function analyzeWithPatternSystem(history) {
             ? `Alternância excede histórico (${nivel7 ? nivel7.alternanceTargetRuns : '?'} > ${nivel7 ? nivel7.alternanceMaxRuns || '∞' : '?'})`
             : `Atual ${barrierResult.currentStreak} • alvo ${barrierResult.targetStreak} • máx ${barrierResult.maxStreakFound}`;
 
+        // 🔥 VERIFICAR SE ALTERNÂNCIA ESTÁ BLOQUEADA
+        if (alternanceBlocked && alternanceOverrideActive) {
+            console.log('%c🚫🚫🚫 SINAL BLOQUEADO - CONTROLE DE ALTERNÂNCIA! 🚫🚫🚫', 'color: #FFFFFF; font-weight: bold; font-size: 16px; background: #FF0000;');
+            console.log(`%c   Motivo: ${alternanceBlockReason}`, 'color: #FF6666; font-weight: bold;');
+            console.log('');
+            await emitLevelStatuses(levelReports);
+            sendAnalysisStatus(`🛑 N3 - Alternância → ❌ BLOQUEADO (${alternanceBlockReason})`);
+            await sleep(1500);
+            sendAnalysisStatus('❌ Sinal rejeitado: limite de entradas de alternância');
+            await sleep(2000);
+            await restoreIAStatus();
+            return null;
+        }
+        
         if (!barrierResult.allowed) {
             console.log('%c🚫🚫🚫 SINAL BLOQUEADO PELA BARREIRA! 🚫🚫🚫', 'color: #FFFFFF; font-weight: bold; font-size: 16px; background: #FF0000;');
             console.log('%c   Sequência sem precedente histórico!', 'color: #FF6666; font-weight: bold;');
