@@ -12467,6 +12467,8 @@ async function discoverAndPersistPatterns(history, startTs, budgetMs) {
 
 	let discovered = [];
 	let duplicatesCount = 0; // ✅ CONTADOR DE DUPLICATAS
+	let rejectedByInvalidTriggerCount = 0; // ✅ CONTADOR DE PADRÕES REJEITADOS POR TRIGGER INVÁLIDA
+	
 	for (let idx = 0; idx < tasks.length; idx++) {
 		// Orçamento de tempo
 		if ((Date.now() - startTs) > budgetMs) break;
@@ -12559,15 +12561,20 @@ async function discoverAndPersistPatterns(history, startTs, budgetMs) {
 		}
 	}
 
-	// ✅ MOSTRAR RESUMO DE DUPLICATAS (apenas se houver)
+	// ✅ MOSTRAR RESUMO DE DUPLICATAS E REJEIÇÕES
 	if (duplicatesCount > 0) {
 		console.log(`🔍 ${duplicatesCount} padrão(ões) duplicado(s) ignorado(s)`);
+	}
+	if (rejectedByInvalidTriggerCount > 0) {
+		console.log(`%c❌ ${rejectedByInvalidTriggerCount} padrão(ões) REJEITADO(S) por trigger inválida`, 'color: #FF6666; font-weight: bold;');
 	}
 
 	if (discovered.length === 0) {
 		console.log('🔍 Descoberta: Nenhum padrão novo encontrado (todos já existem no banco)');
 		return;
 	}
+	
+	console.log(`%c🎯 DESCOBERTA: ${discovered.length} padrão(ões) novo(s) encontrado(s)`, 'color: #00FF88; font-weight: bold;');
 
 	// Log de descoberta
 	console.log(`
@@ -12631,6 +12638,7 @@ async function discoverAndPersistPatterns(history, startTs, budgetMs) {
 			const triggerValidation = validateDisparoColor(firstColorNormalized, triggerNormalized);
 			
 			if (!triggerValidation.valid) {
+				rejectedByInvalidTriggerCount++; // Incrementar contador
 				console.log(`❌ Padrão REJEITADO antes de salvar: trigger inválida`, {
 					pattern: p.pattern.join('-'),
 					firstColor: firstColorNormalized,
@@ -12658,6 +12666,19 @@ async function discoverAndPersistPatterns(history, startTs, budgetMs) {
 	// Limitar para não crescer indefinidamente
 	db.patterns_found = db.patterns_found.slice(0, 5000);
 	await savePatternDB(db);
+	
+	// ✅ LOG FINAL: Resumo da descoberta
+	const savedCount = discovered.length - rejectedByInvalidTriggerCount;
+	console.log('');
+	console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #00FF88; font-weight: bold;');
+	console.log('%c║  📊 RESUMO DA DESCOBERTA DE PADRÕES                      ║', 'color: #00FF88; font-weight: bold;');
+	console.log('%c╠═══════════════════════════════════════════════════════════╣', 'color: #00FF88; font-weight: bold;');
+	console.log(`%c║  ✅ Padrões SALVOS: ${savedCount.toString().padEnd(4)}                                  ║`, 'color: #00FF88; font-weight: bold;');
+	console.log(`%c║  ❌ Padrões REJEITADOS (trigger inválida): ${rejectedByInvalidTriggerCount.toString().padEnd(4)}      ║`, 'color: #FF6666; font-weight: bold;');
+	console.log(`%c║  🔄 Padrões DUPLICADOS (ignorados): ${duplicatesCount.toString().padEnd(4)}           ║`, 'color: #FFAA00; font-weight: bold;');
+	console.log(`%c║  📦 Total no banco: ${db.patterns_found.length.toString().padEnd(4)} / 5000                      ║`, 'color: #00AAFF; font-weight: bold;');
+	console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #00FF88; font-weight: bold;');
+	console.log('');
 }
 
 // Varredura rápida por padrões de cores (sem exigir match atual, apenas descoberta)
