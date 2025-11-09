@@ -11715,6 +11715,41 @@ async function loadPatternDB(silent = false) {
 		? res.patternDB
 		: { patterns_found: [], version: 1 };
 	
+	// 🔥 LIMPEZA CRÍTICA: Remover padrões com trigger inválida do banco
+	if (db.patterns_found && db.patterns_found.length > 0) {
+		const beforeCount = db.patterns_found.length;
+		db.patterns_found = db.patterns_found.filter(pat => {
+			// Se não tem padrão ou trigger, manter (será validado depois)
+			if (!Array.isArray(pat.pattern) || pat.pattern.length === 0 || !pat.triggerColor) {
+				return true;
+			}
+			
+			// Validar trigger
+			const firstColorNorm = normalizeColorName(pat.pattern[0]);
+			const triggerNorm = normalizeColorName(pat.triggerColor);
+			const validation = validateDisparoColor(firstColorNorm, triggerNorm);
+			
+			if (!validation.valid) {
+				console.log(`🗑️ Removendo padrão inválido do banco:`, {
+					pattern: pat.pattern.join('-'),
+					firstColor: firstColorNorm,
+					trigger: triggerNorm,
+					reason: validation.reason
+				});
+				return false; // ❌ Remover do banco
+			}
+			
+			return true; // ✅ Manter no banco
+		});
+		
+		const removedCount = beforeCount - db.patterns_found.length;
+		if (removedCount > 0) {
+			console.log(`🧹 Limpeza do banco: ${removedCount} padrão(ões) inválido(s) removido(s)`);
+			// Salvar banco limpo
+			await savePatternDB(db);
+		}
+	}
+	
 	// ✅ Log visual das estatísticas (DESABILITAR durante busca ativa para performance)
 	if (!silent && !initialSearchActive) {
 		logPatternDBStats(db, 'load');
@@ -12589,7 +12624,24 @@ async function discoverAndPersistPatterns(history, startTs, budgetMs) {
 		if (typeof p.total_wins !== 'number') p.total_wins = 0;
 		if (typeof p.total_losses !== 'number') p.total_losses = 0;
 		
-		// ✅ ADICIONAR AO BANCO (JÁ VALIDADO COMO NÃO DUPLICADO)
+		// 🔥 VALIDAÇÃO CRÍTICA FINAL: Validar trigger antes de salvar no banco
+		if (Array.isArray(p.pattern) && p.pattern.length > 0 && p.triggerColor) {
+			const firstColorNormalized = normalizeColorName(p.pattern[0]);
+			const triggerNormalized = normalizeColorName(p.triggerColor);
+			const triggerValidation = validateDisparoColor(firstColorNormalized, triggerNormalized);
+			
+			if (!triggerValidation.valid) {
+				console.log(`❌ Padrão REJEITADO antes de salvar: trigger inválida`, {
+					pattern: p.pattern.join('-'),
+					firstColor: firstColorNormalized,
+					trigger: triggerNormalized,
+					reason: triggerValidation.reason
+				});
+				continue; // ❌ NÃO SALVAR este padrão no banco
+			}
+		}
+		
+		// ✅ ADICIONAR AO BANCO (JÁ VALIDADO COMO NÃO DUPLICADO E TRIGGER VÁLIDA)
 		db.patterns_found.unshift({
 			id: p.id,
 			pattern: p.pattern, // ✅ Sempre array após normalização
@@ -12646,11 +12698,33 @@ function discoverColorPatternsFast(colors, size, strideOffset) {
 				// Trigger mais frequente observado para esta sequência
                 // Mas garantir que a trigger seja diferente da primeira cor do padrão
                 let trigMost = Object.keys(bag.triggerCounts).reduce((a,b) => bag.triggerCounts[a] > bag.triggerCounts[b] ? a : b);
-                if (!isValidTrigger(trigMost, bag.seq)) {
+                
+                // ✅ VALIDAÇÃO CRÍTICA: Normalizar e validar trigger antes de usar
+                const trigMostNormalized = normalizeColorName(trigMost);
+                const firstPatternColorNormalized = normalizeColorName(bag.seq[0]);
+                const triggerValidation = validateDisparoColor(firstPatternColorNormalized, trigMostNormalized);
+                
+                if (!triggerValidation.valid) {
                     // Tentar outra trigger válida se existir
-                    const candidates = Object.keys(bag.triggerCounts).filter(t => isValidTrigger(t, bag.seq));
-                    if (candidates.length === 0) return; // descartar padrão inválido
+                    const candidates = Object.keys(bag.triggerCounts)
+                        .map(t => normalizeColorName(t))
+                        .filter(t => t && validateDisparoColor(firstPatternColorNormalized, t).valid);
+                    
+                    if (candidates.length === 0) {
+                        console.log(`❌ Padrão descoberto rejeitado: nenhuma trigger válida encontrada`, {
+                            pattern: bag.seq.join('-'),
+                            firstColor: firstPatternColorNormalized,
+                            attemptedTriggers: Object.keys(bag.triggerCounts)
+                        });
+                        continue; // ❌ BUG CORRIGIDO: era "return", agora é "continue"
+                    }
+                    
                     trigMost = candidates.sort((a,b)=> bag.triggerCounts[b]-bag.triggerCounts[a])[0];
+                    console.log(`✅ Trigger inválida substituída por válida:`, {
+                        pattern: bag.seq.join('-'),
+                        invalidTrigger: trigMostNormalized,
+                        validTrigger: trigMost
+                    });
                 }
 				// Calcular assertividade inteligente imediatamente
 				out.push({
