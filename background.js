@@ -7616,7 +7616,7 @@ function detectHotPattern(history) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// 🎯 FUNÇÕES AUXILIARES PARA SISTEMA DE 6 NÍVEIS - MODO DIAMANTE
+// 🎯 FUNÇÕES AUXILIARES PARA SISTEMA DE 5 NÍVEIS - MODO DIAMANTE
 // ═══════════════════════════════════════════════════════════════════════════════
 
 /**
@@ -7800,34 +7800,36 @@ function analyzeMinuteSum(history, currentMinute, targetPosition) {
 }
 
 /**
- * NÍVEL 5: Análise de Momentum (Tendência Recente vs Estabelecida)
- * Compara últimos 10 giros com os 20 giros anteriores
+ * NÍVEL 2: Análise de Momentum (tendência quente vs base recente)
+ * Compara os últimos 5 giros com os 15 giros imediatamente anteriores
  */
 function analyzeMomentum(history) {
     console.log('%c┌─────────────────────────────────────────────────────────┐', 'color: #00AAFF; font-weight: bold;');
-    console.log('%c│ 🔍 NÍVEL 5: MOMENTUM (10 RECENTES vs 20 ANTERIORES)   │', 'color: #00AAFF; font-weight: bold;');
+    console.log('%c│ 🔍 NÍVEL 2: MOMENTUM (5 RECENTES vs 15 ANTERIORES)   │', 'color: #00AAFF; font-weight: bold;');
     console.log('%c└─────────────────────────────────────────────────────────┘', 'color: #00AAFF; font-weight: bold;');
     
-    const last30 = history.slice(0, Math.min(30, history.length));
+    const totalNeeded = 5 + 15;
+    const windowSize = Math.min(totalNeeded, history.length);
+    const windowSpins = history.slice(0, windowSize);
     console.log(`   📊 Total de giros disponíveis: ${history.length}`);
-    console.log(`   📊 Analisando últimos: ${last30.length} giros`);
+    console.log(`   📊 Analisando últimos: ${windowSpins.length} giros`);
     
-    if (last30.length < 30) {
-        // Não há dados suficientes, usar o que tem
-        const available = last30.length;
-        const recent = Math.floor(available / 3); // 1/3 para recente
-        const previous = available - recent;      // 2/3 para anterior
-        
+    let recentSize = 5;
+    let previousSize = 15;
+    
+    if (windowSpins.length < totalNeeded) {
+        // Ajustar proporcionalmente mantendo prioridade nos giros recentes
+        const available = windowSpins.length;
+        recentSize = Math.max(2, Math.min(5, Math.floor(available / 3)));
+        previousSize = Math.max(1, available - recentSize);
         console.log(`   ⚠️ Dados insuficientes! Ajustando janelas:`);
-        console.log(`      Recentes: ${recent} giros | Anteriores: ${previous} giros`);
-        
-        return analyzeMomentumWithSizes(last30, recent, previous);
+        console.log(`      Recentes: ${recentSize} giros | Anteriores: ${previousSize} giros`);
+    } else {
+        console.log(`   📊 Janela recente: 5 últimos giros`);
+        console.log(`   📊 Janela anterior: 15 giros antes`);
     }
     
-    console.log(`   📊 Janela recente: 10 últimos giros`);
-    console.log(`   📊 Janela anterior: 20 giros antes`);
-    
-    return analyzeMomentumWithSizes(last30, 10, 20);
+    return analyzeMomentumWithSizes(windowSpins, recentSize, previousSize);
 }
 
 function analyzeMomentumWithSizes(history, recentSize, previousSize) {
@@ -7904,16 +7906,125 @@ function analyzeMomentumWithSizes(history, recentSize, previousSize) {
 }
 
 /**
+ * NÍVEL 5 (novo): Ritmo por Giro e Minuto
+ * Mede a cor dominante para o próximo giro (1 ou 2) dentro do minuto alvo
+ * Examina até windowSize ocorrências recentes com mesmo minuto e posição
+ */
+function analyzeMinuteSpinBias(history, targetMinute, targetPosition, windowSize = 60) {
+    console.log('%c┌─────────────────────────────────────────────────────────┐', 'color: #1ABC9C; font-weight: bold;');
+    console.log(`%c│ 🔍 NÍVEL 5: RITMO POR GIRO (min:${String(targetMinute).padStart(2, '0')} • giro ${targetPosition}) │`, 'color: #1ABC9C; font-weight: bold;');
+    console.log('%c└─────────────────────────────────────────────────────────┘', 'color: #1ABC9C; font-weight: bold;');
+    
+    const MAX_WINDOW = Math.max(10, Math.min(120, windowSize));
+    const counts = { red: 0, black: 0, white: 0 };
+    const samples = [];
+    
+    for (let i = 0; i < history.length && samples.length < MAX_WINDOW; i++) {
+        const spin = history[i];
+        if (!spin || !spin.timestamp) continue;
+        
+        const pos = identifySpinPosition(spin.timestamp);
+        if (pos !== targetPosition) continue;
+        
+        const date = new Date(spin.timestamp);
+        if (date.getMinutes() !== targetMinute) continue;
+        
+        if (spin.color in counts) {
+            counts[spin.color]++;
+        }
+        samples.push({
+            color: spin.color,
+            number: spin.number,
+            timestamp: date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+        });
+    }
+    
+    const totalSamples = samples.length;
+    const effectiveSamples = totalSamples - counts.white;
+    
+    console.log(`   📊 Amostras encontradas: ${totalSamples} (máx ${MAX_WINDOW})`);
+    console.log(`      🔴 Vermelhos: ${counts.red}`);
+    console.log(`      ⚫ Pretos: ${counts.black}`);
+    console.log(`      ⚪ Brancos: ${counts.white}`);
+    
+    if (totalSamples === 0 || effectiveSamples <= 0) {
+        console.log('   ❌ Dados insuficientes para este minuto/giro');
+        return {
+            color: null,
+            confidence: 0,
+            dominantPercent: 0,
+            totalSamples,
+            effectiveSamples,
+            details: 'Sem dados suficientes para este minuto/giro'
+        };
+    }
+    
+    const redPercent = counts.red / effectiveSamples;
+    const blackPercent = counts.black / effectiveSamples;
+    const dominantColor = redPercent > blackPercent ? 'red' : 'black';
+    const dominantPercent = dominantColor === 'red' ? redPercent : blackPercent;
+    const dominantPercentFormatted = (dominantPercent * 100).toFixed(1);
+    
+    let confidence = 0;
+    if (dominantPercent >= 0.65) {
+        confidence = 0.85;
+    } else if (dominantPercent >= 0.55) {
+        confidence = 0.65;
+    } else if (dominantPercent >= 0.52) {
+        confidence = 0.55;
+    } else {
+        console.log('   ⚠️ Percentual dominante abaixo de 52% - voto nulo');
+        return {
+            color: null,
+            confidence: 0,
+            dominantPercent,
+            totalSamples,
+            effectiveSamples,
+            details: `Nenhuma cor dominante clara (máx ${dominantPercentFormatted}%)`
+        };
+    }
+    
+    if (totalSamples < 12) {
+        const reduction = Math.max(0.35, totalSamples / 12);
+        confidence *= reduction;
+        console.log(`   ⚠️ Amostra pequena (${totalSamples}) - confiança reduzida (${(reduction * 100).toFixed(0)}%)`);
+    }
+    
+    if (counts.white / totalSamples >= 0.15) {
+        confidence *= 0.85;
+        console.log('   ⚠️ Muitos brancos (≥15%) - confiança reduzida em 15%');
+    }
+    
+    confidence = Math.min(1, Math.max(0, confidence));
+    
+    console.log(`   🏆 Cor dominante: ${dominantColor.toUpperCase()} (${dominantPercentFormatted}%)`);
+    console.log(`   🗳️ Confiança final: ${(confidence * 100).toFixed(0)}%`);
+    
+    return {
+        color: dominantColor,
+        confidence,
+        dominantPercent,
+        totalSamples,
+        effectiveSamples,
+        details: `${dominantPercentFormatted}% ${dominantColor === 'red' ? 'vermelho' : 'preto'} em ${effectiveSamples} ocorrências úteis`
+    };
+}
+
+/**
  * NÍVEL 6: Barreira/Freio - Valida se a sequência é viável historicamente
+ * Usa somente os últimos 50 giros para garantir proteção recente
  */
 function validateSequenceBarrier(history, predictedColor, configuredSize) {
     console.log('%c┌─────────────────────────────────────────────────────────┐', 'color: #FF0000; font-weight: bold;');
     console.log('%c│ 🔍 NÍVEL 6: BARREIRA (FREIO DE SEGURANÇA)             │', 'color: #FF0000; font-weight: bold;');
     console.log('%c└─────────────────────────────────────────────────────────┘', 'color: #FF0000; font-weight: bold;');
     
-    const last = history.slice(0, Math.min(configuredSize, history.length));
+    const BARRIER_WINDOW = 50;
+    const effectiveWindow = Math.min(BARRIER_WINDOW, history.length);
+    const last = history.slice(0, effectiveWindow);
     console.log(`   📊 Total de giros disponíveis: ${history.length}`);
     console.log(`   📊 Histórico configurado: ${configuredSize} giros`);
+    console.log(`   📊 Janela fixa da barreira: ${BARRIER_WINDOW} giros`);
     console.log(`   📊 Analisando últimos: ${last.length} giros`);
     console.log(`   🎯 Cor prevista pelos outros níveis: ${predictedColor.toUpperCase()}`);
     
@@ -7980,178 +8091,150 @@ function validateSequenceBarrier(history, predictedColor, configuredSize) {
 }
 
 /**
- * NÍVEL 7: Análise de Padrão de Alternância
- * Detecta se o jogo está em padrão alternante (R-P-R-P) ou grupos (R-R-P-P)
- * Vota A FAVOR do padrão detectado (nunca contra!)
- * Analisa conforme configuração do usuário (aiHistorySize), mínimo 12 giros
+ * NÍVEL 3: Análise de Padrão de Alternância
+ * Reconhece alternâncias simples/duplas/triplas e agrupamentos curtos
+ * Trabalha com janela configurável (12-50), ignorando histórico após o último branco
  */
 function analyzeAlternancePattern(history, configuredSize = 12) {
     console.log('%c┌─────────────────────────────────────────────────────────┐', 'color: #8E44AD; font-weight: bold;');
-    console.log('%c│ 🔍 NÍVEL 7: ALTERNÂNCIA (CONFIGURÁVEL)                │', 'color: #8E44AD; font-weight: bold;');
+    console.log('%c│ 🔍 NÍVEL 3: PADRÃO DE ALTERNÂNCIA                     │', 'color: #8E44AD; font-weight: bold;');
     console.log('%c└─────────────────────────────────────────────────────────┘', 'color: #8E44AD; font-weight: bold;');
     
-    // Usar o que o usuário configurou, mas com mínimo de 12 e máximo de 50
     const effectiveSize = Math.max(12, Math.min(50, configuredSize));
-    const lastN = history.slice(0, Math.min(effectiveSize, history.length));
+    const filtered = [];
+    let whiteFoundIndex = -1;
+    for (let i = 0; i < history.length && filtered.length < effectiveSize; i++) {
+        const spin = history[i];
+        if (spin.color === 'white') {
+            whiteFoundIndex = i;
+            console.log(`   ⚪ BRANCO detectado ${i === 0 ? 'no último giro!' : `há ${i} giro(s)`}. Reiniciando contagem a partir dele.`);
+            break;
+        }
+        filtered.push(spin);
+    }
     
     console.log(`   📊 Total de giros disponíveis: ${history.length}`);
     console.log(`   ⚙️ Histórico configurado pelo usuário: ${configuredSize} giros`);
-    console.log(`   📊 Tamanho efetivo (12-50): ${effectiveSize} giros`);
-    console.log(`   📊 Analisando últimos: ${lastN.length} giros`);
-    
-    // ═══════════════════════════════════════════════════════════════
-    // 🔥 CRÍTICO: SE HOUVER BRANCO, DESCARTAR TUDO ANTES DELE!
-    // ═══════════════════════════════════════════════════════════════
-    let validHistory = lastN;
-    
-    // Procurar o primeiro branco (mais recente)
-    const firstWhiteIndex = lastN.findIndex(spin => spin.color === 'white');
-    
-    if (firstWhiteIndex !== -1) {
-        // ⚠️ BRANCO ENCONTRADO! Descartar tudo a partir dele (inclusive)
-        validHistory = lastN.slice(0, firstWhiteIndex);
-        console.log(`   ⚪ BRANCO ENCONTRADO na posição ${firstWhiteIndex}!`);
-        console.log(`   🔄 RESETANDO análise! Descartando ${lastN.length - validHistory.length} giros`);
-        console.log(`   ✅ Giros válidos após o reset: ${validHistory.length}`);
+    console.log(`   📊 Considerando últimos ${filtered.length} giros (até encontrar branco)`);
+    if (whiteFoundIndex !== -1) {
+        console.log(`   ⏱️ Giros desde o último branco: ${whiteFoundIndex}`);
     } else {
-        console.log(`   ✅ Nenhum BRANCO encontrado - analisando todos os ${validHistory.length} giros`);
+        console.log('   ⏱️ Nenhum branco recente encontrado nessa janela');
     }
     
-    if (validHistory.length < 4) {
-        console.log(`   ❌ Dados insuficientes após reset! Mínimo: 4 giros, disponível: ${validHistory.length}`);
+    if (filtered.length < 4) {
+        console.log(`   ❌ Dados insuficientes (apenas ${filtered.length} giros válidos)`);
         return {
             color: null,
             pattern: 'insufficient_data',
             confidence: 0,
-            details: `Apenas ${validHistory.length} giros após branco (mín: 4)`
+            details: `Apenas ${filtered.length} giros válidos (mín: 4)`
         };
     }
     
-    // Contar alternâncias (mudanças de cor)
-    let alternations = 0;
-    let consecutiveCount = 0;
-    let lastNonWhite = null;
-    let sequences = []; // Rastrear sequências
-    let currentSequence = { color: null, length: 0 };
-    
-    for (let i = 0; i < validHistory.length; i++) {
-        const spin = validHistory[i];
-        
-        // ✅ validHistory já não contém brancos após o reset, só cores válidas
-        
-        if (lastNonWhite && spin.color !== lastNonWhite) {
-            alternations++;
-            
-            // Finalizar sequência anterior
-            if (currentSequence.color) {
-                sequences.push({ ...currentSequence });
-            }
-            // Iniciar nova sequência
-            currentSequence = { color: spin.color, length: 1 };
-        } else if (spin.color === lastNonWhite) {
-            consecutiveCount++;
-            currentSequence.length++;
+    const colors = filtered.map(spin => spin.color);
+    const runs = [];
+    let currentColor = colors[0];
+    let currentLength = 1;
+    for (let i = 1; i < colors.length; i++) {
+        if (colors[i] === currentColor) {
+            currentLength++;
         } else {
-            // Primeiro giro não-branco
-            currentSequence = { color: spin.color, length: 1 };
+            runs.push({ color: currentColor, length: currentLength });
+            currentColor = colors[i];
+            currentLength = 1;
         }
-        
-        lastNonWhite = spin.color;
     }
+    runs.push({ color: currentColor, length: currentLength });
     
-    // Adicionar última sequência
-    if (currentSequence.color) {
-        sequences.push(currentSequence);
-    }
+    const alternations = colors.length > 1 ? colors.slice(1).filter((c, idx) => c !== colors[idx]).length : 0;
+    const alternationRate = colors.length > 1 ? alternations / (colors.length - 1) : 0;
     
-    const nonWhiteCount = validHistory.length; // Já não contém brancos após o reset
-    const alternationRate = nonWhiteCount > 1 ? (alternations / (nonWhiteCount - 1)) : 0;
+    const lastRuns = runs.slice(-8);
+    const lastLengths = lastRuns.map(run => run.length);
+    const meanLength = lastLengths.reduce((sum, len) => sum + len, 0) / (lastLengths.length || 1);
+    const variance = lastLengths.reduce((sum, len) => sum + Math.pow(len - meanLength, 2), 0) / (lastLengths.length || 1);
+    const normalizedVariance = meanLength > 0 ? variance / (Math.pow(meanLength, 2) + 1e-6) : 0;
+    const baseLength = Math.max(1, Math.round(meanLength || 1));
+    const maxLength = Math.max(...lastLengths, 0);
     
-    // ═══════════════════════════════════════════════════════════════
-    // 🔍 DETECTAR TIPO E TAMANHO DE ALTERNÂNCIA
-    // ═══════════════════════════════════════════════════════════════
-    
-    // Analisar tamanhos das sequências para detectar padrão de alternância
-    let isConsistentAlternation = false;
+    let patternLabel = 'Sem padrão';
+    let voteColor = null;
+    let confidence = 0;
     let alternationSize = 0;
     
-    if (sequences.length >= 3) {
-        // Verificar se as sequências têm tamanhos similares (padrão de alternância)
-        const sizes = sequences.map(s => s.length);
-        const avgSize = sizes.reduce((a, b) => a + b, 0) / sizes.length;
-        const variance = sizes.reduce((sum, size) => sum + Math.pow(size - avgSize, 2), 0) / sizes.length;
-        
-        // Se variância baixa = sequências de tamanho consistente = alternância!
-        if (variance <= 1.0) {
-            isConsistentAlternation = true;
-            alternationSize = Math.round(avgSize);
-        }
-    }
+    const latestColor = colors[0];
+    const oppositeColor = latestColor === 'red' ? 'black' : 'red';
     
-    // Determinar padrão
-    let detectedPattern;
-    let voteColor;
-    let confidence;
+    const runsConsistent = lastLengths.length >= 4 &&
+        maxLength <= 3 &&
+        lastLengths.every(len => Math.abs(len - baseLength) <= 1);
     
-    if (isConsistentAlternation && sequences.length >= 3) {
-        // ✅ PADRÃO DE ALTERNÂNCIA DETECTADO (qualquer tamanho)
-        if (alternationSize === 1) {
-            detectedPattern = 'alternating_simple';  // R-P-R-P
-        } else if (alternationSize === 2) {
-            detectedPattern = 'alternating_double';  // RR-PP-RR-PP
-        } else if (alternationSize === 3) {
-            detectedPattern = 'alternating_triple';  // RRR-PPP-RRR-PPP
+    if (runsConsistent) {
+        alternationSize = baseLength;
+        if (baseLength <= 1) {
+            patternLabel = 'Alternância simples';
+        } else if (baseLength === 2) {
+            patternLabel = 'Alternância dupla';
+        } else if (baseLength === 3) {
+            patternLabel = 'Alternância tripla';
         } else {
-            detectedPattern = 'alternating_multiple'; // Outros tamanhos
+            patternLabel = `Alternância x${baseLength}`;
         }
-        
-        // Votar na COR OPOSTA ao último giro (para continuar alternando)
-        voteColor = lastNonWhite === 'red' ? 'black' : 'red';
-        confidence = 0.8;
-        
-    } else if (alternationRate > 0.7) {
-        // ALTA taxa de mudança, mas sem consistência = alternância simples provável
-        detectedPattern = 'alternating';
-        voteColor = lastNonWhite === 'red' ? 'black' : 'red';
-        confidence = alternationRate;
-        
-    } else if (alternationRate < 0.4 && sequences.length > 0) {
-        // PADRÃO DE GRUPOS (sem alternância)
-        detectedPattern = 'grouping';
-        // Votar na MESMA COR (continuar grupo)
-        voteColor = lastNonWhite;
-        confidence = 1 - alternationRate;
-        
+        voteColor = oppositeColor;
+        const cycles = Math.floor(lastRuns.length / 2);
+        const varianceScore = Math.max(0, 1 - Math.min(1, normalizedVariance));
+        confidence = Math.min(1, 0.4 + 0.3 * (cycles / 3) + 0.3 * varianceScore);
+    } else if (alternationRate >= 0.65) {
+        patternLabel = 'Alternância irregular';
+        voteColor = oppositeColor;
+        confidence = Math.min(0.75, alternationRate);
     } else {
-        // PADRÃO MISTO (sem padrão claro)
-        detectedPattern = 'mixed';
-        voteColor = null; // Voto neutro
-        confidence = 0;
+        const meanRun = meanLength || 0;
+        if (meanRun >= 2 && normalizedVariance < 0.4) {
+            patternLabel = 'Agrupamento';
+            voteColor = latestColor;
+            confidence = Math.min(1, 0.55 + (meanRun / (meanRun + 2)));
+        } else {
+            patternLabel = 'Misto';
+            voteColor = null;
+            confidence = 0.1;
+        }
     }
     
     console.log(`   📊 Taxa de alternância: ${(alternationRate * 100).toFixed(1)}%`);
-    console.log(`   📊 Padrão detectado: ${detectedPattern.toUpperCase()}`);
+    console.log(`   📊 Runs analisados: ${runs.length} | últimos considerados: ${lastRuns.length}`);
+    console.log(`   📊 Comprimento médio dos runs: ${meanLength.toFixed(2)} (variância normalizada: ${normalizedVariance.toFixed(2)})`);
+    console.log(`   🔎 Padrão detectado: ${patternLabel}`);
     if (alternationSize > 0) {
-        console.log(`   ✨ Tamanho da alternância: ${alternationSize} giro(s) por cor`);
+        console.log(`   ✨ Tamanho da alternância (aprox.): ${alternationSize} giros por cor`);
     }
-    console.log(`   📊 Sequências encontradas: ${sequences.length}`);
+    if (whiteFoundIndex !== -1) {
+        confidence = Math.min(confidence, 0.7);
+        console.log('   ⚠️ Ajustando confiança devido a branco recente (máx 70%)');
+    }
+    console.log(`   🗳️ Voto sugerido: ${voteColor ? voteColor.toUpperCase() : 'NULO'} (confiança ${(confidence * 100).toFixed(0)}%)`);
     
-    if (voteColor) {
-        console.log(`   🗳️ VOTA: ${voteColor.toUpperCase()} (${detectedPattern === 'grouping' ? 'continuar grupo' : 'continuar alternância'})`);
-    } else {
-        console.log(`   ⚠️ VOTA: NULO (padrão misto/incerto)`);
-    }
+    const details = voteColor
+        ? `${patternLabel}${alternationSize ? ` (tam ~${alternationSize})` : ''} • ${(alternationRate * 100).toFixed(1)}% alternância`
+        : `${patternLabel} • ${(alternationRate * 100).toFixed(1)}% alternância`;
+    
+    const strongAlternance =
+        voteColor &&
+        (
+            (patternLabel.startsWith('Alternância') && confidence >= 0.55) ||
+            (patternLabel === 'Alternância irregular' && alternationRate >= 0.7)
+        );
     
     return {
         color: voteColor,
-        pattern: detectedPattern,
+        pattern: patternLabel,
         alternationRate: (alternationRate * 100).toFixed(1),
-        alternationSize: alternationSize,
-        confidence: confidence,
-        sequences: sequences,
-        details: alternationSize > 0 
-            ? `${detectedPattern} (tamanho ${alternationSize})` 
-            : `${detectedPattern} (${(alternationRate * 100).toFixed(1)}% alternância)`
+        alternationSize,
+        confidence,
+        sequences: runs,
+        details,
+        override: strongAlternance
     };
 }
 
@@ -8437,7 +8520,7 @@ function analyzeWhiteRadar(fullHistory) {
         const confidence = Math.min(0.95, predictionScore / 100);
         console.log(`   🚨 MODO ATIVADO: FORCE_WHITE`);
         console.log(`   ⚪ Score alto (${predictionScore.toFixed(1)}/100) → BRANCO previsto!`);
-        console.log(`   📊 Confiança: ${(confidence * 100).toFixed(0)}%`);
+    console.log(`   📊 Confiança: ${(confidence * 100).toFixed(0)}%`);
         console.log(`   ⚠️ TODOS OS OUTROS VOTOS SERÃO ANULADOS!`);
         console.log('');
         
@@ -8517,7 +8600,7 @@ function analyzeWhiteRadar(fullHistory) {
         } else if (afterWhiteColors.black > afterWhiteColors.red) {
             voteColor = 'black';
             colorPercentage = (afterWhiteColors.black / totalAfterWhite) * 100;
-        } else {
+    } else {
             // Empate - usar tendência recente (últimos 20 giros)
             const last20 = fullHistory.slice(0, Math.min(20, fullHistory.length));
             const recent = { red: 0, black: 0 };
@@ -8538,14 +8621,14 @@ function analyzeWhiteRadar(fullHistory) {
         console.log(`   🗳️ VOTA: ${voteColor.toUpperCase()} (${(confidence * 100).toFixed(0)}% confiança)`);
         console.log(`   ✅ Justificativa: Nos últimos ${last5Whites.length} brancos, ${voteColor.toUpperCase()} saiu ${colorPercentage.toFixed(1)}%`);
         console.log('');
-        
-        return {
+    
+    return {
             mode: 'vote_color',
-            color: voteColor,
+        color: voteColor,
             whiteCount: whiteOccurrences.length,
             afterWhiteStats: afterWhiteColors,
             last5WhitesCount: last5Whites.length,
-            confidence: confidence,
+        confidence: confidence,
             details: `Últimos ${last5Whites.length} brancos → ${voteColor.toUpperCase()} (${colorPercentage.toFixed(1)}%)`
         };
     }
@@ -8758,11 +8841,11 @@ async function analyzeWithPatternSystem(history) {
         console.log('%c║  💎 NÍVEL DIAMANTE - ANÁLISE AVANÇADA 6 NÍVEIS           ║', 'color: #00FF00; font-weight: bold; font-size: 16px;');
         console.log('%c╠═══════════════════════════════════════════════════════════╣', 'color: #00FF00; font-weight: bold;');
         console.log('%c║  🎯 N1 - Padrões (Customizado → Quente → Nulo)         ║', 'color: #FFD700; font-weight: bold;');
-        console.log('%c║  ⚡ N2 - Momentum (10 vs 20 giros)                      ║', 'color: #00FF88;');
-        console.log('%c║  🛑 N3 - Barreira/Freio (validação histórica)          ║', 'color: #FF6666; font-weight: bold;');
-        console.log('%c║  🔷 N4 - Padrão Alternância (12 giros)                 ║', 'color: #8E44AD; font-weight: bold;');
-        console.log('%c║  ⚪ N5 - Radar de Brancos (2000 giros)                 ║', 'color: #16A085; font-weight: bold;');
-        console.log('%c║  🔷 N6 - Persistência/Ciclos (20 giros)                ║', 'color: #D35400; font-weight: bold;');
+        console.log('%c║  ⚡ N2 - Momentum (5 vs 15 giros)                      ║', 'color: #00FF88;');
+        console.log('%c║  🔷 N3 - Padrão Alternância (12 giros)                 ║', 'color: #8E44AD; font-weight: bold;');
+        console.log('%c║  🔷 N4 - Persistência/Ciclos (20 giros)                ║', 'color: #D35400; font-weight: bold;');
+        console.log('%c║  🕑 N5 - Ritmo por Giro (minuto alvo)                  ║', 'color: #1ABC9C; font-weight: bold;');
+        console.log('%c║  🛑 N6 - Barreira/Freio (validação histórica)          ║', 'color: #FF6666; font-weight: bold;');
         console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #00FF00; font-weight: bold; font-size: 16px;');
     console.log('');
     
@@ -9030,7 +9113,7 @@ async function analyzeWithPatternSystem(history) {
         }
         
         // ═══════════════════════════════════════════════════════════════
-        // 💎 NOVO FLUXO - NÍVEL DIAMANTE: 6 NÍVEIS COM VOTAÇÃO
+        // 💎 FLUXO ATUAL - NÍVEL DIAMANTE: 5 NÍVEIS COM PONTUAÇÃO
         // ═══════════════════════════════════════════════════════════════
         
         // ✅ Obter tamanho REAL do histórico disponível (para Nível 4 e 6)
@@ -9070,19 +9153,26 @@ async function analyzeWithPatternSystem(history) {
     // ❌ NÍVEL 3 REMOVIDO: Soma dos Minutos (30 giros) - aleatoriedade pura
     
     // ✅ Identificar posição do giro (ainda necessário para Nível 6 - Barreira)
-    const lastSpinPosition = history[0].timestamp ? identifySpinPosition(history[0].timestamp) : 1;
+    const lastSpinTimestamp = history[0]?.timestamp || Date.now();
+    const lastSpinPosition = history[0]?.timestamp ? identifySpinPosition(lastSpinTimestamp) : 1;
     const nextSpinPosition = lastSpinPosition === 1 ? 2 : 1;
+    const lastSpinDate = new Date(lastSpinTimestamp);
+    const nextSpinDate = new Date(lastSpinDate);
+    if (lastSpinPosition === 2) {
+        nextSpinDate.setMinutes(nextSpinDate.getMinutes() + 1);
+    }
+    const targetMinute = nextSpinDate.getMinutes();
         
-        // ═══════════════════════════════════════════════════════════════
-        // 🎯 NÍVEL 4: PADRÕES (CUSTOMIZADO → QUENTE → NULO)
+    // ═══════════════════════════════════════════════════════════════
+        // 🎯 NÍVEL 1: PADRÕES (CUSTOMIZADO → QUENTE → NULO)
         // ═══════════════════════════════════════════════════════════════
         console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #FF00FF; font-weight: bold;');
-        console.log('%c║  🎯 NÍVEL 4: PADRÕES (CUSTOMIZADO → QUENTE → NULO)     ║', 'color: #FF00FF; font-weight: bold; font-size: 14px;');
+        console.log('%c║  🎯 NÍVEL 1: PADRÕES (CUSTOMIZADO → QUENTE → NULO)     ║', 'color: #FF00FF; font-weight: bold; font-size: 14px;');
         console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #FF00FF; font-weight: bold;');
         console.log('');
         
         let nivel4 = null;
-        let patternDescription = 'Análise Nível Diamante - 9 Níveis';
+        let patternDescription = 'Análise Nível Diamante - 5 Níveis';
         
     // ETAPA 1: Verificar PADRÕES CUSTOMIZADOS
     console.log('%c🎯 ETAPA 1: PADRÕES CUSTOMIZADOS', 'color: #FF00FF; font-weight: bold;');
@@ -9094,7 +9184,8 @@ async function analyzeWithPatternSystem(history) {
         
         if (customPatternResult) {
             // ✅ PADRÃO CUSTOMIZADO ENCONTRADO!
-            nivel4 = { color: customPatternResult.color, source: 'custom' };
+            const customConfidence = Math.min(1, Math.max(0.3, (customPatternResult.confidence ?? 70) / 100));
+            nivel4 = { color: customPatternResult.color, source: 'custom', confidence: customConfidence, patternName: customPatternResult.patternName };
             patternDescription = `${customPatternResult.patternName}`;
             
             console.log('%c🎯 PADRÃO CUSTOMIZADO DETECTADO!', 'color: #FF00FF; font-weight: bold; font-size: 16px; background: #FFD700;');
@@ -9111,7 +9202,8 @@ async function analyzeWithPatternSystem(history) {
             console.log('');
             
             if (hotPatternSignal && hotPatternSignal.source === 'hot_pattern') {
-                nivel4 = { color: hotPatternSignal.color, source: 'hot' };
+                const hotConfidence = Math.min(1, Math.max(0.4, (hotPatternSignal.confidence ?? 65) / 100));
+                nivel4 = { color: hotPatternSignal.color, source: 'hot', confidence: hotConfidence, patternName: 'Padrão Quente' };
                 console.log('%c🔥 PADRÃO QUENTE ATIVO!', 'color: #FF6B35; font-weight: bold;');
                 console.log(`%c   🗳️ VOTA: ${hotPatternSignal.color.toUpperCase()}`, `color: ${hotPatternSignal.color === 'red' ? '#FF0000' : '#FFFFFF'}; font-weight: bold; font-size: 14px;`);
                 console.log('');
@@ -9122,9 +9214,9 @@ async function analyzeWithPatternSystem(history) {
         }
         
     if (!nivel4) {
-        console.log('%c⚠️ NÍVEL 4 VOTA: NULO (não participa da votação)', 'color: #888; font-weight: bold; font-size: 14px;');
+        console.log('%c⚠️ NÍVEL 1 VOTA: NULO (não participa da votação)', 'color: #888; font-weight: bold; font-size: 14px;');
     } else {
-        console.log(`%c🗳️ NÍVEL 4 VOTA: ${nivel4.color.toUpperCase()}`, `color: ${nivel4.color === 'red' ? '#FF0000' : '#FFFFFF'}; font-weight: bold; font-size: 14px;`);
+        console.log(`%c🗳️ NÍVEL 1 VOTA: ${nivel4.color.toUpperCase()}`, `color: ${nivel4.color === 'red' ? '#FF0000' : '#FFFFFF'}; font-weight: bold; font-size: 14px;`);
     }
     console.log('');
     
@@ -9134,7 +9226,7 @@ async function analyzeWithPatternSystem(history) {
         // ⚡ NÍVEL 5: MOMENTUM (30 GIROS FIXOS)
         // ═══════════════════════════════════════════════════════════════
         console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #00AAFF; font-weight: bold;');
-        console.log('%c║  ⚡ NÍVEL 5: MOMENTUM (10 vs 20 GIROS)                  ║', 'color: #00AAFF; font-weight: bold; font-size: 14px;');
+    console.log('%c║  ⚡ NÍVEL 2: MOMENTUM (5 vs 15 GIROS)                  ║', 'color: #00AAFF; font-weight: bold; font-size: 14px;');
         console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #00AAFF; font-weight: bold;');
         console.log('');
         
@@ -9182,40 +9274,10 @@ async function analyzeWithPatternSystem(history) {
         console.log('');
         
         // ═══════════════════════════════════════════════════════════════
-        // ⚪ N5 - RADAR DE BRANCOS (2000 GIROS)
-        // ═══════════════════════════════════════════════════════════════
-        console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #16A085; font-weight: bold;');
-        console.log('%c║  ⚪ N5 - RADAR DE BRANCOS (2000 GIROS)                 ║', 'color: #16A085; font-weight: bold; font-size: 14px;');
-        console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #16A085; font-weight: bold;');
-        console.log('');
-        
-        // ✅ USAR cachedHistory (até 2000 giros) em vez de history (limitado)
-        const fullHistoryForWhiteRadar = cachedHistory.length > 0 ? cachedHistory : history;
-        const nivel8 = analyzeWhiteRadar(fullHistoryForWhiteRadar);
-        
-        console.log('%c📊 RADAR DE BRANCOS - RESULTADO:', 'color: #16A085; font-weight: bold;');
-        console.log(`%c   Modo: ${nivel8.mode ? nivel8.mode.toUpperCase() : 'N/A'}`, 'color: #16A085; font-weight: bold;');
-        console.log(`%c   Brancos detectados: ${nivel8.whiteCount}/${fullHistoryForWhiteRadar.length} giros`, 'color: #16A085;');
-        console.log(`%c   Detalhes: ${nivel8.details}`, 'color: #16A085;');
-        console.log('');
-        
-        if (nivel8.mode === 'force_white') {
-            console.log(`%c🚨🚨🚨 MODO FORCE_WHITE ATIVO! 🚨🚨🚨`, 'color: #FFFFFF; font-weight: bold; font-size: 16px; background: #FF6B35;');
-            console.log(`%c   ⚪ PRÓXIMO GIRO SERÁ BRANCO!`, 'color: #FFFFFF; font-weight: bold; font-size: 14px;');
-            console.log(`%c   ⚠️ TODOS OS OUTROS VOTOS SERÃO ANULADOS!`, 'color: #FF6B35; font-weight: bold;');
-            console.log(`%c   📊 Confiança: ${(nivel8.confidence * 100).toFixed(0)}%`, 'color: #FFD700; font-weight: bold;');
-        } else if (nivel8.color) {
-            console.log(`%c🗳️ NÍVEL 5 VOTA: ${nivel8.color.toUpperCase()} (confiança: ${(nivel8.confidence * 100).toFixed(0)}%)`, `color: ${nivel8.color === 'red' ? '#FF0000' : '#FFFFFF'}; font-weight: bold; font-size: 14px;`);
-        } else {
-            console.log(`%c⚠️ NÍVEL 5 VOTA: NULO (dados insuficientes)`, 'color: #888; font-weight: bold; font-size: 14px;');
-        }
-        console.log('');
-        
-        // ═══════════════════════════════════════════════════════════════
-        // 🔷 N6 - PERSISTÊNCIA E CICLOS (CONFIGURÁVEL PELO USUÁRIO)
+        // 🔷 N4 - PERSISTÊNCIA E CICLOS (CONFIGURÁVEL PELO USUÁRIO)
         // ═══════════════════════════════════════════════════════════════
         console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #D35400; font-weight: bold;');
-        console.log('%c║  🔷 N6 - PERSISTÊNCIA E CICLOS (CONFIGURÁVEL)          ║', 'color: #D35400; font-weight: bold; font-size: 14px;');
+        console.log('%c║  🔷 N4 - PERSISTÊNCIA E CICLOS (CONFIGURÁVEL)          ║', 'color: #D35400; font-weight: bold; font-size: 14px;');
         console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #D35400; font-weight: bold;');
         console.log('');
         
@@ -9228,174 +9290,349 @@ async function analyzeWithPatternSystem(history) {
         console.log(`%c   Detalhes: ${nivel9.details}`, 'color: #D35400;');
         console.log('');
         
-        if (nivel9.color) {
-            console.log(`%c🗳️ N6 VOTA: ${nivel9.color.toUpperCase()} (confiança: ${(nivel9.confidence * 100).toFixed(0)}%)`, `color: ${nivel9.color === 'red' ? '#FF0000' : '#FFFFFF'}; font-weight: bold; font-size: 14px;`);
-        } else {
-            console.log(`%c⚠️ N6 VOTA: NULO (dados insuficientes)`, 'color: #888; font-weight: bold; font-size: 14px;');
-        }
-        console.log('');
-        
         // ═══════════════════════════════════════════════════════════════
-        // 🚨 VERIFICAÇÃO CRÍTICA: MODO FORCE_WHITE DO NÍVEL 5?
+        // 🧮 CONSOLIDAÇÃO DOS NÍVEIS (PONTUAÇÃO CONTÍNUA)
         // ═══════════════════════════════════════════════════════════════
-        if (nivel8 && nivel8.mode === 'force_white') {
-            console.log('');
-            console.log('%c╔═══════════════════════════════════════════════════════════════════╗', 'color: #FFFFFF; font-weight: bold; font-size: 18px; background: #FF6B35;');
-            console.log('%c║                                                                   ║', 'color: #FFFFFF; font-weight: bold; font-size: 18px; background: #FF6B35;');
-            console.log('%c║  🚨 FORCE_WHITE ATIVADO - ANULANDO TODOS OS VOTOS! 🚨           ║', 'color: #FFFFFF; font-weight: bold; font-size: 18px; background: #FF6B35;');
-            console.log('%c║                                                                   ║', 'color: #FFFFFF; font-weight: bold; font-size: 18px; background: #FF6B35;');
-            console.log('%c╠═══════════════════════════════════════════════════════════════════╣', 'color: #FFFFFF; font-weight: bold; background: #FF6B35;');
-            console.log('%c║  ⚪ PRÓXIMO GIRO SERÁ BRANCO (entrada na cor branca)            ║', 'color: #FFFFFF; font-weight: bold; background: #FF6B35;');
-            console.log('%c║  ❌ Votos de N1, N2, N4, N6 → ANULADOS                           ║', 'color: #FFFFFF; font-weight: bold; background: #FF6B35;');
-            console.log('%c║  📊 Confiança: ' + (nivel8.confidence * 100).toFixed(0) + '%' + ' '.repeat(48 - (nivel8.confidence * 100).toFixed(0).length) + '║', 'color: #FFD700; font-weight: bold; background: #FF6B35;');
-            console.log('%c╚═══════════════════════════════════════════════════════════════════╝', 'color: #FFFFFF; font-weight: bold; background: #FF6B35;');
-            console.log('');
-            
-            // Mostrar os níveis para o usuário ver o que foi anulado
-            sendAnalysisStatus(`🎯 N1 - Padrões → ${nivel4 ? nivel4.color.toUpperCase() : 'NULO'} (ANULADO)`);
-            await sleep(1500);
-            
-            const trendLabel = nivel5.trending === 'accelerating_red' ? 'Acelerando' : nivel5.trending === 'accelerating_black' ? 'Acelerando' : 'Estável';
-            sendAnalysisStatus(`⚡ N2 - Momentum → ${nivel5.color.toUpperCase()} (${trendLabel}) (ANULADO)`);
-            await sleep(1500);
-            
-            sendAnalysisStatus(`🛑 N3 - Barreira → ✅ APROVADO (ANULADO)`);
-            await sleep(1500);
-            
-            sendAnalysisStatus(`🔷 N4 - Alternância → ${nivel7 && nivel7.color ? nivel7.color.toUpperCase() : 'NULO'} (ANULADO)`);
-            await sleep(1500);
-            
-            sendAnalysisStatus(`⚪ N5 - Radar de Brancos → 🚨 BRANCO PREVISTO!`);
-            await sleep(1500);
-            
-            sendAnalysisStatus(`🔷 N6 - Persistência → ${nivel9 && nivel9.color ? nivel9.color.toUpperCase() : 'NULO'} (ANULADO)`);
-            await sleep(2000);
-            
-            sendAnalysisStatus(`⚪ Sinal de entrada: BRANCO`);
-            await sleep(2000);
-            
-            // Montar raciocínio para force_white
-            const reasoning = `N1 - Padrões: ${nivel4 ? nivel4.color.toUpperCase() : 'NULO'} (❌ ANULADO)\n` +
-                `N2 - Momentum: ${nivel5.color.toUpperCase()} (❌ ANULADO)\n` +
-                `N3 - Barreira: ✅ APROVADO (❌ ANULADO)\n` +
-                `N4 - Alternância: ${nivel7 && nivel7.color ? nivel7.color.toUpperCase() : 'NULO'} (❌ ANULADO)\n` +
-                `N5 - Radar de Brancos: ⚪ FORCE_WHITE ATIVO! 🚨\n` +
-                `N6 - Persistência: ${nivel9 && nivel9.color ? nivel9.color.toUpperCase() : 'NULO'} (❌ ANULADO)\n` +
-                `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
-                `🚨 MODO ESPECIAL: FORCE_WHITE\n` +
-                `⚪ Padrão detectado: ${nivel8.patternDetected || 'N/A'}\n` +
-                `⚪ Ocorrências: ${nivel8.patternOccurrences || 0}x\n` +
-                `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
-                `🎯 DECISÃO: BRANCO (WHITE)\n` +
-                `📊 Confiança: ${Math.round(nivel8.confidence * 100)}%`;
-            
-            console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #FFFFFF; font-weight: bold; background: #FF6B35;');
-            console.log('%c🧠 RACIOCÍNIO COMPLETO:', 'color: #FFFFFF; font-weight: bold; font-size: 14px; background: #FF6B35;');
-            console.log(`%c${reasoning}`, 'color: #FFFFFF; background: #333;');
-            console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #FFFFFF; font-weight: bold; background: #FF6B35;');
-            console.log('');
-            
-            // Retornar sinal de BRANCO
-            return {
-                color: 'white',
-                confidence: Math.round(nivel8.confidence * 100),
-                probability: Math.round(nivel8.confidence * 100),
-                reasoning: reasoning,
-                patternDescription: 'Radar de Brancos - Force White'
-            };
+        const levelWeights = {
+            patterns: 0.25,
+            momentum: 0.22,
+            alternance: 0.18,
+            persistence: 0.15,
+            minuteSpin: 0.12,
+            barrier: 0.08
+        };
+        const levelMeta = {
+            N1: { emoji: '🎯', label: 'N1 - Padrões' },
+            N2: { emoji: '⚡', label: 'N2 - Momentum' },
+            N3: { emoji: '🔷', label: 'N3 - Alternância' },
+            N4: { emoji: '🔷', label: 'N4 - Persistência' },
+            N5: { emoji: '🕑', label: 'N5 - Ritmo por Giro' },
+            N6: { emoji: '🛑', label: 'N6 - Barreira' }
+        };
+        const clamp01 = (value) => Math.max(0, Math.min(1, typeof value === 'number' ? value : 0));
+        const directionValue = (color) => color === 'red' ? 1 : color === 'black' ? -1 : 0;
+        const levelReports = [];
+        const describeLevel = (level) => {
+            const meta = levelMeta[level.id];
+            if (!level.color) {
+                return `${meta.emoji} ${meta.label} → NULO`;
+            }
+            const strengthPct = Math.round(level.strength * 100);
+            return `${meta.emoji} ${meta.label} → ${level.color.toUpperCase()} (${strengthPct}% • ${level.details})`;
+        };
+        const emitLevelStatuses = async (reports) => {
+            for (const report of reports) {
+                sendAnalysisStatus(describeLevel(report));
+                await sleep(1500);
+            }
+        };
+
+        // N1 - Padrões
+        let patternStrength = 0;
+        let patternColor = nivel4 && nivel4.color ? nivel4.color : null;
+        let patternDetailsText = 'NULO';
+        if (patternColor) {
+            const baseConfidence = clamp01(nivel4.confidence ?? 0.55);
+            patternStrength = baseConfidence;
+            const sourceLabel = nivel4.source === 'custom' ? 'Custom' : 'Quente';
+            patternDetailsText = `${sourceLabel} (${Math.round(baseConfidence * 100)}%)`;
         }
-        
-        // ═══════════════════════════════════════════════════════════════
-        // 🗳️ SISTEMA DE VOTAÇÃO NORMAL (SEM NÍVEIS 1, 2, 3)
-        // ═══════════════════════════════════════════════════════════════
-        console.log('%c═══════════════════════════════════════════════════════════════════', 'color: #FFD700; font-weight: bold; font-size: 18px;');
-        console.log('%c🗳️ SISTEMA DE VOTAÇÃO - CONTAGEM DOS 5 NÍVEIS ATIVOS', 'color: #FFD700; font-weight: bold; font-size: 16px;');
-        console.log('%c═══════════════════════════════════════════════════════════════════', 'color: #FFD700; font-weight: bold; font-size: 18px;');
-        console.log('');
-        
-        let votes = { red: 0, black: 0, null: 0 };
-        let voteDetails = [];
-        
-        // ❌ NÍVEIS 1, 2, 3 REMOVIDOS (não votam mais)
-        
-        // ✅ NÍVEL 4: Padrões
-        if (nivel4) {
-            if (nivel4.color === 'red') votes.red++; else votes.black++;
-            voteDetails.push(`Nível 4: ${nivel4.color.toUpperCase()}`);
-        } else {
-            votes.null++;
-            voteDetails.push(`Nível 4: NULO`);
-        }
-        
-        // ✅ NÍVEL 5: Momentum
-        if (nivel5.color === 'red') votes.red++; else votes.black++;
-        voteDetails.push(`Nível 5: ${nivel5.color.toUpperCase()}`);
-        
-        // ✅ NÍVEL 7: Alternância
-        if (nivel7 && nivel7.color) {
-            if (nivel7.color === 'red') votes.red++; else votes.black++;
-            voteDetails.push(`Nível 7: ${nivel7.color.toUpperCase()}`);
-        } else {
-            votes.null++;
-            voteDetails.push(`Nível 7: NULO`);
-        }
-        
-        // ✅ NÍVEL 8: Zeros
-        if (nivel8 && nivel8.color) {
-            if (nivel8.color === 'red') votes.red++; else votes.black++;
-            voteDetails.push(`Nível 8: ${nivel8.color.toUpperCase()}`);
-        } else {
-            votes.null++;
-            voteDetails.push(`Nível 8: NULO`);
-        }
-        
-        // ✅ NÍVEL 9: Persistência
-        if (nivel9 && nivel9.color) {
-            if (nivel9.color === 'red') votes.red++; else votes.black++;
-            voteDetails.push(`Nível 9: ${nivel9.color.toUpperCase()}`);
-        } else {
-            votes.null++;
-            voteDetails.push(`Nível 9: NULO`);
-        }
-        
-        console.log('%c📊 DETALHAMENTO DOS VOTOS:', 'color: #FFD700; font-weight: bold;');
-        voteDetails.forEach((detail, idx) => {
-            const color = detail.includes('VERMELHO') || detail.includes('RED') ? '#FF0000' : 
-                         detail.includes('PRETO') || detail.includes('BLACK') ? '#FFFFFF' : '#888';
-            console.log(`%c   ${idx + 1}. ${detail}`, `color: ${color}; font-weight: bold;`);
+        levelReports.push({
+            id: 'N1',
+            name: 'Padrões',
+            color: patternColor,
+            weight: levelWeights.patterns,
+            strength: patternStrength,
+            score: directionValue(patternColor) * patternStrength,
+            details: patternDetailsText
         });
-        console.log('');
-        
-        console.log('%c📊 CONTAGEM FINAL:', 'color: #FFD700; font-weight: bold; font-size: 16px;');
-        console.log(`%c   🔴 VERMELHO: ${votes.red} votos`, 'color: #FF0000; font-weight: bold; font-size: 14px;');
-        console.log(`%c   ⚫ PRETO: ${votes.black} votos`, 'color: #FFFFFF; font-weight: bold; font-size: 14px;');
-        if (votes.null > 0) {
-            console.log(`%c   ⚪ NULO: ${votes.null} voto(s)`, 'color: #888;');
+
+        // N2 - Momentum
+        const redMomentum = Number(nivel5.momentum.red);
+        const blackMomentum = Number(nivel5.momentum.black);
+        const diffMomentum = (isFinite(redMomentum) && isFinite(blackMomentum)) ? Math.abs(redMomentum - blackMomentum) : 0;
+        let momentumStrength = clamp01(diffMomentum / 12);
+        if (momentumStrength < 0.1) momentumStrength = momentumStrength / 2;
+        const momentumDetailsText = `${nivel5.trending === 'accelerating_red' ? 'Acelerando vermelho' : nivel5.trending === 'accelerating_black' ? 'Acelerando preto' : 'Estável'} | Δ ${diffMomentum.toFixed(1)} pts`;
+        levelReports.push({
+            id: 'N2',
+            name: 'Momentum',
+            color: nivel5.color,
+            weight: levelWeights.momentum,
+            strength: momentumStrength,
+            score: directionValue(nivel5.color) * momentumStrength,
+            details: momentumDetailsText
+        });
+
+        // N3 - Alternância
+        const alternanceColor = nivel7 && nivel7.color ? nivel7.color : null;
+        let alternanceStrength = 0;
+        let alternanceDetailsText = alternanceColor ? nivel7.details : 'NULO';
+        const alternanceOverrideActive = Boolean(nivel7 && nivel7.override && alternanceColor);
+        if (alternanceColor) {
+            alternanceStrength = alternanceOverrideActive ? 1 : clamp01(nivel7.confidence ?? 0.5);
+            alternanceDetailsText = `${nivel7.pattern.toUpperCase()} (${Math.round(alternanceStrength * 100)}%)` +
+                (alternanceOverrideActive ? ' • Override' : '');
         }
-        console.log('');
-        
-        // Determinar vencedor
-        let finalColor;
-        if (votes.red > votes.black) {
-            finalColor = 'red';
-            console.log('%c🏆 VENCEDOR: VERMELHO', 'color: #FF0000; font-weight: bold; font-size: 18px;');
-        } else if (votes.black > votes.red) {
-            finalColor = 'black';
-            console.log('%c🏆 VENCEDOR: PRETO', 'color: #FFFFFF; font-weight: bold; font-size: 18px;');
-        } else {
-            // EMPATE: Usar Nível 5 (Momentum) como desempate (sempre tem voto)
-            finalColor = nivel5.color;
-            console.log('%c⚖️ EMPATE! Usando Nível 5 (Momentum) para desempatar', 'color: #FFA500; font-weight: bold; font-size: 16px;');
-            console.log(`%c🏆 VENCEDOR (DESEMPATE): ${finalColor.toUpperCase()}`, `color: ${finalColor === 'red' ? '#FF0000' : '#FFFFFF'}; font-weight: bold; font-size: 18px;`);
+        levelReports.push({
+            id: 'N3',
+            name: 'Alternância',
+            color: alternanceColor,
+            weight: levelWeights.alternance,
+            strength: alternanceStrength,
+            score: directionValue(alternanceColor) * alternanceStrength,
+            details: alternanceDetailsText,
+            override: alternanceOverrideActive
+        });
+
+        // N4 - Persistência
+        const persistenceColor = nivel9 && nivel9.color ? nivel9.color : null;
+        let persistenceStrength = 0;
+        let persistenceDetailsText = 'NULO';
+        if (persistenceColor) {
+            persistenceStrength = clamp01(nivel9.confidence ?? 0.5);
+            persistenceDetailsText = `Seq ${nivel9.currentSequence} • média ${nivel9.averageSequence} (${Math.round(persistenceStrength * 100)}%)`;
         }
-        console.log('');
-        
-        // ═══════════════════════════════════════════════════════════════
-        // 🛑 NÍVEL 6: BARREIRA/FREIO (NÃO VOTA - APENAS VALIDA)
-        // ═══════════════════════════════════════════════════════════════
+        levelReports.push({
+            id: 'N4',
+            name: 'Persistência',
+            color: persistenceColor,
+            weight: levelWeights.persistence,
+            strength: persistenceStrength,
+            score: directionValue(persistenceColor) * persistenceStrength,
+            details: persistenceDetailsText
+        });
+
+        // N5 - Ritmo por Giro (minuto/posição)
+        const minuteSpinWindow = analyzerConfig.minuteSpinWindow || 60;
+        const minuteBiasResult = analyzeMinuteSpinBias(history, targetMinute, nextSpinPosition, minuteSpinWindow);
+        const minuteBiasColor = minuteBiasResult && minuteBiasResult.color ? minuteBiasResult.color : null;
+        let minuteBiasStrength = clamp01(minuteBiasResult ? minuteBiasResult.confidence : 0);
+        let minuteBiasDetailsText = minuteBiasResult ? minuteBiasResult.details : 'NULO';
+        if (minuteBiasResult && minuteBiasResult.totalSamples) {
+            minuteBiasDetailsText += ` • ${minuteBiasResult.totalSamples} amostras`;
+        }
+        levelReports.push({
+            id: 'N5',
+            name: 'Ritmo por Giro',
+            color: minuteBiasColor,
+            weight: levelWeights.minuteSpin,
+            strength: minuteBiasStrength,
+            score: directionValue(minuteBiasColor) * minuteBiasStrength,
+            details: minuteBiasDetailsText
+        });
+
+        const alternanceOverride = alternanceOverrideActive && alternanceColor;
+        if (alternanceOverride) {
+            console.log('%c⚡ Override de Alternância ativado! Outros níveis anulados.', 'color: #8E44AD; font-weight: bold;');
+            levelReports.forEach(lvl => {
+                if (lvl.id !== 'N3' && lvl.id !== 'N6') {
+                    lvl.details += ' • Anulado (Alternância)';
+                    lvl.score = 0;
+                    lvl.strength = 0;
+                }
+            });
+        }
+
+        const scoreWithoutBarrier = levelReports.reduce((sum, lvl) => sum + (lvl.score * lvl.weight), 0);
+        let predictedColor = scoreWithoutBarrier === 0
+            ? (minuteBiasColor || nivel5.color || patternColor || 'red')
+            : (scoreWithoutBarrier >= 0 ? 'red' : 'black');
+
+        if (alternanceOverride) {
+            predictedColor = alternanceColor;
+        }
         console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #FF0000; font-weight: bold;');
         console.log('%c║  🛑 NÍVEL 6: BARREIRA/FREIO (VALIDAÇÃO FINAL)          ║', 'color: #FF0000; font-weight: bold; font-size: 14px;');
         console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #FF0000; font-weight: bold;');
+        console.log('');
+        console.log(`%c🎯 Cor candidata antes da barreira: ${predictedColor.toUpperCase()}`, `color: ${predictedColor === 'red' ? '#FF0000' : '#FFFFFF'}; font-weight: bold;`);
+        console.log(`%c📊 Configuração: ${historySize} giros para análise`, 'color: #FF0000;');
+        console.log('');
+
+        const barrierResult = validateSequenceBarrier(history, predictedColor, historySize);
+        const barrierDetailsText = `Atual ${barrierResult.currentStreak} • alvo ${barrierResult.targetStreak} • máx ${barrierResult.maxStreakFound}`;
+
+        if (!barrierResult.allowed) {
+            console.log('%c🚫🚫🚫 SINAL BLOQUEADO PELA BARREIRA! 🚫🚫🚫', 'color: #FFFFFF; font-weight: bold; font-size: 16px; background: #FF0000;');
+            console.log('%c   Sequência sem precedente histórico!', 'color: #FF6666; font-weight: bold;');
+            console.log('');
+            await emitLevelStatuses(levelReports);
+            sendAnalysisStatus(`🛑 N6 - Barreira → ❌ BLOQUEADO (${barrierDetailsText})`);
+            await sleep(1500);
+            sendAnalysisStatus('❌ Sinal rejeitado: sem precedente histórico');
+            await sleep(2000);
+            await restoreIAStatus();
+            return null;
+        }
+
+        let barrierStrength = 0.4;
+        const streakGap = barrierResult.maxStreakFound - barrierResult.targetStreak;
+        if (streakGap >= 2) {
+            barrierStrength = 0.6;
+        } else if (streakGap === 1) {
+            barrierStrength = 0.5;
+        }
+        levelReports.push({
+            id: 'N6',
+            name: 'Barreira',
+            color: predictedColor,
+            weight: levelWeights.barrier,
+            strength: barrierStrength,
+            score: directionValue(predictedColor) * barrierStrength,
+            details: `${barrierDetailsText} (liberado)`
+        });
+
+        console.log('%c✅ BARREIRA LIBERADA! Sequência é viável.', 'color: #00FF88; font-weight: bold; font-size: 14px;');
+        console.log('');
+
+        const totalWeight = levelReports.reduce((sum, lvl) => sum + lvl.weight, 0);
+        let weightedScore = totalWeight ? levelReports.reduce((sum, lvl) => sum + (lvl.score * lvl.weight), 0) : 0;
+        if (alternanceOverride) {
+            weightedScore = directionValue(alternanceColor) * totalWeight;
+        }
+        let normalizedScore = totalWeight ? weightedScore / totalWeight : 0;
+        if (alternanceOverride) {
+            normalizedScore = directionValue(alternanceColor);
+        }
+        const scoreMagnitude = Math.abs(normalizedScore);
+        let finalColor = alternanceOverride
+            ? alternanceColor
+            : normalizedScore === 0
+                ? predictedColor
+                : (normalizedScore >= 0 ? 'red' : 'black');
+
+        const intensityConfig = {
+            aggressive: { minScore: 0.25, name: '🔥 AGRESSIVO', emoji: '🔥' },
+            moderate: { minScore: 0.45, name: '⚖️ MODERADO', emoji: '⚖️' },
+            conservative: { minScore: 0.65, name: '🛡️ CONSERVADOR', emoji: '🛡️' },
+            ultraconservative: { minScore: 0.65, name: '🛡️ CONSERVADOR', emoji: '🛡️' }
+        };
+        const signalIntensity = analyzerConfig.signalIntensity || 'moderate';
+        const currentIntensity = intensityConfig[signalIntensity] || intensityConfig.moderate;
+        const thresholdMet = scoreMagnitude >= currentIntensity.minScore;
+
+        console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #9C27B0; font-weight: bold;');
+        console.log('%c║  🎚️ INTENSIDADE / SCORE                                 ║', 'color: #9C27B0; font-weight: bold; font-size: 14px;');
+        console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #9C27B0; font-weight: bold;');
+        console.log(`%c   Modo selecionado: ${currentIntensity.emoji} ${currentIntensity.name}`, 'color: #9C27B0; font-weight: bold;');
+        console.log(`%c   Score combinado: ${(normalizedScore * 100).toFixed(1)}%`, 'color: #9C27B0;');
+        console.log(`%c   Threshold mínimo: ${(currentIntensity.minScore * 100).toFixed(0)}%`, 'color: #9C27B0;');
+        console.log('');
+
+        if (!thresholdMet && !alternanceOverride) {
+            console.log('%c🚫 SINAL REJEITADO: SCORE ABAIXO DO LIMITE', 'color: #FF6666; font-weight: bold; font-size: 14px;');
+            await emitLevelStatuses(levelReports);
+            sendAnalysisStatus(`❌ Rejeitado: score ${(scoreMagnitude * 100).toFixed(1)}% < ${Math.round(currentIntensity.minScore * 100)}% (${currentIntensity.name})`);
+            await sleep(2000);
+            await restoreIAStatus();
+            return null;
+        }
+
+        if (intervalBlocked) {
+            await emitLevelStatuses(levelReports);
+            sendAnalysisStatus(intervalMessage || '⏳ Aguardando intervalo configurado...');
+            await sleep(2000);
+            await restoreIAStatus();
+            return null;
+        }
+
+        let rawConfidence = Math.round(50 + (50 * scoreMagnitude));
+        rawConfidence = Math.max(50, Math.min(100, rawConfidence));
+        let finalConfidence = applyCalibratedConfidence(rawConfidence);
+        finalConfidence = Math.max(0, Math.min(100, Math.round(finalConfidence)));
+
+        console.log('%c═══════════════════════════════════════════════════════════════════', 'color: #FFD700; font-weight: bold; font-size: 18px;');
+        console.log('%c📊 SCORE DOS NÍVEIS ATIVOS:', 'color: #FFD700; font-weight: bold; font-size: 16px;');
+        console.log('%c═══════════════════════════════════════════════════════════════════', 'color: #FFD700; font-weight: bold; font-size: 18px;');
+        console.log('');
+        levelReports.forEach(level => {
+            const contribution = (level.score * level.weight);
+            console.log(`%c${describeLevel(level)} • contribuição ${(contribution >= 0 ? '+' : '')}${contribution.toFixed(3)}`, 'color: #FFD700;');
+        });
+        console.log('');
+        console.log(`%c🎯 COR FINAL: ${finalColor.toUpperCase()}`, `color: ${finalColor === 'red' ? '#FF0000' : '#FFFFFF'}; font-weight: bold; font-size: 16px;`);
+        console.log(`%c📈 Score normalizado: ${(normalizedScore * 100).toFixed(1)}%`, 'color: #00FFFF; font-weight: bold;');
+        console.log(`%c📊 Confiança bruta: ${rawConfidence}% • calibrada: ${finalConfidence}%`, 'color: #FFD700; font-weight: bold;');
+        console.log('');
+
+        await emitLevelStatuses(levelReports);
+        if (analyzerConfig.aiMode) {
+            sendAnalysisStatus('Sinal de entrada');
+        } else {
+            sendAnalysisStatus(`✅ Sinal aprovado: ${finalColor.toUpperCase()} (score ${(scoreMagnitude * 100).toFixed(1)}%)`);
+        }
+        await sleep(2000);
+
+        const scoreSummary = levelReports.map(level => ({
+            id: level.id,
+            name: level.name,
+            color: level.color,
+            strength: Number(level.strength.toFixed(3)),
+            weight: Number(level.weight.toFixed(3)),
+            contribution: Number((level.score * level.weight).toFixed(3)),
+            details: level.details
+        }));
+
+        const reasoning =
+            `${levelReports.map(level => describeLevel(level)).join('\n')}\n` +
+            `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+            `${currentIntensity.emoji} Modo: ${currentIntensity.name} (mín ${(currentIntensity.minScore * 100).toFixed(0)}%)\n` +
+            `Score combinado: ${(normalizedScore * 100).toFixed(1)}%\n` +
+            `🎯 DECISÃO: ${finalColor.toUpperCase()}\n` +
+            `📊 Confiança: ${finalConfidence}%`;
+
+        console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #00FFFF; font-weight: bold;');
+        console.log('%c🧠 RACIOCÍNIO COMPLETO:', 'color: #00FFFF; font-weight: bold; font-size: 14px;');
+        console.log(`%c${reasoning}`, 'color: #00FFFF;');
+        console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #00FFFF; font-weight: bold;');
+        console.log('');
+        
+        const signal = {
+            timestamp: Date.now(),
+            patternType: 'nivel-diamante',
+            patternName: patternDescription,
+            colorRecommended: finalColor,
+            normalizedScore: Number(normalizedScore.toFixed(4)),
+            scoreMagnitude: Number(scoreMagnitude.toFixed(4)),
+            intensityMode: signalIntensity,
+            rawConfidence,
+            finalConfidence,
+            levelBreakdown: scoreSummary,
+            reasoning,
+            verified: false,
+            colorThatCame: null,
+            hit: null
+        };
+
+        if (signalsHistory && signalsHistory.signals) {
+            signalsHistory.signals.push(signal);
+            if (signalsHistory.signals.length > 200) {
+                signalsHistory.signals = signalsHistory.signals.slice(-200);
+            }
+            await saveSignalsHistory();
+        }
+
+        if (!memoriaAtiva.inicializada) {
+            memoriaAtiva.inicializada = true;
+            memoriaAtiva.ultimaAtualizacao = Date.now();
+            memoriaAtiva.totalAtualizacoes = 1;
+            memoriaAtiva.giros = history.slice(0, 2000);
+            console.log('%c✅ Memória Ativa marcada como INICIALIZADA!', 'color: #00FF00; font-weight: bold;');
+        } else {
+            memoriaAtiva.totalAtualizacoes++;
+            memoriaAtiva.ultimaAtualizacao = Date.now();
+        }
+
+        return {
+            color: finalColor,
+            confidence: finalConfidence,
+            probability: finalConfidence,
+            reasoning: reasoning,
+            patternDescription: patternDescription
+        };
+
+        /* LEGACY VOTING BLOCK (COMENTADO)
         console.log('');
         
         console.log(`%c🎯 Cor vencedora da votação: ${finalColor.toUpperCase()}`, `color: ${finalColor === 'red' ? '#FF0000' : '#FFFFFF'}; font-weight: bold;`);
@@ -9434,31 +9671,29 @@ async function analyzeWithPatternSystem(history) {
         sendAnalysisStatus(`⚡ N2 - Momentum → ${nivel5.color.toUpperCase()} (${trendLabel})`);
         await sleep(1500);
         
-        sendAnalysisStatus(`🛑 N3 - Barreira → ❌ BLOQUEADO`);
-        await sleep(1500);
-        
-        // ✅ NÍVEIS 4, 5, 6 (mesmo bloqueado, mostrar para o usuário)
         if (nivel7 && nivel7.color) {
-            sendAnalysisStatus(`🔷 N4 - Alternância → ${nivel7.color.toUpperCase()}`);
+            const overrideLabel = nivel7.override ? ' (override)' : '';
+            sendAnalysisStatus(`🔷 N3 - Alternância${overrideLabel} → ${nivel7.color.toUpperCase()}`);
         } else {
-            sendAnalysisStatus(`🔷 N4 - Alternância → NULO`);
-        }
-        await sleep(1500);
-        
-        if (nivel8 && nivel8.color && nivel8.mode !== 'force_white') {
-            sendAnalysisStatus(`⚪ N5 - Radar de Brancos → ${nivel8.color.toUpperCase()}`);
-        } else if (nivel8 && nivel8.mode === 'force_white') {
-            sendAnalysisStatus(`⚪ N5 - Radar de Brancos → 🚨 BRANCO`);
-        } else {
-            sendAnalysisStatus(`⚪ N5 - Radar de Brancos → NULO`);
+            sendAnalysisStatus(`🔷 N3 - Alternância → NULO`);
         }
         await sleep(1500);
         
         if (nivel9 && nivel9.color) {
-            sendAnalysisStatus(`🔷 N6 - Persistência → ${nivel9.color.toUpperCase()}`);
+            sendAnalysisStatus(`🔷 N4 - Persistência → ${nivel9.color.toUpperCase()}`);
         } else {
-            sendAnalysisStatus(`🔷 N6 - Persistência → NULO`);
+            sendAnalysisStatus(`🔷 N4 - Persistência → NULO`);
         }
+        await sleep(1500);
+        
+        if (minuteBiasColor) {
+            sendAnalysisStatus(`🕑 N5 - Ritmo por Giro → ${minuteBiasColor.toUpperCase()}`);
+        } else {
+            sendAnalysisStatus(`🕑 N5 - Ritmo por Giro → NULO`);
+        }
+        await sleep(1500);
+        
+        sendAnalysisStatus(`🛑 N6 - Barreira → ❌ BLOQUEADO`);
         await sleep(1500);
         
         // ✅ Mostrar motivo do bloqueio
@@ -9532,9 +9767,9 @@ async function analyzeWithPatternSystem(history) {
         
         // ✅ LÓGICA SIMPLIFICADA: Todos os modos usam o mínimo de votos
         // Conservador (5 de 5) = 100% dos níveis que votam
-        consensusValid = (winningVotes >= currentIntensity.min);
-        console.log(`%c   ➤ Necessário: Mínimo ${currentIntensity.min} votos`, 'color: #9C27B0;');
-        console.log(`%c   ➤ Obtido: ${winningVotes} votos`, 'color: #9C27B0;');
+            consensusValid = (winningVotes >= currentIntensity.min);
+            console.log(`%c   ➤ Necessário: Mínimo ${currentIntensity.min} votos`, 'color: #9C27B0;');
+            console.log(`%c   ➤ Obtido: ${winningVotes} votos`, 'color: #9C27B0;');
         
         console.log('');
         
@@ -9565,35 +9800,32 @@ async function analyzeWithPatternSystem(history) {
         sendAnalysisStatus(`⚡ N2 - Momentum → ${nivel5.color.toUpperCase()} (${trendLabel2})`);
         await sleep(1500);
         
-        sendAnalysisStatus(`🛑 N3 - Barreira → ✅ APROVADO`);
-        await sleep(1500);
-        
-        // ✅ NÍVEIS 4, 5, 6
         if (nivel7 && nivel7.color) {
-            sendAnalysisStatus(`🔷 N4 - Alternância → ${nivel7.color.toUpperCase()}`);
+            const overrideLabel = nivel7.override ? ' (override)' : '';
+            sendAnalysisStatus(`🔷 N3 - Alternância${overrideLabel} → ${nivel7.color.toUpperCase()}`);
         } else {
-            sendAnalysisStatus(`🔷 N4 - Alternância → NULO`);
-        }
-        await sleep(1500);
-        
-        if (nivel8 && nivel8.color && nivel8.mode !== 'force_white') {
-            sendAnalysisStatus(`⚪ N5 - Radar de Brancos → ${nivel8.color.toUpperCase()}`);
-        } else if (nivel8 && nivel8.mode === 'force_white') {
-            sendAnalysisStatus(`⚪ N5 - Radar de Brancos → 🚨 BRANCO`);
-        } else {
-            sendAnalysisStatus(`⚪ N5 - Radar de Brancos → NULO`);
+            sendAnalysisStatus(`🔷 N3 - Alternância → NULO`);
         }
         await sleep(1500);
         
         if (nivel9 && nivel9.color) {
-            sendAnalysisStatus(`🔷 N6 - Persistência → ${nivel9.color.toUpperCase()}`);
+            sendAnalysisStatus(`🔷 N4 - Persistência → ${nivel9.color.toUpperCase()}`);
         } else {
-            sendAnalysisStatus(`🔷 N6 - Persistência → NULO`);
+            sendAnalysisStatus(`🔷 N4 - Persistência → NULO`);
         }
         await sleep(1500);
         
-        // ✅ Mostrar motivo da rejeição (5 níveis votam)
-        const totalVotantes = 5; // Sempre 5 níveis votam (4, 5, 7, 8, 9)
+        if (minuteBiasColor) {
+            sendAnalysisStatus(`🕑 N5 - Ritmo por Giro → ${minuteBiasColor.toUpperCase()}`);
+        } else {
+            sendAnalysisStatus(`🕑 N5 - Ritmo por Giro → NULO`);
+        }
+        await sleep(1500);
+        
+        sendAnalysisStatus(`🛑 N6 - Barreira → ✅ APROVADO`);
+        await sleep(1500);
+        
+        const totalVotantes = 5;
         sendAnalysisStatus(`❌ Rejeitado: ${winningVotes} de ${totalVotantes} votos (mín: ${currentIntensity.min})`);
         await sleep(2000);
         
@@ -9635,7 +9867,29 @@ async function analyzeWithPatternSystem(history) {
         sendAnalysisStatus(`⚡ N2 - Momentum → ${nivel5.color.toUpperCase()} (${trendLabel3})`);
         await sleep(1500);
         
-        sendAnalysisStatus(`🛑 N3 - Barreira → ✅ APROVADO`);
+        if (nivel7 && nivel7.color) {
+            const overrideLabel = nivel7.override ? ' (override)' : '';
+            sendAnalysisStatus(`🔷 N3 - Alternância${overrideLabel} → ${nivel7.color.toUpperCase()}`);
+        } else {
+            sendAnalysisStatus(`🔷 N3 - Alternância → NULO`);
+        }
+        await sleep(1500);
+        
+        if (nivel9 && nivel9.color) {
+            sendAnalysisStatus(`🔷 N4 - Persistência → ${nivel9.color.toUpperCase()}`);
+        } else {
+            sendAnalysisStatus(`🔷 N4 - Persistência → NULO`);
+        }
+        await sleep(1500);
+        
+        if (minuteBiasColor) {
+            sendAnalysisStatus(`🕑 N5 - Ritmo por Giro → ${minuteBiasColor.toUpperCase()}`);
+        } else {
+            sendAnalysisStatus(`🕑 N5 - Ritmo por Giro → NULO`);
+        }
+        await sleep(1500);
+        
+        sendAnalysisStatus(`🛑 N6 - Barreira → ✅ APROVADO`);
         await sleep(1500);
         
         // ✅ Mostrar resultado da análise (MODO DIAMANTE: mensagem fixa) e depois o motivo do bloqueio
@@ -9687,7 +9941,7 @@ async function analyzeWithPatternSystem(history) {
     console.log(`%c⚠️ Níveis 1, 2, 3 desativados (análise superficial de frequência)`, 'color: #888; font-style: italic;');
     console.log('');
         console.log(`%c🎯 NÍVEL 4: Padrões → ${nivel4 ? nivel4.color.toUpperCase() + ' (' + (nivel4.source === 'custom' ? 'Customizado' : 'Quente') + ')' : 'NULO'}`, nivel4 ? 'color: #FF00FF; font-weight: bold;' : 'color: #888;');
-        console.log(`%c⚡ NÍVEL 5: Momentum (10 vs 20) → ${nivel5.color.toUpperCase()}`, 'color: #00AAFF; font-weight: bold;');
+        console.log(`%c⚡ NÍVEL 2: Momentum (5 vs 15) → ${nivel5.color.toUpperCase()}`, 'color: #00AAFF; font-weight: bold;');
         console.log(`%c🛑 NÍVEL 6: Barreira → ${barrierResult.allowed ? '✅ LIBERADO' : '🚫 BLOQUEADO'}`, barrierResult.allowed ? 'color: #00FF88; font-weight: bold;' : 'color: #FF6666; font-weight: bold;');
         console.log(`%c🔷 NÍVEL 7: Alternância (12 giros) → ${nivel7 && nivel7.color ? nivel7.color.toUpperCase() : 'NULO'}`, nivel7 && nivel7.color ? 'color: #8E44AD; font-weight: bold;' : 'color: #888;');
         console.log(`%c⚪ NÍVEL 5: Radar de Brancos (2000 giros) → ${nivel8 && nivel8.mode === 'force_white' ? '🚨 BRANCO' : (nivel8 && nivel8.color ? nivel8.color.toUpperCase() : 'NULO')}`, nivel8 && nivel8.mode === 'force_white' ? 'color: #FFFFFF; font-weight: bold; background: #FF6B35;' : (nivel8 && nivel8.color ? 'color: #16A085; font-weight: bold;' : 'color: #888;'));
@@ -9881,6 +10135,8 @@ async function analyzeWithPatternSystem(history) {
             reasoning: reasoning,
             patternDescription: patternDescription
         };
+        
+        */
         
     } catch (error) {
         console.error('');
@@ -11899,7 +12155,7 @@ async function verifyWithSavedPatterns(history) {
 				continue; // ❌ Cor de disparo INVÁLIDA - NÃO ENVIAR ENTRADA
 			}
 		}
-		
+
 		// Se assertCalc existe, já vem calibrado; senão, calibrar a confidence salva
 		const rawPatternConfidence = typeof pat.confidence === 'number' ? pat.confidence : 70;
 		const patternConfidence = assertCalc ? assertCalc.finalConfidence : applyCalibratedConfidence(rawPatternConfidence);
@@ -12587,34 +12843,62 @@ function analyzeColorPatternsWithTrigger(history) {
 
 
 // Verificar se a Cor de Disparo é válida para o padrão
+function normalizeColorName(color) {
+    if (!color) return null;
+    const c = color.toString().trim().toLowerCase();
+    switch (c) {
+        case 'red':
+        case 'r':
+        case 'vermelho':
+        case 'v':
+            return 'red';
+        case 'black':
+        case 'b':
+        case 'preto':
+        case 'p':
+            return 'black';
+        case 'white':
+        case 'w':
+        case 'branco':
+        case 'branca':
+        case '0':
+            return 'white';
+        default:
+            return null;
+    }
+}
+
 function isValidTrigger(triggerColor, patternSequence) {
     if (!patternSequence || patternSequence.length === 0) return false;
     
-    const firstPatternColor = patternSequence[0];
+    const firstPatternColor = normalizeColorName(patternSequence[0]);
+    const trigger = normalizeColorName(triggerColor);
     
-    // Cor de Disparo deve ser diferente da primeira cor do padrão
-    // e também não pode ser nula/indefinida
-    if (!triggerColor) return false;
-    return triggerColor !== firstPatternColor;
+    if (!firstPatternColor || !trigger) return false;
+    
+    return validateDisparoColor(firstPatternColor, trigger).valid;
 }
 
 // Validar se cor de disparo é OPOSTA à cor inicial (regra estrita)
 function validateDisparoColor(corInicial, corDisparo) {
+    const initial = normalizeColorName(corInicial);
+    const trigger = normalizeColorName(corDisparo);
+    
     const mapping = {
         'red': ['black', 'white'],
         'black': ['red', 'white'],
         'white': ['red', 'black']
     };
     
-    if (!corInicial || !corDisparo) {
+    if (!initial || !trigger) {
         return { valid: false, reason: 'missing_color' };
     }
     
-    if (corInicial === corDisparo) {
+    if (initial === trigger) {
         return { valid: false, reason: 'same_as_initial' };
     }
     
-    if (!mapping[corInicial] || !mapping[corInicial].includes(corDisparo)) {
+    if (!mapping[initial] || !mapping[initial].includes(trigger)) {
         return { valid: false, reason: 'invalid_opposite' };
     }
     

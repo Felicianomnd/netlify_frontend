@@ -951,7 +951,7 @@
         // Atualizar a cada 5 segundos quando modo IA estiver ativo
         intervaloAtualizacaoMemoria = setInterval(async () => {
             try {
-                const result = await chrome.storage.local.get(['analyzerConfig']);
+                const result = await storageCompat.get(['analyzerConfig']);
                 if (result.analyzerConfig && result.analyzerConfig.aiMode) {
                     const modeApiStatus = document.getElementById('modeApiStatus');
                     if (modeApiStatus) {
@@ -1345,6 +1345,140 @@
       function getApiUrl() {
           return API_URLS.auth;
       }
+
+    // ═══════════════════════════════════════════════════════════════════════════════
+    // 💾 ADAPTADOR DE STORAGE (chrome.storage.local ou fallback em localStorage)
+    // ═══════════════════════════════════════════════════════════════════════════════
+
+    const hasChromeStorage = typeof chrome !== 'undefined' &&
+                             chrome?.storage &&
+                             chrome.storage?.local;
+
+    function deserializeFromLocalStorage(rawValue, fallbackValue = undefined) {
+        if (rawValue === null || rawValue === undefined) return fallbackValue;
+        try {
+            return JSON.parse(rawValue);
+        } catch (error) {
+            console.warn('⚠️ Não foi possível converter valor do localStorage. Retornando bruto.', error);
+            return rawValue;
+        }
+    }
+
+    function serializeForLocalStorage(value) {
+        try {
+            return JSON.stringify(value);
+        } catch (error) {
+            console.error('❌ Não foi possível serializar valor para o localStorage:', error);
+            return JSON.stringify(null);
+        }
+    }
+
+    function fallbackStorageGet(request) {
+        const result = {};
+
+        if (Array.isArray(request)) {
+            request.forEach((key) => {
+                result[key] = deserializeFromLocalStorage(localStorage.getItem(key));
+            });
+        } else if (typeof request === 'string') {
+            result[request] = deserializeFromLocalStorage(localStorage.getItem(request));
+        } else if (request && typeof request === 'object') {
+            Object.keys(request).forEach((key) => {
+                const stored = localStorage.getItem(key);
+                result[key] = stored === null || stored === undefined
+                    ? request[key]
+                    : deserializeFromLocalStorage(stored);
+            });
+        }
+
+        return result;
+    }
+
+    function fallbackStorageSet(items) {
+        if (!items || typeof items !== 'object') return;
+        Object.entries(items).forEach(([key, value]) => {
+            localStorage.setItem(key, serializeForLocalStorage(value));
+        });
+    }
+
+    function fallbackStorageRemove(keys) {
+        if (Array.isArray(keys)) {
+            keys.forEach((key) => localStorage.removeItem(key));
+        } else if (typeof keys === 'string') {
+            localStorage.removeItem(keys);
+        }
+    }
+
+    const storageCompat = {
+        async get(request) {
+            if (hasChromeStorage) {
+                return await new Promise((resolve, reject) => {
+                    try {
+                        chrome.storage.local.get(request, (items) => {
+                            const err = chrome.runtime?.lastError;
+                            if (err) {
+                                console.error('❌ Erro em chrome.storage.local.get:', err);
+                                reject(new Error(err.message || err));
+                            } else {
+                                resolve(items);
+                            }
+                        });
+                    } catch (error) {
+                        reject(error);
+                    }
+                });
+            }
+
+            const fallback = fallbackStorageGet(request);
+            return fallback;
+        },
+
+        async set(items) {
+            if (hasChromeStorage) {
+                return await new Promise((resolve, reject) => {
+                    try {
+                        chrome.storage.local.set(items, () => {
+                            const err = chrome.runtime?.lastError;
+                            if (err) {
+                                console.error('❌ Erro em chrome.storage.local.set:', err);
+                                reject(new Error(err.message || err));
+                            } else {
+                                resolve(true);
+                            }
+                        });
+                    } catch (error) {
+                        reject(error);
+                    }
+                });
+            }
+
+            fallbackStorageSet(items);
+            return true;
+        },
+
+        async remove(keys) {
+            if (hasChromeStorage) {
+                return await new Promise((resolve, reject) => {
+                    try {
+                        chrome.storage.local.remove(keys, () => {
+                            const err = chrome.runtime?.lastError;
+                            if (err) {
+                                console.error('❌ Erro em chrome.storage.local.remove:', err);
+                                reject(new Error(err.message || err));
+                            } else {
+                                resolve(true);
+                            }
+                        });
+                    } catch (error) {
+                        reject(error);
+                    }
+                });
+            }
+
+            fallbackStorageRemove(keys);
+            return true;
+        }
+    };
     
     // ═══════════════════════════════════════════════════════════════════════════════
     // 🔄 GERENCIAMENTO DE PREFERÊNCIAS DE SINCRONIZAÇÃO
@@ -1727,7 +1861,7 @@
         
         // Salvar no storage local
         try {
-            const result = await chrome.storage.local.get(['customPatterns']);
+            const result = await storageCompat.get(['customPatterns']);
             let patterns = result.customPatterns || [];
             
             if (isEditMode) {
@@ -1771,7 +1905,7 @@
                 console.log('   Total de padrões:', patterns.length);
             }
             
-            await chrome.storage.local.set({ customPatterns: patterns });
+            await storageCompat.set({ customPatterns: patterns });
             
             // ✅ VERIFICAR SE DEVE SINCRONIZAR COM O SERVIDOR
             const syncCheckbox = document.getElementById('syncPatternToAccount');
@@ -1897,18 +2031,18 @@
                 if (serverPatterns !== null) {
                     // Carregar do servidor e atualizar localStorage
                     patterns = serverPatterns;
-                    await chrome.storage.local.set({ customPatterns: patterns });
+                    await storageCompat.set({ customPatterns: patterns });
                     console.log('✅ Padrões carregados do servidor e sincronizados localmente');
                 } else {
                     // Carregar do localStorage (fallback se servidor falhar)
-                    const result = await chrome.storage.local.get(['customPatterns']);
+                    const result = await storageCompat.get(['customPatterns']);
                     patterns = result.customPatterns || [];
                     console.log('⚠️ Não foi possível carregar do servidor - usando padrões locais');
                 }
             } else {
                 console.log('💾 Sincronização de padrões DESATIVADA - usando APENAS padrões locais');
                 // Carregar APENAS do localStorage
-                const result = await chrome.storage.local.get(['customPatterns']);
+                const result = await storageCompat.get(['customPatterns']);
                 patterns = result.customPatterns || [];
                 console.log('✅ Padrões carregados do localStorage');
             }
@@ -2041,7 +2175,7 @@
     // Editar modelo customizado (do modal de visualização)
     window.editCustomPatternFromView = async function(patternId) {
         try {
-            const result = await chrome.storage.local.get(['customPatterns']);
+            const result = await storageCompat.get(['customPatterns']);
             const patterns = result.customPatterns || [];
             const pattern = patterns.find(p => p.id === patternId);
             
@@ -2142,7 +2276,7 @@
             console.log(`   ID do padrão: ${patternId}`);
             console.log('');
             
-            const result = await chrome.storage.local.get(['customPatterns']);
+            const result = await storageCompat.get(['customPatterns']);
             let patterns = result.customPatterns || [];
             
             console.log(`📊 ANTES da exclusão: ${patterns.length} padrão(ões)`);
@@ -2174,7 +2308,7 @@
             }
             console.log('');
             
-            await chrome.storage.local.set({ customPatterns: patterns });
+            await storageCompat.set({ customPatterns: patterns });
             console.log('%c✅ Storage local atualizado!', 'color: #00FF88; font-weight: bold;');
             console.log('');
             
@@ -2495,12 +2629,12 @@
                                     outline: none;
                                     text-align: center;
                                 ">
-                                    <option value="aggressive" style="background: #1a1a1a; color: #fff;">🔥 AGRESSIVO (3 de 5)</option>
-                                    <option value="moderate" selected style="background: #1a1a1a; color: #fff;">⚖️ MODERADO (4 de 5)</option>
-                                    <option value="conservative" style="background: #1a1a1a; color: #fff;">🛡️ CONSERVADOR (5 de 5 - todos)</option>
+                                    <option value="aggressive" style="background: #1a1a1a; color: #fff;">🔥 AGRESSIVO (score ≥ 25%)</option>
+                                    <option value="moderate" selected style="background: #1a1a1a; color: #fff;">⚖️ MODERADO (score ≥ 45%)</option>
+                                    <option value="conservative" style="background: #1a1a1a; color: #fff;">🛡️ CONSERVADOR (score ≥ 65%)</option>
                                 </select>
                                 <div style="font-size: 11px; color: #888; text-align: center; padding: 0 10px;">
-                                    5 níveis votam • Define quantos devem concordar para enviar sinal
+                                    Pontuação contínua • Define o score mínimo para enviar sinal
                                 </div>
                             </div>
                         </div>
@@ -3115,7 +3249,6 @@
                     .replace(/N3 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N3</span> -')
                     .replace(/N4 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N4</span> -')
                     .replace(/N5 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N5</span> -')
-                    .replace(/N6 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N6</span> -')
                     .replace(/🗳️/g, '<span style="color: #FFD700; font-weight: bold;">🗳️</span>')
                     .replace(/🏆/g, '<span style="color: #FFD700; font-weight: bold;">🏆</span>')
                     .replace(/🎚️/g, '<span style="color: #b794f6; font-weight: bold;">🎚️</span>')
@@ -3134,7 +3267,6 @@
             .replace(/N3 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N3</span> -')
             .replace(/N4 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N4</span> -')
             .replace(/N5 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N5</span> -')
-            .replace(/N6 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N6</span> -')
             .replace(/🗳️/g, '<span style="color: #FFD700; font-weight: bold;">🗳️</span>')
             .replace(/🏆/g, '<span style="color: #FFD700; font-weight: bold;">🏆</span>')
             .replace(/🎚️/g, '<span style="color: #b794f6; font-weight: bold;">🎚️</span>')
@@ -3346,7 +3478,6 @@
                                 .replace(/N3 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N3</span> -')
                                 .replace(/N4 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N4</span> -')
                                 .replace(/N5 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N5</span> -')
-                                .replace(/N6 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N6</span> -')
                                 .replace(/🗳️/g, '<span style="color: #FFD700; font-weight: bold;">🗳️</span>')
                                 .replace(/🏆/g, '<span style="color: #FFD700; font-weight: bold;">🏆</span>')
                                 .replace(/🎚️/g, '<span style="color: #b794f6; font-weight: bold;">🎚️</span>')
@@ -3367,7 +3498,6 @@
                         .replace(/N3 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N3</span> -')
                         .replace(/N4 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N4</span> -')
                         .replace(/N5 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N5</span> -')
-                        .replace(/N6 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N6</span> -')
                         .replace(/🗳️/g, '<span style="color: #FFD700; font-weight: bold;">🗳️</span>')
                         .replace(/🏆/g, '<span style="color: #FFD700; font-weight: bold;">🏆</span>')
                         .replace(/🎚️/g, '<span style="color: #b794f6; font-weight: bold;">🎚️</span>')
@@ -3791,7 +3921,7 @@
                     // ✅ VERIFICAR SE É ANÁLISE DIAMANTE - Mostrar apenas "Análise por IA"
                     const isDiamondMode = analysis.patternDescription && 
                                           (analysis.patternDescription.includes('NÍVEL DIAMANTE') || 
-                                           analysis.patternDescription.includes('6 Níveis'));
+                                           analysis.patternDescription.includes('5 Níveis'));
                     
                     if (isDiamondMode) {
                         suggestionText.textContent = 'Análise por IA';
@@ -5137,7 +5267,7 @@
     async function loadSettings() {
         try {
             // ✅ CARREGAR CONFIGURAÇÃO LOCAL ATUAL PRIMEIRO (para preservar aiMode)
-            const localResult = await chrome.storage.local.get(['analyzerConfig']);
+            const localResult = await storageCompat.get(['analyzerConfig']);
             const localConfig = localResult.analyzerConfig || {};
             const localAIMode = localConfig.aiMode; // Preservar modo ativo local
             
@@ -5156,7 +5286,7 @@
                         ...serverConfig,
                         aiMode: localAIMode // ✅ PRESERVAR aiMode local
                     };
-                    await chrome.storage.local.set({ analyzerConfig: mergedConfig });
+                    await storageCompat.set({ analyzerConfig: mergedConfig });
                 } else {
                     console.log('⚠️ Não foi possível carregar do servidor - usando configuração local');
                 }
@@ -5285,7 +5415,7 @@
                 
                 // ✅ RESETAR HISTÓRICO DE SINAIS (limpar penalidades de losses consecutivos)
                 console.log('%c🔄 Resetando histórico de sinais (limpar losses consecutivos)...', 'color: #00D4FF; font-weight: bold;');
-                await chrome.storage.local.set({
+                await storageCompat.set({
                     signalsHistory: {
                         totalSignals: 0,
                         wins: 0,
