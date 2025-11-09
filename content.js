@@ -1041,6 +1041,379 @@
         console.log('✅ Modal de visualização de padrões criado');
     }
     
+    // ═══════════════════════════════════════════════════════════════════════════════
+    // 🎯 CRIAR MODAL DE VISUALIZAÇÃO DO BANCO DE PADRÕES
+    // ═══════════════════════════════════════════════════════════════════════════════
+    function createBankPatternsModal() {
+        const modalHTML = `
+            <div id="bankPatternsModal" class="custom-pattern-modal" style="display: none;">
+                <div class="custom-pattern-modal-overlay"></div>
+                <div class="custom-pattern-modal-content" style="max-width: 800px; width: 90%;">
+                    <div class="custom-pattern-modal-header">
+                        <h3>📂 Banco de Padrões (<span id="bankModalPatternsCount">0</span>)</h3>
+                        <button class="custom-pattern-modal-close" id="closeBankPatternsModal">✕</button>
+                    </div>
+                    
+                    <div style="padding: 10px; background: #1a2c38; border-bottom: 1px solid #2a3c48; display: flex; gap: 10px; align-items: center;">
+                        <input type="text" id="bankPatternSearch" placeholder="🔍 Filtrar padrões..." style="flex: 1; padding: 8px; background: #0f1f2a; border: 1px solid #2a3c48; border-radius: 4px; color: #fff; font-size: 12px;">
+                        <select id="bankPatternFilter" style="padding: 8px; background: #0f1f2a; border: 1px solid #2a3c48; border-radius: 4px; color: #fff; font-size: 12px;">
+                            <option value="all">Todos</option>
+                            <option value="high">Alta (≥80%)</option>
+                            <option value="medium">Média (60-79%)</option>
+                            <option value="low">Baixa (<60%)</option>
+                        </select>
+                    </div>
+                    
+                    <div class="custom-pattern-modal-body" style="max-height: 500px; overflow-y: auto;">
+                        <div id="bankPatternsList"></div>
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        document.body.insertAdjacentHTML('beforeend', modalHTML);
+        
+        // Event listeners
+        const modal = document.getElementById('bankPatternsModal');
+        const closeBtn = document.getElementById('closeBankPatternsModal');
+        const overlay = modal.querySelector('.custom-pattern-modal-overlay');
+        const searchInput = document.getElementById('bankPatternSearch');
+        const filterSelect = document.getElementById('bankPatternFilter');
+        
+        closeBtn.addEventListener('click', () => {
+            modal.style.display = 'none';
+        });
+        
+        overlay.addEventListener('click', () => {
+            modal.style.display = 'none';
+        });
+        
+        // Filtros em tempo real
+        searchInput.addEventListener('input', () => {
+            renderBankPatterns();
+        });
+        
+        filterSelect.addEventListener('change', () => {
+            renderBankPatterns();
+        });
+        
+        console.log('✅ Modal do Banco de Padrões criado');
+        
+        // Adicionar CSS específico para o banco de padrões
+        const style = document.createElement('style');
+        style.textContent = `
+            .view-patterns-btn {
+                padding: 8px 12px;
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                color: #fff;
+                border: 1px solid rgba(102, 126, 234, 0.5);
+                border-radius: 4px;
+                cursor: pointer;
+                font-size: 11px;
+                font-weight: 600;
+                transition: all 0.2s ease;
+                white-space: nowrap;
+            }
+            
+            .view-patterns-btn:hover {
+                background: linear-gradient(135deg, #764ba2 0%, #667eea 100%);
+                box-shadow: 0 2px 8px rgba(102, 126, 234, 0.4);
+                transform: translateY(-1px);
+            }
+            
+            .view-patterns-btn:active {
+                transform: translateY(0);
+            }
+            
+            .bank-pattern-item {
+                background: #0f1f2a;
+                border: 1px solid #2a3c48;
+                border-radius: 6px;
+                margin-bottom: 10px;
+                overflow: hidden;
+                transition: all 0.2s ease;
+            }
+            
+            .bank-pattern-item:hover {
+                border-color: #667eea;
+                box-shadow: 0 2px 8px rgba(102, 126, 234, 0.2);
+            }
+            
+            .bank-pattern-header {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                padding: 12px;
+                background: linear-gradient(135deg, #1a2c38 0%, #0f1f2a 100%);
+                border-bottom: 1px solid #2a3c48;
+            }
+            
+            .bank-pattern-sequence {
+                font-size: 16px;
+                font-weight: 600;
+                color: #fff;
+                flex: 1;
+            }
+            
+            .btn-delete-bank-pattern {
+                background: linear-gradient(135deg, #ff4757 0%, #c7031e 100%);
+                color: #fff;
+                border: 1px solid rgba(255, 71, 87, 0.5);
+                border-radius: 4px;
+                padding: 6px 10px;
+                cursor: pointer;
+                font-size: 14px;
+                transition: all 0.2s ease;
+            }
+            
+            .btn-delete-bank-pattern:hover {
+                background: linear-gradient(135deg, #c7031e 0%, #ff4757 100%);
+                box-shadow: 0 2px 8px rgba(255, 71, 87, 0.4);
+                transform: scale(1.05);
+            }
+            
+            .bank-pattern-details {
+                padding: 12px;
+                display: flex;
+                flex-direction: column;
+                gap: 8px;
+            }
+            
+            .bank-pattern-detail-row {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                font-size: 12px;
+            }
+            
+            .detail-label {
+                color: #8da2bb;
+                font-weight: 600;
+            }
+            
+            .detail-value {
+                color: #dfe4ea;
+                font-weight: 600;
+            }
+            
+            .detail-value.conf-high {
+                color: #2ecc71;
+            }
+            
+            .detail-value.conf-medium {
+                color: #f39c12;
+            }
+            
+            .detail-value.conf-low {
+                color: #e74c3c;
+            }
+        `;
+        document.head.appendChild(style);
+    }
+    
+    // ═══════════════════════════════════════════════════════════════════════════════
+    // 🎯 RENDERIZAR LISTA DE PADRÕES DO BANCO
+    // ═══════════════════════════════════════════════════════════════════════════════
+    function renderBankPatterns() {
+        console.log('📂 Renderizando lista de padrões do banco...');
+        
+        const allData = JSON.parse(localStorage.getItem('blazeAnalyzerData') || '{}');
+        const db = allData.patternDB || { patterns_found: [] };
+        const patterns = db.patterns_found || [];
+        
+        const listContainer = document.getElementById('bankPatternsList');
+        const countElement = document.getElementById('bankModalPatternsCount');
+        const searchInput = document.getElementById('bankPatternSearch');
+        const filterSelect = document.getElementById('bankPatternFilter');
+        
+        if (!listContainer) return;
+        
+        // Aplicar filtros
+        const searchTerm = searchInput ? searchInput.value.toLowerCase() : '';
+        const filterType = filterSelect ? filterSelect.value : 'all';
+        
+        const filteredPatterns = patterns.filter(p => {
+            // Filtro de busca
+            if (searchTerm) {
+                const patternStr = (p.pattern || []).join('-').toLowerCase();
+                const triggerStr = (p.triggerColor || '').toLowerCase();
+                if (!patternStr.includes(searchTerm) && !triggerStr.includes(searchTerm)) {
+                    return false;
+                }
+            }
+            
+            // Filtro de confiança
+            const conf = p.confidence || 0;
+            if (filterType === 'high' && conf < 80) return false;
+            if (filterType === 'medium' && (conf < 60 || conf >= 80)) return false;
+            if (filterType === 'low' && conf >= 60) return false;
+            
+            return true;
+        });
+        
+        // Atualizar contador
+        if (countElement) {
+            countElement.textContent = filteredPatterns.length;
+        }
+        
+        // Renderizar lista
+        if (filteredPatterns.length === 0) {
+            listContainer.innerHTML = `
+                <div style="padding: 40px; text-align: center; color: #8da2bb; font-size: 14px;">
+                    ${searchTerm || filterType !== 'all' ? '🔍 Nenhum padrão encontrado com os filtros aplicados' : '📂 Banco vazio - clique em "Buscar Padrões" para descobrir'}
+                </div>
+            `;
+            return;
+        }
+        
+        // Ordenar por confiança (maior primeiro)
+        filteredPatterns.sort((a, b) => (b.confidence || 0) - (a.confidence || 0));
+        
+        const patternsHTML = filteredPatterns.map((p, index) => {
+            const patternStr = (p.pattern || []).join(' → ');
+            const trigger = p.triggerColor || 'N/A';
+            const conf = p.confidence || 0;
+            const occurrences = p.occurrences || 0;
+            
+            // Mapear cor para emoji/nome
+            const colorMap = {
+                'red': { emoji: '🔴', name: 'VERMELHO' },
+                'black': { emoji: '⚫', name: 'PRETO' },
+                'white': { emoji: '⚪', name: 'BRANCO' }
+            };
+            
+            const patternColors = (p.pattern || []).map(c => colorMap[c]?.emoji || c).join(' → ');
+            const triggerColor = colorMap[trigger]?.name || trigger.toUpperCase();
+            
+            // Classe de confiança
+            let confClass = 'conf-low';
+            if (conf >= 80) confClass = 'conf-high';
+            else if (conf >= 60) confClass = 'conf-medium';
+            
+            return `
+                <div class="bank-pattern-item" data-pattern-index="${index}">
+                    <div class="bank-pattern-header">
+                        <div class="bank-pattern-sequence">${patternColors}</div>
+                        <button class="btn-delete-bank-pattern" onclick="deleteBankPattern(${index})" title="Deletar padrão">
+                            🗑️
+                        </button>
+                    </div>
+                    <div class="bank-pattern-details">
+                        <div class="bank-pattern-detail-row">
+                            <span class="detail-label">Cor de Disparo:</span>
+                            <span class="detail-value" style="color: ${trigger === 'red' ? '#ff4757' : trigger === 'black' ? '#dfe4ea' : trigger === 'white' ? '#dfe4ea' : '#ffa502'};">
+                                ${colorMap[trigger]?.emoji || '❓'} ${triggerColor}
+                            </span>
+                        </div>
+                        <div class="bank-pattern-detail-row">
+                            <span class="detail-label">Ocorrências:</span>
+                            <span class="detail-value">${occurrences}x</span>
+                        </div>
+                        <div class="bank-pattern-detail-row">
+                            <span class="detail-label">Confiança:</span>
+                            <span class="detail-value ${confClass}">${conf.toFixed(1)}%</span>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }).join('');
+        
+        listContainer.innerHTML = patternsHTML;
+        
+        console.log(`✅ ${filteredPatterns.length} padrões renderizados`);
+    }
+    
+    // ═══════════════════════════════════════════════════════════════════════════════
+    // 🗑️ DELETAR PADRÃO DO BANCO
+    // ═══════════════════════════════════════════════════════════════════════════════
+    window.deleteBankPattern = function(index) {
+        console.log(`🗑️ Deletando padrão do banco (índice ${index})...`);
+        
+        // Confirmar exclusão
+        if (!confirm('❌ Tem certeza que deseja deletar este padrão?\n\nEsta ação não pode ser desfeita.')) {
+            return;
+        }
+        
+        try {
+            // Carregar padrões atuais
+            const allData = JSON.parse(localStorage.getItem('blazeAnalyzerData') || '{}');
+            const db = allData.patternDB || { patterns_found: [] };
+            const patterns = db.patterns_found || [];
+            
+            // Aplicar filtros para encontrar o padrão correto
+            const searchInput = document.getElementById('bankPatternSearch');
+            const filterSelect = document.getElementById('bankPatternFilter');
+            const searchTerm = searchInput ? searchInput.value.toLowerCase() : '';
+            const filterType = filterSelect ? filterSelect.value : 'all';
+            
+            const filteredPatterns = patterns.filter(p => {
+                // Filtro de busca
+                if (searchTerm) {
+                    const patternStr = (p.pattern || []).join('-').toLowerCase();
+                    const triggerStr = (p.triggerColor || '').toLowerCase();
+                    if (!patternStr.includes(searchTerm) && !triggerStr.includes(searchTerm)) {
+                        return false;
+                    }
+                }
+                
+                // Filtro de confiança
+                const conf = p.confidence || 0;
+                if (filterType === 'high' && conf < 80) return false;
+                if (filterType === 'medium' && (conf < 60 || conf >= 80)) return false;
+                if (filterType === 'low' && conf >= 60) return false;
+                
+                return true;
+            });
+            
+            // Ordenar igual à renderização
+            filteredPatterns.sort((a, b) => (b.confidence || 0) - (a.confidence || 0));
+            
+            // Encontrar o padrão no array ORIGINAL (não filtrado)
+            const patternToDelete = filteredPatterns[index];
+            if (!patternToDelete) {
+                console.error('❌ Padrão não encontrado!');
+                alert('❌ Erro: Padrão não encontrado');
+                return;
+            }
+            
+            const originalIndex = patterns.findIndex(p => 
+                JSON.stringify(p.pattern) === JSON.stringify(patternToDelete.pattern) &&
+                p.triggerColor === patternToDelete.triggerColor &&
+                p.confidence === patternToDelete.confidence
+            );
+            
+            if (originalIndex === -1) {
+                console.error('❌ Padrão não encontrado no array original!');
+                alert('❌ Erro: Padrão não encontrado');
+                return;
+            }
+            
+            console.log(`🎯 Padrão encontrado no índice original: ${originalIndex}`);
+            console.log('📋 Padrão:', patternToDelete);
+            
+            // Remover padrão
+            patterns.splice(originalIndex, 1);
+            
+            // Salvar de volta
+            db.patterns_found = patterns;
+            allData.patternDB = db;
+            localStorage.setItem('blazeAnalyzerData', JSON.stringify(allData));
+            
+            console.log(`✅ Padrão deletado! Total restante: ${patterns.length}`);
+            
+            // Atualizar UI
+            renderBankPatterns();
+            loadPatternBank();
+            
+            // Notificar sucesso
+            alert(`✅ Padrão deletado com sucesso!\n\nTotal de padrões: ${patterns.length}`);
+            
+        } catch (error) {
+            console.error('❌ Erro ao deletar padrão:', error);
+            alert('❌ Erro ao deletar padrão. Veja o console para detalhes.');
+        }
+    };
+    
     // Criar modal de padrões customizados
     function createCustomPatternModal() {
         const modalHTML = `
@@ -2502,6 +2875,7 @@
                         </div>
                     </div>
                     <div class="bank-buttons">
+                        <button id="viewPatternsBtn" class="view-patterns-btn">👁️ Ver Padrões</button>
                         <button id="refreshBankBtn" class="refresh-bank-btn">Buscar Padrões (1m30s)</button>
                         <button id="resetBankBtn" class="reset-bank-btn">Resetar Padrões</button>
                     </div>
@@ -2709,10 +3083,11 @@
         console.log('');
         
         // ═══════════════════════════════════════════════════════════════
-        // 🎯 CRIAR MODAL DE PADRÕES CUSTOMIZADOS
+        // 🎯 CRIAR MODAL DE PADRÕES CUSTOMIZADOS E BANCO
         // ═══════════════════════════════════════════════════════════════
         createCustomPatternModal();
         createViewPatternsModal();
+        createBankPatternsModal();
         
         // ✅ Carregar padrões customizados imediatamente após criar a sidebar
         console.log('%c🎯 Carregando padrões customizados...', 'color: #00d4ff; font-weight: bold;');
@@ -5777,6 +6152,24 @@
     
     // Event listener para botão de atualizar
     document.addEventListener('click', function(e) {
+        // ✅ BOTÃO "VER PADRÕES" - Abrir modal do banco
+        if (e.target && e.target.id === 'viewPatternsBtn') {
+            e.preventDefault();
+            console.log('👁️ Abrindo modal do banco de padrões...');
+            
+            const modal = document.getElementById('bankPatternsModal');
+            if (modal) {
+                modal.style.display = 'flex';
+                
+                // Renderizar padrões
+                renderBankPatterns();
+                
+                console.log('✅ Modal do banco de padrões aberto');
+            } else {
+                console.error('❌ Modal do banco de padrões não encontrado!');
+            }
+        }
+        
         if (e.target && e.target.id === 'refreshBankBtn') {
             e.preventDefault();
             const btn = e.target;
