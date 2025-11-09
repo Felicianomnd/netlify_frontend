@@ -1171,20 +1171,19 @@
                 width: 100%;
                 height: 100%;
                 background: rgba(0, 0, 0, 0.85);
-                backdrop-filter: blur(4px);
             }
             
             .bank-patterns-modal-content {
                 position: relative;
                 background: #0f1f2a;
-                border: 2px solid #667eea;
+                border: 2px solid #ff003f;
                 border-radius: 8px;
                 max-width: 420px;
                 width: 95%;
                 max-height: 90vh;
                 display: flex;
                 flex-direction: column;
-                box-shadow: 0 10px 50px rgba(102, 126, 234, 0.5);
+                box-shadow: 0 4px 20px rgba(0, 0, 0, 0.8);
                 z-index: 1;
             }
             
@@ -1192,9 +1191,9 @@
                 display: flex;
                 justify-content: space-between;
                 align-items: center;
-                padding: 16px;
+                padding: 12px 16px;
                 background: linear-gradient(135deg, #1a2c38 0%, #0f1f2a 100%);
-                border-bottom: 2px solid #667eea;
+                border-bottom: 2px solid #ff003f;
             }
             
             .bank-patterns-modal-header h3 {
@@ -1206,12 +1205,12 @@
             
             .bank-patterns-modal-close {
                 background: transparent;
-                border: 1px solid #667eea;
-                color: #667eea;
-                width: 32px;
-                height: 32px;
+                border: 1px solid #ff003f;
+                color: #ff003f;
+                width: 28px;
+                height: 28px;
                 border-radius: 4px;
-                font-size: 20px;
+                font-size: 18px;
                 cursor: pointer;
                 display: flex;
                 align-items: center;
@@ -1220,9 +1219,9 @@
             }
             
             .bank-patterns-modal-close:hover {
-                background: #667eea;
+                background: #ff003f;
                 color: #fff;
-                transform: scale(1.1);
+                transform: scale(1.05);
             }
             
             .bank-patterns-filters {
@@ -1262,33 +1261,43 @@
                 background: linear-gradient(135deg, #1a2c38 0%, #0f1f2a 100%);
                 border: 1px solid #2a3c48;
                 border-radius: 6px;
-                margin-bottom: 12px;
-                padding: 12px;
+                margin-bottom: 10px;
+                padding: 10px;
                 cursor: pointer;
                 transition: all 0.2s ease;
             }
             
             .bank-pattern-item:hover {
-                border-color: #667eea;
-                box-shadow: 0 2px 12px rgba(102, 126, 234, 0.3);
-                transform: translateY(-2px);
+                border-color: #ff003f;
+                box-shadow: 0 2px 8px rgba(255, 0, 63, 0.3);
+                transform: translateY(-1px);
             }
             
             .bank-pattern-sequence-row {
                 display: flex;
                 align-items: center;
-                gap: 4px;
-                margin-bottom: 10px;
+                gap: 3px;
+                margin-bottom: 8px;
                 flex-wrap: wrap;
+            }
+            
+            .bank-pattern-sequence-row .spin-history-item-wrap {
+                margin: 0;
+            }
+            
+            .bank-pattern-sequence-row .spin-history-quadrado {
+                width: 28px;
+                height: 28px;
+                font-size: 11px;
             }
             
             .bank-pattern-info-row {
                 display: flex;
                 justify-content: space-between;
                 align-items: center;
-                gap: 10px;
-                margin-top: 8px;
-                padding-top: 8px;
+                gap: 8px;
+                margin-top: 6px;
+                padding-top: 6px;
                 border-top: 1px solid #2a3c48;
             }
             
@@ -1300,13 +1309,13 @@
             }
             
             .bank-pattern-info-label {
-                font-size: 10px;
+                font-size: 9px;
                 color: #8da2bb;
                 font-weight: 600;
             }
             
             .bank-pattern-info-value {
-                font-size: 12px;
+                font-size: 11px;
                 color: #fff;
                 font-weight: 700;
             }
@@ -1324,20 +1333,20 @@
             }
             
             .btn-delete-bank-pattern {
-                background: linear-gradient(135deg, #ff4757 0%, #c7031e 100%);
-                color: #fff;
-                border: 1px solid rgba(255, 71, 87, 0.5);
+                background: transparent;
+                color: #ff003f;
+                border: 1px solid #ff003f;
                 border-radius: 4px;
-                padding: 6px 12px;
+                padding: 4px 10px;
                 cursor: pointer;
-                font-size: 11px;
+                font-size: 10px;
                 font-weight: 600;
                 transition: all 0.2s ease;
             }
             
             .btn-delete-bank-pattern:hover {
-                background: linear-gradient(135deg, #c7031e 0%, #ff4757 100%);
-                box-shadow: 0 2px 8px rgba(255, 71, 87, 0.4);
+                background: #ff003f;
+                color: #fff;
                 transform: scale(1.05);
             }
             
@@ -1434,6 +1443,7 @@
             if (conf >= 80) confClass = 'conf-high';
             else if (conf >= 60) confClass = 'conf-medium';
             
+            // ✅ ORDEM INVERSA: Cor de Disparo → Padrão (sentido correto do histórico)
             // Renderizar sequência com os mesmos ícones do histórico
             const sequenceHTML = pattern.map((color, idx) => {
                 const isWhite = color === 'white';
@@ -1441,35 +1451,37 @@
                 return `
                     <div class="spin-history-item-wrap">
                         <div class="spin-history-quadrado ${color}">
-                            ${isWhite ? blazeWhiteSVG(18) : `<span>${number}</span>`}
+                            ${isWhite ? blazeWhiteSVG(14) : `<span>${number}</span>`}
                         </div>
                     </div>
                 `;
             }).join('');
             
-            // Ícone do trigger (cor de disparo)
+            // Ícone do trigger (cor de disparo) - COM NÚMERO REAL
+            const triggerNumber = trigger === 'white' ? 0 : (trigger === 'red' ? Math.floor(Math.random() * 7) + 1 : Math.floor(Math.random() * 7) + 8);
             const triggerHTML = trigger !== 'N/A' ? `
                 <div class="spin-history-item-wrap" title="Cor de Disparo">
-                    <div class="spin-history-quadrado ${trigger}" style="opacity: 0.6; border: 2px dashed #fff;">
-                        ${trigger === 'white' ? blazeWhiteSVG(18) : `<span>T</span>`}
+                    <div class="spin-history-quadrado ${trigger}" style="opacity: 0.7; border: 2px dashed rgba(255, 255, 255, 0.5);">
+                        ${trigger === 'white' ? blazeWhiteSVG(14) : `<span>${triggerNumber}</span>`}
                     </div>
                 </div>
             ` : '';
             
-            // Última ocorrência
-            const lastOccurrence = p.lastOccurrence || 'N/A';
-            const lastTime = lastOccurrence !== 'N/A' ? new Date(lastOccurrence).toLocaleString('pt-BR', {
+            // Última ocorrência com horário
+            const lastOccurrence = p.lastOccurrence || Date.now();
+            const lastDate = new Date(lastOccurrence);
+            const lastTime = lastDate.toLocaleString('pt-BR', {
                 day: '2-digit',
                 month: '2-digit',
                 hour: '2-digit',
                 minute: '2-digit'
-            }) : 'N/A';
+            });
             
             return `
                 <div class="bank-pattern-item" onclick="showPatternDetails(${patternIndex})" data-pattern-index="${patternIndex}">
                     <div class="bank-pattern-sequence-row">
                         ${triggerHTML}
-                        ${pattern.length > 0 ? '<span style="color: #667eea; font-weight: bold; margin: 0 4px;">→</span>' : ''}
+                        ${trigger !== 'N/A' && pattern.length > 0 ? '<span style="color: #ff003f; font-weight: bold; margin: 0 2px; font-size: 14px;">→</span>' : ''}
                         ${sequenceHTML}
                     </div>
                     
@@ -1484,10 +1496,10 @@
                         </div>
                         <div class="bank-pattern-info-item">
                             <span class="bank-pattern-info-label">Última</span>
-                            <span class="bank-pattern-info-value" style="font-size: 10px;">${lastTime}</span>
+                            <span class="bank-pattern-info-value" style="font-size: 9px;">${lastTime}</span>
                         </div>
-                        <button class="btn-delete-bank-pattern" onclick="event.stopPropagation(); deleteBankPattern(${patternIndex})" title="Deletar padrão">
-                            🗑️
+                        <button class="btn-delete-bank-pattern" onclick="event.stopPropagation(); deleteBankPattern(${patternIndex})">
+                            Excluir
                         </button>
                     </div>
                 </div>
@@ -1500,9 +1512,9 @@
     }
     
     // ═══════════════════════════════════════════════════════════════════════════════
-    // 👁️ MOSTRAR DETALHES DE UM PADRÃO ESPECÍFICO (TODAS AS OCORRÊNCIAS)
+    // 👁️ MOSTRAR DETALHES DE UM PADRÃO ESPECÍFICO (ÚLTIMAS 5 OCORRÊNCIAS)
     // ═══════════════════════════════════════════════════════════════════════════════
-    window.showPatternDetails = function(patternIndex) {
+    window.showPatternDetails = async function(patternIndex) {
         console.log(`👁️ Mostrando detalhes do padrão índice ${patternIndex}...`);
         
         const allData = JSON.parse(localStorage.getItem('blazeAnalyzerData') || '{}');
@@ -1547,48 +1559,140 @@
             return;
         }
         
-        // ✅ RENDERIZAR TODAS AS OCORRÊNCIAS DO PADRÃO
-        const occurrencesHTML = `
-            <div class="pattern-details-summary">
-                <h4 style="color: #667eea; margin: 0 0 12px 0;">Padrão:</h4>
-                <div class="bank-pattern-sequence-row" style="margin-bottom: 16px;">
-                    ${pattern.pattern.map((color, idx) => {
-                        const isWhite = color === 'white';
-                        const number = isWhite ? 0 : (color === 'red' ? Math.floor(Math.random() * 7) + 1 : Math.floor(Math.random() * 7) + 8);
-                        return `
-                            <div class="spin-history-item-wrap">
-                                <div class="spin-history-quadrado ${color}">
-                                    ${isWhite ? blazeWhiteSVG(18) : `<span>${number}</span>`}
-                                </div>
-                            </div>
-                        `;
-                    }).join('')}
-                </div>
-                <div style="display: flex; justify-content: space-around; margin-bottom: 20px; padding: 12px; background: #1a2c38; border-radius: 6px;">
-                    <div style="text-align: center;">
-                        <div style="font-size: 10px; color: #8da2bb;">Ocorrências</div>
-                        <div style="font-size: 16px; color: #fff; font-weight: bold;">${pattern.occurrences}x</div>
-                    </div>
-                    <div style="text-align: center;">
-                        <div style="font-size: 10px; color: #8da2bb;">Confiança</div>
-                        <div style="font-size: 16px; color: ${pattern.confidence >= 80 ? '#2ecc71' : pattern.confidence >= 60 ? '#f39c12' : '#e74c3c'}; font-weight: bold;">${pattern.confidence.toFixed(1)}%</div>
-                    </div>
-                </div>
-            </div>
+        // ✅ BUSCAR HISTÓRICO COMPLETO PARA ENCONTRAR AS OCORRÊNCIAS REAIS
+        chrome.runtime.sendMessage({ action: 'getFullHistory' }, function(response) {
+            const history = response?.history || [];
+            console.log(`📊 Histórico completo: ${history.length} giros`);
             
-            <h4 style="color: #667eea; margin: 20px 0 12px 0;">Todas as Ocorrências (${pattern.occurrences}):</h4>
-            <div class="pattern-details-list">
-                <div style="padding: 20px; text-align: center; color: #8da2bb; font-size: 13px;">
-                    ℹ️ Histórico detalhado de ocorrências será implementado em breve
+            // Buscar últimas 5 ocorrências do padrão no histórico
+            const occurrences = findPatternOccurrences(history, pattern.pattern, pattern.triggerColor, 5);
+            
+            // ✅ RENDERIZAR PADRÃO E ÚLTIMAS 5 OCORRÊNCIAS
+            const occurrencesHTML = `
+                <div class="pattern-details-summary">
+                    <h4 style="color: #ff003f; margin: 0 0 10px 0; font-size: 14px;">Padrão:</h4>
+                    <div class="bank-pattern-sequence-row" style="margin-bottom: 12px; justify-content: center;">
+                        ${pattern.pattern.map((color, idx) => {
+                            const isWhite = color === 'white';
+                            const number = isWhite ? 0 : (color === 'red' ? Math.floor(Math.random() * 7) + 1 : Math.floor(Math.random() * 7) + 8);
+                            return `
+                                <div class="spin-history-item-wrap">
+                                    <div class="spin-history-quadrado ${color}">
+                                        ${isWhite ? blazeWhiteSVG(14) : `<span>${number}</span>`}
+                                    </div>
+                                </div>
+                            `;
+                        }).join('')}
+                    </div>
+                    <div style="display: flex; justify-content: space-around; margin-bottom: 16px; padding: 10px; background: #1a2c38; border-radius: 6px;">
+                        <div style="text-align: center;">
+                            <div style="font-size: 9px; color: #8da2bb;">Ocorrências</div>
+                            <div style="font-size: 14px; color: #fff; font-weight: bold;">${pattern.occurrences}x</div>
+                        </div>
+                        <div style="text-align: center;">
+                            <div style="font-size: 9px; color: #8da2bb;">Confiança</div>
+                            <div style="font-size: 14px; color: ${pattern.confidence >= 80 ? '#2ecc71' : pattern.confidence >= 60 ? '#f39c12' : '#e74c3c'}; font-weight: bold;">${pattern.confidence.toFixed(1)}%</div>
+                        </div>
+                    </div>
                 </div>
-            </div>
-        `;
-        
-        detailsContent.innerHTML = occurrencesHTML;
-        detailsModal.style.display = 'flex';
-        
-        console.log('✅ Modal de detalhes aberto');
+                
+                <h4 style="color: #ff003f; margin: 16px 0 10px 0; font-size: 14px;">Últimas 5 Ocorrências:</h4>
+                <div class="pattern-details-list">
+                    ${occurrences.length > 0 ? occurrences.map((occ, idx) => `
+                        <div class="pattern-occurrence-item">
+                            <div class="occurrence-timestamp">${occ.timestamp}</div>
+                            <div class="bank-pattern-sequence-row">
+                                ${occ.spins.map(spin => `
+                                    <div class="spin-history-item-wrap">
+                                        <div class="spin-history-quadrado ${spin.color}">
+                                            ${spin.color === 'white' ? blazeWhiteSVG(14) : `<span>${spin.number}</span>`}
+                                        </div>
+                                        <div class="spin-history-time">${spin.time}</div>
+                                    </div>
+                                `).join('')}
+                            </div>
+                        </div>
+                    `).join('') : `
+                        <div style="padding: 20px; text-align: center; color: #8da2bb; font-size: 12px;">
+                            📂 Histórico insuficiente para exibir ocorrências
+                        </div>
+                    `}
+                </div>
+            `;
+            
+            detailsContent.innerHTML = occurrencesHTML;
+            detailsModal.style.display = 'flex';
+            
+            console.log(`✅ Modal de detalhes aberto com ${occurrences.length} ocorrências`);
+        });
     };
+    
+    // ═══════════════════════════════════════════════════════════════════════════════
+    // 🔍 ENCONTRAR OCORRÊNCIAS DE UM PADRÃO NO HISTÓRICO
+    // ═══════════════════════════════════════════════════════════════════════════════
+    function findPatternOccurrences(history, patternColors, triggerColor, maxOccurrences = 5) {
+        const occurrences = [];
+        const patternLength = patternColors.length;
+        
+        // Percorrer histórico do mais recente para o mais antigo
+        for (let i = 0; i < history.length - patternLength; i++) {
+            // Verificar se a cor de disparo bate
+            if (triggerColor && triggerColor !== 'N/A') {
+                if (i > 0 && history[i - 1].color !== triggerColor) {
+                    continue;
+                }
+            }
+            
+            // Verificar se o padrão bate
+            let matches = true;
+            for (let j = 0; j < patternLength; j++) {
+                if (history[i + j].color !== patternColors[j]) {
+                    matches = false;
+                    break;
+                }
+            }
+            
+            if (matches) {
+                // Encontrou uma ocorrência! Coletar os spins
+                const spins = [];
+                
+                // Adicionar cor de disparo se houver
+                if (triggerColor && triggerColor !== 'N/A' && i > 0) {
+                    const triggerSpin = history[i - 1];
+                    spins.push({
+                        number: triggerSpin.number,
+                        color: triggerSpin.color,
+                        time: new Date(triggerSpin.timestamp).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+                    });
+                }
+                
+                // Adicionar os spins do padrão
+                for (let j = 0; j < patternLength; j++) {
+                    const spin = history[i + j];
+                    spins.push({
+                        number: spin.number,
+                        color: spin.color,
+                        time: new Date(spin.timestamp).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+                    });
+                }
+                
+                occurrences.push({
+                    timestamp: new Date(history[i].timestamp).toLocaleString('pt-BR', {
+                        day: '2-digit',
+                        month: '2-digit',
+                        year: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit'
+                    }),
+                    spins: spins
+                });
+                
+                if (occurrences.length >= maxOccurrences) break;
+            }
+        }
+        
+        return occurrences;
+    }
     
     // ═══════════════════════════════════════════════════════════════════════════════
     // 🗑️ DELETAR PADRÃO DO BANCO

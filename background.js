@@ -17348,6 +17348,13 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         
         sendResponse(statusResponse);
         return true;
+    } else if (request.action === 'getFullHistory') {
+        // 📂 Retornar histórico completo para visualização do banco de padrões
+        console.log('%c📂 [BACKGROUND] Requisição de histórico completo recebida', 'color: #667eea; font-weight: bold;');
+        console.log(`📊 Histórico em cache: ${cachedHistory.length} giros`);
+        
+        sendResponse({ history: cachedHistory });
+        return true;
     } else if (request.action === 'applyConfig') {
         console.log('%c✅ ENTROU NO else if applyConfig!', 'color: #00FF00; font-weight: bold; font-size: 16px;');
         (async () => {
