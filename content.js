@@ -1046,17 +1046,17 @@
     // ═══════════════════════════════════════════════════════════════════════════════
     function createBankPatternsModal() {
         const modalHTML = `
-            <div id="bankPatternsModal" class="custom-pattern-modal" style="display: none;">
-                <div class="custom-pattern-modal-overlay"></div>
-                <div class="custom-pattern-modal-content" style="max-width: 800px; width: 90%;">
-                    <div class="custom-pattern-modal-header">
+            <div id="bankPatternsModal" class="bank-patterns-modal" style="display: none;">
+                <div class="bank-patterns-modal-overlay"></div>
+                <div class="bank-patterns-modal-content">
+                    <div class="bank-patterns-modal-header">
                         <h3>📂 Banco de Padrões (<span id="bankModalPatternsCount">0</span>)</h3>
-                        <button class="custom-pattern-modal-close" id="closeBankPatternsModal">✕</button>
+                        <button class="bank-patterns-modal-close" id="closeBankPatternsModal">✕</button>
                     </div>
                     
-                    <div style="padding: 10px; background: #1a2c38; border-bottom: 1px solid #2a3c48; display: flex; gap: 10px; align-items: center;">
-                        <input type="text" id="bankPatternSearch" placeholder="🔍 Filtrar padrões..." style="flex: 1; padding: 8px; background: #0f1f2a; border: 1px solid #2a3c48; border-radius: 4px; color: #fff; font-size: 12px;">
-                        <select id="bankPatternFilter" style="padding: 8px; background: #0f1f2a; border: 1px solid #2a3c48; border-radius: 4px; color: #fff; font-size: 12px;">
+                    <div class="bank-patterns-filters">
+                        <input type="text" id="bankPatternSearch" placeholder="🔍 Filtrar padrões..." class="bank-pattern-search-input">
+                        <select id="bankPatternFilter" class="bank-pattern-filter-select">
                             <option value="all">Todos</option>
                             <option value="high">Alta (≥80%)</option>
                             <option value="medium">Média (60-79%)</option>
@@ -1064,8 +1064,22 @@
                         </select>
                     </div>
                     
-                    <div class="custom-pattern-modal-body" style="max-height: 500px; overflow-y: auto;">
+                    <div class="bank-patterns-modal-body">
                         <div id="bankPatternsList"></div>
+                    </div>
+                </div>
+            </div>
+            
+            <div id="patternDetailsModal" class="bank-patterns-modal" style="display: none;">
+                <div class="bank-patterns-modal-overlay"></div>
+                <div class="bank-patterns-modal-content">
+                    <div class="bank-patterns-modal-header">
+                        <h3>📊 Ocorrências do Padrão</h3>
+                        <button class="bank-patterns-modal-close" id="closePatternDetailsModal">✕</button>
+                    </div>
+                    
+                    <div class="bank-patterns-modal-body">
+                        <div id="patternDetailsContent"></div>
                     </div>
                 </div>
             </div>
@@ -1073,10 +1087,10 @@
         
         document.body.insertAdjacentHTML('beforeend', modalHTML);
         
-        // Event listeners
+        // Event listeners - Modal principal
         const modal = document.getElementById('bankPatternsModal');
         const closeBtn = document.getElementById('closeBankPatternsModal');
-        const overlay = modal.querySelector('.custom-pattern-modal-overlay');
+        const overlay = modal.querySelector('.bank-patterns-modal-overlay');
         const searchInput = document.getElementById('bankPatternSearch');
         const filterSelect = document.getElementById('bankPatternFilter');
         
@@ -1095,6 +1109,19 @@
         
         filterSelect.addEventListener('change', () => {
             renderBankPatterns();
+        });
+        
+        // Event listeners - Modal de detalhes
+        const detailsModal = document.getElementById('patternDetailsModal');
+        const closeDetailsBtn = document.getElementById('closePatternDetailsModal');
+        const detailsOverlay = detailsModal.querySelector('.bank-patterns-modal-overlay');
+        
+        closeDetailsBtn.addEventListener('click', () => {
+            detailsModal.style.display = 'none';
+        });
+        
+        detailsOverlay.addEventListener('click', () => {
+            detailsModal.style.display = 'none';
         });
         
         console.log('✅ Modal do Banco de Padrões criado');
@@ -1125,34 +1152,175 @@
                 transform: translateY(0);
             }
             
-            .bank-pattern-item {
+            .bank-patterns-modal {
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                z-index: 999999;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+            }
+            
+            .bank-patterns-modal-overlay {
+                position: absolute;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                background: rgba(0, 0, 0, 0.85);
+                backdrop-filter: blur(4px);
+            }
+            
+            .bank-patterns-modal-content {
+                position: relative;
+                background: #0f1f2a;
+                border: 2px solid #667eea;
+                border-radius: 8px;
+                max-width: 420px;
+                width: 95%;
+                max-height: 90vh;
+                display: flex;
+                flex-direction: column;
+                box-shadow: 0 10px 50px rgba(102, 126, 234, 0.5);
+                z-index: 1;
+            }
+            
+            .bank-patterns-modal-header {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                padding: 16px;
+                background: linear-gradient(135deg, #1a2c38 0%, #0f1f2a 100%);
+                border-bottom: 2px solid #667eea;
+            }
+            
+            .bank-patterns-modal-header h3 {
+                margin: 0;
+                color: #fff;
+                font-size: 16px;
+                font-weight: 700;
+            }
+            
+            .bank-patterns-modal-close {
+                background: transparent;
+                border: 1px solid #667eea;
+                color: #667eea;
+                width: 32px;
+                height: 32px;
+                border-radius: 4px;
+                font-size: 20px;
+                cursor: pointer;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                transition: all 0.2s ease;
+            }
+            
+            .bank-patterns-modal-close:hover {
+                background: #667eea;
+                color: #fff;
+                transform: scale(1.1);
+            }
+            
+            .bank-patterns-filters {
+                display: flex;
+                gap: 8px;
+                padding: 12px;
+                background: #1a2c38;
+                border-bottom: 1px solid #2a3c48;
+            }
+            
+            .bank-pattern-search-input {
+                flex: 1;
+                padding: 8px;
                 background: #0f1f2a;
                 border: 1px solid #2a3c48;
+                border-radius: 4px;
+                color: #fff;
+                font-size: 12px;
+            }
+            
+            .bank-pattern-filter-select {
+                padding: 8px;
+                background: #0f1f2a;
+                border: 1px solid #2a3c48;
+                border-radius: 4px;
+                color: #fff;
+                font-size: 12px;
+            }
+            
+            .bank-patterns-modal-body {
+                flex: 1;
+                overflow-y: auto;
+                padding: 12px;
+            }
+            
+            .bank-pattern-item {
+                background: linear-gradient(135deg, #1a2c38 0%, #0f1f2a 100%);
+                border: 1px solid #2a3c48;
                 border-radius: 6px;
-                margin-bottom: 10px;
-                overflow: hidden;
+                margin-bottom: 12px;
+                padding: 12px;
+                cursor: pointer;
                 transition: all 0.2s ease;
             }
             
             .bank-pattern-item:hover {
                 border-color: #667eea;
-                box-shadow: 0 2px 8px rgba(102, 126, 234, 0.2);
+                box-shadow: 0 2px 12px rgba(102, 126, 234, 0.3);
+                transform: translateY(-2px);
             }
             
-            .bank-pattern-header {
+            .bank-pattern-sequence-row {
+                display: flex;
+                align-items: center;
+                gap: 4px;
+                margin-bottom: 10px;
+                flex-wrap: wrap;
+            }
+            
+            .bank-pattern-info-row {
                 display: flex;
                 justify-content: space-between;
                 align-items: center;
-                padding: 12px;
-                background: linear-gradient(135deg, #1a2c38 0%, #0f1f2a 100%);
-                border-bottom: 1px solid #2a3c48;
+                gap: 10px;
+                margin-top: 8px;
+                padding-top: 8px;
+                border-top: 1px solid #2a3c48;
             }
             
-            .bank-pattern-sequence {
-                font-size: 16px;
+            .bank-pattern-info-item {
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                gap: 2px;
+            }
+            
+            .bank-pattern-info-label {
+                font-size: 10px;
+                color: #8da2bb;
                 font-weight: 600;
+            }
+            
+            .bank-pattern-info-value {
+                font-size: 12px;
                 color: #fff;
-                flex: 1;
+                font-weight: 700;
+            }
+            
+            .bank-pattern-info-value.conf-high {
+                color: #2ecc71;
+            }
+            
+            .bank-pattern-info-value.conf-medium {
+                color: #f39c12;
+            }
+            
+            .bank-pattern-info-value.conf-low {
+                color: #e74c3c;
             }
             
             .btn-delete-bank-pattern {
@@ -1160,9 +1328,10 @@
                 color: #fff;
                 border: 1px solid rgba(255, 71, 87, 0.5);
                 border-radius: 4px;
-                padding: 6px 10px;
+                padding: 6px 12px;
                 cursor: pointer;
-                font-size: 14px;
+                font-size: 11px;
+                font-weight: 600;
                 transition: all 0.2s ease;
             }
             
@@ -1172,40 +1341,24 @@
                 transform: scale(1.05);
             }
             
-            .bank-pattern-details {
-                padding: 12px;
+            .pattern-details-list {
                 display: flex;
                 flex-direction: column;
-                gap: 8px;
+                gap: 12px;
             }
             
-            .bank-pattern-detail-row {
-                display: flex;
-                justify-content: space-between;
-                align-items: center;
-                font-size: 12px;
+            .pattern-occurrence-item {
+                background: linear-gradient(135deg, #1a2c38 0%, #0f1f2a 100%);
+                border: 1px solid #2a3c48;
+                border-radius: 6px;
+                padding: 12px;
             }
             
-            .detail-label {
+            .occurrence-timestamp {
+                font-size: 11px;
                 color: #8da2bb;
+                margin-bottom: 8px;
                 font-weight: 600;
-            }
-            
-            .detail-value {
-                color: #dfe4ea;
-                font-weight: 600;
-            }
-            
-            .detail-value.conf-high {
-                color: #2ecc71;
-            }
-            
-            .detail-value.conf-medium {
-                color: #f39c12;
-            }
-            
-            .detail-value.conf-low {
-                color: #e74c3c;
             }
         `;
         document.head.appendChild(style);
@@ -1269,50 +1422,73 @@
         // Ordenar por confiança (maior primeiro)
         filteredPatterns.sort((a, b) => (b.confidence || 0) - (a.confidence || 0));
         
-        const patternsHTML = filteredPatterns.map((p, index) => {
-            const patternStr = (p.pattern || []).join(' → ');
+        // ✅ RENDERIZAR PADRÕES COM OS MESMOS ÍCONES DO HISTÓRICO
+        const patternsHTML = filteredPatterns.map((p, patternIndex) => {
+            const pattern = p.pattern || [];
             const trigger = p.triggerColor || 'N/A';
             const conf = p.confidence || 0;
             const occurrences = p.occurrences || 0;
-            
-            // Mapear cor para emoji/nome
-            const colorMap = {
-                'red': { emoji: '🔴', name: 'VERMELHO' },
-                'black': { emoji: '⚫', name: 'PRETO' },
-                'white': { emoji: '⚪', name: 'BRANCO' }
-            };
-            
-            const patternColors = (p.pattern || []).map(c => colorMap[c]?.emoji || c).join(' → ');
-            const triggerColor = colorMap[trigger]?.name || trigger.toUpperCase();
             
             // Classe de confiança
             let confClass = 'conf-low';
             if (conf >= 80) confClass = 'conf-high';
             else if (conf >= 60) confClass = 'conf-medium';
             
+            // Renderizar sequência com os mesmos ícones do histórico
+            const sequenceHTML = pattern.map((color, idx) => {
+                const isWhite = color === 'white';
+                const number = isWhite ? 0 : (color === 'red' ? Math.floor(Math.random() * 7) + 1 : Math.floor(Math.random() * 7) + 8); // Mock number
+                return `
+                    <div class="spin-history-item-wrap">
+                        <div class="spin-history-quadrado ${color}">
+                            ${isWhite ? blazeWhiteSVG(18) : `<span>${number}</span>`}
+                        </div>
+                    </div>
+                `;
+            }).join('');
+            
+            // Ícone do trigger (cor de disparo)
+            const triggerHTML = trigger !== 'N/A' ? `
+                <div class="spin-history-item-wrap" title="Cor de Disparo">
+                    <div class="spin-history-quadrado ${trigger}" style="opacity: 0.6; border: 2px dashed #fff;">
+                        ${trigger === 'white' ? blazeWhiteSVG(18) : `<span>T</span>`}
+                    </div>
+                </div>
+            ` : '';
+            
+            // Última ocorrência
+            const lastOccurrence = p.lastOccurrence || 'N/A';
+            const lastTime = lastOccurrence !== 'N/A' ? new Date(lastOccurrence).toLocaleString('pt-BR', {
+                day: '2-digit',
+                month: '2-digit',
+                hour: '2-digit',
+                minute: '2-digit'
+            }) : 'N/A';
+            
             return `
-                <div class="bank-pattern-item" data-pattern-index="${index}">
-                    <div class="bank-pattern-header">
-                        <div class="bank-pattern-sequence">${patternColors}</div>
-                        <button class="btn-delete-bank-pattern" onclick="deleteBankPattern(${index})" title="Deletar padrão">
+                <div class="bank-pattern-item" onclick="showPatternDetails(${patternIndex})" data-pattern-index="${patternIndex}">
+                    <div class="bank-pattern-sequence-row">
+                        ${triggerHTML}
+                        ${pattern.length > 0 ? '<span style="color: #667eea; font-weight: bold; margin: 0 4px;">→</span>' : ''}
+                        ${sequenceHTML}
+                    </div>
+                    
+                    <div class="bank-pattern-info-row">
+                        <div class="bank-pattern-info-item">
+                            <span class="bank-pattern-info-label">Ocorrências</span>
+                            <span class="bank-pattern-info-value">${occurrences}x</span>
+                        </div>
+                        <div class="bank-pattern-info-item">
+                            <span class="bank-pattern-info-label">Confiança</span>
+                            <span class="bank-pattern-info-value ${confClass}">${conf.toFixed(1)}%</span>
+                        </div>
+                        <div class="bank-pattern-info-item">
+                            <span class="bank-pattern-info-label">Última</span>
+                            <span class="bank-pattern-info-value" style="font-size: 10px;">${lastTime}</span>
+                        </div>
+                        <button class="btn-delete-bank-pattern" onclick="event.stopPropagation(); deleteBankPattern(${patternIndex})" title="Deletar padrão">
                             🗑️
                         </button>
-                    </div>
-                    <div class="bank-pattern-details">
-                        <div class="bank-pattern-detail-row">
-                            <span class="detail-label">Cor de Disparo:</span>
-                            <span class="detail-value" style="color: ${trigger === 'red' ? '#ff4757' : trigger === 'black' ? '#dfe4ea' : trigger === 'white' ? '#dfe4ea' : '#ffa502'};">
-                                ${colorMap[trigger]?.emoji || '❓'} ${triggerColor}
-                            </span>
-                        </div>
-                        <div class="bank-pattern-detail-row">
-                            <span class="detail-label">Ocorrências:</span>
-                            <span class="detail-value">${occurrences}x</span>
-                        </div>
-                        <div class="bank-pattern-detail-row">
-                            <span class="detail-label">Confiança:</span>
-                            <span class="detail-value ${confClass}">${conf.toFixed(1)}%</span>
-                        </div>
                     </div>
                 </div>
             `;
@@ -1322,6 +1498,97 @@
         
         console.log(`✅ ${filteredPatterns.length} padrões renderizados`);
     }
+    
+    // ═══════════════════════════════════════════════════════════════════════════════
+    // 👁️ MOSTRAR DETALHES DE UM PADRÃO ESPECÍFICO (TODAS AS OCORRÊNCIAS)
+    // ═══════════════════════════════════════════════════════════════════════════════
+    window.showPatternDetails = function(patternIndex) {
+        console.log(`👁️ Mostrando detalhes do padrão índice ${patternIndex}...`);
+        
+        const allData = JSON.parse(localStorage.getItem('blazeAnalyzerData') || '{}');
+        const db = allData.patternDB || { patterns_found: [] };
+        const patterns = db.patterns_found || [];
+        
+        // Aplicar os mesmos filtros para encontrar o padrão correto
+        const searchInput = document.getElementById('bankPatternSearch');
+        const filterSelect = document.getElementById('bankPatternFilter');
+        const searchTerm = searchInput ? searchInput.value.toLowerCase() : '';
+        const filterType = filterSelect ? filterSelect.value : 'all';
+        
+        const filteredPatterns = patterns.filter(p => {
+            if (searchTerm) {
+                const patternStr = (p.pattern || []).join('-').toLowerCase();
+                const triggerStr = (p.triggerColor || '').toLowerCase();
+                if (!patternStr.includes(searchTerm) && !triggerStr.includes(searchTerm)) {
+                    return false;
+                }
+            }
+            const conf = p.confidence || 0;
+            if (filterType === 'high' && conf < 80) return false;
+            if (filterType === 'medium' && (conf < 60 || conf >= 80)) return false;
+            if (filterType === 'low' && conf >= 60) return false;
+            return true;
+        });
+        
+        filteredPatterns.sort((a, b) => (b.confidence || 0) - (a.confidence || 0));
+        
+        const pattern = filteredPatterns[patternIndex];
+        if (!pattern) {
+            console.error('❌ Padrão não encontrado!');
+            return;
+        }
+        
+        // Abrir modal de detalhes
+        const detailsModal = document.getElementById('patternDetailsModal');
+        const detailsContent = document.getElementById('patternDetailsContent');
+        
+        if (!detailsModal || !detailsContent) {
+            console.error('❌ Modal de detalhes não encontrado!');
+            return;
+        }
+        
+        // ✅ RENDERIZAR TODAS AS OCORRÊNCIAS DO PADRÃO
+        const occurrencesHTML = `
+            <div class="pattern-details-summary">
+                <h4 style="color: #667eea; margin: 0 0 12px 0;">Padrão:</h4>
+                <div class="bank-pattern-sequence-row" style="margin-bottom: 16px;">
+                    ${pattern.pattern.map((color, idx) => {
+                        const isWhite = color === 'white';
+                        const number = isWhite ? 0 : (color === 'red' ? Math.floor(Math.random() * 7) + 1 : Math.floor(Math.random() * 7) + 8);
+                        return `
+                            <div class="spin-history-item-wrap">
+                                <div class="spin-history-quadrado ${color}">
+                                    ${isWhite ? blazeWhiteSVG(18) : `<span>${number}</span>`}
+                                </div>
+                            </div>
+                        `;
+                    }).join('')}
+                </div>
+                <div style="display: flex; justify-content: space-around; margin-bottom: 20px; padding: 12px; background: #1a2c38; border-radius: 6px;">
+                    <div style="text-align: center;">
+                        <div style="font-size: 10px; color: #8da2bb;">Ocorrências</div>
+                        <div style="font-size: 16px; color: #fff; font-weight: bold;">${pattern.occurrences}x</div>
+                    </div>
+                    <div style="text-align: center;">
+                        <div style="font-size: 10px; color: #8da2bb;">Confiança</div>
+                        <div style="font-size: 16px; color: ${pattern.confidence >= 80 ? '#2ecc71' : pattern.confidence >= 60 ? '#f39c12' : '#e74c3c'}; font-weight: bold;">${pattern.confidence.toFixed(1)}%</div>
+                    </div>
+                </div>
+            </div>
+            
+            <h4 style="color: #667eea; margin: 20px 0 12px 0;">Todas as Ocorrências (${pattern.occurrences}):</h4>
+            <div class="pattern-details-list">
+                <div style="padding: 20px; text-align: center; color: #8da2bb; font-size: 13px;">
+                    ℹ️ Histórico detalhado de ocorrências será implementado em breve
+                </div>
+            </div>
+        `;
+        
+        detailsContent.innerHTML = occurrencesHTML;
+        detailsModal.style.display = 'flex';
+        
+        console.log('✅ Modal de detalhes aberto');
+    };
     
     // ═══════════════════════════════════════════════════════════════════════════════
     // 🗑️ DELETAR PADRÃO DO BANCO
