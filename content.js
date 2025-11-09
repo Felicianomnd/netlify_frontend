@@ -5507,45 +5507,71 @@
                 }
             });
         } else if (request.type === 'NEW_SPIN') {
-            console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #00ff88; font-weight: bold;');
-            console.log('%c⚡ NOVO GIRO RECEBIDO! ATUALIZANDO HISTÓRICO INSTANTANEAMENTE!', 'color: #00ff88; font-weight: bold;');
-            console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #00ff88; font-weight: bold;');
-            console.log('📊 Dados do giro (lastSpin):', request.data.lastSpin);
-            console.log('📊 Histórico completo enviado?', !!request.data.history);
-            console.log('📊 Tamanho do histórico enviado:', request.data.history ? request.data.history.length : 'N/A');
+            console.log('%c⚡ NOVO GIRO!', 'color: #00ff88; font-weight: bold;');
+            console.log('📊 Giro:', request.data.lastSpin);
             
-            // ✅ ATUALIZAR HISTÓRICO INSTANTANEAMENTE (SEM REQUISIÇÃO HTTP)
+            // ⚡⚡⚡ ATUALIZAÇÃO INSTANTÂNEA - OPERAÇÕES SÍNCRONAS APENAS! ⚡⚡⚡
             if (request.data && request.data.lastSpin) {
-                // Atualizar último giro na sidebar
-                updateSidebar({ lastSpin: request.data.lastSpin });
+                const newSpin = request.data.lastSpin;
+                
+                // ✅ 1. ATUALIZAR ÚLTIMO GIRO (síncrono, super rápido!)
+                const lastSpinNumber = document.getElementById('lastSpinNumber');
+                const lastSpinColor = document.getElementById('lastSpinColor');
+                const lastSpinTime = document.getElementById('lastSpinTime');
+                
+                if (lastSpinNumber) {
+                    lastSpinNumber.className = `spin-number ${newSpin.color}`;
+                    if (newSpin.color === 'white') {
+                        lastSpinNumber.innerHTML = blazeWhiteSVG(20);
+                    } else {
+                        lastSpinNumber.textContent = newSpin.number;
+                    }
+                }
+                
+                if (lastSpinColor) {
+                    lastSpinColor.textContent = newSpin.color === 'red' ? 'Vermelho' : newSpin.color === 'black' ? 'Preto' : 'Branco';
+                    lastSpinColor.className = `spin-color-badge ${newSpin.color}`;
+                }
+                
+                if (lastSpinTime) {
+                    try {
+                        const t = new Date(newSpin.timestamp).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+                        lastSpinTime.textContent = t;
+                    } catch(e) {}
+                }
+                
+                // ✅ 2. ATUALIZAR HISTÓRICO (síncrono, usando requestAnimationFrame para performance)
+                requestAnimationFrame(() => {
+                    updateHistoryUIInstant(newSpin);
+                });
+                
+                console.log('⚡ UI atualizada instantaneamente!');
                 
                 // ✅ SE O HISTÓRICO COMPLETO FOI ENVIADO, USAR ELE (sincronização inicial)
                 if (request.data.history && request.data.history.length > 0) {
-                    console.log('%c🔥 HISTÓRICO COMPLETO RECEBIDO DO SERVIDOR! RENDERIZANDO TUDO...', 'color: #ff9900; font-weight: bold; font-size: 14px;');
-                    console.log(`   Total de giros: ${request.data.history.length}`);
+                    console.log('%c🔥 HISTÓRICO COMPLETO RECEBIDO!', 'color: #ff9900; font-weight: bold;');
+                    console.log(`   Total: ${request.data.history.length} giros`);
                     
-                    // Atualizar histórico global com TODOS os giros
+                    // Atualizar histórico global
                     currentHistoryData = request.data.history;
                     
-                    // Re-renderizar o histórico completo na UI
-                    let historyContainer = document.getElementById('spin-history-bar-ext');
-                    if (historyContainer) {
-                        historyContainer.innerHTML = renderSpinHistory(currentHistoryData);
-                    } else {
-                        // Criar container se não existir
-                        const statsSection = document.querySelector('.stats-section');
-                        if (statsSection) {
-                            const wrap = document.createElement('div');
-                            wrap.id = 'spin-history-bar-ext';
-                            wrap.innerHTML = renderSpinHistory(currentHistoryData);
-                            statsSection.appendChild(wrap);
+                    // Re-renderizar usando requestAnimationFrame
+                    requestAnimationFrame(() => {
+                        let historyContainer = document.getElementById('spin-history-bar-ext');
+                        if (historyContainer) {
+                            historyContainer.innerHTML = renderSpinHistory(currentHistoryData);
+                        } else {
+                            // Criar container se não existir
+                            const statsSection = document.querySelector('.stats-section');
+                            if (statsSection) {
+                                const wrap = document.createElement('div');
+                                wrap.id = 'spin-history-bar-ext';
+                                wrap.innerHTML = renderSpinHistory(currentHistoryData);
+                                statsSection.appendChild(wrap);
+                            }
                         }
-                    }
-                    
-                    console.log('%c✅ HISTÓRICO COMPLETO RENDERIZADO COM SUCESSO!', 'color: #00ff00; font-weight: bold;');
-                } else {
-                    // ✅ Apenas 1 giro novo (atualização incremental)
-                    updateHistoryUIInstant(request.data.lastSpin);
+                        console.log('%c✅ HISTÓRICO COMPLETO RENDERIZADO!', 'color: #00ff00; font-weight: bold;');
+                    });
                 }
                 
                 console.log('✅ Histórico atualizado com sucesso! (SEM DELAY - INSTANTÂNEO)');

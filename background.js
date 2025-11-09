@@ -2264,127 +2264,124 @@ async function processNewSpinFromServer(spinData) {
             roll: rollNumber
         };
         
-            await chrome.storage.local.set({
+        // ═══════════════════════════════════════════════════════════════════════════════
+        // ⚡ PRIORIDADE MÁXIMA: ENVIAR GIRO PARA O UI IMEDIATAMENTE (SEM ESPERAR NADA!)
+        // ═══════════════════════════════════════════════════════════════════════════════
+        // Adiciona novo giro ao cache ANTES de qualquer operação assíncrona
+        const newGiro = {
+            id: spinData.id || `spin_${latestSpin.created_at}`,
+            number: rollNumber,
+            color: rollColor,
+            timestamp: latestSpin.created_at,
+            created_at: latestSpin.created_at
+        };
+        
+        // Verificar se é realmente um giro novo
+        const isNewSpin = cachedHistory.length === 0 || 
+                        cachedHistory[0].timestamp !== latestSpin.created_at || 
+                        cachedHistory[0].number !== rollNumber;
+        
+        if (isNewSpin) {
+            console.log('🎯 NOVO GIRO DETECTADO!', {
+                number: rollNumber,
+                color: rollColor,
+                timestamp: latestSpin.created_at
+            });
+            
+            // ⚡ ATUALIZAR CACHE IMEDIATAMENTE (operação síncrona, super rápida!)
+            cachedHistory.unshift(newGiro);
+            if (cachedHistory.length > 2000) {
+                cachedHistory = cachedHistory.slice(0, 2000);
+            }
+            
+            console.log(`⚡ Cache atualizado! ${cachedHistory.length} giros`);
+            
+            // ⚡⚡⚡ ENVIAR PARA O UI IMEDIATAMENTE - SEM ESPERAR NADA! ⚡⚡⚡
+            // Usar sendMessage síncrono + try/catch para máxima velocidade
+            const spinMessage = {
+                type: 'NEW_SPIN',
+                data: {
+                    lastSpin: { 
+                        number: rollNumber, 
+                        color: rollColor, 
+                        timestamp: latestSpin.created_at 
+                    }
+                }
+            };
+            
+            // ✅ OTIMIZAÇÃO: Enviar apenas para tabs da URL do Blaze (muito mais rápido!)
+            chrome.tabs.query({ url: '*://blaze.com/*' }, (tabs) => {
+                if (tabs && tabs.length > 0) {
+                    tabs.forEach(tab => {
+                        chrome.tabs.sendMessage(tab.id, spinMessage).catch(() => {
+                            // Ignorar silenciosamente tabs sem content.js
+                        });
+                    });
+                    console.log(`⚡ GIRO ENVIADO INSTANTANEAMENTE para ${tabs.length} tab(s) do Blaze!`);
+                }
+            });
+            
+            // ═══════════════════════════════════════════════════════════════════════════════
+            // 📦 AGORA SIM: Operações assíncronas/pesadas (NÃO BLOQUEIAM O UI!)
+            // ═══════════════════════════════════════════════════════════════════════════════
+            
+            // Salvar no storage (em paralelo, não esperar)
+            chrome.storage.local.set({
                 lastSpin: {
                     number: rollNumber,
                     color: rollColor,
                     timestamp: latestSpin.created_at
                 }
-            });
-        
-        // ✅ Usar CACHE EM MEMÓRIA (não salvar em chrome.storage.local)
-        let history = [...cachedHistory];  // Cópia do cache
-        let entriesHistory = [];
-        
-        try {
-            const result = await chrome.storage.local.get(['entriesHistory']);
-            entriesHistory = result['entriesHistory'] || [];
-        } catch (e) {
-            console.warn('⚠️ Erro ao buscar entriesHistory:', e);
-        }
-        
-            // Adiciona novo giro se diferente do anterior (por timestamp ou número)
-            const isNewSpin = history.length === 0 || 
-                            history[0].timestamp !== latestSpin.created_at || 
-                            history[0].number !== rollNumber;
+            }).catch(e => console.warn('⚠️ Erro ao salvar lastSpin:', e));
             
-            // ✅ Verificação silenciosa de novo giro
-            
-            if (isNewSpin) {
-            console.log('🎯 NOVO GIRO DETECTADO!', {
-                    number: rollNumber,
-                    color: rollColor,
-                    timestamp: latestSpin.created_at
-                });
-            const newGiro = {
-                id: spinData.id || `spin_${latestSpin.created_at}`,
-                    number: rollNumber,
-                    color: rollColor,
-                timestamp: latestSpin.created_at,
-                created_at: latestSpin.created_at
-            };
-            
-            history.unshift(newGiro);
-            if (history.length > 2000) history = history.slice(0, 2000);
-            
-            // ✅ Atualizar CACHE EM MEMÓRIA (não salvar em chrome.storage.local)
-            cachedHistory = history;
-            
-            console.log(`📊 Cache em memória atualizado: ${history.length} giros`);
+            // Buscar entriesHistory (não esperar, executar em paralelo)
+            let entriesHistory = [];
+            chrome.storage.local.get(['entriesHistory']).then(result => {
+                entriesHistory = result.entriesHistory || [];
+            }).catch(e => console.warn('⚠️ Erro ao buscar entriesHistory:', e));
             
             // ⚡ ATUALIZAR MEMÓRIA ATIVA INCREMENTALMENTE (super rápido!)
             if (memoriaAtiva.inicializada) {
                 const sucesso = atualizarMemoriaIncrementalmente(newGiro);
                 if (sucesso) {
-                    console.log(`%c⚡ Memória Ativa atualizada incrementalmente! (${memoriaAtiva.tempoUltimaAtualizacao.toFixed(2)}ms)`, 'color: #00CED1; font-weight: bold;');
+                    console.log(`%c⚡ Memória Ativa atualizada! (${memoriaAtiva.tempoUltimaAtualizacao.toFixed(2)}ms)`, 'color: #00CED1; font-weight: bold;');
                 } else {
-                    console.warn('%c⚠️ Falha ao atualizar Memória Ativa! Será reinicializada na próxima análise.', 'color: #FFA500;');
+                    console.warn('%c⚠️ Falha ao atualizar Memória Ativa!', 'color: #FFA500;');
                 }
             } else {
                 // ✅ Se modo IA está ativo e memória não foi inicializada, inicializar agora
-                if (analyzerConfig.aiMode && history.length >= 60) {
-                    console.log('');
-                    console.log('%c🧠 Memória Ativa não inicializada - Inicializando agora...', 'color: #00CED1; font-weight: bold;');
-                    const sucesso = await inicializarMemoriaAtiva(history);
-                    if (sucesso) {
-                        console.log('%c✅ Memória Ativa inicializada com sucesso!', 'color: #00FF88; font-weight: bold;');
-                    } else {
-                        console.log('%c⚠️ Falha ao inicializar Memória Ativa', 'color: #FFAA00; font-weight: bold;');
-                    }
-                    console.log('');
-                } else {
-                    console.log('%c🧠 Memória Ativa não inicializada (modo IA inativo ou histórico insuficiente)', 'color: #00CED1;');
+                if (analyzerConfig.aiMode && cachedHistory.length >= 60) {
+                    console.log('%c🧠 Inicializando Memória Ativa...', 'color: #00CED1; font-weight: bold;');
+                    inicializarMemoriaAtiva(cachedHistory).then(sucesso => {
+                        if (sucesso) {
+                            console.log('%c✅ Memória Ativa inicializada!', 'color: #00FF88; font-weight: bold;');
+                        } else {
+                            console.log('%c⚠️ Falha ao inicializar Memória Ativa', 'color: #FFAA00;');
+                        }
+                    });
                 }
             }
             
-            // ✅ CARREGAR CONFIGURAÇÕES E ESTADO DO MARTINGALE DO STORAGE ANTES DE PROCESSAR
-            try {
-                const storageData = await chrome.storage.local.get(['analyzerConfig', 'martingaleState']);
-                
+            // ✅ CARREGAR CONFIGURAÇÕES E ESTADO DO MARTINGALE DO STORAGE
+            chrome.storage.local.get(['analyzerConfig', 'martingaleState']).then(storageData => {
                 // Carregar configurações
                 if (storageData.analyzerConfig) {
                     analyzerConfig = { ...DEFAULT_ANALYZER_CONFIG, ...storageData.analyzerConfig };
-                    console.log('⚙️ Configurações carregadas do storage:', {
+                    console.log('⚙️ Configurações carregadas:', {
                         consecutiveMartingale: analyzerConfig.consecutiveMartingale,
                         maxGales: analyzerConfig.maxGales
                     });
                 }
                 
-                // ⚠️ CRÍTICO: Carregar estado do Martingale do storage
+                // Carregar estado do Martingale
                 if (storageData.martingaleState) {
                     martingaleState = storageData.martingaleState;
-                    console.log('🔄 Estado do Martingale carregado do storage:', {
+                    console.log('🔄 Estado do Martingale carregado:', {
                         active: martingaleState.active,
-                        stage: martingaleState.stage,
-                        entryColor: martingaleState.entryColor,
-                        lossCount: martingaleState.lossCount
+                        stage: martingaleState.stage
                     });
                 }
-            } catch (e) {
-                console.warn('⚠️ Erro ao carregar configurações/estado, usando padrão:', e);
-            }
-            
-            // ✅ Enviar novo giro para TODOS os content.js abertos (ATUALIZAÇÃO INSTANTÂNEA DO HISTÓRICO)
-            try {
-                // 📢 Enviar para TODAS as tabs com content.js injetado
-                chrome.tabs.query({}, (tabs) => {
-                    tabs.forEach(tab => {
-                        try {
-                            chrome.tabs.sendMessage(tab.id, {
-                                type: 'NEW_SPIN',  // ✅ CORRIGIDO: era "action", agora é "type"
-                                data: {
-                                    lastSpin: { number: rollNumber, color: rollColor, timestamp: latestSpin.created_at }
-                                }
-                            });
-                        } catch (e) {
-                            // Ignorar tabs sem content.js (normal)
-                        }
-                    });
-                });
-                console.log('⚡ Novo giro enviado para TODOS os content.js - histórico será atualizado INSTANTANEAMENTE!');
-            } catch (e) {
-                console.log('ℹ️ Erro ao enviar mensagem para content.js:', e.message);
-            }
+            }).catch(e => console.warn('⚠️ Erro ao carregar configurações:', e));
             
             // ❌ REMOVIDO: Chamada duplicada de runAnalysisController
             // A análise será executada APÓS processar WIN/LOSS (linha ~1094)
