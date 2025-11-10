@@ -12075,7 +12075,7 @@ async function clearAllPatternsAndAnalysis() {
 	console.log('╚═══════════════════════════════════════════════════════════╝');
 }
 
-// Busca INICIAL de padrões por 1min 30s ao abrir a extensão
+// Busca INICIAL de padrões por 30 segundos ao abrir a extensão
 let initialSearchActive = false;
 let initialSearchInterval = null;
 
@@ -12092,14 +12092,14 @@ async function startInitialPatternSearch(history) {
 	
 	initialSearchActive = true;
 	const startTime = Date.now();
-	const duration = 90 * 1000; // 1 minuto e 30 segundos (90s)
+	const duration = 30 * 1000; // 30 segundos (30s)
 	const updateInterval = 1000; // ✅ ATUALIZAR A CADA 1 SEGUNDO (cronômetro fluido)
 	
 	console.log('╔═══════════════════════════════════════════════════════════╗');
-	console.log('║  🔍 BUSCA INICIAL DE PADRÕES (1min 30s)                  ║');
+	console.log('║  🔍 BUSCA INICIAL DE PADRÕES (30s)                      ║');
 	console.log('╠═══════════════════════════════════════════════════════════╣');
 	console.log(`║  📊 Histórico: ${history.length} giros disponíveis                    ║`);
-	console.log('║  ⏱️  Duração: 1 minuto e 30 segundos                     ║');
+	console.log('║  ⏱️  Duração: 30 segundos                                ║');
 	console.log('║  🎯 Limite: 5000 padrões únicos                          ║');
 	console.log('╚═══════════════════════════════════════════════════════════╝');
 	
@@ -13052,9 +13052,9 @@ function colorsForNumberSeq(seq) {
 async function performPatternAnalysis(history) {
     console.log('🔍 Iniciando análise multidimensional de IA com', history.length, 'giros', '| Rigor:', rigorLogString());
     
-    // ✅ BLOQUEAR ANÁLISES DURANTE A BUSCA DE PADRÕES (1min 30s)
+    // ✅ BLOQUEAR ANÁLISES DURANTE A BUSCA DE PADRÕES (30s)
     if (initialSearchActive) {
-        console.log('%c🚫 ANÁLISE BLOQUEADA - Busca de padrões em andamento (1min 30s)', 'color: #FFA500; font-weight: bold;');
+        console.log('%c🚫 ANÁLISE BLOQUEADA - Busca de padrões em andamento (30s)', 'color: #FFA500; font-weight: bold;');
         return null; // Não enviar sinais durante a busca
     }
     
@@ -17675,7 +17675,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         return true;
     } else if (request.action === 'startPatternSearch') {
         console.log('%c✅ ENTROU NO else if startPatternSearch!', 'color: #00FFFF; font-weight: bold; font-size: 16px;');
-        // Iniciar busca manual de padrões (1min 30s)
+        // Iniciar busca manual de padrões (30s)
         (async () => {
             try {
                 console.log('%c🔍 Iniciando busca manual de padrões...', 'color: #00FFFF; font-weight: bold;');
@@ -17722,7 +17722,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                 // ✅ PASSO 3: Aguardar um pouco para garantir que a UI foi atualizada
                 await new Promise(resolve => setTimeout(resolve, 100));
                 
-                // ✅ PASSO 4: Iniciar busca de 1min 30s (isso enviará INITIAL_SEARCH_START)
+                // ✅ PASSO 4: Iniciar busca de 30s (isso enviará INITIAL_SEARCH_START)
                 await startInitialPatternSearch(historyToAnalyze);
                 
                 sendResponse({ status: 'started', historySize: historyToAnalyze.length });

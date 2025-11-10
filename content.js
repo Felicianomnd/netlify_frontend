@@ -3182,7 +3182,7 @@
                     </div>
                     <div class="bank-buttons">
                         <button id="viewPatternsBtn" class="view-patterns-btn">👁️ Ver Padrões</button>
-                        <button id="refreshBankBtn" class="refresh-bank-btn">Buscar Padrões (1m30s)</button>
+                        <button id="refreshBankBtn" class="refresh-bank-btn">Buscar Padrões (30s)</button>
                         <button id="resetBankBtn" class="reset-bank-btn">Resetar Padrões</button>
                     </div>
                 </div>
@@ -5584,10 +5584,10 @@
             updateAnalysisStatus(status);
         } else if (request.type === 'INITIAL_SEARCH_START') {
             // ✅ BUSCA DE PADRÕES (MODO PADRÃO) - SEMPRE NA CAIXA EMBAIXO
-            console.log('🔍 Busca inicial de padrões iniciada (1min 30s)');
+            console.log('🔍 Busca inicial de padrões iniciada (30s)');
             const suggestionText = document.getElementById('suggestionText');
             if (suggestionText) {
-                suggestionText.textContent = '🔍 Buscando padrões... 1m 30s | 0/5000';
+                suggestionText.textContent = '🔍 Buscando padrões... 30s | 0/5000';
             }
         } else if (request.type === 'INITIAL_SEARCH_PROGRESS') {
             // ✅ ATUALIZAR CRONÔMETRO DECRESCENTE (SEMPRE VISÍVEL, SEM INTERRUPÇÃO)
@@ -5617,7 +5617,7 @@
             // Reabilitar botão de busca
             const btn = document.getElementById('refreshBankBtn');
             if (btn) {
-                btn.textContent = 'Buscar Padrões (1m30s)';
+                btn.textContent = 'Buscar Padrões (30s)';
                 btn.disabled = false;
             }
         }
@@ -6495,7 +6495,7 @@
             btn.textContent = 'Buscando padrões...';
             btn.disabled = true;
             
-            // Enviar mensagem para background.js iniciar busca de 1min 30s
+            // Enviar mensagem para background.js iniciar busca de 30s
             chrome.runtime.sendMessage({ action: 'startPatternSearch' }, function(response) {
                 if (response && response.status === 'started') {
                     console.log('✅ Busca de padrões iniciada!');
@@ -6503,13 +6503,13 @@
                 } else if (response && response.status === 'already_running') {
                     btn.textContent = 'Busca em andamento...';
                     setTimeout(function() {
-                        btn.textContent = 'Buscar Padrões (1m30s)';
+                        btn.textContent = 'Buscar Padrões (30s)';
                         btn.disabled = false;
                     }, 2000);
                 } else if (response && response.status === 'insufficient_data') {
                     btn.textContent = 'Histórico insuficiente';
                     setTimeout(function() {
-                        btn.textContent = 'Buscar Padrões (1m30s)';
+                        btn.textContent = 'Buscar Padrões (30s)';
                         btn.disabled = false;
                     }, 2000);
                 }
