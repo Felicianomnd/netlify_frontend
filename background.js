@@ -5878,13 +5878,15 @@ async function checkPreviousSignalAccuracy(newSpin) {
                 console.log('🗑️ Padrão abandonado removido do storage');
                 
                 // Notificar content.js para mostrar "Buscando..."
-                chrome.tabs.query({url: '*://blaze.com/*'}, function(tabs) {
-                    tabs.forEach(tab => {
-                        chrome.tabs.sendMessage(tab.id, {
-                            type: 'HOT_PATTERN_SEARCHING'
-                        }).catch(() => {});
-                    });
+        if (!analyzerConfig.aiMode) {
+            chrome.tabs.query({url: '*://blaze.com/*'}, function(tabs) {
+                tabs.forEach(tab => {
+                    chrome.tabs.sendMessage(tab.id, {
+                        type: 'HOT_PATTERN_SEARCHING'
+                    }).catch(() => {});
                 });
+            });
+        }
             }
         } else if (hotPatternState.status === 'active') {
             // Estava ativo, verificar resultado
@@ -9290,21 +9292,23 @@ async function analyzeWithPatternSystem(history) {
                     }
                     
                     // Notificar TODAS as tabs do Blaze
-                    chrome.tabs.query({url: '*://blaze.com/*'}, function(tabs) {
-                        tabs.forEach(tab => {
-                            chrome.tabs.sendMessage(tab.id, {
-                                type: 'HOT_PATTERN_FOUND',
-                                data: {
-                                    pattern: detected.pattern,
-                                    prediction: detected.prediction,
-                                    occurrences: detected.occurrences,
-                                    totalWins: detected.totalWins,
-                                    lastOccurrenceTimestamp: detected.lastOccurrenceTimestamp,
-                                    patternTimestamps: detected.patternTimestamps // Timestamps de cada giro
-                                }
-                            }).catch(() => {});
+                    if (!analyzerConfig.aiMode) {
+                        chrome.tabs.query({url: '*://blaze.com/*'}, function(tabs) {
+                            tabs.forEach(tab => {
+                                chrome.tabs.sendMessage(tab.id, {
+                                    type: 'HOT_PATTERN_FOUND',
+                                    data: {
+                                        pattern: detected.pattern,
+                                        prediction: detected.prediction,
+                                        occurrences: detected.occurrences,
+                                        totalWins: detected.totalWins,
+                                        lastOccurrenceTimestamp: detected.lastOccurrenceTimestamp,
+                                        patternTimestamps: detected.patternTimestamps // Timestamps de cada giro
+                                    }
+                                }).catch(() => {});
+                            });
                         });
-                    });
+                    }
                 } else {
                     console.log('⚠️⚠️⚠️ Nenhum padrão quente disponível no momento!');
                     console.log('🔍 DEBUG: Isso NÃO deveria acontecer com 50 giros disponíveis!');
@@ -9312,14 +9316,16 @@ async function analyzeWithPatternSystem(history) {
                     
                     // Notificar TODAS as tabs do Blaze
                     console.log('🔍 DEBUG: Enviando HOT_PATTERN_NOT_FOUND para todas as tabs...');
-                    chrome.tabs.query({url: '*://blaze.com/*'}, function(tabs) {
-                        console.log(`🔍 DEBUG: Encontradas ${tabs.length} tabs do Blaze`);
-                        tabs.forEach(tab => {
-                            chrome.tabs.sendMessage(tab.id, {
-                                type: 'HOT_PATTERN_NOT_FOUND'
-                            }).catch(() => {});
+                    if (!analyzerConfig.aiMode) {
+                        chrome.tabs.query({url: '*://blaze.com/*'}, function(tabs) {
+                            console.log(`🔍 DEBUG: Encontradas ${tabs.length} tabs do Blaze`);
+                            tabs.forEach(tab => {
+                                chrome.tabs.sendMessage(tab.id, {
+                                    type: 'HOT_PATTERN_NOT_FOUND'
+                                }).catch(() => {});
+                            });
                         });
-                    });
+                    }
                 }
             }
             
@@ -10023,31 +10029,45 @@ async function analyzeWithPatternSystem(history) {
             sendAnalysisStatus(`🎯 N1 - Padrões → NULO`);
         } else {
             const sourceLabel = nivel4.source === 'custom' ? 'Custom' : 'Quente';
-            sendAnalysisStatus(`🎯 N1 - Padrões (${sourceLabel}) → ${nivel4.color.toUpperCase()}`);
+            if (!analyzerConfig.aiMode) {
+                sendAnalysisStatus(`🎯 N1 - Padrões (${sourceLabel}) → ${nivel4.color.toUpperCase()}`);
+            }
         }
         await sleep(1500);
         
         const trendLabel = nivel5.trending === 'accelerating_red' ? 'Acelerando' : nivel5.trending === 'accelerating_black' ? 'Acelerando' : 'Estável';
-        sendAnalysisStatus(`⚡ N2 - Momentum → ${nivel5.color.toUpperCase()} (${trendLabel})`);
+            if (!analyzerConfig.aiMode) {
+                sendAnalysisStatus(`⚡ N2 - Momentum → ${nivel5.color.toUpperCase()} (${trendLabel})`);
+            }
         await sleep(1500);
         
         if (nivel7 && nivel7.color) {
             const overrideLabel = nivel7.override ? ' (override)' : '';
-            sendAnalysisStatus(`🔷 N3 - Alternância${overrideLabel} → ${nivel7.color.toUpperCase()}`);
+            if (!analyzerConfig.aiMode) {
+                sendAnalysisStatus(`🔷 N3 - Alternância${overrideLabel} → ${nivel7.color.toUpperCase()}`);
+            }
         } else {
-            sendAnalysisStatus(`🔷 N3 - Alternância → NULO`);
+            if (!analyzerConfig.aiMode) {
+                sendAnalysisStatus(`🔷 N3 - Alternância → NULO`);
+            }
         }
         await sleep(1500);
         
         if (nivel9 && nivel9.color) {
-            sendAnalysisStatus(`🔷 N4 - Persistência → ${nivel9.color.toUpperCase()}`);
+            if (!analyzerConfig.aiMode) {
+                sendAnalysisStatus(`🔷 N4 - Persistência → ${nivel9.color.toUpperCase()}`);
+            }
         } else {
-            sendAnalysisStatus(`🔷 N4 - Persistência → NULO`);
+            if (!analyzerConfig.aiMode) {
+                sendAnalysisStatus(`🔷 N4 - Persistência → NULO`);
+            }
         }
         await sleep(1500);
         
         if (minuteBiasColor) {
-            sendAnalysisStatus(`🕑 N5 - Ritmo por Giro → ${minuteBiasColor.toUpperCase()}`);
+            if (!analyzerConfig.aiMode) {
+                sendAnalysisStatus(`🕑 N5 - Ritmo por Giro → ${minuteBiasColor.toUpperCase()}`);
+            }
         } else {
             sendAnalysisStatus(`🕑 N5 - Ritmo por Giro → NULO`);
         }
