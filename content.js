@@ -1787,95 +1787,30 @@
     
     // Criar modal de padrões customizados
     function createCustomPatternModal() {
-        const modalHTML = `
-            <div id="customPatternModal" class="custom-pattern-modal" style="display: none;">
-                <div class="custom-pattern-modal-overlay"></div>
-                <div class="custom-pattern-modal-content">
-                    <div class="custom-pattern-modal-header">
-                        <h3>Criar Modelo de Análise</h3>
-                        <button class="custom-pattern-modal-close" id="closeCustomPatternModal">✕</button>
-                    </div>
-                    
-                    <div class="custom-pattern-modal-body">
-                        <!-- Nome do modelo -->
-                        <div class="custom-pattern-field">
-                            <label class="custom-pattern-label">Nome do Modelo:</label>
-                            <input type="text" id="customPatternName" class="custom-pattern-input" placeholder="Ex: Alternância Simples Custom" maxlength="50">
-                        </div>
-                        
-                        <!-- Sequência de cores -->
-                        <div class="custom-pattern-field">
-                            <label class="custom-pattern-label">Sequência do Padrão:</label>
-                            <div id="customPatternSequence" class="custom-pattern-sequence">
-                                <!-- Será populado dinamicamente -->
-                            </div>
-                            <button id="addColorToSequence" class="btn-add-color">➕ Adicionar Cor</button>
-                        </div>
-                        
-                        <!-- Cor anterior -->
-                        <div class="custom-pattern-field">
-                            <label class="custom-pattern-label">Qual cor deve vir ANTES deste padrão?</label>
-                            <div class="custom-pattern-before-colors">
-                                <label class="color-radio-label">
-                                    <input type="radio" name="beforeColor" value="red-white" class="color-radio" checked>
-                                    <span class="color-radio-btn red-white">
-                                        <span class="color-circle red"></span>
-                                        <span class="or-text">ou</span>
-                                        <span class="color-circle white"></span>
-                                    </span>
-                                </label>
-                                <label class="color-radio-label">
-                                    <input type="radio" name="beforeColor" value="black-white" class="color-radio">
-                                    <span class="color-radio-btn black-white">
-                                        <span class="color-circle black"></span>
-                                        <span class="or-text">ou</span>
-                                        <span class="color-circle white"></span>
-                                    </span>
-                                </label>
-                            </div>
-                        </div>
-                        
-                        <!-- Aviso sobre análise dinâmica -->
-                        <div class="custom-pattern-field" style="margin-top: 10px; padding: 10px; background: rgba(0, 212, 255, 0.1); border: 1px solid rgba(0, 212, 255, 0.3); border-radius: 6px;">
-                            <div style="display: flex; align-items: flex-start; gap: 8px;">
-                                <span style="font-size: 16px;">💡</span>
-                                <div style="flex: 1;">
-                                    <div style="color: #00d4ff; font-size: 11px; font-weight: bold; margin-bottom: 4px;">
-                                        Como funciona a análise?
-                                    </div>
-                                    <div style="color: #999; font-size: 10px; line-height: 1.4;">
-                                        Você define apenas a <strong style="color: #fff;">sequência do padrão</strong>. Quando este padrão aparecer, a IA irá <strong style="color: #fff;">analisar automaticamente</strong> qual cor veio depois nas ocorrências passadas. Se uma cor aparecer em <strong style="color: #00ff88;">≥70%</strong> das vezes, a IA envia o sinal. Caso contrário, rejeita.
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                        
-                        <!-- Opção de sincronização com a conta -->
-                        <div class="custom-pattern-field" style="margin-top: 15px; padding-top: 15px; border-top: 1px solid #444;">
-                            <label class="checkbox-label" style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
-                                <input type="checkbox" id="syncPatternToAccount" checked style="cursor: pointer;">
-                                <span style="font-size: 13px; color: #00d4ff;">
-                                    ☁️ Sincronizar modelos
-                                </span>
-                            </label>
-                        </div>
-                    </div>
-                    
-                    <div class="custom-pattern-modal-footer">
-                        <button id="saveCustomPattern" class="btn-save-pattern">💾 Salvar Modelo</button>
-                        <button id="cancelCustomPattern" class="btn-cancel-pattern">❌ Cancelar</button>
-                    </div>
-                </div>
-            </div>
-        `;
+        const btnHotPattern = document.getElementById('btnHotPattern');
+        if (!btnHotPattern) {
+            console.warn('⚠️ Elemento do Padrão Quente não encontrado (custom patterns removidos)');
+            return;
+        }
         
-        // Adicionar modal ao body
-        document.body.insertAdjacentHTML('beforeend', modalHTML);
+        // Garantir aparência/estado padrão
+        btnHotPattern.classList.add('active');
+        btnHotPattern.style.cursor = 'default';
+        btnHotPattern.title = 'Padrão Quente gerenciado automaticamente';
         
-        // Event listeners
-        setupCustomPatternModalListeners();
+        // Atualizar estado local e exibir status
+        setHotPatternState(true);
+        showHotPatternStatus('searching');
         
-        console.log('✅ Modal de padrões customizados criado');
+        // Notificar background para manter o modo ativo
+        chrome.runtime.sendMessage({ action: 'enableHotPattern' });
+        
+        // Solicitar análise inicial após pequeno atraso
+        setTimeout(() => {
+            chrome.runtime.sendMessage({ action: 'requestImmediateAnalysis' });
+        }, 500);
+        
+        console.log('🔥 Padrão Quente inicializado (modelos customizados desativados)');
     }
     
     // Configurar listeners do modal
@@ -3349,16 +3284,13 @@
                         <!-- MODELOS CUSTOMIZADOS DE ANÁLISE (NÍVEL DIAMANTE) -->
                         <!-- ═══════════════════════════════════════════════════════ -->
                         <div class="setting-item setting-row" id="customPatternsContainer" style="margin-top: 20px; padding-top: 15px; border-top: 1px solid #333;">
-                            <div style="width: 100%; display: flex; gap: 8px; flex-wrap: wrap; justify-content: center;">
-                                <button id="btnHotPattern" class="btn-hot-pattern" style="flex: 1; min-width: 140px;">
+                            <div style="width: 100%; display: flex; flex-direction: column; gap: 8px; align-items: center; text-align: center;">
+                                <button id="btnHotPattern" class="btn-hot-pattern" style="width: 100%; min-width: 140px;">
                                     Padrão Quente
                                 </button>
-                                <button id="btnViewCustomPatterns" class="btn-view-patterns" style="display: none; flex: 1; min-width: 140px;">
-                                    ✓ Padrões Ativos (<span id="patternsCount">0</span>)
-                                </button>
-                                <button id="btnAddCustomPattern" class="btn-add-custom-pattern" style="flex: 1; min-width: 140px;">
-                                    Adicionar Modelo
-                                </button>
+                                <span style="font-size: 11px; color: #888; line-height: 1.4;">
+                                    O Padrão Quente é gerenciado automaticamente.
+                                </span>
                             </div>
                         </div>
                         
@@ -3462,7 +3394,6 @@
         
         // ✅ Carregar padrões customizados imediatamente após criar a sidebar
         console.log('%c🎯 Carregando padrões customizados...', 'color: #00d4ff; font-weight: bold;');
-        loadCustomPatternsList();
         
         // 🧠 NÃO iniciar o intervalo automaticamente - só quando o modo IA for ativado
         console.log('%c🧠 Sistema de memória ativa preparado (aguardando ativação do modo IA)', 'color: #00CED1; font-weight: bold;');

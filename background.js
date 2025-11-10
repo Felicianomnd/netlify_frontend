@@ -1496,10 +1496,6 @@ function logActiveConfiguration() {
         // ✅ INICIALIZAR HISTÓRICO DE SINAIS (para auto-aprendizado)
         await initializeSignalsHistory();
         
-        // ✅ CARREGAR PADRÕES CUSTOMIZADOS
-        await loadCustomPatterns();
-        console.log(`🎯 Padrões customizados carregados na inicialização: ${customPatternsCache.length}`);
-        
         // ✅ EXIBIR CONFIGURAÇÕES ATIVAS
         logActiveConfiguration();
         
@@ -2270,8 +2266,8 @@ async function processNewSpinFromServer(spinData) {
         // Adiciona novo giro ao cache ANTES de qualquer operação assíncrona
         const newGiro = {
             id: spinData.id || `spin_${latestSpin.created_at}`,
-            number: rollNumber,
-            color: rollColor,
+                    number: rollNumber,
+                    color: rollColor,
             timestamp: latestSpin.created_at,
             created_at: latestSpin.created_at
         };
@@ -2280,13 +2276,13 @@ async function processNewSpinFromServer(spinData) {
         const isNewSpin = cachedHistory.length === 0 || 
                         cachedHistory[0].timestamp !== latestSpin.created_at || 
                         cachedHistory[0].number !== rollNumber;
-        
-        if (isNewSpin) {
+            
+            if (isNewSpin) {
             console.log('🎯 NOVO GIRO DETECTADO!', {
-                number: rollNumber,
-                color: rollColor,
-                timestamp: latestSpin.created_at
-            });
+                    number: rollNumber,
+                    color: rollColor,
+                    timestamp: latestSpin.created_at
+                });
             
             // ⚡ ATUALIZAR CACHE IMEDIATAMENTE (operação síncrona, super rápida!)
             cachedHistory.unshift(newGiro);
@@ -2302,8 +2298,8 @@ async function processNewSpinFromServer(spinData) {
                 type: 'NEW_SPIN',
                 data: {
                     lastSpin: { 
-                        number: rollNumber, 
-                        color: rollColor, 
+                    number: rollNumber,
+                    color: rollColor,
                         timestamp: latestSpin.created_at 
                     }
                 }
@@ -4127,31 +4123,24 @@ let customPatternsCache = []; // Cache dos padrões customizados
  * Carregar padrões customizados do storage
  */
 async function loadCustomPatterns() {
+    customPatternsCache = [];
+    
+    console.log('');
+    
     try {
-        const result = await chrome.storage.local.get(['customPatterns']);
-        customPatternsCache = result.customPatterns || [];
-        
-        console.log('');
-        console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #00d4ff; font-weight: bold;');
-        console.log('%c║  🎯 CARREGANDO PADRÕES CUSTOMIZADOS                      ║', 'color: #00d4ff; font-weight: bold;');
-        console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #00d4ff; font-weight: bold;');
-        console.log(`📊 Total de padrões no storage: ${customPatternsCache.length}`);
-        
-        if (customPatternsCache.length > 0) {
-            console.log('%c📋 LISTA DE PADRÕES CARREGADOS:', 'color: #00d4ff; font-weight: bold;');
-            customPatternsCache.forEach((pattern, index) => {
-                console.log(`   ${index + 1}. "${pattern.name}" | Sequência: ${pattern.sequence.join(' → ')} | Ativo: ${pattern.active ? '✅' : '❌'}`);
-            });
-        } else {
-            console.log('%c⚠️ Nenhum padrão customizado encontrado no storage!', 'color: #FFA500; font-weight: bold;');
-        }
-        console.log('');
-        
-        return customPatternsCache;
+        await chrome.storage.local.remove('customPatterns');
+        console.log('%c   ➤ Dados antigos removidos do storage (customPatterns)', 'color: #666; font-style: italic;');
     } catch (error) {
-        console.error('❌ Erro ao carregar padrões customizados:', error);
-        return [];
+        console.warn('⚠️ Não foi possível limpar customPatterns do storage:', error);
     }
+    
+    console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #666; font-weight: bold;');
+    console.log('%c║  🎯 PADRÕES CUSTOMIZADOS DESATIVADOS (MODO DIAMANTE)     ║', 'color: #666; font-weight: bold;');
+    console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #666; font-weight: bold;');
+    console.log('%c   ➤ Análise focada apenas no Padrão Quente automático', 'color: #666; font-style: italic;');
+    console.log('');
+    
+    return customPatternsCache;
 }
 
 /**
@@ -4310,6 +4299,15 @@ function analyzeCustomPatternStatistics(matches) {
  * Verificar se o padrão atual bate com algum padrão customizado
  */
 async function checkForCustomPatterns(history) {
+    console.log('');
+    console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #666; font-weight: bold;');
+    console.log('%c║  🎯 PADRÕES CUSTOMIZADOS DESATIVADOS (MODO DIAMANTE)     ║', 'color: #666; font-weight: bold;');
+    console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #666; font-weight: bold;');
+    console.log('%c   ➤ Somente o Padrão Quente automático será utilizado', 'color: #666; font-style: italic;');
+    console.log('');
+    
+    return null;
+    
     // ✅ SEMPRE recarregar do storage para pegar mudanças mais recentes
     console.log('%c🔄 Recarregando padrões customizados do storage...', 'color: #00d4ff; font-weight: bold;');
     await loadCustomPatterns();
@@ -11515,7 +11513,7 @@ async function runAnalysisController(history) {
 			console.log('');
 			
 			console.log('%c⏱️ Chamando analyzeWithPatternSystem...', 'color: #FFAA00; font-weight: bold;');
-		
+			
 		const aiResult = await analyzeWithPatternSystem(history);
 		
 		console.log('%c⏱️ analyzeWithPatternSystem RETORNOU!', 'color: #FFAA00; font-weight: bold;');
