@@ -2017,12 +2017,12 @@
           // API de Giros (coleta, histórico, padrões de análise)
           giros: window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
               ? 'http://localhost:3001'
-              : 'https://blaze-giros-api-v2-1.onrender.com',
+              : 'https://giros.doubleanalyzer.com.br',
           
           // API de Autenticação (usuários, admin, padrões customizados)
           auth: window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
               ? 'http://localhost:3000'
-              : 'https://blaze-analyzer-api-v2.onrender.com'
+              : 'https://api.doubleanalyzer.com.br'
       };
       
       // Obter URL da API de Giros
@@ -6597,7 +6597,7 @@
     // ATUALIZAÇÃO AUTOMÁTICA DO HISTÓRICO DE GIROS DO SERVIDOR
     // ═══════════════════════════════════════════════════════════════════════════════
     
-    const API_URL = 'https://blaze-giros-api-v2-1.onrender.com';
+    const API_URL = 'https://giros.doubleanalyzer.com.br';
     let isUpdatingHistory = false;
     let lastHistoryUpdate = null;
     let isWebSocketConnected = true; // Assume conectado inicialmente
