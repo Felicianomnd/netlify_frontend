@@ -1062,25 +1062,25 @@
                             <option value="medium">Média (60-79%)</option>
                             <option value="low">Baixa (<60%)</option>
                         </select>
-                    </div>
-                    
+                        </div>
+                        
                     <div class="bank-patterns-modal-body">
                         <div id="bankPatternsList"></div>
-                    </div>
+                            </div>
                 </div>
-            </div>
-            
+                        </div>
+                        
             <div id="patternDetailsModal" class="bank-patterns-modal" style="display: none;">
                 <div class="bank-patterns-modal-overlay"></div>
                 <div class="bank-patterns-modal-content">
                     <div class="bank-patterns-modal-header">
                         <h3>📊 Ocorrências do Padrão</h3>
                         <button class="bank-patterns-modal-close" id="closePatternDetailsModal">✕</button>
-                    </div>
+                            </div>
                     
                     <div class="bank-patterns-modal-body">
                         <div id="patternDetailsContent"></div>
-                    </div>
+                        </div>
                 </div>
             </div>
         `;
@@ -1423,7 +1423,7 @@
             listContainer.innerHTML = `
                 <div style="padding: 40px; text-align: center; color: #8da2bb; font-size: 14px;">
                     ${searchTerm || filterType !== 'all' ? '🔍 Nenhum padrão encontrado com os filtros aplicados' : '📂 Banco vazio - clique em "Buscar Padrões" para descobrir'}
-                </div>
+                                    </div>
             `;
             return;
         }
@@ -1452,8 +1452,8 @@
                     <div class="spin-history-item-wrap">
                         <div class="spin-history-quadrado ${color}">
                             ${isWhite ? blazeWhiteSVG(14) : `<span>${number}</span>`}
-                        </div>
-                    </div>
+                                    </div>
+                                </div>
                 `;
             }).join('');
             
@@ -1463,8 +1463,8 @@
                 <div class="spin-history-item-wrap" title="Cor de Disparo">
                     <div class="spin-history-quadrado ${trigger}" style="opacity: 0.7; border: 2px dashed rgba(255, 255, 255, 0.5);">
                         ${trigger === 'white' ? blazeWhiteSVG(14) : `<span>${triggerNumber}</span>`}
-                    </div>
-                </div>
+                            </div>
+                        </div>
             ` : '';
             
             // Última ocorrência com horário
@@ -1483,13 +1483,13 @@
                         ${triggerHTML}
                         ${trigger !== 'N/A' && pattern.length > 0 ? '<span style="color: #ff003f; font-weight: bold; margin: 0 2px; font-size: 14px;">→</span>' : ''}
                         ${sequenceHTML}
-                    </div>
+                        </div>
                     
                     <div class="bank-pattern-info-row">
                         <div class="bank-pattern-info-item">
                             <span class="bank-pattern-info-label">Ocorrências</span>
                             <span class="bank-pattern-info-value">${occurrences}x</span>
-                        </div>
+                    </div>
                         <div class="bank-pattern-info-item">
                             <span class="bank-pattern-info-label">Confiança</span>
                             <span class="bank-pattern-info-value ${confClass}">${conf.toFixed(1)}%</span>
@@ -1579,8 +1579,8 @@
                                 <div class="spin-history-item-wrap">
                                     <div class="spin-history-quadrado ${color}">
                                         ${isWhite ? blazeWhiteSVG(14) : `<span>${number}</span>`}
-                                    </div>
-                                </div>
+                    </div>
+                </div>
                             `;
                         }).join('')}
                     </div>
@@ -1617,9 +1617,9 @@
                             📂 Histórico insuficiente para exibir ocorrências
                         </div>
                     `}
-                </div>
-            `;
-            
+            </div>
+        `;
+        
             detailsContent.innerHTML = occurrencesHTML;
             detailsModal.style.display = 'flex';
             
@@ -1769,7 +1769,7 @@
             db.patterns_found = patterns;
             allData.patternDB = db;
             localStorage.setItem('blazeAnalyzerData', JSON.stringify(allData));
-            
+        
             console.log(`✅ Padrão deletado! Total restante: ${patterns.length}`);
             
             // Atualizar UI
@@ -2017,12 +2017,12 @@
           // API de Giros (coleta, histórico, padrões de análise)
           giros: window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
               ? 'http://localhost:3001'
-              : 'https://giros.doubleanalyzer.com.br',
+              : 'https://blaze-giros-api-v2-1.onrender.com',
           
           // API de Autenticação (usuários, admin, padrões customizados)
           auth: window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
               ? 'http://localhost:3000'
-              : 'https://api.doubleanalyzer.com.br'
+              : 'https://blaze-analyzer-api-v2.onrender.com'
       };
       
       // Obter URL da API de Giros
@@ -5482,19 +5482,19 @@
                     
                     // Re-renderizar usando requestAnimationFrame
                     requestAnimationFrame(() => {
-                        let historyContainer = document.getElementById('spin-history-bar-ext');
-                        if (historyContainer) {
-                            historyContainer.innerHTML = renderSpinHistory(currentHistoryData);
-                        } else {
-                            // Criar container se não existir
-                            const statsSection = document.querySelector('.stats-section');
-                            if (statsSection) {
-                                const wrap = document.createElement('div');
-                                wrap.id = 'spin-history-bar-ext';
-                                wrap.innerHTML = renderSpinHistory(currentHistoryData);
-                                statsSection.appendChild(wrap);
-                            }
+                    let historyContainer = document.getElementById('spin-history-bar-ext');
+                    if (historyContainer) {
+                        historyContainer.innerHTML = renderSpinHistory(currentHistoryData);
+                    } else {
+                        // Criar container se não existir
+                        const statsSection = document.querySelector('.stats-section');
+                        if (statsSection) {
+                            const wrap = document.createElement('div');
+                            wrap.id = 'spin-history-bar-ext';
+                            wrap.innerHTML = renderSpinHistory(currentHistoryData);
+                            statsSection.appendChild(wrap);
                         }
+                    }
                     });
                 }
             } else {
@@ -6597,7 +6597,7 @@
     // ATUALIZAÇÃO AUTOMÁTICA DO HISTÓRICO DE GIROS DO SERVIDOR
     // ═══════════════════════════════════════════════════════════════════════════════
     
-    const API_URL = 'https://giros.doubleanalyzer.com.br';
+    const API_URL = 'https://blaze-giros-api-v2-1.onrender.com';
     let isUpdatingHistory = false;
     let lastHistoryUpdate = null;
     let isWebSocketConnected = true; // Assume conectado inicialmente
