@@ -1602,7 +1602,7 @@ const DIAMOND_LEVEL_DEFAULTS = {
             listContainer.innerHTML = `
                 <div style="padding: 40px; text-align: center; color: #8da2bb; font-size: 14px;">
                     ${searchTerm || filterType !== 'all' ? '🔍 Nenhum padrão encontrado com os filtros aplicados' : '📂 Banco vazio - clique em "Buscar Padrões" para descobrir'}
-                                    </div>
+                            </div>
             `;
             return;
         }
@@ -1631,7 +1631,7 @@ const DIAMOND_LEVEL_DEFAULTS = {
                     <div class="spin-history-item-wrap">
                         <div class="spin-history-quadrado ${color}">
                             ${isWhite ? blazeWhiteSVG(14) : `<span>${number}</span>`}
-                                    </div>
+                        </div>
                                 </div>
                 `;
             }).join('');
@@ -1662,25 +1662,25 @@ const DIAMOND_LEVEL_DEFAULTS = {
                         ${triggerHTML}
                         ${trigger !== 'N/A' && pattern.length > 0 ? '<span style="color: #ff003f; font-weight: bold; margin: 0 2px; font-size: 14px;">→</span>' : ''}
                         ${sequenceHTML}
-                        </div>
+                                    </div>
                     
                     <div class="bank-pattern-info-row">
                         <div class="bank-pattern-info-item">
                             <span class="bank-pattern-info-label">Ocorrências</span>
                             <span class="bank-pattern-info-value">${occurrences}x</span>
-                    </div>
+                                    </div>
                         <div class="bank-pattern-info-item">
                             <span class="bank-pattern-info-label">Confiança</span>
                             <span class="bank-pattern-info-value ${confClass}">${conf.toFixed(1)}%</span>
-                        </div>
+                                </div>
                         <div class="bank-pattern-info-item">
                             <span class="bank-pattern-info-label">Última</span>
                             <span class="bank-pattern-info-value" style="font-size: 9px;">${lastTime}</span>
-                        </div>
+                            </div>
                         <button class="btn-delete-bank-pattern" onclick="event.stopPropagation(); deleteBankPattern(${patternIndex})">
                             Excluir
                         </button>
-                    </div>
+                        </div>
                 </div>
             `;
         }).join('');
@@ -1772,9 +1772,9 @@ const DIAMOND_LEVEL_DEFAULTS = {
                             <div style="font-size: 9px; color: #8da2bb;">Confiança</div>
                             <div style="font-size: 14px; color: ${pattern.confidence >= 80 ? '#2ecc71' : pattern.confidence >= 60 ? '#f39c12' : '#e74c3c'}; font-weight: bold;">${pattern.confidence.toFixed(1)}%</div>
                         </div>
+                        </div>
                     </div>
-                </div>
-                
+                    
                 <h4 style="color: #ff003f; margin: 16px 0 10px 0; font-size: 14px;">Últimas 5 Ocorrências:</h4>
                 <div class="pattern-details-list">
                     ${occurrences.length > 0 ? occurrences.map((occ, idx) => `
@@ -1785,9 +1785,9 @@ const DIAMOND_LEVEL_DEFAULTS = {
                                     <div class="spin-history-item-wrap">
                                         <div class="spin-history-quadrado ${spin.color}">
                                             ${spin.color === 'white' ? blazeWhiteSVG(14) : `<span>${spin.number}</span>`}
-                                        </div>
+                    </div>
                                         <div class="spin-history-time">${spin.time}</div>
-                                    </div>
+                </div>
                                 `).join('')}
                             </div>
                         </div>
@@ -2196,12 +2196,12 @@ const DIAMOND_LEVEL_DEFAULTS = {
           // API de Giros (coleta, histórico, padrões de análise)
           giros: window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
               ? 'http://localhost:3001'
-              : 'https://giros.doubleanalyzer.com.br',
+              : 'https://blaze-giros-api-v2-1.onrender.com',
           
           // API de Autenticação (usuários, admin, padrões customizados)
           auth: window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
               ? 'http://localhost:3000'
-              : 'https://api.doubleanalyzer.com.br'
+              : 'https://blaze-analyzer-api-v2.onrender.com'
       };
       
       // Obter URL da API de Giros
@@ -6816,7 +6816,7 @@ const DIAMOND_LEVEL_DEFAULTS = {
     // ATUALIZAÇÃO AUTOMÁTICA DO HISTÓRICO DE GIROS DO SERVIDOR
     // ═══════════════════════════════════════════════════════════════════════════════
     
-    const API_URL = 'https://giros.doubleanalyzer.com.br';
+    const API_URL = 'https://blaze-giros-api-v2-1.onrender.com';
     let isUpdatingHistory = false;
     let lastHistoryUpdate = null;
     let isWebSocketConnected = true; // Assume conectado inicialmente
