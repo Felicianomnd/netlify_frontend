@@ -15,6 +15,7 @@
     // ═══════════════════════════════════════════════════════════════════════════════
     let currentHistoryDisplayLimit = 500; // Começa exibindo 500, pode aumentar em camadas de 500
     let currentHistoryData = []; // Armazenar histórico atual para re-renderizar
+    let autoPatternSearchTriggered = false; // Impede disparos automáticos repetidos
     
     // Resetar dados ao iniciar nova sessão de página (apenas uma vez por aba)
     function resetSessionIfNeeded() {
@@ -6357,6 +6358,27 @@
         chrome.storage.local.get(['patternDB'], function(result) {
             const db = result.patternDB || { patterns_found: [] };
             const total = db.patterns_found ? db.patterns_found.length : 0;
+            
+            if (total === 0 && !autoPatternSearchTriggered) {
+                autoPatternSearchTriggered = true;
+                console.log('🔁 Banco de padrões vazio. Iniciando busca automática de padrões (30s)...');
+                chrome.runtime.sendMessage({ action: 'startPatternSearch' }, function(response) {
+                    if (response && response.status === 'already_running') {
+                        console.log('ℹ️ Busca automática já está em andamento.');
+                    } else if (response && response.status === 'insufficient_data') {
+                        console.warn('⚠️ Histórico insuficiente para busca automática:', response.message || '');
+                        autoPatternSearchTriggered = false; // tentar novamente quando dados chegarem
+                    } else if (response && response.status === 'error') {
+                        console.error('❌ Erro ao iniciar busca automática de padrões:', response.error);
+                        autoPatternSearchTriggered = false; // permitir nova tentativa
+                    } else if (!response) {
+                        console.warn('⚠️ Resposta indefinida ao iniciar busca automática de padrões.');
+                        autoPatternSearchTriggered = false;
+                    }
+                });
+            } else if (total > 0) {
+                autoPatternSearchTriggered = true;
+            }
             
             // Agrupar por confiança
             const byConfidence = { high: 0, medium: 0, low: 0 };

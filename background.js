@@ -4124,8 +4124,8 @@ let customPatternsCache = []; // Cache dos padrões customizados
  */
 async function loadCustomPatterns() {
     customPatternsCache = [];
-    
-    console.log('');
+        
+        console.log('');
     
     try {
         await chrome.storage.local.remove('customPatterns');
@@ -4138,9 +4138,9 @@ async function loadCustomPatterns() {
     console.log('%c║  🎯 PADRÕES CUSTOMIZADOS DESATIVADOS (MODO DIAMANTE)     ║', 'color: #666; font-weight: bold;');
     console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #666; font-weight: bold;');
     console.log('%c   ➤ Análise focada apenas no Padrão Quente automático', 'color: #666; font-style: italic;');
-    console.log('');
-    
-    return customPatternsCache;
+        console.log('');
+        
+        return customPatternsCache;
 }
 
 /**
