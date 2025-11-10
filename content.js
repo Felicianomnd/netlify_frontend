@@ -6355,29 +6355,37 @@
     
     // Função para carregar dados do banco
     function loadPatternBank() {
-        chrome.storage.local.get(['patternDB'], function(result) {
+        chrome.storage.local.get(['patternDB', 'analyzerConfig'], function(result) {
             const db = result.patternDB || { patterns_found: [] };
             const total = db.patterns_found ? db.patterns_found.length : 0;
+            const analyzerConfig = result.analyzerConfig || {};
+            const isDiamondModeActive = !!analyzerConfig.aiMode;
             
-            if (total === 0 && !autoPatternSearchTriggered) {
-                autoPatternSearchTriggered = true;
-                console.log('🔁 Banco de padrões vazio. Iniciando busca automática de padrões (30s)...');
-                chrome.runtime.sendMessage({ action: 'startPatternSearch' }, function(response) {
-                    if (response && response.status === 'already_running') {
-                        console.log('ℹ️ Busca automática já está em andamento.');
-                    } else if (response && response.status === 'insufficient_data') {
-                        console.warn('⚠️ Histórico insuficiente para busca automática:', response.message || '');
-                        autoPatternSearchTriggered = false; // tentar novamente quando dados chegarem
-                    } else if (response && response.status === 'error') {
-                        console.error('❌ Erro ao iniciar busca automática de padrões:', response.error);
-                        autoPatternSearchTriggered = false; // permitir nova tentativa
-                    } else if (!response) {
-                        console.warn('⚠️ Resposta indefinida ao iniciar busca automática de padrões.');
-                        autoPatternSearchTriggered = false;
-                    }
-                });
-            } else if (total > 0) {
-                autoPatternSearchTriggered = true;
+            if (!isDiamondModeActive) {
+                if (total === 0 && !autoPatternSearchTriggered) {
+                    autoPatternSearchTriggered = true;
+                    console.log('🔁 Banco de padrões vazio. Iniciando busca automática de padrões (30s)...');
+                    chrome.runtime.sendMessage({ action: 'startPatternSearch' }, function(response) {
+                        if (response && response.status === 'already_running') {
+                            console.log('ℹ️ Busca automática já está em andamento.');
+                        } else if (response && response.status === 'insufficient_data') {
+                            console.warn('⚠️ Histórico insuficiente para busca automática:', response.message || '');
+                            autoPatternSearchTriggered = false; // tentar novamente quando dados chegarem
+                        } else if (response && response.status === 'error') {
+                            console.error('❌ Erro ao iniciar busca automática de padrões:', response.error);
+                            autoPatternSearchTriggered = false; // permitir nova tentativa
+                        } else if (!response) {
+                            console.warn('⚠️ Resposta indefinida ao iniciar busca automática de padrões.');
+                            autoPatternSearchTriggered = false;
+                        }
+                    });
+                } else if (total > 0) {
+                    autoPatternSearchTriggered = true;
+                }
+            } else {
+                // Modo Diamante: nenhuma busca automática deve acontecer.
+                // Mantém flag habilitada apenas se já houver padrões carregados.
+                autoPatternSearchTriggered = total > 0;
             }
             
             // Agrupar por confiança
