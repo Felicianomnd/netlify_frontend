@@ -607,11 +607,11 @@ function createPatternKey(analysisData) {
 
 const API_CONFIG = {
     // API de Giros (coleta automática, histórico, WebSocket)
-    baseURL: 'https://blaze-giros-api-v2-1.onrender.com',
-    wsURL: 'wss://blaze-giros-api-v2-1.onrender.com',
+    baseURL: 'https://giros.doubleanalyzer.com.br',
+    wsURL: 'wss://giros.doubleanalyzer.com.br',
     
     // API de Autenticação (usuários, admin, padrões customizados)
-    authURL: 'https://blaze-analyzer-api-v2.onrender.com',
+    authURL: 'https://api.doubleanalyzer.com.br',
     
     enabled: true,  // Ativar/desativar sincronização
     syncInterval: 5 * 60 * 1000,  // Sincronizar a cada 5 minutos
