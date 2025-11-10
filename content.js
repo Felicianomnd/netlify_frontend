@@ -691,6 +691,7 @@
                 console.log('🔒 Seletor de Intensidade de Sinais oculto (Modo Padrão)');
             }
         }
+
         
     }
     
@@ -980,6 +981,16 @@
     // ═══════════════════════════════════════════════════════════════════════════════
     
     let customPatternsData = []; // Array de padrões customizados
+
+const DIAMOND_LEVEL_DEFAULTS = {
+    n1HotPattern: 60,
+    n2Recent: 5,
+    n2Previous: 15,
+    n3Alternance: 12,
+    n4Persistence: 20,
+    n5MinuteBias: 60,
+    n6Barrier: 50
+};
     
     // Função para mostrar notificação toast (simples e rápida)
     function showToast(message, duration = 2000) {
@@ -1372,6 +1383,173 @@
             }
         `;
         document.head.appendChild(style);
+    }
+
+    function createDiamondLevelsModal() {
+        if (document.getElementById('diamondLevelsModal')) return;
+        const modalHTML = `
+            <div id="diamondLevelsModal" class="custom-pattern-modal" style="display: none;">
+                <div class="custom-pattern-modal-overlay"></div>
+                <div class="custom-pattern-modal-content">
+                    <div class="custom-pattern-modal-header">
+                        <h3>Configurar Níveis Diamante</h3>
+                        <button class="custom-pattern-modal-close" id="closeDiamondLevelsModal">Fechar</button>
+                    </div>
+                    <div class="custom-pattern-modal-body">
+                        <div class="diamond-level-field">
+                            <label for="diamondN1HotPattern">N1 - Padrão Quente (giros analisados)</label>
+                            <input type="number" id="diamondN1HotPattern" min="12" max="200" value="60" />
+                        </div>
+                        <div class="diamond-level-field">
+                            <label>N2 - Momentum</label>
+                            <div class="diamond-level-double">
+                                <div>
+                                    <span>Janela recente</span>
+                                    <input type="number" id="diamondN2Recent" min="2" max="20" value="5" />
+                                </div>
+                                <div>
+                                    <span>Janela anterior</span>
+                                    <input type="number" id="diamondN2Previous" min="3" max="200" value="15" />
+                                </div>
+                            </div>
+                        </div>
+                        <div class="diamond-level-field">
+                            <label for="diamondN3Alternance">N3 - Alternância (janela)</label>
+                            <input type="number" id="diamondN3Alternance" min="12" max="50" value="12" />
+                        </div>
+                        <div class="diamond-level-field">
+                            <label for="diamondN4Persistence">N4 - Persistência / Ciclos (janela)</label>
+                            <input type="number" id="diamondN4Persistence" min="20" max="120" value="20" />
+                        </div>
+                        <div class="diamond-level-field">
+                            <label for="diamondN5MinuteBias">N5 - Ritmo por Giro (amostras)</label>
+                            <input type="number" id="diamondN5MinuteBias" min="10" max="200" value="60" />
+                        </div>
+                        <div class="diamond-level-field">
+                            <label for="diamondN6Barrier">N6 - Barreira (janela)</label>
+                            <input type="number" id="diamondN6Barrier" min="10" max="200" value="50" />
+                        </div>
+                    </div>
+                    <div class="custom-pattern-modal-footer">
+                        <button class="btn-secondary" id="diamondLevelsCancelBtn">Cancelar</button>
+                        <button class="btn-hot-pattern" id="diamondLevelsSaveBtn">Salvar</button>
+                    </div>
+                </div>
+            </div>
+        `;
+        document.body.insertAdjacentHTML('beforeend', modalHTML);
+        const modal = document.getElementById('diamondLevelsModal');
+        const closeBtn = document.getElementById('closeDiamondLevelsModal');
+        const cancelBtn = document.getElementById('diamondLevelsCancelBtn');
+        const overlay = modal.querySelector('.custom-pattern-modal-overlay');
+        const closeModal = () => { modal.style.display = 'none'; };
+        closeBtn.addEventListener('click', closeModal);
+        cancelBtn.addEventListener('click', closeModal);
+        overlay.addEventListener('click', closeModal);
+    }
+
+    function populateDiamondLevelsForm(config) {
+        const windows = (config && config.diamondLevelWindows) || {};
+        const getValue = (key, def) => {
+            const value = Number(windows[key]);
+            return Number.isFinite(value) && value > 0 ? value : def;
+        };
+        const setInput = (id, value) => {
+            const input = document.getElementById(id);
+            if (input) input.value = value;
+        };
+        setInput('diamondN1HotPattern', getValue('n1HotPattern', DIAMOND_LEVEL_DEFAULTS.n1HotPattern));
+        setInput('diamondN2Recent', getValue('n2Recent', DIAMOND_LEVEL_DEFAULTS.n2Recent));
+        setInput('diamondN2Previous', getValue('n2Previous', DIAMOND_LEVEL_DEFAULTS.n2Previous));
+        setInput('diamondN3Alternance', getValue('n3Alternance', DIAMOND_LEVEL_DEFAULTS.n3Alternance));
+        setInput('diamondN4Persistence', getValue('n4Persistence', DIAMOND_LEVEL_DEFAULTS.n4Persistence));
+        setInput('diamondN5MinuteBias', getValue('n5MinuteBias', DIAMOND_LEVEL_DEFAULTS.n5MinuteBias));
+        setInput('diamondN6Barrier', getValue('n6Barrier', DIAMOND_LEVEL_DEFAULTS.n6Barrier));
+    }
+
+    function openDiamondLevelsModal() {
+        const modal = document.getElementById('diamondLevelsModal');
+        if (!modal) return;
+        storageCompat.get(['analyzerConfig']).then(res => {
+            populateDiamondLevelsForm(res.analyzerConfig || {});
+            const container = document.getElementById('blaze-double-analyzer');
+            const content = modal.querySelector('.custom-pattern-modal-content');
+            if (container && content) {
+                const rect = container.getBoundingClientRect();
+                content.style.maxWidth = `${rect.width}px`;
+                content.style.width = '100%';
+            }
+            modal.style.display = 'flex';
+        }).catch(() => {
+            populateDiamondLevelsForm({});
+            const container = document.getElementById('blaze-double-analyzer');
+            const content = modal.querySelector('.custom-pattern-modal-content');
+            if (container && content) {
+                const rect = container.getBoundingClientRect();
+                content.style.maxWidth = `${rect.width}px`;
+                content.style.width = '100%';
+            }
+            modal.style.display = 'flex';
+        });
+    }
+
+    async function saveDiamondLevels() {
+        const modal = document.getElementById('diamondLevelsModal');
+        const getNumber = (id, min, max, fallback) => {
+            const el = document.getElementById(id);
+            if (!el) return fallback;
+            let value = Number(el.value);
+            if (!Number.isFinite(value)) value = fallback;
+            value = Math.max(min, Math.min(max, value));
+            return value;
+        };
+        const newWindows = {
+            n1HotPattern: getNumber('diamondN1HotPattern', 12, 200, DIAMOND_LEVEL_DEFAULTS.n1HotPattern),
+            n2Recent: getNumber('diamondN2Recent', 2, 20, DIAMOND_LEVEL_DEFAULTS.n2Recent),
+            n2Previous: getNumber('diamondN2Previous', 3, 200, DIAMOND_LEVEL_DEFAULTS.n2Previous),
+            n3Alternance: getNumber('diamondN3Alternance', 12, 50, DIAMOND_LEVEL_DEFAULTS.n3Alternance),
+            n4Persistence: getNumber('diamondN4Persistence', 20, 120, DIAMOND_LEVEL_DEFAULTS.n4Persistence),
+            n5MinuteBias: getNumber('diamondN5MinuteBias', 10, 200, DIAMOND_LEVEL_DEFAULTS.n5MinuteBias),
+            n6Barrier: getNumber('diamondN6Barrier', 10, 200, DIAMOND_LEVEL_DEFAULTS.n6Barrier)
+        };
+
+        if (newWindows.n2Previous <= newWindows.n2Recent) {
+            alert('A janela anterior do Momentum (N2) deve ser maior que a janela recente.');
+            return;
+        }
+
+        try {
+            const storageData = await storageCompat.get(['analyzerConfig']);
+            const currentConfig = storageData.analyzerConfig || {};
+            const updatedConfig = {
+                ...currentConfig,
+                diamondLevelWindows: {
+                    ...(currentConfig.diamondLevelWindows || {}),
+                    ...newWindows
+                },
+                minuteSpinWindow: newWindows.n5MinuteBias
+            };
+
+            await storageCompat.set({ analyzerConfig: updatedConfig });
+            try {
+                chrome.runtime.sendMessage({ action: 'applyConfig' });
+            } catch (error) {
+                console.warn('⚠️ Não foi possível notificar background sobre nova configuração dos níveis:', error);
+            }
+            const shouldSync = getSyncConfigPreference();
+            if (shouldSync) {
+                try {
+                    await syncConfigToServer(updatedConfig);
+                } catch (syncError) {
+                    console.warn('⚠️ Erro ao sincronizar configurações dos níveis com o servidor:', syncError);
+                }
+            }
+            if (modal) modal.style.display = 'none';
+            showToast('Configuração dos níveis atualizada!', 2200);
+        } catch (err) {
+            console.error('❌ Erro ao salvar configurações dos níveis diamante:', err);
+            alert('Não foi possível salvar as configurações dos níveis. Tente novamente.');
+        }
     }
     
     // ═══════════════════════════════════════════════════════════════════════════════
@@ -3285,13 +3463,13 @@
                         <!-- MODELOS CUSTOMIZADOS DE ANÁLISE (NÍVEL DIAMANTE) -->
                         <!-- ═══════════════════════════════════════════════════════ -->
                         <div class="setting-item setting-row" id="customPatternsContainer" style="margin-top: 20px; padding-top: 15px; border-top: 1px solid #333;">
-                            <div style="width: 100%; display: flex; flex-direction: column; gap: 8px; align-items: center; text-align: center;">
-                                <button id="btnHotPattern" class="btn-hot-pattern" style="width: 100%; min-width: 140px;">
+                            <div class="hot-pattern-actions">
+                                <button id="btnHotPattern" class="btn-hot-pattern">
                                     Padrão Quente
                                 </button>
-                                <span style="font-size: 11px; color: #888; line-height: 1.4;">
-                                    O Padrão Quente é gerenciado automaticamente.
-                                </span>
+                                <button id="diamondLevelsBtn" class="btn-hot-pattern btn-diamond-levels">
+                                    Configurar Níveis Diamante
+                                </button>
                             </div>
                         </div>
                         
@@ -3392,6 +3570,7 @@
         createCustomPatternModal();
         createViewPatternsModal();
         createBankPatternsModal();
+        createDiamondLevelsModal();
         
         // ✅ Carregar padrões customizados imediatamente após criar a sidebar
         console.log('%c🎯 Carregando padrões customizados...', 'color: #00d4ff; font-weight: bold;');
@@ -6517,6 +6696,16 @@
             } else {
                 console.error('❌ Modal do banco de padrões não encontrado!');
             }
+        }
+
+        if (e.target && e.target.id === 'diamondLevelsBtn') {
+            e.preventDefault();
+            openDiamondLevelsModal();
+        }
+
+        if (e.target && e.target.id === 'diamondLevelsSaveBtn') {
+            e.preventDefault();
+            saveDiamondLevels();
         }
         
         if (e.target && e.target.id === 'refreshBankBtn') {

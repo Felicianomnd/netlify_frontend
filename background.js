@@ -90,9 +90,32 @@ const DEFAULT_ANALYZER_CONFIG = {
     aiHistorySize: 60,            // Quantidade de giros para IA analisar (mín: 10, máx: 2000) - padrão: 60
     signalIntensity: 'moderate',  // Intensidade de sinais: 'aggressive', 'moderate', 'conservative', 'ultraconservative'
     advancedMode: false,          // Mostrar configurações avançadas (prompt customizado)
-    customPrompt: ''              // Prompt customizado para a IA (vazio = usa padrão)
+    customPrompt: '',             // Prompt customizado para a IA (vazio = usa padrão)
+    diamondLevelWindows: {        // Configuração dos 6 níveis do modo Diamante
+        n1HotPattern: 60,         // N1 - Padrão Quente (histórico analisado)
+        n2Recent: 5,              // N2 - Momentum (janela recente)
+        n2Previous: 15,           // N2 - Momentum (janela anterior)
+        n3Alternance: 12,         // N3 - Alternância (janela base)
+        n4Persistence: 20,        // N4 - Persistência / Ciclos
+        n5MinuteBias: 60,         // N5 - Ritmo por Giro / Minuto
+        n6Barrier: 50             // N6 - Barreira / Freio
+    }
 };
 let analyzerConfig = { ...DEFAULT_ANALYZER_CONFIG };
+
+function getDiamondWindow(key, fallback) {
+    const windows = analyzerConfig && analyzerConfig.diamondLevelWindows ? analyzerConfig.diamondLevelWindows : {};
+    const rawValue = windows ? Number(windows[key]) : NaN;
+    if (Number.isFinite(rawValue) && rawValue > 0) {
+        return rawValue;
+    }
+    // Compatibilidade com versões antigas (ex.: minuteSpinWindow individual)
+    if (key === 'n5MinuteBias' && Number.isFinite(Number(analyzerConfig.minuteSpinWindow))) {
+        const legacy = Number(analyzerConfig.minuteSpinWindow);
+        if (legacy > 0) return legacy;
+    }
+    return fallback;
+}
 
 // ⚠️ FLAG DE CONTROLE: Evitar envio de sinal na primeira análise após ativar modo IA
 let aiModeJustActivated = false;
@@ -4299,6 +4322,8 @@ function analyzeCustomPatternStatistics(matches) {
  * Verificar se o padrão atual bate com algum padrão customizado
  */
 async function checkForCustomPatterns(history) {
+    // ⚠️ Funcionalidade desativada: padrões customizados foram removidos do sistema.
+    return null;
     console.log('');
     console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #666; font-weight: bold;');
     console.log('%c║  🎯 PADRÕES CUSTOMIZADOS DESATIVADOS (MODO DIAMANTE)     ║', 'color: #666; font-weight: bold;');
@@ -5879,13 +5904,13 @@ async function checkPreviousSignalAccuracy(newSpin) {
                 
                 // Notificar content.js para mostrar "Buscando..."
         if (!analyzerConfig.aiMode) {
-            chrome.tabs.query({url: '*://blaze.com/*'}, function(tabs) {
-                tabs.forEach(tab => {
-                    chrome.tabs.sendMessage(tab.id, {
-                        type: 'HOT_PATTERN_SEARCHING'
-                    }).catch(() => {});
+                chrome.tabs.query({url: '*://blaze.com/*'}, function(tabs) {
+                    tabs.forEach(tab => {
+                        chrome.tabs.sendMessage(tab.id, {
+                            type: 'HOT_PATTERN_SEARCHING'
+                        }).catch(() => {});
+                    });
                 });
-            });
         }
             }
         } else if (hotPatternState.status === 'active') {
@@ -7410,20 +7435,21 @@ function verifyHotPatternStillValid(history, savedPattern) {
         console.log('');
         console.log('🔍 VERIFICANDO SE PADRÃO SALVO AINDA É VÁLIDO...');
         
-        const last50 = history.slice(0, Math.min(50, history.length));
+        const hotWindow = getDiamondWindow('n1HotPattern', 60);
+        const windowHistory = history.slice(0, Math.min(hotWindow, history.length));
         const patternSize = savedPattern.pattern.length;
         
-        // Procurar se o padrão ainda aparece nos últimos 50 giros
+        // Procurar se o padrão ainda aparece nos últimos giros configurados
         let found = false;
         let totalWins = 0;
         let totalLosses = 0;
         
-        for (let i = 0; i <= last50.length - patternSize - 1; i++) {
-            const currentPattern = last50.slice(i, i + patternSize).map(s => s.color);
+        for (let i = 0; i <= windowHistory.length - patternSize - 1; i++) {
+            const currentPattern = windowHistory.slice(i, i + patternSize).map(s => s.color);
             
             if (JSON.stringify(currentPattern) === JSON.stringify(savedPattern.pattern)) {
                 found = true;
-                const result = last50[i + patternSize].color;
+                const result = windowHistory[i + patternSize].color;
                 
                 if (result === savedPattern.prediction) {
                     totalWins++;
@@ -7434,7 +7460,7 @@ function verifyHotPatternStillValid(history, savedPattern) {
         }
         
         // Padrão é válido se:
-        // 1. Ainda aparece nos últimos 50 giros
+        // 1. Ainda aparece na janela configurada
         // 2. Tem pelo menos 2 ocorrências da cor prevista
         // 3. Não teve 2+ losses consecutivos recentes
         const isValid = found && totalWins >= 2;
@@ -7458,7 +7484,7 @@ function verifyHotPatternStillValid(history, savedPattern) {
  * ⚙️ DETERMINÍSTICO: Sempre retorna o mesmo padrão com o mesmo histórico
  * ⏱️ RÁPIDO: Executa em <100ms (otimizado, sem logs excessivos)
  */
-function detectHotPattern(history) {
+function detectHotPattern(history, windowSize = 60) {
     const startTime = performance.now(); // ⏱️ MEDIR TEMPO
     
     try {
@@ -7473,11 +7499,12 @@ function detectHotPattern(history) {
         }
     
     // Pegar últimos 60 giros (padrão para Modo Diamante)
-    const last50 = history.slice(0, Math.min(60, history.length));
-    console.log(`📊 Analisando ${last50.length} giros (últimos 60) - buscando padrões 4-6 giros...`);
+    const effectiveWindow = Math.max(12, Math.min(windowSize, history.length));
+    const windowHistory = history.slice(0, effectiveWindow);
+    console.log(`📊 Analisando ${windowHistory.length} giros (janela configurada: ${windowSize}) - buscando padrões 4-6 giros...`);
     
     // Debug: mostrar os últimos 15 giros
-    const preview = last50.slice(0, 15).map(s => {
+    const preview = windowHistory.slice(0, 15).map(s => {
         if (s.color === 'red') return '🔴';
         if (s.color === 'black') return '⚫';
         return '⚪';
@@ -7489,7 +7516,7 @@ function detectHotPattern(history) {
     
     // Testar padrões de tamanho 4, 5 e 6 (MÍNIMO 4 GIROS)
     for (let patternSize = 4; patternSize <= 6; patternSize++) {
-        if (last50.length < patternSize + 1) {
+        if (windowHistory.length < patternSize + 1) {
             continue;
         }
         
@@ -7497,10 +7524,10 @@ function detectHotPattern(history) {
         const patternMap = {};
         let patternsFound = 0;
         
-        for (let i = 0; i <= last50.length - patternSize - 1; i++) {
+        for (let i = 0; i <= windowHistory.length - patternSize - 1; i++) {
             // Extrair padrão (ex: [red, red, black])
-            const pattern = last50.slice(i, i + patternSize).map(s => s.color);
-            const result = last50[i + patternSize].color; // Próxima cor (resultado)
+            const pattern = windowHistory.slice(i, i + patternSize).map(s => s.color);
+            const result = windowHistory[i + patternSize].color; // Próxima cor (resultado)
             
             const patternKey = pattern.join('-');
             
@@ -7519,7 +7546,7 @@ function detectHotPattern(history) {
             patternMap[patternKey].occurrences.push({
                 result: result,
                 index: i,
-                timestamp: last50[i + patternSize].timestamp // Timestamp do giro resultado
+                timestamp: windowHistory[i + patternSize].timestamp // Timestamp do giro resultado
             });
             
             // Contar previsões (qual cor mais saiu depois desse padrão)
@@ -7567,8 +7594,8 @@ function detectHotPattern(history) {
             // Capturar os timestamps de CADA giro do padrão (para mostrar nos ícones)
             const patternTimestamps = [];
             for (let j = 0; j < patternSize; j++) {
-                if (last50[lastOccurrence.index + j]) {
-                    patternTimestamps.push(last50[lastOccurrence.index + j].timestamp);
+                if (windowHistory[lastOccurrence.index + j]) {
+                    patternTimestamps.push(windowHistory[lastOccurrence.index + j].timestamp);
                 }
             }
             
@@ -7594,12 +7621,12 @@ function detectHotPattern(history) {
         console.log('   ⚠️ Nenhum padrão de 4-6 giros, tentando 3 giros (fallback)...');
         
         const patternSize = 3;
-        if (last50.length >= patternSize + 1) {
+        if (windowHistory.length >= patternSize + 1) {
             const patternMap = {};
             
-            for (let i = 0; i <= last50.length - patternSize - 1; i++) {
-                const pattern = last50.slice(i, i + patternSize).map(s => s.color);
-                const result = last50[i + patternSize].color;
+            for (let i = 0; i <= windowHistory.length - patternSize - 1; i++) {
+                const pattern = windowHistory.slice(i, i + patternSize).map(s => s.color);
+                const result = windowHistory[i + patternSize].color;
                 
                 const patternKey = pattern.join('-');
                 
@@ -7614,7 +7641,7 @@ function detectHotPattern(history) {
                 patternMap[patternKey].occurrences.push({ 
                     result: result, 
                     index: i,
-                    timestamp: last50[i + patternSize].timestamp
+                    timestamp: windowHistory[i + patternSize].timestamp
                 });
                 patternMap[patternKey].predictions[result]++;
             }
@@ -7646,8 +7673,8 @@ function detectHotPattern(history) {
                 // Capturar os timestamps de CADA giro do padrão (para mostrar nos ícones)
                 const patternTimestamps = [];
                 for (let j = 0; j < patternSize; j++) {
-                    if (last50[lastOccurrence.index + j]) {
-                        patternTimestamps.push(last50[lastOccurrence.index + j].timestamp);
+                    if (windowHistory[lastOccurrence.index + j]) {
+                        patternTimestamps.push(windowHistory[lastOccurrence.index + j].timestamp);
                     }
                 }
                 
@@ -8013,29 +8040,31 @@ function analyzeMinuteSum(history, currentMinute, targetPosition) {
  * Compara os últimos 5 giros com os 15 giros imediatamente anteriores
  */
 function analyzeMomentum(history) {
+    const recentWindowConfigured = Math.max(2, Math.min(20, getDiamondWindow('n2Recent', 5)));
+    const previousWindowConfigured = Math.max(3, Math.min(200, getDiamondWindow('n2Previous', 15)));
     console.log('%c┌─────────────────────────────────────────────────────────┐', 'color: #00AAFF; font-weight: bold;');
-    console.log('%c│ 🔍 NÍVEL 2: MOMENTUM (5 RECENTES vs 15 ANTERIORES)   │', 'color: #00AAFF; font-weight: bold;');
+    console.log(`%c│ 🔍 NÍVEL 2: MOMENTUM (${recentWindowConfigured} RECENTES vs ${previousWindowConfigured} ANTERIORES) │`, 'color: #00AAFF; font-weight: bold;');
     console.log('%c└─────────────────────────────────────────────────────────┘', 'color: #00AAFF; font-weight: bold;');
     
-    const totalNeeded = 5 + 15;
+    const totalNeeded = recentWindowConfigured + previousWindowConfigured;
     const windowSize = Math.min(totalNeeded, history.length);
     const windowSpins = history.slice(0, windowSize);
     console.log(`   📊 Total de giros disponíveis: ${history.length}`);
     console.log(`   📊 Analisando últimos: ${windowSpins.length} giros`);
     
-    let recentSize = 5;
-    let previousSize = 15;
+    let recentSize = recentWindowConfigured;
+    let previousSize = previousWindowConfigured;
     
     if (windowSpins.length < totalNeeded) {
         // Ajustar proporcionalmente mantendo prioridade nos giros recentes
         const available = windowSpins.length;
-        recentSize = Math.max(2, Math.min(5, Math.floor(available / 3)));
+        recentSize = Math.max(2, Math.min(recentWindowConfigured, Math.floor(available / 3)));
         previousSize = Math.max(1, available - recentSize);
         console.log(`   ⚠️ Dados insuficientes! Ajustando janelas:`);
         console.log(`      Recentes: ${recentSize} giros | Anteriores: ${previousSize} giros`);
     } else {
-        console.log(`   📊 Janela recente: 5 últimos giros`);
-        console.log(`   📊 Janela anterior: 15 giros antes`);
+        console.log(`   📊 Janela recente: ${recentSize} últimos giros`);
+        console.log(`   📊 Janela anterior: ${previousSize} giros antes`);
     }
     
     return analyzeMomentumWithSizes(windowSpins, recentSize, previousSize);
@@ -8228,12 +8257,12 @@ function validateSequenceBarrier(history, predictedColor, configuredSize, altern
     console.log('%c│ 🔍 NÍVEL 6: BARREIRA (FREIO DE SEGURANÇA)             │', 'color: #FF0000; font-weight: bold;');
     console.log('%c└─────────────────────────────────────────────────────────┘', 'color: #FF0000; font-weight: bold;');
     
-    const BARRIER_WINDOW = 50;
-    const effectiveWindow = Math.min(BARRIER_WINDOW, history.length);
+    const barrierWindowConfigured = Math.max(10, Math.min(200, configuredSize || 50));
+    const effectiveWindow = Math.min(barrierWindowConfigured, history.length);
     const last = history.slice(0, effectiveWindow);
     console.log(`   📊 Total de giros disponíveis: ${history.length}`);
     console.log(`   📊 Histórico configurado: ${configuredSize} giros`);
-    console.log(`   📊 Janela fixa da barreira: ${BARRIER_WINDOW} giros`);
+    console.log(`   📊 Janela da barreira: ${barrierWindowConfigured} giros`);
     console.log(`   📊 Analisando últimos: ${last.length} giros`);
     console.log(`   🎯 Cor prevista pelos outros níveis: ${predictedColor.toUpperCase()}`);
     
@@ -9251,9 +9280,10 @@ async function analyzeWithPatternSystem(history) {
                 
                 // Se não tinha padrão salvo ou não é mais válido, buscar novo
                 if (!detected) {
-                    console.log('🔍 Buscando padrão quente nos últimos 50 giros...');
+                    const hotWindow = getDiamondWindow('n1HotPattern', 60);
+                    console.log(`🔍 Buscando padrão quente nos últimos ${hotWindow} giros...`);
                     console.log('🔍 DEBUG: Chamando detectHotPattern com history.length =', history.length);
-                    detected = detectHotPattern(history);
+                    detected = detectHotPattern(history, hotWindow);
                 }
                 
                 console.log('🔍 DEBUG: detectHotPattern retornou:', detected ? 'PADRÃO ENCONTRADO' : 'NULL');
@@ -9293,21 +9323,21 @@ async function analyzeWithPatternSystem(history) {
                     
                     // Notificar TODAS as tabs do Blaze
                     if (!analyzerConfig.aiMode) {
-                        chrome.tabs.query({url: '*://blaze.com/*'}, function(tabs) {
-                            tabs.forEach(tab => {
-                                chrome.tabs.sendMessage(tab.id, {
-                                    type: 'HOT_PATTERN_FOUND',
-                                    data: {
-                                        pattern: detected.pattern,
-                                        prediction: detected.prediction,
-                                        occurrences: detected.occurrences,
-                                        totalWins: detected.totalWins,
-                                        lastOccurrenceTimestamp: detected.lastOccurrenceTimestamp,
-                                        patternTimestamps: detected.patternTimestamps // Timestamps de cada giro
-                                    }
-                                }).catch(() => {});
-                            });
+                    chrome.tabs.query({url: '*://blaze.com/*'}, function(tabs) {
+                        tabs.forEach(tab => {
+                            chrome.tabs.sendMessage(tab.id, {
+                                type: 'HOT_PATTERN_FOUND',
+                                data: {
+                                    pattern: detected.pattern,
+                                    prediction: detected.prediction,
+                                    occurrences: detected.occurrences,
+                                    totalWins: detected.totalWins,
+                                    lastOccurrenceTimestamp: detected.lastOccurrenceTimestamp,
+                                    patternTimestamps: detected.patternTimestamps // Timestamps de cada giro
+                                }
+                            }).catch(() => {});
                         });
+                    });
                     }
                 } else {
                     console.log('⚠️⚠️⚠️ Nenhum padrão quente disponível no momento!');
@@ -9317,14 +9347,14 @@ async function analyzeWithPatternSystem(history) {
                     // Notificar TODAS as tabs do Blaze
                     console.log('🔍 DEBUG: Enviando HOT_PATTERN_NOT_FOUND para todas as tabs...');
                     if (!analyzerConfig.aiMode) {
-                        chrome.tabs.query({url: '*://blaze.com/*'}, function(tabs) {
-                            console.log(`🔍 DEBUG: Encontradas ${tabs.length} tabs do Blaze`);
-                            tabs.forEach(tab => {
-                                chrome.tabs.sendMessage(tab.id, {
-                                    type: 'HOT_PATTERN_NOT_FOUND'
-                                }).catch(() => {});
-                            });
+                    chrome.tabs.query({url: '*://blaze.com/*'}, function(tabs) {
+                        console.log(`🔍 DEBUG: Encontradas ${tabs.length} tabs do Blaze`);
+                        tabs.forEach(tab => {
+                            chrome.tabs.sendMessage(tab.id, {
+                                type: 'HOT_PATTERN_NOT_FOUND'
+                            }).catch(() => {});
                         });
+                    });
                     }
                 }
             }
@@ -9419,23 +9449,23 @@ async function analyzeWithPatternSystem(history) {
     const targetMinute = nextSpinDate.getMinutes();
         
     // ═══════════════════════════════════════════════════════════════
-        // 🎯 NÍVEL 1: PADRÕES (CUSTOMIZADO → QUENTE → NULO)
-        // ═══════════════════════════════════════════════════════════════
-        console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #FF00FF; font-weight: bold;');
-        console.log('%c║  🎯 NÍVEL 1: PADRÕES (CUSTOMIZADO → QUENTE → NULO)     ║', 'color: #FF00FF; font-weight: bold; font-size: 14px;');
-        console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #FF00FF; font-weight: bold;');
+        // 🎯 NÍVEL 1: PADRÃO QUENTE (AUTOMÁTICO)
+    // ═══════════════════════════════════════════════════════════════
+    console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #FF6B35; font-weight: bold;');
+        console.log('%c║  🎯 NÍVEL 1: PADRÃO QUENTE                              ║', 'color: #FF6B35; font-weight: bold; font-size: 14px;');
+    console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #FF6B35; font-weight: bold;');
         console.log('');
         
         let nivel4 = null;
         let patternDescription = 'Análise Nível Diamante - 5 Níveis';
         
     // ETAPA 1: Verificar PADRÕES CUSTOMIZADOS
-    console.log('%c🎯 ETAPA 1: PADRÕES CUSTOMIZADOS', 'color: #FF00FF; font-weight: bold;');
-    console.log(`%c   Configuração do usuário: ${historySize} giros`, 'color: #FF00FF;');
+        console.log('%cℹ️ Padrões customizados desativados para o Nível 1', 'color: #888; font-style: italic;');
+        console.log(`%c   Configuração atual de giros (hot pattern): ${getDiamondWindow('n1HotPattern', historySize)} giros`, 'color: #FF6B35;');
     console.log('');
     
     // ✅ USAR totalHistory (respeitando a configuração do usuário) em vez de history (todos os giros)
-    const customPatternResult = await checkForCustomPatterns(totalHistory);
+        const customPatternResult = null;
         
         if (customPatternResult) {
             // ✅ PADRÃO CUSTOMIZADO ENCONTRADO!
@@ -9448,12 +9478,12 @@ async function analyzeWithPatternSystem(history) {
             console.log(`%c   🗳️ VOTA: ${customPatternResult.color.toUpperCase()}`, `color: ${customPatternResult.color === 'red' ? '#FF0000' : '#FFFFFF'}; font-weight: bold; font-size: 14px;`);
             console.log('');
         } else {
-            console.log('%c❌ Nenhum padrão customizado encontrado', 'color: #888;');
+            console.log('%cℹ️ Nenhum padrão customizado será buscado (feature desativada)', 'color: #888; font-style: italic;');
             console.log('');
             
-            // ETAPA 2: Verificar PADRÃO QUENTE (60 giros fixos)
-            console.log('%c🔥 ETAPA 2: PADRÃO QUENTE (FALLBACK)', 'color: #FF6B35; font-weight: bold;');
-            console.log('%c   Sistema de Padrão Quente: 60 giros (fixo)', 'color: #FF6B35;');
+            // Foco exclusivo no padrão quente automático
+            console.log('%c🔥 PADRÃO QUENTE AUTOMÁTICO', 'color: #FF6B35; font-weight: bold;');
+            console.log(`%c   Janela configurada: ${getDiamondWindow('n1HotPattern', 60)} giros`, 'color: #FF6B35;');
             console.log('');
             
             if (hotPatternSignal && hotPatternSignal.source === 'hot_pattern') {
@@ -9509,7 +9539,7 @@ async function analyzeWithPatternSystem(history) {
         console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #8E44AD; font-weight: bold;');
         console.log('');
         
-        const nivel7 = analyzeAlternancePattern(history, historySize);
+        const nivel7 = analyzeAlternancePattern(history, getDiamondWindow('n3Alternance', historySize));
         
         console.log('%c📊 ANÁLISE DE PADRÃO:', 'color: #8E44AD; font-weight: bold;');
         console.log(`%c   Histórico analisado: ${Math.max(12, Math.min(50, historySize))} giros (configurável)`, 'color: #8E44AD;');
@@ -9536,7 +9566,7 @@ async function analyzeWithPatternSystem(history) {
         console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #D35400; font-weight: bold;');
         console.log('');
         
-        const nivel9 = analyzePersistence(history, historySize);
+        const nivel9 = analyzePersistence(history, getDiamondWindow('n4Persistence', historySize));
         
         console.log('%c📊 ANÁLISE DE PERSISTÊNCIA:', 'color: #D35400; font-weight: bold;');
         console.log(`%c   Histórico analisado: ${Math.max(20, Math.min(60, historySize))} giros (configurável)`, 'color: #D35400;');
@@ -9662,7 +9692,7 @@ async function analyzeWithPatternSystem(history) {
         });
 
         // N5 - Ritmo por Giro (minuto/posição)
-        const minuteSpinWindow = analyzerConfig.minuteSpinWindow || 60;
+        const minuteSpinWindow = Math.max(10, Math.min(200, getDiamondWindow('n5MinuteBias', 60)));
         const minuteBiasResult = analyzeMinuteSpinBias(history, targetMinute, nextSpinPosition, minuteSpinWindow);
         const minuteBiasColor = minuteBiasResult && minuteBiasResult.color ? minuteBiasResult.color : null;
         let minuteBiasStrength = clamp01(minuteBiasResult ? minuteBiasResult.confidence : 0);
@@ -9792,7 +9822,7 @@ async function analyzeWithPatternSystem(history) {
         console.log(`%c📊 Configuração: ${historySize} giros para análise`, 'color: #FF0000;');
         console.log('');
 
-        const barrierResult = validateSequenceBarrier(history, predictedColor, historySize, {
+        const barrierResult = validateSequenceBarrier(history, predictedColor, getDiamondWindow('n6Barrier', historySize), {
             override: alternanceOverrideActive,
             targetRuns: nivel7 ? nivel7.alternanceTargetRuns : null,
             maxRuns: nivel7 ? nivel7.alternanceMaxRuns : null
@@ -10001,7 +10031,7 @@ async function analyzeWithPatternSystem(history) {
         console.log(`%c📊 Configuração: ${historySize} giros para análise`, 'color: #FF0000;');
         console.log('');
         
-        const barrierResult = validateSequenceBarrier(history, finalColor, historySize, {
+        const barrierResult = validateSequenceBarrier(history, finalColor, getDiamondWindow('n6Barrier', historySize), {
             override: alternanceOverrideActive,
             targetRuns: nivel7 ? nivel7.alternanceTargetRuns : null,
             maxRuns: nivel7 ? nivel7.alternanceMaxRuns : null

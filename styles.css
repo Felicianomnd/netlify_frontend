@@ -4136,3 +4136,294 @@
         height: 24px;
     }
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════════ */
+/* ⚙️ MODAL - CONFIGURAÇÃO DOS NÍVEIS DIAMANTE                                      */
+/* ═══════════════════════════════════════════════════════════════════════════════ */
+#diamondLevelsModal .custom-pattern-modal-content {
+    width: calc(100% - 32px);
+    max-width: 420px;
+    margin: 0 auto;
+    background: #182534;
+    border-radius: 14px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    box-shadow: 0 18px 45px rgba(0, 0, 0, 0.45);
+    padding: 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+    box-sizing: border-box;
+}
+
+#diamondLevelsModal .custom-pattern-modal-header {
+    border: none;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+#diamondLevelsModal .custom-pattern-modal-header h3 {
+    flex: 1;
+    text-align: left;
+}
+
+#diamondLevelsModal .custom-pattern-modal-close {
+    width: auto;
+    height: auto;
+    font-size: 13px;
+    color: #9fb3c9;
+    border: 1px solid rgba(159, 179, 201, 0.35);
+    border-radius: 6px;
+    padding: 6px 12px;
+    font-weight: 600;
+    letter-spacing: 0.2px;
+}
+
+#diamondLevelsModal .custom-pattern-modal-close:hover {
+    color: #ffffff;
+    border-color: rgba(239, 68, 68, 0.55);
+    background: rgba(239, 68, 68, 0.25);
+}
+
+#diamondLevelsModal .custom-pattern-modal-body {
+    max-height: 360px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    padding: 0;
+    margin: 0 -4px;
+    padding-right: 4px;
+}
+
+#diamondLevelsModal .custom-pattern-modal-footer {
+    padding: 0;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+#diamondLevelsModal .custom-pattern-modal-footer button:last-child {
+    margin-left: auto;
+}
+
+.diamond-level-field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.diamond-level-field label {
+    font-size: 13px;
+    font-weight: 600;
+    color: #ffffff;
+}
+
+#diamondLevelsModal input[type='number'] {
+    background: #0f1f2a;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 10px;
+    padding: 10px 12px;
+    height: 44px;
+    color: #ffffff;
+    font-size: 13px;
+    transition: border 0.2s ease, box-shadow 0.2s ease;
+    width: 100%;
+    box-sizing: border-box;
+}
+
+#diamondLevelsModal input[type='number']:focus {
+    border-color: rgba(255, 0, 63, 0.45);
+    box-shadow: 0 0 0 2px rgba(255, 0, 63, 0.18);
+    outline: none;
+}
+
+.diamond-level-double {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.diamond-level-double div {
+    flex: 1;
+    min-width: 160px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.diamond-level-double span {
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.65);
+}
+
+#diamondLevelsModal button.btn-hot-pattern,
+#diamondLevelsModal .btn-secondary {
+    min-width: 120px;
+}
+
+#diamondLevelsModal .btn-hot-pattern {
+    border-radius: 8px;
+}
+
+@media (max-width: 460px) {
+    #diamondLevelsModal .custom-pattern-modal-content {
+        padding: 20px;
+    }
+
+    .diamond-level-double div {
+        min-width: 100%;
+    }
+}
+
+#customPatternsContainer .hot-pattern-actions {
+    width: 100%;
+    display: flex;
+    gap: 12px;
+}
+
+#customPatternsContainer .hot-pattern-actions button {
+    flex: 1;
+    min-width: 0;
+}
+
+.btn-diamond-levels {
+    border-color: rgba(239, 68, 68, 0.6);
+    background: linear-gradient(135deg, #1a2e3e 0%, #122238 100%);
+    color: #ffffff;
+}
+
+.btn-diamond-levels:hover {
+    background: linear-gradient(135deg, #ef4444 0%, #d13434 100%);
+    color: #ffffff;
+}
+
+@media (max-width: 420px) {
+    #customPatternsContainer .hot-pattern-actions {
+        flex-direction: column;
+    }
+}
+#diamondLevelsModal .custom-pattern-modal-content {
+    width: calc(100% - 32px);
+    max-width: 420px;
+    margin: 0 auto;
+    background: #182534;
+    border-radius: 14px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    box-shadow: 0 18px 45px rgba(0, 0, 0, 0.45);
+    padding: 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+}
+
+#diamondLevelsModal .custom-pattern-modal-header {
+    border: none;
+    padding: 0;
+}
+
+#diamondLevelsModal .custom-pattern-modal-body {
+    max-height: 360px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    padding-right: 4px;
+}
+
+#diamondLevelsModal .custom-pattern-modal-footer {
+    padding: 0;
+    display: flex;
+    gap: 12px;
+    justify-content: flex-end;
+}
+
+.diamond-level-field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.diamond-level-field label {
+    font-size: 13px;
+    font-weight: 600;
+    color: #ffffff;
+}
+
+#diamondLevelsModal input[type='number'] {
+    background: #0f1f2a;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 10px;
+    padding: 10px 12px;
+    color: #ffffff;
+    font-size: 13px;
+    transition: border 0.2s ease, box-shadow 0.2s ease;
+    width: 100%;
+}
+
+#diamondLevelsModal input[type='number']:focus {
+    border-color: rgba(255, 0, 63, 0.45);
+    box-shadow: 0 0 0 2px rgba(255, 0, 63, 0.18);
+    outline: none;
+}
+
+.diamond-level-double {
+    display: flex;
+    gap: 12px;
+}
+
+.diamond-level-double div {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.diamond-level-double span {
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.65);
+}
+
+#diamondLevelsModal button.btn-hot-pattern,
+#diamondLevelsModal .btn-secondary {
+    min-width: 120px;
+}
+
+#diamondLevelsModal .btn-hot-pattern {
+    border-radius: 8px;
+}
+
+@media (max-width: 460px) {
+    #diamondLevelsModal .custom-pattern-modal-content {
+        padding: 20px;
+    }
+}
+
+#customPatternsContainer .hot-pattern-actions {
+    width: 100%;
+    display: flex;
+    gap: 12px;
+}
+
+#customPatternsContainer .hot-pattern-actions button {
+    flex: 1;
+    min-width: 0;
+}
+
+.btn-diamond-levels {
+    border-color: rgba(239, 68, 68, 0.6);
+    background: linear-gradient(135deg, #1a2e3e 0%, #122238 100%);
+    color: #ffffff;
+}
+
+.btn-diamond-levels:hover {
+    background: linear-gradient(135deg, #ef4444 0%, #d13434 100%);
+    color: #ffffff;
+}
+
+@media (max-width: 420px) {
+    #customPatternsContainer .hot-pattern-actions {
+        flex-direction: column;
+    }
+}
