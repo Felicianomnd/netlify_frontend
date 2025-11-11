@@ -1419,9 +1419,10 @@
 
             try {
                 console.log('📧 Solicitando código de verificação para:', userData.email);
+                console.log('🌐 URL da API:', API_URL);
                 
                 const controller = new AbortController();
-                const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 segundos timeout
+                const timeoutId = setTimeout(() => controller.abort(), 60000); // 60 segundos timeout
 
                 const response = await fetch(`${API_URL}/auth/email-verification/request`, {
                     method: 'POST',
