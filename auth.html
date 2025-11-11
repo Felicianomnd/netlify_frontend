@@ -249,6 +249,301 @@
             background: rgba(255, 0, 63, 0.1);
         }
 
+        .verification-card {
+            background: #1a2030;
+            border: 1px solid rgba(255, 0, 63, 0.18);
+            border-radius: 16px;
+            padding: 28px;
+            box-shadow: 0 14px 32px rgba(9, 12, 22, 0.55);
+        }
+
+        .verification-header {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            margin-bottom: 20px;
+        }
+
+        .verification-icon {
+            width: 56px;
+            height: 56px;
+            border-radius: 16px;
+            background: rgba(255, 0, 63, 0.18);
+            color: #ff395e;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 26px;
+        }
+
+        .verification-title {
+            color: #ffffff;
+            font-size: 20px;
+            font-weight: 700;
+            margin-bottom: 4px;
+        }
+
+        .verification-subtitle {
+            color: #9aa9c6;
+            font-size: 14px;
+        }
+
+        .verification-email {
+            color: #ff6b88;
+            font-weight: 600;
+        }
+
+        .resend-wrapper {
+            margin-top: 18px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            font-size: 13px;
+            color: #9aa9c6;
+        }
+
+        .resend-btn {
+            background: none;
+            border: none;
+            color: #ff4d6d;
+            font-weight: 600;
+            cursor: pointer;
+            transition: opacity 0.2s ease;
+        }
+
+        .resend-btn:hover:not(:disabled) {
+            opacity: 0.8;
+        }
+
+        .resend-btn:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+        }
+
+        .payment-layout {
+            display: flex;
+            flex-direction: column;
+            gap: 22px;
+        }
+
+        .payment-card {
+            background: #1a2030;
+            border: 1px solid rgba(255, 0, 63, 0.12);
+            border-radius: 18px;
+            padding: 28px;
+            box-shadow: 0 18px 36px rgba(9, 12, 22, 0.5);
+        }
+
+        .payment-card h3 {
+            color: #ffffff;
+            font-size: 20px;
+            font-weight: 700;
+            margin-bottom: 18px;
+        }
+
+        .payment-stepper {
+            display: flex;
+            gap: 12px;
+            margin-bottom: 22px;
+        }
+
+        .payment-step {
+            flex: 1;
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            border-radius: 12px;
+            padding: 14px 16px;
+            color: #9aa9c6;
+            font-size: 13px;
+            font-weight: 600;
+            text-align: center;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .payment-step span {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 28px;
+            height: 28px;
+            border-radius: 10px;
+            background: rgba(255, 255, 255, 0.08);
+            font-size: 13px;
+            margin: 0 auto;
+        }
+
+        .payment-step.active {
+            border-color: rgba(255, 0, 63, 0.4);
+            background: rgba(255, 0, 63, 0.16);
+            color: #ff4d6d;
+        }
+
+        .pix-box {
+            background: #101522;
+            border: 1px solid rgba(255, 0, 63, 0.2);
+            border-radius: 16px;
+            padding: 22px;
+            margin-bottom: 20px;
+        }
+
+        .pix-box-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            color: #9aa9c6;
+            font-size: 13px;
+            text-transform: uppercase;
+            letter-spacing: 0.12em;
+            margin-bottom: 10px;
+        }
+
+        .pix-badge {
+            background: rgba(255, 255, 255, 0.08);
+            padding: 4px 10px;
+            border-radius: 10px;
+            font-size: 11px;
+            letter-spacing: 0.08em;
+            color: #9aa9c6;
+        }
+
+        .pix-value {
+            color: #ffffff;
+            font-size: 18px;
+            font-weight: 600;
+            line-height: 1.5;
+            word-break: break-all;
+        }
+
+        .copy-action {
+            margin-top: 18px;
+            display: flex;
+            justify-content: flex-end;
+        }
+
+        .copy-action button {
+            background: rgba(255, 0, 63, 0.18);
+            border: 1px solid rgba(255, 0, 63, 0.4);
+            color: #ff4d6d;
+            padding: 10px 18px;
+            border-radius: 10px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .copy-action button:disabled {
+            cursor: not-allowed;
+        }
+
+        .copy-action button:hover {
+            transform: translateY(-1px);
+            background: rgba(255, 0, 63, 0.28);
+        }
+
+        .payment-instructions {
+            list-style: none;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            margin-top: 12px;
+            color: #b4c2d8;
+            font-size: 14px;
+        }
+
+        .payment-instructions li {
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+        }
+
+        .payment-instructions li span {
+            color: #ff4d6d;
+            font-weight: 700;
+            font-size: 12px;
+            margin-top: 3px;
+        }
+
+        .support-card {
+            background: #151d24;
+            border: 1px solid rgba(255, 255, 255, 0.04);
+            border-radius: 16px;
+            padding: 22px;
+            color: #9aa9c6;
+            font-size: 14px;
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+        }
+
+        .support-card h4 {
+            color: #ffffff;
+            font-size: 16px;
+            font-weight: 700;
+        }
+
+        .support-actions {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .support-actions a {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            padding: 12px;
+            border-radius: 10px;
+            text-decoration: none;
+            font-weight: 600;
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        .support-actions a[aria-disabled="true"] {
+            pointer-events: none;
+            opacity: 0.5;
+        }
+
+        .support-actions a.whatsapp-link {
+            background: #25d366;
+            color: white;
+        }
+
+        .support-actions a.whatsapp-link:hover {
+            background: #21bd5b;
+            transform: translateY(-2px);
+            box-shadow: 0 12px 24px rgba(37, 211, 102, 0.35);
+        }
+
+        .activation-card {
+            background: #1a2030;
+            border: 1px solid rgba(255, 0, 63, 0.18);
+            border-radius: 16px;
+            padding: 28px;
+            text-align: center;
+            box-shadow: 0 14px 34px rgba(9, 12, 22, 0.5);
+        }
+
+        .activation-card h2 {
+            color: #ffffff;
+            font-size: 22px;
+            margin-bottom: 12px;
+        }
+
+        .activation-description {
+            color: #9aa9c6;
+            font-size: 14px;
+            margin-bottom: 20px;
+        }
+
+        .activation-footer {
+            margin-top: 18px;
+            color: #8da2bb;
+            font-size: 13px;
+        }
+
         .plan-name {
             font-size: 20px;
             font-weight: 700;
@@ -392,6 +687,26 @@
                 padding: 24px 20px;
             }
             
+            .verification-card,
+            .payment-card,
+            .support-card,
+            .activation-card {
+                padding: 20px;
+            }
+
+            .payment-stepper {
+                flex-direction: column;
+            }
+
+            .payment-step {
+                text-align: left;
+                align-items: flex-start;
+            }
+
+            .copy-action {
+                justify-content: center;
+            }
+
             .code-digit {
                 width: 40px;
                 height: 50px;
@@ -459,6 +774,43 @@
             </div>
         </div>
 
+        <!-- TELA 2: VERIFICAÇÃO DE EMAIL -->
+        <div id="emailVerificationScreen" class="screen">
+            <div class="verification-card">
+                <div class="verification-header">
+                    <div class="verification-icon">✉️</div>
+                    <div>
+                        <div class="verification-title">Verifique seu email</div>
+                        <div class="verification-subtitle">
+                            Enviamos um código para <span class="verification-email" id="verificationEmailText">seu@email.com</span>
+                        </div>
+                    </div>
+                </div>
+
+                <form onsubmit="handleEmailVerification(event)">
+                    <div class="code-input-container">
+                        <input type="text" class="code-digit" maxlength="1" id="verifyCode1" autocomplete="one-time-code" oninput="moveToNext(this, 'verifyCode2')" onkeydown="handleBackspace(event, 'verifyCode1')">
+                        <input type="text" class="code-digit" maxlength="1" id="verifyCode2" autocomplete="one-time-code" oninput="moveToNext(this, 'verifyCode3')" onkeydown="handleBackspace(event, 'verifyCode1')">
+                        <input type="text" class="code-digit" maxlength="1" id="verifyCode3" autocomplete="one-time-code" oninput="moveToNext(this, 'verifyCode4')" onkeydown="handleBackspace(event, 'verifyCode2')">
+                        <input type="text" class="code-digit" maxlength="1" id="verifyCode4" autocomplete="one-time-code" oninput="moveToNext(this, 'verifyCode5')" onkeydown="handleBackspace(event, 'verifyCode3')">
+                        <input type="text" class="code-digit" maxlength="1" id="verifyCode5" autocomplete="one-time-code" oninput="moveToNext(this, 'verifyCode6')" onkeydown="handleBackspace(event, 'verifyCode4')">
+                        <input type="text" class="code-digit" maxlength="1" id="verifyCode6" autocomplete="one-time-code" onkeydown="handleBackspace(event, 'verifyCode5')">
+                    </div>
+
+                    <button type="submit" class="btn btn-primary" id="confirmEmailBtn">
+                        Confirmar email
+                    </button>
+                </form>
+
+                <div class="resend-wrapper">
+                    <span id="verificationTimerText">Você poderá reenviar em 60s</span>
+                    <button type="button" class="resend-btn" id="resendVerificationBtn" onclick="resendEmailVerification()" disabled>
+                        Reenviar código
+                    </button>
+                </div>
+            </div>
+        </div>
+
         <!-- TELA 2: ESCOLHA DE PLANO -->
         <div id="planScreen" class="screen">
             <h2 style="color: white; text-align: center; margin-bottom: 24px;">Escolha seu Plano</h2>
@@ -470,58 +822,80 @@
 
         <!-- TELA 3: PAGAMENTO PIX -->
         <div id="paymentScreen" class="screen">
-            <h2 style="color: white; text-align: center; margin-bottom: 24px;">Pagamento PIX</h2>
-            <div class="payment-info">
-                <div class="payment-title">Dados para Pagamento</div>
-                
-                <div class="pix-key">
-                    <div class="pix-key-label">Chave PIX</div>
-                    <div class="pix-key-value" id="pixKeyValue">-</div>
-                    <button class="copy-btn" onclick="copyPixKey()">📋 Copiar Chave</button>
+            <div class="payment-layout">
+                <div class="payment-card">
+                    <h3>Finalize o pagamento via PIX</h3>
+
+                    <div class="payment-stepper">
+                        <div class="payment-step active">
+                            <span>1</span>
+                            Efetue o pagamento
+                        </div>
+                        <div class="payment-step">
+                            <span>2</span>
+                            Envie o comprovante
+                        </div>
+                        <div class="payment-step">
+                            <span>3</span>
+                            Receba o código e ative
+                        </div>
+                    </div>
+
+                    <div class="pix-box">
+                        <div class="pix-box-header">
+                            <span>Chave PIX</span>
+                            <span class="pix-badge" id="pixKeyType">Copia e cola</span>
+                        </div>
+                        <div class="pix-value" id="pixKeyValue">-</div>
+                        <div class="copy-action">
+                            <button type="button" onclick="copyPixKey()">📋 Copiar chave PIX</button>
+                        </div>
+                    </div>
+
+                    <ul class="payment-instructions">
+                        <li><span>1.</span> Abra o app do seu banco, escolha pagamento por PIX e cole a chave acima.</li>
+                        <li><span>2.</span> Confirme os dados do destinatário antes de finalizar o envio.</li>
+                        <li><span>3.</span> Envie o comprovante pelo WhatsApp para liberar seu acesso mais rápido.</li>
+                    </ul>
                 </div>
 
-                <div style="text-align: center; margin-top: 24px;">
-                    <div style="color: #8da2bb; margin-bottom: 12px;">Após o pagamento, envie o comprovante:</div>
-                    <a href="#" id="whatsappLink" class="whatsapp-btn" target="_blank">
-                        📱 Enviar Comprovante via WhatsApp
-                    </a>
+                <div class="support-card">
+                    <h4>Envie o comprovante</h4>
+                    <p>Assim que o pagamento for confirmado, você receberá um código de ativação exclusivo.</p>
+                    <div class="support-actions">
+                        <a href="#" id="whatsappLink" class="whatsapp-link" target="_blank">📱 Abrir WhatsApp</a>
+                        <button type="button" onclick="showActivationScreen()">Já recebi meu código</button>
+                    </div>
                 </div>
             </div>
-
-            <div style="text-align: center; color: #8da2bb; font-size: 14px; margin: 20px 0;">
-                Você receberá um código de ativação após a confirmação do pagamento
-            </div>
-
-            <button class="btn btn-secondary" onclick="showActivationScreen()">
-                Já tenho o código de ativação
-            </button>
         </div>
 
         <!-- TELA 4: INSERIR CÓDIGO -->
         <div id="activationScreen" class="screen">
-            <h2 style="color: white; text-align: center; margin-bottom: 24px;">Ativar Conta</h2>
-            
-            <div style="text-align: center; color: #8da2bb; margin-bottom: 24px;">
-                Digite o código de 6 dígitos que você recebeu
-            </div>
+            <div class="activation-card">
+                <h2>Ativar acesso</h2>
+                <p class="activation-description">
+                    Informe o código de 6 dígitos que você recebeu após a confirmação do pagamento.
+                </p>
 
-            <form onsubmit="handleActivation(event)">
-                <div class="code-input-container">
-                    <input type="text" class="code-digit" maxlength="1" id="code1" oninput="moveToNext(this, 'code2')" onkeydown="handleBackspace(event, 'code1')">
-                    <input type="text" class="code-digit" maxlength="1" id="code2" oninput="moveToNext(this, 'code3')" onkeydown="handleBackspace(event, 'code1')">
-                    <input type="text" class="code-digit" maxlength="1" id="code3" oninput="moveToNext(this, 'code4')" onkeydown="handleBackspace(event, 'code2')">
-                    <input type="text" class="code-digit" maxlength="1" id="code4" oninput="moveToNext(this, 'code5')" onkeydown="handleBackspace(event, 'code3')">
-                    <input type="text" class="code-digit" maxlength="1" id="code5" oninput="moveToNext(this, 'code6')" onkeydown="handleBackspace(event, 'code4')">
-                    <input type="text" class="code-digit" maxlength="1" id="code6" oninput="submitCode()" onkeydown="handleBackspace(event, 'code5')">
+                <form onsubmit="handleActivation(event)">
+                    <div class="code-input-container">
+                        <input type="text" class="code-digit" maxlength="1" id="code1" oninput="moveToNext(this, 'code2')" onkeydown="handleBackspace(event, 'code1')">
+                        <input type="text" class="code-digit" maxlength="1" id="code2" oninput="moveToNext(this, 'code3')" onkeydown="handleBackspace(event, 'code1')">
+                        <input type="text" class="code-digit" maxlength="1" id="code3" oninput="moveToNext(this, 'code4')" onkeydown="handleBackspace(event, 'code2')">
+                        <input type="text" class="code-digit" maxlength="1" id="code4" oninput="moveToNext(this, 'code5')" onkeydown="handleBackspace(event, 'code3')">
+                        <input type="text" class="code-digit" maxlength="1" id="code5" oninput="moveToNext(this, 'code6')" onkeydown="handleBackspace(event, 'code4')">
+                        <input type="text" class="code-digit" maxlength="1" id="code6" oninput="submitCode()" onkeydown="handleBackspace(event, 'code5')">
+                    </div>
+
+                    <button type="submit" class="btn btn-primary" id="activateBtn">
+                        Ativar conta
+                    </button>
+                </form>
+
+                <div class="activation-footer">
+                    Ainda não recebeu? <a href="#" onclick="showPaymentScreen(); return false;">Voltar para pagamento</a>
                 </div>
-
-                <button type="submit" class="btn btn-primary" id="activateBtn">
-                    Ativar Conta
-                </button>
-            </form>
-
-            <div class="link">
-                <a href="#" onclick="showPaymentScreen(); return false;">Voltar para pagamento</a>
             </div>
         </div>
     </div>
@@ -532,6 +906,9 @@
         let selectedPlan = null;
         let userData = null;
         let paymentSettings = null;
+        let emailVerificationToken = null;
+        let verificationCountdownInterval = null;
+        let verificationCooldownRemaining = 0;
 
         function chromeStorageGet(keys) {
             return new Promise((resolve) => {
@@ -969,19 +1346,183 @@
                 showMessage('As senhas não coincidem', 'error');
                 return;
             }
-            
+
             btn.disabled = true;
-            btn.innerHTML = '<div class="loader"></div> Criando conta...';
-            
+            btn.innerHTML = '<div class="loader"></div> Enviando código...';
+
             try {
-                userData = { name, email, password };
-                await loadPlans();
-                showScreen('planScreen');
+                userData = {
+                    name: name.trim(),
+                    email: email.trim().toLowerCase(),
+                    password
+                };
+                selectedPlan = null;
+                emailVerificationToken = null;
+                await requestEmailVerificationCode({ showSuccessMessage: true });
             } catch (error) {
-                showMessage('Erro ao carregar planos', 'error');
+                if (!error || !error.handled) {
+                    showMessage('Erro ao enviar o código de verificação. Tente novamente.', 'error');
+                }
             } finally {
                 btn.disabled = false;
                 btn.innerHTML = 'Criar Conta';
+            }
+        }
+
+        function resetVerificationInputs() {
+            for (let i = 1; i <= 6; i++) {
+                const input = document.getElementById(`verifyCode${i}`);
+                if (input) input.value = '';
+            }
+            setTimeout(() => {
+                const first = document.getElementById('verifyCode1');
+                if (first) first.focus();
+            }, 150);
+        }
+
+        function startVerificationCooldown(seconds = 60) {
+            const timerText = document.getElementById('verificationTimerText');
+            const resendBtn = document.getElementById('resendVerificationBtn');
+
+            if (!timerText || !resendBtn) return;
+
+            verificationCooldownRemaining = seconds;
+            resendBtn.disabled = true;
+            timerText.textContent = `Você poderá reenviar em ${verificationCooldownRemaining}s`;
+
+            if (verificationCountdownInterval) {
+                clearInterval(verificationCountdownInterval);
+            }
+
+            verificationCountdownInterval = setInterval(() => {
+                verificationCooldownRemaining -= 1;
+
+                if (verificationCooldownRemaining <= 0) {
+                    clearInterval(verificationCountdownInterval);
+                    verificationCountdownInterval = null;
+                    timerText.textContent = 'Não recebeu o código?';
+                    resendBtn.disabled = false;
+                } else {
+                    timerText.textContent = `Você poderá reenviar em ${verificationCooldownRemaining}s`;
+                }
+            }, 1000);
+        }
+
+        async function requestEmailVerificationCode({ showSuccessMessage = true } = {}) {
+            if (!userData || !userData.email) {
+                showMessage('Informe seus dados antes de solicitar o código.', 'error');
+                throw { handled: true };
+            }
+
+            try {
+                const response = await fetch(`${API_URL}/auth/email-verification/request`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        email: userData.email,
+                        name: userData.name
+                    })
+                });
+
+                const data = await response.json().catch(() => ({}));
+
+                if (!response.ok || !data.success) {
+                    throw new Error(data.error || 'Não foi possível enviar o código de verificação.');
+                }
+
+                emailVerificationToken = null;
+                showScreen('emailVerificationScreen');
+                document.getElementById('verificationEmailText').textContent = userData.email;
+                resetVerificationInputs();
+                startVerificationCooldown(60);
+
+                if (showSuccessMessage) {
+                    showMessage('Enviamos um código para o seu email. Verifique a caixa de entrada e o spam.', 'success');
+                } else {
+                    showMessage('Novo código enviado! Confira seu email.', 'success');
+                }
+
+            } catch (error) {
+                if (!error || !error.handled) {
+                    showMessage(error.message || 'Erro ao enviar o código de verificação.', 'error');
+                }
+                throw { handled: true };
+            }
+        }
+
+        async function resendEmailVerification() {
+            const btn = document.getElementById('resendVerificationBtn');
+            if (btn) btn.disabled = true;
+
+            try {
+                await requestEmailVerificationCode({ showSuccessMessage: false });
+            } catch (error) {
+                if (!error || !error.handled) {
+                    showMessage('Erro ao reenviar o código. Tente novamente.', 'error');
+                }
+            } finally {
+                if (!verificationCountdownInterval && btn) {
+                    btn.disabled = false;
+                }
+            }
+        }
+
+        async function handleEmailVerification(event) {
+            event.preventDefault();
+
+            const btn = document.getElementById('confirmEmailBtn');
+            if (!btn) return;
+
+            const codeDigits = [];
+            for (let i = 1; i <= 6; i++) {
+                const value = document.getElementById(`verifyCode${i}`)?.value?.trim();
+                if (!value) {
+                    showMessage('Digite o código completo de 6 dígitos.', 'error');
+                    document.getElementById(`verifyCode${i}`)?.focus();
+                    return;
+                }
+                codeDigits.push(value);
+            }
+
+            const code = codeDigits.join('');
+
+            btn.disabled = true;
+            btn.innerHTML = '<div class="loader"></div> Validando...';
+
+            try {
+                const response = await fetch(`${API_URL}/auth/email-verification/verify`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        email: userData.email,
+                        code
+                    })
+                });
+
+                const data = await response.json().catch(() => ({}));
+
+                if (!response.ok || !data.success) {
+                    throw new Error(data.error || 'Código inválido. Tente novamente.');
+                }
+
+                emailVerificationToken = data.verificationToken;
+
+                if (verificationCountdownInterval) {
+                    clearInterval(verificationCountdownInterval);
+                    verificationCountdownInterval = null;
+                }
+
+                const resendBtn = document.getElementById('resendVerificationBtn');
+                if (resendBtn) resendBtn.disabled = true;
+
+                showMessage('Email verificado com sucesso! Escolha seu plano para continuar.', 'success');
+                await loadPlans();
+                showScreen('planScreen');
+            } catch (error) {
+                showMessage(error.message || 'Erro ao validar o código. Tente novamente.', 'error');
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = 'Confirmar email';
             }
         }
 
@@ -992,8 +1533,9 @@
                 
                 if (data.success) {
                     const container = document.getElementById('plansContainer');
+                    selectedPlan = null;
                     container.innerHTML = data.plans.map(plan => `
-                        <div class="plan-card" onclick="selectPlan('${plan.duration}')">
+                        <div class="plan-card" onclick="selectPlan(event, '${plan.duration}')">
                             <div class="plan-name">${plan.name}</div>
                             <div class="plan-price">R$ ${plan.price.toFixed(2).replace('.', ',')} <span>/ ${plan.days} dias</span></div>
                             <div class="plan-description">${plan.description}</div>
@@ -1005,15 +1547,22 @@
             }
         }
 
-        function selectPlan(duration) {
+        function selectPlan(evt, duration) {
             selectedPlan = duration;
             document.querySelectorAll('.plan-card').forEach(card => card.classList.remove('selected'));
-            event.currentTarget.classList.add('selected');
+            if (evt && evt.currentTarget) {
+                evt.currentTarget.classList.add('selected');
+            }
         }
 
         async function confirmPlan() {
             if (!selectedPlan) {
                 showMessage('Selecione um plano', 'error');
+                return;
+            }
+
+            if (!emailVerificationToken) {
+                showMessage('Confirme o código enviado para o seu email antes de continuar.', 'error');
                 return;
             }
             
@@ -1025,7 +1574,7 @@
                 const response = await fetch(`${API_URL}/auth/register`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ ...userData, selectedPlan })
+                    body: JSON.stringify({ ...userData, selectedPlan, verificationToken: emailVerificationToken })
                 });
                 
                 const data = await response.json();
@@ -1044,6 +1593,29 @@
             }
         }
 
+        function formatPixTypeLabel(type) {
+            if (!type) return 'PIX';
+            const normalized = String(type).toLowerCase();
+            switch (normalized) {
+                case 'email':
+                    return 'E-MAIL';
+                case 'phone':
+                case 'telefone':
+                case 'celular':
+                    return 'CELULAR';
+                case 'cpf':
+                    return 'CPF';
+                case 'cnpj':
+                    return 'CNPJ';
+                case 'aleatoria':
+                case 'aleatório':
+                case 'random':
+                    return 'CHAVE ALEATÓRIA';
+                default:
+                    return normalized.toUpperCase();
+            }
+        }
+
         async function loadPaymentInfo() {
             try {
                 const response = await fetch(`${API_URL}/plans/payment/settings`);
@@ -1051,18 +1623,43 @@
                 
                 if (data.success) {
                     paymentSettings = data.payment;
-                    document.getElementById('pixKeyValue').textContent = paymentSettings.pixKey || 'Não configurado';
-                    
-                    const whatsapp = paymentSettings.whatsapp || '';
-                    let cleanPhone = whatsapp.replace(/\D/g, ''); // Remove todos os caracteres não numéricos
-                    
-                    // ✅ Garantir que o número tenha o código do país (Brasil = 55)
-                    if (cleanPhone && !cleanPhone.startsWith('55')) {
-                        cleanPhone = '55' + cleanPhone;
+
+                    const pixKeyElement = document.getElementById('pixKeyValue');
+                    if (pixKeyElement) {
+                        pixKeyElement.textContent = paymentSettings.pixKey || 'Não configurado';
+                    }
+
+                    const pixTypeElement = document.getElementById('pixKeyType');
+                    if (pixTypeElement) {
+                        pixTypeElement.textContent = formatPixTypeLabel(paymentSettings.pixType);
+                    }
+
+                    const copyButton = document.querySelector('.copy-action button');
+                    if (copyButton) {
+                        const hasKey = Boolean(paymentSettings.pixKey);
+                        copyButton.disabled = !hasKey;
+                        copyButton.style.opacity = hasKey ? '1' : '0.5';
+                        copyButton.style.cursor = hasKey ? 'pointer' : 'not-allowed';
                     }
                     
-                    const message = encodeURIComponent(`Olá! Acabei de fazer o pagamento do Blaze Analyzer. Email: ${userData.email}`);
-                    document.getElementById('whatsappLink').href = `https://wa.me/${cleanPhone}?text=${message}`;
+                    const whatsappLink = document.getElementById('whatsappLink');
+                    if (whatsappLink) {
+                        const whatsapp = paymentSettings.whatsapp || '';
+                        let cleanPhone = whatsapp.replace(/\D/g, '');
+                        
+                        if (cleanPhone && !cleanPhone.startsWith('55')) {
+                            cleanPhone = '55' + cleanPhone;
+                        }
+                        
+                        if (cleanPhone) {
+                            const message = encodeURIComponent(`Olá! Acabei de fazer o pagamento do Blaze Analyzer. Email: ${userData.email}`);
+                            whatsappLink.href = `https://wa.me/${cleanPhone}?text=${message}`;
+                            whatsappLink.removeAttribute('aria-disabled');
+                        } else {
+                            whatsappLink.href = '#';
+                            whatsappLink.setAttribute('aria-disabled', 'true');
+                        }
+                    }
                 }
             } catch (error) {
                 console.error('Erro ao carregar informações de pagamento:', error);
@@ -1071,6 +1668,12 @@
 
         function copyPixKey() {
             const pixKey = document.getElementById('pixKeyValue').textContent;
+
+            if (!pixKey || pixKey === '-' || pixKey.toLowerCase() === 'não configurado') {
+                showMessage('Nenhuma chave PIX configurada no momento.', 'error');
+                return;
+            }
+
             navigator.clipboard.writeText(pixKey).then(() => {
                 showMessage('Chave PIX copiada!', 'success');
             });
@@ -1082,7 +1685,11 @@
 
         function showActivationScreen() {
             showScreen('activationScreen');
-            document.getElementById('code1').focus();
+            ['code1', 'code2', 'code3', 'code4', 'code5', 'code6'].forEach(id => {
+                const input = document.getElementById(id);
+                if (input) input.value = '';
+            });
+            setTimeout(() => document.getElementById('code1').focus(), 150);
         }
 
         function moveToNext(current, nextId) {
