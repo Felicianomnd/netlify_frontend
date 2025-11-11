@@ -2656,7 +2656,7 @@ const DIAMOND_LEVEL_DEFAULTS = {
                     console.log('═══════════════════════════════════════════════════════════');
                     return null;
                 }
-
+                
                 console.log('═══════════════════════════════════════════════════════════');
                 return null;
             }
@@ -6806,19 +6806,19 @@ const DIAMOND_LEVEL_DEFAULTS = {
                     
                     chrome.runtime.sendMessage({ action: 'resetPatterns' }, function(response) {
                         if (response && response.status === 'success') {
-                            btn.textContent = 'Resetado!';
-                            loadPatternBank();
+                    btn.textContent = 'Resetado!';
+                    loadPatternBank();
                         } else {
                             console.error('%c❌ ERRO AO RESETAR PADRÕES NO BACKGROUND:', 'color: #FF0000; font-weight: bold;', response);
                             btn.textContent = 'Erro ao resetar';
                             suppressAutoPatternSearch = false;
                             autoPatternSearchTriggered = false;
                         }
-                        
-                        setTimeout(function() {
-                            btn.textContent = 'Resetar Padrões';
-                            btn.disabled = false;
-                        }, 2000);
+                    
+                    setTimeout(function() {
+                        btn.textContent = 'Resetar Padrões';
+                        btn.disabled = false;
+                    }, 2000);
                     });
                 } catch (error) {
                     console.error('%c❌ ERRO AO LIMPAR PADRÕES:', 'color: #FF0000; font-weight: bold;', error);
