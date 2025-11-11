@@ -998,46 +998,12 @@ const DIAMOND_LEVEL_DEFAULTS = {
         }, duration);
     }
     
-    // Criar modal de visualização de padrões
-    function createViewPatternsModal() {
-        const modalHTML = `
-            <div id="viewPatternsModal" class="custom-pattern-modal" style="display: none;">
-                <div class="custom-pattern-modal-overlay"></div>
-                <div class="custom-pattern-modal-content">
-                    <div class="custom-pattern-modal-header">
-                        <h3>Padrões Ativos (<span id="modalPatternsCount">0</span>)</h3>
-                        <button class="custom-pattern-modal-close" id="closeViewPatternsModal">✕</button>
-                    </div>
-                    
-                    <div class="custom-pattern-modal-body" style="max-height: 400px; overflow-y: auto;">
-                        <div id="viewPatternsList"></div>
-                    </div>
-                </div>
-            </div>
-        `;
-        
-        document.body.insertAdjacentHTML('beforeend', modalHTML);
-        
-        // Event listeners
-        const modal = document.getElementById('viewPatternsModal');
-        const closeBtn = document.getElementById('closeViewPatternsModal');
-        const overlay = modal.querySelector('.custom-pattern-modal-overlay');
-        
-        closeBtn.addEventListener('click', () => {
-            modal.style.display = 'none';
-        });
-        
-        overlay.addEventListener('click', () => {
-            modal.style.display = 'none';
-        });
-        
-        console.log('✅ Modal de visualização de padrões criado');
-    }
-    
     // ═══════════════════════════════════════════════════════════════════════════════
     // 🎯 CRIAR MODAL DE VISUALIZAÇÃO DO BANCO DE PADRÕES
     // ═══════════════════════════════════════════════════════════════════════════════
     function createBankPatternsModal() {
+        console.log('ℹ️ Banco de padrões visual desativado nesta versão.');
+        return;
         const modalHTML = `
             <div id="bankPatternsModal" class="bank-patterns-modal" style="display: none;">
                 <div class="bank-patterns-modal-overlay"></div>
@@ -1577,6 +1543,9 @@ const DIAMOND_LEVEL_DEFAULTS = {
     // 🎯 RENDERIZAR LISTA DE PADRÕES DO BANCO
     // ═══════════════════════════════════════════════════════════════════════════════
     function renderBankPatterns() {
+        if (!document.getElementById('bankPatternsModal')) {
+            return;
+        }
         console.log('📂 Renderizando lista de padrões do banco...');
         
         const allData = JSON.parse(localStorage.getItem('blazeAnalyzerData') || '{}');
@@ -1715,6 +1684,10 @@ const DIAMOND_LEVEL_DEFAULTS = {
     // 👁️ MOSTRAR DETALHES DE UM PADRÃO ESPECÍFICO (ÚLTIMAS 5 OCORRÊNCIAS)
     // ═══════════════════════════════════════════════════════════════════════════════
     window.showPatternDetails = async function(patternIndex) {
+        if (!document.getElementById('patternDetailsModal')) {
+            console.log('ℹ️ Visualização de detalhes de padrões está desativada.');
+            return;
+        }
         console.log(`👁️ Mostrando detalhes do padrão índice ${patternIndex}...`);
         
         const allData = JSON.parse(localStorage.getItem('blazeAnalyzerData') || '{}');
@@ -1898,6 +1871,10 @@ const DIAMOND_LEVEL_DEFAULTS = {
     // 🗑️ DELETAR PADRÃO DO BANCO
     // ═══════════════════════════════════════════════════════════════════════════════
     window.deleteBankPattern = function(index) {
+        if (!document.getElementById('bankPatternsModal')) {
+            console.log('ℹ️ Exclusão via modal do banco de padrões está desativada.');
+            return;
+        }
         console.log(`🗑️ Deletando padrão do banco (índice ${index})...`);
         
         // Confirmar exclusão
@@ -3381,7 +3358,6 @@ const DIAMOND_LEVEL_DEFAULTS = {
                         </div>
                     </div>
                     <div class="bank-buttons">
-                        <button id="viewPatternsBtn" class="view-patterns-btn">👁️ Ver Padrões</button>
                         <button id="refreshBankBtn" class="refresh-bank-btn">Buscar Padrões (30s)</button>
                         <button id="resetBankBtn" class="reset-bank-btn">Resetar Padrões</button>
                     </div>
@@ -3585,8 +3561,6 @@ const DIAMOND_LEVEL_DEFAULTS = {
         // 🎯 CRIAR MODAL DE PADRÕES CUSTOMIZADOS E BANCO
         // ═══════════════════════════════════════════════════════════════
         createCustomPatternModal();
-        createViewPatternsModal();
-        createBankPatternsModal();
         createDiamondLevelsModal();
         
         // ✅ Carregar padrões customizados imediatamente após criar a sidebar
@@ -6663,24 +6637,6 @@ const DIAMOND_LEVEL_DEFAULTS = {
     
     // Event listener para botão de atualizar
     document.addEventListener('click', function(e) {
-        // ✅ BOTÃO "VER PADRÕES" - Abrir modal do banco
-        if (e.target && e.target.id === 'viewPatternsBtn') {
-            e.preventDefault();
-            console.log('👁️ Abrindo modal do banco de padrões...');
-            
-            const modal = document.getElementById('bankPatternsModal');
-            if (modal) {
-                modal.style.display = 'flex';
-                
-                // Renderizar padrões
-                renderBankPatterns();
-                
-                console.log('✅ Modal do banco de padrões aberto');
-            } else {
-                console.error('❌ Modal do banco de padrões não encontrado!');
-            }
-        }
-
         if (e.target && e.target.id === 'diamondLevelsBtn') {
             e.preventDefault();
             openDiamondLevelsModal();

@@ -3679,16 +3679,19 @@ function detectPatternsInHistory(history) {
                 // 🔥 VALIDAR COR DE DISPARO: Cor antes do padrão DEVE ser diferente da primeira cor
                 const colorBefore = simplifiedHistory[i + 7]; // Cor imediatamente antes do padrão
                 const firstPatternColor = seq[0]; // Primeira cor do padrão (R ou B)
-                const triggerColorNormalized = normalizeColorName(colorBefore === 'R' ? 'red' : colorBefore === 'B' ? 'black' : null);
+                const triggerColorNormalized = normalizeColorName(
+                    colorBefore === 'R' ? 'red' :
+                    colorBefore === 'B' ? 'black' :
+                    colorBefore === 'W' ? 'white' : null
+                );
                 const firstColorNormalized = normalizeColorName(firstPatternColor === 'R' ? 'red' : 'black');
                 
-                if (analyzerConfig.requireTrigger) {
-                    if (!triggerColorNormalized) {
+                if (!triggerColorNormalized) {
+                    if (analyzerConfig.requireTrigger) {
                         continue; // Sem trigger válida
                     }
-                    if (!validateDisparoColor(firstColorNormalized, triggerColorNormalized).valid) {
-                        continue;
-                    }
+                } else if (!validateDisparoColor(firstColorNormalized, triggerColorNormalized).valid) {
+                    continue;
                 }
                 
                 patterns.alternanciaSimples.count++;
@@ -3709,12 +3712,17 @@ function detectPatternsInHistory(history) {
                 // 🔥 VALIDAR COR DE DISPARO
                 const colorBefore = simplifiedHistory[i + 9];
                 const firstPatternColor = seq[0];
-                const triggerColorNormalized = normalizeColorName(colorBefore === 'R' ? 'red' : colorBefore === 'B' ? 'black' : null);
+                const triggerColorNormalized = normalizeColorName(
+                    colorBefore === 'R' ? 'red' :
+                    colorBefore === 'B' ? 'black' :
+                    colorBefore === 'W' ? 'white' : null
+                );
                 const firstColorNormalized = normalizeColorName(firstPatternColor === 'R' ? 'red' : 'black');
                 
-                if (analyzerConfig.requireTrigger) {
-                    if (!triggerColorNormalized) continue;
-                    if (!validateDisparoColor(firstColorNormalized, triggerColorNormalized).valid) continue;
+                if (!triggerColorNormalized) {
+                    if (analyzerConfig.requireTrigger) continue;
+                } else if (!validateDisparoColor(firstColorNormalized, triggerColorNormalized).valid) {
+                    continue;
                 }
                 
                 patterns.alternanciaDupla.count++;
@@ -3735,12 +3743,17 @@ function detectPatternsInHistory(history) {
                 // 🔥 VALIDAR COR DE DISPARO
                 const colorBefore = simplifiedHistory[i + 10];
                 const firstPatternColor = seq[0];
-                const triggerColorNormalized = normalizeColorName(colorBefore === 'R' ? 'red' : colorBefore === 'B' ? 'black' : null);
+                const triggerColorNormalized = normalizeColorName(
+                    colorBefore === 'R' ? 'red' :
+                    colorBefore === 'B' ? 'black' :
+                    colorBefore === 'W' ? 'white' : null
+                );
                 const firstColorNormalized = normalizeColorName(firstPatternColor === 'R' ? 'red' : 'black');
                 
-                if (analyzerConfig.requireTrigger) {
-                    if (!triggerColorNormalized) continue;
-                    if (!validateDisparoColor(firstColorNormalized, triggerColorNormalized).valid) continue;
+                if (!triggerColorNormalized) {
+                    if (analyzerConfig.requireTrigger) continue;
+                } else if (!validateDisparoColor(firstColorNormalized, triggerColorNormalized).valid) {
+                    continue;
                 }
                 
                 patterns.alternanciaTripla.count++;
@@ -3766,12 +3779,17 @@ function detectPatternsInHistory(history) {
                     colorBefore = simplifiedHistory[colorBeforeIndex];
                 }
                 const firstPatternColor = 'R'; // Sempre vermelho neste padrão
-                const triggerColorNormalized = normalizeColorName(colorBefore === 'R' ? 'red' : colorBefore === 'B' ? 'black' : null);
+                const triggerColorNormalized = normalizeColorName(
+                    colorBefore === 'R' ? 'red' :
+                    colorBefore === 'B' ? 'black' :
+                    colorBefore === 'W' ? 'white' : null
+                );
                 const firstColorNormalized = 'red';
                 
-                if (analyzerConfig.requireTrigger) {
-                    if (!triggerColorNormalized) continue;
-                    if (!validateDisparoColor(firstColorNormalized, triggerColorNormalized).valid) continue;
+                if (!triggerColorNormalized) {
+                    if (analyzerConfig.requireTrigger) continue;
+                } else if (!validateDisparoColor(firstColorNormalized, triggerColorNormalized).valid) {
+                    continue;
                 }
                 
                 patterns.sequenciaVermelho6Plus.count++;
@@ -3797,12 +3815,17 @@ function detectPatternsInHistory(history) {
                     colorBefore = simplifiedHistory[colorBeforeIndex];
                 }
                 const firstPatternColor = 'B'; // Sempre preto neste padrão
-                const triggerColorNormalized = normalizeColorName(colorBefore === 'R' ? 'red' : colorBefore === 'B' ? 'black' : null);
+                const triggerColorNormalized = normalizeColorName(
+                    colorBefore === 'R' ? 'red' :
+                    colorBefore === 'B' ? 'black' :
+                    colorBefore === 'W' ? 'white' : null
+                );
                 const firstColorNormalized = 'black';
                 
-                if (analyzerConfig.requireTrigger) {
-                    if (!triggerColorNormalized) continue;
-                    if (!validateDisparoColor(firstColorNormalized, triggerColorNormalized).valid) continue;
+                if (!triggerColorNormalized) {
+                    if (analyzerConfig.requireTrigger) continue;
+                } else if (!validateDisparoColor(firstColorNormalized, triggerColorNormalized).valid) {
+                    continue;
                 }
                 
                 patterns.sequenciaPreto6Plus.count++;
@@ -3828,12 +3851,17 @@ function detectPatternsInHistory(history) {
                     colorBefore = simplifiedHistory[colorBeforeIndex];
                 }
                 const firstPatternColor = seq[0]; // R ou B (primeira cor do padrão)
-                const triggerColorNormalized = normalizeColorName(colorBefore === 'R' ? 'red' : colorBefore === 'B' ? 'black' : null);
+                const triggerColorNormalized = normalizeColorName(
+                    colorBefore === 'R' ? 'red' :
+                    colorBefore === 'B' ? 'black' :
+                    colorBefore === 'W' ? 'white' : null
+                );
                 const firstColorNormalized = normalizeColorName(firstPatternColor === 'R' ? 'red' : 'black');
                 
-                if (analyzerConfig.requireTrigger) {
-                    if (!triggerColorNormalized) continue;
-                    if (!validateDisparoColor(firstColorNormalized, triggerColorNormalized).valid) continue;
+                if (!triggerColorNormalized) {
+                    if (analyzerConfig.requireTrigger) continue;
+                } else if (!validateDisparoColor(firstColorNormalized, triggerColorNormalized).valid) {
+                    continue;
                 }
                 
                 patterns.sequenciaMesmaCor4a5.count++;
@@ -12033,18 +12061,32 @@ async function verifyWithSavedPatterns(history) {
 	// Obter cor de disparo atual (será usada depois para referência)
 		const currentTrigger = headColors[need]; // cor imediatamente anterior ao padrão no histórico
 	
-	// Validar Cor de Disparo no head atual SE requireTrigger estiver ativo E modo padrão ativo
-	// ⚠️ MODO IA: Ignora validação de trigger (configuração exclusiva do modo padrão)
-	if (!analyzerConfig.aiMode && analyzerConfig.requireTrigger) {
-		if (!currentTrigger) continue; // sem trigger disponível, não validar
-		if (!isValidTrigger(currentTrigger, pat.pattern)) {
-			console.log('❌ Padrão salvo rejeitado: cor de disparo atual inválida:', {
+	const currentTriggerNormalized = normalizeColorName(currentTrigger);
+	const firstPatternNormalized = normalizeColorName(pat.pattern[0]);
+
+	if (!firstPatternNormalized) {
+		console.warn('⚠️ Padrão salvo com cor inicial inválida:', pat.pattern);
+		continue;
+	}
+
+	if (!currentTriggerNormalized) {
+		if (analyzerConfig.requireTrigger) {
+			console.log('❌ Padrão salvo rejeitado: sem cor de disparo atual disponível', {
+				pattern: pat.pattern,
+				firstPatternColor: pat.pattern[0]
+			});
+			continue;
+		}
+	} else {
+		const validation = validateDisparoColor(firstPatternNormalized, currentTriggerNormalized);
+		if (!validation.valid) {
+			console.log('❌ Padrão salvo rejeitado: cor de disparo atual inválida', {
 				pattern: pat.pattern,
 				currentTrigger: currentTrigger,
 				firstPatternColor: pat.pattern[0],
-				requireTrigger: analyzerConfig.requireTrigger
+				motivo: validation.reason || 'Cor de disparo igual ou inválida'
 			});
-			continue; // trigger deve ser válida quando requireTrigger está ativo
+			continue;
 		}
 	}
 		// NÃO exigir que a trigger seja igual à salva; triggers podem variar por ocorrência
@@ -12065,16 +12107,19 @@ async function verifyWithSavedPatterns(history) {
 			const trigSpin = history[i + need];
 			const trigColorRaw = trigSpin ? trigSpin.color : null;
 			
+			const trigNormalized = normalizeColorName(trigColorRaw);
 			let triggerValid = true;
-			if (!analyzerConfig.aiMode && analyzerConfig.requireTrigger) {
-				triggerValid = !!trigColorRaw && isValidTrigger(trigColorRaw, pat.pattern);
+			if (!trigNormalized) {
+				triggerValid = !analyzerConfig.requireTrigger;
+			} else {
+				triggerValid = validateDisparoColor(firstPatternNormalized, trigNormalized).valid;
 			}
 			if (!triggerValid) continue;
 
 			const resultColor = history[i - 1] ? history[i - 1].color : null;
 			const occurrenceRecord = createOccurrenceRecord(pat.pattern, trigColorRaw, resultColor, trigSpin, occCount + 1);
 
-			if (!analyzerConfig.aiMode && analyzerConfig.requireTrigger && occurrenceRecord.flag_invalid_disparo) {
+			if (occurrenceRecord.flag_invalid_disparo) {
 				continue;
 			}
 
@@ -12103,11 +12148,12 @@ async function verifyWithSavedPatterns(history) {
 			const match = seqColors.every((c, idx) => c === pat.pattern[idx]);
 			if (!match) continue;
 		
-		// Só validar trigger se requireTrigger estiver ativo E modo padrão ativo
-		// ⚠️ MODO IA: Ignora validação de trigger
-		if (!analyzerConfig.aiMode && analyzerConfig.requireTrigger) {
-			const trig = history[i + need] ? history[i + need].color : null;
-			if (!trig || !isValidTrigger(trig, pat.pattern)) continue;
+		const trigEntry = history[i + need] ? history[i + need].color : null;
+		const trigNormalized = normalizeColorName(trigEntry);
+		if (!trigNormalized) {
+			if (analyzerConfig.requireTrigger) continue;
+		} else {
+			if (!validateDisparoColor(firstPatternNormalized, trigNormalized).valid) continue;
 		}
 		
 		totalOccurrences++;
@@ -12362,35 +12408,38 @@ async function verifyWithSavedPatterns(history) {
 
 		// 🔥 VALIDAÇÃO CRÍTICA FINAL: Cor de disparo ATUAL deve ser válida
 		// Verificar se a cor de disparo ATUAL (antes do padrão head) é diferente da primeira cor do padrão
-		if (!analyzerConfig.aiMode && analyzerConfig.requireTrigger) {
-			if (!currentTrigger) {
-				console.log(`❌ Padrão salvo rejeitado no sinal final: sem cor de disparo atual`);
-				continue; // Sem trigger disponível
-			}
-			
-			const firstPatternColor = pat.pattern[0];
-			const triggerNormalized = normalizeColorName(currentTrigger);
-			const firstNormalized = normalizeColorName(firstPatternColor);
-			const validation = validateDisparoColor(firstNormalized, triggerNormalized);
-			
-			if (!validation.valid) {
-				console.log(`❌ Padrão salvo rejeitado no sinal final: cor de disparo atual INVÁLIDA`, {
-					pattern: pat.pattern.join('-'),
-					currentTrigger: currentTrigger,
-					triggerNormalized: triggerNormalized,
-					firstPatternColor: firstPatternColor,
-					firstNormalized: firstNormalized,
-					motivo: validation.reason || 'Cor de disparo IGUAL ou inválida - corromperia o padrão!'
-				});
-				continue; // ❌ Cor de disparo INVÁLIDA - NÃO ENVIAR ENTRADA
-			}
-			
-			console.log(`✅ Validação final de trigger: APROVADA`, {
-				currentTrigger: triggerNormalized,
-				firstPatternColor: firstNormalized,
-				isOpposite: triggerNormalized === 'white' || (triggerNormalized === 'red' && firstNormalized === 'black') || (triggerNormalized === 'black' && firstNormalized === 'red')
-			});
+		const finalTriggerNormalized = normalizeColorName(currentTrigger);
+		const firstFinalNormalized = normalizeColorName(pat.pattern[0]);
+
+		if (!firstFinalNormalized) {
+			console.warn('⚠️ Padrão salvo rejeitado no sinal final: cor inicial inválida', pat.pattern);
+			continue;
 		}
+
+		if (!finalTriggerNormalized) {
+			console.log(`❌ Padrão salvo rejeitado no sinal final: sem cor de disparo atual`);
+			continue; // Sempre exigir trigger válida na hora de enviar sinal
+		}
+		
+		const finalValidation = validateDisparoColor(firstFinalNormalized, finalTriggerNormalized);
+		
+		if (!finalValidation.valid) {
+			console.log(`❌ Padrão salvo rejeitado no sinal final: cor de disparo atual INVÁLIDA`, {
+				pattern: pat.pattern.join('-'),
+				currentTrigger: currentTrigger,
+				triggerNormalized: finalTriggerNormalized,
+				firstPatternColor: pat.pattern[0],
+				firstNormalized: firstFinalNormalized,
+				motivo: finalValidation.reason || 'Cor de disparo IGUAL ou inválida - corromperia o padrão!'
+			});
+			continue; // ❌ Cor de disparo INVÁLIDA - NÃO ENVIAR ENTRADA
+		}
+		
+		console.log(`✅ Validação final de trigger: APROVADA`, {
+			currentTrigger: finalTriggerNormalized,
+			firstPatternColor: firstFinalNormalized,
+			isOpposite: finalTriggerNormalized === 'white' || (finalTriggerNormalized === 'red' && firstFinalNormalized === 'black') || (finalTriggerNormalized === 'black' && firstFinalNormalized === 'red')
+		});
 
 		// Se assertCalc existe, já vem calibrado; senão, calibrar a confidence salva
 		const rawPatternConfidence = typeof pat.confidence === 'number' ? pat.confidence : 70;
