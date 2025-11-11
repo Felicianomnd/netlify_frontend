@@ -1418,16 +1418,25 @@
             }
 
             try {
+                console.log('📧 Solicitando código de verificação para:', userData.email);
+                
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 segundos timeout
+
                 const response = await fetch(`${API_URL}/auth/email-verification/request`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         email: userData.email,
                         name: userData.name
-                    })
-                });
+                    }),
+                    signal: controller.signal
+                }).finally(() => clearTimeout(timeoutId));
+
+                console.log('📥 Resposta recebida. Status:', response.status);
 
                 const data = await response.json().catch(() => ({}));
+                console.log('📦 Dados:', data);
 
                 if (!response.ok || !data.success) {
                     throw new Error(data.error || 'Não foi possível enviar o código de verificação.');
@@ -1446,7 +1455,11 @@
                 }
 
             } catch (error) {
-                if (!error || !error.handled) {
+                console.error('❌ Erro ao solicitar código:', error);
+                
+                if (error.name === 'AbortError') {
+                    showMessage('A solicitação demorou muito. Verifique sua conexão e tente novamente.', 'error');
+                } else if (!error || !error.handled) {
                     showMessage(error.message || 'Erro ao enviar o código de verificação.', 'error');
                 }
                 throw { handled: true };
