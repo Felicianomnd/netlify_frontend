@@ -589,29 +589,7 @@
             }
         });
         
-        // ✅ CAMPOS DO MODO IA: Ocultar quando modo padrão está ativo
-        const aiModeFields = [
-            'cfgAiApiKey',       // Chave API da IA
-            'cfgAiHistorySize'   // Quantidade de giros para IA analisar
-        ];
-        
-        aiModeFields.forEach(fieldId => {
-            const field = document.getElementById(fieldId);
-            if (field) {
-                // Ocultar o elemento pai (setting-item) completamente
-                const settingItem = field.closest('.setting-item');
-                if (settingItem) {
-                    // ✅ Não esconder se foi forçado a ser visível (botão "Configurar Chave API")
-                    const isForceVisible = settingItem.getAttribute('data-force-visible') === 'true';
-                    if (isForceVisible && fieldId === 'cfgAiApiKey') {
-                        // Manter visível
-                        settingItem.style.display = '';
-                    } else {
-                        settingItem.style.display = isAIMode ? '' : 'none';
-                    }
-                }
-            }
-        });
+        // ✅ Campos do Modo Diamante removidos - agora usa apenas o modal "Configurar Níveis Diamante"
         
         // ✅ CAMPOS COMPARTILHADOS: Destacar quando IA está ativa (são usados em ambos os modos)
         const sharedFields = [
@@ -989,7 +967,10 @@ const DIAMOND_LEVEL_DEFAULTS = {
     n3Alternance: 12,
     n4Persistence: 20,
     n5MinuteBias: 60,
-    n6Barrier: 50
+    n6RetracementWindow: 80,
+    n7DecisionWindow: 20,
+    n7HistoryWindow: 100,
+    n8Barrier: 50
 };
     
     // Função para mostrar notificação toast (simples e rápida)
@@ -1426,8 +1407,25 @@ const DIAMOND_LEVEL_DEFAULTS = {
                             <input type="number" id="diamondN5MinuteBias" min="10" max="200" value="60" />
                         </div>
                         <div class="diamond-level-field">
-                            <label for="diamondN6Barrier">N6 - Barreira (janela)</label>
-                            <input type="number" id="diamondN6Barrier" min="10" max="200" value="50" />
+                            <label for="diamondN6Retracement">N6 - Retração Histórica (janela)</label>
+                            <input type="number" id="diamondN6Retracement" min="30" max="120" value="80" />
+                        </div>
+                        <div class="diamond-level-field">
+                            <label>N7 - Continuidade Global</label>
+                            <div class="diamond-level-double">
+                                <div>
+                                    <span>Decisões analisadas</span>
+                                    <input type="number" id="diamondN7DecisionWindow" min="10" max="50" value="20" />
+                                </div>
+                                <div>
+                                    <span>Histórico base (giros)</span>
+                                    <input type="number" id="diamondN7HistoryWindow" min="50" max="200" value="100" />
+                                </div>
+                            </div>
+                        </div>
+                        <div class="diamond-level-field">
+                            <label for="diamondN8Barrier">N8 - Barreira Final (janela)</label>
+                            <input type="number" id="diamondN8Barrier" min="10" max="200" value="50" />
                         </div>
                     </div>
                     <div class="custom-pattern-modal-footer">
@@ -1450,9 +1448,21 @@ const DIAMOND_LEVEL_DEFAULTS = {
 
     function populateDiamondLevelsForm(config) {
         const windows = (config && config.diamondLevelWindows) || {};
+        const legacyKeyMap = {
+            n6RetracementWindow: 'n8RetracementWindow',
+            n7DecisionWindow: 'n10DecisionWindow',
+            n7HistoryWindow: 'n10HistoryWindow',
+            n8Barrier: 'n6Barrier'
+        };
         const getValue = (key, def) => {
-            const value = Number(windows[key]);
-            return Number.isFinite(value) && value > 0 ? value : def;
+            const direct = Number(windows[key]);
+            if (Number.isFinite(direct) && direct > 0) return direct;
+            const legacyKey = legacyKeyMap[key];
+            if (legacyKey) {
+                const legacyValue = Number(windows[legacyKey]);
+                if (Number.isFinite(legacyValue) && legacyValue > 0) return legacyValue;
+            }
+            return def;
         };
         const setInput = (id, value) => {
             const input = document.getElementById(id);
@@ -1464,7 +1474,10 @@ const DIAMOND_LEVEL_DEFAULTS = {
         setInput('diamondN3Alternance', getValue('n3Alternance', DIAMOND_LEVEL_DEFAULTS.n3Alternance));
         setInput('diamondN4Persistence', getValue('n4Persistence', DIAMOND_LEVEL_DEFAULTS.n4Persistence));
         setInput('diamondN5MinuteBias', getValue('n5MinuteBias', DIAMOND_LEVEL_DEFAULTS.n5MinuteBias));
-        setInput('diamondN6Barrier', getValue('n6Barrier', DIAMOND_LEVEL_DEFAULTS.n6Barrier));
+        setInput('diamondN6Retracement', getValue('n6RetracementWindow', DIAMOND_LEVEL_DEFAULTS.n6RetracementWindow));
+        setInput('diamondN7DecisionWindow', getValue('n7DecisionWindow', DIAMOND_LEVEL_DEFAULTS.n7DecisionWindow));
+        setInput('diamondN7HistoryWindow', getValue('n7HistoryWindow', DIAMOND_LEVEL_DEFAULTS.n7HistoryWindow));
+        setInput('diamondN8Barrier', getValue('n8Barrier', DIAMOND_LEVEL_DEFAULTS.n8Barrier));
     }
 
     function openDiamondLevelsModal() {
@@ -1510,11 +1523,19 @@ const DIAMOND_LEVEL_DEFAULTS = {
             n3Alternance: getNumber('diamondN3Alternance', 12, 50, DIAMOND_LEVEL_DEFAULTS.n3Alternance),
             n4Persistence: getNumber('diamondN4Persistence', 20, 120, DIAMOND_LEVEL_DEFAULTS.n4Persistence),
             n5MinuteBias: getNumber('diamondN5MinuteBias', 10, 200, DIAMOND_LEVEL_DEFAULTS.n5MinuteBias),
-            n6Barrier: getNumber('diamondN6Barrier', 10, 200, DIAMOND_LEVEL_DEFAULTS.n6Barrier)
+            n6RetracementWindow: getNumber('diamondN6Retracement', 30, 120, DIAMOND_LEVEL_DEFAULTS.n6RetracementWindow),
+            n7DecisionWindow: getNumber('diamondN7DecisionWindow', 10, 50, DIAMOND_LEVEL_DEFAULTS.n7DecisionWindow),
+            n7HistoryWindow: getNumber('diamondN7HistoryWindow', 50, 200, DIAMOND_LEVEL_DEFAULTS.n7HistoryWindow),
+            n8Barrier: getNumber('diamondN8Barrier', 10, 200, DIAMOND_LEVEL_DEFAULTS.n8Barrier)
         };
 
         if (newWindows.n2Previous <= newWindows.n2Recent) {
             alert('A janela anterior do Momentum (N2) deve ser maior que a janela recente.');
+            return;
+        }
+
+        if (newWindows.n7HistoryWindow < newWindows.n7DecisionWindow) {
+            alert('O histórico base do N7 deve ser maior ou igual ao número de decisões analisadas.');
             return;
         }
 
@@ -3416,10 +3437,6 @@ const DIAMOND_LEVEL_DEFAULTS = {
                         <div class="setting-item">
                             <span class="setting-label">Intervalo mínimo (giros):</span>
                             <input type="number" id="cfgMinInterval" min="0" value="0" title="Quantidade mínima de giros entre sinais (0 = sem intervalo, envia sempre que encontrar padrão válido)" placeholder="Ex: 5 giros (0 = sem intervalo)" />
-                        </div>
-                        <div class="setting-item">
-                            <span class="setting-label">Giros para analisar (IA):</span>
-                            <input type="number" id="cfgAiHistorySize" min="10" max="2000" placeholder="50" title="Quantidade de giros que a IA vai analisar (mín: 10, máx: 2000)" />
                         </div>
                         <div class="setting-item">
                             <span class="setting-label">Tamanho MÍNIMO do padrão (giros):</span>
@@ -6218,8 +6235,6 @@ const DIAMOND_LEVEL_DEFAULTS = {
                 const consecutiveMartingale = document.getElementById('cfgConsecutiveMartingale');
                 const maxGales = document.getElementById('cfgMaxGales');
                 const tgChatId = document.getElementById('cfgTgChatId');
-                const aiApiKey = document.getElementById('cfgAiApiKey');
-                const aiHistorySize = document.getElementById('cfgAiHistorySize');
                 if (minOcc) minOcc.value = cfg.minOccurrences != null ? cfg.minOccurrences : 1;
                 if (maxOcc) maxOcc.value = cfg.maxOccurrences != null ? cfg.maxOccurrences : 0;
                 if (minInt) minInt.value = cfg.minIntervalSpins != null ? cfg.minIntervalSpins : 0;
@@ -6230,33 +6245,12 @@ const DIAMOND_LEVEL_DEFAULTS = {
                 if (consecutiveMartingale) consecutiveMartingale.checked = cfg.consecutiveMartingale != null ? cfg.consecutiveMartingale : false;
                 if (maxGales) maxGales.value = cfg.maxGales != null ? cfg.maxGales : 2;
                 if (tgChatId) tgChatId.value = cfg.telegramChatId || '';
-                if (aiApiKey) aiApiKey.value = cfg.aiApiKey || '';
-                if (aiHistorySize) aiHistorySize.value = cfg.aiHistorySize != null ? cfg.aiHistorySize : 60;
                 
                 // 🎚️ Carregar intensidade de sinais
                 const signalIntensitySelect = document.getElementById('signalIntensitySelect');
                 if (signalIntensitySelect) {
                     signalIntensitySelect.value = cfg.signalIntensity || 'moderate';
                     console.log(`🎚️ Intensidade carregada: ${cfg.signalIntensity || 'moderate'}`);
-                }
-                
-                // 🔧 Carregar configurações avançadas (prompt customizado)
-                const advancedModeCheckbox = document.getElementById('cfgAdvancedMode');
-                const customPromptTextarea = document.getElementById('cfgCustomPrompt');
-                const customPromptSection = document.getElementById('customPromptSection');
-                
-                if (advancedModeCheckbox) {
-                    advancedModeCheckbox.checked = cfg.advancedMode || false;
-                    // Mostrar/ocultar seção baseado no estado
-                    if (customPromptSection) {
-                        customPromptSection.style.display = cfg.advancedMode ? 'block' : 'none';
-                    }
-                }
-                
-                if (customPromptTextarea) {
-                    customPromptTextarea.value = cfg.customPrompt || '';
-                    // Disparar evento para atualizar contador de caracteres
-                    customPromptTextarea.dispatchEvent(new Event('input'));
                 }
                 
                 // ✅ Aplicar visibilidade dos campos baseado no modo IA
@@ -6313,12 +6307,6 @@ const DIAMOND_LEVEL_DEFAULTS = {
                 const consecutiveMartingale = getElementValue('cfgConsecutiveMartingale', false, true);
                 const maxGales = Math.max(0, Math.min(200, parseInt(getElementValue('cfgMaxGales', '2'), 10)));
                 const tgChatId = String(getElementValue('cfgTgChatId', '')).trim();
-                const aiApiKey = String(getElementValue('cfgAiApiKey', '')).trim();
-                const aiHistorySize = Math.max(10, Math.min(2000, parseInt(getElementValue('cfgAiHistorySize', '50'), 10)));
-                
-                // 🔧 Configurações avançadas (prompt customizado)
-                const advancedMode = document.getElementById('cfgAdvancedMode') ? document.getElementById('cfgAdvancedMode').checked : false;
-                const customPrompt = (document.getElementById('cfgCustomPrompt') ? document.getElementById('cfgCustomPrompt').value : '').trim();
                 
                 // 🎚️ Intensidade de sinais
                 const signalIntensitySelect = document.getElementById('signalIntensitySelect');
@@ -6346,7 +6334,6 @@ const DIAMOND_LEVEL_DEFAULTS = {
                 console.log('   • minPatternSize:', minSize);
                 console.log('   • maxPatternSize:', maxSize);
                 console.log('   • winPercentOthers:', winPct + '%');
-                console.log('   • aiHistorySize:', aiHistorySize);
                 console.log('   • signalIntensity:', signalIntensity);
                 
                 // ✅ VALIDAÇÃO: maxOccurrences não pode ser menor que minOccurrences (se não for 0)
@@ -6392,11 +6379,7 @@ const DIAMOND_LEVEL_DEFAULTS = {
                     consecutiveMartingale: consecutiveMartingale,
                     maxGales: maxGales,
                     telegramChatId: tgChatId,
-                    aiApiKey: aiApiKey,
-                    aiHistorySize: aiHistorySize,
-                    signalIntensity: signalIntensity,
-                    advancedMode: advancedMode,
-                    customPrompt: customPrompt
+                    signalIntensity: signalIntensity
                 };
                 
                 console.log('');

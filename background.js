@@ -3,9 +3,6 @@
 // ═══════════════════════════════════════════════════════════════════════════════
 // 🚨 VERSÃO DO ARQUIVO - CONFIRMAÇÃO DE CARREGAMENTO
 // ═══════════════════════════════════════════════════════════════════════════════
-console.log('');
-console.log('');
-console.log('%c╔═══════════════════════════════════════════════════════════════════════════════╗', 'color: #00FF00; font-weight: bold; font-size: 20px; background: #003300; padding: 10px;');
 console.log('%c║                                                                               ║', 'color: #00FF00; font-weight: bold; font-size: 20px; background: #003300; padding: 10px;');
 console.log('%c║           ✅ BACKGROUND.JS VERSÃO 17 CARREGADO! ✅                           ║', 'color: #00FF00; font-weight: bold; font-size: 20px; background: #003300; padding: 10px;');
 console.log('%c║                                                                               ║', 'color: #00FF00; font-weight: bold; font-size: 20px; background: #003300; padding: 10px;');
@@ -13,9 +10,6 @@ console.log('%c║           🔥🔥🔥 VERSÃO 17 - CHROME.TABS.ONUPDATED �
 console.log('%c║                                                                               ║', 'color: #00FF00; font-weight: bold; font-size: 20px; background: #003300; padding: 10px;');
 console.log('%c║           📅 ' + new Date().toLocaleString('pt-BR') + '                            ║', 'color: #00FF00; font-weight: bold; font-size: 16px; background: #003300; padding: 10px;');
 console.log('%c║                                                                               ║', 'color: #00FF00; font-weight: bold; font-size: 20px; background: #003300; padding: 10px;');
-console.log('%c╚═══════════════════════════════════════════════════════════════════════════════╝', 'color: #00FF00; font-weight: bold; font-size: 20px; background: #003300; padding: 10px;');
-console.log('');
-console.log('');
 
 let isRunning = false;
 let intervalId = null;
@@ -85,20 +79,19 @@ const DEFAULT_ANALYZER_CONFIG = {
     consecutiveMartingale: false, // Martingale consecutivo (G1/G2 imediatos) ou aguardar novo padrão
     maxGales: 2,                  // Quantidade máxima de Gales (0=sem gale, 1=G1, 2=G1+G2, até 200)
     telegramChatId: '',           // Chat ID do Telegram para enviar sinais
-    aiApiKey: '',                 // ✅ Chave API da IA (cada usuário deve configurar a sua própria)
-    aiMode: false,                // Modo de análise por IA (true) ou modo padrão (false)
-    aiHistorySize: 60,            // Quantidade de giros para IA analisar (mín: 10, máx: 2000) - padrão: 60
+    aiMode: false,                // Modo Diamante (true) ou Modo Padrão (false)
     signalIntensity: 'moderate',  // Intensidade de sinais: 'aggressive', 'moderate', 'conservative', 'ultraconservative'
-    advancedMode: false,          // Mostrar configurações avançadas (prompt customizado)
-    customPrompt: '',             // Prompt customizado para a IA (vazio = usa padrão)
-    diamondLevelWindows: {        // Configuração dos 6 níveis do modo Diamante
+    diamondLevelWindows: {        // Configuração dos níveis do modo Diamante
         n1HotPattern: 60,         // N1 - Padrão Quente (histórico analisado)
         n2Recent: 5,              // N2 - Momentum (janela recente)
         n2Previous: 15,           // N2 - Momentum (janela anterior)
         n3Alternance: 12,         // N3 - Alternância (janela base)
         n4Persistence: 20,        // N4 - Persistência / Ciclos
         n5MinuteBias: 60,         // N5 - Ritmo por Giro / Minuto
-        n6Barrier: 50             // N6 - Barreira / Freio
+        n6RetracementWindow: 80,  // N6 - Retração Histórica (janela de análise)
+        n7DecisionWindow: 20,     // N7 - Continuidade Global (decisões analisadas)
+        n7HistoryWindow: 100,     // N7 - Continuidade Global (histórico base)
+        n8Barrier: 50             // N8 - Barreira Final
     }
 };
 let analyzerConfig = { ...DEFAULT_ANALYZER_CONFIG };
@@ -108,6 +101,16 @@ function getDiamondWindow(key, fallback) {
     const rawValue = windows ? Number(windows[key]) : NaN;
     if (Number.isFinite(rawValue) && rawValue > 0) {
         return rawValue;
+    }
+    const legacyKeyMap = {
+        n6RetracementWindow: 'n8RetracementWindow',
+        n7DecisionWindow: 'n10DecisionWindow',
+        n7HistoryWindow: 'n10HistoryWindow',
+        n8Barrier: 'n6Barrier'
+    };
+    const legacyKey = legacyKeyMap[key];
+    if (legacyKey && Number.isFinite(Number(windows[legacyKey])) && Number(windows[legacyKey]) > 0) {
+        return Number(windows[legacyKey]);
     }
     // Compatibilidade com versões antigas (ex.: minuteSpinWindow individual)
     if (key === 'n5MinuteBias' && Number.isFinite(Number(analyzerConfig.minuteSpinWindow))) {
@@ -650,10 +653,8 @@ function connectWebSocket() {
         return;
     }
     
-    console.log('╔═══════════════════════════════════════════════════════════╗');
     console.log('║  🔌 CONECTANDO AO WEBSOCKET...                            ║');
     console.log(`║  URL: ${API_CONFIG.wsURL}                               `);
-    console.log('╚═══════════════════════════════════════════════════════════╝');
     
     try {
         ws = new WebSocket(API_CONFIG.wsURL);
@@ -817,13 +818,9 @@ function startPollingFallback() {
     // Se já está rodando, não iniciar novamente
     if (pollingInterval) return;
     
-    console.log('');
-    console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #FFA500; font-weight: bold;');
     console.log('%c║  🔄 POLLING DE FALLBACK ATIVADO                          ║', 'color: #FFA500; font-weight: bold;');
     console.log('%c║  WebSocket está offline - buscando dados via HTTP       ║', 'color: #FFA500;');
     console.log('%c║  Frequência: a cada 2 segundos                          ║', 'color: #FFA500;');
-    console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #FFA500; font-weight: bold;');
-    console.log('');
     
     // ✅ Notificar content.js que WebSocket caiu
     sendMessageToContent('WEBSOCKET_STATUS', { connected: false });
@@ -867,7 +864,6 @@ function startDataFreshnessCheck() {
     // Se já está rodando, não iniciar novamente
     if (dataCheckInterval) return;
     
-    console.log('✅ Sistema de verificação de dados ativos: LIGADO');
     console.log('   Verificará se dados estão atualizados a cada 30 segundos');
     
     // ✅ Verificar a cada 30 segundos se os dados estão desatualizados
@@ -897,7 +893,6 @@ function stopDataFreshnessCheck() {
     if (dataCheckInterval) {
         clearInterval(dataCheckInterval);
         dataCheckInterval = null;
-        console.log('⏸️ Sistema de verificação de dados: DESLIGADO');
     }
 }
 
@@ -962,7 +957,6 @@ async function checkAPIStatus() {
     }
     
     try {
-        console.log('🔍 Verificando conexão com API...');
         // Usar timeout maior para conexão inicial (20s)
         const response = await fetchWithTimeout(`${API_CONFIG.baseURL}/api/status`, {}, 20000);
         if (response.ok) {
@@ -996,11 +990,9 @@ async function fetchGirosFromAPI() {
     }
     
     try {
-        console.log('═══════════════════════════════════════════════════════════');
         console.log('📥 INICIANDO BUSCA DE GIROS DO SERVIDOR...');
         console.log('   URL:', `${API_CONFIG.baseURL}/api/giros?limit=2000`);
         console.log('   Timeout: 20 segundos');
-        console.log('═══════════════════════════════════════════════════════════');
         
         const startTime = Date.now();
         
@@ -1021,25 +1013,21 @@ async function fetchGirosFromAPI() {
                 console.log(`%c✅ SERVIDOR RETORNOU ${data.data.length} GIROS!`, 'color: #00ff00; font-weight: bold; font-size: 14px;');
                 console.log('   Primeiro giro (mais recente):', data.data[0]);
                 console.log('   Último giro (mais antigo):', data.data[data.data.length - 1]);
-                console.log('═══════════════════════════════════════════════════════════');
                 return data.data;
             } else {
                 console.log('⚠️ Resposta do servidor sem dados válidos');
                 console.log('   Estrutura recebida:', Object.keys(data));
-                console.log('═══════════════════════════════════════════════════════════');
             }
         } else {
             console.log('❌ Resposta com erro do servidor');
             console.log('   Status:', response.status);
             console.log('   StatusText:', response.statusText);
-            console.log('═══════════════════════════════════════════════════════════');
         }
     } catch (error) {
         console.log('❌ ERRO AO BUSCAR GIROS DO SERVIDOR!');
         console.log('   Tipo de erro:', error.name);
         console.log('   Mensagem:', error.message);
         console.log('   Stack:', error.stack);
-        console.log('═══════════════════════════════════════════════════════════');
         
         // Não mostrar erro assustador se for timeout - servidor pode estar ocupado
         if (error.message.includes('Timeout')) {
@@ -1083,13 +1071,10 @@ async function saveGirosToAPI(giros) {
 // 🔧 FUNÇÃO AUXILIAR: EXIBIR RODAPÉ FIXO COM SISTEMA ATIVO
 // ═════════════════════════════════════════════════════════════════════════════
 function displaySystemFooter() {
-    console.log('');
-    console.log('%c╔═══════════════════════════════════════════════════════════════════════════════╗', 'color: #666666; font-weight: bold;');
     
     if (analyzerConfig.aiMode) {
-        console.log('%c║ 🎯 SISTEMA ATIVO: ANÁLISE AVANÇADA (AUTO-APRENDIZADO)                         ║', 'color: #00FF00; font-weight: bold; background: #001100;');
-        console.log('%c║ 📊 Sistema: 100% JavaScript (Sem IA Externa)                                  ║', 'color: #00AA00;');
-        console.log('%c║ 🔧 Histórico analisado: ' + (analyzerConfig.aiHistorySize || 50) + ' giros                                              ║', 'color: #00AA00;');
+        console.log('%c║ 🎯 SISTEMA ATIVO: MODO DIAMANTE (8 NÍVEIS DE ANÁLISE)                         ║', 'color: #00FF00; font-weight: bold; background: #001100;');
+        console.log('%c║ 💎 Sistema de votação inteligente com consenso                                ║', 'color: #00AA00;');
         
         // 🧠 INDICADOR DE MEMÓRIA ATIVA (dinâmico)
         if (memoriaAtiva.inicializada) {
@@ -1105,22 +1090,17 @@ function displaySystemFooter() {
         console.log('%c║ 🎯 Trigger: ' + (analyzerConfig.requireTrigger ? 'ATIVO' : 'DESATIVADO') + '                                                           ║', 'color: #0088FF;');
     }
     
-    console.log('%c╚═══════════════════════════════════════════════════════════════════════════════╝', 'color: #666666; font-weight: bold;');
-    console.log('');
 }
 
 // Sincronização inicial ao carregar extensão
 async function syncInitialData() {
-    console.log('%c═════════════════════════════════════════════════════════', 'color: #00d4ff; font-weight: bold;');
     console.log('%c🌐 SINCRONIZAÇÃO COM SERVIDOR RENDER.COM', 'color: #00d4ff; font-weight: bold; font-size: 16px;');
-    console.log('%c═════════════════════════════════════════════════════════', 'color: #00d4ff; font-weight: bold;');
     
     // Verificar se API está online
     const isOnline = await checkAPIStatus();
     
     if (!isOnline) {
         console.log('%c⚠️ MODO OFFLINE - Usando apenas dados locais', 'color: #ffaa00; font-weight: bold; font-size: 14px;');
-        console.log('%c═════════════════════════════════════════════════════════\n', 'color: #00d4ff; font-weight: bold;');
         return;
     }
     
@@ -1135,7 +1115,6 @@ async function syncInitialData() {
         
         // ✅ INICIALIZAR MEMÓRIA ATIVA SE MODO IA ESTIVER ATIVO
         if (analyzerConfig.aiMode && !memoriaAtiva.inicializada && cachedHistory.length >= 60) {
-            console.log('');
             console.log('%c🧠 MODO IA ATIVO - Inicializando Memória Ativa automaticamente...', 'color: #00CED1; font-weight: bold;');
             const sucesso = await inicializarMemoriaAtiva(cachedHistory);
             if (sucesso) {
@@ -1143,7 +1122,6 @@ async function syncInitialData() {
             } else {
                 console.log('%c⚠️ Falha ao inicializar Memória Ativa', 'color: #FFAA00; font-weight: bold;');
             }
-            console.log('');
         }
         
         // ✅ ENVIAR ÚLTIMO GIRO E HISTÓRICO PARA A UI
@@ -1168,7 +1146,6 @@ async function syncInitialData() {
     
     apiStatus.lastSync = new Date().toISOString();
     console.log('%c🎉 SINCRONIZAÇÃO COMPLETA!', 'color: #00ff00; font-weight: bold; font-size: 14px;');
-    console.log('%c═════════════════════════════════════════════════════════\n', 'color: #00d4ff; font-weight: bold;');
 }
 
 // Função removida: padrões não são mais enviados para servidor
@@ -1316,9 +1293,7 @@ function logAnalysisCycle(data) {
         spinsAvailable = { server: 0, app: 0 }
     } = data;
     
-    console.log('\n╔═══════════════════════════════════════════════════════════╗');
     console.log('║  📊 CICLO DE ANÁLISE - RESUMO                             ║');
-    console.log('╠═══════════════════════════════════════════════════════════╣');
     
     // 1. STATUS DO SERVIDOR
     const serverIcon = serverStatus === 'ativo' ? '✅' : serverStatus === 'erro' ? '❌' : '⏳';
@@ -1332,7 +1307,6 @@ function logAnalysisCycle(data) {
         console.log('║  🔍 Busca: AGUARDANDO NOVO GIRO...'.padEnd(62) + '║');
     }
     
-    console.log('╠═══════════════════════════════════════════════════════════╣');
     
     // 4. PADRÕES ENCONTRADOS
     if (patternsFound.length > 0) {
@@ -1350,7 +1324,6 @@ function logAnalysisCycle(data) {
     
     // 5. PADRÕES REJEITADOS
     if (rejectedPatterns.length > 0) {
-        console.log('╠═══════════════════════════════════════════════════════════╣');
         console.log(`║  ❌ Padrões rejeitados: ${rejectedPatterns.length}`.padEnd(62) + '║');
         rejectedPatterns.slice(0, 2).forEach((r, i) => {
             const reason = r.reason ? r.reason.substring(0, 40) : 'motivo não especificado';
@@ -1363,7 +1336,6 @@ function logAnalysisCycle(data) {
     
     // 6. MENSAGEM TELEGRAM
     if (telegramSent !== null) {
-        console.log('╠═══════════════════════════════════════════════════════════╣');
         if (telegramSent) {
             console.log('║  📲 Telegram: ✅ MENSAGEM ENVIADA COM SUCESSO'.padEnd(62) + '║');
         } else {
@@ -1372,10 +1344,8 @@ function logAnalysisCycle(data) {
     }
     
     // 7. PADRÕES EXIBIDOS
-    console.log('╠═══════════════════════════════════════════════════════════╣');
     console.log(`║  📱 Padrões exibidos na extensão: ${displayedPatternsCount}`.padEnd(62) + '║');
     
-    console.log('╚═══════════════════════════════════════════════════════════╝\n');
 }
 
 // ✅ LOG SIMPLIFICADO PARA STATUS DO SERVIDOR
@@ -1420,9 +1390,7 @@ function logActiveConfiguration() {
     try {
         const config = analyzerConfig;
         
-        console.log('╔═══════════════════════════════════════════════════════════╗');
         console.log('║  ⚙️ CONFIGURAÇÕES ATIVAS DO ANALISADOR                   ║');
-        console.log('╠═══════════════════════════════════════════════════════════╣');
         
         // OCORRÊNCIAS
         console.log('║  📊 CONTROLE DE OCORRÊNCIAS:                              ║');
@@ -1431,26 +1399,22 @@ function logActiveConfiguration() {
         console.log(`║     • Máximo de ocorrências: ${maxOccStr.padEnd(26)}║`);
         
         // TAMANHO DO PADRÃO
-        console.log('║                                                           ║');
         console.log('║  📏 TAMANHO DO PADRÃO:                                    ║');
         console.log(`║     • Mínimo (giros): ${config.minPatternSize.toString().padEnd(32)}║`);
         const maxSizeStr = config.maxPatternSize > 0 ? config.maxPatternSize.toString() : 'SEM LIMITE ∞';
         console.log(`║     • Máximo (giros): ${maxSizeStr.padEnd(32)}║`);
         
         // INTERVALO E QUALIDADE
-        console.log('║                                                           ║');
         console.log('║  ⏱️ INTERVALO E QUALIDADE:                                ║');
         console.log(`║     • Intervalo mínimo: ${config.minIntervalSpins.toString().padEnd(25)} giro(s) ║`);
         console.log(`║     • WIN% demais ocorrências: ${config.winPercentOthers.toString().padEnd(20)}%     ║`);
         
         // COR DE DISPARO
-        console.log('║                                                           ║');
         console.log('║  🎯 VALIDAÇÃO DE TRIGGER:                                 ║');
         const triggerStatus = config.requireTrigger ? '✅ ATIVADO (mais rigoroso)' : '❌ DESATIVADO (menos rigoroso)';
         console.log(`║     ${triggerStatus.padEnd(54)}║`);
         
         // MARTINGALE
-        console.log('║                                                           ║');
         console.log('║  🎲 SISTEMA DE MARTINGALE (GALE):                         ║');
         const galeQty = config.maxGales === 0 ? 'DESATIVADO' : 
                         config.maxGales === 1 ? '1 Gale (G1)' : 
@@ -1461,19 +1425,14 @@ function logActiveConfiguration() {
         console.log(`║     • Modo: ${martingaleMode.padEnd(44)}║`);
         
         // TELEGRAM
-        console.log('║                                                           ║');
         console.log('║  📲 TELEGRAM:                                             ║');
         const telegramStatus = config.telegramChatId ? `✅ Ativo (ID: ${config.telegramChatId.substring(0, 10)}...)` : '❌ Não configurado';
         console.log(`║     ${telegramStatus.padEnd(54)}║`);
         
-        console.log('║                                                           ║');
-        console.log('║  🤖 MODO IA:                                              ║');
-        const aiModeStatus = config.aiMode ? '✅ ATIVO' : '⚪ Desativado (Modo Padrão)';
-        console.log(`║     ${aiModeStatus.padEnd(54)}║`);
-        const aiKeyStatus = config.aiApiKey ? `✅ Configurada (${config.aiApiKey.substring(0, 8)}...)` : '❌ Não configurada';
-        console.log(`║     ${aiKeyStatus.padEnd(54)}║`);
+        console.log('║  💎 MODO DIAMANTE:                                        ║');
+        const diamondModeStatus = config.aiMode ? '✅ ATIVO (8 níveis)' : '⚪ Desativado (Modo Padrão)';
+        console.log(`║     ${diamondModeStatus.padEnd(54)}║`);
         
-        console.log('╚═══════════════════════════════════════════════════════════╝');
         
         // ⚠️ AVISOS DE CONFIGURAÇÃO PERMISSIVA/RIGOROSA
         const warnings = [];
@@ -1497,7 +1456,6 @@ function logActiveConfiguration() {
         if (warnings.length > 0) {
             console.log('\n⚠️ AVISOS DE CONFIGURAÇÃO:');
             warnings.forEach(w => console.log(`   ${w}`));
-            console.log('');
         }
         
     } catch (e) {
@@ -1529,23 +1487,17 @@ function logActiveConfiguration() {
         const maxOcc = analyzerConfig.maxOccurrences || 0;
         
         if (maxSize > 0 && maxSize < minSize) {
-            console.error('╔═══════════════════════════════════════════════════════════╗');
             console.error('║  ⚠️ CONFIGURAÇÃO INVÁLIDA DETECTADA!                     ║');
-            console.error('╠═══════════════════════════════════════════════════════════╣');
             console.error(`║  ❌ Tamanho MÁXIMO (${maxSize}) < MÍNIMO (${minSize})!`);
             console.error('║  🚫 NENHUM PADRÃO SERÁ ENCONTRADO!                        ║');
             console.error('║  💡 Ajuste: maxPatternSize >= minPatternSize             ║');
-            console.error('╚═══════════════════════════════════════════════════════════╝');
         }
         
         if (maxOcc > 0 && maxOcc < minOcc) {
-            console.error('╔═══════════════════════════════════════════════════════════╗');
             console.error('║  ⚠️ CONFIGURAÇÃO INVÁLIDA DETECTADA!                     ║');
-            console.error('╠═══════════════════════════════════════════════════════════╣');
             console.error(`║  ❌ Ocorrências MÁXIMAS (${maxOcc}) < MÍNIMAS (${minOcc})!`);
             console.error('║  🚫 NENHUM PADRÃO SERÁ ENCONTRADO!                        ║');
             console.error('║  💡 Ajuste: maxOccurrences >= minOccurrences             ║');
-            console.error('╚═══════════════════════════════════════════════════════════╝');
         }
     } catch (e) {
         console.warn('Falha ao carregar analyzerConfig, usando defaults:', e);
@@ -1571,23 +1523,17 @@ chrome.storage.onChanged.addListener((changes, area) => {
             const maxOcc = analyzerConfig.maxOccurrences || 0;
             
             if (maxSize > 0 && maxSize < minSize) {
-                console.error('╔═══════════════════════════════════════════════════════════╗');
                 console.error('║  ⚠️ CONFIGURAÇÃO INVÁLIDA DETECTADA!                     ║');
-                console.error('╠═══════════════════════════════════════════════════════════╣');
                 console.error(`║  ❌ Tamanho MÁXIMO (${maxSize}) < MÍNIMO (${minSize})!`);
                 console.error('║  🚫 NENHUM PADRÃO SERÁ ENCONTRADO!                        ║');
                 console.error('║  💡 Ajuste: maxPatternSize >= minPatternSize             ║');
-                console.error('╚═══════════════════════════════════════════════════════════╝');
             }
             
             if (maxOcc > 0 && maxOcc < minOcc) {
-                console.error('╔═══════════════════════════════════════════════════════════╗');
                 console.error('║  ⚠️ CONFIGURAÇÃO INVÁLIDA DETECTADA!                     ║');
-                console.error('╠═══════════════════════════════════════════════════════════╣');
                 console.error(`║  ❌ Ocorrências MÁXIMAS (${maxOcc}) < MÍNIMAS (${minOcc})!`);
                 console.error('║  🚫 NENHUM PADRÃO SERÁ ENCONTRADO!                        ║');
                 console.error('║  💡 Ajuste: maxOccurrences >= minOccurrences             ║');
-                console.error('╚═══════════════════════════════════════════════════════════╝');
             }
         } catch (e) {
             console.warn('Falha ao aplicar analyzerConfig:', e);
@@ -1609,23 +1555,19 @@ loadHotColorsHistory();
         const res = await chrome.storage.local.get(['observerData', 'entriesHistory', 'martingaleState']);
         if (res && res.observerData) {
             observerData = { ...observerData, ...res.observerData };
-            console.log('╔═══════════════════════════════════════════════════════════╗');
             console.log('║  📊 CALIBRADOR DE PORCENTAGENS CARREGADO                 ║');
-            console.log('╠═══════════════════════════════════════════════════════════╣');
             console.log(`║  📈 Entradas monitoradas: ${observerData.entries.length}`);
             console.log(`║  📊 Última calibração: ${observerData.lastCalibratedCount} entradas`);
             console.log(`║  🔧 Fator de calibração: ${(observerData.calibrationFactor * 100).toFixed(1)}%`);
             console.log(`║  🎯 Alta (≥80%): ${observerData.stats.high.total} entradas`);
             console.log(`║  🟡 Média (60-79%): ${observerData.stats.medium.total} entradas`);
             console.log(`║  🟢 Baixa (<60%): ${observerData.stats.low.total} entradas`);
-            console.log('╚═══════════════════════════════════════════════════════════╝');
         } else {
             console.log('ℹ️ Calibrador de porcentagens: Nenhum dado anterior encontrado (primeira execução)');
         }
         
         // ✅ SINCRONIZAR: Sempre manter observerData sincronizado com entriesHistory
         const entriesHistory = res.entriesHistory || [];
-        console.log('🔍 Verificando sincronização:');
         console.log(`   entriesHistory existe?`, !!entriesHistory);
         console.log(`   entriesHistory.length:`, entriesHistory.length);
         console.log(`   observerData.entries.length:`, observerData.entries.length);
@@ -1633,12 +1575,9 @@ loadHotColorsHistory();
         // ✅ CASO 1: entriesHistory foi LIMPO (menos entradas que observerData)
         // Isso significa que o usuário limpou o histórico, então resetar observerData
         if (entriesHistory.length < observerData.entries.length) {
-            console.log('╔═══════════════════════════════════════════════════════════╗');
             console.log('║  🗑️ HISTÓRICO FOI LIMPO - RESETANDO CALIBRADOR          ║');
-            console.log('╠═══════════════════════════════════════════════════════════╣');
             console.log(`║  Entradas antigas no calibrador: ${observerData.entries.length}`);
             console.log(`║  Entradas atuais no histórico: ${entriesHistory.length}`);
-            console.log('╚═══════════════════════════════════════════════════════════╝');
             
             // Resetar observerData e reconstruir a partir do entriesHistory
             observerData = {
@@ -1681,9 +1620,7 @@ loadHotColorsHistory();
         }
         // ✅ CASO 2: entriesHistory tem MAIS entradas (adicionar novas)
         else if (entriesHistory.length > observerData.entries.length) {
-            console.log('╔═══════════════════════════════════════════════════════════╗');
             console.log('║  🔄 SINCRONIZANDO ENTRADAS COM OBSERVADOR                ║');
-            console.log('╠═══════════════════════════════════════════════════════════╣');
             console.log(`║  Entradas no histórico: ${entriesHistory.length}`);
             console.log(`║  Entradas no observador: ${observerData.entries.length}`);
             
@@ -1719,9 +1656,7 @@ loadHotColorsHistory();
                 }
             }
             
-            console.log(`╠═══════════════════════════════════════════════════════════╣`);
             console.log(`║  Total sincronizado: ${syncedCount} novas entradas`);
-            console.log(`╚═══════════════════════════════════════════════════════════╝`);
             
             // Limitar ao máximo configurado
             if (observerData.entries.length > OBSERVER_CONFIG.maxHistorySize) {
@@ -1747,14 +1682,11 @@ loadHotColorsHistory();
         // ✅ RESTAURAR ESTADO DO MARTINGALE (se houver ciclo ativo)
         if (res.martingaleState && res.martingaleState.active) {
             martingaleState = res.martingaleState;
-            console.log('╔═══════════════════════════════════════════════════════════╗');
             console.log('║  🔄 CICLO DE MARTINGALE RESTAURADO                       ║');
-            console.log('╠═══════════════════════════════════════════════════════════╣');
             console.log(`║  Estágio: ${martingaleState.stage}`);
             console.log(`║  Padrão: ${martingaleState.patternKey}`);
             console.log(`║  Cor: ${martingaleState.entryColor}`);
             console.log(`║  LOSS consecutivos: ${martingaleState.lossCount}`);
-            console.log('╚═══════════════════════════════════════════════════════════╝');
         }
     } catch (e) {
         console.warn('⚠️ Falha ao carregar observerData:', e);
@@ -2045,10 +1977,8 @@ async function startDataCollection() {
     // ✅ VERIFICAR SE HÁ ABA DA BLAZE ABERTA ANTES DE INICIAR
     const hasBlaze = await hasBlazeTabOpen();
     if (!hasBlaze) {
-        console.log('╔═══════════════════════════════════════════════════════════╗');
         console.log('║  ⛔ IMPOSSÍVEL INICIAR: NENHUMA ABA DA BLAZE ABERTA      ║');
         console.log('║  💡 Abra blaze.com para usar a extensão                  ║');
-        console.log('╚═══════════════════════════════════════════════════════════╝');
         return;
     }
     
@@ -2064,14 +1994,14 @@ async function startDataCollection() {
             console.log('✅ Configurações carregadas do storage com sucesso!');
             console.log('🔧 DEBUG - Config carregada:', {
                 aiMode: analyzerConfig.aiMode,
-                aiApiKey: analyzerConfig.aiApiKey ? 'Configurada' : 'Não configurada',
+                modoDiamante: analyzerConfig.aiMode ? 'ATIVO' : 'Desativado',
                 minOccurrences: analyzerConfig.minOccurrences
             });
             
-            // ✅ Se modo IA já estava ativo ao iniciar, marcar flag para aguardar 1 giro
+            // ✅ Se Modo Diamante já estava ativo ao iniciar, marcar flag para aguardar 1 giro
             if (analyzerConfig.aiMode) {
                 aiModeJustActivated = true;
-                console.log('%c⏳ MODO IA DETECTADO AO INICIAR: Aguardando 1 giro antes de enviar primeiro sinal...', 'color: #FFAA00; font-weight: bold;');
+                console.log('%c⏳ MODO DIAMANTE DETECTADO AO INICIAR: Aguardando 1 giro antes de enviar primeiro sinal...', 'color: #FFAA00; font-weight: bold;');
             }
         } else {
             console.log('ℹ️ Usando configurações padrão (nenhuma personalização salva)');
@@ -2090,19 +2020,14 @@ async function startDataCollection() {
         console.warn('⚠️ Erro ao carregar configurações/estado, usando padrão:', e);
     }
     
-    console.log('╔═══════════════════════════════════════════════════════════╗');
     console.log('║  🚀 BLAZE ANALYZER - INICIANDO                            ║');
-    console.log('╠═══════════════════════════════════════════════════════════╣');
     console.log('║  📡 Modo: SERVIDOR (coleta do Render.com)                 ║');
     console.log('║  ⚡ Atualização: TEMPO REAL via WebSocket                 ║');
     console.log('║  📊 Limite: 2000 giros | 5000 padrões                     ║');
     console.log('║  💾 Cache: Em memória (não persiste após recarregar)      ║');
-    console.log('╚═══════════════════════════════════════════════════════════╝');
     
     // ✅ EXIBIR CONFIGURAÇÕES ATIVAS AO INICIAR
-    console.log('');
     logActiveConfiguration();
-    console.log('');
     
     // 1. Limpar padrões locais (começar do zero)
     // ✅ Isso NÃO limpa: entriesHistory, análise pendente, calibrador
@@ -2115,15 +2040,12 @@ async function startDataCollection() {
     
     // ✅ Verificar se há análise pendente (aguardando resultado)
     if (checkData.analysis && checkData.analysis.createdOnTimestamp) {
-        console.log('╔═══════════════════════════════════════════════════════════╗');
         console.log('║  🎯 ANÁLISE PENDENTE DETECTADA!                          ║');
-        console.log('╠═══════════════════════════════════════════════════════════╣');
         console.log(`║  Cor recomendada: ${checkData.analysis.color}`);
         console.log(`║  Confiança: ${checkData.analysis.confidence}%`);
         console.log(`║  Fase: ${checkData.analysis.phase || 'G0'}`);
         console.log(`║  Criada em: ${checkData.analysis.createdOnTimestamp}`);
         console.log('║  Status: Aguardando resultado do próximo giro           ║');
-        console.log('╚═══════════════════════════════════════════════════════════╝');
     } else {
         console.log('ℹ️ Nenhuma análise pendente no momento');
     }
@@ -2145,10 +2067,8 @@ async function startDataCollection() {
     
     // 6. ✅ CONECTAR AO WEBSOCKET PARA RECEBER GIROS EM TEMPO REAL
     if (API_CONFIG.useWebSocket) {
-        console.log('╔═══════════════════════════════════════════════════════════╗');
         console.log('║  ⚡ MODO WEBSOCKET ATIVO                                   ║');
         console.log('║  Giros serão recebidos em TEMPO REAL (sem delay)         ║');
-        console.log('╚═══════════════════════════════════════════════════════════╝');
         connectWebSocket();
         
         // ✅ Iniciar sistema de verificação de dados desatualizados
@@ -2161,9 +2081,7 @@ async function startDataCollection() {
                 // ✅ VERIFICAR SE ABA DA BLAZE AINDA ESTÁ ABERTA (A CADA TICK)
                 const hasBlaze = await hasBlazeTabOpen();
                 if (!hasBlaze) {
-                    console.log('╔═══════════════════════════════════════════════════════════╗');
                     console.log('║  ⚠️ ABA DA BLAZE FECHADA - PARANDO COLETA                ║');
-                    console.log('╚═══════════════════════════════════════════════════════════╝');
                     stopDataCollection();
                     return;
                 }
@@ -2419,9 +2337,6 @@ async function processNewSpinFromServer(spinData) {
                 console.warn('⚠️ Erro ao carregar configurações/estado, usando padrão:', e);
             }
             
-            console.log('╔═══════════════════════════════════════════════════════════╗');
-            console.log('║  🎯 VERIFICANDO RECOMENDAÇÃO PENDENTE                    ║');
-            console.log('╚═══════════════════════════════════════════════════════════╝');
             console.log('🔍 Buscando currentAnalysis de chrome.storage.local...');
                 
                 // Avaliar recomendação pendente (WIN / G1 / G2)
@@ -2443,7 +2358,6 @@ async function processNewSpinFromServer(spinData) {
             console.log('   Cor:', rollColor);
             console.log('   Número:', rollNumber);
             console.log('   Timestamp:', latestSpin.created_at);
-            console.log('');
             
                 if (currentAnalysis && currentAnalysis.createdOnTimestamp && currentAnalysis.predictedFor === 'next') {
                 console.log('✅ Recomendação pendente encontrada!');
@@ -2467,26 +2381,20 @@ async function processNewSpinFromServer(spinData) {
                         const actualColor = String(rollColor || '').toLowerCase().trim();
                         const hit = (expectedColor === actualColor);
                     
-                    console.log('   ═══════════════════════════════════════════════════');
                     console.log('   🔍 VERIFICAÇÃO FINAL DE WIN/LOSS:');
                     console.log('   Esperado (processado):', expectedColor);
                     console.log('   Real (processado):', actualColor);
                     console.log('   São iguais?', hit);
                     console.log('   Resultado FINAL:', hit ? '✅ WIN!' : '❌ LOSS!');
-                    console.log('   ═══════════════════════════════════════════════════');
                     
                         if (hit) {
-                        console.log('');
-                        console.log('╔═══════════════════════════════════════════════════════════╗');
                         console.log('║  ✅ WIN DETECTADO!                                       ║');
-                        console.log('╚═══════════════════════════════════════════════════════════╝');
                             
                             // ═══════════════════════════════════════════════════════════════
                             // ✅ SISTEMA DE MARTINGALE - LÓGICA DE WIN
                             // ═══════════════════════════════════════════════════════════════
                             
                             // ✅ VALIDAÇÃO CRÍTICA: Garantir que não há processamento duplo
-                            console.log('🔒 VALIDAÇÃO CRÍTICA: Verificando se já foi processado...');
                             console.log('   Martingale ativo:', martingaleState.active);
                             console.log('   Estágio atual:', martingaleState.stage);
                             console.log('   Análise fase:', currentAnalysis.phase);
@@ -2536,10 +2444,7 @@ async function processNewSpinFromServer(spinData) {
                                 analysisMode: analyzerConfig.aiMode ? 'diamond' : 'standard' // 'diamond' | 'standard'
                             };
                             
-                            console.log('');
-                            console.log('%c╔══════════════════════════════════════════════════════════════════════════════╗', 'color: #00FF00; font-weight: bold; font-size: 14px;');
                             console.log('%c║  📝 DEBUG COMPLETO: SALVANDO ENTRADA WIN                                    ║', 'color: #00FF00; font-weight: bold; font-size: 14px;');
-                            console.log('%c╚══════════════════════════════════════════════════════════════════════════════╝', 'color: #00FF00; font-weight: bold; font-size: 14px;');
                             console.log('%c📊 DADOS DA ENTRADA WIN:', 'color: #00FF88; font-weight: bold;');
                             console.log('   ➤ Timestamp:', winEntry.timestamp);
                             console.log('   ➤ Número:', winEntry.number);
@@ -2550,17 +2455,14 @@ async function processNewSpinFromServer(spinData) {
                             console.log('   ➤ Martingale Stage:', winEntry.martingaleStage);
                             console.log('   ➤ Won At:', winEntry.wonAt);
                             console.log('   ➤ Final Result:', winEntry.finalResult);
-                            console.log('');
                             console.log('%c📋 ESTADO DO HISTÓRICO ANTES DE ADICIONAR:', 'color: #00FFFF; font-weight: bold;');
                             console.log('   ➤ entriesHistory existe?', !!entriesHistory);
                             console.log('   ➤ entriesHistory.length ANTES:', entriesHistory.length);
-                            console.log('');
                             
                             entriesHistory.unshift(winEntry);
                             
                             console.log('%c✅ ENTRADA ADICIONADA AO HISTÓRICO!', 'color: #00FF00; font-weight: bold; font-size: 14px;');
                             console.log('   ➤ entriesHistory.length DEPOIS:', entriesHistory.length);
-                            console.log('');
                             
                             // ✅ Calcular estatísticas WIN/LOSS FILTRADAS POR MODO
                             const currentMode = analyzerConfig.aiMode ? 'diamond' : 'standard';
@@ -2629,7 +2531,6 @@ async function processNewSpinFromServer(spinData) {
                             console.log('   ➤ entriesHistory.length:', entriesHistory.length);
                             console.log('   ➤ martingaleState.active:', martingaleState.active);
                             console.log('   ➤ rigorLevel: 75 (reset)');
-                            console.log('');
                             
                             await chrome.storage.local.set({ 
                                 analysis: null, 
@@ -2640,8 +2541,6 @@ async function processNewSpinFromServer(spinData) {
                                 rigorLevel: 75 // RESET: Volta para 75% após WIN
                             });
                             
-                            console.log('%c✅ SALVO COM SUCESSO NO STORAGE!', 'color: #00FF00; font-weight: bold; font-size: 14px;');
-                            console.log('');
                             
                             sendMessageToContent('CLEAR_ANALYSIS');
                             
@@ -2655,20 +2554,12 @@ async function processNewSpinFromServer(spinData) {
                                 number: entriesHistory[0].number,
                                 phase: entriesHistory[0].phase
                             } : 'N/A');
-                            console.log('');
                             
                             const uiUpdateResult = sendMessageToContent('ENTRIES_UPDATE', entriesHistory);
                             console.log('%c📨 Resultado do envio para UI:', uiUpdateResult ? 'color: #00FF00;' : 'color: #FF0000;', uiUpdateResult);
-                            console.log('');
-                            console.log('%c╔══════════════════════════════════════════════════════════════════════════════╗', 'color: #00FF00; font-weight: bold;');
                             console.log('%c║  ✅ ENTRADA WIN PROCESSADA COMPLETAMENTE!                                   ║', 'color: #00FF00; font-weight: bold;');
-                            console.log('%c╚══════════════════════════════════════════════════════════════════════════════╝', 'color: #00FF00; font-weight: bold;');
-                            console.log('');
                         } else {
-                            console.log('');
-                            console.log('╔═══════════════════════════════════════════════════════════╗');
                             console.log('║  ❌ LOSS DETECTADO!                                      ║');
-                            console.log('╚═══════════════════════════════════════════════════════════╝');
                             
                             // ═══════════════════════════════════════════════════════════════
                             // ✅ SISTEMA DE MARTINGALE - LÓGICA DE LOSS
@@ -2712,13 +2603,10 @@ async function processNewSpinFromServer(spinData) {
                             const nextGaleNumber = currentGaleNumber + 1;
                             const maxGales = analyzerConfig.maxGales || 0;
                             
-                            console.log(`╔═══════════════════════════════════════════════════════════╗`);
                             console.log(`║  ❌ LOSS no ${currentStage === 'ENTRADA' ? 'ENTRADA PADRÃO' : currentStage}                                  ║`);
-                            console.log(`╠═══════════════════════════════════════════════════════════╣`);
                             console.log(`║  ⚙️  Configuração: ${maxGales} Gale${maxGales !== 1 ? 's' : ''} permitido${maxGales !== 1 ? 's' : ''}           ║`);
                             console.log(`║  📊 Atual: Gale ${currentGaleNumber} (${currentStage})                        ║`);
                             console.log(`║  🎯 Próximo: ${nextGaleNumber <= maxGales ? `Tentar G${nextGaleNumber}` : 'RET (limite atingido)'}                  ║`);
-                            console.log(`╚═══════════════════════════════════════════════════════════╝`);
                             
                             // Verificar se ainda pode tentar mais Gales
                             const canTryNextGale = nextGaleNumber <= maxGales;
@@ -2751,10 +2639,7 @@ async function processNewSpinFromServer(spinData) {
                                         analysisMode: analyzerConfig.aiMode ? 'diamond' : 'standard'
                                     };
                                     
-                                    console.log('');
-                                    console.log('%c╔══════════════════════════════════════════════════════════════════════════════╗', 'color: #FF0000; font-weight: bold; font-size: 14px;');
                                     console.log('%c║  📝 DEBUG COMPLETO: SALVANDO ENTRADA LOSS (SEM GALES)                      ║', 'color: #FF0000; font-weight: bold; font-size: 14px;');
-                                    console.log('%c╚══════════════════════════════════════════════════════════════════════════════╝', 'color: #FF0000; font-weight: bold; font-size: 14px;');
                                     console.log('%c📊 DADOS DA ENTRADA LOSS:', 'color: #FF6666; font-weight: bold;');
                                     console.log('   ➤ Timestamp:', lossEntry.timestamp);
                                     console.log('   ➤ Número:', lossEntry.number);
@@ -2764,17 +2649,14 @@ async function processNewSpinFromServer(spinData) {
                                     console.log('   ➤ Confiança:', lossEntry.confidence + '%');
                                     console.log('   ➤ Martingale Stage:', lossEntry.martingaleStage);
                                     console.log('   ➤ Final Result:', lossEntry.finalResult);
-                                    console.log('');
                                     console.log('%c📋 ESTADO DO HISTÓRICO ANTES DE ADICIONAR:', 'color: #00FFFF; font-weight: bold;');
                                     console.log('   ➤ entriesHistory existe?', !!entriesHistory);
                                     console.log('   ➤ entriesHistory.length ANTES:', entriesHistory.length);
-                                    console.log('');
                                     
                                     entriesHistory.unshift(lossEntry);
                                     
                                     console.log('%c✅ ENTRADA ADICIONADA AO HISTÓRICO!', 'color: #00FF00; font-weight: bold; font-size: 14px;');
                                     console.log('   ➤ entriesHistory.length DEPOIS:', entriesHistory.length);
-                                    console.log('');
                                     
                                     // ✅ Calcular estatísticas WIN/LOSS FILTRADAS POR MODO
                                     const currentMode = analyzerConfig.aiMode ? 'diamond' : 'standard';
@@ -2794,7 +2676,6 @@ async function processNewSpinFromServer(spinData) {
                                     console.log('   ➤ pattern: null (limpar)');
                                     console.log('   ➤ lastBet.status: loss');
                                     console.log('   ➤ entriesHistory.length:', entriesHistory.length);
-                                    console.log('');
                                     
                                     await chrome.storage.local.set({ 
                                         analysis: null, 
@@ -2804,8 +2685,6 @@ async function processNewSpinFromServer(spinData) {
                                         martingaleState
                                     });
                                     
-                                    console.log('%c✅ SALVO COM SUCESSO NO STORAGE!', 'color: #00FF00; font-weight: bold; font-size: 14px;');
-                                    console.log('');
                                     
                                     sendMessageToContent('CLEAR_ANALYSIS');
                                     
@@ -2819,15 +2698,10 @@ async function processNewSpinFromServer(spinData) {
                                         phase: entriesHistory[0].phase,
                                         finalResult: entriesHistory[0].finalResult
                                     } : 'N/A');
-                                    console.log('');
                                     
                                     const uiUpdateResult = sendMessageToContent('ENTRIES_UPDATE', entriesHistory);
                                     console.log('%c📨 Resultado do envio para UI:', uiUpdateResult ? 'color: #00FF00;' : 'color: #FF0000;', uiUpdateResult);
-                                    console.log('');
-                                    console.log('%c╔══════════════════════════════════════════════════════════════════════════════╗', 'color: #00FF00; font-weight: bold;');
                                     console.log('%c║  ✅ ENTRADA LOSS PROCESSADA COMPLETAMENTE!                                  ║', 'color: #00FF00; font-weight: bold;');
-                                    console.log('%c╚══════════════════════════════════════════════════════════════════════════════╝', 'color: #00FF00; font-weight: bold;');
-                                    console.log('');
                                     return;
                                 }
                                 
@@ -2995,12 +2869,8 @@ async function processNewSpinFromServer(spinData) {
                                 );
                                 
                                 // ✅ USAR SEMPRE A MESMA COR DA ENTRADA ORIGINAL
-                                console.log('╔═══════════════════════════════════════════════════════════╗');
-                                console.log('║  🔍 DEBUG: VERIFICANDO COR DO MARTINGALE                 ║');
-                                console.log('╠═══════════════════════════════════════════════════════════╣');
                                 console.log(`║  martingaleState.entryColor: ${martingaleState.entryColor}                   ║`);
                                 console.log(`║  currentAnalysis.color: ${currentAnalysis.color}                        ║`);
-                                console.log('╚═══════════════════════════════════════════════════════════╝');
                                 
                                 const nextGaleColor = martingaleState.entryColor;
                                 
@@ -3077,7 +2947,6 @@ async function processNewSpinFromServer(spinData) {
                                 // ═══════════════════════════════════════════════════════════════
                                 // ✅ LOSS NO G1: Verificar modo de Martingale
                                 // ═══════════════════════════════════════════════════════════════
-                                console.log('🔄 LOSS no G1 - Verificando modo de Martingale...');
                                 console.log(`⚙️ Martingale Consecutivo: ${analyzerConfig.consecutiveMartingale ? 'ATIVADO' : 'DESATIVADO'}`);
                                 
                                 // ✅ USAR SEMPRE A MESMA COR DA ENTRADA ORIGINAL
@@ -3232,7 +3101,6 @@ async function processNewSpinFromServer(spinData) {
                         console.log('   Motivo: predictedFor =', currentAnalysis.predictedFor, '(esperado: "next")');
                     }
                 }
-                console.log('═══════════════════════════════════════════════════════════\n');
                 
                 // Notificar content script sobre novo giro (SEMPRE usar cachedHistory - array válido!)
                 sendMessageToContent('NEW_SPIN', { 
@@ -3241,23 +3109,15 @@ async function processNewSpinFromServer(spinData) {
                 });
                 
                 // ✅ EXECUTAR NOVA ANÁLISE (após processar WIN/LOSS)
-            console.log('');
-            console.log('');
-            console.log('%c╔═══════════════════════════════════════════════════════════════════════════════╗', 'color: #FFD700; font-weight: bold; font-size: 16px; background: #333300; padding: 5px;');
             console.log('%c║                                                                               ║', 'color: #FFD700; font-weight: bold; font-size: 16px; background: #333300; padding: 5px;');
-            console.log('%c║       🎯 PRESTES A CHAMAR runAnalysisController()! 🎯                        ║', 'color: #FFD700; font-weight: bold; font-size: 16px; background: #333300; padding: 5px;');
             console.log('%c║                                                                               ║', 'color: #FFD700; font-weight: bold; font-size: 16px; background: #333300; padding: 5px;');
             console.log('%c║       📊 Giros no histórico:', 'color: #FFD700; font-weight: bold; background: #333300; padding: 5px;', cachedHistory ? cachedHistory.length : 0);
             console.log('%c║       🤖 Modo IA ativo:', 'color: #FFD700; font-weight: bold; background: #333300; padding: 5px;', analyzerConfig.aiMode);
             console.log('%c║                                                                               ║', 'color: #FFD700; font-weight: bold; font-size: 16px; background: #333300; padding: 5px;');
-            console.log('%c╚═══════════════════════════════════════════════════════════════════════════════╝', 'color: #FFD700; font-weight: bold; font-size: 16px; background: #333300; padding: 5px;');
-            console.log('');
             
             await runAnalysisController(cachedHistory);
             
-            console.log('');
             console.log('%c✅ runAnalysisController() FINALIZADO!', 'color: #00FF88; font-weight: bold; font-size: 16px; background: #003300; padding: 5px;');
-            console.log('');
         }
     } catch (error) {
         console.error('Erro ao processar giro do servidor:', error);
@@ -3311,7 +3171,6 @@ async function initializeHistoryIfNeeded() {
             
             // ✅ INICIALIZAR MEMÓRIA ATIVA SE MODO IA ESTIVER ATIVO
             if (analyzerConfig.aiMode && !memoriaAtiva.inicializada && cachedHistory.length >= 60) {
-                console.log('');
                 console.log('%c🧠 MODO IA ATIVO - Inicializando Memória Ativa automaticamente...', 'color: #00CED1; font-weight: bold;');
                 const sucesso = await inicializarMemoriaAtiva(cachedHistory);
                 if (sucesso) {
@@ -3319,7 +3178,6 @@ async function initializeHistoryIfNeeded() {
                 } else {
                     console.log('%c⚠️ Falha ao inicializar Memória Ativa', 'color: #FFAA00; font-weight: bold;');
                 }
-                console.log('');
             }
             
             // ✅ ENVIAR ÚLTIMO GIRO E HISTÓRICO PARA A UI
@@ -3771,12 +3629,8 @@ async function combineAIResults(macroResults, microWindows, savedPatterns) {
  * Para cada padrão, conta O QUE VEIO DEPOIS (estatística REAL)
  */
 function detectPatternsInHistory(history) {
-    console.log('');
-    console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #00BFFF; font-weight: bold;');
     console.log('%c║  🔍 DETECTANDO PADRÕES NO HISTÓRICO                      ║', 'color: #00BFFF; font-weight: bold;');
-    console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #00BFFF; font-weight: bold;');
     console.log('%c   Histórico recebido: ' + history.length + ' giros', 'color: #00BFFF;');
-    console.log('');
     
     // ✅ VALIDAÇÃO: Verificar se histórico é válido
     if (!history || !Array.isArray(history) || history.length === 0) {
@@ -4044,7 +3898,6 @@ function detectPatternsInHistory(history) {
     
     // Exibir relatório no console
     console.log('%c📊 RELATÓRIO DE PADRÕES DETECTADOS:', 'color: #00BFFF; font-weight: bold; font-size: 14px;');
-    console.log('');
     
     if (report.length === 0) {
         console.log('%c⚠️ Nenhum padrão claro detectado no histórico', 'color: #FFAA00;');
@@ -4058,12 +3911,10 @@ function detectPatternsInHistory(history) {
             console.log(`   %c→ VERMELHO: ${p.afterRed} vezes (${p.redPercent}%)`, 'color: #FF0000; font-weight: bold;');
             console.log(`   %c→ PRETO: ${p.afterBlack} vezes (${p.blackPercent}%)`, 'color: #FFFFFF; font-weight: bold;');
             console.log(`   %c→ BRANCO: ${p.afterWhite} vezes (${p.whitePercent}%)`, 'color: #00FF00; font-weight: bold;');
-            console.log('');
         });
     }
     
     console.log('%c✅ Detecção de padrões concluída! Retornando ' + report.length + ' padrões', 'color: #00BFFF; font-weight: bold;');
-    console.log('');
     
     return report;
 }
@@ -4148,7 +3999,6 @@ let customPatternsCache = []; // Cache dos padrões customizados
 async function loadCustomPatterns() {
     customPatternsCache = [];
         
-        console.log('');
     
     try {
         await chrome.storage.local.remove('customPatterns');
@@ -4157,11 +4007,8 @@ async function loadCustomPatterns() {
         console.warn('⚠️ Não foi possível limpar customPatterns do storage:', error);
     }
     
-    console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #666; font-weight: bold;');
     console.log('%c║  🎯 PADRÕES CUSTOMIZADOS DESATIVADOS (MODO DIAMANTE)     ║', 'color: #666; font-weight: bold;');
-    console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #666; font-weight: bold;');
     console.log('%c   ➤ Análise focada apenas no Padrão Quente automático', 'color: #666; font-style: italic;');
-        console.log('');
         
         return customPatternsCache;
 }
@@ -4324,12 +4171,8 @@ function analyzeCustomPatternStatistics(matches) {
 async function checkForCustomPatterns(history) {
     // ⚠️ Funcionalidade desativada: padrões customizados foram removidos do sistema.
     return null;
-    console.log('');
-    console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #666; font-weight: bold;');
     console.log('%c║  🎯 PADRÕES CUSTOMIZADOS DESATIVADOS (MODO DIAMANTE)     ║', 'color: #666; font-weight: bold;');
-    console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #666; font-weight: bold;');
     console.log('%c   ➤ Somente o Padrão Quente automático será utilizado', 'color: #666; font-style: italic;');
-    console.log('');
     
     return null;
     
@@ -4338,26 +4181,16 @@ async function checkForCustomPatterns(history) {
     await loadCustomPatterns();
     
     if (customPatternsCache.length === 0) {
-        console.log('');
-        console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #FFA500; font-weight: bold;');
         console.log('%c║  ⚠️ NENHUM PADRÃO CUSTOMIZADO ENCONTRADO                 ║', 'color: #FFA500; font-weight: bold;');
-        console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #FFA500; font-weight: bold;');
         console.log('%c   ➤ Storage foi verificado e está vazio', 'color: #FFA500;');
         console.log('%c   ➤ Nenhum sinal de padrão customizado será gerado', 'color: #FFA500;');
-        console.log('');
         return null;
     }
     
     console.log('%c✅ Padrões customizados carregados do storage!', 'color: #00FF88; font-weight: bold;');
     console.log(`%c   Total: ${customPatternsCache.length} padrão(ões)`, 'color: #00FF88;');
-    console.log('');
     
-    console.log('');
-    console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #00d4ff; font-weight: bold;');
-    console.log('%c║  🎯 VERIFICANDO PADRÕES CUSTOMIZADOS                     ║', 'color: #00d4ff; font-weight: bold;');
-    console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #00d4ff; font-weight: bold;');
     console.log(`📊 Total de padrões carregados no cache: ${customPatternsCache.length}`);
-    console.log('');
     
     const colors = history.map(spin => spin.color);
     
@@ -4369,16 +4202,13 @@ async function checkForCustomPatterns(history) {
     console.log(`%c   ↑ PASSADO ──────────────────────── PRESENTE ↑`, 'color: #888; font-style: italic;');
     console.log(`%c   ${last15Display}`, 'color: #FFD700; font-weight: bold;');
     console.log(`%c   ${last15Reversed.join(' → ')}`, 'color: #888;');
-    console.log('');
     
     let patternIndex = 0;
     // Verificar cada padrão customizado
     for (const customPattern of customPatternsCache) {
         patternIndex++;
-        console.log(`%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, 'color: #00d4ff;');
         console.log(`%c🔍 PADRÃO #${patternIndex}: "${customPattern.name}"`, 'color: #00d4ff; font-weight: bold;');
         console.log(`   Status: ${customPattern.active ? '✅ ATIVO' : '❌ INATIVO'}`);
-        console.log('');
         console.log(`%c   📋 SEQUÊNCIA CONFIGURADA (ordem cronológica):`, 'color: #FFD700; font-weight: bold;');
         console.log(`%c      [ANTERIOR] → [1º] → [2º] → [3º] → ... → [ÚLTIMO/ATUAL]`, 'color: #888; font-style: italic;');
         
@@ -4414,7 +4244,6 @@ async function checkForCustomPatterns(history) {
         const currentSequenceReversed = [...currentSequenceRaw].reverse(); // ✅ INVERTER para ordem cronológica
         
         // ✅ REMOVER WHITES (branco não conta para padrões)
-        console.log('');
         console.log(`%c   🔍 FILTRANDO GIROS (removendo WHITE):`, 'color: #FFD700; font-weight: bold;');
         console.log(`      Sequência bruta: [${currentSequenceReversed.join(' → ')}]`);
         
@@ -4424,13 +4253,11 @@ async function checkForCustomPatterns(history) {
         console.log(`      Após remover WHITE: [${currentSequenceFiltered.join(' → ')}]`);
         console.log(`      Comparando primeiros ${patternLength} giros: [${currentSequence.join(' → ')}]`);
         
-        console.log('');
         console.log(`%c   📋 COMPARANDO SEQUÊNCIAS (ordem cronológica, SEM WHITE):`, 'color: #FFD700; font-weight: bold;');
         console.log(`%c      📍 IMPORTANTE: WHITE é IGNORADO na comparação!`, 'color: #FFD700; font-weight: bold;');
         console.log(`      🎯 Esperado: [${customPattern.sequence.join(' → ')}]`);
         console.log(`      📊 Atual:    [${currentSequence.join(' → ')}]`);
         console.log(`      📏 Tamanho:  ${patternLength} giros (sem contar WHITE)`);
-        console.log('');
         
         // Comparar posição por posição (agora ambos estão em ordem cronológica)
         let matchDetails = [];
@@ -4454,7 +4281,6 @@ async function checkForCustomPatterns(history) {
         });
         
         const isCurrentMatch = matchDetails.every(d => d.match);
-        console.log('');
         console.log(`%c   ${isCurrentMatch ? '✅ SEQUÊNCIA BATE PERFEITAMENTE!' : '❌ Sequência NÃO bate'}`, `color: ${isCurrentMatch ? '#00FF88' : '#FF6666'}; font-weight: bold;`);
         
         if (isCurrentMatch) {
@@ -4485,7 +4311,6 @@ async function checkForCustomPatterns(history) {
                 console.log(`%c   ❌ PADRÃO REJEITADO: Cor de disparo (${colorBeforeSymbol}) IGUAL à primeira cor do padrão!`, 'color: #FF6666; font-weight: bold;');
                 console.log(`%c      Isso corrompe o padrão! Se padrão é ${firstPatternColor.toUpperCase()} e disparo também é ${colorBefore.toUpperCase()}, o padrão fica diferente!`, 'color: #FF6666;');
                 console.log(`%c      Validação: ${disparoValidation.reason}`, 'color: #FF6666;');
-                console.log('');
                 continue; // ❌ PULAR este padrão
             }
             
@@ -4514,10 +4339,7 @@ async function checkForCustomPatterns(history) {
                 const matches = findCustomPatternInHistory(customPattern, history);
                 const stats = analyzeCustomPatternStatistics(matches);
                 
-                console.log('');
-                console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #FFD700; font-weight: bold;');
                 console.log('%c║  📊 ANÁLISE SIMPLES DO PADRÃO                            ║', 'color: #FFD700; font-weight: bold;');
-                console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #FFD700; font-weight: bold;');
                 
                 // ✅ LÓGICA SIMPLES: Encontrou pelo menos 1x? Recomenda a cor com maior %
                 if (stats && stats.occurrences >= 1) {
@@ -4525,7 +4347,6 @@ async function checkForCustomPatterns(history) {
                     console.log(`🔴 Vermelho veio depois: ${stats.nextColor.redPercent}%`);
                     console.log(`⚫ Preto veio depois: ${stats.nextColor.blackPercent}%`);
                     console.log(`⚪ Branco veio depois: ${stats.nextColor.whitePercent}%`);
-                    console.log('');
                     
                     // Determinar cor com maior frequência (SIMPLES!)
                     const redPercent = stats.nextColor.redPercent;
@@ -4536,7 +4357,6 @@ async function checkForCustomPatterns(history) {
                     console.log(`%c✅ PADRÃO CUSTOMIZADO APROVADO!`, 'color: #00FF88; font-weight: bold; font-size: 14px;');
                     console.log(`%c🎯 COR RECOMENDADA: ${recommendedColor === 'red' ? '🔴 VERMELHO' : '⚫ PRETO'}`, 'color: #00FF88; font-weight: bold;');
                     console.log(`%c📊 Confiança: ${confidence}%`, 'color: #00FF88; font-weight: bold;');
-                    console.log('');
                     
                     return {
                         pattern: customPattern,
@@ -4552,7 +4372,6 @@ async function checkForCustomPatterns(history) {
                     console.log(`%c⚠️ ATENÇÃO! Padrão NUNCA apareceu no histórico`, 'color: #FFA500; font-weight: bold; font-size: 14px;');
                     console.log(`%c   Padrão detectado: "${customPattern.name}"`, 'color: #FFA500;');
                     console.log(`%c   Sem dados históricos para análise`, 'color: #FFA500;');
-                    console.log('');
                     // Continuar verificando próximo padrão
                 }
             } else {
@@ -4571,10 +4390,7 @@ async function checkForCustomPatterns(history) {
 // Listener para atualização de padrões customizados
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     if (request.type === 'CUSTOM_PATTERNS_UPDATED') {
-        console.log('');
-        console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #00FF88; font-weight: bold;');
         console.log('%c║  🔄 PADRÕES CUSTOMIZADOS ATUALIZADOS!                    ║', 'color: #00FF88; font-weight: bold;');
-        console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #00FF88; font-weight: bold;');
         
         const oldCache = [...customPatternsCache];
         customPatternsCache = request.data || [];
@@ -4585,7 +4401,6 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                 console.log(`   ${idx + 1}. "${p.name}" (ID: ${p.id})`);
             });
         }
-        console.log('');
         
         console.log(`📊 Padrões no cache NOVO: ${customPatternsCache.length}`);
         if (customPatternsCache.length > 0) {
@@ -4593,7 +4408,6 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                 console.log(`   ${idx + 1}. "${p.name}" (ID: ${p.id})`);
             });
         }
-        console.log('');
         
         // Detectar padrões REMOVIDOS
         const removedPatterns = oldCache.filter(old => !customPatternsCache.find(p => p.id === old.id));
@@ -4627,10 +4441,8 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             });
         }
         
-        console.log('');
         console.log('%c✅ CACHE ATUALIZADO - Próximo sinal usará os padrões mais recentes!', 'color: #00FF88; font-weight: bold;');
         console.log('%c⚠️ IMPORTANTE: Padrões removidos NÃO gerarão mais sinais!', 'color: #FFD700; font-weight: bold;');
-        console.log('');
         
         sendResponse({ success: true });
         return true;
@@ -4649,10 +4461,7 @@ function detectAllPatternTypes(history) {
     // Converter histórico para array de cores simples
     const colors = history.map(spin => spin.color);
     
-    console.log('%c═══════════════════════════════════════════════════════════', 'color: #00BFFF; font-weight: bold;');
     console.log('%c🔍 DETECTANDO TODOS OS PADRÕES POSSÍVEIS', 'color: #00BFFF; font-weight: bold;');
-    console.log('%c═══════════════════════════════════════════════════════════', 'color: #00BFFF; font-weight: bold;');
-    console.log('');
     
     // 1. ALTERNÂNCIA SIMPLES (V-P-V-P...)
     console.log('%c📊 Buscando: Alternância Simples (tamanhos 2-20)', 'color: #00FF88;');
@@ -4757,7 +4566,6 @@ function detectAllPatternTypes(history) {
     }
     
     console.log('%c✅ Total de padrões detectados: ' + patterns.length, 'color: #00BFFF; font-weight: bold;');
-    console.log('');
     
     return patterns;
 }
@@ -4865,15 +4673,11 @@ function detectIrregularPattern(colors) {
 function validatePatternDetection(colors, patternStartIndex, patternSize, patternType, groupSize, patternName) {
     const patternSequence = colors.slice(patternStartIndex, patternStartIndex + patternSize);
     
-    console.log('%c═══════════════════════════════════════════════════════════', 'color: #FF1493; font-weight: bold;');
     console.log('%c🔍 VALIDADOR RIGOROSO DE PADRÃO', 'color: #FF1493; font-weight: bold; font-size: 14px;');
-    console.log('%c═══════════════════════════════════════════════════════════', 'color: #FF1493; font-weight: bold;');
-    console.log('');
     console.log(`%c📋 Padrão detectado: ${patternName}`, 'color: #FF69B4; font-weight: bold;');
     console.log(`%c   Tipo: ${patternType}`, 'color: #FF69B4;');
     console.log(`%c   Tamanho: ${patternSize} giros`, 'color: #FF69B4;');
     console.log(`%c   Sequência: ${patternSequence.map(c => c === 'red' ? 'V' : c === 'black' ? 'P' : 'B').join('-')}`, 'color: #FF69B4;');
-    console.log('');
     
     // ═══════════════════════════════════════════════════════════════
     // ETAPA 1: MOSTRAR CONTEXTO COMPLETO (10 giros)
@@ -4890,7 +4694,6 @@ function validatePatternDetection(colors, patternStartIndex, patternSize, patter
     console.log(`%c📊 CONTEXTO COMPLETO (últimos ${contextSize} giros):`, 'color: #00CED1; font-weight: bold;');
     console.log(`%c   ${contextColors}`, 'color: #00CED1;');
     console.log(`%c   (Padrão marcado com [ ])`, 'color: #888;');
-    console.log('');
     
     // ═══════════════════════════════════════════════════════════════
     // ETAPA 2: ANÁLISE DO CONTEXTO ANTERIOR (O que veio ANTES)
@@ -4922,7 +4725,6 @@ function validatePatternDetection(colors, patternStartIndex, patternSize, patter
             const lastGroupColors = patternSequence.slice(patternSize - groupSize, patternSize);
             const lastGroupColor = lastGroupColors[0]; // Cor do último grupo
             
-            console.log(`%c   🔍 Verificando últimos ${groupSize} giro(s) do padrão:`, 'color: #FFA500;');
             console.log(`%c      Cor: ${lastGroupColor === 'red' ? 'VERMELHO' : 'PRETO'}`, 'color: #FFA500;');
             
             // Verificar se essa mesma cor continua ANTES do padrão
@@ -4931,9 +4733,6 @@ function validatePatternDetection(colors, patternStartIndex, patternSize, patter
                 console.log(`%c   Motivo: A cor ${lastGroupColor === 'red' ? 'VERMELHO' : 'PRETO'} continua ANTES do padrão!`, 'color: #FF0000;');
                 console.log(`%c   O último grupo (${lastGroupColors.map(c => c === 'red' ? 'V' : 'P').join('-')}) faz parte de uma SEQUÊNCIA maior!`, 'color: #FF0000;');
                 console.log(`%c   Isso NÃO é ${patternName}! É uma SEQUÊNCIA quebrando!`, 'color: #FF0000; font-weight: bold;');
-                console.log('');
-                console.log('%c═══════════════════════════════════════════════════════════', 'color: #FF1493; font-weight: bold;');
-                console.log('');
                 return { valid: false, reason: `Último grupo do padrão (${lastGroupColor === 'red' ? 'V' : 'P'}) continua antes - é sequência quebrando!` };
             }
             
@@ -4941,7 +4740,6 @@ function validatePatternDetection(colors, patternStartIndex, patternSize, patter
             const firstGroupColors = patternSequence.slice(0, groupSize);
             const firstGroupColor = firstGroupColors[0];
             
-            console.log(`%c   🔍 Verificando primeiros ${groupSize} giro(s) do padrão:`, 'color: #FFA500;');
             console.log(`%c      Cor: ${firstGroupColor === 'red' ? 'VERMELHO' : 'PRETO'}`, 'color: #FFA500;');
             
             // Verificar quantas vezes essa cor aparece ANTES do padrão
@@ -4959,9 +4757,6 @@ function validatePatternDetection(colors, patternStartIndex, patternSize, patter
                 console.log(`%c   Motivo: ${sameColorCountBefore} cor(es) ${lastGroupColor === 'red' ? 'VERMELHO' : 'PRETO'} continuam antes!`, 'color: #FF0000;');
                 console.log(`%c   Isso cria uma sequência de ${sameColorCountBefore + groupSize} cores iguais!`, 'color: #FF0000;');
                 console.log(`%c   Isso NÃO é ${patternName}! É uma SEQUÊNCIA quebrando!`, 'color: #FF0000; font-weight: bold;');
-                console.log('');
-                console.log('%c═══════════════════════════════════════════════════════════', 'color: #FF1493; font-weight: bold;');
-                console.log('');
                 return { valid: false, reason: `${sameColorCountBefore} cor(es) continuam antes - sequência de ${sameColorCountBefore + groupSize} total!` };
             } else {
                 console.log(`%c   ✅ OK: Não há continuação da cor antes do padrão`, 'color: #00FF00;');
@@ -4975,16 +4770,12 @@ function validatePatternDetection(colors, patternStartIndex, patternSize, patter
                 console.log('%c   ❌ ERRO DETECTADO: Padrão INCORRETO!', 'color: #FF0000; font-weight: bold;');
                 console.log(`%c   Motivo: Sequência continua ANTES do padrão detectado`, 'color: #FF0000;');
                 console.log(`%c   Isso não é uma nova sequência, é continuação!`, 'color: #FF0000; font-weight: bold;');
-                console.log('');
-                console.log('%c═══════════════════════════════════════════════════════════', 'color: #FF1493; font-weight: bold;');
-                console.log('');
                 return { valid: false, reason: 'Sequência continua antes do padrão' };
             } else {
                 console.log(`%c   ✅ OK: Cor anterior (${contextBefore[0] === 'red' ? 'V' : 'P'}) é diferente da sequência (${firstColor === 'red' ? 'V' : 'P'})`, 'color: #00FF00;');
             }
         }
         
-        console.log('');
     }
     
     // ═══════════════════════════════════════════════════════════════
@@ -5010,15 +4801,11 @@ function validatePatternDetection(colors, patternStartIndex, patternSize, patter
                 console.log('%c   ❌ ERRO DETECTADO: Padrão INCORRETO!', 'color: #FF0000; font-weight: bold;');
                 console.log(`%c   Motivo: Último giro do padrão (${lastColorOfPattern === 'red' ? 'V' : 'P'}) continua depois`, 'color: #FF0000;');
                 console.log(`%c   O padrão detectado faz parte de um padrão MAIOR!`, 'color: #FF0000; font-weight: bold;');
-                console.log('');
-                console.log('%c═══════════════════════════════════════════════════════════', 'color: #FF1493; font-weight: bold;');
-                console.log('');
                 return { valid: false, reason: 'Último giro do padrão continua depois (padrão maior)' };
             } else {
                 console.log(`%c   ✅ OK: Próximo giro (${nextColor === 'red' ? 'V' : 'P'}) quebra o padrão`, 'color: #00FF00;');
             }
             
-            console.log('');
         }
     }
     
@@ -5028,9 +4815,6 @@ function validatePatternDetection(colors, patternStartIndex, patternSize, patter
     console.log('%c✅ PADRÃO VALIDADO COM SUCESSO!', 'color: #00FF00; font-weight: bold; font-size: 14px;');
     console.log('%c   Todas as verificações passaram!', 'color: #00FF88;');
     console.log('%c   O padrão está LIMPO e CORRETO!', 'color: #00FF88;');
-    console.log('');
-    console.log('%c═══════════════════════════════════════════════════════════', 'color: #FF1493; font-weight: bold;');
-    console.log('');
     
     return { valid: true, reason: 'Padrão validado com sucesso' };
 }
@@ -5122,17 +4906,13 @@ function isPatternClean(colors, patternStartIndex, patternSize, patternType, gro
 function findActivePattern(last20Spins) {
     const colors = last20Spins.map(spin => spin.color);
     
-    console.log('%c═══════════════════════════════════════════════════════════', 'color: #FFD700; font-weight: bold;');
     console.log('%c🎯 IDENTIFICANDO PADRÃO ATIVO (começando do giro 1)', 'color: #FFD700; font-weight: bold;');
-    console.log('%c═══════════════════════════════════════════════════════════', 'color: #FFD700; font-weight: bold;');
-    console.log('');
     
     console.log('%cÚltimos 20 giros:', 'color: #FFD700;');
     last20Spins.slice(0, 10).forEach((spin, index) => {
         console.log(`  ${index + 1}. ${spin.color} (${spin.roll})`);
     });
     console.log('  ... (+ 10 giros mais antigos)');
-    console.log('');
     
     // Tentar detectar padrões do MAIOR para o MENOR
     // Começar sempre do giro 1 (mais recente)
@@ -5170,7 +4950,6 @@ function findActivePattern(last20Spins) {
     console.log(`%c   Alternância Dupla: ${MIN_ALTERNANCIA_DUPLA}+ giros (ex: P-P-V-V-P-P)`, 'color: #FFD700;');
     console.log(`%c   Alternância Simples: ${MIN_ALTERNANCIA_SIMPLES}+ giros (ex: P-V-P-V)`, 'color: #FFD700;');
     console.log(`%c   Sequência: ${MIN_SEQUENCIA}+ giros (ex: P-P-P)`, 'color: #FFD700;');
-    console.log('');
     
     // Tentar alternância tripla (8, 9, 12, 15, 18)
     // ✅ Começa em 18 e vai descendo até o mínimo (8)
@@ -5192,7 +4971,6 @@ function findActivePattern(last20Spins) {
                 break;
             } else {
                 console.log(`%c❌ Padrão "${patternName}" rejeitado: ${validation.reason}`, 'color: #FF0000; font-weight: bold;');
-                console.log('');
             }
         }
     }
@@ -5218,7 +4996,6 @@ function findActivePattern(last20Spins) {
                     break;
                 } else {
                     console.log(`%c❌ Padrão "${patternName}" rejeitado: ${validation.reason}`, 'color: #FF0000; font-weight: bold;');
-                    console.log('');
                 }
             }
         }
@@ -5245,7 +5022,6 @@ function findActivePattern(last20Spins) {
                     break;
                 } else {
                     console.log(`%c❌ Padrão "${patternName}" rejeitado: ${validation.reason}`, 'color: #FF0000; font-weight: bold;');
-                    console.log('');
                 }
             }
         }
@@ -5272,7 +5048,6 @@ function findActivePattern(last20Spins) {
                     break;
                 } else {
                     console.log(`%c❌ Padrão "${patternName}" rejeitado: ${validation.reason}`, 'color: #FF0000; font-weight: bold;');
-                    console.log('');
                 }
             }
         }
@@ -5282,7 +5057,6 @@ function findActivePattern(last20Spins) {
         console.log('%c✅ PADRÃO ATIVO ENCONTRADO:', 'color: #00FF00; font-weight: bold;');
         console.log(`%c   ${bestPattern.name}`, 'color: #00FF88; font-weight: bold;');
         console.log(`%c   Sequência: ${bestPattern.sequence}`, 'color: #00FF88;');
-        console.log('');
         
         // Adicionar contexto (o que veio antes)
         const contextStart = bestSize;
@@ -5297,19 +5071,16 @@ function findActivePattern(last20Spins) {
     // ═══════════════════════════════════════════════════════════════
     console.log('%c⚠️ Nenhum padrão fixo detectado', 'color: #FFAA00; font-weight: bold;');
     console.log('%c🔍 Tentando detectar PADRÕES IRREGULARES...', 'color: #FF00FF; font-weight: bold;');
-    console.log('');
     
     const irregularPattern = detectIrregularPattern(colors);
     if (irregularPattern) {
         console.log(`%c✅ PADRÃO IRREGULAR DETECTADO:`, 'color: #FF00FF; font-weight: bold;');
         console.log(`%c   ${irregularPattern.name}`, 'color: #FF00FF; font-weight: bold;');
         console.log(`%c   Sequência: ${irregularPattern.sequence}`, 'color: #FF00FF;');
-        console.log('');
         return irregularPattern;
     }
     
     console.log('%c🔍 Tentando análise por SIMILARIDADE...', 'color: #00CED1; font-weight: bold;');
-    console.log('');
     
     const similarityPattern = findPatternBySimilarity(last20Spins);
     
@@ -5327,7 +5098,6 @@ function findActivePattern(last20Spins) {
             console.log('%c   ⚠️ Análise mínima (confiança será reduzida)', 'color: #FFA500;');
         }
         
-        console.log('');
         return similarityPattern;
     }
     
@@ -5345,10 +5115,7 @@ function findActivePattern(last20Spins) {
 function findPatternBySimilarity(last20Spins) {
     const colors = last20Spins.map(spin => spin.color);
     
-    console.log('%c═══════════════════════════════════════════════════════════', 'color: #00CED1; font-weight: bold;');
     console.log('%c🔍 ANÁLISE POR SIMILARIDADE (Busca Inteligente)', 'color: #00CED1; font-weight: bold;');
-    console.log('%c═══════════════════════════════════════════════════════════', 'color: #00CED1; font-weight: bold;');
-    console.log('');
     
     // ═══════════════════════════════════════════════════════════════
     // ETAPA 1: DETECTAR SEQUÊNCIAS RECENTES (mesmo que curtas)
@@ -5369,13 +5136,11 @@ function findPatternBySimilarity(last20Spins) {
     console.log(`%c📊 SITUAÇÃO ATUAL:`, 'color: #00CED1; font-weight: bold;');
     console.log(`%c   Cor mais recente: ${firstColor === 'red' ? 'VERMELHO' : firstColor === 'black' ? 'PRETO' : 'BRANCO'}`, 'color: #00CED1;');
     console.log(`%c   Sequência atual: ${currentStreak} giro(s) da mesma cor`, 'color: #00CED1;');
-    console.log('');
     
     // 🎯 NÍVEL 1: Sequências de 4+ giros (MÍNIMO ACEITÁVEL)
     if (currentStreak >= 4 && firstColor !== 'white') {
         console.log(`%c🎯 NÍVEL 1: Detectado ${currentStreak} ${firstColor === 'red' ? 'VERMELHOS' : 'PRETOS'} seguidos!`, 'color: #FFD700; font-weight: bold;');
         console.log(`%c   Vamos buscar no histórico: o que acontece após ${currentStreak} cores iguais?`, 'color: #FFD700;');
-        console.log('');
         
         const sequence = colors.slice(0, currentStreak);
         return {
@@ -5418,7 +5183,6 @@ function findPatternBySimilarity(last20Spins) {
     if (alternations >= 3) {
         console.log(`%c🎯 NÍVEL 3: Comportamento de ALTERNÂNCIA (${alternations} mudanças)!`, 'color: #FFD700; font-weight: bold;');
         console.log(`%c   Vamos buscar no histórico: padrões de alternância similares`, 'color: #FFD700;');
-        console.log('');
         
         const nonWhiteSequence = colors.filter(c => c !== 'white').slice(0, 6);
         
@@ -5439,7 +5203,6 @@ function findPatternBySimilarity(last20Spins) {
     
     console.log('%c🎯 NÍVEL 4: Analisando últimos 5-7 giros', 'color: #FF6B35; font-weight: bold;');
     console.log('%c   Buscando padrões ESPECÍFICOS (não genéricos)', 'color: #FF6B35;');
-    console.log('');
     
     // Pegar os últimos 5-7 giros (ignorando brancos)
     const last7NonWhite = colors.filter(c => c !== 'white').slice(0, 7);
@@ -5447,7 +5210,6 @@ function findPatternBySimilarity(last20Spins) {
     if (last7NonWhite.length >= 5) {
         console.log(`%c   Sequência dos últimos ${last7NonWhite.length} giros (sem branco):`, 'color: #FF6B35;');
         console.log(`%c   ${last7NonWhite.map(c => c === 'red' ? 'V' : 'P').join('-')}`, 'color: #FF6B35;');
-        console.log('');
         
         const firstColor = last7NonWhite[0];
         let patternType = 'sequencia_mixed';
@@ -5478,7 +5240,6 @@ function findPatternBySimilarity(last20Spins) {
                 // Não é um padrão específico suficiente - rejeitar
                 console.log(`%c   ❌ NÃO é padrão específico (nem sequência nem alternância dupla)`, 'color: #FF6B35;');
                 console.log(`%c   Pulando para Nível 5 (fallback)...`, 'color: #FF6B35;');
-                console.log('');
                 // Não retornar nada - deixar cair no Nível 5
             }
         }
@@ -5486,7 +5247,6 @@ function findPatternBySimilarity(last20Spins) {
         // Se encontrou padrão específico, retornar
         if (patternName) {
             console.log(`%c   Buscando no histórico: o que veio após ${patternName}?`, 'color: #FFD700;');
-            console.log('');
             
             return {
                 type: patternType,
@@ -5506,7 +5266,6 @@ function findPatternBySimilarity(last20Spins) {
     
     console.log('%c🎯 NÍVEL 5: FALLBACK - Análise dos últimos 3-5 giros disponíveis', 'color: #FFA500; font-weight: bold;');
     console.log('%c   Garantindo que SEMPRE haja uma análise baseada em histórico', 'color: #FFA500;');
-    console.log('');
     
     // Pegar os últimos 3-5 giros não-brancos (SEMPRE terá ao menos 1)
     const last5NonWhite = colors.filter(c => c !== 'white').slice(0, 5);
@@ -5514,7 +5273,6 @@ function findPatternBySimilarity(last20Spins) {
     if (last5NonWhite.length >= 3) {
         console.log(`%c   ✅ Usando últimos ${last5NonWhite.length} giros para análise`, 'color: #FFA500;');
         console.log(`%c   Sequência: ${last5NonWhite.map(c => c === 'red' ? 'V' : 'P').join('-')}`, 'color: #FFA500;');
-        console.log('');
         
         const firstColor = last5NonWhite[0];
         let patternType = 'sequencia_mixed';
@@ -5543,7 +5301,6 @@ function findPatternBySimilarity(last20Spins) {
     if (last5NonWhite.length >= 2) {
         console.log(`%c   ⚠️ MÍNIMO: Usando últimos ${last5NonWhite.length} giros`, 'color: #FF6B35;');
         console.log(`%c   Sequência: ${last5NonWhite.map(c => c === 'red' ? 'V' : 'P').join('-')}`, 'color: #FF6B35;');
-        console.log('');
         
         const firstColor = last5NonWhite[0];
         
@@ -5587,17 +5344,13 @@ function findPatternBySimilarity(last20Spins) {
  * Retorna distribuição completa (quantas vezes parou em cada tamanho)
  */
 function searchPatternInHistory(activePattern, allPatterns, history) {
-    console.log('%c═══════════════════════════════════════════════════════════', 'color: #00CED1; font-weight: bold;');
     console.log('%c📚 BUSCANDO PADRÃO NO HISTÓRICO', 'color: #00CED1; font-weight: bold;');
-    console.log('%c═══════════════════════════════════════════════════════════', 'color: #00CED1; font-weight: bold;');
-    console.log('');
     
     // Buscar todas as ocorrências do mesmo TIPO de padrão
     const sameTypePatterns = allPatterns.filter(p => p.type === activePattern.type);
     
     console.log(`%cPadrão buscado: ${activePattern.name}`, 'color: #00CED1;');
     console.log(`%cOcorrências encontradas: ${sameTypePatterns.length}`, 'color: #00CED1;');
-    console.log('');
     
     if (sameTypePatterns.length === 0) {
         console.log('%c⚠️ Nenhuma ocorrência EXATA deste padrão no histórico', 'color: #FFAA00;');
@@ -5639,7 +5392,6 @@ function searchPatternInHistory(activePattern, allPatterns, history) {
     } else {
         console.log('%c   ⚠️ MUITO POUCO: Menos de 5 ocorrências - confiança baixa', 'color: #FF6B35;');
     }
-    console.log('');
     
     // Calcular distribuição de tamanhos
     const distribution = {};
@@ -5664,7 +5416,6 @@ function searchPatternInHistory(activePattern, allPatterns, history) {
         const percent = ((count / sameTypePatterns.length) * 100).toFixed(1);
         console.log(`   ${size} giros: ${count} vezes (${percent}%)`);
     });
-    console.log('');
     
     const totalNext = nextColorStats.red + nextColorStats.black + nextColorStats.white;
     const redPercent = ((nextColorStats.red / totalNext) * 100).toFixed(1);
@@ -5675,7 +5426,6 @@ function searchPatternInHistory(activePattern, allPatterns, history) {
     console.log(`   %cVERMELHO: ${nextColorStats.red} vezes (${redPercent}%)`, 'color: #FF0000; font-weight: bold;');
     console.log(`   %cPRETO: ${nextColorStats.black} vezes (${blackPercent}%)`, 'color: #FFFFFF; font-weight: bold;');
     console.log(`   %cBRANCO: ${nextColorStats.white} vezes (${whitePercent}%)`, 'color: #00FF00; font-weight: bold;');
-    console.log('');
     
     // Encontrar tamanho mais comum
     const mostCommonSize = Object.keys(distribution).sort((a, b) => distribution[b] - distribution[a])[0];
@@ -5713,10 +5463,6 @@ async function checkPreviousSignalAccuracy(newSpin) {
     
     if (lastSignal.verified) return; // Já foi verificado
     
-    console.log('%c═══════════════════════════════════════════════════════════', 'color: #FF69B4; font-weight: bold;');
-    console.log('%c✔️ VERIFICANDO ACERTO DO SINAL ANTERIOR', 'color: #FF69B4; font-weight: bold;');
-    console.log('%c═══════════════════════════════════════════════════════════', 'color: #FF69B4; font-weight: bold;');
-    console.log('');
     
     const colorThatCame = newSpin.color;
     const colorRecommended = lastSignal.colorRecommended;
@@ -5725,7 +5471,6 @@ async function checkPreviousSignalAccuracy(newSpin) {
     console.log(`%cSinal anterior recomendou: ${colorRecommended.toUpperCase()}`, 'color: #FF69B4;');
     console.log(`%cCor que saiu: ${colorThatCame.toUpperCase()}`, 'color: #FF69B4;');
     console.log(`%cResultado: ${hit ? '✅ ACERTOU!' : '❌ ERROU'}`, hit ? 'color: #00FF00; font-weight: bold;' : 'color: #FF0000; font-weight: bold;');
-    console.log('');
     
     // Atualizar sinal
     lastSignal.colorThatCame = colorThatCame;
@@ -5813,7 +5558,6 @@ async function checkPreviousSignalAccuracy(newSpin) {
     console.log(`   Acertos: ${signalsHistory.patternStats[patternKey].hits}`);
     console.log(`   Erros: ${signalsHistory.patternStats[patternKey].misses}`);
     console.log(`   %cTaxa de acerto: ${signalsHistory.patternStats[patternKey].hitRate}%`, 'color: #FFD700; font-weight: bold;');
-    console.log('');
     
     // ═══════════════════════════════════════════════════════════════
     // 📊 RASTREAMENTO DE LOSSES CONSECUTIVOS
@@ -5853,14 +5597,12 @@ async function checkPreviousSignalAccuracy(newSpin) {
     
     console.log(`%c📊 PERFORMANCE RECENTE (últimos ${recentTotal} sinais):`, 'color: #00CED1; font-weight: bold;');
     console.log(`   Acertos: ${recentHits}/${recentTotal} (${recentHitRate}%)`);
-    console.log('');
     
     // 🚨 ALERTA: Se performance recente < 50%, avisar!
     if (recentTotal >= 10 && parseFloat(recentHitRate) < 50) {
         console.log('%c⚠️⚠️⚠️ ALERTA: PERFORMANCE RECENTE MUITO BAIXA! ⚠️⚠️⚠️', 'color: #FF0000; font-weight: bold; font-size: 14px; background: #FFFF00;');
         console.log(`%c   Taxa de acerto: ${recentHitRate}% (mínimo recomendado: 55%)`, 'color: #FF0000; font-weight: bold;');
         console.log('%c   AÇÃO: Sistema irá AUMENTAR o mínimo exigido automaticamente!', 'color: #FFA500; font-weight: bold;');
-        console.log('');
     }
     
     // Salvar
@@ -5870,7 +5612,6 @@ async function checkPreviousSignalAccuracy(newSpin) {
     // 🔥 ATUALIZAR ESTADO DO PADRÃO QUENTE (se ativo)
     // ═══════════════════════════════════════════════════════════════
     if (hotPatternMode && hotPatternState.pattern) {
-        console.log('');
         console.log('%c🔥 ATUALIZANDO ESTADO DO PADRÃO QUENTE', 'color: #FF6B35; font-weight: bold;');
         console.log(`   Status atual: ${hotPatternState.status.toUpperCase()}`);
         console.log(`   LOSSes consecutivos: ${hotPatternState.consecutiveLosses}`);
@@ -5952,7 +5693,6 @@ async function checkPreviousSignalAccuracy(newSpin) {
         console.log(`   Novo status: ${hotPatternState.status.toUpperCase()}`);
         console.log(`   LOSSes consecutivos: ${hotPatternState.consecutiveLosses}`);
         console.log(`   Win Rate: ${(hotPatternState.winRate * 100).toFixed(1)}%`);
-        console.log('');
     }
 }
 
@@ -6032,10 +5772,7 @@ function analyzeLast20Temperature(last20Spins, activePattern) {
     
     const colors = last20Spins.map(s => s.color);
     
-    console.log('%c═══════════════════════════════════════════════════════════', 'color: #FF6B35; font-weight: bold;');
     console.log('%c🌡️ ANÁLISE DE TEMPERATURA DOS ÚLTIMOS 20 GIROS', 'color: #FF6B35; font-weight: bold;');
-    console.log('%c═══════════════════════════════════════════════════════════', 'color: #FF6B35; font-weight: bold;');
-    console.log('');
     
     // Detectar todas as sequências e alternâncias nos últimos 20 giros
     let sequencesFound = [];
@@ -6080,7 +5817,6 @@ function analyzeLast20Temperature(last20Spins, activePattern) {
     console.log(`   Sequências longas (4+): ${longSequences}`);
     console.log(`   Sequências muito longas (6+): ${veryLongSequences}`);
     console.log(`   Tamanho médio: ${avgSequenceLength.toFixed(1)} giros`);
-    console.log('');
     
     // ═══════════════════════════════════════════════════════════════
     // ✅ DETERMINAR TEMPERATURA COM CÁLCULOS FUNDAMENTADOS
@@ -6102,7 +5838,6 @@ function analyzeLast20Temperature(last20Spins, activePattern) {
     console.log(`%c🌡️ CÁLCULOS DE TEMPERATURA:`, 'color: #FF6B35; font-weight: bold;');
     console.log(`   Intensidade de sequências: ${(longSequencesIntensity * 100).toFixed(1)}%`);
     console.log(`   Score de temperatura: ${temperatureScore.toFixed(1)}`);
-    console.log('');
     
     // ═══════════════════════════════════════════════════════════════
     // CLASSIFICAÇÃO DE TEMPERATURA (baseada no score)
@@ -6166,7 +5901,6 @@ function analyzeLast20Temperature(last20Spins, activePattern) {
     // Se o padrão ativo é uma sequência, verificar se sequências similares quebraram recentemente
     if (activePattern.type.includes('sequencia') && activePattern.size >= 3) {
         console.log('%c🔍 ANÁLISE DE QUEBRAS (contexto dos últimos 20 giros):', 'color: #FFD700; font-weight: bold;');
-        console.log('');
         
         const patternColor = activePattern.sequence.split('-')[0];
         const patternSize = activePattern.size;
@@ -6177,7 +5911,6 @@ function analyzeLast20Temperature(last20Spins, activePattern) {
         // ═══════════════════════════════════════════════════════════════
         
         console.log(`%c   Padrão atual: ${patternSize} ${patternColor === 'red' ? 'VERMELHOS' : 'PRETOS'}`, 'color: #FFD700;');
-        console.log('');
         
         // 🎯 LÓGICA INTELIGENTE: Cada cor tem seus pontos críticos DIFERENTES!
         
@@ -6220,7 +5953,6 @@ function analyzeLast20Temperature(last20Spins, activePattern) {
             // Os dados históricos já incluem as probabilidades de quebra!
         }
         
-        console.log('');
         
         // ═══════════════════════════════════════════════════════════════
         // 🎯 PRIORIDADE 2: ANÁLISE DOS ÚLTIMOS 20 GIROS (contexto recente)
@@ -6240,7 +5972,6 @@ function analyzeLast20Temperature(last20Spins, activePattern) {
             
             console.log(`%c   Tamanho máximo alcançado: ${maxLength} giros`, 'color: #FFD700;');
             console.log(`%c   Tamanho médio: ${avgLength.toFixed(1)} giros`, 'color: #FFD700;');
-            console.log('');
             
             // 🎯 LÓGICA INTELIGENTE DO USUÁRIO:
             // Se já estamos no giro X e nenhuma sequência recente passou de X,
@@ -6267,14 +5998,10 @@ function analyzeLast20Temperature(last20Spins, activePattern) {
             console.log(`%c   Não há dados recentes para comparação`, 'color: #888;');
         }
         
-        console.log('');
     }
     
     console.log(`%c🌡️  TEMPERATURA: ${temperature}`, 'color: #FF6B35; font-weight: bold; font-size: 14px;');
     console.log(`%c   ${reasoning}`, 'color: #FF8C00;');
-    console.log('');
-    console.log('%c═══════════════════════════════════════════════════════════', 'color: #FF6B35; font-weight: bold;');
-    console.log('');
     
     // ✅ CALCULAR COR DOMINANTE NOS ÚLTIMOS 20 GIROS
     let colorCounts = { red: 0, black: 0, white: 0 };
@@ -6347,11 +6074,7 @@ async function inicializarMemoriaAtiva(history) {
     memoriaAtivaInicializando = true;
     const inicio = performance.now();
     
-    console.log('');
-    console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #00CED1; font-weight: bold; font-size: 14px;');
     console.log('%c║  🧠 INICIALIZANDO MEMÓRIA ATIVA                          ║', 'color: #00CED1; font-weight: bold; font-size: 14px;');
-    console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #00CED1; font-weight: bold;');
-    console.log('');
     
     try {
         // 1. COPIAR HISTÓRICO
@@ -6360,7 +6083,6 @@ async function inicializarMemoriaAtiva(history) {
         memoriaAtiva.ultimos20 = memoriaAtiva.giros.slice(0, 20);
         memoriaAtiva.estatisticas.totalGiros = memoriaAtiva.giros.length;
         console.log(`%c   ✅ ${memoriaAtiva.giros.length} giros copiados`, 'color: #00FF88;');
-        console.log('');
         
         // 2. CALCULAR DISTRIBUIÇÃO
         console.log('%c📊 ETAPA 2/5: Calculando distribuição de cores...', 'color: #00CED1; font-weight: bold;');
@@ -6379,7 +6101,6 @@ async function inicializarMemoriaAtiva(history) {
         console.log(`%c   🔴 Vermelho: ${distribuicao.red} (${memoriaAtiva.estatisticas.distribuicao.red.percent.toFixed(2)}%)`, 'color: #FF6B6B;');
         console.log(`%c   ⚫ Preto: ${distribuicao.black} (${memoriaAtiva.estatisticas.distribuicao.black.percent.toFixed(2)}%)`, 'color: #888;');
         console.log(`%c   ⚪ Branco: ${distribuicao.white} (${memoriaAtiva.estatisticas.distribuicao.white.percent.toFixed(2)}%)`, 'color: #FFF;');
-        console.log('');
         
         // 3. DETECTAR TODOS OS PADRÕES NO HISTÓRICO
         console.log('%c🔍 ETAPA 3/5: Detectando todos os padrões...', 'color: #00CED1; font-weight: bold;');
@@ -6399,7 +6120,6 @@ async function inicializarMemoriaAtiva(history) {
         console.log(`%c   🔄 Alternância Tripla: ${memoriaAtiva.padroesDetectados.alternanciasTripla.length}`, 'color: #00FF88;');
         console.log(`%c   🔴 Sequências Vermelhas: ${memoriaAtiva.padroesDetectados.sequenciasRed.length}`, 'color: #FF6B6B;');
         console.log(`%c   ⚫ Sequências Pretas: ${memoriaAtiva.padroesDetectados.sequenciasBlack.length}`, 'color: #888;');
-        console.log('');
         
         // 4. CALCULAR ESTATÍSTICAS POR PADRÃO
         console.log('%c📊 ETAPA 4/5: Calculando estatísticas por padrão...', 'color: #00CED1; font-weight: bold;');
@@ -6440,25 +6160,18 @@ async function inicializarMemoriaAtiva(history) {
         
         const totalPadroesCadastrados = Object.keys(memoriaAtiva.estatisticas.porPadrao).length;
         console.log(`%c   ✅ ${totalPadroesCadastrados} tipos de padrões cadastrados`, 'color: #00FF88;');
-        console.log('');
         
         // 5. MARCAR COMO INICIALIZADA
-        console.log('%c✅ ETAPA 5/5: Finalizando...', 'color: #00CED1; font-weight: bold;');
         memoriaAtiva.inicializada = true;
         memoriaAtiva.ultimaAtualizacao = new Date();
         memoriaAtiva.tempoInicializacao = performance.now() - inicio;
         memoriaAtiva.totalAtualizacoes = 0;
         
-        console.log('');
-        console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #00FF00; font-weight: bold; font-size: 14px;');
         console.log('%c║  ✅ MEMÓRIA ATIVA INICIALIZADA COM SUCESSO!              ║', 'color: #00FF00; font-weight: bold; font-size: 14px;');
-        console.log('%c╠═══════════════════════════════════════════════════════════╣', 'color: #00FF00; font-weight: bold;');
         console.log(`%c║  ⏱️  Tempo: ${memoriaAtiva.tempoInicializacao.toFixed(2)}ms                                    ║`, 'color: #00FF88;');
         console.log(`%c║  📊 Giros: ${memoriaAtiva.giros.length}                                          ║`, 'color: #00FF88;');
         console.log(`%c║  🎯 Padrões detectados: ${todosOsPadroes.length}                             ║`, 'color: #00FF88;');
         console.log(`%c║  📈 Tipos únicos: ${totalPadroesCadastrados}                                      ║`, 'color: #00FF88;');
-        console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #00FF00; font-weight: bold;');
-        console.log('');
         
         memoriaAtivaInicializando = false;
         return true;
@@ -6640,10 +6353,7 @@ function analyzeCurrentContext(last20Spins, activePattern) {
     let description = '';
     let insight = '';
     
-    console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #00FFFF; font-weight: bold;');
     console.log('%c║  🌡️ ANÁLISE CONTEXTUAL COM GRADIENTE QUENTE/FRIO         ║', 'color: #00FFFF; font-weight: bold;');
-    console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #00FFFF; font-weight: bold;');
-    console.log('');
     
     // ═══════════════════════════════════════════════════════════════
     // 🌡️ GRADIENTE DE TEMPERATURA (20 giros)
@@ -6655,7 +6365,6 @@ function analyzeCurrentContext(last20Spins, activePattern) {
     
     console.log(`%c📊 Analisando ${last20NonWhite.length} giros (ignorando brancos)`, 'color: #00FFFF;');
     console.log(`%c   Do mais antigo (FRIO) ao mais recente (QUENTE)`, 'color: #00FFFF;');
-    console.log('');
     
     // Mostrar sequência completa com gradiente visual
     let gradientDisplay = '';
@@ -6680,7 +6389,6 @@ function analyzeCurrentContext(last20Spins, activePattern) {
     }
     
     console.log(`%c🌡️ Gradiente: ${gradientDisplay}`, 'color: #00FFFF;');
-    console.log('');
     
     // ═══════════════════════════════════════════════════════════════
     // 🔍 ANÁLISE 1: SEQUÊNCIA ATUAL (últimos giros mais recentes)
@@ -6719,7 +6427,6 @@ function analyzeCurrentContext(last20Spins, activePattern) {
     } else {
         console.log(`%c   ℹ️ Sem sequência clara (apenas ${currentSequenceLength} giro)`, 'color: #00FF88;');
     }
-    console.log('');
     
     // ═══════════════════════════════════════════════════════════════
     // 🔍 ANÁLISE 2: COMPORTAMENTO NOS ÚLTIMOS 20 GIROS
@@ -6778,9 +6485,6 @@ function analyzeCurrentContext(last20Spins, activePattern) {
         }
     }
     
-    console.log('');
-    console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #00FFFF; font-weight: bold;');
-    console.log('');
     
     return {
         description: description,
@@ -6801,10 +6505,6 @@ function analyzeCurrentContext(last20Spins, activePattern) {
  * @returns {Object} - {color, confidence, occurrences, similarity}
  */
 function buscarSequenciaNoHistorico(targetSequence, searchHistory, spinsToAnalyze = 100) {
-    console.log('');
-    console.log('%c╔═══════════════════════════════════════════════════════════════════════════════╗', 'color: #00D4FF; font-weight: bold;');
-    console.log('%c║  🔍 DEBUG DETALHADO: buscarSequenciaNoHistorico                             ║', 'color: #00D4FF; font-weight: bold;');
-    console.log('%c╚═══════════════════════════════════════════════════════════════════════════════╝', 'color: #00D4FF; font-weight: bold;');
     console.log(`%c📊 PARÂMETROS DA BUSCA:`, 'color: #00D4FF; font-weight: bold;');
     console.log(`   ➤ Tamanho do histórico de busca: ${searchHistory.length} giros`);
     console.log(`   ➤ Tamanho da sequência alvo: ${targetSequence.length} giros`);
@@ -6813,7 +6513,6 @@ function buscarSequenciaNoHistorico(targetSequence, searchHistory, spinsToAnalyz
     // Extrair apenas as cores da sequência alvo
     const targetColors = targetSequence.map(spin => spin.color);
     
-    console.log('');
     console.log('%c🎯 SEQUÊNCIA ALVO (Últimos 10 giros):', 'color: #FFD700; font-weight: bold;');
     for (let i = 0; i < targetSequence.length; i++) {
         const spin = targetSequence[i];
@@ -6821,7 +6520,6 @@ function buscarSequenciaNoHistorico(targetSequence, searchHistory, spinsToAnalyz
         console.log(`   ${i + 1}. ${colorEmoji} ${spin.color.toUpperCase()} (#${spin.number || '?'})`);
     }
     console.log(`   → Padrão: ${targetColors.map(c => c === 'red' ? '🔴' : c === 'black' ? '⚫' : '⚪').join(' ')}`);
-    console.log('');
     
     let exactMatches = [];
     let similarMatches = []; // Matches com 60%+ de similaridade
@@ -6829,7 +6527,6 @@ function buscarSequenciaNoHistorico(targetSequence, searchHistory, spinsToAnalyz
     
     console.log('%c🔍 INICIANDO VARREDURA DO HISTÓRICO...', 'color: #00D4FF; font-weight: bold;');
     console.log(`   Analisando ${searchHistory.length - spinsToAnalyze - 10} posições no histórico`);
-    console.log('');
     
     // Buscar no histórico (começando do índice 10, pois precisamos de 10 giros anteriores)
     for (let i = 10; i < searchHistory.length - spinsToAnalyze; i++) {
@@ -6859,13 +6556,11 @@ function buscarSequenciaNoHistorico(targetSequence, searchHistory, spinsToAnalyz
         }
     }
     
-    console.log('');
     console.log('%c📊 RESULTADO DA VARREDURA:', 'color: #00FF88; font-weight: bold; font-size: 14px;');
     console.log(`%c   ✅ Matches EXATOS (100%): ${exactMatches.length}`, exactMatches.length > 0 ? 'color: #00FF00; font-weight: bold;' : 'color: #FF6666;');
     console.log(`%c   ⭐ Matches ALTOS (80-99%): ${highMatches.length}`, highMatches.length > 0 ? 'color: #FFD700; font-weight: bold;' : 'color: #FF6666;');
     console.log(`%c   ⚡ Matches SIMILARES (60-79%): ${similarMatches.length}`, similarMatches.length > 0 ? 'color: #00FF88;' : 'color: #FF6666;');
     console.log(`%c   📊 TOTAL de matches com 60%+: ${exactMatches.length + highMatches.length + similarMatches.length}`, 'color: #00D4FF; font-weight: bold;');
-    console.log('');
     
     // Analisar o que veio DEPOIS dessas ocorrências
     let nextColorCounts = { red: 0, black: 0, white: 0 };
@@ -6874,12 +6569,10 @@ function buscarSequenciaNoHistorico(targetSequence, searchHistory, spinsToAnalyz
     let matchesUsed = [];
     
     console.log('%c🎯 ANALISANDO O QUE VEIO DEPOIS DOS MATCHES...', 'color: #FFD700; font-weight: bold;');
-    console.log('');
     
     if (exactMatches.length > 0) {
         // PRIORIDADE 1: Usar matches exatos (100%)
         console.log(`%c   ✅ USANDO ${exactMatches.length} MATCH(ES) EXATO(S) (100% similaridade)`, 'color: #00FF00; font-weight: bold; font-size: 14px;');
-        console.log('');
         
         exactMatches.forEach((matchIndex, idx) => {
             console.log(`%c   📍 Match ${idx + 1}/${exactMatches.length} (posição ${matchIndex})`, 'color: #00FF88;');
@@ -6903,13 +6596,11 @@ function buscarSequenciaNoHistorico(targetSequence, searchHistory, spinsToAnalyz
         avgSimilarity = 100;
         matchesUsed = exactMatches.map(i => ({ index: i, similarity: 100 }));
         
-        console.log('');
         console.log(`%c   ✅ TOTAL DE OCORRÊNCIAS EXATAS: ${totalOccurrences}`, 'color: #00FF00; font-weight: bold; font-size: 14px;');
         
     } else if (highMatches.length > 0) {
         // PRIORIDADE 2: Usar matches altos (80-99%)
         console.log(`%c   ⭐ USANDO ${highMatches.length} MATCH(ES) DE ALTA SIMILARIDADE (80-99%)`, 'color: #FFD700; font-weight: bold; font-size: 14px;');
-        console.log('');
         
         highMatches.forEach((match, idx) => {
             console.log(`%c   📍 Match ${idx + 1}/${highMatches.length} (posição ${match.index}, ${match.similarity}% similar)`, 'color: #FFD700;');
@@ -6932,14 +6623,12 @@ function buscarSequenciaNoHistorico(targetSequence, searchHistory, spinsToAnalyz
         avgSimilarity = Math.round(highMatches.reduce((sum, m) => sum + m.similarity, 0) / highMatches.length);
         matchesUsed = highMatches;
         
-        console.log('');
         console.log(`%c   ⭐ TOTAL DE OCORRÊNCIAS DE ALTA SIMILARIDADE: ${totalOccurrences}`, 'color: #FFD700; font-weight: bold; font-size: 14px;');
         console.log(`%c   📊 Similaridade média: ${avgSimilarity}%`, 'color: #FFD700; font-weight: bold;');
         
     } else if (similarMatches.length > 0) {
         // PRIORIDADE 3: Usar matches similares (60-79%)
         console.log(`%c   ⚡ USANDO ${similarMatches.length} MATCH(ES) DE MÉDIA SIMILARIDADE (60-79%)`, 'color: #00FF88; font-weight: bold; font-size: 14px;');
-        console.log('');
         
         // Usar no máximo os 10 melhores matches similares (para não poluir demais)
         const topSimilarMatches = similarMatches
@@ -6947,7 +6636,6 @@ function buscarSequenciaNoHistorico(targetSequence, searchHistory, spinsToAnalyz
             .slice(0, 10);
         
         console.log(`%c   📊 Usando os ${topSimilarMatches.length} melhores matches (dos ${similarMatches.length} encontrados)`, 'color: #00FF88;');
-        console.log('');
         
         topSimilarMatches.forEach((match, idx) => {
             console.log(`%c   📍 Match ${idx + 1}/${topSimilarMatches.length} (posição ${match.index}, ${match.similarity}% similar)`, 'color: #00FF88;');
@@ -6972,21 +6660,17 @@ function buscarSequenciaNoHistorico(targetSequence, searchHistory, spinsToAnalyz
         avgSimilarity = Math.round(topSimilarMatches.reduce((sum, m) => sum + m.similarity, 0) / topSimilarMatches.length);
         matchesUsed = topSimilarMatches;
         
-        console.log('');
         console.log(`%c   ⚡ TOTAL DE OCORRÊNCIAS SIMILARES USADAS: ${totalOccurrences}`, 'color: #00FF88; font-weight: bold; font-size: 14px;');
         console.log(`%c   📊 Similaridade média: ${avgSimilarity}%`, 'color: #00FF88; font-weight: bold;');
         
     } else {
         // ❌ NENHUM MATCH ENCONTRADO → REJEITAR SINAL!
-        console.log('');
         console.log(`%c   ❌❌❌ NENHUM MATCH ENCONTRADO! ❌❌❌`, 'color: #FF0000; font-weight: bold; font-size: 16px;');
         console.log(`%c   ➤ O padrão dos últimos 10 giros NUNCA apareceu no histórico!`, 'color: #FF6666; font-weight: bold;');
         console.log(`%c   ➤ Sem dados históricos para basear a previsão!`, 'color: #FF6666; font-weight: bold;');
-        console.log('');
         console.log(`%c   🚫 DECISÃO: REJEITAR SINAL!`, 'color: #FF0000; font-weight: bold; font-size: 16px;');
         console.log(`%c   ➤ NÃO vamos usar "frequência geral" (isso não funciona!)`, 'color: #FF6666; font-weight: bold;');
         console.log(`%c   ➤ Só enviamos sinal quando encontramos PADRÃO REAL no histórico!`, 'color: #00FF88; font-weight: bold;');
-        console.log('');
         
         totalOccurrences = 0;
         avgSimilarity = 0;
@@ -6994,16 +6678,13 @@ function buscarSequenciaNoHistorico(targetSequence, searchHistory, spinsToAnalyz
         // ✅ NÃO PREENCHER nextColorCounts - deixar zerado!
         // Isso fará com que a confiança seja 0% e o sinal seja rejeitado
     }
-    console.log('');
     
     // Determinar cor recomendada baseada na distribuição
     console.log('%c📊 CALCULANDO COR RECOMENDADA...', 'color: #FFD700; font-weight: bold;');
-    console.log('');
     console.log(`%c   Distribuição total após todos os matches:`, 'color: #00D4FF; font-weight: bold;');
     console.log(`%c      🔴 VERMELHO: ${nextColorCounts.red} giros`, 'color: #FF0000; font-weight: bold;');
     console.log(`%c      ⚫ PRETO: ${nextColorCounts.black} giros`, 'color: #FFFFFF; font-weight: bold;');
     console.log(`%c      ⚪ BRANCO: ${nextColorCounts.white} giros`, 'color: #00FF00;');
-    console.log('');
     
     let recommendedColor = 'red';
     let maxCount = nextColorCounts.red;
@@ -7015,7 +6696,6 @@ function buscarSequenciaNoHistorico(targetSequence, searchHistory, spinsToAnalyz
     
     console.log(`%c   🎯 Cor com MAIOR frequência: ${recommendedColor.toUpperCase()} (${maxCount} giros)`, 
         `color: ${recommendedColor === 'red' ? '#FF0000' : '#FFFFFF'}; font-weight: bold; font-size: 14px;`);
-    console.log('');
     
     // Calcular confiança baseada na distribuição
     const totalColors = nextColorCounts.red + nextColorCounts.black + nextColorCounts.white;
@@ -7025,13 +6705,11 @@ function buscarSequenciaNoHistorico(targetSequence, searchHistory, spinsToAnalyz
     console.log(`%c      Total de giros analisados: ${totalColors}`, 'color: #00D4FF;');
     console.log(`%c      Frequência da cor vencedora: ${maxCount}/${totalColors}`, 'color: #00D4FF;');
     console.log(`%c      Confiança inicial: ${confidence}%`, 'color: #00D4FF; font-weight: bold;');
-    console.log('');
     
     // ✅ NÃO AJUSTAR CONFIANÇA AQUI - já será ajustada para 0% na validação abaixo
     
     // ✅ VALIDAÇÃO RIGOROSA: ALERTAR SE POUCOS MATCHES
     console.log('%c🔍 VALIDAÇÃO DE QUALIDADE DA ANÁLISE:', 'color: #FFD700; font-weight: bold;');
-    console.log('');
     
     const MIN_OCCURRENCES_WARNING = 5;
     const MIN_OCCURRENCES_CRITICAL = 2;
@@ -7041,7 +6719,6 @@ function buscarSequenciaNoHistorico(targetSequence, searchHistory, spinsToAnalyz
         console.log(`%c   ➤ O padrão dos últimos 10 giros NUNCA apareceu no histórico`, 'color: #FF6666; font-weight: bold;');
         console.log(`%c   ➤ SEM PADRÃO REAL → CONFIANÇA = 0%`, 'color: #FF0000; font-weight: bold; font-size: 14px;');
         console.log(`%c   ➤ ESTE SINAL SERÁ REJEITADO!`, 'color: #FF0000; font-weight: bold; font-size: 14px;');
-        console.log('');
         
         // ✅ FORÇAR CONFIANÇA = 0% PARA GARANTIR REJEIÇÃO
         confidence = 0;
@@ -7050,40 +6727,31 @@ function buscarSequenciaNoHistorico(targetSequence, searchHistory, spinsToAnalyz
         console.log(`%c   ➤ Matches encontrados: ${totalOccurrences}`, 'color: #FF6666; font-weight: bold;');
         console.log(`%c   ➤ Recomendado: pelo menos ${MIN_OCCURRENCES_WARNING}+ matches`, 'color: #FF6666; font-weight: bold;');
         console.log(`%c   ➤ Base estatística MUITO FRACA!`, 'color: #FF0000; font-weight: bold;');
-        console.log('');
         
         const oldConfidence = confidence;
         confidence = Math.min(confidence, 45);
         console.log(`%c   ⚠️ PENALIDADE: Confiança limitada a ${confidence}% (era ${oldConfidence}%)`, 'color: #FFA500; font-weight: bold;');
-        console.log('');
     } else if (totalOccurrences < MIN_OCCURRENCES_WARNING) {
         console.log(`%c   ⚠️ ATENÇÃO: Poucos matches encontrados`, 'color: #FFA500; font-weight: bold;');
         console.log(`%c   ➤ Matches encontrados: ${totalOccurrences}`, 'color: #FFA500;');
         console.log(`%c   ➤ Recomendado: pelo menos ${MIN_OCCURRENCES_WARNING}+ matches`, 'color: #FFA500;');
         console.log(`%c   ➤ Base estatística razoável, mas não ideal`, 'color: #FFA500;');
-        console.log('');
         
         const oldConfidence = confidence;
         confidence = Math.min(confidence, 50);
         console.log(`%c   ⚠️ Confiança limitada a ${confidence}% (era ${oldConfidence}%)`, 'color: #FFA500;');
-        console.log('');
     } else {
         console.log(`%c   ✅ Base estatística SÓLIDA!`, 'color: #00FF00; font-weight: bold; font-size: 14px;');
         console.log(`%c   ➤ Matches encontrados: ${totalOccurrences}`, 'color: #00FF88; font-weight: bold;');
         console.log(`%c   ➤ Similaridade média: ${avgSimilarity}%`, 'color: #00FF88; font-weight: bold;');
         console.log(`%c   ➤ Análise baseada em dados REAIS do histórico!`, 'color: #00FF00; font-weight: bold;');
-        console.log('');
     }
     
-    console.log('%c═══════════════════════════════════════════════════════════════════════════════', 'color: #00D4FF; font-weight: bold;');
     console.log('%c🏁 RESULTADO FINAL DA BUSCA:', 'color: #00FF00; font-weight: bold; font-size: 16px;');
-    console.log('%c═══════════════════════════════════════════════════════════════════════════════', 'color: #00D4FF; font-weight: bold;');
     console.log(`%c   🎯 Cor recomendada: ${recommendedColor.toUpperCase()}`, `color: ${recommendedColor === 'red' ? '#FF0000' : '#FFFFFF'}; font-weight: bold; font-size: 16px;`);
     console.log(`%c   📊 Confiança: ${confidence}%`, 'color: #FFD700; font-weight: bold; font-size: 16px;');
     console.log(`%c   🔢 Ocorrências do padrão: ${totalOccurrences}x`, 'color: #00FF88; font-weight: bold; font-size: 16px;');
     console.log(`%c   📈 Similaridade média: ${avgSimilarity}%`, 'color: #00FF88; font-weight: bold; font-size: 16px;');
-    console.log('%c═══════════════════════════════════════════════════════════════════════════════', 'color: #00D4FF; font-weight: bold;');
-    console.log('');
     
     const result = {
         color: recommendedColor,
@@ -7102,7 +6770,6 @@ function buscarSequenciaNoHistorico(targetSequence, searchHistory, spinsToAnalyz
     
     console.log('%c📦 Objeto retornado:', 'color: #00FFFF; font-weight: bold;');
     console.log(result);
-    console.log('');
     
     return result;
 }
@@ -7130,7 +6797,6 @@ function analyzeSequenceViability(history, suggestedColor) {
         debugString += `${colorSymbol}${number} `;
     }
     console.log(`%c      ${debugString}`, 'color: #9C27B0;');
-    console.log('');
     
     for (let i = 0; i < history.length; i++) {
         const spin = history[i];
@@ -7160,7 +6826,6 @@ function analyzeSequenceViability(history, suggestedColor) {
         const number = spin.number !== undefined ? spin.number : spin.roll;
         console.log(`%c      ${idx + 1}º: ${spin.color.toUpperCase()} (${number})`, `color: ${spin.color === 'red' ? '#FF0000' : '#FFFFFF'};`);
     });
-    console.log('');
     
     // Se sinal sugere a MESMA cor da sequência atual, significa que quer CONTINUAR a sequência
     const isExtendingSequence = (currentSequenceColor === suggestedColor);
@@ -7181,11 +6846,9 @@ function analyzeSequenceViability(history, suggestedColor) {
     
     // Sinal quer CONTINUAR a sequência (ex: 3 pretos → sugerir 4º preto)
     const targetSequenceLength = currentSequenceLength + 1;
-    console.log('');
     console.log(`%c   ⚠️ ⚠️ ⚠️ ATENÇÃO! Sinal quer CONTINUAR a sequência! ⚠️ ⚠️ ⚠️`, 'color: #FF0000; font-weight: bold; font-size: 14px; background: #FFFF00;');
     console.log(`%c   ➤ Sequência ATUAL: ${currentSequenceLength} ${suggestedColor.toUpperCase()}(s) consecutivo(s)`, `color: ${suggestedColor === 'red' ? '#FF0000' : '#FFFFFF'}; font-weight: bold;`);
     console.log(`%c   ➤ Sinal pede: ${targetSequenceLength}º ${suggestedColor.toUpperCase()} (${targetSequenceLength} consecutivos!)`, `color: ${suggestedColor === 'red' ? '#FF0000' : '#FFFFFF'}; font-weight: bold;`);
-    console.log('');
     
     // Buscar no histórico: qual foi a MAIOR sequência dessa cor nos últimos giros?
     const analysisWindow = Math.min(history.length, 500); // Analisar até 500 giros
@@ -7228,13 +6891,11 @@ function analyzeSequenceViability(history, suggestedColor) {
         }
     }
     
-    console.log('');
     console.log(`%c   📊 RESULTADO DA BUSCA HISTÓRICA:`, 'color: #9C27B0; font-weight: bold; font-size: 13px;');
     console.log(`%c      ➤ Máximo de ${suggestedColor.toUpperCase()}(s) consecutivos já encontrado: ${maxConsecutive}`, 
         `color: ${suggestedColor === 'red' ? '#FF0000' : '#FFFFFF'}; font-weight: bold;`);
     console.log(`%c      ➤ Sinal quer: ${targetSequenceLength} ${suggestedColor.toUpperCase()}(s) consecutivos`, 
         `color: ${suggestedColor === 'red' ? '#FF0000' : '#FFFFFF'}; font-weight: bold;`);
-    console.log('');
     
     // DECISÃO: A sequência sugerida é viável?
     if (targetSequenceLength > maxConsecutive) {
@@ -7243,10 +6904,8 @@ function analyzeSequenceViability(history, suggestedColor) {
         console.log('%c   📌 NUNCA aconteceu no histórico analisado!', 'color: #FF0000; font-weight: bold;');
         console.log(`%c      ➤ Máximo histórico: ${maxConsecutive} ${suggestedColor.toUpperCase()}(s)`, 'color: #FF6666; font-weight: bold;');
         console.log(`%c      ➤ Sinal pede: ${targetSequenceLength} ${suggestedColor.toUpperCase()}(s)`, 'color: #FF6666; font-weight: bold;');
-        console.log('');
         console.log('%c   🚫 AÇÃO: CANCELAR SINAL (NÃO INVERTER)!', 'color: #FFFF00; font-weight: bold; font-size: 14px; background: #FF0000;');
         console.log('%c   💡 Seria burrice apostar em algo que NUNCA aconteceu!', 'color: #FF6666; font-weight: bold;');
-        console.log('');
         
         return {
             shouldInvert: false,  // ✅ NÃO inverte
@@ -7287,7 +6946,6 @@ function analyzeSequenceViability(history, suggestedColor) {
         }
     }
     
-    console.log('%c   ═══════════════════════════════════════════════════════════', 'color: #9C27B0;');
     
     if (lastOccurrenceGirosAgo === null) {
         // NUNCA aconteceu essa sequência!
@@ -7306,8 +6964,6 @@ function analyzeSequenceViability(history, suggestedColor) {
     
     // Encontrou! Agora decidir baseado em QUANDO foi
     console.log(`%c   🕒 Última sequência de ${targetSequenceLength}+ ${suggestedColor.toUpperCase()}(s): há ${lastOccurrenceGirosAgo} giros atrás`, 'color: #9C27B0; font-weight: bold;');
-    console.log('%c   ═══════════════════════════════════════════════════════════', 'color: #9C27B0;');
-    console.log('');
     
     // ✅ OPÇÃO 1: Aconteceu nos últimos 20 giros (RECENTE - padrão ATIVO)
     if (lastOccurrenceGirosAgo < 20) {
@@ -7432,8 +7088,6 @@ function analyzeSequenceViability(history, suggestedColor) {
  */
 function verifyHotPatternStillValid(history, savedPattern) {
     try {
-        console.log('');
-        console.log('🔍 VERIFICANDO SE PADRÃO SALVO AINDA É VÁLIDO...');
         
         const hotWindow = getDiamondWindow('n1HotPattern', 60);
         const windowHistory = history.slice(0, Math.min(hotWindow, history.length));
@@ -7469,7 +7123,6 @@ function verifyHotPatternStillValid(history, savedPattern) {
         console.log(`   ✓ Total WINs: ${totalWins}`);
         console.log(`   ✓ Total LOSSes: ${totalLosses}`);
         console.log(`   ${isValid ? '✅ PADRÃO AINDA É VÁLIDO!' : '❌ PADRÃO NÃO É MAIS VÁLIDO'}`);
-        console.log('');
         
         return isValid;
     } catch (error) {
@@ -7488,10 +7141,7 @@ function detectHotPattern(history, windowSize = 60) {
     const startTime = performance.now(); // ⏱️ MEDIR TEMPO
     
     try {
-        console.log('');
-        console.log('═══════════════════════════════════════════════════════════');
         console.log('🔥 DETECTANDO PADRÃO QUENTE');
-        console.log('═══════════════════════════════════════════════════════════');
         
         if (!history || history.length < 12) {
             console.log('⚠️ Histórico insuficiente (mínimo 12 giros)');
@@ -7510,7 +7160,6 @@ function detectHotPattern(history, windowSize = 60) {
         return '⚪';
     }).join(' ');
     console.log(`🎲 Últimos 15 giros: ${preview}`);
-    console.log('');
     
     const candidatos = [];
     
@@ -7731,7 +7380,6 @@ function detectHotPattern(history, windowSize = 60) {
     }).join(' → ');
     const predDisplay = melhor.prediction === 'red' ? '🔴 RED' : (melhor.prediction === 'black' ? '⚫ BLACK' : '⚪ WHITE');
     
-    console.log('');
     console.log('🔥🔥🔥 PADRÃO QUENTE IDENTIFICADO! 🔥🔥🔥');
     console.log(`   📋 Padrão: ${patternDisplay}`);
     console.log(`   🎯 Previsão: ${predDisplay}`);
@@ -7739,19 +7387,15 @@ function detectHotPattern(history, windowSize = 60) {
     console.log(`   ✅ Cor prevista (${melhor.prediction.toUpperCase()}) saiu: ${melhor.totalWins} vezes`);
     console.log(`   🎯 Frequência: ${((melhor.totalWins / melhor.occurrences) * 100).toFixed(1)}%`);
     console.log(`   ⏰ Última vez que apareceu: ${new Date(melhor.lastOccurrenceTimestamp).toLocaleTimeString('pt-BR')}`);
-    console.log('');
     console.log('💡 POR QUE ESTE PADRÃO FOI ESCOLHIDO:');
     console.log(`   1️⃣ Win Rate: ${(melhor.winRate * 100).toFixed(1)}% (critério principal)`);
     console.log(`   2️⃣ Total de Wins: ${melhor.totalWins}x (cor prevista acertou)`);
     console.log(`   3️⃣ Recente: apareceu às ${new Date(melhor.lastOccurrenceTimestamp).toLocaleTimeString('pt-BR')} (desempate)`);
     console.log(`   4️⃣ Ocorrências totais: ${melhor.occurrences}x (último critério)`);
-    console.log('');
     console.log('✅ Este padrão é DETERMINÍSTICO - sempre será o mesmo com o mesmo histórico!');
     
     const elapsedTime = (performance.now() - startTime).toFixed(2);
     console.log(`⏱️ TEMPO DE EXECUÇÃO: ${elapsedTime}ms`);
-    console.log('═══════════════════════════════════════════════════════════');
-    console.log('');
     
     return melhor;
     
@@ -8248,6 +7892,199 @@ function analyzeMinuteSpinBias(history, targetMinute, targetPosition, windowSize
     };
 }
 
+function analyzeHistoricalRetracement(history, windowSize = 80, intensity = 'moderate') {
+    const validSpins = (history || []).filter(spin => spin && (spin.color === 'red' || spin.color === 'black'));
+    if (validSpins.length < 20) {
+        return {
+            color: null,
+            strength: 0,
+            status: '❌ Nulo',
+            ratio: 0,
+            details: 'Dados insuficientes (<20 giros válidos)'
+        };
+    }
+
+    const window = validSpins.slice(0, Math.min(windowSize, validSpins.length));
+    const currentColor = window[0].color;
+
+    let currentStreak = 0;
+    for (const spin of window) {
+        if (spin.color === currentColor) {
+            currentStreak++;
+        } else {
+            break;
+        }
+    }
+
+    const maxStreak = { red: 0, black: 0 };
+    let streakColor = null;
+    let streakLength = 0;
+    window.forEach(spin => {
+        if (spin.color === streakColor) {
+            streakLength++;
+        } else {
+            if (streakColor) {
+                maxStreak[streakColor] = Math.max(maxStreak[streakColor], streakLength);
+            }
+            streakColor = spin.color;
+            streakLength = 1;
+        }
+    });
+    if (streakColor) {
+        maxStreak[streakColor] = Math.max(maxStreak[streakColor], streakLength);
+    }
+
+    const historicalMax = Math.max(currentStreak, maxStreak[currentColor] || 0);
+    if (historicalMax <= 0) {
+        return {
+            color: null,
+            strength: 0,
+            status: '❌ Nulo',
+            ratio: 0,
+            details: 'Sem histórico suficiente para calcular retração'
+        };
+    }
+
+    const ratio = currentStreak / historicalMax;
+    const ratioPct = Math.min(100, Math.round(ratio * 100));
+
+    const thresholds = {
+        aggressive: 70,
+        moderate: 80,
+        conservative: 85,
+        ultraconservative: 85
+    };
+    const inversionThreshold = thresholds[intensity] ?? thresholds.moderate;
+    const neutralThreshold = 50;
+
+    let color = null;
+    let strength = 0;
+    let status = '⚖️ Neutra';
+
+    if (ratioPct >= inversionThreshold) {
+        color = currentColor === 'red' ? 'black' : 'red';
+        strength = Math.min(1, (ratioPct - inversionThreshold + 10) / 40);
+        status = '🔄 Reversão provável';
+    } else if (ratioPct < neutralThreshold) {
+        color = currentColor;
+        strength = Math.min(1, ((neutralThreshold - ratioPct) / 50) + 0.2);
+        status = '✅ Continuação';
+    } else {
+        status = '⚖️ Zona neutra';
+    }
+
+    const details = `${status} • Seq. atual ${currentStreak}/${historicalMax} (${ratioPct}%)`;
+
+    return {
+        color,
+        strength,
+        status,
+        ratio: ratioPct,
+        details
+    };
+}
+
+function analyzeGlobalContinuity(signalData, decisionWindow = 20, historyLimit = 100, intensity = 'moderate') {
+    if (!signalData || !Array.isArray(signalData.signals) || signalData.signals.length === 0) {
+        return {
+            color: null,
+            strength: 0,
+            status: '❌ Nulo',
+            details: 'Sem decisões registradas'
+        };
+    }
+
+    const relevantSignals = signalData.signals
+        .slice(-historyLimit)
+        .filter(sig => sig && typeof sig.hit === 'boolean' && (sig.colorRecommended === 'red' || sig.colorRecommended === 'black'));
+
+    if (relevantSignals.length < Math.max(6, Math.min(decisionWindow, 10))) {
+        return {
+            color: null,
+            strength: 0,
+            status: '❌ Nulo',
+            details: 'Histórico de decisões insuficiente'
+        };
+    }
+
+    const windowSignals = relevantSignals.slice(-decisionWindow);
+    const colorStats = {
+        red: { attempts: 0, hits: 0 },
+        black: { attempts: 0, hits: 0 }
+    };
+
+    windowSignals.forEach(sig => {
+        const color = sig.colorRecommended;
+        if (!colorStats[color]) return;
+        colorStats[color].attempts++;
+        if (sig.hit) colorStats[color].hits++;
+    });
+
+    const totalAttempts = windowSignals.length;
+    const totalHits = windowSignals.filter(sig => sig.hit).length;
+    const overallRate = totalAttempts > 0 ? (totalHits / totalAttempts) * 100 : 0;
+
+    const dominantColor = (() => {
+        const red = colorStats.red;
+        const black = colorStats.black;
+        if (red.hits === black.hits) {
+            return red.attempts >= black.attempts ? 'red' : 'black';
+        }
+        return red.hits > black.hits ? 'red' : 'black';
+    })();
+
+    const dominantAttempts = colorStats[dominantColor].attempts;
+    const dominantHits = colorStats[dominantColor].hits;
+    const dominantRate = dominantAttempts > 0 ? (dominantHits / dominantAttempts) * 100 : 0;
+
+    const thresholds = {
+        aggressive: { high: 55, low: 40 },
+        moderate: { high: 60, low: 45 },
+        conservative: { high: 65, low: 50 },
+        ultraconservative: { high: 70, low: 55 }
+    };
+    const { high, low } = thresholds[intensity] || thresholds.moderate;
+
+    if (dominantAttempts === 0) {
+        return {
+            color: null,
+            strength: 0,
+            status: '❌ Nulo',
+            details: 'Sem decisões válidas para análise'
+        };
+    }
+
+    let color = null;
+    let strength = 0;
+    let status = '⚖️ Neutra';
+
+    if (overallRate >= high) {
+        color = dominantColor;
+        strength = Math.min(1, ((overallRate - high + 5) / 35) + 0.2);
+        status = overallRate >= high + 5 ? '🔥 Alta confiança' : '✅ Continuidade';
+    } else if (overallRate <= low) {
+        color = dominantColor;
+        strength = -Math.min(0.7, ((low - overallRate + 5) / 40));
+        status = '⚠️ Instabilidade';
+    } else {
+        status = '⚖️ Moderada';
+    }
+
+    const details = [
+        status,
+        `Sinais analisados: ${totalAttempts}`,
+        `Acertos: ${totalHits}/${totalAttempts} (${overallRate.toFixed(1)}%)`,
+        `Dominante ${dominantColor.toUpperCase()}: ${dominantHits}/${dominantAttempts} (${dominantRate.toFixed(1)}%)`
+    ].join(' • ');
+
+    return {
+        color,
+        strength,
+        status,
+        details
+    };
+}
+
 /**
  * NÍVEL 6: Barreira/Freio - Valida se a sequência é viável historicamente
  * Usa somente os últimos 50 giros para garantir proteção recente
@@ -8283,7 +8120,6 @@ function validateSequenceBarrier(history, predictedColor, configuredSize, altern
     // Verificar se sequência de (currentStreak + 1) já aconteceu
     const targetStreak = currentStreak + 1;
     console.log(`   🎯 Se entrar agora, teremos: ${targetStreak} ${predictedColor.toUpperCase()} consecutivos`);
-    console.log(`   🔍 Verificando se essa sequência já aconteceu antes no histórico...`);
     
     let maxStreakFound = 0;
     let streakCount = 0;
@@ -8549,7 +8385,6 @@ function analyzeWhiteRadar(fullHistory) {
     
     console.log(`   📊 Total de giros disponíveis: ${fullHistory.length}`);
     console.log(`   🎯 Metodologia: Análise do PRIMEIRO ao ÚLTIMO branco`);
-    console.log('');
     
     if (fullHistory.length < 50) {
         console.log(`   ❌ Dados insuficientes! Mínimo: 50 giros`);
@@ -8627,7 +8462,6 @@ function analyzeWhiteRadar(fullHistory) {
     
     console.log(`   ⚪ Total de brancos encontrados: ${whiteOccurrences.length}`);
     console.log(`   ⚪ Frequência: ${((whiteOccurrences.length / fullHistory.length) * 100).toFixed(2)}%`);
-    console.log('');
     
     if (whiteOccurrences.length < 2) {
         console.log(`   ⚠️ Poucos brancos para análise confiável (mínimo: 2)`);
@@ -8669,7 +8503,6 @@ function analyzeWhiteRadar(fullHistory) {
         const percentage = ((count / whiteOccurrences.length) * 100).toFixed(1);
         console.log(`      Nº ${num}: ${count}x (${percentage}%)`);
     });
-    console.log('');
     
     // 2.2: Minutos favoritos
     const favoriteMinutes = {};
@@ -8694,7 +8527,6 @@ function analyzeWhiteRadar(fullHistory) {
         const percentage = ((count / whiteOccurrences.length) * 100).toFixed(1);
         console.log(`      :${String(min).padStart(2, '0')}: ${count}x (${percentage}%)`);
     });
-    console.log('');
     
     // 2.3: Intervalo médio entre brancos
     const intervals = whiteOccurrences
@@ -8712,7 +8544,6 @@ function analyzeWhiteRadar(fullHistory) {
     console.log(`      Média: ${avgInterval.toFixed(0)} giros`);
     console.log(`      Mínimo: ${minInterval} giros`);
     console.log(`      Máximo: ${maxInterval} giros`);
-    console.log('');
     
     // 2.4: Padrões mais comuns antes de brancos
     const pattern3Counts = {};
@@ -8732,7 +8563,6 @@ function analyzeWhiteRadar(fullHistory) {
     sortedPattern3.forEach(([pattern, count]) => {
         console.log(`      ${pattern}: ${count}x`);
     });
-    console.log('');
     
     // ═══════════════════════════════════════════════════════════════
     // 🔮 ETAPA 3: SITUAÇÃO ATUAL E PREVISÃO
@@ -8760,7 +8590,6 @@ function analyzeWhiteRadar(fullHistory) {
     console.log(`   📍 Número atual: ${currentNumber}`);
     console.log(`   📍 Minuto atual: ${currentMinute !== null ? ':' + String(currentMinute).padStart(2, '0') : 'N/A'}`);
     console.log(`   📍 Padrão atual (últimos 3): ${current3Pattern}`);
-    console.log('');
     
     // ═══════════════════════════════════════════════════════════════
     // 🧠 ETAPA 4: DECISÃO - PREVER BRANCO OU VOTAR EM COR?
@@ -8793,7 +8622,6 @@ function analyzeWhiteRadar(fullHistory) {
     
     console.log(`   🎯 Score de previsão: ${predictionScore.toFixed(1)}/100`);
     scoreDetails.forEach(detail => console.log(`      ✓ ${detail}`));
-    console.log('');
     
     // 🚨 MODO FORCE_WHITE: Score >= 60 pontos
     if (predictionScore >= 60 && whiteOccurrences.length >= 3) {
@@ -8802,7 +8630,6 @@ function analyzeWhiteRadar(fullHistory) {
         console.log(`   ⚪ Score alto (${predictionScore.toFixed(1)}/100) → BRANCO previsto!`);
     console.log(`   📊 Confiança: ${(confidence * 100).toFixed(0)}%`);
         console.log(`   ⚠️ TODOS OS OUTROS VOTOS SERÃO ANULADOS!`);
-        console.log('');
         
         return {
             mode: 'force_white',
@@ -8817,21 +8644,17 @@ function analyzeWhiteRadar(fullHistory) {
     
     // 📊 MODO VOTE_COLOR: SÓ VOTA SE O ÚLTIMO GIRO FOI BRANCO!
     console.log(`   📊 MODO ATIVADO: VOTE_COLOR`);
-    console.log('');
     
     // ✅ VERIFICAÇÃO CRÍTICA: O ÚLTIMO GIRO (mais recente) FOI BRANCO?
     const lastSpinWasWhite = currentSpin.color === 'white';
     
-    console.log(`   🔍 Verificando último giro...`);
     console.log(`   📍 Último giro: ${currentSpin.color.toUpperCase()} (${currentSpin.number})`);
     console.log(`   🎯 Foi branco? ${lastSpinWasWhite ? '✅ SIM' : '❌ NÃO'}`);
-    console.log('');
     
     if (!lastSpinWasWhite) {
         // ❌ ÚLTIMO GIRO NÃO FOI BRANCO → VOTO NULO
         console.log(`   ❌ VOTO NULO: Último giro não foi branco`);
         console.log(`   ⚠️ Só voto em cor se o último giro for branco!`);
-        console.log('');
         
         return {
             mode: 'vote_color',
@@ -8845,14 +8668,12 @@ function analyzeWhiteRadar(fullHistory) {
     // ✅ ÚLTIMO GIRO FOI BRANCO! Analisar APENAS os ÚLTIMOS 5 BRANCOS
     console.log(`   ✅ Último giro FOI BRANCO!`);
     console.log(`   🗳️ Analisando os ÚLTIMOS 5 BRANCOS para votar...`);
-    console.log('');
     
     // Pegar apenas os ÚLTIMOS 5 brancos (mais recentes)
     const last5Whites = whiteOccurrences.slice(-5); // Últimos 5 elementos do array
     
     console.log(`   📊 Total de brancos no histórico: ${whiteOccurrences.length}`);
     console.log(`   🎯 Analisando últimos: ${last5Whites.length} brancos`);
-    console.log('');
     
     const afterWhiteColors = { red: 0, black: 0, white: 0 };
     
@@ -8866,7 +8687,6 @@ function analyzeWhiteRadar(fullHistory) {
             }
         }
     }
-    console.log('');
     
     const totalAfterWhite = afterWhiteColors.red + afterWhiteColors.black + afterWhiteColors.white;
     
@@ -8897,10 +8717,8 @@ function analyzeWhiteRadar(fullHistory) {
         console.log(`   📊 Resultado dos últimos ${last5Whites.length} brancos:`);
         console.log(`      🔴 VERMELHO: ${afterWhiteColors.red}x (${((afterWhiteColors.red / totalAfterWhite) * 100).toFixed(1)}%)`);
         console.log(`      ⚫ PRETO: ${afterWhiteColors.black}x (${((afterWhiteColors.black / totalAfterWhite) * 100).toFixed(1)}%)`);
-        console.log('');
         console.log(`   🗳️ VOTA: ${voteColor.toUpperCase()} (${(confidence * 100).toFixed(0)}% confiança)`);
         console.log(`   ✅ Justificativa: Nos últimos ${last5Whites.length} brancos, ${voteColor.toUpperCase()} saiu ${colorPercentage.toFixed(1)}%`);
-        console.log('');
     
     return {
             mode: 'vote_color',
@@ -8915,7 +8733,6 @@ function analyzeWhiteRadar(fullHistory) {
     
     // ⚠️ FALLBACK: Dados insuficientes (mas último giro foi branco)
     console.log(`   ⚠️ VOTO NULO: Dados insuficientes no histórico`);
-    console.log('');
     
     return {
         mode: 'vote_color',
@@ -9086,11 +8903,6 @@ function sleep(ms) {
  * - Níveis 1, 2, 3 removidos (análise superficial de frequência)
  */
 async function analyzeWithPatternSystem(history) {
-    console.log('');
-    console.log('%c═══════════════════════════════════════════════════════════════════', 'color: #FFD700; font-weight: bold; font-size: 18px;');
-    console.log('%c🔍 DEBUG COMPLETO: analyzeWithPatternSystem INICIANDO', 'color: #FFD700; font-weight: bold; font-size: 18px;');
-    console.log('%c═══════════════════════════════════════════════════════════════════', 'color: #FFD700; font-weight: bold; font-size: 18px;');
-    console.log('');
     
     // ✅ DEBUG: Enviar mensagem inicial
     sendAnalysisStatus('🔍 Iniciando análise dos 6 níveis...');
@@ -9104,7 +8916,6 @@ async function analyzeWithPatternSystem(history) {
     console.log(`   ✓ hotPatternMode = ${hotPatternMode ? '✅ ATIVO' : '❌ INATIVO'}`);
     
     if (history && history.length > 0) {
-        console.log('');
         console.log('%c📜 ÚLTIMOS 20 GIROS DO HISTÓRICO (DADOS REAIS):', 'color: #00FFFF; font-weight: bold;');
         const last20 = history.slice(0, 20);
         last20.forEach((spin, idx) => {
@@ -9113,20 +8924,132 @@ async function analyzeWithPatternSystem(history) {
             console.log(`   ${idx + 1}. ${colorEmoji} ${spin.color.toUpperCase()} (nº ${spin.number}) às ${timestamp}`);
         });
     }
-    console.log('');
-    console.log('%c═══════════════════════════════════════════════════════════════════', 'color: #FFD700; font-weight: bold;');
-    console.log('');
     
-        console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #00FF00; font-weight: bold; font-size: 16px;');
         console.log('%c║  💎 NÍVEL DIAMANTE - ANÁLISE AVANÇADA 6 NÍVEIS           ║', 'color: #00FF00; font-weight: bold; font-size: 16px;');
-        console.log('%c╠═══════════════════════════════════════════════════════════╣', 'color: #00FF00; font-weight: bold;');
         console.log('%c║  🎯 N1 - Padrões (Customizado → Quente → Nulo)         ║', 'color: #FFD700; font-weight: bold;');
         console.log('%c║  ⚡ N2 - Momentum (5 vs 15 giros)                      ║', 'color: #00FF88;');
         console.log('%c║  🔷 N3 - Padrão Alternância (12 giros)                 ║', 'color: #8E44AD; font-weight: bold;');
         console.log('%c║  🔷 N4 - Persistência/Ciclos (20 giros)                ║', 'color: #D35400; font-weight: bold;');
-        console.log('%c║  🕑 N5 - Ritmo por Giro (minuto alvo)                  ║', 'color: #1ABC9C; font-weight: bold;');
-        console.log('%c║  🛑 N6 - Barreira/Freio (validação histórica)          ║', 'color: #FF6666; font-weight: bold;');
-        console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #00FF00; font-weight: bold; font-size: 16px;');
+    console.log('%c║  🕑 N5 - Ritmo por Giro (minuto alvo)                  ║', 'color: #1ABC9C; font-weight: bold;');
+    console.log('%c║  📉 N6 - Retração Histórica                             ║', 'color: #3498DB; font-weight: bold;');
+    console.log('%c║  📈 N7 - Continuidade Global                           ║', 'color: #2ECC71; font-weight: bold;');
+    console.log('%c║  🛑 N8 - Barreira Final (validação histórica)          ║', 'color: #FF6666; font-weight: bold;');
+    
+    // ═══════════════════════════════════════════════════════════════
+    // 📊 EXIBIR CONFIGURAÇÕES SALVAS PELO USUÁRIO (VALORES REAIS)
+    // ═══════════════════════════════════════════════════════════════
+    console.log('%c║  ⚙️ CONFIGURAÇÕES DOS 8 NÍVEIS SALVAS PELO USUÁRIO (VALORES REAIS)          ║', 'color: #FF00FF; font-weight: bold; font-size: 16px; background: #000000;');
+    console.log('%c╠═══════════════════════════════════════════════════════════════════════════════╣', 'color: #FF00FF; font-weight: bold; background: #000000;');
+    
+    // Pegar configurações do analyzerConfig
+    const userDiamondWindows = analyzerConfig.diamondLevelWindows || {};
+    const n1Window = getDiamondWindow('n1HotPattern', 60);
+    const n2RecentWindow = getDiamondWindow('n2Recent', 5);
+    const n2PreviousWindow = getDiamondWindow('n2Previous', 15);
+    const n3Window = getDiamondWindow('n3Alternance', 12);
+    const n4Window = getDiamondWindow('n4Persistence', 20);
+    const n5Window = getDiamondWindow('n5MinuteBias', 60);
+    const n6Window = getDiamondWindow('n6RetracementWindow', 80);
+    const n7DecisionWindow = getDiamondWindow('n7DecisionWindow', 20);
+    const n7HistoryWindow = getDiamondWindow('n7HistoryWindow', 100);
+    const n8Window = getDiamondWindow('n8Barrier', 50);
+    const displayValue = (key, fallback, ...legacyKeys) => {
+        if (Number.isFinite(Number(userDiamondWindows[key])) && Number(userDiamondWindows[key]) > 0) {
+            return Number(userDiamondWindows[key]);
+        }
+        for (const legacyKey of legacyKeys) {
+            if (Number.isFinite(Number(userDiamondWindows[legacyKey])) && Number(userDiamondWindows[legacyKey]) > 0) {
+                return Number(userDiamondWindows[legacyKey]);
+            }
+        }
+        return fallback;
+    };
+    
+    console.log('%c║                                                                               ║', 'color: #FF00FF; background: #000000;');
+    console.log('%c║  🎯 N1 - PADRÃO QUENTE:                                                      ║', 'color: #FFD700; font-weight: bold; background: #000000;');
+    console.log(`%c║     Giros configurados: ${String(displayValue('n1HotPattern', 60)).padEnd(3)} (padrão: 60)${' '.repeat(38)}║`, 'color: #FFD700; background: #000000;');
+    console.log(`%c║     VALOR REAL USADO: ${String(n1Window).padEnd(3)} giros${' '.repeat(47)}║`, 'color: #00FF00; font-weight: bold; background: #000000;');
+    console.log('%c║                                                                               ║', 'color: #FF00FF; background: #000000;');
+    
+    console.log('%c║  ⚡ N2 - MOMENTUM:                                                            ║', 'color: #00AAFF; font-weight: bold; background: #000000;');
+    console.log(`%c║     Janela recente: ${String(displayValue('n2Recent', 5)).padEnd(3)} giros (padrão: 5)${' '.repeat(37)}║`, 'color: #00AAFF; background: #000000;');
+    console.log(`%c║     Janela anterior: ${String(displayValue('n2Previous', 15)).padEnd(3)} giros (padrão: 15)${' '.repeat(35)}║`, 'color: #00AAFF; background: #000000;');
+    console.log(`%c║     VALORES REAIS USADOS: recente ${String(n2RecentWindow).padEnd(2)} | anterior ${String(n2PreviousWindow).padEnd(2)}${' '.repeat(24)}║`, 'color: #00FF00; font-weight: bold; background: #000000;');
+    console.log('%c║                                                                               ║', 'color: #FF00FF; background: #000000;');
+    
+    console.log('%c║  🔷 N3 - ALTERNÂNCIA:                                                         ║', 'color: #8E44AD; font-weight: bold; background: #000000;');
+    console.log(`%c║     Janela de análise: ${String(displayValue('n3Alternance', 12)).padEnd(3)} giros (padrão: 12)${' '.repeat(33)}║`, 'color: #8E44AD; background: #000000;');
+    console.log(`%c║     VALOR REAL USADO: ${String(n3Window).padEnd(3)} giros${' '.repeat(46)}║`, 'color: #00FF00; font-weight: bold; background: #000000;');
+    console.log('%c║                                                                               ║', 'color: #FF00FF; background: #000000;');
+    
+    console.log('%c║  🔷 N4 - PERSISTÊNCIA:                                                        ║', 'color: #D35400; font-weight: bold; background: #000000;');
+    console.log(`%c║     Janela de análise: ${String(displayValue('n4Persistence', 20)).padEnd(3)} giros (padrão: 20)${' '.repeat(33)}║`, 'color: #D35400; background: #000000;');
+    console.log(`%c║     VALOR REAL USADO: ${String(n4Window).padEnd(3)} giros${' '.repeat(46)}║`, 'color: #00FF00; font-weight: bold; background: #000000;');
+    console.log('%c║                                                                               ║', 'color: #FF00FF; background: #000000;');
+    
+    console.log('%c║  🕑 N5 - RITMO POR GIRO:                                                      ║', 'color: #1ABC9C; font-weight: bold; background: #000000;');
+    console.log(`%c║     Amostras analisadas: ${String(displayValue('n5MinuteBias', 60)).padEnd(3)} (padrão: 60)${' '.repeat(35)}║`, 'color: #1ABC9C; background: #000000;');
+    console.log(`%c║     VALOR REAL USADO: ${String(n5Window).padEnd(3)} amostras${' '.repeat(43)}║`, 'color: #00FF00; font-weight: bold; background: #000000;');
+    console.log('%c║                                                                               ║', 'color: #FF00FF; background: #000000;');
+    
+    console.log('%c║  📉 N6 - RETRAÇÃO HISTÓRICA:                                                  ║', 'color: #3498DB; font-weight: bold; background: #000000;');
+    console.log(`%c║     Janela de análise: ${String(displayValue('n6RetracementWindow', 80, 'n8RetracementWindow')).padEnd(3)} giros (padrão: 80)${' '.repeat(32)}║`, 'color: #3498DB; background: #000000;');
+    console.log(`%c║     VALOR REAL USADO: ${String(n6Window).padEnd(3)} giros${' '.repeat(45)}║`, 'color: #00FF00; font-weight: bold; background: #000000;');
+    console.log('%c║                                                                               ║', 'color: #FF00FF; background: #000000;');
+    
+    console.log('%c║  📈 N7 - CONTINUIDADE GLOBAL:                                                ║', 'color: #2ECC71; font-weight: bold; background: #000000;');
+    console.log(`%c║     Decisões analisadas: ${String(displayValue('n7DecisionWindow', 20, 'n10DecisionWindow')).padEnd(3)} (padrão: 20)${' '.repeat(32)}║`, 'color: #2ECC71; background: #000000;');
+    console.log(`%c║     Histórico base: ${String(displayValue('n7HistoryWindow', 100, 'n10HistoryWindow')).padEnd(3)} giros (padrão: 100)${' '.repeat(32)}║`, 'color: #2ECC71; background: #000000;');
+    console.log(`%c║     VALORES REAIS USADOS: decisões ${String(n7DecisionWindow).padEnd(3)} | histórico ${String(n7HistoryWindow).padEnd(3)}${' '.repeat(14)}║`, 'color: #00FF00; font-weight: bold; background: #000000;');
+    console.log('%c║                                                                               ║', 'color: #FF00FF; background: #000000;');
+    
+    console.log('%c║  🛑 N8 - BARREIRA FINAL:                                                      ║', 'color: #FF0000; font-weight: bold; background: #000000;');
+    console.log(`%c║     Janela de validação: ${String(displayValue('n8Barrier', 50, 'n6Barrier')).padEnd(3)} giros (padrão: 50)${' '.repeat(32)}║`, 'color: #FF0000; background: #000000;');
+    console.log(`%c║     VALOR REAL USADO: ${String(n8Window).padEnd(3)} giros${' '.repeat(46)}║`, 'color: #00FF00; font-weight: bold; background: #000000;');
+    console.log('%c║                                                                               ║', 'color: #FF00FF; background: #000000;');
+    
+    console.log('%c╠═══════════════════════════════════════════════════════════════════════════════╣', 'color: #FF00FF; font-weight: bold; background: #000000;');
+    console.log('%c║  📋 RESUMO:                                                                   ║', 'color: #FFFFFF; font-weight: bold; background: #000000;');
+    console.log('%c║                                                                               ║', 'color: #FF00FF; background: #000000;');
+    
+    // Verificar se os valores são padrão ou personalizados
+    const isN1Custom = n1Window !== 60;
+    const isN2Custom = n2RecentWindow !== 5 || n2PreviousWindow !== 15;
+    const isN3Custom = n3Window !== 12;
+    const isN4Custom = n4Window !== 20;
+    const isN5Custom = n5Window !== 60;
+    const isN6Custom = n6Window !== 80;
+    const isN7Custom = n7DecisionWindow !== 20 || n7HistoryWindow !== 100;
+    const isN8Custom = n8Window !== 50;
+    
+    const customCount = [
+        isN1Custom,
+        isN2Custom,
+        isN3Custom,
+        isN4Custom,
+        isN5Custom,
+        isN6Custom,
+        isN7Custom,
+        isN8Custom
+    ].filter(Boolean).length;
+    
+    if (customCount === 0) {
+        console.log('%c║  ✅ Todos os níveis estão usando VALORES PADRÃO                             ║', 'color: #00FF88; font-weight: bold; background: #000000;');
+    } else {
+        console.log(`%c║  ⚙️ ${customCount} nível(is) com configuração PERSONALIZADA pelo usuário${' '.repeat(29 - String(customCount).length)}║`, 'color: #FFD700; font-weight: bold; background: #000000;');
+        if (isN1Custom) console.log('%c║     • N1 (Padrão Quente) - PERSONALIZADO                                     ║', 'color: #FFD700; background: #000000;');
+        if (isN2Custom) console.log('%c║     • N2 (Momentum) - PERSONALIZADO                                           ║', 'color: #00AAFF; background: #000000;');
+        if (isN3Custom) console.log('%c║     • N3 (Alternância) - PERSONALIZADO                                        ║', 'color: #8E44AD; background: #000000;');
+        if (isN4Custom) console.log('%c║     • N4 (Persistência) - PERSONALIZADO                                       ║', 'color: #D35400; background: #000000;');
+        if (isN5Custom) console.log('%c║     • N5 (Ritmo por Giro) - PERSONALIZADO                                     ║', 'color: #1ABC9C; background: #000000;');
+        if (isN6Custom) console.log('%c║     • N6 (Retração Histórica) - PERSONALIZADO                                 ║', 'color: #3498DB; background: #000000;');
+        if (isN7Custom) console.log('%c║     • N7 (Continuidade Global) - PERSONALIZADO                                ║', 'color: #2ECC71; background: #000000;');
+        if (isN8Custom) console.log('%c║     • N8 (Barreira Final) - PERSONALIZADO                                     ║', 'color: #FF0000; background: #000000;');
+    }
+    
+    console.log('%c║                                                                               ║', 'color: #FF00FF; background: #000000;');
+    console.log('%c║  ✅ CONFIRMAÇÃO: Esses são os valores REALMENTE USADOS na análise!           ║', 'color: #00FF00; font-weight: bold; font-size: 14px; background: #000000;');
+    console.log('%c╚═══════════════════════════════════════════════════════════════════════════════╝', 'color: #FF00FF; font-weight: bold; font-size: 16px; background: #000000;');
     console.log('');
     
     try {
@@ -9160,76 +9083,87 @@ async function analyzeWithPatternSystem(history) {
         console.log(`📊 Giro atual: #${history[0]?.number || 'N/A'}`);
         
         if (minIntervalSpins > 0) {
-            const entriesResult = await chrome.storage.local.get(['lastSignalSpinNumber', 'lastSignalTimestamp']);
-            const lastSignalSpinNumber = entriesResult.lastSignalSpinNumber || null;
+            const entriesResult = await chrome.storage.local.get([
+                'lastSignalSpinNumber',
+                'lastSignalTimestamp',
+                'lastSignalSpinId',
+                'lastSignalSpinTimestamp'
+            ]);
+            const lastSignalSpinNumber = entriesResult.lastSignalSpinNumber ?? null;
             const lastSignalTimestamp = entriesResult.lastSignalTimestamp || null;
+            const lastSignalSpinId = entriesResult.lastSignalSpinId || null;
+            const lastSignalSpinTimestamp = entriesResult.lastSignalSpinTimestamp || null;
             
-            console.log(`📊 Último sinal salvo: ${lastSignalSpinNumber ? '#' + lastSignalSpinNumber : 'Nenhum'}`);
-            if (lastSignalSpinNumber && lastSignalTimestamp) {
+            console.log(`📊 Último sinal salvo: ${lastSignalSpinNumber !== null ? '#' + lastSignalSpinNumber : 'Nenhum'}`);
+            if (lastSignalTimestamp) {
                 const tempoDecorrido = Math.round((Date.now() - lastSignalTimestamp) / 1000);
-                console.log(`   ⏱️ Salvo há ${tempoDecorrido}s (pode ser de sinal real ou de bloqueio inicial)`);
+                console.log(`   ⏱️ Registrado há ${tempoDecorrido}s`);
             }
             
-            if (lastSignalSpinNumber !== null && lastSignalTimestamp && history.length > 0) {
-                const timeSinceSignal = Date.now() - lastSignalTimestamp;
-                const minutosDecorridos = timeSinceSignal / 60000; // ms para minutos
-                const segundosDecorridos = Math.round(timeSinceSignal / 1000);
-                
-                // ✅ CÁLCULO SIMPLES: 2 giros por minuto
-                const girosDecorridos = Math.floor(minutosDecorridos * 2);
-                
-                // Tempo mínimo = (minIntervalSpins giros) / (2 giros por minuto) = X minutos
-                const minutosMinimos = minIntervalSpins / 2;
-                const segundosMinimos = minutosMinimos * 60;
-                
-                console.log(`⏰ Tempo desde último sinal: ${segundosDecorridos}s (${Math.floor(minutosDecorridos)}min ${segundosDecorridos % 60}s)`);
-                console.log('');
-                console.log('%c📐 VALIDAÇÃO POR TEMPO (2 giros/minuto):', 'color: #FFD700; font-weight: bold;');
-                console.log(`   Intervalo mínimo: ${minIntervalSpins} giro(s) = ${minutosMinimos} minuto(s)`);
-                console.log(`   Tempo decorrido: ${minutosDecorridos.toFixed(2)} minutos`);
-                console.log(`   Giros decorridos: ~${girosDecorridos} giros`);
-                
-                // ✅ Se passou tempo suficiente, PERMITIR
-                if (girosDecorridos >= minIntervalSpins) {
-                    console.log('');
-                    console.log('%c✅ TEMPO SUFICIENTE DECORRIDO!', 'color: #00FF88; font-weight: bold;');
-                    console.log(`%c   Giros decorridos: ${girosDecorridos}`, 'color: #00FF88;');
-                    console.log(`%c   Intervalo mínimo: ${minIntervalSpins}`, 'color: #00FF88;');
-                    console.log('%c   ✅ PERMITIDO: Enviar novo sinal', 'color: #00FF88; font-weight: bold;');
-                    console.log('');
+            let spinsDesdeUltimoSinal = null;
+            if (history.length > 0) {
+                if (lastSignalSpinId) {
+                    const indexById = history.findIndex(spin => spin && spin.id === lastSignalSpinId);
+                    if (indexById >= 0) {
+                        spinsDesdeUltimoSinal = indexById;
+                    } else {
+                        // Sinal anterior não está mais no histórico → considerar intervalo cumprido
+                        spinsDesdeUltimoSinal = history.length;
+                    }
+                } else if (lastSignalSpinTimestamp) {
+                    const referenceTime = new Date(lastSignalSpinTimestamp).getTime();
+                    if (!Number.isNaN(referenceTime)) {
+                        for (let i = 0; i < history.length; i++) {
+                            const spinTime = history[i]?.timestamp ? new Date(history[i].timestamp).getTime() : NaN;
+                            if (!Number.isNaN(spinTime) && spinTime <= referenceTime) {
+                                spinsDesdeUltimoSinal = i;
+                                break;
+                            }
+                        }
+                        if (spinsDesdeUltimoSinal === null) {
+                            spinsDesdeUltimoSinal = history.length;
+                        }
+                    }
+                }
+            }
+            
+            if (spinsDesdeUltimoSinal !== null) {
+                console.log(`📊 Giros desde o último sinal (histórico real): ${spinsDesdeUltimoSinal}`);
+                if (spinsDesdeUltimoSinal >= minIntervalSpins) {
+                    console.log('%c✅ Intervalo de giros respeitado!', 'color: #00FF88; font-weight: bold;');
                 } else {
-                    // ❌ Tempo insuficiente, MARCAR COMO BLOQUEADO (MAS CONTINUAR ANÁLISE)
-                    const girosRestantes = minIntervalSpins - girosDecorridos;
-                    const minutosRestantes = girosRestantes / 2;
-                    const segundosRestantes = Math.ceil(minutosRestantes * 60);
-                    
+                    const girosRestantes = minIntervalSpins - spinsDesdeUltimoSinal;
                     intervalBlocked = true;
-                    intervalMessage = `⏳ Aguarde novo giro... ${girosDecorridos}/${minIntervalSpins}`;
+                    intervalMessage = `⏳ Aguardando ${girosRestantes} giro(s)... ${spinsDesdeUltimoSinal}/${minIntervalSpins}`;
                     
-                    console.log('');
-                    console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #FFAA00; font-weight: bold;');
                     console.log('%c║  ⚠️ INTERVALO INSUFICIENTE (análise continua)            ║', 'color: #FFAA00; font-weight: bold;');
-                    console.log('%c╠═══════════════════════════════════════════════════════════╣', 'color: #FFAA00; font-weight: bold;');
-                    console.log(`%c║  📊 Giros desde último sinal: ${girosDecorridos}${' '.repeat(Math.max(0, 29 - girosDecorridos.toString().length))}║`, 'color: #FFAA00;');
+                    console.log(`%c║  📊 Giros desde último sinal: ${spinsDesdeUltimoSinal}${' '.repeat(Math.max(0, 29 - spinsDesdeUltimoSinal.toString().length))}║`, 'color: #FFAA00;');
                     console.log(`%c║  🎯 Intervalo mínimo: ${minIntervalSpins} giros${' '.repeat(Math.max(0, 32 - minIntervalSpins.toString().length))}║`, 'color: #FFAA00;');
-                    console.log(`%c║  ⏳ Faltam: ${girosRestantes} giros (~${minutosRestantes.toFixed(1)}min = ~${segundosRestantes}s)${' '.repeat(Math.max(0, 15 - girosRestantes.toString().length - minutosRestantes.toFixed(1).length - segundosRestantes.toString().length))}║`, 'color: #FFAA00; font-weight: bold;');
-                    console.log('%c╠═══════════════════════════════════════════════════════════╣', 'color: #FFAA00; font-weight: bold;');
+                    console.log(`%c║  ⏳ Faltam: ${girosRestantes} giros${' '.repeat(Math.max(0, 37 - girosRestantes.toString().length))}║`, 'color: #FFAA00; font-weight: bold;');
                     console.log('%c║  ✅ Análise dos 6 níveis será executada normalmente      ║', 'color: #00FF88;');
                     console.log('%c║  🚫 Mas SINAL NÃO será enviado (intervalo insuficiente)  ║', 'color: #FFAA00;');
-                    console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #FFAA00; font-weight: bold;');
-                    console.log('');
+                }
+            } else if (lastSignalTimestamp && history.length > 0) {
+                const timeSinceSignal = Date.now() - lastSignalTimestamp;
+                const minutosDecorridos = timeSinceSignal / 60000;
+                const girosEstimados = Math.floor(minutosDecorridos * 2);
+                console.log(`📊 Giros estimados desde último sinal: ~${girosEstimados}`);
+                
+                if (girosEstimados >= minIntervalSpins) {
+                    console.log('%c✅ Intervalo estimado suficiente (fallback temporal)', 'color: #00FF88; font-weight: bold;');
+                } else {
+                    const girosRestantes = minIntervalSpins - girosEstimados;
+                    intervalBlocked = true;
+                    intervalMessage = `⏳ Aguardando ${girosRestantes} giro(s)... ${girosEstimados}/${minIntervalSpins}`;
+                    console.log('%c║  ⚠️ INTERVALO INSUFICIENTE (estimativa temporal)        ║', 'color: #FFAA00; font-weight: bold;');
                 }
             } else {
-                console.log('');
                 console.log('%c✅ NENHUM SINAL ANTERIOR REGISTRADO!', 'color: #00FF88; font-weight: bold;');
                 console.log('%c   ✅ PERMITIDO: Primeiro sinal ou intervalo já expirado', 'color: #00FF88; font-weight: bold;');
-                console.log('');
             }
         } else {
-            console.log('');
             console.log('%c✅ SEM INTERVALO CONFIGURADO!', 'color: #00FF88; font-weight: bold;');
             console.log('%c   ✅ PERMITIDO: Sinais enviados sempre que encontrar padrão válido', 'color: #00FF88; font-weight: bold;');
-            console.log('');
         }
         
         // ═══════════════════════════════════════════════════════════════
@@ -9238,11 +9172,7 @@ async function analyzeWithPatternSystem(history) {
         let hotPatternSignal = null;
         
         if (hotPatternMode) {
-            console.log('');
-            console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #FF6B35; font-weight: bold;');
             console.log('%c║  🔥 MODO PADRÃO QUENTE ATIVO                             ║', 'color: #FF6B35; font-weight: bold; font-size: 14px;');
-            console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #FF6B35; font-weight: bold;');
-            console.log('');
             console.log('%c🔍 STATUS ATUAL DO PADRÃO QUENTE:', 'color: #FF6B35; font-weight: bold;');
             console.log(`%c   ➤ Status: ${hotPatternState.status.toUpperCase()}`, 'color: #FF6B35;');
             console.log(`%c   ➤ LOSSes consecutivos: ${hotPatternState.consecutiveLosses}`, 'color: #FF6B35;');
@@ -9254,7 +9184,6 @@ async function analyzeWithPatternSystem(history) {
                 const predictionDisplay = hotPatternState.prediction === 'red' ? '🔴' : hotPatternState.prediction === 'black' ? '⚫' : '⚪';
                 console.log(`%c   ➤ Padrão: ${patternDisplay} → ${predictionDisplay}`, 'color: #FFD700; font-weight: bold;');
             }
-            console.log('');
             
             // Se status = 'searching' ou 'abandoned', VERIFICAR SE HÁ PADRÃO SALVO primeiro
             if (hotPatternState.status === 'searching' || hotPatternState.status === 'abandoned') {
@@ -9265,7 +9194,6 @@ async function analyzeWithPatternSystem(history) {
                 
                 if (savedResult.savedHotPattern) {
                     console.log('💾 PADRÃO SALVO ENCONTRADO NO STORAGE!');
-                    console.log('   Verificando se ainda é válido...');
                     
                     const isValid = verifyHotPatternStillValid(history, savedResult.savedHotPattern);
                     
@@ -9282,11 +9210,9 @@ async function analyzeWithPatternSystem(history) {
                 if (!detected) {
                     const hotWindow = getDiamondWindow('n1HotPattern', 60);
                     console.log(`🔍 Buscando padrão quente nos últimos ${hotWindow} giros...`);
-                    console.log('🔍 DEBUG: Chamando detectHotPattern com history.length =', history.length);
                     detected = detectHotPattern(history, hotWindow);
                 }
                 
-                console.log('🔍 DEBUG: detectHotPattern retornou:', detected ? 'PADRÃO ENCONTRADO' : 'NULL');
                 
                 if (detected) {
                     hotPatternState = {
@@ -9341,14 +9267,10 @@ async function analyzeWithPatternSystem(history) {
                     }
                 } else {
                     console.log('⚠️⚠️⚠️ Nenhum padrão quente disponível no momento!');
-                    console.log('🔍 DEBUG: Isso NÃO deveria acontecer com 50 giros disponíveis!');
-                    console.log('🔍 DEBUG: Verifique os logs de detectHotPattern acima para detalhes');
                     
                     // Notificar TODAS as tabs do Blaze
-                    console.log('🔍 DEBUG: Enviando HOT_PATTERN_NOT_FOUND para todas as tabs...');
                     if (!analyzerConfig.aiMode) {
                     chrome.tabs.query({url: '*://blaze.com/*'}, function(tabs) {
-                        console.log(`🔍 DEBUG: Encontradas ${tabs.length} tabs do Blaze`);
                         tabs.forEach(tab => {
                             chrome.tabs.sendMessage(tab.id, {
                                 type: 'HOT_PATTERN_NOT_FOUND'
@@ -9365,8 +9287,6 @@ async function analyzeWithPatternSystem(history) {
                 const currentSequence = history.slice(0, patternLength).map(s => s.color);
                 const patternMatch = JSON.stringify(currentSequence) === JSON.stringify(hotPatternState.pattern);
                 
-                console.log('');
-                console.log('🔍 Verificando se padrão quente apareceu:');
                 console.log(`   Padrão: ${hotPatternState.pattern.map(c => c.toUpperCase()).join(' → ')}`);
                 console.log(`   Atual:  ${currentSequence.map(c => c.toUpperCase()).join(' → ')}`);
                 console.log(`   Match:  ${patternMatch ? '✅ SIM' : '❌ NÃO'}`);
@@ -9376,7 +9296,6 @@ async function analyzeWithPatternSystem(history) {
                 if (patternMatch) {
                     if (hotPatternState.status === 'active' && hotPatternState.consecutiveLosses === 0) {
                         // Enviar sinal!
-                        console.log('');
                         console.log('🔥🔥🔥 PADRÃO QUENTE DETECTADO - ENVIANDO SINAL! 🔥🔥🔥');
                         console.log(`   Cor prevista: ${hotPatternState.prediction.toUpperCase()}`);
                         hotPatternSignal = {
@@ -9387,14 +9306,12 @@ async function analyzeWithPatternSystem(history) {
                         };
                     } else if (hotPatternState.consecutiveLosses === 1) {
                         // Apenas observar (não enviar)
-                        console.log('');
                         console.log('👀 PADRÃO QUENTE EM OBSERVAÇÃO - NÃO ENVIANDO SINAL');
                         console.log('   Aguardando resultado para validar...');
                     }
                 }
             }
             
-            console.log('');
         }
         
         // ═══════════════════════════════════════════════════════════════
@@ -9407,31 +9324,22 @@ async function analyzeWithPatternSystem(history) {
         const historySize = Math.min(configuredSize, availableSize); // ✅ Usar o menor entre configurado e disponível
         const totalHistory = history.slice(0, historySize);
         
-        console.log('');
-        console.log('%c╔═══════════════════════════════════════════════════════════════════╗', 'color: #00BFFF; font-weight: bold;');
         console.log('%c║  📊 VERIFICAÇÃO DO HISTÓRICO DISPONÍVEL                          ║', 'color: #00BFFF; font-weight: bold;');
-        console.log('%c╚═══════════════════════════════════════════════════════════════════╝', 'color: #00BFFF; font-weight: bold;');
         console.log(`%c   🎯 Configurado pelo usuário: ${configuredSize} giros`, 'color: #00BFFF;');
         console.log(`%c   📦 Disponível no servidor: ${availableSize} giros`, availableSize < configuredSize ? 'color: #FFA500; font-weight: bold;' : 'color: #00FF88;');
         console.log(`%c   ✅ ANALISANDO REALMENTE: ${historySize} giros`, 'color: #00FF00; font-weight: bold; font-size: 14px;');
         
         if (availableSize < configuredSize) {
-            console.log('');
             console.log(`%c   ⚠️ ATENÇÃO: Servidor tem menos giros que o configurado!`, 'color: #FFA500; font-weight: bold;');
             console.log(`%c   ➤ Sistema usará APENAS os ${historySize} giros disponíveis`, 'color: #FFA500; font-weight: bold;');
             console.log(`%c   ➤ Aguarde mais giros serem coletados para análise completa`, 'color: #FFA500;');
         }
-        console.log('');
         
     // ═══════════════════════════════════════════════════════════════
     // ❌ NÍVEIS 1, 2 e 3 REMOVIDOS (análise superficial baseada apenas em frequência)
     // ═══════════════════════════════════════════════════════════════
-    console.log('');
-    console.log('%c🔍 DEBUG: Iniciando análise dos 6 níveis...', 'color: #FFD700; font-weight: bold;');
-    console.log('');
     
     console.log('%c⚠️ NÍVEIS 1, 2 e 3 DESATIVADOS (análise superficial de frequência)', 'color: #888; font-style: italic;');
-    console.log('');
     
     // ❌ NÍVEL 1 REMOVIDO: Cor Dominante (15 giros) - apenas frequência simples
     // ❌ NÍVEL 2 REMOVIDO: Posição do Giro (30 giros) - sem base estatística sólida  
@@ -9451,18 +9359,14 @@ async function analyzeWithPatternSystem(history) {
     // ═══════════════════════════════════════════════════════════════
         // 🎯 NÍVEL 1: PADRÃO QUENTE (AUTOMÁTICO)
     // ═══════════════════════════════════════════════════════════════
-    console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #FF6B35; font-weight: bold;');
         console.log('%c║  🎯 NÍVEL 1: PADRÃO QUENTE                              ║', 'color: #FF6B35; font-weight: bold; font-size: 14px;');
-    console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #FF6B35; font-weight: bold;');
-        console.log('');
         
-        let nivel4 = null;
-        let patternDescription = 'Análise Nível Diamante - 5 Níveis';
+		let nivel4 = null;
+		let patternDescription = 'Análise Nível Diamante - 7 Níveis';
         
     // ETAPA 1: Verificar PADRÕES CUSTOMIZADOS
         console.log('%cℹ️ Padrões customizados desativados para o Nível 1', 'color: #888; font-style: italic;');
         console.log(`%c   Configuração atual de giros (hot pattern): ${getDiamondWindow('n1HotPattern', historySize)} giros`, 'color: #FF6B35;');
-    console.log('');
     
     // ✅ USAR totalHistory (respeitando a configuração do usuário) em vez de history (todos os giros)
         const customPatternResult = null;
@@ -9476,25 +9380,20 @@ async function analyzeWithPatternSystem(history) {
             console.log('%c🎯 PADRÃO CUSTOMIZADO DETECTADO!', 'color: #FF00FF; font-weight: bold; font-size: 16px; background: #FFD700;');
             console.log(`%c   Padrão: ${customPatternResult.patternName}`, 'color: #FF00FF; font-weight: bold;');
             console.log(`%c   🗳️ VOTA: ${customPatternResult.color.toUpperCase()}`, `color: ${customPatternResult.color === 'red' ? '#FF0000' : '#FFFFFF'}; font-weight: bold; font-size: 14px;`);
-            console.log('');
         } else {
             console.log('%cℹ️ Nenhum padrão customizado será buscado (feature desativada)', 'color: #888; font-style: italic;');
-            console.log('');
             
             // Foco exclusivo no padrão quente automático
             console.log('%c🔥 PADRÃO QUENTE AUTOMÁTICO', 'color: #FF6B35; font-weight: bold;');
             console.log(`%c   Janela configurada: ${getDiamondWindow('n1HotPattern', 60)} giros`, 'color: #FF6B35;');
-            console.log('');
             
             if (hotPatternSignal && hotPatternSignal.source === 'hot_pattern') {
                 const hotConfidence = Math.min(1, Math.max(0.4, (hotPatternSignal.confidence ?? 65) / 100));
                 nivel4 = { color: hotPatternSignal.color, source: 'hot', confidence: hotConfidence, patternName: 'Padrão Quente' };
                 console.log('%c🔥 PADRÃO QUENTE ATIVO!', 'color: #FF6B35; font-weight: bold;');
                 console.log(`%c   🗳️ VOTA: ${hotPatternSignal.color.toUpperCase()}`, `color: ${hotPatternSignal.color === 'red' ? '#FF0000' : '#FFFFFF'}; font-weight: bold; font-size: 14px;`);
-                console.log('');
             } else {
                 console.log('%c❌ Padrão quente não encontrado', 'color: #888;');
-                console.log('');
             }
         }
         
@@ -9503,41 +9402,31 @@ async function analyzeWithPatternSystem(history) {
     } else {
         console.log(`%c🗳️ NÍVEL 1 VOTA: ${nivel4.color.toUpperCase()}`, `color: ${nivel4.color === 'red' ? '#FF0000' : '#FFFFFF'}; font-weight: bold; font-size: 14px;`);
     }
-    console.log('');
     
     // ⚡ NÃO EXIBIR na UI ainda (análise rápida, mostraremos depois)
         
         // ═══════════════════════════════════════════════════════════════
         // ⚡ NÍVEL 5: MOMENTUM (30 GIROS FIXOS)
         // ═══════════════════════════════════════════════════════════════
-        console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #00AAFF; font-weight: bold;');
     console.log('%c║  ⚡ NÍVEL 2: MOMENTUM (5 vs 15 GIROS)                  ║', 'color: #00AAFF; font-weight: bold; font-size: 14px;');
-        console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #00AAFF; font-weight: bold;');
-        console.log('');
         
         const nivel5 = analyzeMomentum(history);
         
         console.log('%c📊 ANÁLISE DE MOMENTUM:', 'color: #00AAFF; font-weight: bold;');
         console.log(`%c   Últimos 10 giros: 🔴 ${nivel5.recent.red} (${nivel5.recent.redPercent}%) | ⚫ ${nivel5.recent.black} (${nivel5.recent.blackPercent}%)`, 'color: #00AAFF;');
         console.log(`%c   20 giros anteriores: 🔴 ${nivel5.previous.red} (${nivel5.previous.redPercent}%) | ⚫ ${nivel5.previous.black} (${nivel5.previous.blackPercent}%)`, 'color: #00AAFF;');
-        console.log('');
         console.log(`%c📈 MOMENTUM:`, 'color: #00AAFF; font-weight: bold;');
         console.log(`%c   🔴 Vermelho: ${nivel5.momentum.red >= 0 ? '+' : ''}${nivel5.momentum.red}%`, 'color: #FF0000;');
         console.log(`%c   ⚫ Preto: ${nivel5.momentum.black >= 0 ? '+' : ''}${nivel5.momentum.black}%`, 'color: #FFFFFF;');
         console.log(`%c   Tendência: ${nivel5.trending === 'accelerating_red' ? '🔥 Vermelho acelerando' : nivel5.trending === 'accelerating_black' ? '🔥 Preto acelerando' : '⚖️ Estável'}`, 'color: #FFD700; font-weight: bold;');
-        console.log('');
     console.log(`%c🗳️ NÍVEL 5 VOTA: ${nivel5.color.toUpperCase()}`, `color: ${nivel5.color === 'red' ? '#FF0000' : '#FFFFFF'}; font-weight: bold; font-size: 14px;`);
-    console.log('');
     
     // ⚡ NÃO EXIBIR na UI ainda (análise rápida, mostraremos depois)
         
         // ═══════════════════════════════════════════════════════════════
         // 🔷 N4 - PADRÃO DE ALTERNÂNCIA (CONFIGURÁVEL PELO USUÁRIO)
         // ═══════════════════════════════════════════════════════════════
-        console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #8E44AD; font-weight: bold;');
         console.log('%c║  🔷 N4 - PADRÃO DE ALTERNÂNCIA (CONFIGURÁVEL)          ║', 'color: #8E44AD; font-weight: bold; font-size: 14px;');
-        console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #8E44AD; font-weight: bold;');
-        console.log('');
         
         const nivel7 = analyzeAlternancePattern(history, getDiamondWindow('n3Alternance', historySize));
         
@@ -9549,22 +9438,17 @@ async function analyzeWithPatternSystem(history) {
             console.log(`%c   ✨ Tamanho da alternância: ${nivel7.alternationSize} giro(s) por cor`, 'color: #FFD700; font-weight: bold;');
         }
         console.log(`%c   Detalhes: ${nivel7.details}`, 'color: #8E44AD;');
-        console.log('');
         
         if (nivel7.color) {
             console.log(`%c🗳️ N4 VOTA: ${nivel7.color.toUpperCase()}`, `color: ${nivel7.color === 'red' ? '#FF0000' : '#FFFFFF'}; font-weight: bold; font-size: 14px;`);
         } else {
             console.log(`%c⚠️ N4 VOTA: NULO (padrão misto - não participa)`, 'color: #888; font-weight: bold; font-size: 14px;');
         }
-        console.log('');
         
         // ═══════════════════════════════════════════════════════════════
         // 🔷 N4 - PERSISTÊNCIA E CICLOS (CONFIGURÁVEL PELO USUÁRIO)
         // ═══════════════════════════════════════════════════════════════
-        console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #D35400; font-weight: bold;');
         console.log('%c║  🔷 N4 - PERSISTÊNCIA E CICLOS (CONFIGURÁVEL)          ║', 'color: #D35400; font-weight: bold; font-size: 14px;');
-        console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #D35400; font-weight: bold;');
-        console.log('');
         
         const nivel9 = analyzePersistence(history, getDiamondWindow('n4Persistence', historySize));
         
@@ -9573,18 +9457,19 @@ async function analyzeWithPatternSystem(history) {
         console.log(`%c   Sequência atual: ${nivel9.currentSequence} ${nivel9.color ? nivel9.color : 'N/A'}`, 'color: #D35400; font-weight: bold;');
         console.log(`%c   Média histórica: ${nivel9.averageSequence} giros`, 'color: #D35400;');
         console.log(`%c   Detalhes: ${nivel9.details}`, 'color: #D35400;');
-        console.log('');
         
         // ═══════════════════════════════════════════════════════════════
         // 🧮 CONSOLIDAÇÃO DOS NÍVEIS (PONTUAÇÃO CONTÍNUA)
         // ═══════════════════════════════════════════════════════════════
         const levelWeights = {
-            patterns: 0.25,
-            momentum: 0.22,
-            alternance: 0.18,
-            persistence: 0.15,
-            minuteSpin: 0.12,
-            barrier: 0.08
+            patterns: 0.21,
+            momentum: 0.17,
+            alternance: 0.14,
+            persistence: 0.12,
+            minuteSpin: 0.10,
+            retracement: 0.09,
+            globalContinuity: 0.11,
+            barrier: 0.06
         };
         const levelMeta = {
             N1: { emoji: '🎯', label: 'N1 - Padrões' },
@@ -9592,7 +9477,9 @@ async function analyzeWithPatternSystem(history) {
             N3: { emoji: '🔷', label: 'N3 - Alternância' },
             N4: { emoji: '🔷', label: 'N4 - Persistência' },
             N5: { emoji: '🕑', label: 'N5 - Ritmo por Giro' },
-            N6: { emoji: '🛑', label: 'N6 - Barreira' }
+            N6: { emoji: '📉', label: 'N6 - Retração Histórica' },
+            N7: { emoji: '📈', label: 'N7 - Continuidade Global' },
+            N8: { emoji: '🛑', label: 'N8 - Barreira Final' }
         };
         const clamp01 = (value) => Math.max(0, Math.min(1, typeof value === 'number' ? value : 0));
         const directionValue = (color) => color === 'red' ? 1 : color === 'black' ? -1 : 0;
@@ -9700,15 +9587,40 @@ async function analyzeWithPatternSystem(history) {
         if (minuteBiasResult && minuteBiasResult.totalSamples) {
             minuteBiasDetailsText += ` • ${minuteBiasResult.totalSamples} amostras`;
         }
-        levelReports.push({
-            id: 'N5',
-            name: 'Ritmo por Giro',
-            color: minuteBiasColor,
-            weight: levelWeights.minuteSpin,
-            strength: minuteBiasStrength,
-            score: directionValue(minuteBiasColor) * minuteBiasStrength,
-            details: minuteBiasDetailsText
-        });
+		levelReports.push({
+			id: 'N5',
+			name: 'Ritmo por Giro',
+			color: minuteBiasColor,
+			weight: levelWeights.minuteSpin,
+			strength: minuteBiasStrength,
+			score: directionValue(minuteBiasColor) * minuteBiasStrength,
+			details: minuteBiasDetailsText
+		});
+
+		const retracementWindow = Math.max(30, Math.min(120, getDiamondWindow('n6RetracementWindow', 80)));
+		const retracementResult = analyzeHistoricalRetracement(history, retracementWindow, analyzerConfig.signalIntensity || 'moderate');
+		levelReports.push({
+			id: 'N6',
+			name: 'Retração Histórica',
+			color: retracementResult.color,
+			weight: levelWeights.retracement,
+			strength: retracementResult.strength || 0,
+			score: directionValue(retracementResult.color) * (retracementResult.strength || 0),
+			details: retracementResult.details
+		});
+
+		const decisionWindowConfigured = Math.max(10, Math.min(50, getDiamondWindow('n7DecisionWindow', 20)));
+		const historyWindowConfigured = Math.max(decisionWindowConfigured, Math.min(200, getDiamondWindow('n7HistoryWindow', 100)));
+		const continuityResult = analyzeGlobalContinuity(signalsHistory, decisionWindowConfigured, historyWindowConfigured, analyzerConfig.signalIntensity || 'moderate');
+		levelReports.push({
+			id: 'N7',
+			name: 'Continuidade Global',
+			color: continuityResult.color,
+			weight: levelWeights.globalContinuity,
+			strength: continuityResult.strength || 0,
+			score: directionValue(continuityResult.color) * (continuityResult.strength || 0),
+			details: continuityResult.details
+		});
 
         // 🔥 NOVA LÓGICA: Alternância precisa de pelo menos 2 outros níveis concordando
         let alternanceOverride = false;
@@ -9718,12 +9630,12 @@ async function analyzeWithPatternSystem(history) {
         if (alternanceOverrideActive && alternanceColor) {
             // Contar quantos outros níveis concordam com a cor da alternância
             const otherLevelsAgreeingCount = levelReports.filter(lvl => 
-                lvl.id !== 'N3' && lvl.id !== 'N6' && lvl.color === alternanceColor
+                lvl.id !== 'N3' && lvl.id !== 'N8' && lvl.color === alternanceColor
             ).length;
             
             console.log('%c🔍 Validando Override de Alternância...', 'color: #8E44AD; font-weight: bold;');
             console.log(`   Cor da alternância: ${alternanceColor.toUpperCase()}`);
-            console.log(`   Outros níveis concordando: ${otherLevelsAgreeingCount}/4 (N1, N2, N4, N5)`);
+			console.log(`   Outros níveis concordando: ${otherLevelsAgreeingCount}/6 (N1, N2, N4, N5, N6, N7)`);
         
         // ═══════════════════════════════════════════════════════════════
             // 🛡️ CONTROLE DE ENTRADAS: Máximo 2 entradas por alternância
@@ -9814,15 +9726,11 @@ async function analyzeWithPatternSystem(history) {
         if (alternanceOverride) {
             predictedColor = alternanceColor;
         }
-        console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #FF0000; font-weight: bold;');
         console.log('%c║  🛑 NÍVEL 6: BARREIRA/FREIO (VALIDAÇÃO FINAL)          ║', 'color: #FF0000; font-weight: bold; font-size: 14px;');
-        console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #FF0000; font-weight: bold;');
-        console.log('');
         console.log(`%c🎯 Cor candidata antes da barreira: ${predictedColor.toUpperCase()}`, `color: ${predictedColor === 'red' ? '#FF0000' : '#FFFFFF'}; font-weight: bold;`);
         console.log(`%c📊 Configuração: ${historySize} giros para análise`, 'color: #FF0000;');
-        console.log('');
 
-        const barrierResult = validateSequenceBarrier(history, predictedColor, getDiamondWindow('n6Barrier', historySize), {
+        const barrierResult = validateSequenceBarrier(history, predictedColor, getDiamondWindow('n8Barrier', historySize), {
             override: alternanceOverrideActive,
             targetRuns: nivel7 ? nivel7.alternanceTargetRuns : null,
             maxRuns: nivel7 ? nivel7.alternanceMaxRuns : null
@@ -9835,7 +9743,6 @@ async function analyzeWithPatternSystem(history) {
         if (alternanceBlocked && alternanceOverrideActive) {
             console.log('%c🚫🚫🚫 SINAL BLOQUEADO - CONTROLE DE ALTERNÂNCIA! 🚫🚫🚫', 'color: #FFFFFF; font-weight: bold; font-size: 16px; background: #FF0000;');
             console.log(`%c   Motivo: ${alternanceBlockReason}`, 'color: #FF6666; font-weight: bold;');
-            console.log('');
             await emitLevelStatuses(levelReports);
             sendAnalysisStatus(`🛑 N3 - Alternância → ❌ BLOQUEADO (${alternanceBlockReason})`);
             await sleep(1500);
@@ -9848,9 +9755,8 @@ async function analyzeWithPatternSystem(history) {
         if (!barrierResult.allowed) {
             console.log('%c🚫🚫🚫 SINAL BLOQUEADO PELA BARREIRA! 🚫🚫🚫', 'color: #FFFFFF; font-weight: bold; font-size: 16px; background: #FF0000;');
             console.log('%c   Sequência sem precedente histórico!', 'color: #FF6666; font-weight: bold;');
-            console.log('');
             await emitLevelStatuses(levelReports);
-            sendAnalysisStatus(`🛑 N6 - Barreira → ❌ BLOQUEADO (${barrierDetailsText})`);
+            sendAnalysisStatus(`🛑 N8 - Barreira Final → ❌ BLOQUEADO (${barrierDetailsText})`);
             await sleep(1500);
             sendAnalysisStatus('❌ Sinal rejeitado: sem precedente histórico');
             await sleep(2000);
@@ -9866,8 +9772,8 @@ async function analyzeWithPatternSystem(history) {
             barrierStrength = 0.5;
         }
         levelReports.push({
-            id: 'N6',
-            name: 'Barreira',
+            id: 'N8',
+            name: 'Barreira Final',
             color: predictedColor,
             weight: levelWeights.barrier,
             strength: barrierStrength,
@@ -9876,7 +9782,6 @@ async function analyzeWithPatternSystem(history) {
         });
 
         console.log('%c✅ BARREIRA LIBERADA! Sequência é viável.', 'color: #00FF88; font-weight: bold; font-size: 14px;');
-        console.log('');
         
         const totalWeight = levelReports.reduce((sum, lvl) => sum + lvl.weight, 0);
         let weightedScore = totalWeight ? levelReports.reduce((sum, lvl) => sum + (lvl.score * lvl.weight), 0) : 0;
@@ -9904,13 +9809,10 @@ async function analyzeWithPatternSystem(history) {
         const currentIntensity = intensityConfig[signalIntensity] || intensityConfig.moderate;
         const thresholdMet = scoreMagnitude >= currentIntensity.minScore;
 
-        console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #9C27B0; font-weight: bold;');
         console.log('%c║  🎚️ INTENSIDADE / SCORE                                 ║', 'color: #9C27B0; font-weight: bold; font-size: 14px;');
-        console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #9C27B0; font-weight: bold;');
         console.log(`%c   Modo selecionado: ${currentIntensity.emoji} ${currentIntensity.name}`, 'color: #9C27B0; font-weight: bold;');
         console.log(`%c   Score combinado: ${(normalizedScore * 100).toFixed(1)}%`, 'color: #9C27B0;');
         console.log(`%c   Threshold mínimo: ${(currentIntensity.minScore * 100).toFixed(0)}%`, 'color: #9C27B0;');
-        console.log('');
         
         if (!thresholdMet && !alternanceOverride) {
             console.log('%c🚫 SINAL REJEITADO: SCORE ABAIXO DO LIMITE', 'color: #FF6666; font-weight: bold; font-size: 14px;');
@@ -9929,24 +9831,60 @@ async function analyzeWithPatternSystem(history) {
             return null;
         }
 
+		if (signalIntensity === 'aggressive') {
+			const positiveVotingLevels = levelReports.filter(lvl => lvl.id !== 'N6' && lvl.color && (lvl.strength || 0) > 0);
+			const agreeingLevels = positiveVotingLevels.filter(lvl => lvl.color === finalColor);
+			const agreeingCount = agreeingLevels.length;
+			const availableCount = positiveVotingLevels.length;
+			const agreeingLabels = agreeingLevels.map(lvl => `${lvl.id}-${lvl.color}`).join(', ') || 'nenhum';
+			const disagreeingLabels = positiveVotingLevels
+				.filter(lvl => lvl.color !== finalColor)
+				.map(lvl => `${lvl.id}-${lvl.color}`)
+				.join(', ') || 'nenhum';
+
+			console.log('%c🎯 CONSENSO (Modo Agressivo):', 'color: #9C27B0; font-weight: bold;');
+			console.log(`   Cor final: ${finalColor.toUpperCase()}`);
+			console.log(`   Níveis concordando (positivos): ${agreeingCount}/${availableCount}`);
+			console.log(`   Lista (concordam): ${agreeingLabels}`);
+			console.log(`   Lista (discordam): ${disagreeingLabels}`);
+
+			if (agreeingCount < 3) {
+				console.log('%c❌ SINAL BLOQUEADO: consenso insuficiente para modo agressivo', 'color: #FF6666; font-weight: bold;');
+                if (alternanceOverride) {
+                    console.log('%cℹ️ Alternância override ativo - resetando controle por consenso insuficiente', 'color: #FFAA00;');
+                    alternanceEntryControl = {
+                        active: false,
+                        patternSignature: null,
+                        entryColor: null,
+                        entryCount: 0,
+                        lastResult: null,
+                        lastEntryTimestamp: null,
+                        blockedUntil: null,
+                        totalWins: 0,
+                        totalLosses: 0
+                    };
+                }
+				await emitLevelStatuses(levelReports);
+				sendAnalysisStatus(`❌ Rejeitado: apenas ${agreeingCount}/3 níveis positivos concordam (${finalColor.toUpperCase()})`);
+                await sleep(2000);
+                await restoreIAStatus();
+                return null;
+            }
+        }
+
         let rawConfidence = Math.round(50 + (50 * scoreMagnitude));
         rawConfidence = Math.max(50, Math.min(100, rawConfidence));
         let finalConfidence = applyCalibratedConfidence(rawConfidence);
         finalConfidence = Math.max(0, Math.min(100, Math.round(finalConfidence)));
 
-        console.log('%c═══════════════════════════════════════════════════════════════════', 'color: #FFD700; font-weight: bold; font-size: 18px;');
         console.log('%c📊 SCORE DOS NÍVEIS ATIVOS:', 'color: #FFD700; font-weight: bold; font-size: 16px;');
-        console.log('%c═══════════════════════════════════════════════════════════════════', 'color: #FFD700; font-weight: bold; font-size: 18px;');
-        console.log('');
         levelReports.forEach(level => {
             const contribution = (level.score * level.weight);
             console.log(`%c${describeLevel(level)} • contribuição ${(contribution >= 0 ? '+' : '')}${contribution.toFixed(3)}`, 'color: #FFD700;');
         });
-        console.log('');
         console.log(`%c🎯 COR FINAL: ${finalColor.toUpperCase()}`, `color: ${finalColor === 'red' ? '#FF0000' : '#FFFFFF'}; font-weight: bold; font-size: 16px;`);
         console.log(`%c📈 Score normalizado: ${(normalizedScore * 100).toFixed(1)}%`, 'color: #00FFFF; font-weight: bold;');
         console.log(`%c📊 Confiança bruta: ${rawConfidence}% • calibrada: ${finalConfidence}%`, 'color: #FFD700; font-weight: bold;');
-        console.log('');
 
         await emitLevelStatuses(levelReports);
         if (analyzerConfig.aiMode) {
@@ -9974,11 +9912,8 @@ async function analyzeWithPatternSystem(history) {
             `🎯 DECISÃO: ${finalColor.toUpperCase()}\n` +
             `📊 Confiança: ${finalConfidence}%`;
 
-        console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #00FFFF; font-weight: bold;');
         console.log('%c🧠 RACIOCÍNIO COMPLETO:', 'color: #00FFFF; font-weight: bold; font-size: 14px;');
         console.log(`%c${reasoning}`, 'color: #00FFFF;');
-        console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #00FFFF; font-weight: bold;');
-        console.log('');
         
         const signal = {
             timestamp: Date.now(),
@@ -10025,32 +9960,26 @@ async function analyzeWithPatternSystem(history) {
         };
 
         /* LEGACY VOTING BLOCK (COMENTADO)
-        console.log('');
         
         console.log(`%c🎯 Cor vencedora da votação: ${finalColor.toUpperCase()}`, `color: ${finalColor === 'red' ? '#FF0000' : '#FFFFFF'}; font-weight: bold;`);
         console.log(`%c📊 Configuração: ${historySize} giros para análise`, 'color: #FF0000;');
-        console.log('');
         
-        const barrierResult = validateSequenceBarrier(history, finalColor, getDiamondWindow('n6Barrier', historySize), {
+        const barrierResult = validateSequenceBarrier(history, finalColor, getDiamondWindow('n8Barrier', historySize), {
             override: alternanceOverrideActive,
             targetRuns: nivel7 ? nivel7.alternanceTargetRuns : null,
             maxRuns: nivel7 ? nivel7.alternanceMaxRuns : null
         });
         
-        console.log('%c🔍 VERIFICAÇÃO DE BARREIRA:', 'color: #FF0000; font-weight: bold;');
         console.log(`%c   Sequência atual: ${barrierResult.currentStreak} ${finalColor} consecutivos`, 'color: #FF0000;');
         console.log(`%c   Próxima: ${barrierResult.targetStreak} ${finalColor} consecutivos`, 'color: #FFD700; font-weight: bold;');
         console.log(`%c   Máximo histórico: ${barrierResult.maxStreakFound} ${finalColor} consecutivos`, 'color: #FF0000;');
-        console.log('');
         console.log(`%c${barrierResult.reason}`, barrierResult.allowed ? 'color: #00FF88; font-weight: bold;' : 'color: #FF6666; font-weight: bold;');
-        console.log('');
         
     // ⚡ VERIFICAÇÃO: Se Nível 6 bloqueou, MOSTRAR FASES COM DELAY antes de rejeitar
     if (!barrierResult.allowed) {
         console.log('%c🚫🚫🚫 SINAL BLOQUEADO PELA BARREIRA! 🚫🚫🚫', 'color: #FFFFFF; font-weight: bold; font-size: 16px; background: #FF0000;');
         console.log('%c   Sequência sem precedente histórico!', 'color: #FF6666; font-weight: bold;');
         console.log('%c   ❌ SINAL SERÁ REJEITADO - Mostrando análise ao usuário...', 'color: #FF0000; font-weight: bold; font-size: 14px;');
-        console.log('');
         
         // ✅ MOSTRAR AS 6 FASES COM DELAY (para o usuário ver o processo)
         // ❌ Níveis 1, 2, 3 removidos (não mostrar mais)
@@ -10106,7 +10035,7 @@ async function analyzeWithPatternSystem(history) {
         const barrierStatusText = barrierResult.alternanceBlocked
             ? '🚫 BLOQUEADO (Alternância)'
             : '❌ BLOQUEADO';
-        sendAnalysisStatus(`🛑 N6 - Barreira → ${barrierStatusText}`);
+        sendAnalysisStatus(`🛑 N8 - Barreira Final → ${barrierStatusText}`);
         await sleep(1500);
         
         // ✅ Mostrar motivo do bloqueio
@@ -10117,101 +10046,66 @@ async function analyzeWithPatternSystem(history) {
         await restoreIAStatus();
         
         console.log('%c   ❌ SINAL CANCELADO!', 'color: #FF0000; font-weight: bold; font-size: 14px;');
-        console.log('');
         return null;
     }
     
     // ⚡ Barreira aprovada - NÃO EXIBIR ainda (análise rápida, mostraremos depois se for rejeitado depois)
         
         console.log('%c✅ BARREIRA LIBERADA! Sequência é viável.', 'color: #00FF88; font-weight: bold; font-size: 14px;');
-        console.log('');
         
-        // ═══════════════════════════════════════════════════════════════
-        const votes = { red: 0, black: 0, null: 0 };
-        levelReports.forEach(lvl => {
-            if (lvl.id === 'N6') return;
-            if (!lvl.color || (alternanceOverride && lvl.id !== 'N3' && lvl.score === 0)) {
-                votes.null++;
-            } else if (lvl.color === 'red') {
-                votes.red++;
-            } else if (lvl.color === 'black') {
-                votes.black++;
-            } else {
-                votes.null++;
-            }
-        });
-        
-        // ═══════════════════════════════════════════════════════════════
-        // 🎚️ VALIDAÇÃO DE INTENSIDADE DE SINAIS
-        // ═══════════════════════════════════════════════════════════════
-        const signalIntensity = analyzerConfig.signalIntensity || 'moderate';
-        
-        console.log('');
-        console.log('%c🔍 DEBUG - VALIDAÇÃO DE INTENSIDADE:', 'color: #FFD700; font-weight: bold;');
-        console.log('   signalIntensity:', signalIntensity);
-        console.log('   analyzerConfig.signalIntensity:', analyzerConfig.signalIntensity);
-        console.log('   votes:', votes);
-        console.log('   finalColor:', finalColor);
-        console.log('');
-        
-        console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #9C27B0; font-weight: bold;');
-        console.log('%c║  🎚️ VALIDAÇÃO DE INTENSIDADE DE SINAIS                 ║', 'color: #9C27B0; font-weight: bold; font-size: 14px;');
-        console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #9C27B0; font-weight: bold;');
-        console.log('');
-        
-        const intensityConfig = {
-            'aggressive': { min: 3, name: '🔥 AGRESSIVO', emoji: '🔥' },        // 3 de 5 (60%)
-            'moderate': { min: 4, name: '⚖️ MODERADO', emoji: '⚖️' },          // 4 de 5 (80%)
-            'conservative': { min: 5, name: '🛡️ CONSERVADOR', emoji: '🛡️' },  // 5 de 5 (100%) - TODOS devem concordar
-            'ultraconservative': { min: 5, name: '🛡️ CONSERVADOR', emoji: '🛡️' }  // ✅ Fallback para compatibilidade (mesmo que conservative)
-        };
-        
-        const currentIntensity = intensityConfig[signalIntensity];
-        
-        console.log('   currentIntensity:', currentIntensity);
-        console.log('');
-        
-        // ✅ DECLARAR winningVotes AQUI (será usado em múltiplos lugares)
-        const winningVotes = votes[finalColor];
-        
-        console.log('   winningVotes calculado:', winningVotes);
-        console.log('   votes[finalColor]:', votes[finalColor]);
-        console.log('');
-        
-        console.log(`%c${currentIntensity.emoji} Modo ativo: ${currentIntensity.name}`, 'color: #9C27B0; font-weight: bold; font-size: 14px;');
-        console.log(`%c   Votos mínimos necessários: ${currentIntensity.min} de 6 níveis (5 votam)`, 'color: #9C27B0;');
-        console.log(`%c   Votos obtidos para ${finalColor.toUpperCase()}: ${winningVotes}`, `color: ${finalColor === 'red' ? '#FF0000' : '#FFFFFF'}; font-weight: bold;`);
-        console.log('');
-        
-        // Validar consenso baseado na intensidade
-        let consensusValid = false;
-        
-        console.log('%c🔍 DEBUG - Validando consenso:', 'color: #FFD700; font-weight: bold;');
-        console.log('   signalIntensity:', signalIntensity);
-        console.log('   nivel4:', nivel4);
-        console.log('   winningVotes:', winningVotes);
-        console.log('   currentIntensity.min:', currentIntensity.min);
-        console.log('');
-        
-        // ✅ LÓGICA SIMPLIFICADA: Todos os modos usam o mínimo de votos
-        // Conservador (5 de 5) = 100% dos níveis que votam
-            consensusValid = (winningVotes >= currentIntensity.min);
-            console.log(`%c   ➤ Necessário: Mínimo ${currentIntensity.min} votos`, 'color: #9C27B0;');
-            console.log(`%c   ➤ Obtido: ${winningVotes} votos`, 'color: #9C27B0;');
-        
-        console.log('');
-        
-    if (!consensusValid) {
-        console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #FF6666; font-weight: bold;');
+		// ═══════════════════════════════════════════════════════════════
+		const votingLevelsList = levelReports.filter(lvl => lvl.id !== 'N6');
+		const positiveVotingLevels = votingLevelsList.filter(lvl => lvl.color && (lvl.strength || 0) > 0);
+		const negativeVotingLevels = votingLevelsList.filter(lvl => lvl.color && (lvl.strength || 0) < 0);
+		const neutralVotingLevels = votingLevelsList.filter(lvl => !lvl.color || (lvl.strength || 0) === 0);
+
+		const winningVotes = positiveVotingLevels.filter(lvl => lvl.color === finalColor).length;
+		const availableVotes = positiveVotingLevels.length;
+		const maxVotingSlots = votingLevelsList.length;
+		const voteTotals = {
+			red: positiveVotingLevels.filter(lvl => lvl.color === 'red').length,
+			black: positiveVotingLevels.filter(lvl => lvl.color === 'black').length,
+			neutral: neutralVotingLevels.length,
+			negative: negativeVotingLevels.length
+		};
+
+		const signalIntensity = analyzerConfig.signalIntensity || 'moderate';
+
+		console.log('   signalIntensity:', signalIntensity);
+		console.log('   analyzerConfig.signalIntensity:', analyzerConfig.signalIntensity);
+		console.log('   finalColor:', finalColor);
+		console.log('   votos positivos por cor:', {
+			red: positiveVotingLevels.filter(lvl => lvl.color === 'red').map(lvl => lvl.id),
+			black: positiveVotingLevels.filter(lvl => lvl.color === 'black').map(lvl => lvl.id)
+		});
+		console.log('   votos negativos:', negativeVotingLevels.map(lvl => `${lvl.id}-${lvl.color}`));
+		console.log('   votos neutros/indisponíveis:', neutralVotingLevels.map(lvl => lvl.id));
+
+		console.log('%c║  🎚️ VALIDAÇÃO DE INTENSIDADE DE SINAIS                 ║', 'color: #9C27B0; font-weight: bold; font-size: 14px;');
+
+		const intensityConfig = {
+			'aggressive': { min: 3, name: '🔥 AGRESSIVO', emoji: '🔥' },
+			'moderate': { min: 5, name: '⚖️ MODERADO', emoji: '⚖️' },
+			'conservative': { min: 6, name: '🛡️ CONSERVADOR', emoji: '🛡️' },
+			'ultraconservative': { min: 7, name: '🛡️ ULTRA CONSERVADOR', emoji: '🛡️' }
+		};
+
+		const currentIntensity = intensityConfig[signalIntensity] || intensityConfig.moderate;
+		const effectiveThreshold = availableVotes > 0 ? Math.min(currentIntensity.min, availableVotes) : currentIntensity.min;
+		const consensusValid = availableVotes > 0 && winningVotes >= effectiveThreshold;
+
+		console.log(`%c${currentIntensity.emoji} Modo ativo: ${currentIntensity.name}`, 'color: #9C27B0; font-weight: bold; font-size: 14px;');
+		console.log(`%c   Slots disponíveis (positivos): ${availableVotes}/${maxVotingSlots}`, 'color: #9C27B0;');
+		console.log(`%c   Votos para ${finalColor.toUpperCase()}: ${winningVotes}`, `color: ${finalColor === 'red' ? '#FF0000' : '#FFFFFF'}; font-weight: bold;`);
+		console.log(`%c   Exigidos: ${currentIntensity.min} (após ajuste: ${effectiveThreshold})`, 'color: #9C27B0;');
+
+	if (!consensusValid) {
         console.log('%c║  ❌ SINAL REJEITADO - CONSENSO INSUFICIENTE!             ║', 'color: #FF6666; font-weight: bold; font-size: 14px;');
-        console.log('%c╠═══════════════════════════════════════════════════════════╣', 'color: #FF6666; font-weight: bold;');
         console.log(`%c║  ${currentIntensity.emoji} Modo: ${currentIntensity.name.padEnd(44)} ║`, 'color: #FF6666;');
-        console.log(`%c║  ➤ Votos necessários: ${currentIntensity.min.toString().padEnd(36)} ║`, 'color: #FF6666;');
-        console.log(`%c║  ➤ Votos obtidos: ${winningVotes.toString().padEnd(40)} ║`, 'color: #FF6666;');
-        console.log('%c╠═══════════════════════════════════════════════════════════╣', 'color: #FF6666; font-weight: bold;');
+		console.log(`%c║  ➤ Votos necessários: ${currentIntensity.min.toString().padEnd(36)} ║`, 'color: #FF6666;');
+		console.log(`%c║  ➤ Disponíveis (positivos): ${availableVotes.toString().padEnd(34)} ║`, 'color: #FF6666;');
+		console.log(`%c║  ➤ Votos obtidos: ${winningVotes.toString().padEnd(40)} ║`, 'color: #FF6666;');
         console.log('%c║  💡 Aumente o consenso ou mude para modo menos rigoroso  ║', 'color: #FFD700;');
-        console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #FF6666; font-weight: bold;');
-        console.log('');
         
         // ✅ MOSTRAR AS 6 FASES COM DELAY (para o usuário ver o processo)
         // ❌ Níveis 1, 2, 3 removidos (não mostrar mais)
@@ -10250,14 +10144,29 @@ async function analyzeWithPatternSystem(history) {
         }
         await sleep(1500);
         
+		if (retracementResult && retracementResult.color) {
+			sendAnalysisStatus(`📉 N6 - Retração Histórica → ${retracementResult.color.toUpperCase()}`);
+		} else {
+			sendAnalysisStatus(`📉 N6 - Retração Histórica → NULO`);
+		}
+		await sleep(1500);
+
+		if (continuityResult && continuityResult.color && (continuityResult.strength || 0) !== 0) {
+			const prefix = continuityResult.strength > 0 ? 'Reforço' : 'Redução';
+			sendAnalysisStatus(`📈 N7 - Continuidade Global → ${continuityResult.color.toUpperCase()} (${prefix})`);
+		} else {
+			sendAnalysisStatus(`📈 N7 - Continuidade Global → NULO`);
+		}
+		await sleep(1500);
+
         const barrierStatusText2 = barrierResult.alternanceBlocked
             ? '🚫 BLOQUEADO (Alternância)'
             : barrierResult.allowed ? '✅ APROVADO' : '🚫 BLOQUEADO';
-        sendAnalysisStatus(`🛑 N6 - Barreira → ${barrierStatusText2}`);
+        sendAnalysisStatus(`🛑 N8 - Barreira Final → ${barrierStatusText2}`);
         await sleep(1500);
         
-        const totalVotantes = 5;
-        sendAnalysisStatus(`❌ Rejeitado: ${winningVotes} de ${totalVotantes} votos (mín: ${currentIntensity.min})`);
+		const totalVotantes = maxVotingSlots;
+		sendAnalysisStatus(`❌ Rejeitado: ${winningVotes} de ${availableVotes}/${totalVotantes} votos (mín: ${currentIntensity.min})`);
         await sleep(2000);
         
         // ✅ Restaurar status "IA ativada"
@@ -10267,21 +10176,15 @@ async function analyzeWithPatternSystem(history) {
     }
         
         console.log('%c✅ CONSENSO ATINGIDO! Intensidade aprovada.', 'color: #00FF88; font-weight: bold; font-size: 14px;');
-        console.log('');
         
         // ═══════════════════════════════════════════════════════════════
         // ⏱️ VERIFICAÇÃO FINAL: INTERVALO BLOQUEADO?
         // ═══════════════════════════════════════════════════════════════
     if (intervalBlocked) {
-        console.log('');
-        console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #FFAA00; font-weight: bold;');
         console.log('%c║  🚫 SINAL BLOQUEADO - INTERVALO INSUFICIENTE!            ║', 'color: #FFAA00; font-weight: bold; font-size: 14px;');
-        console.log('%c╠═══════════════════════════════════════════════════════════╣', 'color: #FFAA00; font-weight: bold;');
         console.log('%c║  ✅ Análise dos 6 níveis foi executada com sucesso       ║', 'color: #00FF88;');
         console.log('%c║  ✅ Sistema recomendaria: ' + finalColor.toUpperCase().padEnd(34) + '║', 'color: #FFD700;');
         console.log('%c║  🚫 MAS sinal não será enviado (aguarde intervalo)       ║', 'color: #FFAA00;');
-        console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #FFAA00; font-weight: bold;');
-        console.log('');
         
         // ✅ MOSTRAR AS 6 FASES COM DELAY (para o usuário ver o processo)
         // ❌ Níveis 1, 2, 3 removidos (não mostrar mais)
@@ -10320,157 +10223,160 @@ async function analyzeWithPatternSystem(history) {
         }
         await sleep(1500);
         
+        if (retracementResult && retracementResult.color) {
+            sendAnalysisStatus(`📉 N6 - Retração Histórica → ${retracementResult.color.toUpperCase()}`);
+        } else {
+            sendAnalysisStatus(`📉 N6 - Retração Histórica → NULO`);
+        }
+        await sleep(1500);
+
+        if (continuityResult && continuityResult.color && (continuityResult.strength || 0) !== 0) {
+            const prefix2 = continuityResult.strength > 0 ? 'Reforço' : 'Redução';
+            sendAnalysisStatus(`📈 N7 - Continuidade Global → ${continuityResult.color.toUpperCase()} (${prefix2})`);
+        } else {
+            sendAnalysisStatus(`📈 N7 - Continuidade Global → NULO`);
+        }
+        await sleep(1500);
+        
         const barrierStatusText3 = barrierResult.alternanceBlocked
             ? '🚫 BLOQUEADO (Alternância)'
             : barrierResult.allowed ? '✅ APROVADO' : '🚫 BLOQUEADO';
-        sendAnalysisStatus(`🛑 N6 - Barreira → ${barrierStatusText3}`);
+        sendAnalysisStatus(`🛑 N8 - Barreira Final → ${barrierStatusText3}`);
         await sleep(1500);
         
-        // ✅ Mostrar resultado da análise (MODO DIAMANTE: mensagem fixa) e depois o motivo do bloqueio
-        if (analyzerConfig.aiMode) {
-            sendAnalysisStatus(`Sinal de entrada`);
-        } else {
-            sendAnalysisStatus(`✅ Análise: ${finalColor.toUpperCase()} (${winningVotes} de 5 votos)`);
-        }
-        await sleep(2000);
-        
-        sendAnalysisStatus(intervalMessage);
-        await sleep(2000);
-        
-        // ✅ Restaurar status "IA ativada"
-        await restoreIAStatus();
-        
-        return null;
-    }
-        
-        // ═══════════════════════════════════════════════════════════════
-        // 📊 CÁLCULO DE CONFIANÇA (BASEADO NA VOTAÇÃO)
-        // ═══════════════════════════════════════════════════════════════
-        
-    // Calcular confiança baseado no consenso dos níveis
-    // ✅ SEMPRE 5 níveis votam (N1, N2, N4, N5, N6) - mesmo que alguns votem NULO
-    const totalVotantes = 5;
-    const consensusPercent = (winningVotes / totalVotantes) * 100;
-    
-    // ✅ CONFIANÇA BASE = CONSENSO PURO (sem transformações artificiais)
-    // O calibrador automático vai ajustar isso baseado no histórico REAL de acertos/erros
-    // 
-    // Exemplos:
-    // - 5 votos de 5 (100% consenso) → 100% confiança base → Calibrador ajusta para realidade
-    // - 4 votos de 5 (80% consenso) → 80% confiança base → Calibrador ajusta para realidade
-    // - 3 votos de 5 (60% consenso) → 60% confiança base → Calibrador ajusta para realidade
-    //
-    // Se o sistema indicou 100% mas acertou só 70% (baseado em 10+ entradas):
-    //   calibrationFactor = 0.70 / 1.00 = 0.70
-    //   finalConfidence = 100% × 0.70 = 70% ✅ (REALIDADE!)
-    let rawConfidence = Math.round(consensusPercent);
-    
-    // Garantir mínimo de 50% (se tiver pelo menos 3 votos) e máximo de 100%
-    rawConfidence = Math.max(50, Math.min(100, rawConfidence));
-        
-        console.log('%c═══════════════════════════════════════════════════════════════════', 'color: #FFD700; font-weight: bold; font-size: 18px;');
-        console.log('%c📊 RESUMO COMPLETO DOS 6 NÍVEIS ATIVOS:', 'color: #FFD700; font-weight: bold; font-size: 16px;');
-    console.log('%c═══════════════════════════════════════════════════════════════════', 'color: #FFD700; font-weight: bold; font-size: 18px;');
-    console.log('');
-    console.log(`%c⚠️ Níveis 1, 2, 3 desativados (análise superficial de frequência)`, 'color: #888; font-style: italic;');
-    console.log('');
-        console.log(`%c🎯 NÍVEL 4: Padrões → ${nivel4 ? nivel4.color.toUpperCase() + ' (' + (nivel4.source === 'custom' ? 'Customizado' : 'Quente') + ')' : 'NULO'}`, nivel4 ? 'color: #FF00FF; font-weight: bold;' : 'color: #888;');
-        console.log(`%c⚡ NÍVEL 2: Momentum (5 vs 15) → ${nivel5.color.toUpperCase()}`, 'color: #00AAFF; font-weight: bold;');
-        console.log(`%c🛑 NÍVEL 6: Barreira → ${barrierResult.allowed ? '✅ LIBERADO' : '🚫 BLOQUEADO'}`, barrierResult.allowed ? 'color: #00FF88; font-weight: bold;' : 'color: #FF6666; font-weight: bold;');
-        console.log(`%c🔷 NÍVEL 7: Alternância (12 giros) → ${nivel7 && nivel7.color ? nivel7.color.toUpperCase() : 'NULO'}`, nivel7 && nivel7.color ? 'color: #8E44AD; font-weight: bold;' : 'color: #888;');
-        console.log(`%c🕑 NÍVEL 5: Ritmo por Giro (minuto alvo) → ${minuteBiasColor ? minuteBiasColor.toUpperCase() : 'NULO'}`, minuteBiasColor ? 'color: #1ABC9C; font-weight: bold;' : 'color: #888;');
-        console.log(`%c🛑 NÍVEL 6: Barreira → ${barrierResult.allowed ? '✅ LIBERADO' : '🚫 BLOQUEADO'}`, barrierResult.allowed ? 'color: #00FF88; font-weight: bold;' : 'color: #FF6666; font-weight: bold;');
-        console.log('');
-        console.log('%c═══════════════════════════════════════════════════════════════════', 'color: #FFD700; font-weight: bold;');
-        console.log('');
-        
-        console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #00FF00; font-weight: bold; font-size: 16px;');
-        console.log(`%c║  🎯 DECISÃO FINAL: ${finalColor.toUpperCase().padEnd(33)}║`, 'color: #00FF00; font-weight: bold; font-size: 16px;');
-        console.log('%c╠═══════════════════════════════════════════════════════════╣', 'color: #00FF00; font-weight: bold;');
-        console.log(`%c║  🗳️ Votos: ${votes.red} VERMELHO | ${votes.black} PRETO${votes.null > 0 ? ' | ' + votes.null + ' NULO' : ''.padEnd(8)} ║`, 'color: #00FF88;');
-        console.log(`%c║  📊 Consenso: ${consensusPercent.toFixed(1)}%${''.padEnd(33)}║`, 'color: #00FFFF;');
-        console.log(`%c║  📐 Confiança Calculada: ${rawConfidence}%${''.padEnd(28)}║`, 'color: #00FFFF;');
-        console.log('%c╠═══════════════════════════════════════════════════════════╣', 'color: #00FF00; font-weight: bold;');
-        console.log(`%c║  ✅ SISTEMA DEMOCRÁTICO DE VOTAÇÃO                       ║`, 'color: #00FF00; font-weight: bold;');
-        console.log(`%c║  ✅ BARREIRA VALIDOU VIABILIDADE HISTÓRICA              ║`, 'color: #00FF00; font-weight: bold;');
-        console.log('%c╠═══════════════════════════════════════════════════════════╣', 'color: #00FF00; font-weight: bold;');
-        console.log('%c║  🔧 APLICANDO CALIBRADOR AUTOMÁTICO...                   ║', 'color: #FFD700; font-weight: bold;');
-        console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #00FF00; font-weight: bold;');
-        console.log('');
-        
-        // ═══════════════════════════════════════════════════════════════
-        // 🔧 APLICAR CALIBRADOR AUTOMÁTICO DE PORCENTAGEM
-        // ═══════════════════════════════════════════════════════════════
-        let finalConfidence = applyCalibratedConfidence(rawConfidence);
-        
-        console.log('');
-        console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #FFD700; font-weight: bold; font-size: 16px;');
-        console.log(`%c║  ✅ CONFIANÇA FINAL (CALIBRADA): ${finalConfidence}%${''.padEnd(19)}║`, 'color: #FFD700; font-weight: bold; font-size: 16px;');
-        console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #FFD700; font-weight: bold;');
-        console.log('');
-        
-        console.log('%c✅ SINAL APROVADO!', 'color: #00FF00; font-weight: bold; font-size: 14px;');
-        console.log('');
-        
-        // ═══════════════════════════════════════════════════════════════
-        // 📝 MONTAR RACIOCÍNIO DETALHADO (6 NÍVEIS ATIVOS + VOTAÇÃO)
-        // ═══════════════════════════════════════════════════════════════
-        
-    // Montar raciocínio completo dos 6 níveis ativos (formato compacto)
-    // ❌ Níveis 1, 2, 3 removidos (análise superficial de frequência)
-        
-        // ✅ RENUMERAÇÃO: N4→N1, N5→N2, N6→N3, N7→N4, N8→N5, N9→N6
-        let nivel1Description = '';
-        if (nivel4 && nivel4.source === 'custom') {
-            nivel1Description = `N1 - Padrões: ${nivel4.color.toUpperCase()} (Custom)`;
-        } else if (nivel4 && nivel4.source === 'hot') {
-            nivel1Description = `N1 - Padrões: ${nivel4.color.toUpperCase()} (Quente)`;
-        } else {
-            nivel1Description = `N1 - Padrões: NULO`;
-        }
-        
-        const nivel2Description = `N2 - Momentum: ${nivel5.color.toUpperCase()} (${nivel5.trending === 'accelerating_red' ? 'acelerando ↗' : nivel5.trending === 'accelerating_black' ? 'acelerando ↗' : 'estável →'})`;
-        
-        const nivel3Description = nivel7 && nivel7.color
-            ? `N3 - Alternância${nivel7.override ? ' (override)' : ''}: ${nivel7.color.toUpperCase()} (${nivel7.pattern} • ${nivel7.alternanceTargetRuns}/${nivel7.alternanceMaxRuns || '∞'} blocos)`
-            : `N3 - Alternância: NULO`;
-        
-        const nivel4Description = nivel9 && nivel9.color ? 
-            `N4 - Persistência: ${nivel9.color.toUpperCase()} (seq. ${nivel9.currentSequence})` :
-            `N4 - Persistência: NULO`;
-        
-        const nivel5Description = minuteBiasColor
-            ? `N5 - Ritmo por Giro: ${minuteBiasColor.toUpperCase()} (${minuteBiasResult && minuteBiasResult.dominantPercent ? Math.round(minuteBiasResult.dominantPercent * 100) : Math.round((minuteBiasResult?.confidence || 0) * 100)}%)`
-            : `N5 - Ritmo por Giro: NULO`;
-        
-        const nivel6Description = barrierResult.allowed
-            ? `N6 - Barreira: ✅ LIBERADO`
-            : `N6 - Barreira: 🚫 BLOQUEADO`;
-        
-        // Descrição da intensidade de sinais
-        const intensityName = {
-            'aggressive': '🔥 AGRESSIVO',
-            'moderate': '⚖️ MODERADO',
-            'conservative': '🛡️ CONSERVADOR',
-            'ultraconservative': '🛡️ CONSERVADOR'  // ✅ Fallback (mesmo que conservative)
-        }[signalIntensity] || '⚖️ MODERADO';
-        
-        // Montar votação
-        const votingDescription = `🗳️ ${votes.red} VERMELHO | ${votes.black} PRETO${votes.null > 0 ? ' | ' + votes.null + ' NULO' : ''}`;
-        
-        const reasoning = `${nivel1Description}\n` +
-            `${nivel2Description}\n` +
-            `${nivel3Description}\n` +
-            `${nivel4Description}\n` +
-            `${nivel5Description}\n` +
-            `${nivel6Description}\n` +
-            `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
-            `${votingDescription}\n` +
-            `🏆 ${finalColor.toUpperCase()} (${winningVotes}/${totalVotantes} votos = ${consensusPercent.toFixed(1)}%)\n` +
-            `🎚️ ${intensityName} (mín ${currentIntensity.min}/${totalVotantes})\n` +
-            `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
-            `🎯 DECISÃO: ${finalColor.toUpperCase()}\n` +
-            `📊 Confiança: ${finalConfidence}%`;
+		// ✅ Mostrar resultado da análise (MODO DIAMANTE: mensagem fixa) e depois o motivo do bloqueio
+		if (analyzerConfig.aiMode) {
+			sendAnalysisStatus(`Sinal de entrada`);
+		} else {
+			sendAnalysisStatus(`✅ Análise: ${finalColor.toUpperCase()} (${winningVotes} de ${maxVotingSlots} votos)`);
+		}
+		await sleep(2000);
+		
+		if (intervalMessage) {
+			sendAnalysisStatus(intervalMessage);
+			await sleep(2000);
+		}
+		
+		// ✅ Restaurar status "IA ativada"
+		await restoreIAStatus();
+		
+		return null;
+	}
+		
+		// ═══════════════════════════════════════════════════════════════
+		// 📊 CÁLCULO DE CONFIANÇA (BASEADO NA VOTAÇÃO)
+		// ═══════════════════════════════════════════════════════════════
+		
+	const totalVotantes = maxVotingSlots;
+	const consensusPercent = totalVotantes > 0 ? (winningVotes / totalVotantes) * 100 : 0;
+	
+	let rawConfidence = Math.round(consensusPercent);
+	rawConfidence = Math.max(50, Math.min(100, rawConfidence));
+		
+		console.log('%c📊 RESUMO COMPLETO DOS NÍVEIS ATIVOS:', 'color: #FFD700; font-weight: bold; font-size: 16px;');
+		levelReports
+			.filter(level => level.id !== 'N8')
+			.forEach(level => console.log(`   ${describeLevel(level)}`));
+		const barrierReport = levelReports.find(level => level.id === 'N8');
+		if (barrierReport) {
+			console.log(`   ${describeLevel(barrierReport)}`);
+		}
+		
+		const voteSegments = [
+			`${voteTotals.red} VERMELHO`,
+			`${voteTotals.black} PRETO`
+		];
+		if (voteTotals.neutral > 0) voteSegments.push(`${voteTotals.neutral} NEUTRO`);
+		if (voteTotals.negative > 0) voteSegments.push(`${voteTotals.negative} REDUÇÃO`);
+		
+		console.log(`%c║  🎯 DECISÃO FINAL: ${finalColor.toUpperCase().padEnd(33)}║`, 'color: #00FF00; font-weight: bold; font-size: 16px;');
+		console.log(`%c║  🗳️ Votos: ${voteSegments.join(' | ').padEnd(42)}║`, 'color: #00FF88;');
+		console.log(`%c║  📊 Consenso: ${consensusPercent.toFixed(1)}%${''.padEnd(33)}║`, 'color: #00FFFF;');
+		console.log(`%c║  📐 Confiança Calculada: ${rawConfidence}%${''.padEnd(28)}║`, 'color: #00FFFF;');
+		console.log(`%c║  ✅ SISTEMA DEMOCRÁTICO DE VOTAÇÃO                       ║`, 'color: #00FF00; font-weight: bold;');
+		console.log(`%c║  ✅ BARREIRA VALIDOU VIABILIDADE HISTÓRICA              ║`, 'color: #00FF00; font-weight: bold;');
+		console.log('%c║  🔧 APLICANDO CALIBRADOR AUTOMÁTICO...                   ║', 'color: #FFD700; font-weight: bold;');
+		
+		// ═══════════════════════════════════════════════════════════════
+		// 🔧 APLICAR CALIBRADOR AUTOMÁTICO DE PORCENTAGEM
+		// ═══════════════════════════════════════════════════════════════
+		let finalConfidence = applyCalibratedConfidence(rawConfidence);
+		
+		console.log(`%c║  ✅ CONFIANÇA FINAL (CALIBRADA): ${finalConfidence}%${''.padEnd(19)}║`, 'color: #FFD700; font-weight: bold; font-size: 16px;');
+		
+		console.log('%c✅ SINAL APROVADO!', 'color: #00FF00; font-weight: bold; font-size: 14px;');
+		
+		// ═══════════════════════════════════════════════════════════════
+		// 📝 MONTAR RACIOCÍNIO DETALHADO (NÍVEIS ATIVOS + VOTAÇÃO)
+		// ═══════════════════════════════════════════════════════════════
+		
+		let nivel1Description = '';
+		if (nivel4 && nivel4.source === 'custom') {
+			nivel1Description = `N1 - Padrões: ${nivel4.color.toUpperCase()} (Custom)`;
+		} else if (nivel4 && nivel4.source === 'hot') {
+			nivel1Description = `N1 - Padrões: ${nivel4.color.toUpperCase()} (Quente)`;
+		} else {
+			nivel1Description = `N1 - Padrões: NULO`;
+		}
+		
+		const nivel2Description = `N2 - Momentum: ${nivel5.color.toUpperCase()} (${nivel5.trending === 'accelerating_red' ? 'acelerando ↗' : nivel5.trending === 'accelerating_black' ? 'acelerando ↗' : 'estável →'})`;
+		
+		const nivel3Description = nivel7 && nivel7.color
+			? `N3 - Alternância${nivel7.override ? ' (override)' : ''}: ${nivel7.color.toUpperCase()} (${nivel7.pattern} • ${nivel7.alternanceTargetRuns}/${nivel7.alternanceMaxRuns || '∞'} blocos)`
+			: `N3 - Alternância: NULO`;
+		
+		const nivel4Description = nivel9 && nivel9.color ? 
+			`N4 - Persistência: ${nivel9.color.toUpperCase()} (seq. ${nivel9.currentSequence})` :
+			`N4 - Persistência: NULO`;
+		
+		const nivel5Description = minuteBiasColor
+			? `N5 - Ritmo por Giro: ${minuteBiasColor.toUpperCase()} (${Math.round((minuteBiasResult?.confidence || 0) * 100)}% confiança)`
+			: `N5 - Ritmo por Giro: NULO`;
+
+		const retracementDescription = retracementResult && retracementResult.details
+			? `N6 - Retração Histórica: ${retracementResult.details}`
+			: `N6 - Retração Histórica: NULO`;
+
+		const continuityDescription = continuityResult && continuityResult.details
+			? `N7 - Continuidade Global: ${continuityResult.details}`
+			: `N7 - Continuidade Global: NULO`;
+
+		const barrierDescription = barrierResult.allowed
+			? `N8 - Barreira Final: ✅ LIBERADO`
+			: `N8 - Barreira Final: 🚫 BLOQUEADO`;
+		
+		const intensityName = {
+			'aggressive': '🔥 AGRESSIVO',
+			'moderate': '⚖️ MODERADO',
+			'conservative': '🛡️ CONSERVADOR',
+			'ultraconservative': '🛡️ ULTRA CONSERVADOR'
+		}[signalIntensity] || '⚖️ MODERADO';
+		
+		const votingDescription = (() => {
+			const segments = [
+				`${voteTotals.red} VERMELHO`,
+				`${voteTotals.black} PRETO`
+			];
+			if (voteTotals.neutral > 0) segments.push(`${voteTotals.neutral} NEUTRO`);
+			if (voteTotals.negative > 0) segments.push(`${voteTotals.negative} REDUÇÃO`);
+			return `🗳️ ${segments.join(' | ')}`;
+		})();
+		
+		const reasoning = `${nivel1Description}\n` +
+			`${nivel2Description}\n` +
+			`${nivel3Description}\n` +
+			`${nivel4Description}\n` +
+			`${nivel5Description}\n` +
+			`${retracementDescription}\n` +
+			`${continuityDescription}\n` +
+			`${barrierDescription}\n` +
+			`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+			`${votingDescription}\n` +
+			`🏆 ${finalColor.toUpperCase()} (${winningVotes}/${totalVotantes} votos = ${consensusPercent.toFixed(1)}%)\n` +
+			`🎚️ ${intensityName} (mín ${currentIntensity.min}/${totalVotantes})\n` +
+			`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+			`🎯 DECISÃO: ${finalColor.toUpperCase()}\n` +
+			`📊 Confiança: ${finalConfidence}%`;
         
         // Registrar sinal para verificação futura
         const signal = {
@@ -10478,9 +10384,10 @@ async function analyzeWithPatternSystem(history) {
             patternType: 'nivel-diamante',
             patternName: patternDescription,
             colorRecommended: finalColor,
-            votesRed: votes.red,
-            votesBlack: votes.black,
-            votesNull: votes.null,
+			votesRed: voteTotals.red,
+			votesBlack: voteTotals.black,
+			votesNeutral: voteTotals.neutral,
+			votesNegative: voteTotals.negative,
             consensusPercent: consensusPercent,
             rawConfidence: rawConfidence,        // Confiança antes da calibração
             finalConfidence: finalConfidence,    // Confiança após calibração
@@ -10510,11 +10417,8 @@ async function analyzeWithPatternSystem(history) {
             memoriaAtiva.ultimaAtualizacao = Date.now();
         }
         
-    console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #00FFFF; font-weight: bold;');
     console.log('%c🧠 RACIOCÍNIO COMPLETO:', 'color: #00FFFF; font-weight: bold; font-size: 14px;');
     console.log(`%c${reasoning}`, 'color: #00FFFF;');
-    console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #00FFFF; font-weight: bold;');
-    console.log('');
     
     // ⚡⚡⚡ SINAL APROVADO! MOSTRAR IMEDIATAMENTE! ⚡⚡⚡
     console.log('%c⚡⚡⚡ SINAL APROVADO! ENVIANDO IMEDIATAMENTE! ⚡⚡⚡', 'color: #00FF00; font-weight: bold; font-size: 16px;');
@@ -10528,22 +10432,17 @@ async function analyzeWithPatternSystem(history) {
     }
     // ⚡ NÃO AGUARDAR! Usuário vê a cor IMEDIATAMENTE
         
-        console.log('%c═══════════════════════════════════════════════════════════════════', 'color: #00FF00; font-weight: bold; font-size: 20px;');
         console.log('%c✅ SINAL APROVADO E PRONTO PARA ENVIO', 'color: #00FF00; font-weight: bold; font-size: 18px;');
-        console.log('%c═══════════════════════════════════════════════════════════════════', 'color: #00FF00; font-weight: bold; font-size: 20px;');
-        console.log('');
         console.log('%c📊 ANÁLISE COMPLETA:', 'color: #00FFFF; font-weight: bold; font-size: 16px;');
         console.log(`%c   🎯 Cor Recomendada: ${finalColor.toUpperCase()}`, `color: ${finalColor === 'red' ? '#FF0000' : '#FFFFFF'}; font-weight: bold; font-size: 18px;`);
         console.log(`%c   📈 Confiança Final: ${finalConfidence}%`, 'color: #FFD700; font-weight: bold; font-size: 16px;');
-        console.log(`%c   🗳️ Votação: ${votes.red} vermelho | ${votes.black} preto${votes.null > 0 ? ' | ' + votes.null + ' nulo' : ''}`, 'color: #FFD700; font-weight: bold;');
+		console.log(`%c   🗳️ Votação: ${voteTotals.red} vermelho | ${voteTotals.black} preto${voteTotals.neutral > 0 ? ' | ' + voteTotals.neutral + ' neutro' : ''}${voteTotals.negative > 0 ? ' | ' + voteTotals.negative + ' redução' : ''}`, 'color: #FFD700; font-weight: bold;');
         console.log(`%c   🔍 Padrão: ${patternDescription}`, 'color: #FFD700; font-weight: bold;');
-        console.log('');
         console.log('%c📋 ORIGEM DOS DADOS:', 'color: #00FFFF; font-weight: bold;');
         console.log(`%c   ✅ Histórico analisado: ${history.length} giros REAIS`, 'color: #00FF88;');
         console.log(`%c   ✅ Padrão Customizado: ${nivel4 && nivel4.source === 'custom' ? 'SIM (' + patternDescription + ')' : 'NÃO'}`, nivel4 && nivel4.source === 'custom' ? 'color: #FF00FF; font-weight: bold;' : 'color: #888;');
         console.log(`%c   ✅ Padrão Quente: ${nivel4 && nivel4.source === 'hot' ? 'SIM (integrado no Nível 4)' : 'NÃO'}`, nivel4 && nivel4.source === 'hot' ? 'color: #FF6B35; font-weight: bold;' : 'color: #888;');
         console.log(`%c   ✅ Barreira Validada: ${barrierResult.allowed ? 'SIM (liberado)' : 'BLOQUEADO'}`, barrierResult.allowed ? 'color: #00FF88;' : 'color: #FF6666;');
-        console.log('');
         console.log('%c✅ GARANTIAS:', 'color: #00FF00; font-weight: bold;');
         console.log('%c   ✓ Todos os dados vêm do histórico REAL da Blaze', 'color: #00FF88;');
         console.log('%c   ✓ Nenhum valor foi inventado ou simulado', 'color: #00FF88;');
@@ -10551,9 +10450,6 @@ async function analyzeWithPatternSystem(history) {
         console.log('%c   ✓ Sistema democrático de votação aplicado', 'color: #00FF88;');
         console.log('%c   ✓ Barreira validou viabilidade histórica', 'color: #00FF88;');
         console.log('%c   ✓ Padrões customizados do usuário foram respeitados', 'color: #00FF88;');
-        console.log('');
-        console.log('%c═══════════════════════════════════════════════════════════════════', 'color: #00FF00; font-weight: bold; font-size: 20px;');
-        console.log('');
         
         return {
             color: finalColor,
@@ -10578,22 +10474,20 @@ async function analyzeWithPatternSystem(history) {
 }
 
 /**
- * FUNÇÃO PRINCIPAL: Análise com IA REAL (com timeout de 5 segundos)
- * Esta função faz chamadas REAIS para APIs de IA externas
+ * ❌ REMOVIDO: Código de API externa (Groq, OpenAI, etc.) não utilizado
+ * O sistema usa apenas Modo Padrão e Modo Diamante (análise local)
+ * 
+ * Mantido comentado para referência histórica
  */
+/*
 async function analyzeWithAI(history) {
     const startTime = Date.now();
     const timeout = 5000; // ⚡ 5 segundos MÁXIMO para APIs externas
     
     try {
-        console.log('');
-        console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #00FF00; font-weight: bold; font-size: 14px;');
         console.log('%c║  🤖 INICIANDO ANÁLISE POR INTELIGÊNCIA ARTIFICIAL        ║', 'color: #00FF00; font-weight: bold; font-size: 14px;');
-        console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #00FF00; font-weight: bold; font-size: 14px;');
-        console.log('');
         
         // Verificar chave API
-        console.log('%c🔑 Verificando chave API...', 'color: #00FF88; font-weight: bold;');
         if (!analyzerConfig.aiApiKey || analyzerConfig.aiApiKey.trim() === '') {
             console.error('%c❌ ERRO: Chave da IA inválida ou ausente!', 'color: #FF0000; font-weight: bold; font-size: 14px;');
             console.error('%c   Configure a chave nas Configurações da extensão', 'color: #FF6666;');
@@ -10637,17 +10531,12 @@ async function analyzeWithAI(history) {
         const last20Spins = history.slice(0, 20);
         
         // 🔍 DEBUG: Mostrar os primeiros 20 giros para validar a ordem
-        console.log('');
-        console.log('%c🔍 DEBUG: VERIFICANDO ORDEM DO HISTÓRICO', 'color: #FFFF00; font-weight: bold; font-size: 14px;');
-        console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #FFFF00;');
         console.log('%c📊 ÚLTIMOS 20 GIROS (do array history[0] até history[19]):', 'color: #FFFF00; font-weight: bold;');
         for (let i = 0; i < Math.min(20, recentHistory.length); i++) {
             const spin = recentHistory[i];
             console.log(`%c   ${i === 0 ? '🔥 MAIS RECENTE →' : `   ${i + 1}.`} ${spin.color.toUpperCase()} (número ${spin.number})`, 
                 `color: ${spin.color === 'red' ? '#FF0000' : spin.color === 'black' ? '#FFFFFF' : '#00FF00'}; font-weight: bold;`);
         }
-        console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #FFFF00;');
-        console.log('');
         
         // Criar texto com DESTAQUE para os últimos 20 giros
         const last20Text = last20Spins.map((spin, idx) => 
@@ -10725,11 +10614,9 @@ async function analyzeWithAI(history) {
             prompt = DEFAULT_AI_PROMPT(recentHistory.length, historyText, patternsText, last20Text);
         }
 
-        console.log('');
         console.log('%c📤 Enviando dados para API da IA...', 'color: #00FFFF; font-weight: bold; font-size: 13px;');
         console.log('%c   Histórico: ' + recentHistory.length + ' giros', 'color: #00FFFF;');
         console.log('%c   ⚡ Timeout: 5 segundos MÁXIMO', 'color: #00FFFF; font-weight: bold;');
-        console.log('');
         sendAnalysisStatus('🤖 Consultando IA...');
         
         // Fazer chamada REAL para a API
@@ -10756,20 +10643,16 @@ async function analyzeWithAI(history) {
                     throw new Error('Tipo de API não suportado');
             }
         } catch (apiError) {
-            console.log('');
             console.error('%c❌ ERRO AO CHAMAR API!', 'color: #FF0000; font-weight: bold; font-size: 14px; background: #330000; padding: 5px;');
             console.error('%c   Mensagem: ' + apiError.message, 'color: #FF6666; font-weight: bold;');
-            console.log('');
             sendAnalysisStatus('❌ API inválida');
             return null;
         }
         
         // Validar resposta
         if (!aiResponse || !aiResponse.color) {
-            console.log('');
             console.error('%c❌ RESPOSTA DA IA INVÁLIDA!', 'color: #FF0000; font-weight: bold; font-size: 14px;');
             console.error('%c   A API não retornou dados no formato esperado', 'color: #FF6666;');
-            console.log('');
             return null;
         }
         
@@ -10786,31 +10669,19 @@ async function analyzeWithAI(history) {
         
         // ⚠️ ESPECIAL: Se IA retornar confidence: 0, significa que não encontrou padrão confiável
         if (aiConfidence === 0) {
-            console.log('');
-            console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #FFAA00; font-weight: bold;');
             console.log('%c║  ⚠️ IA: NENHUM PADRÃO CONFIÁVEL DETECTADO                 ║', 'color: #FFAA00; font-weight: bold;');
-            console.log('%c╠═══════════════════════════════════════════════════════════╣', 'color: #FFAA00; font-weight: bold;');
             console.log('%c║  🔍 Raciocínio: ' + (aiResponse.reasoning || 'Sem padrão com 85%+ de confiança').substring(0, 48).padEnd(48) + '║', 'color: #FFAA00;');
-            console.log('%c╠═══════════════════════════════════════════════════════════╣', 'color: #FFAA00; font-weight: bold;');
             console.log('%c║  ⏳ Aguardando formação de padrão claro...                ║', 'color: #FFAA00;');
-            console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #FFAA00; font-weight: bold;');
-            console.log('');
             sendAnalysisStatus('⏳ IA aguardando padrão confiável...');
             return null;
         }
         
         // Validar se atinge confiança mínima configurada
         if (aiConfidence < minConfidence) {
-            console.log('');
-            console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #FFAA00; font-weight: bold;');
             console.log('%c║  ⚠️ SINAL IA REJEITADO: CONFIANÇA INSUFICIENTE            ║', 'color: #FFAA00; font-weight: bold;');
-            console.log('%c╠═══════════════════════════════════════════════════════════╣', 'color: #FFAA00; font-weight: bold;');
             console.log('%c║  📊 Confiança da IA: ' + aiConfidence.toFixed(1) + '%                                ║', 'color: #FFAA00;');
             console.log('%c║  🎯 Confiança mínima configurada: ' + minConfidence + '%                    ║', 'color: #FFAA00;');
-            console.log('%c╠═══════════════════════════════════════════════════════════╣', 'color: #FFAA00; font-weight: bold;');
             console.log('%c║  ⏳ Aguardando próximo giro com maior confiança...        ║', 'color: #FFAA00;');
-            console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #FFAA00; font-weight: bold;');
-            console.log('');
             sendAnalysisStatus('⏳ IA aguardando confiança maior...');
             return null;
         }
@@ -10826,7 +10697,6 @@ async function analyzeWithAI(history) {
             const blackPercent = (aiColorCounter.black / aiColorCounter.total) * 100;
             const whitePercent = (aiColorCounter.white / aiColorCounter.total) * 100;
             
-            console.log('');
             console.log('%c📊 ESTATÍSTICAS DA IA (últimas ' + aiColorCounter.total + ' recomendações):', 'color: #00FFFF; font-weight: bold;');
             console.log('%c   🔴 VERMELHO: ' + aiColorCounter.red + ' (' + redPercent.toFixed(1) + '%)', 
                 'color: ' + (redPercent > 70 ? '#FF0000' : '#00FFFF') + '; font-weight: ' + (redPercent > 70 ? 'bold' : 'normal') + ';');
@@ -10836,24 +10706,18 @@ async function analyzeWithAI(history) {
                 'color: ' + (whitePercent > 70 ? '#FF0000' : '#00FFFF') + '; font-weight: ' + (whitePercent > 70 ? 'bold' : 'normal') + ';');
             
             if (redPercent > 70 || blackPercent > 70 || whitePercent > 70) {
-                console.log('');
                 console.log('%c⚠️⚠️⚠️ ALERTA DE VIÉS DETECTADO! ⚠️⚠️⚠️', 'color: #FF0000; font-weight: bold; font-size: 14px; background: #330000; padding: 5px;');
                 console.log('%c   A IA está recomendando a MESMA cor mais de 70% das vezes!', 'color: #FF6666; font-weight: bold;');
                 console.log('%c   Isso pode indicar um problema no modelo ou no prompt.', 'color: #FF6666;');
-                console.log('');
             }
-            console.log('');
         }
         
         // 🔥 CORREÇÃO CRÍTICA: SEMPRE usar dados REAIS do histórico
         // A IA frequentemente INVENTA os dados em last10Spins, então IGNORAMOS completamente
         // e SEMPRE usamos os dados reais do histórico que foram coletados
-        console.log('');
         console.log('%c🔍 USANDO DADOS REAIS DO HISTÓRICO (ignorando resposta da IA)', 'color: #FFFF00; font-weight: bold;');
-        console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #FFFF00;');
         console.log('%c⚠️ MOTIVO: A IA frequentemente INVENTA dados no campo last10Spins', 'color: #FFAA00; font-weight: bold;');
         console.log('%c✅ SOLUÇÃO: Sempre extrair do histórico REAL coletado do site', 'color: #00FF88; font-weight: bold;');
-        console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #FFFF00;');
         
         // SEMPRE extrair do histórico real (ignorar o que a IA retornou)
         const last10SpinsData = recentHistory.slice(0, 10).map(spin => ({
@@ -10867,7 +10731,6 @@ async function analyzeWithAI(history) {
             console.log(`%c   ${idx + 1}. ${spin.color.toUpperCase()} (${spin.number})`, 
                 `color: ${spin.color === 'red' ? '#FF0000' : spin.color === 'black' ? '#FFFFFF' : '#00FF00'}; font-weight: bold;`);
         });
-        console.log('');
         
         // ⚠️ VALIDAÇÃO: Verificar se a IA retornou dados DIFERENTES dos reais
         if (aiResponse.last10Spins && aiResponse.last10Spins.length > 0) {
@@ -10887,11 +10750,9 @@ async function analyzeWithAI(history) {
             }
             
             if (mismatchFound) {
-                console.log('');
                 console.log('%c⚠️⚠️⚠️ A IA RETORNOU DADOS FALSOS! ⚠️⚠️⚠️', 'color: #FF0000; font-weight: bold; font-size: 14px; background: #330000; padding: 5px;');
                 console.log('%c   Os dados exibidos ao usuário são os REAIS do histórico', 'color: #00FF88; font-weight: bold;');
                 console.log('%c   (Ignoramos os dados inventados pela IA)', 'color: #00FF88;');
-                console.log('');
             } else {
                 console.log('%c   ✅ Dados da IA conferem com o histórico real', 'color: #00FF88; font-weight: bold;');
             }
@@ -10913,38 +10774,30 @@ async function analyzeWithAI(history) {
             predictedFor: null // Será preenchido pelo próximo giro
         };
         
-        console.log('');
         console.log('%c✅ RESPOSTA DA IA RECEBIDA COM SUCESSO!', 'color: #00FF00; font-weight: bold; font-size: 14px; background: #003300; padding: 5px;');
         console.log('%c   🎯 Cor prevista: ' + analysis.color.toUpperCase(), 'color: #00FF00; font-weight: bold; font-size: 13px;');
         console.log('%c   📊 Confiança: ' + analysis.confidence + '%', 'color: #00FF88; font-weight: bold;');
         console.log('%c   💭 Raciocínio (primeiros 200 chars): ' + (aiResponse.reasoning || '').substring(0, 200) + '...', 'color: #00FF88;');
         console.log('%c   ⚡ Tempo de resposta: ' + elapsed + 'ms', 'color: #00FFFF;');
-        console.log('');
         
         // 🔍 VALIDAÇÃO: Verificar se a IA analisou os giros corretos
         console.log('%c🔍 VALIDAÇÃO: Comparando resposta da IA com histórico real', 'color: #FFFF00; font-weight: bold;');
-        console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #FFFF00;');
         console.log('%c📊 Últimos 10 giros REAIS (do histórico):', 'color: #FFFF00; font-weight: bold;');
         for (let i = 0; i < Math.min(10, recentHistory.length); i++) {
             const spin = recentHistory[i];
             console.log(`%c   ${i + 1}. ${spin.color.toUpperCase()} (número ${spin.number})`, 
                 `color: ${spin.color === 'red' ? '#FF0000' : spin.color === 'black' ? '#FFFFFF' : '#00FF00'}; font-weight: bold;`);
         }
-        console.log('');
         console.log('%c💭 O que a IA disse sobre os últimos giros:', 'color: #FFFF00; font-weight: bold;');
         const reasoningSnippet = (aiResponse.reasoning || '').substring(0, 300);
         console.log('%c   ' + reasoningSnippet, 'color: #FFAA00;');
-        console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #FFFF00;');
-        console.log('');
         
         return analysis;
         
     } catch (error) {
-        console.log('');
         console.error('%c❌ ERRO GERAL NA ANÁLISE IA!', 'color: #FF0000; font-weight: bold; font-size: 14px; background: #330000; padding: 5px;');
         console.error('%c   ' + error.message, 'color: #FF6666; font-weight: bold;');
         console.error('%c   Stack:', error.stack, 'color: #FF3333;');
-        console.log('');
         sendAnalysisStatus('❌ Erro na IA');
         return null;
     }
@@ -11260,6 +11113,7 @@ async function callClaudeAPI(apiKey, prompt, timeout) {
         throw error;
     }
 }
+// */
 
 // NOVO CONTROLADOR: Orquestra Verificação (padrões salvos) + Descoberta (173+ análises) em ≤5s
 async function runAnalysisController(history) {
@@ -11270,15 +11124,10 @@ async function runAnalysisController(history) {
 		// ═══════════════════════════════════════════════════════════════
 		// 🔍 VALIDAÇÃO CRÍTICA: Verificar se history é um array válido
 		// ═══════════════════════════════════════════════════════════════
-		console.log('');
-		console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #FF00FF; font-weight: bold;');
-		console.log('%c║  🔍 [DEBUG] VALIDANDO PARÂMETRO history                  ║', 'color: #FF00FF; font-weight: bold;');
-		console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #FF00FF; font-weight: bold;');
 		console.log('📊 Tipo de history:', typeof history);
 		console.log('📊 É um array?', Array.isArray(history));
 		console.log('📊 Length:', history ? history.length : 'N/A');
 		console.log('📊 Primeiro elemento:', history && history[0] ? history[0] : 'N/A');
-		console.log('');
 		
 		if (!history || !Array.isArray(history) || history.length === 0) {
 			console.error('%c❌ ERRO CRÍTICO: history inválido!', 'color: #FF0000; font-weight: bold; font-size: 16px;');
@@ -11288,7 +11137,6 @@ async function runAnalysisController(history) {
 			return null;
 		}
 		console.log('%c✅ history validado com sucesso!', 'color: #00FF00; font-weight: bold;');
-		console.log('');
 		
 		// ⚠️ CRÍTICO: RECARREGAR analyzerConfig do storage ANTES de cada análise
 		// Isso garante que mudanças feitas pelo usuário sejam respeitadas imediatamente
@@ -11302,16 +11150,12 @@ async function runAnalysisController(history) {
 		}
 		
 		// ✅ DEBUG CRÍTICO: Verificar estado real do analyzerConfig
-		console.log('');
 		console.log('%c🔧 DEBUG: Estado atual do analyzerConfig:', 'color: #FFFF00; font-weight: bold; font-size: 12px; background: #333300; padding: 5px;');
 		console.log('%c   analyzerConfig.aiMode = ' + analyzerConfig.aiMode, 'color: #FFFF00; font-weight: bold; font-size: 14px;');
 		console.log('%c   analyzerConfig.aiApiKey = ' + (analyzerConfig.aiApiKey ? analyzerConfig.aiApiKey.substring(0, 15) + '...' : 'NÃO CONFIGURADA'), 'color: #FFFF00;');
 		console.log('%c   analyzerConfig.minOccurrences = ' + analyzerConfig.minOccurrences, 'color: #FFFF00;');
-		console.log('');
 		
 		// ✅ LOG INICIAL: Mostrar qual modo está ativo COM DESTAQUE
-		console.log('═════════════════════════════════════════════════════════════════════════════');
-		console.log('');
 		if (analyzerConfig.aiMode) {
 			console.log('%c██████╗ ███╗   ███╗ ██████╗ ██████╗  ██████╗     ██╗ █████╗ ', 'color: #00FF00; font-weight: bold; font-size: 14px;');
 			console.log('%c████╔═╝ ████╗ ████║██╔═══██╗██╔══██╗██╔═══██╗    ██║██╔══██╗', 'color: #00FF00; font-weight: bold; font-size: 14px;');
@@ -11319,7 +11163,6 @@ async function runAnalysisController(history) {
 			console.log('%c████╔═╝ ██║╚██╔╝██║██║   ██║██║  ██║██║   ██║    ██║██╔══██║', 'color: #00FF00; font-weight: bold; font-size: 14px;');
 			console.log('%c██████╗ ██║ ╚═╝ ██║╚██████╔╝██████╔╝╚██████╔╝    ██║██║  ██║', 'color: #00FF00; font-weight: bold; font-size: 14px;');
 			console.log('%c╚═════╝ ╚═╝     ╚═╝ ╚═════╝ ╚═════╝  ╚═════╝     ╚═╝╚═╝  ╚═╝', 'color: #00FF00; font-weight: bold; font-size: 14px;');
-			console.log('');
 		// 🧠 INDICADOR DINÂMICO DE MEMÓRIA ATIVA
 		let memoriaStatus = '';
 		let memoriaColor = '#00FF00';
@@ -11345,29 +11188,18 @@ async function runAnalysisController(history) {
 			console.log('%c██║╚██╔╝██║██║   ██║██║  ██║██║   ██║    ██╔═══╝ ██╔══██║██║  ██║██╔══██╗██╔══██║██║   ██║', 'color: #00AAFF; font-weight: bold; font-size: 14px;');
 			console.log('%c██║ ╚═╝ ██║╚██████╔╝██████╔╝╚██████╔╝    ██║     ██║  ██║██████╔╝██║  ██║██║  ██║╚██████╔╝', 'color: #00AAFF; font-weight: bold; font-size: 14px;');
 			console.log('%c╚═╝     ╚═╝ ╚═════╝ ╚═════╝  ╚═════╝     ╚═╝     ╚═╝  ╚═╝╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝ ╚═════╝ ', 'color: #00AAFF; font-weight: bold; font-size: 14px;');
-			console.log('');
 			console.log('%c📊 MODO DE ANÁLISE ATIVO: SISTEMA PADRÃO (173+ ANÁLISES)', 'color: #00AAFF; font-weight: bold; font-size: 16px; background: #003366; padding: 10px;');
 			console.log('%c🔍 Usando banco de padrões salvos + análises locais', 'color: #00BBFF; font-weight: bold; font-size: 12px;');
 		}
-		console.log('');
-		console.log('═════════════════════════════════════════════════════════════════════════════');
-		console.log('');
 		
 		// ⚠️ CRÍTICO: VERIFICAR MODO CONSECUTIVO COM MARTINGALE ATIVO (APLICA PARA AMBOS OS MODOS)
 		if (analyzerConfig.consecutiveMartingale && martingaleState.active) {
-			console.log('');
-			console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #FF0000; font-weight: bold; font-size: 16px; background: #330000; padding: 5px;');
 			console.log('%c║  🔒 MODO CONSECUTIVO COM MARTINGALE ATIVO                ║', 'color: #FF0000; font-weight: bold; font-size: 16px; background: #330000; padding: 5px;');
-			console.log('%c╠═══════════════════════════════════════════════════════════╣', 'color: #FF0000; font-weight: bold; background: #330000; padding: 5px;');
 			console.log('%c║  Estágio: ' + martingaleState.stage, 'color: #FF0000; font-weight: bold; background: #330000; padding: 5px;');
 			console.log('%c║  Cor: ' + martingaleState.entryColor, 'color: #FF0000; font-weight: bold; background: #330000; padding: 5px;');
-			console.log('%c╠═══════════════════════════════════════════════════════════╣', 'color: #FF0000; font-weight: bold; background: #330000; padding: 5px;');
 			console.log('%c║  ⛔ BLOQUEANDO NOVA ANÁLISE                              ║', 'color: #FF0000; font-weight: bold; font-size: 16px; background: #330000; padding: 5px;');
 			console.log('%c║  💡 Sistema em modo consecutivo - aguardando resultado   ║', 'color: #FF0000; font-weight: bold; background: #330000; padding: 5px;');
-			console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #FF0000; font-weight: bold; font-size: 16px; background: #330000; padding: 5px;');
-			console.log('');
 			console.log('%c❌ RETORNANDO SEM ANALISAR (MOTIVO: Martingale ativo em modo consecutivo)', 'color: #FF0000; font-weight: bold; font-size: 16px; background: #330000; padding: 5px;');
-			console.log('');
 			return; // ✅ NÃO executar nova análise em modo consecutivo com Martingale ativo
 		}
 		console.log('%c✅ CHECK 1: Não há Martingale consecutivo ativo - PROSSEGUINDO', 'color: #00FF88; font-weight: bold;');
@@ -11376,7 +11208,6 @@ async function runAnalysisController(history) {
 		const existingAnalysisResult = await chrome.storage.local.get(['analysis']);
 		const existingAnalysis = existingAnalysisResult['analysis'];
 		
-		console.log('%c🔍 CHECK 2: Verificando se há análise pendente...', 'color: #FFAA00; font-weight: bold;');
 		console.log('   existingAnalysis:', existingAnalysis ? 'SIM' : 'NÃO');
 		
 		if (existingAnalysis && existingAnalysis.createdOnTimestamp && history && history.length > 0) {
@@ -11388,16 +11219,10 @@ async function runAnalysisController(history) {
 			console.log('   É diferente (pendente)?', isAnalysisPending ? 'SIM' : 'NÃO');
 			
 			if (isAnalysisPending) {
-				console.log('');
-				console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #FF6600; font-weight: bold; font-size: 16px; background: #332200; padding: 5px;');
 				console.log('%c║  ⚠️ JÁ EXISTE ANÁLISE PENDENTE - NÃO SOBRESCREVER!      ║', 'color: #FF6600; font-weight: bold; font-size: 16px; background: #332200; padding: 5px;');
-				console.log('%c╠═══════════════════════════════════════════════════════════╣', 'color: #FF6600; font-weight: bold; background: #332200; padding: 5px;');
 				console.log('%c║  Cor recomendada: ' + existingAnalysis.color, 'color: #FF6600; font-weight: bold; background: #332200; padding: 5px;');
 				console.log('%c║  Confiança: ' + existingAnalysis.confidence + '%', 'color: #FF6600; font-weight: bold; background: #332200; padding: 5px;');
-				console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #FF6600; font-weight: bold; font-size: 16px; background: #332200; padding: 5px;');
-				console.log('');
 				console.log('%c❌ RETORNANDO SEM ANALISAR (MOTIVO: Análise pendente não avaliada)', 'color: #FF6600; font-weight: bold; font-size: 16px; background: #332200; padding: 5px;');
-				console.log('');
 				return; // ✅ NÃO executar nova análise se já há uma pendente
 			}
 		}
@@ -11407,56 +11232,35 @@ async function runAnalysisController(history) {
 		// ⚠️ CRÍTICO: PULAR VERIFICAÇÃO DE PADRÕES SALVOS SE MODO IA ESTIVER ATIVO
 		let verifyResult = null;
 		if (!analyzerConfig.aiMode) {
-			console.log('');
-			console.log('%c╔═══════════════════════════════════════════════════════════════════════════════╗', 'color: #00AAFF; font-weight: bold; font-size: 16px; background: #003366; padding: 5px;');
 			console.log('%c║                                                                               ║', 'color: #00AAFF; font-weight: bold; font-size: 16px; background: #003366; padding: 5px;');
 			console.log('%c║       🔎 INICIANDO ANÁLISE COM PADRÕES SALVOS (MODO PADRÃO)! 🔎             ║', 'color: #00AAFF; font-weight: bold; font-size: 16px; background: #003366; padding: 5px;');
 			console.log('%c║                                                                               ║', 'color: #00AAFF; font-weight: bold; font-size: 16px; background: #003366; padding: 5px;');
-			console.log('%c╚═══════════════════════════════════════════════════════════════════════════════╝', 'color: #00AAFF; font-weight: bold; font-size: 16px; background: #003366; padding: 5px;');
-			console.log('');
 			sendAnalysisStatus('🔎 Verificando padrões salvos...');
 			verifyResult = await verifyWithSavedPatterns(history);
-			console.log('');
-			console.log('%c📊 RESULTADO da verificação de padrões salvos:', 'color: #00AAFF; font-weight: bold;', verifyResult ? 'PADRÃO ENCONTRADO!' : 'Nenhum padrão encontrado');
-			console.log('');
 		} else {
-			console.log('');
 			console.log('%c🤖 MODO IA ATIVO: Pulando verificação de padrões salvos...', 'color: #00FF88; font-weight: bold; font-size: 14px;');
 			console.log('%c⏭️  Indo direto para análise por Inteligência Artificial', 'color: #00FF88;');
-			console.log('');
 		}
 		
 		if (verifyResult) {
-			console.log('');
-			console.log('╔═══════════════════════════════════════════════════════════╗');
 			console.log('║  ✅ USANDO: PADRÃO SALVO (PRIORIDADE MÁXIMA)             ║');
-			console.log('╠═══════════════════════════════════════════════════════════╣');
 			console.log('║  📊 Sistema de análise: BANCO DE PADRÕES                 ║');
 			console.log('║  🎯 Padrão encontrado e validado                         ║');
-			console.log('╚═══════════════════════════════════════════════════════════╝');
-			console.log('');
 			
 			// ⚠️ CRÍTICO: VERIFICAR SE HÁ MARTINGALE ATIVO
 			if (martingaleState.active && martingaleState.entryColor) {
-				console.log('╔═══════════════════════════════════════════════════════════╗');
 				console.log('║  🔄 MARTINGALE ATIVO DETECTADO!                          ║');
-				console.log('╠═══════════════════════════════════════════════════════════╣');
 				console.log(`║  Cor do novo padrão: ${verifyResult.color}                           ║`);
 				console.log(`║  Cor da entrada original: ${martingaleState.entryColor}                    ║`);
 				console.log(`║  Estágio atual: ${martingaleState.stage}                              ║`);
-				console.log('╠═══════════════════════════════════════════════════════════╣');
 				console.log('║  ✅ SOBRESCREVENDO COR PARA MANTER ENTRADA ORIGINAL      ║');
-				console.log('╚═══════════════════════════════════════════════════════════╝');
 				
 				// ✅ SOBRESCREVER A COR PARA USAR A COR DA ENTRADA ORIGINAL
 				verifyResult.color = martingaleState.entryColor;
 				verifyResult.phase = martingaleState.stage;
 			}
 			
-			console.log('');
-			console.log('%c╔══════════════════════════════════════════════════════════════════════════════╗', 'color: #FFD700; font-weight: bold; font-size: 16px;');
 			console.log('%c║  💾 SALVANDO SINAL/ENTRADA EM CHROME.STORAGE.LOCAL                         ║', 'color: #FFD700; font-weight: bold; font-size: 16px;');
-			console.log('%c╚══════════════════════════════════════════════════════════════════════════════╝', 'color: #FFD700; font-weight: bold; font-size: 16px;');
 			console.log('%c📊 DADOS COMPLETOS DO SINAL:', 'color: #FFD700; font-weight: bold;');
 			console.log('   ➤ Cor:', verifyResult.color);
 			console.log('   ➤ Confiança:', verifyResult.confidence + '%');
@@ -11465,7 +11269,6 @@ async function runAnalysisController(history) {
 			console.log('   ➤ PredictedFor:', verifyResult.predictedFor);
 			console.log('   ➤ PatternDescription:', verifyResult.patternDescription);
 			console.log('   ➤ Modo:', analyzerConfig.aiMode ? 'NÍVEL DIAMANTE (IA)' : 'ANÁLISE PADRÃO');
-			console.log('');
 		console.log('%c💾 Salvando objeto analysis no storage...', 'color: #00FFFF; font-weight: bold;');
 		
 		// ⚡⚡⚡ CRÍTICO: VERIFICAR SE O MODO AINDA É PADRÃO ⚡⚡⚡
@@ -11475,17 +11278,11 @@ async function runAnalysisController(history) {
 			const currentAiModePadrao = currentConfigPadrao.analyzerConfig.aiMode;
 			
 			if (currentAiModePadrao) {
-				console.log('');
-				console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #FF0000; font-weight: bold;');
 				console.log('%c║  🚫 MODO FOI ALTERADO PARA DIAMANTE DURANTE ANÁLISE!     ║', 'color: #FF0000; font-weight: bold; font-size: 14px;');
-				console.log('%c╠═══════════════════════════════════════════════════════════╣', 'color: #FF0000; font-weight: bold;');
 				console.log('%c║  ⚠️ Análise de padrão salvo foi concluída                ║', 'color: #FFAA00;');
 				console.log('%c║  🚫 MAS modo agora é Diamante                            ║', 'color: #FF0000; font-weight: bold;');
 				console.log('%c║  ❌ CANCELANDO envio de sinal do Modo Padrão             ║', 'color: #FF0000; font-weight: bold;');
-				console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #FF0000; font-weight: bold;');
-				console.log('');
 				console.log('%c❌ SINAL CANCELADO! Usuário ativou Modo Diamante.', 'color: #FF0000; font-weight: bold; font-size: 16px;');
-				console.log('');
 				
 				// ✅ Atualizar config global para refletir mudança
 				analyzerConfig.aiMode = true;
@@ -11504,7 +11301,6 @@ async function runAnalysisController(history) {
 			
 			console.log('%c✅ SINAL SALVO COM SUCESSO NO STORAGE!', 'color: #00FF00; font-weight: bold; font-size: 14px;');
 			console.log('%c   ➤ Agora aguardando próximo giro para verificar WIN/LOSS...', 'color: #00FF88;');
-			console.log('');
 			
 			// ✅ ENVIAR SINAIS PARA AMBOS OS CANAIS (INDEPENDENTES)
 			const sendResults = {
@@ -11529,13 +11325,10 @@ async function runAnalysisController(history) {
 			}
 			
 			// 3. Log de resultado consolidado
-			console.log('╔═══════════════════════════════════════════════════════════╗');
 			console.log('║  📊 RESULTADO DO ENVIO DE SINAIS                          ║');
-			console.log('╠═══════════════════════════════════════════════════════════╣');
 			console.log('║  💾 Sistema usado: PADRÃO SALVO (BANCO)                   ║');
 			console.log(`║  📱 Extensão: ${sendResults.extensao ? '✅ ENVIADO' : '❌ FALHOU'.padEnd(11)}                        ║`);
 			console.log(`║  📲 Telegram: ${sendResults.telegram ? '✅ ENVIADO' : '❌ FALHOU'.padEnd(11)}                        ║`);
-			console.log('╚═══════════════════════════════════════════════════════════╝\n');
 			
 			// ✅ EXIBIR RODAPÉ FIXO COM SISTEMA ATIVO
 			displaySystemFooter();
@@ -11545,22 +11338,14 @@ async function runAnalysisController(history) {
 		}
 		
 		// ✅ MODO AVANÇADO: Se ativado e não achou padrão salvo, usar análise avançada
-		console.log('');
-		console.log('%c🔍 [DEBUG] Verificando modo de análise...', 'color: #FF00FF; font-weight: bold;');
 		console.log('   analyzerConfig.aiMode:', analyzerConfig.aiMode);
 		console.log('   verifyResult:', verifyResult ? 'ENCONTROU PADRÃO' : 'NÃO ENCONTROU');
-		console.log('');
 		
 		if (analyzerConfig.aiMode && !verifyResult) {
-			console.log('');
-			console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #00FF00; font-weight: bold;');
 			console.log('%c║  🎯 EXECUTANDO: ANÁLISE AVANÇADA POR PADRÕES             ║', 'color: #00FF00; font-weight: bold;');
-			console.log('%c╠═══════════════════════════════════════════════════════════╣', 'color: #00FF00; font-weight: bold;');
 			console.log('%c║  📊 Histórico disponível: ' + history.length + ' giros', 'color: #00FF88; font-weight: bold;');
 			console.log('%c║  🔄 Sistema de Auto-Aprendizado ATIVO...                 ║', 'color: #00FF88; font-weight: bold;');
 			console.log('%c║  ⚡ Analisando padrões e tendências...                   ║', 'color: #00FF88; font-weight: bold;');
-			console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #00FF00; font-weight: bold;');
-			console.log('');
 			
 			console.log('%c⏱️ Chamando analyzeWithPatternSystem...', 'color: #FFAA00; font-weight: bold;');
 			
@@ -11577,17 +11362,11 @@ async function runAnalysisController(history) {
 				const currentAiMode = currentConfig.analyzerConfig.aiMode;
 				
 				if (!currentAiMode) {
-					console.log('');
-					console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #FF0000; font-weight: bold;');
 					console.log('%c║  🚫 MODO DIAMANTE FOI DESATIVADO DURANTE A ANÁLISE!      ║', 'color: #FF0000; font-weight: bold; font-size: 14px;');
-					console.log('%c╠═══════════════════════════════════════════════════════════╣', 'color: #FF0000; font-weight: bold;');
 					console.log('%c║  ⚠️ Análise foi concluída mas modo já mudou              ║', 'color: #FFAA00;');
 					console.log('%c║  🚫 CANCELANDO envio de sinal                            ║', 'color: #FF0000; font-weight: bold;');
 					console.log('%c║  ✅ Sistema agora está em Modo Padrão                    ║', 'color: #00FF88;');
-					console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #FF0000; font-weight: bold;');
-					console.log('');
 					console.log('%c❌ SINAL CANCELADO! Modo foi alterado pelo usuário.', 'color: #FF0000; font-weight: bold; font-size: 16px;');
-					console.log('');
 					
 					// ✅ Atualizar config global para refletir mudança
 					analyzerConfig.aiMode = false;
@@ -11600,32 +11379,27 @@ async function runAnalysisController(history) {
 			
 			// ⚠️ VERIFICAR SE É A PRIMEIRA ANÁLISE APÓS ATIVAR MODO AVANÇADO
 			if (aiModeJustActivated) {
-					console.log('');
-					console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #FFAA00; font-weight: bold;');
 					console.log('%c║  ⏳ MODO AVANÇADO RECÉM-ATIVADO                           ║', 'color: #FFAA00; font-weight: bold; font-size: 14px;');
-					console.log('%c╠═══════════════════════════════════════════════════════════╣', 'color: #FFAA00; font-weight: bold;');
 					console.log('%c║  🎯 Sistema analisou e encontrou padrão!                  ║', 'color: #FFAA00; font-weight: bold;');
 					console.log('%c║  🎯 Cor prevista: ' + aiResult.color.toUpperCase() + '                                     ║', 'color: #FFAA00;');
 					console.log('%c║  📊 Confiança: ' + aiResult.confidence + '%                                   ║', 'color: #FFAA00;');
-					console.log('%c╠═══════════════════════════════════════════════════════════╣', 'color: #FFAA00; font-weight: bold;');
 					console.log('%c║  ⏳ AGUARDANDO 1 GIRO antes de enviar sinal...            ║', 'color: #FFAA00; font-weight: bold;');
 					console.log('%c║  🚫 Sinal NÃO será enviado neste momento                  ║', 'color: #FFAA00; font-weight: bold;');
 					console.log('%c║  ✅ Próximo giro: sinal será enviado normalmente          ║', 'color: #FFAA00; font-weight: bold;');
-					console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #FFAA00; font-weight: bold;');
-					console.log('');
 					
 				// Desabilitar flag para permitir próximo sinal
 				aiModeJustActivated = false;
 				console.log('%c✅ Flag aiModeJustActivated = false (próximos sinais serão enviados)', 'color: #00FF88; font-weight: bold;');
-				console.log('');
 				
 				// ✅ SALVAR o giro atual como "último sinal" para respeitar intervalo mínimo configurado
+                const latestSpin = history[0] || null;
 				await chrome.storage.local.set({
-					lastSignalSpinNumber: history[0]?.number || 0,
+					lastSignalSpinNumber: latestSpin ? latestSpin.number : null,
+					lastSignalSpinId: latestSpin ? latestSpin.id || null : null,
+					lastSignalSpinTimestamp: latestSpin ? latestSpin.timestamp || null : null,
 					lastSignalTimestamp: Date.now()
 				});
 				console.log('%c📝 Giro atual salvo como "último sinal" para respeitar intervalo mínimo de ' + analyzerConfig.minIntervalSpins + ' giros', 'color: #FFD700; font-weight: bold;');
-				console.log('');
 				
 				// Enviar status para UI informando que está aguardando
 				sendAnalysisStatus('⏳ Aguardando próximo giro para enviar sinal...');
@@ -11639,15 +11413,11 @@ async function runAnalysisController(history) {
 				let aiPhase = 'G0';
 				
 				if (martingaleState.active && martingaleState.entryColor) {
-					console.log('╔═══════════════════════════════════════════════════════════╗');
 					console.log('║  🔄 MARTINGALE ATIVO DETECTADO! (MODO IA)                ║');
-					console.log('╠═══════════════════════════════════════════════════════════╣');
 					console.log(`║  Cor da IA: ${aiColor}                                         ║`);
 					console.log(`║  Cor da entrada original: ${martingaleState.entryColor}                    ║`);
 					console.log(`║  Estágio atual: ${martingaleState.stage}                              ║`);
-					console.log('╠═══════════════════════════════════════════════════════════╣');
 					console.log('║  ✅ SOBRESCREVENDO COR PARA MANTER ENTRADA ORIGINAL      ║');
-					console.log('╚═══════════════════════════════════════════════════════════╝');
 					
 					aiColor = martingaleState.entryColor;
 					aiPhase = martingaleState.stage;
@@ -11677,14 +11447,12 @@ async function runAnalysisController(history) {
 					historySize: aiHistorySizeUsed
 				};
 				
-				console.log('');
 				console.log('%c📦 DADOS ESTRUTURADOS DA IA (para renderização):', 'color: #00FFFF; font-weight: bold;');
 				console.log('%c   🎨 Tipo:', 'color: #00FFFF;', aiDescriptionData.type);
 				console.log('%c   🎯 Cor:', 'color: #00FFFF;', aiDescriptionData.color);
 				console.log('%c   📊 Confiança:', 'color: #00FFFF;', aiDescriptionData.confidence + '%');
 				console.log('%c   🎲 Últimos 10 giros:', 'color: #00FFFF;', aiDescriptionData.last10Spins);
 				console.log('%c   💭 Raciocínio (200 chars):', 'color: #00FFFF;', (aiDescriptionData.reasoning || '').substring(0, 200) + '...');
-				console.log('');
 				
 				// Serializar para JSON para armazenamento
 				const aiDescription = JSON.stringify(aiDescriptionData);
@@ -11703,9 +11471,7 @@ async function runAnalysisController(history) {
 					aiPattern: null // ✅ Novo fluxo não usa currentPattern
 				};
 				
-				console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #00FF00; font-weight: bold;');
 				console.log('%c║  💾 SALVANDO ANÁLISE IA EM CHROME.STORAGE.LOCAL          ║', 'color: #00FF00; font-weight: bold;');
-				console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #00FF00; font-weight: bold;');
 				console.log('%c📊 Dados da análise IA:', 'color: #00FF88; font-weight: bold;');
 				console.log('%c   🎯 Cor: ' + analysis.color.toUpperCase(), 'color: #00FF88;');
 				console.log('%c   📊 Confiança: ' + analysis.confidence + '%', 'color: #00FF88;');
@@ -11718,18 +11484,16 @@ async function runAnalysisController(history) {
 					pattern: { description: analysis.patternDescription, confidence: analysis.confidence },
 					lastBet: { status: 'pending', phase: aiPhase, createdOnTimestamp: analysis.createdOnTimestamp },
 					lastSignalSpinNumber: history[0].number, // ✅ CRÍTICO: Salvar número do giro para validação de intervalo
+					lastSignalSpinId: history[0].id || null,
+					lastSignalSpinTimestamp: history[0].timestamp || null,
 					lastSignalTimestamp: Date.now() // ✅ Timestamp para debug
 				});
 				
 				console.log('%c✅ Análise IA salva em chrome.storage.local!', 'color: #00FF00; font-weight: bold; font-size: 13px;');
 				console.log(`%c📍 Número do giro registrado: #${history[0].number}`, 'color: #00D4FF; font-weight: bold;');
 				console.log(`%c⏰ Timestamp registrado: ${new Date().toLocaleTimeString()}`, 'color: #00D4FF; font-weight: bold;');
-				console.log('');
-				console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #00FF00; font-weight: bold;');
 				console.log('%c║  📋 DESCRIÇÃO DO PADRÃO (ENVIADA PARA O USUÁRIO):        ║', 'color: #00FF00; font-weight: bold;');
-				console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #00FF00; font-weight: bold;');
 				console.log('%c' + aiDescription, 'color: #00FF88;');
-				console.log('');
 				
 				// ✅ ENVIAR SINAIS PARA AMBOS OS CANAIS (INDEPENDENTES)
 				const sendResults = {
@@ -11754,10 +11518,7 @@ async function runAnalysisController(history) {
 				}
 				
 				// 3. Log de resultado consolidado
-				console.log('');
-				console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #00FF00; font-weight: bold; font-size: 14px; background: #003300; padding: 2px;');
 				console.log('%c║  ✅ SINAL ENVIADO COM SUCESSO!                           ║', 'color: #00FF00; font-weight: bold; font-size: 14px; background: #003300; padding: 2px;');
-			console.log('%c╠═══════════════════════════════════════════════════════════╣', 'color: #00FF00; font-weight: bold; background: #003300; padding: 2px;');
 			
 			// 🧠 Status dinâmico da memória
 			const statusMemoria = memoriaAtiva.inicializada ? 
@@ -11767,8 +11528,6 @@ async function runAnalysisController(history) {
 			console.log(`%c║  🤖 Sistema: ANÁLISE IA | ${statusMemoria}              ║`, 'color: #00FF00; font-weight: bold; background: #003300; padding: 2px;');
 			console.log('%c║  📱 Extensão: ' + (sendResults.extensao ? '✅ ENVIADO' : '❌ FALHOU') + '                                    ║', 'color: #00FF88; background: #003300; padding: 2px;');
 				console.log('%c║  📲 Telegram: ' + (sendResults.telegram ? '✅ ENVIADO' : '❌ FALHOU') + '                                    ║', 'color: #00FF88; background: #003300; padding: 2px;');
-				console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #00FF00; font-weight: bold; background: #003300; padding: 2px;');
-				console.log('');
 				
 				// ✅ EXIBIR RODAPÉ FIXO COM SISTEMA ATIVO
 				displaySystemFooter();
@@ -11777,19 +11536,13 @@ async function runAnalysisController(history) {
 				return;
 			} else {
 				// ⚠️ CRÍTICO: Se IA não encontrou resultado, PARAR AQUI (não executar análise padrão)
-				console.log('');
-				console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #FFAA00; font-weight: bold;');
 				console.log('%c║  ⚠️ MODO IA: API NÃO RETORNOU RESULTADO VÁLIDO           ║', 'color: #FFAA00; font-weight: bold;');
-				console.log('%c╠═══════════════════════════════════════════════════════════╣', 'color: #FFAA00; font-weight: bold;');
 				console.log('%c║  Possíveis causas:                                        ║', 'color: #FFAA00; font-weight: bold;');
 				console.log('%c║    • API retornou erro (verifique chave)                  ║', 'color: #FFAA00;');
 				console.log('%c║    • Timeout excedido (>10s)                              ║', 'color: #FFAA00;');
 				console.log('%c║    • Formato de resposta inválido                         ║', 'color: #FFAA00;');
-				console.log('%c╠═══════════════════════════════════════════════════════════╣', 'color: #FFAA00; font-weight: bold;');
 				console.log('%c║  ⏳ Aguardando próximo giro para nova tentativa...        ║', 'color: #FFAA00; font-weight: bold;');
 				console.log('%c║  🚫 Análise padrão BLOQUEADA (modo IA permanece ativo)    ║', 'color: #FFAA00; font-weight: bold;');
-				console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #FFAA00; font-weight: bold;');
-				console.log('');
 				sendAnalysisStatus('⏳ IA aguardando novo giro...');
 				
 				// ✅ EXIBIR RODAPÉ FIXO COM SISTEMA ATIVO
@@ -11810,38 +11563,27 @@ async function runAnalysisController(history) {
 		// 3) Se verificação não deu sinal E modo IA não ativo, usar análise existente como fallback
 		const timeLeftForFallback = budgetMs - (Date.now() - startTs);
 		if (!verifyResult && !analyzerConfig.aiMode && timeLeftForFallback > 200) {
-			console.log('');
-			console.log('╔═══════════════════════════════════════════════════════════╗');
 			console.log('║  📊 EXECUTANDO: ANÁLISE PADRÃO (DESCOBERTA)              ║');
-			console.log('╠═══════════════════════════════════════════════════════════╣');
 			console.log('║  ✅ Padrões salvos: Não encontrado                       ║');
 			console.log('║  🔄 Buscando padrão atual em 173+ análises...            ║');
-			console.log('╚═══════════════════════════════════════════════════════════╝');
-			console.log('');
 			
 			sendAnalysisStatus('🤖 Buscando padrão atual...');
 			const analysis = await performPatternAnalysis(history);
 			if (analysis) {
 				// ⚠️ CRÍTICO: VERIFICAR SE HÁ MARTINGALE ATIVO
 				if (martingaleState.active && martingaleState.entryColor) {
-					console.log('╔═══════════════════════════════════════════════════════════╗');
 					console.log('║  🔄 MARTINGALE ATIVO DETECTADO! (DESCOBERTA)             ║');
-					console.log('╠═══════════════════════════════════════════════════════════╣');
 					console.log(`║  Cor do novo padrão: ${analysis.color}                           ║`);
 					console.log(`║  Cor da entrada original: ${martingaleState.entryColor}                    ║`);
 					console.log(`║  Estágio atual: ${martingaleState.stage}                              ║`);
-					console.log('╠═══════════════════════════════════════════════════════════╣');
 					console.log('║  ✅ SOBRESCREVENDO COR PARA MANTER ENTRADA ORIGINAL      ║');
-					console.log('╚═══════════════════════════════════════════════════════════╝');
 					
 					// ✅ SOBRESCREVER A COR PARA USAR A COR DA ENTRADA ORIGINAL
 					analysis.color = martingaleState.entryColor;
 					analysis.phase = martingaleState.stage;
 				}
 				
-				console.log('╔═══════════════════════════════════════════════════════════╗');
 				console.log('║  💾 SALVANDO ANÁLISE EM CHROME.STORAGE.LOCAL (DESCOBERTA)║');
-				console.log('╚═══════════════════════════════════════════════════════════╝');
 				console.log('📊 Dados da análise:');
 				console.log('   Cor:', analysis.color);
 				console.log('   Confiança:', analysis.confidence);
@@ -11880,27 +11622,19 @@ async function runAnalysisController(history) {
 				}
 				
 				// 3. Log de resultado consolidado
-				console.log('╔═══════════════════════════════════════════════════════════╗');
 				console.log('║  📊 RESULTADO DO ENVIO DE SINAIS                          ║');
-				console.log('╠═══════════════════════════════════════════════════════════╣');
 				console.log('║  📊 Sistema usado: ANÁLISE PADRÃO (DESCOBERTA)            ║');
 				console.log(`║  📱 Extensão: ${sendResults.extensao ? '✅ ENVIADO' : '❌ FALHOU'.padEnd(11)}                        ║`);
 				console.log(`║  📲 Telegram: ${sendResults.telegram ? '✅ ENVIADO' : '❌ FALHOU'.padEnd(11)}                        ║`);
-				console.log('╚═══════════════════════════════════════════════════════════╝\n');
 				
 				// ✅ EXIBIR RODAPÉ FIXO COM SISTEMA ATIVO
 				displaySystemFooter();
 			} else {
-				console.log('');
-				console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #FFAA00; font-weight: bold;');
 				console.log('%c║  ⚠️ NENHUM SINAL ENCONTRADO NESTE GIRO                   ║', 'color: #FFAA00; font-weight: bold;');
-				console.log('%c╠═══════════════════════════════════════════════════════════╣', 'color: #FFAA00; font-weight: bold;');
 				console.log('%c║  📊 Modo ativo:', 'color: #FFAA00;', analyzerConfig.aiMode ? 'DIAMANTE' : 'PADRÃO');
 				console.log('%c║  📊 Verificou banco de padrões?', 'color: #FFAA00;', verifyResult ? 'SIM (não encontrou)' : 'NÃO');
 				console.log('%c║  📊 Executou análise avançada?', 'color: #FFAA00;', analyzerConfig.aiMode ? 'SIM' : 'NÃO');
 				console.log('%c║  ✅ Aguardando próximo giro...                           ║', 'color: #00FF88;');
-				console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #FFAA00; font-weight: bold;');
-				console.log('');
 				
 				await chrome.storage.local.set({ analysis: null, pattern: null });
 				sendMessageToContent('CLEAR_ANALYSIS');
@@ -11921,10 +11655,8 @@ async function runAnalysisController(history) {
 			});
 			}
 		} else {
-			console.log('');
 			console.log('%c❌ [DEBUG] NÃO ENTROU NO if (analyzerConfig.aiMode && !verifyResult)!', 'color: #FF0000; font-weight: bold;');
 			console.log('   Motivo: analyzerConfig.aiMode =', analyzerConfig.aiMode, ' | verifyResult =', verifyResult ? 'ENCONTROU' : 'null/false');
-			console.log('');
 		}
 	} catch (e) {
 		console.error('');
@@ -12044,9 +11776,7 @@ async function savePatternDB(db) {
 
 // Limpa APENAS padrões (usado ao abrir extensão - preserva análise pendente)
 async function clearAllPatterns() {
-	console.log('╔═══════════════════════════════════════════════════════════╗');
 	console.log('║  🗑️ LIMPANDO BANCO DE PADRÕES                            ║');
-	console.log('╚═══════════════════════════════════════════════════════════╝');
 	
 	// 1. Limpar banco de padrões
 	console.log('🗑️ Limpando banco de padrões...');
@@ -12057,45 +11787,34 @@ async function clearAllPatterns() {
 	// A análise só deve ser limpa quando:
 	// - O resultado for confirmado (WIN/LOSS)
 	// - O usuário clicar explicitamente em "Resetar Padrões"
-	console.log('╔═══════════════════════════════════════════════════════════╗');
 	console.log('║  ✅ ANÁLISE PENDENTE PRESERVADA                          ║');
 	console.log('║  (Aguardando resultado - não será limpa)                 ║');
-	console.log('╚═══════════════════════════════════════════════════════════╝');
 	
 	// 3. ✅ NÃO LIMPAR histórico de entradas (deve persistir após reload)
 	// Se o usuário quiser limpar entradas, deve usar o botão "Limpar Histórico" na interface
-	console.log('╔═══════════════════════════════════════════════════════════╗');
 	console.log('║  ✅ HISTÓRICO DE ENTRADAS PRESERVADO                    ║');
 	console.log('║  (Não será limpo - persiste após recarregar página)     ║');
 	console.log('║  Para limpar: use botão "Limpar Histórico" na UI        ║');
-	console.log('╚═══════════════════════════════════════════════════════════╝');
 	
 	// 4. ✅ NÃO RESETAR calibrador de porcentagens (ele é sincronizado automaticamente com entriesHistory)
 	// O calibrador é persistente e será reconstruído pela sincronização em loadObserverDataAtStartup()
-	console.log('╔═══════════════════════════════════════════════════════════╗');
 	console.log('║  ✅ CALIBRADOR DE PORCENTAGENS PRESERVADO                ║');
 	console.log('║  (Sincronizado automaticamente com entriesHistory)       ║');
-	console.log('╚═══════════════════════════════════════════════════════════╝');
 	
 	// 5. ✅ NÃO enviar mensagens aqui - deixar para o fluxo de busca controlar
 	// O `startPatternSearch` enviará as mensagens apropriadas
 	
-	console.log('╔═══════════════════════════════════════════════════════════╗');
 	console.log('║  ✅ RESET PARCIAL - PADRÕES ZERADOS                      ║');
-	console.log('╠═══════════════════════════════════════════════════════════╣');
 	console.log('║  📊 Padrões: Limpos (serão recalculados)                  ║');
 	console.log('║  🎯 Análise Pendente: Preservada                          ║');
 	console.log('║  📈 Entradas: Preservadas                                 ║');
 	console.log('║  Calibrador: Preservado (sincronizado)                    ║');
 	console.log('║  💾 Cache: Será recarregado do servidor                   ║');
-	console.log('╚═══════════════════════════════════════════════════════════╝');
 }
 
 // Limpa TUDO: padrões E análise pendente (usado quando o usuário clica em "Resetar Padrões")
 async function clearAllPatternsAndAnalysis() {
-	console.log('╔═══════════════════════════════════════════════════════════╗');
 	console.log('║  🗑️ RESET COMPLETO - LIMPANDO TUDO                       ║');
-	console.log('╚═══════════════════════════════════════════════════════════╝');
 	
 	// 1. Limpar banco de padrões
 	console.log('🗑️ Limpando banco de padrões...');
@@ -12115,14 +11834,11 @@ async function clearAllPatternsAndAnalysis() {
 	sendMessageToContent('CLEAR_ANALYSIS');
 	sendAnalysisStatus('🔄 Reset completo - Aguardando nova análise...');
 	
-	console.log('╔═══════════════════════════════════════════════════════════╗');
 	console.log('║  ✅ RESET COMPLETO - TUDO ZERADO                         ║');
-	console.log('╠═══════════════════════════════════════════════════════════╣');
 	console.log('║  📊 Padrões: Limpos                                       ║');
 	console.log('║  🎯 Análise Pendente: Limpa                               ║');
 	console.log('║  📈 Entradas: Preservadas                                 ║');
 	console.log('║  Calibrador: Preservado                                   ║');
-	console.log('╚═══════════════════════════════════════════════════════════╝');
 }
 
 // Busca INICIAL de padrões por 30 segundos ao abrir a extensão
@@ -12145,13 +11861,10 @@ async function startInitialPatternSearch(history) {
 	const duration = 30 * 1000; // 30 segundos (30s)
 	const updateInterval = 1000; // ✅ ATUALIZAR A CADA 1 SEGUNDO (cronômetro fluido)
 	
-	console.log('╔═══════════════════════════════════════════════════════════╗');
 	console.log('║  🔍 BUSCA INICIAL DE PADRÕES (30s)                      ║');
-	console.log('╠═══════════════════════════════════════════════════════════╣');
 	console.log(`║  📊 Histórico: ${history.length} giros disponíveis                    ║`);
 	console.log('║  ⏱️  Duração: 30 segundos                                ║');
 	console.log('║  🎯 Limite: 5000 padrões únicos                          ║');
-	console.log('╚═══════════════════════════════════════════════════════════╝');
 	
 	// ✅ NOTIFICAR IMEDIATAMENTE COM 0 PADRÕES (antes da primeira iteração)
 	sendMessageToContent('INITIAL_SEARCH_START', { 
@@ -12179,12 +11892,9 @@ async function startInitialPatternSearch(history) {
 			const db = await loadPatternDB(); // ✅ Aqui pode logar (busca finalizada)
 			const total = db.patterns_found ? db.patterns_found.length : 0;
 			
-			console.log('╔═══════════════════════════════════════════════════════════╗');
 			console.log('║  ✅ BUSCA INICIAL CONCLUÍDA                               ║');
-			console.log('╠═══════════════════════════════════════════════════════════╣');
 			console.log(`║  📊 Total de padrões únicos: ${total.toString().padEnd(4)}                    ║`);
 			console.log('║  🎯 Pronto para jogar!                                   ║');
-			console.log('╚═══════════════════════════════════════════════════════════╝');
 			
 			sendMessageToContent('INITIAL_SEARCH_COMPLETE', { 
 				total: total,
@@ -12229,11 +11939,8 @@ async function startInitialPatternSearch(history) {
 					clearInterval(initialSearchInterval);
 					initialSearchActive = false;
 					
-					console.log('╔═══════════════════════════════════════════════════════════╗');
 					console.log('║  ✅ LIMITE DE PADRÕES ATINGIDO (5000)                    ║');
-					console.log('╠═══════════════════════════════════════════════════════════╣');
 					console.log('║  🎯 Pronto para jogar!                                   ║');
-					console.log('╚═══════════════════════════════════════════════════════════╝');
 					
 					sendMessageToContent('INITIAL_SEARCH_COMPLETE', { 
 						total: totalAfterSearch,
@@ -12941,16 +12648,11 @@ async function discoverAndPersistPatterns(history, startTs, budgetMs) {
 	
 	// ✅ LOG FINAL: Resumo da descoberta
 	const savedCount = discovered.length - rejectedByInvalidTriggerCount;
-	console.log('');
-	console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #00FF88; font-weight: bold;');
 	console.log('%c║  📊 RESUMO DA DESCOBERTA DE PADRÕES                      ║', 'color: #00FF88; font-weight: bold;');
-	console.log('%c╠═══════════════════════════════════════════════════════════╣', 'color: #00FF88; font-weight: bold;');
 	console.log(`%c║  ✅ Padrões SALVOS: ${savedCount.toString().padEnd(4)}                                  ║`, 'color: #00FF88; font-weight: bold;');
 	console.log(`%c║  ❌ Padrões REJEITADOS (trigger inválida): ${rejectedByInvalidTriggerCount.toString().padEnd(4)}      ║`, 'color: #FF6666; font-weight: bold;');
 	console.log(`%c║  🔄 Padrões DUPLICADOS (ignorados): ${duplicatesCount.toString().padEnd(4)}           ║`, 'color: #FFAA00; font-weight: bold;');
 	console.log(`%c║  📦 Total no banco: ${db.patterns_found.length.toString().padEnd(4)} / 5000                      ║`, 'color: #00AAFF; font-weight: bold;');
-	console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #00FF88; font-weight: bold;');
-	console.log('');
 }
 
 // Varredura rápida por padrões de cores (sem exigir match atual, apenas descoberta)
@@ -13262,12 +12964,10 @@ function analyzeColorPatternsWithTrigger(history) {
         return null;
     }
     
-    console.log('═══════════════════════════════════════════════════════════');
     console.log('📍 SEQUÊNCIA COMPLETA IDENTIFICADA:');
     console.log(`   Giros: ${currentPattern.sequence.join('-')}`);
     console.log(`   Blocos: ${currentPattern.blocks.map(b => `${b.count}x${b.color.toUpperCase()}`).join(' + ')}`);
     console.log(`   Tamanho total: ${currentPattern.length} giros`);
-    console.log('═══════════════════════════════════════════════════════════');
     
     // 🔍 PASSO 2: BUSCAR ESSA SEQUÊNCIA COMPLETA NO HISTÓRICO
     const patternToFind = currentPattern.sequence;
@@ -13439,13 +13139,11 @@ function analyzeColorPatternsWithTrigger(history) {
         }
     };
     
-    console.log('═══════════════════════════════════════════════════════════');
     console.log(`✅ PADRÃO COMPLETO VALIDADO!`);
     console.log(`   Sequência: ${bestPattern.blocks.map(b => `${b.count}x${b.color.toUpperCase()}`).join(' + ')}`);
     console.log(`   Sugestão: ${bestPattern.suggestedColor.toUpperCase()}`);
     console.log(`   WINS: ${bestPattern.wins} | LOSS: ${bestPattern.loss} | Saldo: +${bestPattern.balance}`);
     console.log(`   Confiança: ${bestPattern.confidence.toFixed(1)}%`);
-    console.log('═══════════════════════════════════════════════════════════');
     
     return bestPattern;
 }
@@ -13607,7 +13305,6 @@ function identifyPatternType(pattern, triggerColor) {
 function isAlternatingPattern(pattern) {
     // ✅ VALIDAÇÃO DE ENTRADA
     if (!pattern || !Array.isArray(pattern)) {
-        console.warn('⚠️ Padrão inválido para verificação de alternância:', pattern);
         return false;
     }
     
@@ -13634,7 +13331,6 @@ function isAlternatingPattern(pattern) {
 function isDoubleAlternatingPattern(pattern) {
     // ✅ VALIDAÇÃO DE ENTRADA
     if (!pattern || !Array.isArray(pattern)) {
-        console.warn('⚠️ Padrão inválido para verificação de dupla alternância:', pattern);
         return false;
     }
     
@@ -13667,7 +13363,6 @@ function isDoubleAlternatingPattern(pattern) {
 function isCorrectionPattern(pattern) {
     // ✅ VALIDAÇÃO DE ENTRADA
     if (!pattern || !Array.isArray(pattern)) {
-        console.warn('⚠️ Padrão inválido para verificação de correção:', pattern);
         return false;
     }
     
@@ -16175,27 +15870,21 @@ async function combineMultidimensionalAnalyses(colorAnalysis, numberAnalysis, ti
             rigorOk = sampleOk && (rigorPct >= threshold) && maxOccurrencesOk && patternSizeOk;
             
             // ✅ LOG DETALHADO DO FILTRO DE RIGOR
-            console.log('╔═══════════════════════════════════════════════════════════╗');
             console.log('║  🔍 VALIDAÇÃO DE RIGOR (Filtros de qualidade)            ║');
-            console.log('╠═══════════════════════════════════════════════════════════╣');
             console.log(`║  📏 Tamanho do Padrão: ${patternSize} giros`);
             console.log(`║  🎯 Limite Mínimo: ${minPatternSize} giros`);
             console.log(`║  🎯 Limite Máximo: ${maxPatternSize === 0 ? 'SEM LIMITE' : maxPatternSize + ' giros'}`);
             console.log(`║  ${patternSizeOk ? '✅' : '❌'} Validação Tamanho: ${patternSizeOk ? 'APROVADO' : 'REJEITADO'} ${maxPatternSize > 0 ? `(${minPatternSize} <= ${patternSize} <= ${maxPatternSize})` : `(${patternSize} >= ${minPatternSize})`}`);
-            console.log('╠═══════════════════════════════════════════════════════════╣');
             console.log(`║  📊 Total de Ocorrências: ${totalOccurrences}`);
             console.log(`║  🎯 Limite Máximo Ocorrências: ${maxOccurrences === 0 ? 'SEM LIMITE' : maxOccurrences}`);
             console.log(`║  ${maxOccurrencesOk ? '✅' : '❌'} Validação Máximo Ocorrências: ${maxOccurrencesOk ? 'APROVADO' : 'REJEITADO'} ${maxOccurrences > 0 ? `(${totalOccurrences} <= ${maxOccurrences})` : ''}`);
-            console.log('╠═══════════════════════════════════════════════════════════╣');
             console.log(`║  📊 Demais Ocorrências: ${colorAnalysis.othersCount || 0} (excluindo amostra mínima)`);
             console.log(`║  ✅ Demais WINs: ${colorAnalysis.othersWins || 0}`);
             console.log(`║  ❌ Demais LOSSes: ${colorAnalysis.othersLosses || 0}`);
             console.log(`║  📈 Rigor WIN%: ${rigorPct.toFixed(1)}%`);
             console.log(`║  🎯 Threshold WIN% (configurado): ${threshold}%`);
             console.log(`║  ${(rigorPct >= threshold) ? '✅' : '❌'} Validação WIN%: ${(rigorPct >= threshold) ? 'APROVADO' : 'REJEITADO'} (rigorPct >= threshold)`);
-            console.log('╠═══════════════════════════════════════════════════════════╣');
             console.log(`║  ${rigorOk ? '✅ RESULTADO FINAL: APROVADO' : '❌ RESULTADO FINAL: REJEITADO'}                              ║`);
-            console.log('╚═══════════════════════════════════════════════════════════╝');
         }
         
     } else if (bestType === 'number-correlation' && numberAnalysis) {
@@ -17022,10 +16711,8 @@ async function sendTelegramEntrySignal(color, lastSpin, confidence, analysisData
     // ✅ VERIFICAR SE HÁ ABA DA BLAZE ABERTA (SEGURANÇA EXTRA)
     const hasBlaze = await hasBlazeTabOpen();
     if (!hasBlaze) {
-        console.log('╔═══════════════════════════════════════════════════════════╗');
         console.log('║  ⛔ ENVIO BLOQUEADO: NENHUMA ABA DA BLAZE ABERTA         ║');
         console.log('║  💡 Sinais só são enviados quando a Blaze está aberta    ║');
-        console.log('╚═══════════════════════════════════════════════════════════╝');
         return false;
     }
     
@@ -17385,9 +17072,7 @@ chrome.tabs.onRemoved.addListener(async (tabId, removeInfo) => {
     // Verificar se ainda há abas da Blaze abertas
     const hasBlaze = await hasBlazeTabOpen();
     if (!hasBlaze && isRunning) {
-        console.log('╔═══════════════════════════════════════════════════════════╗');
         console.log('║  ⚠️ NENHUMA ABA DA BLAZE ABERTA - PARANDO EXTENSÃO       ║');
-        console.log('╚═══════════════════════════════════════════════════════════╝');
         stopDataCollection();
     }
 });
@@ -17407,10 +17092,8 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
         
         if (isBlaze) {
             if (!isRunning) {
-                console.log('╔═══════════════════════════════════════════════════════════╗');
                 console.log('║  ✅ ABA DA BLAZE DETECTADA - INICIANDO EXTENSÃO          ║');
                 console.log(`║  URL: ${tab.url.substring(0, 50)}...`);
-                console.log('╚═══════════════════════════════════════════════════════════╝');
                 startDataCollection();
             }
         }
@@ -17419,15 +17102,7 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
 
 // Listen for messages from popup
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-    console.log('');
-    console.log('');
-    console.log('%c╔════════════════════════════════════════════════════════════════════╗', 'color: #FF00FF; font-weight: bold; font-size: 16px;');
     console.log('%c║  🎯 BACKGROUND.JS LISTENER EXECUTADO! (VERSÃO 17)                ║', 'color: #FF00FF; font-weight: bold; font-size: 16px;');
-    console.log('%c╠════════════════════════════════════════════════════════════════════╣', 'color: #FF00FF; font-weight: bold;');
-    console.log('%c║  📨 Action recebida:', 'color: #FF00FF; font-weight: bold;', request.action);
-    console.log('%c║  📦 Request completo:', 'color: #FF00FF;', request);
-    console.log('%c╚════════════════════════════════════════════════════════════════════╝', 'color: #FF00FF; font-weight: bold;');
-    console.log('');
     
     if (request.action === 'start') {
         startDataCollection();
@@ -17531,10 +17206,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         // Modo IA foi alterado
         (async () => {
             try {
-                console.log('');
-                console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #FFAA00; font-weight: bold;');
                 console.log('%c🔄 MUDANÇA DE MODO DETECTADA!', 'color: #FFAA00; font-weight: bold; font-size: 14px;');
-                console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #FFAA00; font-weight: bold;');
                 
                 const res = await chrome.storage.local.get(['analyzerConfig']);
                 if (res && res.analyzerConfig) {
@@ -17544,9 +17216,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                     
                     analyzerConfig = { ...DEFAULT_ANALYZER_CONFIG, ...res.analyzerConfig };
                     
-                    console.log('');
                     console.log('%c🤖 Modo IA ' + (analyzerConfig.aiMode ? 'ATIVADO' : 'DESATIVADO'), 'color: ' + (analyzerConfig.aiMode ? '#00FF00' : '#FF6666') + '; font-weight: bold; font-size: 16px; background: ' + (analyzerConfig.aiMode ? '#003300' : '#330000') + '; padding: 5px;');
-                    console.log('');
                     
                     // ═══════════════════════════════════════════════════════════════
                     // ✅ LIMPAR COMPLETAMENTE ANÁLISE ANTERIOR AO TROCAR DE MODO
@@ -17571,18 +17241,15 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                     // 3. Enviar mensagem para limpar UI no content.js
                     sendMessageToContent('CLEAR_ANALYSIS');
                     console.log('   ✅ UI limpa (mensagem CLEAR_ANALYSIS enviada)');
-                    console.log('');
                     
                     // ✅ Se modo IA foi ATIVADO, marcar flag para aguardar 1 giro antes de enviar sinal
                     if (analyzerConfig.aiMode) {
                         aiModeJustActivated = true;
                         console.log('%c⏳ MODO IA ATIVADO: Aguardando 1 giro antes de enviar primeiro sinal...', 'color: #FFAA00; font-weight: bold; font-size: 13px; background: #332200; padding: 5px;');
-                        console.log('');
                     } else {
                         // Se desativou, limpar flag
                         aiModeJustActivated = false;
                         console.log('%c✅ MODO PADRÃO ATIVADO: Sistema pronto para análise...', 'color: #00FF00; font-weight: bold; font-size: 13px; background: #003300; padding: 5px;');
-                        console.log('');
                     }
                     
                     logActiveConfiguration();
@@ -17590,7 +17257,6 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                     // Executar nova análise se houver histórico (mas não enviará sinal se aiModeJustActivated = true)
                     if (cachedHistory.length > 0) {
                         console.log('%c📊 Executando análise com novo modo...', 'color: #00FFFF; font-weight: bold;');
-                        console.log('');
                         await runAnalysisController(cachedHistory);
                     } else {
                         console.log('%c⚠️ Nenhum histórico disponível para análise', 'color: #FFAA00;');
@@ -17605,10 +17271,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         return true;
     } else if (request.action === 'enableHotPattern') {
         // Ativar modo Padrão Quente
-        console.log('');
-        console.log('═══════════════════════════════════════════════════════════');
         console.log('🔥 ATIVANDO MODO PADRÃO QUENTE');
-        console.log('═══════════════════════════════════════════════════════════');
         hotPatternMode = true;
         hotPatternState = {
             pattern: null,
@@ -17621,16 +17284,11 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         };
         console.log('✅ Modo Padrão Quente ATIVADO');
         console.log('🔍 Sistema começará a buscar padrões quentes nos próximos giros');
-        console.log('═══════════════════════════════════════════════════════════');
-        console.log('');
         sendResponse({ status: 'enabled' });
         return true;
     } else if (request.action === 'disableHotPattern') {
         // Desativar modo Padrão Quente
-        console.log('');
-        console.log('═══════════════════════════════════════════════════════════');
         console.log('🔥 DESATIVANDO MODO PADRÃO QUENTE');
-        console.log('═══════════════════════════════════════════════════════════');
         hotPatternMode = false;
         currentHotPattern = null;
         hotPatternState = {
@@ -17643,19 +17301,13 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             winRate: 0
         };
         console.log('✅ Modo Padrão Quente DESATIVADO');
-        console.log('═══════════════════════════════════════════════════════════');
-        console.log('');
         sendResponse({ status: 'disabled' });
         return true;
     } else if (request.action === 'requestImmediateAnalysis') {
         // Solicitar análise imediata (para buscar padrão quente)
-        console.log('');
-        console.log('═══════════════════════════════════════════════════════════');
         console.log('🔥 ANÁLISE IMEDIATA SOLICITADA PARA BUSCAR PADRÃO QUENTE');
-        console.log('═══════════════════════════════════════════════════════════');
         console.log(`📊 Histórico disponível: ${cachedHistory ? cachedHistory.length : 0} giros`);
         console.log(`🔥 Modo Padrão Quente ativo: ${hotPatternMode ? 'SIM' : 'NÃO'}`);
-        console.log('');
         
         (async () => {
             try {
@@ -17667,7 +17319,6 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                     
                     const elapsed = Date.now() - startTime;
                     console.log(`✅ Análise concluída em ${elapsed}ms`);
-                    console.log('');
                     
                     sendResponse({ status: 'analyzed' });
                 } else {
@@ -17683,9 +17334,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     } else if (request.action === 'clearEntriesAndObserver') {
         // Limpar histórico de entradas E calibrador (mantém sincronizado)
         (async () => {
-            console.log('╔═══════════════════════════════════════════════════════════╗');
             console.log('║  🗑️ LIMPANDO ENTRADAS E CALIBRADOR                       ║');
-            console.log('╚═══════════════════════════════════════════════════════════╝');
             
             // Resetar observerData
             observerData = {
@@ -17760,10 +17409,8 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                 // ✅ VERIFICAR SE REALMENTE ZEROU (DEBUG)
                 const dbCheck = await chrome.storage.local.get(['patternDB']);
                 const totalAfterClear = dbCheck.patternDB?.patterns_found?.length || 0;
-                console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #FF00FF; font-weight: bold;');
                 console.log('%c🔍 VERIFICAÇÃO PÓS-LIMPEZA:', 'color: #FF00FF; font-weight: bold;');
                 console.log(`   Padrões no banco: ${totalAfterClear}`);
-                console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #FF00FF; font-weight: bold;');
                 
                 // ✅ PASSO 2: NOTIFICAR UI IMEDIATAMENTE QUE O BANCO ESTÁ ZERADO (0/5000)
                 sendMessageToContent('PATTERN_BANK_UPDATE', { total: totalAfterClear });
@@ -17815,22 +17462,15 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
 // ✅ INICIAR APENAS SE HOUVER ABA DA BLAZE ABERTA
 (async function initExtension() {
-    console.log('╔═══════════════════════════════════════════════════════════╗');
-    console.log('║  🔍 VERIFICANDO SE HÁ ABAS DA BLAZE ABERTAS...           ║');
-    console.log('╚═══════════════════════════════════════════════════════════╝');
     
     const hasBlaze = await hasBlazeTabOpen();
     
     if (hasBlaze) {
-        console.log('╔═══════════════════════════════════════════════════════════╗');
         console.log('║  ✅ ABA DA BLAZE ENCONTRADA - INICIANDO EXTENSÃO         ║');
-        console.log('╚═══════════════════════════════════════════════════════════╝');
 startDataCollection();
     } else {
-        console.log('╔═══════════════════════════════════════════════════════════╗');
         console.log('║  ⚠️ NENHUMA ABA DA BLAZE ABERTA                          ║');
         console.log('║  💡 Abra blaze.com para ativar a extensão                ║');
-        console.log('╚═══════════════════════════════════════════════════════════╝');
     }
 })();
 
@@ -17846,19 +17486,13 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
             analyzerConfig = { ...DEFAULT_ANALYZER_CONFIG, ...newConfig };
             
             // ✅ MOSTRAR LOG COMPLETO DAS NOVAS CONFIGURAÇÕES
-            console.log('');
-            console.log('╔═══════════════════════════════════════════════════════════╗');
             console.log('║  🔄 CONFIGURAÇÕES ATUALIZADAS EM TEMPO REAL!             ║');
-            console.log('╚═══════════════════════════════════════════════════════════╝');
-            console.log('');
             
             // ✅ EXIBIR TODAS AS CONFIGURAÇÕES USANDO A FUNÇÃO logActiveConfiguration
             logActiveConfiguration();
             
-            console.log('');
             console.log('✅ Novas configurações aplicadas com sucesso!');
             console.log('ℹ️  As regras já estão ativas - não precisa recarregar a extensão');
-            console.log('');
         }
     }
 });
@@ -17873,12 +17507,7 @@ chrome.tabs.onActivated.addListener(async (activeInfo) => {
         const tab = await chrome.tabs.get(activeInfo.tabId);
         
         if (tab.url && (tab.url.includes('blaze.com') || tab.url.includes('blaze.bet.br'))) {
-            console.log('');
-            console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #00FFFF; font-weight: bold;');
             console.log('%c║  📱 USUÁRIO VOLTOU PARA ABA DA BLAZE                     ║', 'color: #00FFFF; font-weight: bold;');
-            console.log('%c║  Verificando conexões e dados...                        ║', 'color: #00FFFF;');
-            console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #00FFFF; font-weight: bold;');
-            console.log('');
             
             // ✅ Verificar se WebSocket está conectado
             if (!ws || ws.readyState !== WebSocket.OPEN) {
@@ -17903,12 +17532,8 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
     try {
         // Só processar quando a página terminou de carregar
         if (changeInfo.status === 'complete' && tab.url && (tab.url.includes('blaze.com') || tab.url.includes('blaze.bet.br'))) {
-            console.log('');
-            console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #00FFFF; font-weight: bold;');
             console.log('%c║  🔄 ABA DA BLAZE RECARREGADA                             ║', 'color: #00FFFF; font-weight: bold;');
             console.log('%c║  Reconectando sistemas...                               ║', 'color: #00FFFF;');
-            console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #00FFFF; font-weight: bold;');
-            console.log('');
             
             // ✅ Aguardar 2 segundos para página estabilizar
             await new Promise(resolve => setTimeout(resolve, 2000));
@@ -17931,11 +17556,9 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
     }
 });
 
-console.log('');
 console.log('%c✅ Listeners de visibilidade instalados!', 'color: #00FF88; font-weight: bold;');
 console.log('%c   - Detectará quando usuário voltar para aba da Blaze', 'color: #00FF88;');
 console.log('%c   - Reconectará automaticamente se necessário', 'color: #00FF88;');
 console.log('%c   - Critical para funcionamento no mobile', 'color: #00FF88;');
-console.log('');
 
 

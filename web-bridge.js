@@ -57,9 +57,8 @@
         const config = data.analyzerConfig || {};
         
         console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #00AAFF;');
-        console.log(`%c║  Modo IA: ${config.aiMode ? 'ATIVO ✅' : 'DESATIVADO ❌'}                              ║`, 'color: #00AAFF;');
-        console.log(`%c║  API Key: ${config.aiApiKey ? 'Configurada ✅' : 'NÃO configurada ❌'}                    ║`, 'color: #00AAFF;');
-        console.log(`%c║  Histórico IA: ${config.aiHistorySize || 50} giros                              ║`, 'color: #00AAFF;');
+        console.log(`%c║  💎 Modo Diamante: ${config.aiMode ? 'ATIVO ✅ (8 níveis)' : 'DESATIVADO ❌'}                    ║`, 'color: #00AAFF;');
+        console.log(`%c║  📊 Modo Padrão: ${config.aiMode ? 'DESATIVADO ❌' : 'ATIVO ✅'}                              ║`, 'color: #00AAFF;');
         console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #00AAFF;');
         
         return config;

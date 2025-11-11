@@ -101,106 +101,29 @@
     <!-- 5. content.js (cria a sidebar - INTACTO)                                        -->
     <!-- ═══════════════════════════════════════════════════════════════════════════════ -->
 
-    <!-- 🔐 VERIFICAÇÃO DE AUTENTICAÇÃO - SUPER DETALHADA PARA DEBUG -->
+    <!-- 🔐 VERIFICAÇÃO DE AUTENTICAÇÃO -->
     <script>
-        // ✅ DEBUG: Verificar TUDO sobre localStorage
         (function() {
-            console.log('');
-            console.log('██████████████████████████████████████████████████████████████');
-            console.log('██  VERIFICAÇÃO DE AUTENTICAÇÃO - DEBUG COMPLETO');
-            console.log('██████████████████████████████████████████████████████████████');
-            console.log('');
-            
-            // 1. Verificar se localStorage está disponível
-            console.log('1️⃣ VERIFICANDO DISPONIBILIDADE DO localStorage:');
-            try {
-                const test = 'test';
-                localStorage.setItem('test', test);
-                const retrieved = localStorage.getItem('test');
-                localStorage.removeItem('test');
-                console.log('   ✅ localStorage está FUNCIONANDO');
-                console.log('   ✅ Pode gravar e ler dados');
-            } catch (e) {
-                console.error('   ❌ localStorage NÃO FUNCIONA!');
-                console.error('   ❌ Erro:', e.message);
-                console.error('   ❌ Navegador em modo privado ou localStorage desabilitado?');
-            }
-            console.log('');
-            
-            // 2. Listar TUDO que tem no localStorage
-            console.log('2️⃣ CONTEÚDO COMPLETO DO localStorage:');
-            console.log('   Total de itens:', localStorage.length);
-            for (let i = 0; i < localStorage.length; i++) {
-                const key = localStorage.key(i);
-                const value = localStorage.getItem(key);
-                console.log(`   - ${key}:`, value ? value.substring(0, 100) : 'null');
-            }
-            console.log('');
-            
-            // 3. Verificar especificamente authToken e user
-            console.log('3️⃣ VERIFICANDO DADOS DE AUTENTICAÇÃO:');
             const authToken = localStorage.getItem('authToken');
             const user = localStorage.getItem('user');
-            const lastAuthCheck = localStorage.getItem('lastAuthCheck');
             
-            console.log('   🔑 authToken:');
-            console.log('      Existe?', authToken ? 'SIM' : 'NÃO');
-            console.log('      Tipo:', typeof authToken);
-            console.log('      Tamanho:', authToken ? authToken.length : 0);
-            console.log('      Início:', authToken ? authToken.substring(0, 30) + '...' : 'N/A');
-            console.log('');
-            
-            console.log('   👤 user:');
-            console.log('      Existe?', user ? 'SIM' : 'NÃO');
-            console.log('      Tipo:', typeof user);
-            console.log('      Tamanho:', user ? user.length : 0);
-            console.log('      Conteúdo:', user ? user.substring(0, 100) + '...' : 'N/A');
-            console.log('');
-            
-            console.log('   ⏰ lastAuthCheck:');
-            console.log('      Existe?', lastAuthCheck ? 'SIM' : 'NÃO');
-            console.log('      Valor:', lastAuthCheck);
-            console.log('');
-            
-            // 4. Verificar URL atual
-            console.log('4️⃣ INFORMAÇÕES DA PÁGINA:');
-            console.log('   URL:', window.location.href);
-            console.log('   Host:', window.location.host);
-            console.log('   Pathname:', window.location.pathname);
-            console.log('');
-            
-            // 5. DECISÃO
-            console.log('5️⃣ DECISÃO DE AUTENTICAÇÃO:');
+            // Verificar se está autenticado
             if (!authToken || !user) {
-                console.log('   ❌ RESULTADO: NÃO AUTENTICADO');
-                console.log('   ❌ Motivo:', !authToken ? 'Token ausente' : 'User ausente');
-                console.log('   🔄 AÇÃO: Redirecionando para auth.html...');
-                console.log('');
-                console.log('██████████████████████████████████████████████████████████████');
-                console.log('');
+                console.log('⚠️ Usuário não autenticado - redirecionando...');
                 window.location.href = 'auth.html';
                 return;
             }
             
-            // ✅ AUTENTICADO!
-            console.log('   ✅ RESULTADO: AUTENTICADO COM SUCESSO!');
-            console.log('   ✅ Token presente e válido');
-            console.log('   ✅ User presente');
-            console.log('   🚀 AÇÃO: Carregando extensão...');
-            console.log('');
-            console.log('██████████████████████████████████████████████████████████████');
-            console.log('');
+            console.log('✅ Autenticado - carregando extensão...');
             
-            // Verificação periódica em background (1x por dia) sem bloquear a UI
+            // Verificação periódica em background (1x por dia)
             const lastCheck = localStorage.getItem('lastAuthCheck');
             const now = Date.now();
             const ONE_DAY = 24 * 60 * 60 * 1000;
             
             if (!lastCheck || (now - parseInt(lastCheck)) > ONE_DAY) {
-                // Verificar em background (não bloqueia carregamento)
                 setTimeout(async () => {
                     try {
-                        console.log('🔍 Verificação em background (não bloqueia UI)...');
                         const response = await fetch('https://blaze-analyzer-api-v2.onrender.com/api/auth/verify', {
                             headers: { 'Authorization': 'Bearer ' + authToken }
                         });
@@ -208,12 +131,9 @@
                         if (response.ok) {
                             const data = await response.json();
                             if (data.success && data.user) {
-                                // Atualizar dados do usuário
                                 localStorage.setItem('user', JSON.stringify(data.user));
                                 localStorage.setItem('lastAuthCheck', now.toString());
-                                console.log('✅ Verificação em background concluída');
                                 
-                                // Se conta expirou ou foi bloqueada, avisar
                                 if (data.user.status === 'expired' || data.user.status === 'blocked') {
                                     const msg = data.user.status === 'expired' 
                                         ? 'Sua assinatura expirou. Entre em contato para renovar.'
@@ -223,25 +143,16 @@
                                     window.location.href = 'auth.html';
                                 }
                             }
-                        } else {
-                            console.warn('⚠️ Token inválido na verificação em background');
-                            // NÃO redirecionar automaticamente - usuário pode estar offline
                         }
                     } catch (error) {
-                        console.warn('⚠️ Erro na verificação em background (ignorado):', error.message);
-                        // NÃO fazer nada - pode ser erro de rede temporário
+                        console.warn('⚠️ Erro na verificação (ignorado):', error.message);
                     }
-                }, 2000); // 2 segundos após carregar
+                }, 2000);
             }
         })();
     </script>
     
     <!-- 1️⃣ CHROME SHIM - Simula APIs do Chrome -->
-    <script>
-        // Cache-bust agressivo: adiciona timestamp único
-        const cacheBust = Date.now();
-        console.log('%c🔥 CACHE-BUST ATIVO: ' + cacheBust, 'color: #FF0000; font-weight: bold; font-size: 16px;');
-    </script>
     <script>
         const script1 = document.createElement('script');
         script1.src = 'chrome-shim.js?v=' + Date.now();
@@ -269,120 +180,41 @@
         document.currentScript.parentNode.insertBefore(script4, document.currentScript.nextSibling);
     </script>
 
-    <!-- 5️⃣ CONTENT.JS - Sidebar completa (SEM ALTERAÇÕES) -->
-    <script>
-        console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #FFD700; font-weight: bold;');
-        console.log('%c⏳ PRESTES A CARREGAR CONTENT.JS...', 'color: #FFD700; font-weight: bold; font-size: 14px;');
-        console.log('%c   document.body existe?', 'color: #FFD700;', document.body ? '✅ SIM' : '❌ NÃO');
-        console.log('%c   document.readyState:', 'color: #FFD700;', document.readyState);
-        console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #FFD700; font-weight: bold;');
-    </script>
+    <!-- 5️⃣ CONTENT.JS - Sidebar completa -->
     <script>
         const script5 = document.createElement('script');
         script5.src = 'content.js?v=' + Date.now();
         document.currentScript.parentNode.insertBefore(script5, document.currentScript.nextSibling);
     </script>
-    <script>
-        console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #00FF88; font-weight: bold;');
-        console.log('%c✅ Script content.js foi CARREGADO (tag processada)', 'color: #00FF88; font-weight: bold;');
-        console.log('%c   Se você NÃO vê "🚀 CONTENT.JS INICIANDO..." acima,', 'color: #FFA500;');
-        console.log('%c   então há um ERRO DE SINTAXE no content.js!', 'color: #FFA500; font-weight: bold;');
-        console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #00FF88; font-weight: bold;');
-    </script>
 
-    <!-- 6️⃣ Script de inicialização da versão web -->
+    <!-- 6️⃣ Inicialização -->
     <script>
-        // ═══════════════════════════════════════════════════════════════════════════════
-        // CAPTURAR ERROS GLOBAIS
-        // ═══════════════════════════════════════════════════════════════════════════════
-        
+        // Capturar erros globais
         window.addEventListener('error', function(event) {
-            console.error('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #FF0000; font-weight: bold;');
-            console.error('%c🚨 ERRO GLOBAL DETECTADO!', 'color: #FF0000; font-weight: bold; font-size: 16px;');
-            console.error('%c   Mensagem:', 'color: #FF0000;', event.message);
-            console.error('%c   Arquivo:', 'color: #FF0000;', event.filename);
-            console.error('%c   Linha:', 'color: #FF0000;', event.lineno);
-            console.error('%c   Coluna:', 'color: #FF0000;', event.colno);
-            console.error('%c   Stack:', 'color: #FF0000;', event.error ? event.error.stack : 'N/A');
-            console.error('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #FF0000; font-weight: bold;');
+            console.error('❌ ERRO:', event.message, 'em', event.filename, 'linha', event.lineno);
         });
         
-        // ═══════════════════════════════════════════════════════════════════════════════
-        // GARANTIR QUE TODOS OS LOGS DO BACKGROUND.JS APAREÇAM NO CONSOLE
-        // ═══════════════════════════════════════════════════════════════════════════════
-        
-        // Capturar e reexibir logs do background.js (caso estejam sendo filtrados)
-        const originalConsoleLog = console.log;
-        const originalConsoleWarn = console.warn;
-        const originalConsoleError = console.error;
-        
-        // Garantir que logs apareçam sempre
-        console.log = function(...args) {
-            originalConsoleLog.apply(console, args);
-        };
-        
-        console.warn = function(...args) {
-            originalConsoleWarn.apply(console, args);
-        };
-        
-        console.error = function(...args) {
-            originalConsoleError.apply(console, args);
-        };
-        
-        // ═══════════════════════════════════════════════════════════════════════════════
-        // INICIALIZAÇÃO DA VERSÃO WEB
-        // ═══════════════════════════════════════════════════════════════════════════════
-        
-        console.log('%c═══════════════════════════════════════════════════════════════════════════════', 'color: #00FF88; font-weight: bold;');
-        console.log('%c  🎯 BLAZE DOUBLE ANALYZER - VERSÃO WEB                                        ', 'color: #00FF88; font-weight: bold; font-size: 16px;');
-        console.log('%c═══════════════════════════════════════════════════════════════════════════════', 'color: #00FF88; font-weight: bold;');
-        console.log('');
-        console.log('%c✅ chrome-shim.js carregado', 'color: #00FF88;');
-        console.log('%c✅ background.js carregado', 'color: #00FF88;');
-        console.log('%c✅ web-init.js carregado', 'color: #00FF88;');
-        console.log('%c✅ web-bridge.js carregado', 'color: #00FF88;');
-        console.log('%c✅ content.js carregado', 'color: #00FF88;');
-        console.log('');
-        console.log('%c💡 TODOS OS LOGS DO BACKGROUND.JS APARECERÃO ABAIXO', 'color: #FFD700; font-weight: bold;');
-        console.log('%c📊 Aguarde os logs de inicialização...', 'color: #00AAFF;');
-        console.log('');
+        console.log('✅ Blaze Double Analyzer - Versão Web carregada');
 
-        // Remover mensagem de carregamento após a sidebar ser criada
+        // Remover loading
         setTimeout(() => {
             const loadingMessage = document.getElementById('loading-message');
             if (loadingMessage) {
                 loadingMessage.style.opacity = '0';
                 loadingMessage.style.transition = 'opacity 0.5s ease';
-                setTimeout(() => {
-                    loadingMessage.remove();
-                }, 500);
+                setTimeout(() => loadingMessage.remove(), 500);
             }
         }, 1000);
 
-        // Verificar se a sidebar foi criada corretamente
+        // Verificar sidebar
         setTimeout(() => {
             const sidebar = document.getElementById('blaze-double-analyzer');
             if (sidebar) {
-                console.log('%c✅ SIDEBAR CRIADA COM SUCESSO!', 'color: #00FF88; font-weight: bold; font-size: 14px;');
-                console.log('%c📍 A sidebar completa está ativa e funcional!', 'color: #00FF88;');
+                console.log('✅ Sidebar ativa');
             } else {
-                console.log('%c⚠️ Aguardando criação da sidebar...', 'color: #FFA500;');
-                // Tentar novamente em 2 segundos
-                setTimeout(() => {
-                    const sidebar2 = document.getElementById('blaze-double-analyzer');
-                    if (sidebar2) {
-                        console.log('%c✅ SIDEBAR CRIADA!', 'color: #00FF88; font-weight: bold;');
-                    } else {
-                        console.log('%c❌ Sidebar não encontrada. Verifique o console para erros.', 'color: #FF0000;');
-                    }
-                }, 2000);
+                console.warn('⚠️ Sidebar não encontrada');
             }
         }, 1500);
-
-        // Notificar usuário de teclas de atalho (se houver)
-        console.log('');
-        console.log('%c💡 DICA: A sidebar está ativa! Ela funciona exatamente como na extensão.', 'color: #00AAFF;');
-        console.log('');
     </script>
 </body>
 </html>

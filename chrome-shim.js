@@ -19,25 +19,6 @@
                 try {
                     const allData = JSON.parse(localStorage.getItem('blazeAnalyzerData') || '{}');
                     
-                    // Log APENAS se for analyzerConfig sendo carregado
-                    const isLoadingConfig = (keys === 'analyzerConfig' || 
-                                            (Array.isArray(keys) && keys.includes('analyzerConfig')) ||
-                                            (typeof keys === 'object' && keys.analyzerConfig !== undefined));
-                    
-                    if (isLoadingConfig) {
-                        console.log('');
-                        console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #00D4FF; font-weight: bold;');
-                        console.log('%c║  📖 chrome.storage.local.get() - analyzerConfig          ║', 'color: #00D4FF; font-weight: bold;');
-                        console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #00D4FF; font-weight: bold;');
-                        console.log('%c📊 analyzerConfig no localStorage:', 'color: #00D4FF; font-weight: bold;');
-                        console.log(allData.analyzerConfig || '{não encontrado}');
-                        
-                        if (allData.analyzerConfig && allData.analyzerConfig.minPercentage) {
-                            console.log('%c🎯 minPercentage:', 'color: #FFD700; font-weight: bold;', allData.analyzerConfig.minPercentage + '%');
-                        }
-                        console.log('');
-                    }
-                    
                     if (typeof keys === 'string') {
                         // Single key
                         const result = {};
@@ -78,62 +59,11 @@
 
             set: function(data, callback) {
                 try {
-                    console.log('');
-                    console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #FFD700; font-weight: bold;');
-                    console.log('%c║  💾 chrome.storage.local.set() CHAMADO                   ║', 'color: #FFD700; font-weight: bold;');
-                    console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #FFD700; font-weight: bold;');
-                    console.log('%c📦 Dados recebidos para salvar:', 'color: #FFD700; font-weight: bold;');
-                    console.log(data);
-                    console.log('');
-                    
-                    // Ler dados atuais
                     const currentLocalStorage = localStorage.getItem('blazeAnalyzerData');
-                    console.log('%c📊 localStorage ANTES:', 'color: #00AAFF; font-weight: bold;');
-                    console.log(currentLocalStorage ? JSON.parse(currentLocalStorage) : '{vazio}');
-                    console.log('');
-                    
                     const allData = JSON.parse(currentLocalStorage || '{}');
                     
-                    // Salvar valor ANTIGO de analyzerConfig se estiver sendo atualizado
-                    if (data.analyzerConfig && allData.analyzerConfig) {
-                        console.log('%c🔍 COMPARANDO analyzerConfig:', 'color: #00D4FF; font-weight: bold;');
-                        console.log('%c   ANTES:', 'color: #FFA500;', allData.analyzerConfig);
-                        console.log('%c   DEPOIS:', 'color: #00FF88;', data.analyzerConfig);
-                        
-                        // Comparar minPercentage especificamente
-                        if (allData.analyzerConfig.minPercentage !== data.analyzerConfig.minPercentage) {
-                            console.log('%c   🎯 minPercentage MUDOU:', 'color: #FFD700; font-weight: bold;');
-                            console.log(`%c      ${allData.analyzerConfig.minPercentage}% → ${data.analyzerConfig.minPercentage}%`, 'color: #FFD700; font-weight: bold;');
-                        }
-                    }
-                    
                     Object.assign(allData, data);
-                    
-                    console.log('%c💾 Salvando no localStorage...', 'color: #00FF88; font-weight: bold;');
                     localStorage.setItem('blazeAnalyzerData', JSON.stringify(allData));
-                    
-                    console.log('%c✅ SALVO COM SUCESSO!', 'color: #00FF00; font-weight: bold; font-size: 14px;');
-                    console.log('');
-                    
-                    // Verificar se realmente salvou
-                    const savedData = localStorage.getItem('blazeAnalyzerData');
-                    const parsedSaved = JSON.parse(savedData);
-                    console.log('%c📊 localStorage DEPOIS:', 'color: #00FF88; font-weight: bold;');
-                    console.log(parsedSaved);
-                    
-                    if (data.analyzerConfig && parsedSaved.analyzerConfig) {
-                        console.log('');
-                        console.log('%c🔍 VERIFICAÇÃO FINAL - analyzerConfig.minPercentage:', 'color: #00D4FF; font-weight: bold;');
-                        console.log(`%c   Salvo: ${parsedSaved.analyzerConfig.minPercentage}%`, 'color: #00FF88; font-weight: bold;');
-                        console.log(`%c   Esperado: ${data.analyzerConfig.minPercentage}%`, 'color: #FFD700; font-weight: bold;');
-                        
-                        if (parsedSaved.analyzerConfig.minPercentage === data.analyzerConfig.minPercentage) {
-                            console.log('%c   ✅ VALORES CONFEREM!', 'color: #00FF00; font-weight: bold; font-size: 14px;');
-                        } else {
-                            console.error('%c   ❌ VALORES NÃO CONFEREM!', 'color: #FF0000; font-weight: bold; font-size: 14px;');
-                        }
-                    }
-                    console.log('');
                     
                     // Dispatch event for listeners
                     window.dispatchEvent(new CustomEvent('storage-changed', { 
@@ -143,9 +73,7 @@
                     if (callback) callback();
                     return Promise.resolve();
                 } catch (error) {
-                    console.error('%c❌ ERRO CRÍTICO NO STORAGE.SET:', 'color: #FF0000; font-weight: bold; font-size: 16px;');
-                    console.error(error);
-                    console.error(error.stack);
+                    console.error('❌ ERRO CRÍTICO NO STORAGE.SET:', error);
                     if (callback) callback();
                     return Promise.resolve();
                 }
@@ -201,66 +129,33 @@
     
     const runtime = {
         sendMessage: function(message, callback) {
-            console.log('%c📨 chrome.runtime.sendMessage capturado:', 'color: #00AAFF;', message);
-            console.log('%c   🎯 ACTION:', 'color: #FFAA00; font-weight: bold;', message.action || 'SEM ACTION!');
-            console.log('%c   📦 MENSAGEM COMPLETA:', 'color: #00AAFF;', JSON.stringify(message, null, 2));
-            console.log('%c   📊 Listeners registrados: ' + messageListeners.length, 'color: #00AAFF; font-weight: bold;');
-            
-            // ✅ CRÍTICO: Retornar uma Promise que resolve com a RESPOSTA REAL!
             return new Promise((resolve) => {
-                // Simular message passing - disparar TODOS os listeners registrados
                 setTimeout(() => {
                     let responded = false;
                     const sendResponse = (response) => {
                         if (!responded) {
                             responded = true;
-                            console.log('%c   ✅ sendResponse chamado com:', 'color: #00FF88;', response);
-                            
-                            // ✅ Resolver a Promise com a resposta REAL!
                             resolve(response);
-                            
-                            if (callback) {
-                                callback(response);
-                            }
+                            if (callback) callback(response);
                         }
                     };
                     
-                    // Chamar todos os listeners registrados
                     let willRespondAsync = false;
-                    if (messageListeners.length === 0) {
-                        console.log('%c   ⚠️ NENHUM LISTENER REGISTRADO!', 'color: #FF0000; font-weight: bold;');
-                    }
-                    
-                    messageListeners.forEach((listener, index) => {
+                    messageListeners.forEach((listener) => {
                         try {
-                            console.log('%c   📞 Chamando listener #' + (index + 1) + '...', 'color: #00AAFF;');
                             const result = listener(message, {}, sendResponse);
-                            console.log('%c   📤 Listener #' + (index + 1) + ' retornou:', 'color: #00AAFF;', result);
-                            // Se retornar true, significa que vai responder assincronamente
                             if (result === true) {
                                 willRespondAsync = true;
-                                console.log('%c   ⏳ Listener #' + (index + 1) + ' vai responder assincronamente', 'color: #FFA500; font-weight: bold;');
                             }
                         } catch (error) {
-                            console.error('%c   ❌ Erro ao executar listener #' + (index + 1) + ':', 'color: #FF0000;', error);
+                            console.error('Erro ao executar listener:', error);
                         }
                     });
                     
-                    // ⚠️ CRÍTICO: Só responder com padrão se:
-                    // 1. Ninguém respondeu ainda (!responded)
-                    // 2. E nenhum listener disse que vai responder depois (!willRespondAsync)
                     if (!responded && !willRespondAsync) {
-                        console.log('%c   📤 Nenhum listener respondeu - enviando resposta padrão', 'color: #FFA500;');
                         const defaultResponse = { success: true };
                         resolve(defaultResponse);
-                        if (callback) {
-                            callback(defaultResponse);
-                        }
-                    } else if (willRespondAsync && !responded) {
-                        console.log('%c   ⏳ Aguardando resposta assíncrona do listener...', 'color: #00AAFF;');
-                        // Não resolve ainda - vai resolver quando sendResponse for chamado
-                    } else if (responded) {
-                        console.log('%c   ✅ Resposta já enviada!', 'color: #00FF88; font-weight: bold;');
+                        if (callback) callback(defaultResponse);
                     }
                 }, 0);
             });
@@ -269,10 +164,6 @@
         onMessage: {
             addListener: function(callback) {
                 messageListeners.push(callback);
-                console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #00FF88; font-weight: bold;');
-                console.log('%c📡 chrome.runtime.onMessage.addListener REGISTRADO!', 'color: #00FF88; font-weight: bold; font-size: 14px;');
-                console.log('%c   📊 Total de listeners agora: ' + messageListeners.length, 'color: #00FF88; font-weight: bold;');
-                console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #00FF88; font-weight: bold;');
             },
             removeListener: function(callback) {
                 const index = messageListeners.indexOf(callback);
@@ -322,16 +213,12 @@
         },
         
         query: function(queryInfo, callback) {
-            // ⚠️ CRÍTICO: Retornar URL da Blaze para passar na verificação hasBlazeTabOpen()
-            // Isso engana o background.js fazendo ele pensar que há uma aba da Blaze aberta
             const currentTab = {
                 id: 1,
-                url: 'https://blaze.com/pt/games/double', // URL FAKE - Faz passar no hasBlazeTabOpen()
+                url: 'https://blaze.com/pt/games/double',
                 active: true,
                 windowId: 1
             };
-            
-            console.log('📋 chrome.tabs.query simulado - Retornando aba FAKE da Blaze');
             
             const result = [currentTab];
             if (callback) callback(result);
@@ -339,63 +226,33 @@
         },
 
         sendMessage: function(tabId, message, callback) {
-            console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #FFD700; font-weight: bold;');
-            console.log('%c📨 chrome.tabs.sendMessage capturado!', 'color: #FFD700; font-weight: bold;');
-            console.log('%c   Type:', 'color: #FFD700;', message.type);
-            console.log('%c   Data:', 'color: #FFD700;', message.data);
-            console.log('%c   Action:', 'color: #FFD700;', message.action);
-            console.log('%c   TabId:', 'color: #FFD700;', tabId);
-            console.log('%c   Listeners registrados:', 'color: #FFD700;', messageListeners.length);
-            console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #FFD700; font-weight: bold;');
-            
-            // ✅ CRÍTICO: Retornar uma Promise que resolve com a resposta REAL
             return new Promise((resolve) => {
-                // ⚠️ CRÍTICO: Chamar os listeners de chrome.runtime.onMessage DIRETAMENTE
-                // (content.js escuta via chrome.runtime.onMessage.addListener)
                 setTimeout(() => {
                     let responded = false;
                     const sendResponse = (response) => {
                         if (!responded) {
                             responded = true;
-                            console.log('%c   ✅ sendResponse chamado com:', 'color: #00FF88;', response);
-                            resolve(response); // ✅ Resolver com a resposta REAL
+                            resolve(response);
                             if (callback) callback(response);
                         }
                     };
                     
-                    console.log(`%c🔄 Chamando ${messageListeners.length} listener(s)...`, 'color: #00AAFF; font-weight: bold;');
-                    
-                    // Chamar todos os listeners registrados
-                    let listenerCount = 0;
                     let willRespondAsync = false;
-                    messageListeners.forEach((listener, index) => {
+                    messageListeners.forEach((listener) => {
                         try {
-                            console.log(`%c   → Listener ${index + 1}/${messageListeners.length}`, 'color: #00AAFF;');
-                            // Passar a mensagem como se fosse de chrome.runtime.sendMessage
                             const result = listener(message, {}, sendResponse);
-                            listenerCount++;
                             if (result === true) {
                                 willRespondAsync = true;
-                                console.log(`%c   ✅ Listener ${index + 1} aceitou (async)`, 'color: #00FF88;');
-                            } else {
-                                console.log(`%c   ✅ Listener ${index + 1} processou (sync)`, 'color: #00FF88;');
                             }
                         } catch (error) {
-                            console.error(`%c   ❌ Erro no listener ${index + 1}:`, 'color: #FF0000;', error);
+                            console.error('Erro no listener:', error);
                         }
                     });
                     
-                    console.log(`%c✅ ${listenerCount} listener(s) chamado(s) com sucesso!`, 'color: #00FF88; font-weight: bold;');
-                    console.log('');
-                    
-                    // ⚠️ CRÍTICO: Só responder com padrão se ninguém respondeu E nenhum listener vai responder depois
                     if (!responded && !willRespondAsync) {
-                        console.log('%c   📤 Nenhum listener respondeu - enviando resposta padrão', 'color: #FFA500;');
                         const defaultResponse = { success: true };
                         resolve(defaultResponse);
                         if (callback) callback(defaultResponse);
-                    } else if (willRespondAsync && !responded) {
-                        console.log('%c   ⏳ Aguardando resposta assíncrona do listener...', 'color: #00AAFF;');
                     }
                 }, 0);
             });
