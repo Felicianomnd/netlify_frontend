@@ -16,6 +16,7 @@
     let currentHistoryDisplayLimit = 500; // Começa exibindo 500, pode aumentar em camadas de 500
     let currentHistoryData = []; // Armazenar histórico atual para re-renderizar
     let autoPatternSearchTriggered = false; // Impede disparos automáticos repetidos
+    let suppressAutoPatternSearch = false; // Evita busca automática após reset manual
     
     // Resetar dados ao iniciar nova sessão de página (apenas uma vez por aba)
     function resetSessionIfNeeded() {
@@ -1039,7 +1040,7 @@ const DIAMOND_LEVEL_DEFAULTS = {
                     
                     <div class="bank-patterns-modal-body">
                         <div id="patternDetailsContent"></div>
-                        </div>
+                    </div>
                 </div>
             </div>
         `;
@@ -6498,7 +6499,7 @@ const DIAMOND_LEVEL_DEFAULTS = {
             const isDiamondModeActive = !!analyzerConfig.aiMode;
             
             if (!isDiamondModeActive) {
-                if (total === 0 && !autoPatternSearchTriggered) {
+                if (!suppressAutoPatternSearch && total === 0 && !autoPatternSearchTriggered) {
                     autoPatternSearchTriggered = true;
                     console.log('🔁 Banco de padrões vazio. Iniciando busca automática de padrões (30s)...');
                     chrome.runtime.sendMessage({ action: 'startPatternSearch' }, function(response) {
@@ -6653,6 +6654,9 @@ const DIAMOND_LEVEL_DEFAULTS = {
             btn.textContent = 'Buscando padrões...';
             btn.disabled = true;
             
+            suppressAutoPatternSearch = false;
+            autoPatternSearchTriggered = false;
+            
             // Enviar mensagem para background.js iniciar busca de 30s
             chrome.runtime.sendMessage({ action: 'startPatternSearch' }, function(response) {
                 if (response && response.status === 'started') {
@@ -6706,6 +6710,8 @@ const DIAMOND_LEVEL_DEFAULTS = {
             
             btn.textContent = 'Resetando...';
             btn.disabled = true;
+            suppressAutoPatternSearch = true;
+            autoPatternSearchTriggered = true;
             
                 console.log('%c🗑️ LIMPANDO PADRÕES DIRETAMENTE DO LOCALSTORAGE...', 'color: #FF0000; font-weight: bold; font-size: 14px;');
                 
@@ -6722,18 +6728,27 @@ const DIAMOND_LEVEL_DEFAULTS = {
                     
                     console.log('%c✅ PADRÕES LIMPOS COM SUCESSO!', 'color: #00FF88; font-weight: bold; font-size: 14px;');
                     
-                    btn.textContent = 'Resetado!';
-                    
-                    // Atualizar UI
-                    loadPatternBank();
-                    
-                    setTimeout(function() {
-                        btn.textContent = 'Resetar Padrões';
-                        btn.disabled = false;
-                    }, 2000);
+                    chrome.runtime.sendMessage({ action: 'resetPatterns' }, function(response) {
+                        if (response && response.status === 'success') {
+                            btn.textContent = 'Resetado!';
+                            loadPatternBank();
+                        } else {
+                            console.error('%c❌ ERRO AO RESETAR PADRÕES NO BACKGROUND:', 'color: #FF0000; font-weight: bold;', response);
+                            btn.textContent = 'Erro ao resetar';
+                            suppressAutoPatternSearch = false;
+                            autoPatternSearchTriggered = false;
+                        }
+                        
+                        setTimeout(function() {
+                            btn.textContent = 'Resetar Padrões';
+                            btn.disabled = false;
+                        }, 2000);
+                    });
                 } catch (error) {
                     console.error('%c❌ ERRO AO LIMPAR PADRÕES:', 'color: #FF0000; font-weight: bold;', error);
                     btn.textContent = 'Erro ao resetar';
+                    suppressAutoPatternSearch = false;
+                    autoPatternSearchTriggered = false;
                     setTimeout(function() {
                         btn.textContent = 'Resetar Padrões';
                         btn.disabled = false;

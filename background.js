@@ -4793,7 +4793,7 @@ function validatePatternDetection(colors, patternStartIndex, patternSize, patter
         
         // VALIDAÇÃO: Se é sequência, não pode ter a mesma cor logo antes
         if (patternType.includes('sequencia')) {
-            const firstColor = patternSequence[0];
+            const firstColor = getInitialPatternColor(patternSequence);
             if (contextBefore[0] === firstColor) {
                 console.log('%c   ❌ ERRO DETECTADO: Padrão INCORRETO!', 'color: #FF0000; font-weight: bold;');
                 console.log(`%c   Motivo: Sequência continua ANTES do padrão detectado`, 'color: #FF0000;');
@@ -4877,7 +4877,8 @@ function isPatternClean(colors, patternStartIndex, patternSize, patternType, gro
     if (previousColor) {
         // Para alternâncias, verificar se o giro anterior quebraria o padrão
         if (patternType.includes('alternancia')) {
-            const firstColor = patternSequence[0];
+            const firstColor = getInitialPatternColor(patternSequence);
+			if (!firstColor) return false;
             const groupIndex = Math.floor(patternSize / groupSize);
             const expectedColor = groupIndex % 2 === 0 ? firstColor : (firstColor === 'red' ? 'black' : 'red');
             
@@ -4888,7 +4889,8 @@ function isPatternClean(colors, patternStartIndex, patternSize, patternType, gro
         
         // Para sequências, verificar se o giro anterior é diferente
         if (patternType.includes('sequencia')) {
-            const firstColor = patternSequence[0];
+            const firstColor = getInitialPatternColor(patternSequence);
+			if (!firstColor) return false;
             if (previousColor === firstColor) {
                 return false; // ❌ Sequência continua antes
             }
@@ -11757,7 +11759,7 @@ async function loadPatternDB(silent = false) {
 			}
 			
 			// Validar trigger
-			const firstColorNorm = normalizeColorName(pat.pattern[0]);
+			const firstColorNorm = normalizeColorName(getInitialPatternColor(pat.pattern));
 			const triggerNorm = normalizeColorName(pat.triggerColor);
 			const validation = validateDisparoColor(firstColorNorm, triggerNorm);
 			
@@ -12062,32 +12064,32 @@ async function verifyWithSavedPatterns(history) {
 		const currentTrigger = headColors[need]; // cor imediatamente anterior ao padrão no histórico
 	
 	const currentTriggerNormalized = normalizeColorName(currentTrigger);
-	const firstPatternNormalized = normalizeColorName(pat.pattern[0]);
+	const firstPatternNormalized = normalizeColorName(getInitialPatternColor(pat.pattern));
 
 	if (!firstPatternNormalized) {
-		console.warn('⚠️ Padrão salvo com cor inicial inválida:', pat.pattern);
+		console.warn('⚠️ Padrão salvo com cor inicial inválida (não conseguiu normalizar):', pat.pattern);
 		continue;
 	}
 
 	if (!currentTriggerNormalized) {
-		if (analyzerConfig.requireTrigger) {
-			console.log('❌ Padrão salvo rejeitado: sem cor de disparo atual disponível', {
-				pattern: pat.pattern,
-				firstPatternColor: pat.pattern[0]
-			});
-			continue;
-		}
-	} else {
-		const validation = validateDisparoColor(firstPatternNormalized, currentTriggerNormalized);
-		if (!validation.valid) {
-			console.log('❌ Padrão salvo rejeitado: cor de disparo atual inválida', {
-				pattern: pat.pattern,
-				currentTrigger: currentTrigger,
-				firstPatternColor: pat.pattern[0],
-				motivo: validation.reason || 'Cor de disparo igual ou inválida'
-			});
-			continue;
-		}
+		console.log('❌ Padrão salvo rejeitado: sem cor de disparo atual disponível', {
+			pattern: pat.pattern,
+			firstPatternColor: getInitialPatternColor(pat.pattern)
+		});
+		continue;
+	}
+
+	const validation = validateDisparoColor(firstPatternNormalized, currentTriggerNormalized);
+	if (!validation.valid) {
+		console.log('❌ Padrão salvo rejeitado: cor de disparo atual inválida', {
+			pattern: pat.pattern,
+			currentTrigger: currentTrigger,
+			currentTriggerNormalized,
+			firstPatternColor: getInitialPatternColor(pat.pattern),
+			firstPatternNormalized,
+			motivo: validation.reason || 'Cor de disparo igual ou inválida'
+		});
+		continue;
 	}
 		// NÃO exigir que a trigger seja igual à salva; triggers podem variar por ocorrência
 
@@ -12409,7 +12411,7 @@ async function verifyWithSavedPatterns(history) {
 		// 🔥 VALIDAÇÃO CRÍTICA FINAL: Cor de disparo ATUAL deve ser válida
 		// Verificar se a cor de disparo ATUAL (antes do padrão head) é diferente da primeira cor do padrão
 		const finalTriggerNormalized = normalizeColorName(currentTrigger);
-		const firstFinalNormalized = normalizeColorName(pat.pattern[0]);
+		const firstFinalNormalized = normalizeColorName(getInitialPatternColor(pat.pattern));
 
 		if (!firstFinalNormalized) {
 			console.warn('⚠️ Padrão salvo rejeitado no sinal final: cor inicial inválida', pat.pattern);
@@ -12428,7 +12430,7 @@ async function verifyWithSavedPatterns(history) {
 				pattern: pat.pattern.join('-'),
 				currentTrigger: currentTrigger,
 				triggerNormalized: finalTriggerNormalized,
-				firstPatternColor: pat.pattern[0],
+				firstPatternColor: getInitialPatternColor(pat.pattern),
 				firstNormalized: firstFinalNormalized,
 				motivo: finalValidation.reason || 'Cor de disparo IGUAL ou inválida - corromperia o padrão!'
 			});
@@ -12661,7 +12663,7 @@ async function discoverAndPersistPatterns(history, startTs, budgetMs) {
 		
 		// 🔥 VALIDAÇÃO CRÍTICA FINAL: Validar trigger antes de salvar no banco
 		if (Array.isArray(p.pattern) && p.pattern.length > 0 && p.triggerColor) {
-			const firstColorNormalized = normalizeColorName(p.pattern[0]);
+			const firstColorNormalized = normalizeColorName(getInitialPatternColor(p.pattern));
 			const triggerNormalized = normalizeColorName(p.triggerColor);
 			const triggerValidation = validateDisparoColor(firstColorNormalized, triggerNormalized);
 			
@@ -13201,34 +13203,43 @@ function analyzeColorPatternsWithTrigger(history) {
 
 // Verificar se a Cor de Disparo é válida para o padrão
 function normalizeColorName(color) {
-    if (!color) return null;
-    const c = color.toString().trim().toLowerCase();
-    switch (c) {
-        case 'red':
-        case 'r':
-        case 'vermelho':
-        case 'v':
-            return 'red';
-        case 'black':
-        case 'b':
-        case 'preto':
-        case 'p':
-            return 'black';
-        case 'white':
-        case 'w':
-        case 'branco':
-        case 'branca':
-        case '0':
-            return 'white';
-        default:
-            return null;
-    }
+	if (!color) return null;
+	const c = color.toString().trim().toLowerCase();
+	switch (c) {
+		case 'red':
+		case 'r':
+		case 'vermelho':
+		case 'v':
+			return 'red';
+		case 'black':
+		case 'b':
+		case 'preto':
+		case 'p':
+			return 'black';
+		case 'white':
+		case 'w':
+		case 'branco':
+		case 'branca':
+		case '0':
+			return 'white';
+		default:
+			return null;
+	}
+}
+
+function getInitialPatternColor(patternArray) {
+	if (!Array.isArray(patternArray) || patternArray.length === 0) {
+		return null;
+	}
+	// Os padrões são armazenados do mais recente para o mais antigo.
+	// A primeira cor imediatamente após a cor de disparo é o último elemento.
+	return patternArray[patternArray.length - 1];
 }
 
 function isValidTrigger(triggerColor, patternSequence) {
     if (!patternSequence || patternSequence.length === 0) return false;
     
-    const firstPatternColor = normalizeColorName(patternSequence[0]);
+	const firstPatternColor = normalizeColorName(getInitialPatternColor(patternSequence));
     const trigger = normalizeColorName(triggerColor);
     
     if (!firstPatternColor || !trigger) return false;
@@ -13264,10 +13275,10 @@ function validateDisparoColor(corInicial, corDisparo) {
 
 // Criar objeto de ocorrência individual (append-only)
 function createOccurrenceRecord(patternSequence, triggerColor, resultColor, spin, index) {
-    const corInicial = normalizeColorName(patternSequence[0]);
+	const corInicial = normalizeColorName(getInitialPatternColor(patternSequence));
     const triggerNormalized = normalizeColorName(triggerColor);
     const resultNormalized = normalizeColorName(resultColor);
-    const validation = validateDisparoColor(corInicial, triggerNormalized);
+	const validation = validateDisparoColor(corInicial, triggerNormalized);
     
     return {
         occurrence_id: spin ? (spin.created_at || spin.timestamp || `${Date.now()}_${index}`) : `${Date.now()}_${index}`,
