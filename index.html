@@ -103,19 +103,149 @@
 
     <!-- 🔐 VERIFICAÇÃO DE AUTENTICAÇÃO -->
     <script>
-        (function() {
-            const authToken = localStorage.getItem('authToken');
-            const user = localStorage.getItem('user');
-            
-            // Verificar se está autenticado
-            if (!authToken || !user) {
+        (async function() {
+            const SESSION_STORAGE_KEYS = ['authToken', 'user', 'lastAuthCheck'];
+
+            function chromeStorageGet(keys) {
+                return new Promise((resolve) => {
+                    try {
+                        if (typeof chrome !== 'undefined' && chrome.storage?.local?.get) {
+                            chrome.storage.local.get(keys, (result) => {
+                                if (chrome.runtime?.lastError) {
+                                    console.warn('⚠️ Erro ao ler chrome.storage.local:', chrome.runtime.lastError.message);
+                                    resolve({});
+                                } else {
+                                    resolve(result || {});
+                                }
+                            });
+                            return;
+                        }
+                    } catch (error) {
+                        console.warn('⚠️ Exceção ao ler chrome.storage.local:', error);
+                    }
+                    resolve({});
+                });
+            }
+
+            function chromeStorageSet(values) {
+                return new Promise((resolve) => {
+                    try {
+                        if (typeof chrome !== 'undefined' && chrome.storage?.local?.set) {
+                            chrome.storage.local.set(values, () => {
+                                if (chrome.runtime?.lastError) {
+                                    console.warn('⚠️ Erro ao gravar chrome.storage.local:', chrome.runtime.lastError.message);
+                                }
+                                resolve();
+                            });
+                            return;
+                        }
+                    } catch (error) {
+                        console.warn('⚠️ Exceção ao gravar chrome.storage.local:', error);
+                    }
+                    resolve();
+                });
+            }
+
+            function chromeStorageRemove(keys) {
+                return new Promise((resolve) => {
+                    try {
+                        if (typeof chrome !== 'undefined' && chrome.storage?.local?.remove) {
+                            chrome.storage.local.remove(keys, () => {
+                                if (chrome.runtime?.lastError) {
+                                    console.warn('⚠️ Erro ao remover chrome.storage.local:', chrome.runtime.lastError.message);
+                                }
+                                resolve();
+                            });
+                            return;
+                        }
+                    } catch (error) {
+                        console.warn('⚠️ Exceção ao remover chrome.storage.local:', error);
+                    }
+                    resolve();
+                });
+            }
+
+            async function getStoredSession() {
+                let token = null;
+                let user = null;
+                let lastAuthCheck = null;
+
+                const chromeData = await chromeStorageGet(SESSION_STORAGE_KEYS);
+                if (chromeData) {
+                    token = chromeData.authToken || null;
+                    user = chromeData.user || null;
+                    lastAuthCheck = chromeData.lastAuthCheck ?? null;
+                }
+
+                if (!token || !user) {
+                    try {
+                        token = token || localStorage.getItem('authToken');
+                    } catch (error) {
+                        console.warn('⚠️ Não foi possível ler authToken do localStorage:', error);
+                    }
+
+                    try {
+                        const userRaw = localStorage.getItem('user');
+                        if (!user && userRaw) {
+                            user = JSON.parse(userRaw);
+                        }
+                    } catch (error) {
+                        console.warn('⚠️ Não foi possível parsear user do localStorage:', error);
+                    }
+
+                    if (!lastAuthCheck) {
+                        try {
+                            lastAuthCheck = localStorage.getItem('lastAuthCheck');
+                        } catch (error) {
+                            console.warn('⚠️ Não foi possível ler lastAuthCheck do localStorage:', error);
+                        }
+                    }
+                }
+
+                return { token, user, lastAuthCheck };
+            }
+
+            async function saveSession(token, user) {
+                const timestamp = Date.now();
+
+                try {
+                    localStorage.setItem('authToken', token);
+                    localStorage.setItem('user', JSON.stringify(user));
+                    localStorage.setItem('lastAuthCheck', timestamp.toString());
+                } catch (error) {
+                    console.error('❌ Erro ao salvar sessão no localStorage:', error);
+                }
+
+                await chromeStorageSet({
+                    authToken: token,
+                    user,
+                    lastAuthCheck: timestamp
+                });
+            }
+
+            async function clearStoredSession() {
+                try {
+                    SESSION_STORAGE_KEYS.forEach(key => localStorage.removeItem(key));
+                } catch (error) {
+                    console.warn('⚠️ Não foi possível limpar sessão do localStorage:', error);
+                }
+
+                await chromeStorageRemove(SESSION_STORAGE_KEYS);
+            }
+
+            const session = await getStoredSession();
+            const authToken = session.token;
+            const storedUser = session.user;
+
+            if (!authToken || !storedUser) {
                 console.log('⚠️ Usuário não autenticado - redirecionando...');
+                await clearStoredSession();
                 window.location.href = 'auth.html';
                 return;
             }
-            
+
             console.log('✅ Autenticado - carregando extensão...');
-            
+
             const performAuthVerify = async () => {
                 try {
                     const response = await fetch('https://blaze-analyzer-api-v2.onrender.com/api/auth/verify', {
@@ -132,26 +262,24 @@
                         throw new Error('Resposta da verificação incompleta');
                     }
 
-                    localStorage.setItem('user', JSON.stringify(data.user));
-                    localStorage.setItem('lastAuthCheck', Date.now().toString());
+                    await saveSession(authToken, data.user);
 
                     if (data.user.status === 'expired' || data.user.status === 'blocked') {
                         const msg = data.user.status === 'expired' 
                             ? 'Sua assinatura expirou. Entre em contato para renovar.'
                             : 'Sua conta foi bloqueada. Entre em contato com o suporte.';
                         alert(msg);
-                        localStorage.clear();
+                        await clearStoredSession();
                         window.location.href = 'auth.html';
                     }
                 } catch (error) {
                     console.warn('⚠️ Verificação de sessão falhou:', error.message);
                     alert('Sua sessão não é mais válida. Faça login novamente.');
-                    localStorage.clear();
+                    await clearStoredSession();
                     window.location.href = 'auth.html';
                 }
             };
 
-            // Verificar imediatamente a cada carregamento
             setTimeout(performAuthVerify, 1000);
         })();
     </script>

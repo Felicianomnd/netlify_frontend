@@ -528,18 +528,144 @@
 
     <script>
         const API_URL = 'https://blaze-analyzer-api-v2.onrender.com/api';
+        const SESSION_STORAGE_KEYS = ['authToken', 'user', 'lastAuthCheck'];
         let selectedPlan = null;
         let userData = null;
         let paymentSettings = null;
 
+        function chromeStorageGet(keys) {
+            return new Promise((resolve) => {
+                try {
+                    if (typeof chrome !== 'undefined' && chrome.storage?.local?.get) {
+                        chrome.storage.local.get(keys, (result) => {
+                            if (chrome.runtime?.lastError) {
+                                console.warn('⚠️ [AUTH] Erro ao ler chrome.storage.local:', chrome.runtime.lastError.message);
+                                resolve({});
+                            } else {
+                                resolve(result || {});
+                            }
+                        });
+                        return;
+                    }
+                } catch (error) {
+                    console.warn('⚠️ [AUTH] Exceção ao acessar chrome.storage.local:', error);
+                }
+                resolve({});
+            });
+        }
+
+        function chromeStorageSet(values) {
+            return new Promise((resolve) => {
+                try {
+                    if (typeof chrome !== 'undefined' && chrome.storage?.local?.set) {
+                        chrome.storage.local.set(values, () => {
+                            if (chrome.runtime?.lastError) {
+                                console.warn('⚠️ [AUTH] Erro ao gravar chrome.storage.local:', chrome.runtime.lastError.message);
+                            }
+                            resolve();
+                        });
+                        return;
+                    }
+                } catch (error) {
+                    console.warn('⚠️ [AUTH] Exceção ao gravar chrome.storage.local:', error);
+                }
+                resolve();
+            });
+        }
+
+        function chromeStorageRemove(keys) {
+            return new Promise((resolve) => {
+                try {
+                    if (typeof chrome !== 'undefined' && chrome.storage?.local?.remove) {
+                        chrome.storage.local.remove(keys, () => {
+                            if (chrome.runtime?.lastError) {
+                                console.warn('⚠️ [AUTH] Erro ao remover chrome.storage.local:', chrome.runtime.lastError.message);
+                            }
+                            resolve();
+                        });
+                        return;
+                    }
+                } catch (error) {
+                    console.warn('⚠️ [AUTH] Exceção ao remover chrome.storage.local:', error);
+                }
+                resolve();
+            });
+        }
+
+        async function getStoredSession() {
+            let token = null;
+            let user = null;
+            let lastAuthCheck = null;
+
+            const chromeData = await chromeStorageGet(SESSION_STORAGE_KEYS);
+            if (chromeData) {
+                token = chromeData.authToken || null;
+                user = chromeData.user || null;
+                lastAuthCheck = chromeData.lastAuthCheck ?? null;
+            }
+
+            if (!token || !user) {
+                try {
+                    token = token || localStorage.getItem('authToken');
+                } catch (error) {
+                    console.warn('⚠️ [AUTH] Não foi possível ler authToken do localStorage:', error);
+                }
+
+                try {
+                    const userRaw = localStorage.getItem('user');
+                    if (!user && userRaw) {
+                        user = JSON.parse(userRaw);
+                    }
+                } catch (error) {
+                    console.warn('⚠️ [AUTH] Não foi possível parsear user do localStorage:', error);
+                }
+
+                if (!lastAuthCheck) {
+                    try {
+                        lastAuthCheck = localStorage.getItem('lastAuthCheck');
+                    } catch (error) {
+                        console.warn('⚠️ [AUTH] Não foi possível ler lastAuthCheck do localStorage:', error);
+                    }
+                }
+            }
+
+            return { token, user, lastAuthCheck };
+        }
+
+        async function saveSession(token, user) {
+            const timestamp = Date.now();
+
+            try {
+                localStorage.setItem('authToken', token);
+                localStorage.setItem('user', JSON.stringify(user));
+                localStorage.setItem('lastAuthCheck', timestamp.toString());
+            } catch (error) {
+                console.error('❌ [AUTH] Erro ao salvar sessão no localStorage:', error);
+            }
+
+            await chromeStorageSet({
+                authToken: token,
+                user,
+                lastAuthCheck: timestamp
+            });
+        }
+
+        async function clearStoredSession() {
+            try {
+                SESSION_STORAGE_KEYS.forEach(key => localStorage.removeItem(key));
+            } catch (error) {
+                console.warn('⚠️ [AUTH] Não foi possível limpar sessão do localStorage:', error);
+            }
+
+            await chromeStorageRemove(SESSION_STORAGE_KEYS);
+        }
+
         // Verificar se já está logado - SIMPLIFICADO
-        window.addEventListener('DOMContentLoaded', () => {
+        window.addEventListener('DOMContentLoaded', async () => {
             console.log('🔐 [AUTH] Verificando se usuário já está logado...');
-            const token = localStorage.getItem('authToken');
-            const user = localStorage.getItem('user');
+            const session = await getStoredSession();
             
-            // Se tem token E user, redirecionar imediatamente
-            if (token && user) {
+            if (session.token && session.user) {
                 console.log('✅ [AUTH] Já está logado! Redirecionando para index.html...');
                 window.location.href = 'index.html';
             } else {
@@ -772,19 +898,12 @@
                     }
                     console.log('');
                     
-                    // Salvar token e dados do usuário
-                    console.log('💾 SALVANDO DADOS NO localStorage:');
+                    console.log('💾 SALVANDO DADOS NA SESSÃO:');
                     try {
-                        localStorage.setItem('authToken', data.token);
-                        console.log('   ✅ authToken salvo');
-                        
-                        localStorage.setItem('user', JSON.stringify(data.user));
-                        console.log('   ✅ user salvo');
-                        
-                        localStorage.setItem('lastAuthCheck', Date.now().toString());
-                        console.log('   ✅ lastAuthCheck salvo');
+                        await saveSession(data.token, data.user);
+                        console.log('   ✅ Sessão persistida com sucesso');
                     } catch (e) {
-                        console.error('   ❌ ERRO ao salvar:', e);
+                        console.error('   ❌ ERRO ao salvar sessão:', e);
                         alert('ERRO ao salvar dados: ' + e.message);
                         return;
                     }
@@ -792,9 +911,10 @@
                     
                     // Verificar se salvou mesmo
                     console.log('🔍 VERIFICANDO SE SALVOU CORRETAMENTE:');
-                    const savedToken = localStorage.getItem('authToken');
-                    const savedUser = localStorage.getItem('user');
-                    const savedCheck = localStorage.getItem('lastAuthCheck');
+                    const savedSession = await getStoredSession();
+                    const savedToken = savedSession.token;
+                    const savedUser = savedSession.user ? JSON.stringify(savedSession.user) : null;
+                    const savedCheck = savedSession.lastAuthCheck;
                     
                     console.log('   authToken:', savedToken ? 'PRESENTE ('+savedToken.length+' caracteres)' : '❌ AUSENTE');
                     console.log('   user:', savedUser ? 'PRESENTE ('+savedUser.length+' caracteres)' : '❌ AUSENTE');
@@ -1016,11 +1136,9 @@
                 
                 if (data.success) {
                     console.log('✅ Conta ativada com sucesso!');
-                    console.log('💾 Salvando no localStorage...');
+                    console.log('💾 Persistindo sessão após ativação...');
                     
-                    localStorage.setItem('authToken', data.token);
-                    localStorage.setItem('user', JSON.stringify(data.user));
-                    localStorage.setItem('lastAuthCheck', Date.now().toString());
+                    await saveSession(data.token, data.user);
                     
                     console.log('✅ Dados salvos!');
                     

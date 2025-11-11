@@ -13,6 +13,7 @@ console.log('%c║                                                              
 
 let isRunning = false;
 let intervalId = null;
+let forceLogoutTabOpened = false;
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // 💾 CACHE EM MEMÓRIA (não persiste após recarregar)
@@ -17261,6 +17262,32 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         sendResponse({ status: 'success', stats: stats });
         // Enviar atualização para content.js
         sendObserverUpdate(true); // Mostrar log na recalibração manual
+        return true;
+    } else if (request.action === 'FORCE_LOGOUT') {
+        console.warn('%c⚠️ [BACKGROUND] Logout forçado solicitado: ' + (request.reason || 'motivo não informado'), 'color: #FF4444; font-weight: bold;');
+        stopDataCollection();
+
+        try {
+            chrome.storage?.local?.remove(['authToken', 'user', 'lastAuthCheck'], () => {
+                if (chrome.runtime?.lastError) {
+                    console.warn('⚠️ [BACKGROUND] Erro ao limpar chrome.storage.local durante logout forçado:', chrome.runtime.lastError.message);
+                } else {
+                    console.log('%c🧹 [BACKGROUND] Sessão removida do chrome.storage.local', 'color: #FF4444; font-weight: bold;');
+                }
+            });
+        } catch (error) {
+            console.error('❌ [BACKGROUND] Falha ao remover sessão do chrome.storage.local:', error);
+        }
+
+        if (!forceLogoutTabOpened) {
+            forceLogoutTabOpened = true;
+            const loginUrl = chrome.runtime?.getURL ? chrome.runtime.getURL('auth.html') : 'auth.html';
+            chrome.tabs.create({ url: loginUrl }, () => {
+                setTimeout(() => { forceLogoutTabOpened = false; }, 2000);
+            });
+        }
+
+        sendResponse({ status: 'logged_out' });
         return true;
     } else if (request.action === 'aiModeChanged') {
         // Modo IA foi alterado

@@ -18,6 +18,78 @@
     let autoPatternSearchTriggered = false; // Impede disparos automáticos repetidos
     let suppressAutoPatternSearch = false; // Evita busca automática após reset manual
     
+    const SESSION_STORAGE_KEYS = ['authToken', 'user', 'lastAuthCheck'];
+    let forceLogoutAlreadyTriggered = false;
+
+    function getAuthPageUrl() {
+        try {
+            if (typeof chrome !== 'undefined' && chrome.runtime?.getURL) {
+                return chrome.runtime.getURL('auth.html');
+            }
+        } catch (error) {
+            console.warn('⚠️ Não foi possível obter URL via chrome.runtime.getURL:', error);
+        }
+        return 'auth.html';
+    }
+
+    function clearSessionStorageKeys() {
+        try {
+            SESSION_STORAGE_KEYS.forEach(key => {
+                localStorage.removeItem(key);
+            });
+        } catch (error) {
+            console.error('❌ Erro ao limpar localStorage da sessão:', error);
+        }
+
+        try {
+            if (typeof chrome !== 'undefined' && chrome.storage?.local?.remove) {
+                chrome.storage.local.remove(SESSION_STORAGE_KEYS, () => {
+                    if (chrome.runtime?.lastError) {
+                        console.warn('⚠️ Erro ao remover sessão do chrome.storage.local:', chrome.runtime.lastError.message);
+                    }
+                });
+            }
+        } catch (error) {
+            console.error('❌ Erro ao limpar chrome.storage.local da sessão:', error);
+        }
+    }
+
+    function forceLogout(reason = 'Sessão inválida') {
+        if (forceLogoutAlreadyTriggered) {
+            return;
+        }
+
+        forceLogoutAlreadyTriggered = true;
+        console.warn('⚠️ Sessão será encerrada. Motivo:', reason);
+
+        clearSessionStorageKeys();
+
+        try {
+            if (typeof chrome !== 'undefined' && chrome.runtime?.sendMessage) {
+                chrome.runtime.sendMessage({ action: 'FORCE_LOGOUT', reason });
+            }
+        } catch (error) {
+            console.error('❌ Erro ao notificar background sobre logout forçado:', error);
+        }
+
+        try {
+            alert('Sua sessão foi encerrada. Faça login novamente.\n\nMotivo: ' + reason);
+        } catch (error) {
+            console.warn('⚠️ Não foi possível mostrar alerta de logout:', error);
+        }
+
+        const loginUrl = getAuthPageUrl();
+        try {
+            const newWindow = window.open(loginUrl, '_blank');
+            if (!newWindow) {
+                window.location.href = loginUrl;
+            }
+        } catch (error) {
+            console.warn('⚠️ Não foi possível abrir nova aba. Redirecionando...');
+            window.location.href = loginUrl;
+        }
+    }
+    
     // Resetar dados ao iniciar nova sessão de página (apenas uma vez por aba)
     function resetSessionIfNeeded() {
         try {
@@ -2510,6 +2582,11 @@ const DIAMOND_LEVEL_DEFAULTS = {
             
             if (!response.ok) {
                 console.error('❌ Servidor retornou erro:', response.status);
+                if (response.status === 401 || response.status === 403) {
+                    forceLogout('Sessão encerrada ao sincronizar padrões');
+                    console.log('═══════════════════════════════════════════════════════════');
+                    return false;
+                }
                 const errorText = await response.text();
                 console.error('❌ Resposta:', errorText);
                 console.log('═══════════════════════════════════════════════════════════');
@@ -2575,10 +2652,11 @@ const DIAMOND_LEVEL_DEFAULTS = {
                 console.error('❌ Resposta:', errorText);
                 
                 if (response.status === 401 || response.status === 403) {
-                    console.warn('⚠️ Erro de autenticação - mas NÃO vou deslogar automaticamente');
-                    console.warn('⚠️ Pode ser erro temporário do servidor ou de rede');
+                    forceLogout('Sessão não autorizada ao carregar padrões');
+                    console.log('═══════════════════════════════════════════════════════════');
+                    return null;
                 }
-                
+
                 console.log('═══════════════════════════════════════════════════════════');
                 return null;
             }
@@ -2638,9 +2716,8 @@ const DIAMOND_LEVEL_DEFAULTS = {
             
             if (!response.ok) {
                 if (response.status === 401 || response.status === 403) {
-                    console.warn('⚠️ Erro 401/403 ao sincronizar configurações - ignorando');
-                    console.warn('⚠️ Pode ser erro temporário - NÃO vou deslogar');
-                    // ❌ NÃO REMOVER TOKEN - pode ser erro temporário
+                    forceLogout('Sessão não autorizada ao sincronizar configurações');
+                    return false;
                 }
                 return false;
             }
@@ -2678,9 +2755,8 @@ const DIAMOND_LEVEL_DEFAULTS = {
             
             if (!response.ok) {
                 if (response.status === 401 || response.status === 403) {
-                    console.warn('⚠️ Erro 401/403 ao carregar configurações - ignorando');
-                    console.warn('⚠️ Pode ser erro temporário - NÃO vou deslogar');
-                    // ❌ NÃO REMOVER TOKEN - pode ser erro temporário
+                    forceLogout('Sessão não autorizada ao carregar configurações');
+                    return null;
                 }
                 return null;
             }
