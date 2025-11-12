@@ -1422,11 +1422,14 @@
                 console.log('🌐 URL da API:', API_URL);
                 
                 const controller = new AbortController();
-                const timeoutId = setTimeout(() => controller.abort(), 60000); // 60 segundos timeout
+                const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 segundos timeout
 
                 const response = await fetch(`${API_URL}/auth/email-verification/request`, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: { 
+                        'Content-Type': 'application/json',
+                        'Cache-Control': 'no-cache, no-store, must-revalidate'
+                    },
                     body: JSON.stringify({
                         email: userData.email,
                         name: userData.name
@@ -1443,6 +1446,7 @@
                     throw new Error(data.error || 'Não foi possível enviar o código de verificação.');
                 }
 
+                // Transicionar para tela de verificação IMEDIATAMENTE
                 emailVerificationToken = null;
                 showScreen('emailVerificationScreen');
                 document.getElementById('verificationEmailText').textContent = userData.email;
@@ -1450,18 +1454,18 @@
                 startVerificationCooldown(60);
 
                 if (showSuccessMessage) {
-                    showMessage('Enviamos um código para o seu email. Verifique a caixa de entrada e o spam.', 'success');
+                    showMessage('Código enviado! Verifique sua caixa de entrada e spam.', 'success');
                 } else {
-                    showMessage('Novo código enviado! Confira seu email.', 'success');
+                    showMessage('Novo código enviado!', 'success');
                 }
 
             } catch (error) {
                 console.error('❌ Erro ao solicitar código:', error);
                 
                 if (error.name === 'AbortError') {
-                    showMessage('A solicitação demorou muito. Verifique sua conexão e tente novamente.', 'error');
+                    showMessage('Tempo esgotado. Verifique sua conexão.', 'error');
                 } else if (!error || !error.handled) {
-                    showMessage(error.message || 'Erro ao enviar o código de verificação.', 'error');
+                    showMessage(error.message || 'Erro ao enviar o código.', 'error');
                 }
                 throw { handled: true };
             }
