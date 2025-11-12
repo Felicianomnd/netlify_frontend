@@ -3072,16 +3072,51 @@
         width: 100% !important;
         max-width: 100% !important;
         box-sizing: border-box !important;
+        display: flex !important;
+        flex-direction: row !important;
+        align-items: center !important;
+        justify-content: space-between !important;
+        gap: 8px !important;
+    }
+    
+    .header-main {
+        flex: 1 !important;
+        min-width: 0 !important;
+        display: flex !important;
+        align-items: center !important;
+        gap: 6px !important;
     }
     
     .analyzer-header h3 {
-        font-size: 16px !important;
+        font-size: 13px !important;
+        white-space: nowrap !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+        flex-shrink: 1 !important;
+        min-width: 0 !important;
     }
     
     .title-badge {
-        font-size: 8px !important;
-        padding: 2px 5px !important;
-        margin-left: 4px !important;
+        font-size: 7px !important;
+        padding: 2px 4px !important;
+        margin-left: 0 !important;
+        white-space: nowrap !important;
+        flex-shrink: 0 !important;
+    }
+    
+    /* ✅ TRÊS BARRINHAS - REDUZIDAS E DISCRETAS */
+    .user-menu-toggle {
+        width: 24px !important;
+        height: 20px !important;
+        padding: 4px 6px !important;
+        gap: 3px !important;
+        flex-shrink: 0 !important;
+        border-radius: 6px !important;
+    }
+    
+    .user-menu-toggle span {
+        height: 1.5px !important;
+        width: 100% !important;
     }
     
     /* ✅ AJUSTAR BOTÕES DO HEADER */
@@ -3469,14 +3504,34 @@
         min-height: 45px !important;
     }
     
+    .header-content {
+        gap: 6px !important;
+    }
+    
+    .header-main {
+        gap: 4px !important;
+    }
+    
     .analyzer-header h3 {
-        font-size: 14px !important;
+        font-size: 12px !important;
     }
     
     .title-badge {
-        font-size: 7px !important;
-        padding: 1px 4px !important;
-        margin-left: 3px !important;
+        font-size: 6px !important;
+        padding: 1px 3px !important;
+        margin-left: 0 !important;
+    }
+    
+    /* ✅ TRÊS BARRINHAS - AINDA MENORES PARA TELAS PEQUENAS */
+    .user-menu-toggle {
+        width: 20px !important;
+        height: 18px !important;
+        padding: 3px 5px !important;
+        gap: 2px !important;
+    }
+    
+    .user-menu-toggle span {
+        height: 1.5px !important;
     }
     
     .ai-mode-toggle {
@@ -3529,14 +3584,34 @@
         min-height: 40px !important;
     }
     
+    .header-content {
+        gap: 6px !important;
+    }
+    
+    .header-main {
+        gap: 4px !important;
+    }
+    
     .analyzer-header h3 {
-        font-size: 14px !important;
+        font-size: 12px !important;
     }
     
     .title-badge {
-        font-size: 7px !important;
-        padding: 1px 4px !important;
-        margin-left: 3px !important;
+        font-size: 6px !important;
+        padding: 1px 3px !important;
+        margin-left: 0 !important;
+    }
+    
+    /* ✅ TRÊS BARRINHAS - COMPACTAS PARA LANDSCAPE */
+    .user-menu-toggle {
+        width: 22px !important;
+        height: 18px !important;
+        padding: 3px 5px !important;
+        gap: 2px !important;
+    }
+    
+    .user-menu-toggle span {
+        height: 1.5px !important;
     }
     
     .ai-mode-toggle {
