@@ -166,6 +166,50 @@
             box-shadow: 0 0 0 3px rgba(255, 0, 63, 0.1);
         }
 
+        .password-input-wrapper {
+            position: relative;
+            width: 100%;
+        }
+
+        .password-input-wrapper .form-input {
+            padding-right: 50px;
+        }
+
+        .password-toggle {
+            position: absolute;
+            right: 14px;
+            top: 50%;
+            transform: translateY(-50%);
+            background: transparent;
+            border: none;
+            color: #6e7681;
+            cursor: pointer;
+            padding: 6px;
+            line-height: 0;
+            transition: color 0.15s ease;
+            border-radius: 3px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .password-toggle:hover {
+            color: #c9d1d9;
+        }
+
+        .password-toggle:active {
+            color: #ff003f;
+        }
+
+        .eye-icon {
+            opacity: 0.7;
+            transition: opacity 0.15s ease;
+        }
+
+        .password-toggle:hover .eye-icon {
+            opacity: 1;
+        }
+
         .form-input::placeholder {
             color: #8da2bb;
         }
@@ -740,7 +784,17 @@
                     </div>
                     <div class="form-group">
                         <label class="form-label">Senha</label>
-                        <input type="password" class="form-input" id="loginPassword" placeholder="••••••••" required>
+                        <div class="password-input-wrapper">
+                            <input type="password" class="form-input" id="loginPassword" placeholder="••••••••" required>
+                            <button type="button" class="password-toggle" onclick="togglePasswordVisibility('loginPassword', this)" aria-label="Mostrar senha">
+                                <svg class="eye-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path class="eye-open" d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                                    <circle class="eye-open" cx="12" cy="12" r="3"></circle>
+                                    <path class="eye-closed" d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" style="display:none;"></path>
+                                    <line class="eye-closed" x1="1" y1="1" x2="23" y2="23" style="display:none;"></line>
+                                </svg>
+                            </button>
+                        </div>
                     </div>
                     <button type="submit" class="btn btn-primary" id="loginBtn">
                         Entrar
@@ -764,11 +818,31 @@
                     </div>
                     <div class="form-group">
                         <label class="form-label">Senha (mínimo 6 caracteres)</label>
-                        <input type="password" class="form-input" id="registerPassword" placeholder="••••••••" minlength="6" required>
+                        <div class="password-input-wrapper">
+                            <input type="password" class="form-input" id="registerPassword" placeholder="••••••••" minlength="6" required>
+                            <button type="button" class="password-toggle" onclick="togglePasswordVisibility('registerPassword', this)" aria-label="Mostrar senha">
+                                <svg class="eye-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path class="eye-open" d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                                    <circle class="eye-open" cx="12" cy="12" r="3"></circle>
+                                    <path class="eye-closed" d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" style="display:none;"></path>
+                                    <line class="eye-closed" x1="1" y1="1" x2="23" y2="23" style="display:none;"></line>
+                                </svg>
+                            </button>
+                        </div>
                     </div>
                     <div class="form-group">
                         <label class="form-label">Confirmar Senha</label>
-                        <input type="password" class="form-input" id="registerPasswordConfirm" placeholder="••••••••" minlength="6" required>
+                        <div class="password-input-wrapper">
+                            <input type="password" class="form-input" id="registerPasswordConfirm" placeholder="••••••••" minlength="6" required>
+                            <button type="button" class="password-toggle" onclick="togglePasswordVisibility('registerPasswordConfirm', this)" aria-label="Mostrar senha">
+                                <svg class="eye-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path class="eye-open" d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                                    <circle class="eye-open" cx="12" cy="12" r="3"></circle>
+                                    <path class="eye-closed" d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" style="display:none;"></path>
+                                    <line class="eye-closed" x1="1" y1="1" x2="23" y2="23" style="display:none;"></line>
+                                </svg>
+                            </button>
+                        </div>
                     </div>
                     <button type="submit" class="btn btn-primary" id="registerBtn">
                         Criar Conta
@@ -1070,6 +1144,24 @@
 
         function hideMessage() {
             document.getElementById('message').classList.remove('show');
+        }
+
+        function togglePasswordVisibility(inputId, button) {
+            const input = document.getElementById(inputId);
+            const eyeOpen = button.querySelectorAll('.eye-open');
+            const eyeClosed = button.querySelectorAll('.eye-closed');
+            
+            if (input.type === 'password') {
+                input.type = 'text';
+                eyeOpen.forEach(el => el.style.display = 'none');
+                eyeClosed.forEach(el => el.style.display = 'block');
+                button.setAttribute('aria-label', 'Ocultar senha');
+            } else {
+                input.type = 'password';
+                eyeOpen.forEach(el => el.style.display = 'block');
+                eyeClosed.forEach(el => el.style.display = 'none');
+                button.setAttribute('aria-label', 'Mostrar senha');
+            }
         }
 
         function showScreen(screenId) {
