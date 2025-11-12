@@ -85,7 +85,7 @@
     <!-- Mensagem de carregamento -->
     <div id="loading-message">
         <div class="loader"></div>
-        <h2>Carregando Blaze Analyzer...</h2>
+        <h2>🚀 Carregando Blaze Analyzer...</h2>
         <p>Inicializando sistemas...</p>
     </div>
 
@@ -153,7 +153,7 @@
                             chrome.storage.local.remove(keys, () => {
                                 if (chrome.runtime?.lastError) {
                                     console.warn('⚠️ Erro ao remover chrome.storage.local:', chrome.runtime.lastError.message);
-                                }
+            }
                                 resolve();
                             });
                             return;
@@ -175,7 +175,7 @@
                     token = chromeData.authToken || null;
                     user = chromeData.user || null;
                     lastAuthCheck = chromeData.lastAuthCheck ?? null;
-                }
+            }
 
                 if (!token || !user) {
                     try {
@@ -216,12 +216,6 @@
                     console.error('❌ Erro ao salvar sessão no localStorage:', error);
                 }
 
-                try {
-                    window.dispatchEvent(new CustomEvent('doubleAnalyzerUserUpdated', { detail: { user } }));
-                } catch (eventError) {
-                    console.warn('⚠️ Não foi possível despachar evento de atualização de usuário:', eventError);
-                }
-
                 await chromeStorageSet({
                     authToken: token,
                     user,
@@ -234,12 +228,6 @@
                     SESSION_STORAGE_KEYS.forEach(key => localStorage.removeItem(key));
                 } catch (error) {
                     console.warn('⚠️ Não foi possível limpar sessão do localStorage:', error);
-                }
-
-                try {
-                    window.dispatchEvent(new CustomEvent('doubleAnalyzerUserUpdated', { detail: { user: null } }));
-                } catch (eventError) {
-                    console.warn('⚠️ Não foi possível despachar evento de limpeza de usuário:', eventError);
                 }
 
                 await chromeStorageRemove(SESSION_STORAGE_KEYS);
@@ -255,20 +243,20 @@
                 window.location.href = 'auth.html';
                 return;
             }
-
+            
             console.log('✅ Autenticado - carregando extensão...');
 
             const performAuthVerify = async () => {
-                try {
-                    const response = await fetch('https://blaze-analyzer-api-v2.onrender.com/api/auth/verify', {
-                        headers: { 'Authorization': 'Bearer ' + authToken }
-                    });
-
+                    try {
+                        const response = await fetch('https://blaze-analyzer-api-v2.onrender.com/api/auth/verify', {
+                            headers: { 'Authorization': 'Bearer ' + authToken }
+                        });
+                        
                     if (!response.ok) {
                         throw new Error(`Token inválido ou usuário removido (status ${response.status})`);
                     }
 
-                    const data = await response.json();
+                            const data = await response.json();
 
                     if (!data.success || !data.user) {
                         throw new Error('Resposta da verificação incompleta');
@@ -276,20 +264,20 @@
 
                     await saveSession(authToken, data.user);
 
-                    if (data.user.status === 'expired' || data.user.status === 'blocked') {
-                        const msg = data.user.status === 'expired' 
-                            ? 'Sua assinatura expirou. Entre em contato para renovar.'
-                            : 'Sua conta foi bloqueada. Entre em contato com o suporte.';
-                        alert(msg);
+                                if (data.user.status === 'expired' || data.user.status === 'blocked') {
+                                    const msg = data.user.status === 'expired' 
+                                        ? 'Sua assinatura expirou. Entre em contato para renovar.'
+                                        : 'Sua conta foi bloqueada. Entre em contato com o suporte.';
+                                    alert(msg);
                         await clearStoredSession();
-                        window.location.href = 'auth.html';
-                    }
+                                    window.location.href = 'auth.html';
+                                }
                 } catch (error) {
                     console.warn('⚠️ Verificação de sessão falhou:', error.message);
                     alert('Sua sessão não é mais válida. Faça login novamente.');
                     await clearStoredSession();
                     window.location.href = 'auth.html';
-                }
+                    }
             };
 
             setTimeout(performAuthVerify, 1000);

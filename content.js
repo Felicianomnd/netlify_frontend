@@ -20,320 +20,6 @@
     
     const SESSION_STORAGE_KEYS = ['authToken', 'user', 'lastAuthCheck'];
     let forceLogoutAlreadyTriggered = false;
-    let cachedUserData = null;
-    let userMenuUpdateFn = null;
-    let userMenuStorageListenerAdded = false;
-    let userMenuKeydownListenerAdded = false;
-
-    function readUserFromLocalStorage() {
-        try {
-            const stored = localStorage.getItem('user');
-            if (!stored) {
-                return null;
-            }
-            if (typeof stored === 'string') {
-                return JSON.parse(stored);
-            }
-            return stored;
-        } catch (error) {
-            console.warn('⚠️ Não foi possível ler/parsear user do localStorage:', error);
-            return null;
-        }
-    }
-
-    function readUserFromChromeStorage() {
-        return new Promise((resolve) => {
-            try {
-                if (typeof chrome === 'undefined' || !chrome.storage?.local?.get) {
-                    resolve(null);
-                    return;
-                }
-                chrome.storage.local.get(['user'], (result) => {
-                    if (chrome.runtime?.lastError) {
-                        console.warn('⚠️ Erro ao obter user do chrome.storage.local:', chrome.runtime.lastError.message);
-                        resolve(null);
-                        return;
-                    }
-                    resolve(result?.user || null);
-                });
-            } catch (error) {
-                console.error('❌ Exceção ao ler user do chrome.storage.local:', error);
-                resolve(null);
-            }
-        });
-    }
-
-    async function loadCurrentUserData(forceRefresh = false) {
-        if (forceRefresh) {
-            cachedUserData = null;
-        }
-
-        if (cachedUserData) {
-            return cachedUserData;
-        }
-
-        let user = readUserFromLocalStorage();
-
-        if (!user) {
-            user = await readUserFromChromeStorage();
-        }
-
-        if (user && typeof user === 'string') {
-            try {
-                user = JSON.parse(user);
-            } catch (error) {
-                console.warn('⚠️ Não foi possível parsear user obtido como string:', error);
-                user = null;
-            }
-        }
-
-        if (user && typeof user === 'object') {
-            cachedUserData = user;
-            return user;
-        }
-
-        return null;
-    }
-
-    function formatPlanName(plan) {
-        if (!plan) {
-            return 'Plano não definido';
-        }
-        const map = {
-            '1month': 'Plano 1 mês',
-            '3months': 'Plano 3 meses'
-        };
-        return map[plan] || 'Plano personalizado';
-    }
-
-    function formatStatusLabel(status) {
-        const map = {
-            pending: { text: 'Aguardando ativação', className: 'pending' },
-            active: { text: 'Ativo', className: 'active' },
-            expired: { text: 'Expirado', className: 'expired' },
-            blocked: { text: 'Bloqueado', className: 'blocked' }
-        };
-        return map[status] || { text: 'Indefinido', className: 'pending' };
-    }
-
-    function formatExpirationDate(dateStr) {
-        if (!dateStr) {
-            return '---';
-        }
-        const date = new Date(dateStr);
-        if (Number.isNaN(date.getTime())) {
-            return '---';
-        }
-        try {
-            return new Intl.DateTimeFormat('pt-BR', {
-                day: '2-digit',
-                month: '2-digit',
-                year: 'numeric'
-            }).format(date);
-        } catch (error) {
-            return date.toLocaleDateString();
-        }
-    }
-
-    function getDaysRemainingInfo(user) {
-        if (!user) {
-            return { text: '---', status: 'neutral' };
-        }
-
-        if (user.status !== 'active') {
-            if (user.status === 'pending') {
-                return { text: 'Aguardando ativação', status: 'pending' };
-            }
-            if (user.status === 'blocked') {
-                return { text: 'Conta bloqueada', status: 'danger' };
-            }
-            return { text: 'Plano expirado', status: 'danger' };
-        }
-
-        if (!user.expiresAt) {
-            return { text: 'Sem data de expiração', status: 'neutral' };
-        }
-
-        const expiresAt = new Date(user.expiresAt);
-        if (Number.isNaN(expiresAt.getTime())) {
-            return { text: 'Data inválida', status: 'neutral' };
-        }
-
-        const now = new Date();
-        const diffMs = expiresAt.getTime() - now.getTime();
-        const diffDays = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
-
-        if (diffDays <= 0) {
-            return { text: 'Plano expira hoje', status: 'danger' };
-        }
-        if (diffDays === 1) {
-            return { text: 'Resta 1 dia', status: 'danger' };
-        }
-        if (diffDays <= 3) {
-            return { text: `Restam ${diffDays} dias`, status: 'danger' };
-        }
-        if (diffDays <= 7) {
-            return { text: `Restam ${diffDays} dias`, status: 'warning' };
-        }
-
-        return { text: `Restam ${diffDays} dias`, status: 'neutral' };
-    }
-
-    window.addEventListener(
-        'doubleAnalyzerUserUpdated',
-        (event) => {
-            const detailUser = event && event.detail ? event.detail.user : null;
-            cachedUserData = detailUser || null;
-            if (typeof userMenuUpdateFn === 'function') {
-                userMenuUpdateFn(!detailUser);
-            }
-        },
-        false
-    );
-
-    function initializeUserMenu(sidebar) {
-        const toggleButton = sidebar.querySelector('#userMenuToggle');
-        const overlay = sidebar.querySelector('#userMenuOverlay');
-        const panel = sidebar.querySelector('#userMenuPanel');
-        const closeButton = sidebar.querySelector('#userMenuClose');
-        const logoutButton = sidebar.querySelector('#userMenuLogout');
-
-        if (!toggleButton || !overlay || !panel) {
-            return;
-        }
-
-        const nameEl = panel.querySelector('#userMenuName');
-        const emailEl = panel.querySelector('#userMenuEmail');
-        const planEl = panel.querySelector('#userMenuPlan');
-        const daysEl = panel.querySelector('#userMenuDays');
-        const expireEl = panel.querySelector('#userMenuExpire');
-        const statusEl = panel.querySelector('#userMenuStatus');
-
-        const resetPlaceholders = () => {
-            if (nameEl) nameEl.textContent = '---';
-            if (emailEl) emailEl.textContent = '---';
-            if (planEl) planEl.textContent = '---';
-            if (daysEl) {
-                daysEl.textContent = '---';
-                daysEl.classList.remove('is-warning', 'is-alert');
-            }
-            if (expireEl) expireEl.textContent = '---';
-            if (statusEl) {
-                statusEl.textContent = 'Indefinido';
-                statusEl.className = 'status-pill pending';
-            }
-        };
-
-        const updateUserMenuContent = async (forceRefresh = false) => {
-            const user = await loadCurrentUserData(forceRefresh);
-
-            if (!user) {
-                resetPlaceholders();
-                return;
-            }
-
-            if (nameEl) nameEl.textContent = user.name || '---';
-            if (emailEl) emailEl.textContent = user.email || '---';
-            if (planEl) planEl.textContent = formatPlanName(user.selectedPlan);
-            if (expireEl) expireEl.textContent = formatExpirationDate(user.expiresAt);
-
-            if (statusEl) {
-                const statusInfo = formatStatusLabel(user.status);
-                statusEl.textContent = statusInfo.text;
-                statusEl.className = `status-pill ${statusInfo.className}`;
-            }
-
-            if (daysEl) {
-                const daysInfo = getDaysRemainingInfo(user);
-                daysEl.textContent = daysInfo.text;
-                daysEl.classList.remove('is-warning', 'is-alert');
-                if (daysInfo.status === 'danger') {
-                    daysEl.classList.add('is-alert');
-                } else if (daysInfo.status === 'warning') {
-                    daysEl.classList.add('is-warning');
-                }
-            }
-        };
-
-        userMenuUpdateFn = (forceRefresh = false) => {
-            updateUserMenuContent(forceRefresh);
-        };
-
-        const openMenu = async () => {
-            await updateUserMenuContent(true);
-            sidebar.classList.add('user-menu-open');
-            toggleButton.setAttribute('aria-expanded', 'true');
-        };
-
-        const closeMenu = () => {
-            sidebar.classList.remove('user-menu-open');
-            toggleButton.setAttribute('aria-expanded', 'false');
-        };
-
-        toggleButton.addEventListener('click', () => {
-            if (sidebar.classList.contains('user-menu-open')) {
-                closeMenu();
-            } else {
-                openMenu();
-            }
-        });
-
-        overlay.addEventListener('click', closeMenu);
-
-        if (closeButton) {
-            closeButton.addEventListener('click', closeMenu);
-        }
-
-        if (logoutButton) {
-            logoutButton.addEventListener('click', () => {
-                closeMenu();
-                cachedUserData = null;
-                forceLogout('Logout realizado pelo usuário');
-            });
-        }
-
-        if (!userMenuStorageListenerAdded) {
-            window.addEventListener('storage', (event) => {
-                if (event.key === 'user') {
-                    cachedUserData = null;
-                    if (userMenuUpdateFn) {
-                        userMenuUpdateFn(true);
-                    }
-                }
-            });
-
-            if (typeof chrome !== 'undefined' && chrome.storage?.onChanged) {
-                chrome.storage.onChanged.addListener((changes, areaName) => {
-                    if (areaName === 'local' && changes.user) {
-                        cachedUserData = changes.user.newValue || null;
-                        if (userMenuUpdateFn) {
-                            userMenuUpdateFn(false);
-                        }
-                    }
-                });
-            }
-
-            userMenuStorageListenerAdded = true;
-        }
-
-        if (!userMenuKeydownListenerAdded) {
-            document.addEventListener('keydown', (event) => {
-                if (event.key === 'Escape') {
-                    const activeSidebar = document.getElementById('blaze-double-analyzer');
-                    if (activeSidebar && activeSidebar.classList.contains('user-menu-open')) {
-                        activeSidebar.classList.remove('user-menu-open');
-                        const toggle = activeSidebar.querySelector('#userMenuToggle');
-                        if (toggle) {
-                            toggle.setAttribute('aria-expanded', 'false');
-                        }
-                    }
-                }
-            });
-            userMenuKeydownListenerAdded = true;
-        }
-
-        updateUserMenuContent();
-    }
 
     function getAuthPageUrl() {
         try {
@@ -353,11 +39,6 @@
             });
         } catch (error) {
             console.error('❌ Erro ao limpar localStorage da sessão:', error);
-        }
-
-        cachedUserData = null;
-        if (typeof userMenuUpdateFn === 'function') {
-            userMenuUpdateFn(true);
         }
 
         try {
@@ -955,6 +636,7 @@
             });
         });
     }
+    
     // ═══════════════════════════════════════════════════════════════════════════════
     // FUNÇÃO: Mostrar/Ocultar campos baseado no modo (IA ou Padrão)
     // ═══════════════════════════════════════════════════════════════════════════════
@@ -1350,7 +1032,7 @@
     // ═══════════════════════════════════════════════════════════════════════════════
     
     let customPatternsData = []; // Array de padrões customizados
-    
+
 const DIAMOND_LEVEL_DEFAULTS = {
     n1HotPattern: 60,
     n2Recent: 5,
@@ -1363,6 +1045,7 @@ const DIAMOND_LEVEL_DEFAULTS = {
     n7HistoryWindow: 100,
     n8Barrier: 50
 };
+    
     // Função para mostrar notificação toast (simples e rápida)
     function showToast(message, duration = 2000) {
         // Remover toast anterior se existir
@@ -1928,6 +1611,7 @@ const DIAMOND_LEVEL_DEFAULTS = {
             alert('Não foi possível salvar as configurações dos níveis. Tente novamente.');
         }
     }
+    
     // ═══════════════════════════════════════════════════════════════════════════════
     // 🎯 RENDERIZAR LISTA DE PADRÕES DO BANCO
     // ═══════════════════════════════════════════════════════════════════════════════
@@ -2572,6 +2256,7 @@ const DIAMOND_LEVEL_DEFAULTS = {
         
         console.log(`➕ Cor ${color} adicionada à sequência`);
     }
+    
     // ═══════════════════════════════════════════════════════════════
     // 🌐 API HELPER - SINCRONIZAÇÃO COM SERVIDOR
       // ═══════════════════════════════════════════════════════════════
@@ -3089,6 +2774,7 @@ const DIAMOND_LEVEL_DEFAULTS = {
             return null;
         }
     }
+    
     // Salvar modelo customizado
     async function saveCustomPatternModel() {
         const name = document.getElementById('customPatternName').value.trim();
@@ -3615,6 +3301,7 @@ const DIAMOND_LEVEL_DEFAULTS = {
     };
     
     // ✅ Removido: loadCustomPatternsList() agora é chamada diretamente após criar a sidebar
+
     // Create sidebar
     function createSidebar() {
         console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #FFD700; font-weight: bold;');
@@ -3661,51 +3348,6 @@ const DIAMOND_LEVEL_DEFAULTS = {
                             <div class="mode-api-status" id="modeApiStatus"></div>
                         </div>
                     </div>
-                </div>
-                <button class="header-menu-toggle" id="userMenuToggle" aria-label="Abrir menu do usuário" aria-expanded="false" data-no-drag="true">
-                    <span></span>
-                    <span></span>
-                    <span></span>
-                </button>
-            </div>
-            <div class="user-menu-overlay" id="userMenuOverlay" data-no-drag="true"></div>
-            <div class="user-menu-panel" id="userMenuPanel" data-no-drag="true">
-                <div class="user-menu-header">
-                    <div>
-                        <h4 class="user-menu-title">Meu acesso</h4>
-                        <p class="user-menu-subtitle">Detalhes da sua assinatura</p>
-                    </div>
-                    <button type="button" class="user-menu-close" id="userMenuClose">Fechar</button>
-                </div>
-                <div class="user-menu-info">
-                    <div class="user-info-group">
-                        <span class="info-label">Nome completo</span>
-                        <span class="info-value" id="userMenuName">---</span>
-                    </div>
-                    <div class="user-info-group">
-                        <span class="info-label">Email</span>
-                        <span class="info-value" id="userMenuEmail">---</span>
-                    </div>
-                    <div class="user-menu-divider"></div>
-                    <div class="user-info-group">
-                        <span class="info-label">Plano</span>
-                        <span class="info-value" id="userMenuPlan">---</span>
-                    </div>
-                    <div class="user-info-group">
-                        <span class="info-label">Dias restantes</span>
-                        <span class="info-value info-days" id="userMenuDays">---</span>
-                    </div>
-                    <div class="user-info-group">
-                        <span class="info-label">Expira em</span>
-                        <span class="info-value" id="userMenuExpire">---</span>
-                    </div>
-                    <div class="user-info-group">
-                        <span class="info-label">Status</span>
-                        <span class="status-pill pending" id="userMenuStatus">Indefinido</span>
-                    </div>
-                </div>
-                <div class="user-menu-footer">
-                    <button type="button" class="user-menu-logout" id="userMenuLogout">Sair da conta</button>
                 </div>
             </div>
             <div class="analyzer-content" id="analyzerContent">
@@ -3962,8 +3604,6 @@ const DIAMOND_LEVEL_DEFAULTS = {
                 </div>
             </div>
         `;
-        
-        initializeUserMenu(sidebar);
         
         // Add to page
         console.log('%c➕ Adicionando sidebar ao document.body...', 'color: #00AAFF;');
@@ -4250,6 +3890,375 @@ const DIAMOND_LEVEL_DEFAULTS = {
   <circle cx="10.4" cy="13.6" r="0.9" fill="#FF3B5B"/>
   <circle cx="13.6" cy="13.6" r="0.9" fill="#FF3B5B"/>
 </svg>`;
+    }
+
+    // Cache de assinatura do histórico para evitar re-render desnecessário
+    let lastHistorySignature = '';
+    function getHistorySignature(history) {
+        try {
+            return history.slice(0, 30).map(s => s.timestamp).join('|');
+        } catch (_) {
+            return '';
+        }
+    }
+
+    // Cache para evitar flutuação desnecessária da análise
+    let lastAnalysisSignature = '';
+    let currentAnalysisStatus = 'Aguardando análise...';
+    
+    // Função para mostrar padrão quando clicar na entrada
+    function showPatternForEntry(entry) {
+        if (!entry || !entry.patternData) {
+            console.log('❌ Nenhum padrão disponível para esta entrada');
+            showNoPatternModal(entry);
+            return;
+        }
+        
+        try {
+            // Parsear o padrão
+            let parsed;
+            const desc = entry.patternData.patternDescription;
+            
+            // ✅ VERIFICAR SE É ANÁLISE DE IA
+            if (typeof desc === 'string' && desc.trim().startsWith('🤖')) {
+                // É análise de IA - NÃO fazer parse
+                parsed = desc;
+            } else {
+                // É análise padrão - fazer parse do JSON
+                parsed = typeof desc === 'string' ? JSON.parse(desc) : desc;
+            }
+            
+            // Criar modal para mostrar o padrão
+            const modal = document.createElement('div');
+            modal.className = 'pattern-modal';
+            modal.innerHTML = `
+                <div class="pattern-modal-content">
+                    <div class="pattern-modal-header">
+                        <h3>Padrão da Entrada</h3>
+                        <button class="pattern-modal-close">&times;</button>
+                    </div>
+                    <div class="pattern-modal-body">
+                        <div class="entry-info">
+                            <div class="entry-color-info">
+                                <span class="entry-label">Cor:</span>
+                                <div class="entry-color-display ${entry.color}">
+                                    ${entry.color === 'white' ? blazeWhiteSVG(18) : ''}
+                                </div>
+                                <span class="entry-color-name">${entry.color === 'red' ? 'Vermelho' : entry.color === 'black' ? 'Preto' : 'Branco'}</span>
+                            </div>
+                            <div class="entry-confidence">
+                                <span class="entry-label">Confiança:</span>
+                                <span class="entry-confidence-value">${entry.confidence.toFixed(1)}%</span>
+                            </div>
+                            <div class="entry-result">
+                                <span class="entry-label">Resultado:</span>
+                                <span class="entry-result-value ${entry.result === 'WIN' ? 'win-text' : 'loss-text'}">${entry.result}</span>
+                            </div>
+                        </div>
+                        <div class="pattern-details">
+                            ${renderPatternVisual(parsed)}
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            // Adicionar ao body
+            document.body.appendChild(modal);
+            
+            // ✅ CENTRALIZAR MODAL COM BASE NA POSIÇÃO DA EXTENSÃO (com delay para renderização)
+            setTimeout(() => {
+                const sidebar = document.getElementById('blaze-double-analyzer');
+                if (sidebar) {
+                    const rect = sidebar.getBoundingClientRect();
+                    const modalContent = modal.querySelector('.pattern-modal-content');
+                    
+                    if (modalContent) {
+                        // Centralizar horizontalmente com a sidebar
+                        const sidebarCenterX = rect.left + (rect.width / 2);
+                        const modalWidth = modalContent.offsetWidth || 500;
+                        const leftPosition = sidebarCenterX - (modalWidth / 2);
+                        
+                        // Centralizar verticalmente no viewport
+                        const modalHeight = modalContent.offsetHeight || 300;
+                        const viewportHeight = window.innerHeight;
+                        const topPosition = (viewportHeight - modalHeight) / 2;
+                        
+                        // Garantir que não saia da tela (margens mínimas)
+                        const finalLeft = Math.max(20, Math.min(leftPosition, window.innerWidth - modalWidth - 20));
+                        const finalTop = Math.max(20, topPosition);
+                        
+                        modalContent.style.position = 'fixed';
+                        modalContent.style.left = `${finalLeft}px`;
+                        modalContent.style.top = `${finalTop}px`;
+                        modalContent.style.transform = 'none'; // Remove transform padrão
+                        
+                        console.log('✅ Modal de entrada centralizado com a extensão:', {
+                            sidebarRect: rect,
+                            modalWidth: modalWidth,
+                            modalHeight: modalHeight,
+                            finalPosition: { left: finalLeft, top: finalTop }
+                        });
+                    }
+                }
+            }, 10);
+            
+            // Eventos do modal
+            const closeBtn = modal.querySelector('.pattern-modal-close');
+            closeBtn.onclick = function() {
+                document.body.removeChild(modal);
+            };
+            
+            // Fechar ao clicar fora do modal
+            modal.onclick = function(e) {
+                if (e.target === modal) {
+                    document.body.removeChild(modal);
+                }
+            };
+            
+            // Fechar com ESC
+            const handleEsc = function(e) {
+                if (e.key === 'Escape') {
+                    document.body.removeChild(modal);
+                    document.removeEventListener('keydown', handleEsc);
+                }
+            };
+            document.addEventListener('keydown', handleEsc);
+            
+        } catch (error) {
+            console.error('Erro ao mostrar padrão da entrada:', error);
+            showNoPatternModal(entry);
+        }
+    }
+    
+    // Função para mostrar modal quando não há padrão disponível
+    function showNoPatternModal(entry) {
+        const modal = document.createElement('div');
+        modal.className = 'pattern-modal';
+        modal.innerHTML = `
+            <div class="pattern-modal-content">
+                <div class="pattern-modal-header">
+                    <h3>Padrão Não Disponível</h3>
+                    <button class="pattern-modal-close">&times;</button>
+                </div>
+                <div class="pattern-modal-body">
+                    <div class="no-pattern-info">
+                        <p>Esta entrada foi registrada antes da implementação do sistema de padrões.</p>
+                        <p>Não é possível mostrar o padrão que gerou esta entrada.</p>
+                        <div class="entry-summary">
+                            <div class="entry-summary-item">
+                                <span class="summary-label">Entrada:</span>
+                                <div class="entry-color-display ${entry.color}">
+                                    ${entry.color === 'white' ? blazeWhiteSVG(16) : ''}
+                                </div>
+                                <span class="summary-value">${entry.color === 'red' ? 'Vermelho' : entry.color === 'black' ? 'Preto' : 'Branco'} (${entry.number})</span>
+                            </div>
+                            <div class="entry-summary-item">
+                                <span class="summary-label">Resultado:</span>
+                                <span class="summary-value ${entry.result === 'WIN' ? 'win-text' : 'loss-text'}">${entry.result}</span>
+                            </div>
+                            <div class="entry-summary-item">
+                                <span class="summary-label">Horário:</span>
+                                <span class="summary-value">${new Date(entry.timestamp).toLocaleString('pt-BR')}</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        // Adicionar ao body
+        document.body.appendChild(modal);
+        
+        // ✅ CENTRALIZAR MODAL COM BASE NA POSIÇÃO DA EXTENSÃO (com delay para renderização)
+        setTimeout(() => {
+            const sidebar = document.getElementById('blaze-double-analyzer');
+            if (sidebar) {
+                const rect = sidebar.getBoundingClientRect();
+                const modalContent = modal.querySelector('.pattern-modal-content');
+                
+                if (modalContent) {
+                    // Centralizar horizontalmente com a sidebar
+                    const sidebarCenterX = rect.left + (rect.width / 2);
+                    const modalWidth = modalContent.offsetWidth || 500;
+                    const leftPosition = sidebarCenterX - (modalWidth / 2);
+                    
+                    // Centralizar verticalmente no viewport
+                    const modalHeight = modalContent.offsetHeight || 300;
+                    const viewportHeight = window.innerHeight;
+                    const topPosition = (viewportHeight - modalHeight) / 2;
+                    
+                    // Garantir que não saia da tela (margens mínimas)
+                    const finalLeft = Math.max(20, Math.min(leftPosition, window.innerWidth - modalWidth - 20));
+                    const finalTop = Math.max(20, topPosition);
+                    
+                    modalContent.style.position = 'fixed';
+                    modalContent.style.left = `${finalLeft}px`;
+                    modalContent.style.top = `${finalTop}px`;
+                    modalContent.style.transform = 'none'; // Remove transform padrão
+                    
+                    console.log('✅ Modal "sem padrão" centralizado com a extensão:', {
+                        sidebarRect: rect,
+                        modalWidth: modalWidth,
+                        modalHeight: modalHeight,
+                        finalPosition: { left: finalLeft, top: finalTop }
+                    });
+                }
+            }
+        }, 10);
+        
+        // Eventos do modal
+        const closeBtn = modal.querySelector('.pattern-modal-close');
+        closeBtn.onclick = function() {
+            document.body.removeChild(modal);
+        };
+        
+        // Fechar ao clicar fora do modal
+        modal.onclick = function(e) {
+            if (e.target === modal) {
+                document.body.removeChild(modal);
+            }
+        };
+        
+        // Fechar com ESC
+        const handleEsc = function(e) {
+            if (e.key === 'Escape') {
+                document.body.removeChild(modal);
+                document.removeEventListener('keydown', handleEsc);
+            }
+        };
+        document.addEventListener('keydown', handleEsc);
+    }
+    
+    // Função auxiliar para renderizar análise IA COM círculos coloridos
+    function renderAIAnalysisWithSpins(aiData, last5Spins) {
+        console.log('%c🎨 RENDERIZANDO IA COM CÍRCULOS!', 'color: #00FF00; font-weight: bold; font-size: 14px;');
+        
+        // Renderizar círculos coloridos
+        const spinsHTML = last5Spins.map((spin, index) => {
+            const isWhite = spin.color === 'white';
+            const colorName = spin.color === 'red' ? 'Vermelho' : spin.color === 'black' ? 'Preto' : 'Branco';
+            return `<div class="spin-history-item-wrap" title="${colorName}: ${spin.number}" style="display: inline-block; margin: 0 4px;">
+                <div class="spin-history-quadrado ${spin.color}">
+                    ${isWhite ? blazeWhiteSVG(24) : `<span>${spin.number}</span>`}
+                </div>
+                <div class="spin-history-time" style="font-size: 10px; text-align: center;">${index === 0 ? 'Recente' : `${index + 1}º`}</div>
+            </div>`;
+        }).join('');
+        
+        return `<div style="
+            background: rgba(20, 20, 30, 0.95);
+            border: 1px solid rgba(100, 100, 200, 0.3);
+            border-radius: 8px;
+            padding: 15px;
+            margin: 10px 0;
+        ">
+            <div style="margin: 12px 0;">
+                <div style="color: #b794f6; font-weight: bold; font-size: 15px; margin-bottom: 8px;">
+                    ${aiData.color === 'red' ? '🔴 Entrar na cor VERMELHA' : aiData.color === 'black' ? '⚫ Entrar na cor PRETA' : '⚪ Entrar na cor BRANCA'}
+                </div>
+                <div style="color: #e8e8ff; font-size: 12px; margin-bottom: 5px;">
+                    Confiança: ${aiData.confidence.toFixed(1)}%
+                </div>
+            </div>
+            
+            <div style="
+                border-top: 1px solid rgba(100, 100, 200, 0.2);
+                padding-top: 12px;
+                margin-top: 12px;
+            ">
+                <div style="
+                    color: #b794f6;
+                    font-weight: bold;
+                    font-size: 13px;
+                    margin-bottom: 8px;
+                ">💡 ÚLTIMOS 5 GIROS ANALISADOS:</div>
+                
+                <div style="
+                    background: rgba(0, 0, 0, 0.2);
+                    border-radius: 6px;
+                    padding: 12px;
+                    margin: 8px 0;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    gap: 8px;
+                    flex-wrap: wrap;
+                ">
+                    ${spinsHTML}
+                </div>
+            </div>
+            
+            <div style="
+                border-top: 1px solid rgba(100, 100, 200, 0.2);
+                padding-top: 12px;
+                margin-top: 12px;
+            ">
+                <div style="
+                    color: #b794f6;
+                    font-weight: bold;
+                    font-size: 13px;
+                    margin-bottom: 8px;
+                ">💎 RACIOCÍNIO:</div>
+                <div style="
+                    white-space: pre-wrap;
+                    font-family: 'Segoe UI', 'Roboto', monospace;
+                    font-size: 11.5px;
+                    line-height: 1.5;
+                    color: #d0d0e8;
+                ">${aiData.reasoning
+                    .replace(/N1 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N1</span> -')
+                    .replace(/N2 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N2</span> -')
+                    .replace(/N3 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N3</span> -')
+                    .replace(/N4 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N4</span> -')
+                    .replace(/N5 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N5</span> -')
+                    .replace(/🗳️/g, '<span style="color: #FFD700; font-weight: bold;">🗳️</span>')
+                    .replace(/🏆/g, '<span style="color: #FFD700; font-weight: bold;">🏆</span>')
+                    .replace(/🎚️/g, '<span style="color: #b794f6; font-weight: bold;">🎚️</span>')
+                    .replace(/🎯/g, '<span style="color: #00FF88; font-weight: bold;">🎯</span>')
+                    .replace(/📊/g, '<span style="color: #00d4ff; font-weight: bold;">📊</span>')
+                }</div>
+            </div>
+        </div>`;
+    }
+    
+    // Função auxiliar para renderizar análise IA SEM círculos (formato antigo)
+    function renderAIAnalysisOldFormat(aiData) {
+        const reasoning = (aiData.reasoning || 'Análise por IA')
+            .replace(/N1 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N1</span> -')
+            .replace(/N2 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N2</span> -')
+            .replace(/N3 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N3</span> -')
+            .replace(/N4 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N4</span> -')
+            .replace(/N5 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N5</span> -')
+            .replace(/🗳️/g, '<span style="color: #FFD700; font-weight: bold;">🗳️</span>')
+            .replace(/🏆/g, '<span style="color: #FFD700; font-weight: bold;">🏆</span>')
+            .replace(/🎚️/g, '<span style="color: #b794f6; font-weight: bold;">🎚️</span>')
+            .replace(/🎯/g, '<span style="color: #00FF88; font-weight: bold;">🎯</span>')
+            .replace(/📊/g, '<span style="color: #00d4ff; font-weight: bold;">📊</span>');
+        
+        return `<div style="
+            background: rgba(20, 20, 30, 0.95);
+            border: 1px solid rgba(100, 100, 200, 0.3);
+            border-radius: 8px;
+            padding: 15px;
+            margin: 10px 0;
+        ">
+            <div style="
+                color: #b794f6;
+                font-weight: bold;
+                font-size: 13px;
+                margin-bottom: 10px;
+            ">💎 RACIOCÍNIO:</div>
+            <div style="
+                white-space: pre-wrap;
+                font-family: 'Segoe UI', 'Roboto', monospace;
+                font-size: 11.5px;
+                line-height: 1.5;
+                color: #d0d0e8;
+                margin: 0;
+            ">${reasoning}</div>
+        </div>`;
+    }
+    
     // Função para renderizar padrão visualmente com números e horários completos
     function renderPatternVisual(parsed, patternData = null) {
         console.log('🔍 renderPatternVisual chamado com:', typeof parsed, parsed);
@@ -4822,6 +4831,7 @@ const DIAMOND_LEVEL_DEFAULTS = {
         </div>
         ` : ''}`;
     }
+    
     // Update sidebar with new data
     function updateSidebar(data) {
         const lastSpinNumber = document.getElementById('lastSpinNumber');
@@ -4833,6 +4843,7 @@ const DIAMOND_LEVEL_DEFAULTS = {
         const patternInfo = document.getElementById('patternInfo');
         const totalSpins = document.getElementById('totalSpins');
         const lastUpdate = document.getElementById('lastUpdate');
+        // Entries panel will live at top now
         
         if (data.lastSpin) {
             const spin = data.lastSpin;
@@ -5458,6 +5469,7 @@ const DIAMOND_LEVEL_DEFAULTS = {
             console.log('💡 Use o botão "Resetar Padrões" para limpar padrões locais');
         }
     }
+    
     // Load saved sidebar state
     function loadSidebarState(sidebar) {
         try {
@@ -5532,14 +5544,6 @@ const DIAMOND_LEVEL_DEFAULTS = {
             initialX = e.clientX - xOffset;
             initialY = e.clientY - yOffset;
             
-            if (element.classList.contains('user-menu-open')) {
-                return;
-            }
-            
-            if (e.target.closest('[data-no-drag=\"true\"]')) {
-                return;
-            }
-            
             if (e.target === header || header.contains(e.target)) {
                 isDragging = true;
                 header.style.cursor = 'grabbing';
@@ -5575,10 +5579,6 @@ const DIAMOND_LEVEL_DEFAULTS = {
         
         handles.forEach(handle => {
             handle.addEventListener('mousedown', function(e) {
-                if (element.classList.contains('user-menu-open')) {
-                    return;
-                }
-                
                 e.preventDefault();
                 e.stopPropagation();
                 
@@ -6093,6 +6093,7 @@ const DIAMOND_LEVEL_DEFAULTS = {
         // ✅ NÃO modificar o suggestionText (deixar como "Aguardando análise...")
         // O suggestionText só será atualizado quando houver um resultado final (NEW_ANALYSIS)
     }
+
     // Carregar e aplicar configurações na UI
     // ═══════════════════════════════════════════════════════════════
     // 🔧 FUNÇÃO: Exibir modal com o prompt padrão
@@ -6710,6 +6711,7 @@ const DIAMOND_LEVEL_DEFAULTS = {
             }
         });
     }
+    
     // Event listener para botão de atualizar
     document.addEventListener('click', function(e) {
         if (e.target && e.target.id === 'diamondLevelsBtn') {
@@ -7316,21 +7318,5 @@ const DIAMOND_LEVEL_DEFAULTS = {
     
     // ⚠️ REMOVIDO: O histórico agora é carregado APÓS a sidebar ser criada
     // Ver createSidebar() para o novo local de inicialização
-    
-    // ═══════════════════════════════════════════════════════════════════════════════
-    // 🚀 INICIALIZAR SIDEBAR AUTOMATICAMENTE
-    // ═══════════════════════════════════════════════════════════════════════════════
-    console.log('%c🎬 Aguardando DOM para criar sidebar...', 'color: #00AAFF; font-weight: bold;');
-    
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', () => {
-            console.log('%c✅ DOM carregado - criando sidebar...', 'color: #00FF88;');
-            createSidebar();
-        });
-    } else {
-        console.log('%c✅ DOM já carregado - criando sidebar imediatamente...', 'color: #00FF88;');
-        createSidebar();
-    }
-}
     
 })();
