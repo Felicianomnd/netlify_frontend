@@ -70,6 +70,7 @@ let memoriaAtivaInicializando = false;  // Flag para evitar inicializações sim
 
 // Runtime analyzer configuration (overridable via chrome.storage.local)
 const DEFAULT_ANALYZER_CONFIG = {
+    historyDepth: 2000,           // profundidade de análise em giros (100-2000) - MODO PADRÃO
     minOccurrences: 5,            // quantidade mínima de WINS exigida (padrão: 5) - MODO PADRÃO
     maxOccurrences: 0,            // quantidade MÁXIMA de ocorrências (0 = sem limite)
     minIntervalSpins: 0,          // intervalo mínimo em GIROS entre sinais (0 = sem intervalo, 5 = aguardar 5 giros)
@@ -11938,9 +11939,9 @@ async function startInitialPatternSearch(history) {
 		const db = await loadPatternDB(true); // silent = true (sem logs gigantes)
 		const total = db.patterns_found ? db.patterns_found.length : 0;
 		
-		// ✅ LOG A CADA 5 SEGUNDOS (não a cada 1s para não poluir)
-		if (iteration % 5 === 0) {
-			console.log(`⏱️ Cronômetro: ${minutes}m ${seconds}s | Padrões: ${total}/5000`);
+		// ✅ LOG A CADA 10 SEGUNDOS (reduzido para menos poluição)
+		if (iteration % 10 === 0) {
+			console.log(`%c⏱️ Busca: ${minutes}m ${seconds}s | ${total}/5000 padrões`, 'color: #00D4FF; font-weight: bold;');
 		}
 		
 		sendMessageToContent('INITIAL_SEARCH_PROGRESS', { 
@@ -11963,7 +11964,7 @@ async function startInitialPatternSearch(history) {
 				const dbAfterSearch = await loadPatternDB(true); // silent = true
 				const totalAfterSearch = dbAfterSearch.patterns_found ? dbAfterSearch.patterns_found.length : 0;
 				
-				console.log(`🔍 Busca [iteração ${Math.floor(elapsed/5000)}]: ${totalAfterSearch}/5000 padrões | ${minutes}m ${seconds}s restantes`);
+				console.log(`%c🔍 Busca [iteração ${Math.floor(elapsed/5000)}]: ${totalAfterSearch}/5000 padrões | ${minutes}m ${seconds}s restantes`, 'color: #00D4FF; font-weight: bold;');
 				
 				// Se atingiu o limite, parar
 				if (totalAfterSearch >= 5000) {
@@ -12094,19 +12095,23 @@ async function verifyWithSavedPatterns(history) {
 	}
 		// NÃO exigir que a trigger seja igual à salva; triggers podem variar por ocorrência
 
-		// Reconstruir ocorrências com números e horários a partir do histórico
-		const occNumbers = [];
-		const occTimestamps = [];
-		const trigNumbers = [];
-		const trigTimestamps = [];
+	// Reconstruir ocorrências com números e horários a partir do histórico
+	// ✅ APLICAR PROFUNDIDADE DE ANÁLISE CONFIGURADA PELO USUÁRIO
+	const configuredDepth = analyzerConfig.historyDepth || 2000;
+	const searchDepth = Math.min(configuredDepth, history.length);
+	
+	const occNumbers = [];
+	const occTimestamps = [];
+	const trigNumbers = [];
+	const trigTimestamps = [];
 	const occurrenceDetails = [];
-		let occCount = 0;
-		for (let i = need; i < history.length; i++) {
-			const seq = history.slice(i, i + need);
-			if (seq.length < need) break;
-			const seqColors = seq.map(s => s.color);
-			const match = seqColors.every((c, idx) => c === pat.pattern[idx]);
-			if (match) {
+	let occCount = 0;
+	for (let i = need; i < searchDepth; i++) {
+		const seq = history.slice(i, i + need);
+		if (seq.length < need) break;
+		const seqColors = seq.map(s => s.color);
+		const match = seqColors.every((c, idx) => c === pat.pattern[idx]);
+		if (match) {
 			const trigSpin = history[i + need];
 			const trigColorRaw = trigSpin ? trigSpin.color : null;
 			
@@ -12605,12 +12610,12 @@ async function discoverAndPersistPatterns(history, startTs, budgetMs) {
 		return;
 	}
 	
-	console.log(`%c🎯 DESCOBERTA: ${discovered.length} padrão(ões) novo(s) encontrado(s)`, 'color: #00FF88; font-weight: bold;');
+	console.log(`%c🎯 ${discovered.length} padrão(ões) novo(s) encontrado(s)`, 'color: #00FF88; font-weight: bold; background: #003322; padding: 2px 6px;');
 
-	// Log de descoberta
+	// Log de descoberta (RESUMIDO - sem detalhes individuais)
 	console.log(`
 ╔═══════════════════════════════════════════════════════════╗
-║  🔍 NOVOS PADRÕES DESCOBERTOS                             
+║  🔍 NOVOS PADRÕES (total: ${discovered.length})                             
 ╠═══════════════════════════════════════════════════════════╣
 ║  ✨ ${discovered.length.toString().padStart(3)} novos padrões encontrados!                     
 ║  ⏱️  Tempo decorrido: ${((Date.now() - startTs) / 1000).toFixed(2)}s                    
@@ -12770,27 +12775,17 @@ function discoverColorPatternsFast(colors, size, strideOffset) {
 		if (acc >= 68) { // um pouco abaixo de 75 para descobrir mais padrões
 			const signif = cnt[winner] / (bag.outcomes.length / 3);
 			if (signif >= 1.6) {
-				// ✅ VALIDAÇÃO FINAL: Garantir que trigger é válida para o padrão
-				const firstPatternColorNormalized = normalizeColorName(bag.seq[0]);
-				const triggerValidation = validateDisparoColor(firstPatternColorNormalized, bag.trigger);
-				
-				if (!triggerValidation.valid) {
-					console.log(`❌ Padrão REJEITADO: trigger inválida (não deveria acontecer aqui)`, {
-						pattern: bag.seq.join('-'),
-						trigger: bag.trigger,
-						firstColor: firstPatternColorNormalized,
-						reason: triggerValidation.reason
-					});
-					continue;
-				}
-				
-				// ✅ PADRÃO VÁLIDO: Todas as ocorrências têm a MESMA trigger!
-				console.log(`✅ Padrão descoberto com trigger consistente:`, {
-					pattern: bag.seq.join('-'),
-					trigger: bag.trigger,
-					occurrences: bag.count,
-					confidence: acc.toFixed(1) + '%'
-				});
+			// ✅ VALIDAÇÃO FINAL: Garantir que trigger é válida para o padrão
+			const firstPatternColorNormalized = normalizeColorName(bag.seq[0]);
+			const triggerValidation = validateDisparoColor(firstPatternColorNormalized, bag.trigger);
+			
+			if (!triggerValidation.valid) {
+				// Log removido: não é necessário mostrar padrões rejeitados individualmente
+				continue;
+			}
+			
+			// ✅ PADRÃO VÁLIDO: Todas as ocorrências têm a MESMA trigger!
+			// Log removido: resumo será mostrado no final
 				
 				out.push({
 					type: 'color-discovery',
@@ -17213,7 +17208,8 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                 if (res && res.analyzerConfig) {
                     analyzerConfig = { ...DEFAULT_ANALYZER_CONFIG, ...res.analyzerConfig };
                 }
-                console.log('⚙️ Nova configuração aplicada via UI:');
+                console.log('%c⚙️ Nova configuração aplicada via UI:', 'color: #00D4FF; font-weight: bold;');
+                console.log('%c📊 Profundidade de Análise: ' + (analyzerConfig.historyDepth || 2000) + ' giros', 'color: #00FF88; font-weight: bold; background: #003322; padding: 4px 8px; border-radius: 4px;');
                 logActiveConfiguration();
                 
                 // ⚠️ SÓ REANALISAR SE MODO IA ESTIVER ATIVO E HOUVER HISTÓRICO SUFICIENTE
@@ -17488,7 +17484,13 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                     cachedHistory = serverGiros; // Atualizar cache
                 }
                 
-                console.log(`✅ Iniciando busca de padrões com ${historyToAnalyze.length} giros em cache`);
+                // ✅ APLICAR PROFUNDIDADE DE ANÁLISE CONFIGURADA PELO USUÁRIO
+                const configuredDepth = analyzerConfig.historyDepth || 2000;
+                const actualDepth = Math.min(configuredDepth, historyToAnalyze.length);
+                historyToAnalyze = historyToAnalyze.slice(0, actualDepth);
+                
+                console.log(`%c✅ Iniciando busca de padrões com ${historyToAnalyze.length} giros`, 'color: #00FF88; font-weight: bold;');
+                console.log(`%c📊 Profundidade configurada: ${configuredDepth} giros`, 'color: #00D4FF; font-weight: bold; background: #002244; padding: 2px 6px;');
                 
                 // ✅ PASSO 1: LIMPAR O BANCO DE PADRÕES
                 await clearAllPatterns();

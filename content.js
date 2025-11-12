@@ -3609,6 +3609,10 @@ const DIAMOND_LEVEL_DEFAULTS = {
                     <h4>Configurações</h4>
                     <div class="settings-grid">
                         <div class="setting-item">
+                            <span class="setting-label">Profundidade de Análise (giros):</span>
+                            <input type="number" id="cfgHistoryDepth" min="100" max="2000" value="2000" title="Quantidade de giros para análise e busca de padrões (100-2000)" placeholder="Ex: 500 giros" />
+                        </div>
+                        <div class="setting-item">
                             <span class="setting-label">Ocorrências mínima:</span>
                             <input type="number" id="cfgMinOccurrences" min="1" value="1" />
                         </div>
@@ -6504,6 +6508,7 @@ const DIAMOND_LEVEL_DEFAULTS = {
             // Carregar do localStorage (que agora pode ter sido atualizado do servidor)
             chrome.storage.local.get(['analyzerConfig'], function(res) {
                 const cfg = res && res.analyzerConfig ? res.analyzerConfig : {};
+                const histDepth = document.getElementById('cfgHistoryDepth');
                 const minOcc = document.getElementById('cfgMinOccurrences');
                 const maxOcc = document.getElementById('cfgMaxOccurrences');
                 const minInt = document.getElementById('cfgMinInterval');
@@ -6514,6 +6519,7 @@ const DIAMOND_LEVEL_DEFAULTS = {
                 const consecutiveMartingale = document.getElementById('cfgConsecutiveMartingale');
                 const maxGales = document.getElementById('cfgMaxGales');
                 const tgChatId = document.getElementById('cfgTgChatId');
+                if (histDepth) histDepth.value = cfg.historyDepth != null ? cfg.historyDepth : 2000;
                 if (minOcc) minOcc.value = cfg.minOccurrences != null ? cfg.minOccurrences : 1;
                 if (maxOcc) maxOcc.value = cfg.maxOccurrences != null ? cfg.maxOccurrences : 0;
                 if (minInt) minInt.value = cfg.minIntervalSpins != null ? cfg.minIntervalSpins : 0;
@@ -6575,6 +6581,7 @@ const DIAMOND_LEVEL_DEFAULTS = {
                     return isCheckbox ? !!el.checked : (el.value || defaultValue);
                 };
                 
+                const historyDepth = Math.max(100, Math.min(2000, parseInt(getElementValue('cfgHistoryDepth', '2000'), 10)));
                 const minOcc = Math.max(parseInt(getElementValue('cfgMinOccurrences', '1'), 10), 1);
                 const maxOcc = Math.max(parseInt(getElementValue('cfgMaxOccurrences', '0'), 10), 0);
                 const minInt = Math.max(parseInt(getElementValue('cfgMinInterval', '0'), 10), 0);
@@ -6647,6 +6654,7 @@ const DIAMOND_LEVEL_DEFAULTS = {
                 const cfg = {
                     ...currentConfig, // Preservar configurações existentes
                     aiMode: tabSpecificAIMode, // ✅ USAR MODO ESPECÍFICO DESTA ABA!
+                    historyDepth: historyDepth,
                     minOccurrences: minOcc,
                     maxOccurrences: maxOcc,
                     minIntervalSpins: minInt,
