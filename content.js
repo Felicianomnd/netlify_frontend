@@ -20,6 +20,7 @@
     
     const SESSION_STORAGE_KEYS = ['authToken', 'user', 'lastAuthCheck'];
     let forceLogoutAlreadyTriggered = false;
+    let activeUserMenuKeyHandler = null;
 
     function getAuthPageUrl() {
         try {
@@ -30,6 +31,103 @@
             console.warn('⚠️ Não foi possível obter URL via chrome.runtime.getURL:', error);
         }
         return 'auth.html';
+    }
+
+    function getStoredUserData() {
+        try {
+            const raw = localStorage.getItem('user');
+            if (raw) {
+                return JSON.parse(raw);
+            }
+        } catch (error) {
+            console.warn('⚠️ Não foi possível ler dados do usuário da sessão:', error);
+        }
+        return null;
+    }
+
+    function getPlanLabel(plan, price) {
+        const priceDisplay = (() => {
+            if (price === null || price === undefined) return null;
+            const numeric = Number(price);
+            if (!Number.isNaN(numeric)) {
+                return numeric.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+            }
+            if (typeof price === 'string' && price.trim()) {
+                return price.trim();
+            }
+            return null;
+        })();
+
+        switch (plan) {
+            case '1month':
+                return priceDisplay ? `Plano 1 Mês • ${priceDisplay}` : 'Plano 1 Mês';
+            case '3months':
+                return priceDisplay ? `Plano 3 Meses • ${priceDisplay}` : 'Plano 3 Meses';
+            default:
+                return plan ? (priceDisplay ? `${plan} • ${priceDisplay}` : plan) : 'Não informado';
+        }
+    }
+
+    function getPlanBadge(plan, status) {
+        if (status === 'blocked') return 'BLOQUEADO';
+        if (status === 'expired') return 'EXPIRADO';
+        if (status === 'pending') return 'PENDENTE';
+        switch (plan) {
+            case '1month':
+                return 'PLANO 1 MÊS';
+            case '3months':
+                return 'PLANO 3 MESES';
+            default:
+                return plan ? plan.toUpperCase() : 'PREMIUM';
+        }
+    }
+
+    function formatDate(date) {
+        try {
+            const d = new Date(date);
+            if (Number.isNaN(d.getTime())) return 'Data indisponível';
+            return new Intl.DateTimeFormat('pt-BR', {
+                day: '2-digit',
+                month: 'short',
+                year: 'numeric'
+            }).format(d);
+        } catch (error) {
+            return 'Data indisponível';
+        }
+    }
+
+    function getDaysRemainingInfo(expiresAt, status) {
+        if (status === 'pending') {
+            return { text: 'Aguardando ativação', alert: false };
+        }
+        if (!expiresAt) {
+            return { text: 'Sem data de expiração', alert: false };
+        }
+
+        const expires = new Date(expiresAt);
+        if (Number.isNaN(expires.getTime())) {
+            return { text: 'Data indisponível', alert: false };
+        }
+
+        const now = new Date();
+        const diffMs = expires.getTime() - now.getTime();
+        const diffDays = Math.ceil(diffMs / 86400000);
+
+        if (diffDays > 1) {
+            return { text: `${diffDays} dias`, alert: diffDays <= 3 };
+        }
+        if (diffDays === 1) {
+            return { text: '1 dia', alert: true };
+        }
+        if (diffDays === 0) {
+            return { text: 'Expira hoje', alert: true };
+        }
+
+        const overdue = Math.abs(diffDays);
+        return {
+            text: `Expirado há ${overdue} dia${overdue === 1 ? '' : 's'}`,
+            alert: true
+        };
     }
 
     function clearSessionStorageKeys() {
@@ -636,7 +734,6 @@
             });
         });
     }
-    
     // ═══════════════════════════════════════════════════════════════════════════════
     // FUNÇÃO: Mostrar/Ocultar campos baseado no modo (IA ou Padrão)
     // ═══════════════════════════════════════════════════════════════════════════════
@@ -961,7 +1058,7 @@
             console.log('%c   🎨 Estilos inline finais do toggle:', 'color: #FFFF00;', aiModeToggle.style.cssText);
         }
         
-        console.log('%c═══════════════════════════════════════════════════════════', 'color: #00CED1;');
+        console.log('%c═══════════════════════════════════════════════════════════', 'color: #00CED1; font-weight: bold;');
         console.log('');
     }
     
@@ -1045,7 +1142,6 @@ const DIAMOND_LEVEL_DEFAULTS = {
     n7HistoryWindow: 100,
     n8Barrier: 50
 };
-    
     // Função para mostrar notificação toast (simples e rápida)
     function showToast(message, duration = 2000) {
         // Remover toast anterior se existir
@@ -1752,7 +1848,6 @@ const DIAMOND_LEVEL_DEFAULTS = {
         
         console.log(`✅ ${filteredPatterns.length} padrões renderizados`);
     }
-    
     // ═══════════════════════════════════════════════════════════════════════════════
     // 👁️ MOSTRAR DETALHES DE UM PADRÃO ESPECÍFICO (ÚLTIMAS 5 OCORRÊNCIAS)
     // ═══════════════════════════════════════════════════════════════════════════════
@@ -2543,7 +2638,6 @@ const DIAMOND_LEVEL_DEFAULTS = {
             `;
         }
     }
-    
     // Sincronizar padrões com o servidor
     async function syncPatternsToServer(patterns) {
         console.log('');
@@ -3299,9 +3393,6 @@ const DIAMOND_LEVEL_DEFAULTS = {
             showToast('✗ Erro ao remover');
         }
     };
-    
-    // ✅ Removido: loadCustomPatternsList() agora é chamada diretamente após criar a sidebar
-
     // Create sidebar
     function createSidebar() {
         console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #FFD700; font-weight: bold;');
@@ -3338,7 +3429,14 @@ const DIAMOND_LEVEL_DEFAULTS = {
             </div>
             <div class="analyzer-header" id="sidebarHeader">
                 <div class="header-content">
-                    <h3 class="header-title">Double Analyzer <span class="title-badge" id="titleBadge">PREMIUM</span></h3>
+                    <div class="header-main">
+                        <h3 class="header-title">Double Analyzer <span class="title-badge" id="titleBadge">PREMIUM</span></h3>
+                        <button type="button" class="user-menu-toggle" id="userMenuToggle" title="Abrir informações da conta" aria-controls="userMenuPanel" aria-expanded="false">
+                            <span></span>
+                            <span></span>
+                            <span></span>
+                        </button>
+                    </div>
                     <div class="ai-mode-toggle" id="aiModeToggle" title="Ativar/Desativar Modo Diamante">
                         <span class="mode-name">Ativar Modo Diamante</span>
                         <div class="mode-api-container" style="display: none;">
@@ -3348,6 +3446,37 @@ const DIAMOND_LEVEL_DEFAULTS = {
                             <div class="mode-api-status" id="modeApiStatus"></div>
                         </div>
                     </div>
+                </div>
+            </div>
+            <div class="user-menu-panel" id="userMenuPanel" role="region" aria-labelledby="userMenuTitle">
+                <div class="user-menu-header">
+                    <div class="user-menu-title" id="userMenuTitle">Minha Conta</div>
+                    <button type="button" class="user-menu-close" id="userMenuClose">Fechar</button>
+                </div>
+                <div class="user-menu-body">
+                    <div class="user-info-item">
+                        <span class="user-info-label">Nome</span>
+                        <span class="user-info-value" id="userMenuName">—</span>
+                    </div>
+                    <div class="user-info-item">
+                        <span class="user-info-label">Email</span>
+                        <span class="user-info-value" id="userMenuEmail">—</span>
+                    </div>
+                    <div class="user-info-item">
+                        <span class="user-info-label">Plano</span>
+                        <span class="user-info-value plan" id="userMenuPlan">—</span>
+                    </div>
+                    <div class="user-info-item">
+                        <span class="user-info-label">Ativado em</span>
+                        <span class="user-info-value" id="userMenuPurchase">—</span>
+                    </div>
+                    <div class="user-info-item">
+                        <span class="user-info-label">Dias restantes</span>
+                        <span class="user-info-value" id="userMenuDays">—</span>
+                    </div>
+                </div>
+                <div class="user-menu-footer">
+                    <button type="button" class="user-menu-logout" id="userMenuLogout">Sair da conta</button>
                 </div>
             </div>
             <div class="analyzer-content" id="analyzerContent">
@@ -3605,6 +3734,109 @@ const DIAMOND_LEVEL_DEFAULTS = {
             </div>
         `;
         
+        const userMenuToggle = sidebar.querySelector('#userMenuToggle');
+        const userMenuPanel = sidebar.querySelector('#userMenuPanel');
+        const userMenuClose = sidebar.querySelector('#userMenuClose');
+        const userMenuLogout = sidebar.querySelector('#userMenuLogout');
+        const userMenuName = sidebar.querySelector('#userMenuName');
+        const userMenuEmail = sidebar.querySelector('#userMenuEmail');
+        const userMenuPlan = sidebar.querySelector('#userMenuPlan');
+        const userMenuPurchase = sidebar.querySelector('#userMenuPurchase');
+        const userMenuDays = sidebar.querySelector('#userMenuDays');
+        const titleBadge = sidebar.querySelector('#titleBadge');
+
+        const setUserMenuState = (open) => {
+            if (!userMenuPanel || !userMenuToggle) {
+                return;
+            }
+
+            if (open) {
+                populateUserMenu();
+                userMenuPanel.classList.add('open');
+                userMenuToggle.classList.add('active');
+                userMenuToggle.setAttribute('aria-expanded', 'true');
+            } else {
+                userMenuPanel.classList.remove('open');
+                userMenuToggle.classList.remove('active');
+                userMenuToggle.setAttribute('aria-expanded', 'false');
+            }
+        };
+
+        const populateUserMenu = () => {
+            const user = getStoredUserData();
+            const displayName = user?.name ? user.name : 'Não informado';
+            const displayEmail = user?.email ? user.email : 'Não informado';
+            const expiresAt = user?.expiresAt || user?.plan?.expiresAt || user?.planExpiresAt;
+            const createdAt = user?.activatedAt || user?.plan?.activatedAt || user?.createdAt || user?.plan?.createdAt;
+            const rawPrice = user?.plan?.price ?? user?.planPrice ?? user?.selectedPlanPrice ?? user?.plan?.amount;
+            const daysInfo = getDaysRemainingInfo(expiresAt, user?.status);
+            const planLabel = getPlanLabel(user?.selectedPlan, rawPrice);
+            const purchaseDate = createdAt ? formatDate(createdAt) : 'Não disponível';
+            const badgeText = (() => {
+                if (user?.status === 'blocked') return 'BLOQUEADO';
+                if (user?.status === 'expired') return 'EXPIRADO';
+                if (user?.status === 'pending') return 'PENDENTE';
+                return 'PREMIUM';
+            })();
+
+            if (userMenuName) {
+                userMenuName.textContent = displayName;
+            }
+            if (userMenuEmail) {
+                userMenuEmail.textContent = displayEmail;
+            }
+            if (userMenuPlan) {
+                userMenuPlan.textContent = planLabel;
+            }
+            if (userMenuPurchase) {
+                userMenuPurchase.textContent = purchaseDate;
+            }
+            if (userMenuDays) {
+                userMenuDays.textContent = daysInfo.text;
+                userMenuDays.classList.toggle('alert', !!daysInfo.alert);
+            }
+            if (titleBadge) {
+                titleBadge.textContent = badgeText;
+            }
+        };
+
+        populateUserMenu();
+
+        if (userMenuToggle) {
+            const toggleHandler = () => {
+                const isOpen = userMenuPanel?.classList.contains('open');
+                setUserMenuState(!isOpen);
+            };
+
+            userMenuToggle.addEventListener('click', toggleHandler);
+            userMenuToggle.addEventListener('mousedown', (event) => event.stopPropagation());
+            userMenuToggle.addEventListener('touchstart', (event) => event.stopPropagation(), { passive: true });
+        }
+
+        if (userMenuClose) {
+            userMenuClose.addEventListener('click', () => setUserMenuState(false));
+        }
+
+        if (userMenuLogout) {
+            userMenuLogout.addEventListener('click', () => {
+                setUserMenuState(false);
+                forceLogout('Logout manual');
+            });
+        }
+
+        if (activeUserMenuKeyHandler) {
+            document.removeEventListener('keydown', activeUserMenuKeyHandler);
+        }
+
+        const handleUserMenuKeyDown = (event) => {
+            if (event.key === 'Escape' && userMenuPanel?.classList.contains('open')) {
+                setUserMenuState(false);
+            }
+        };
+
+        document.addEventListener('keydown', handleUserMenuKeyDown);
+        activeUserMenuKeyHandler = handleUserMenuKeyDown;
+
         // Add to page
         console.log('%c➕ Adicionando sidebar ao document.body...', 'color: #00AAFF;');
         console.log('%c   document.body existe?', 'color: #00AAFF;', document.body ? '✅ SIM' : '❌ NÃO');
@@ -3935,7 +4167,7 @@ const DIAMOND_LEVEL_DEFAULTS = {
                 <div class="pattern-modal-content">
                     <div class="pattern-modal-header">
                         <h3>Padrão da Entrada</h3>
-                        <button class="pattern-modal-close">&times;</button>
+                        <button class="pattern-modal-close">Fechar</button>
                     </div>
                     <div class="pattern-modal-body">
                         <div class="entry-info">
@@ -4038,7 +4270,7 @@ const DIAMOND_LEVEL_DEFAULTS = {
             <div class="pattern-modal-content">
                 <div class="pattern-modal-header">
                     <h3>Padrão Não Disponível</h3>
-                    <button class="pattern-modal-close">&times;</button>
+                    <button class="pattern-modal-close">Fechar</button>
                 </div>
                 <div class="pattern-modal-body">
                     <div class="no-pattern-info">
@@ -4258,7 +4490,6 @@ const DIAMOND_LEVEL_DEFAULTS = {
             ">${reasoning}</div>
         </div>`;
     }
-    
     // Função para renderizar padrão visualmente com números e horários completos
     function renderPatternVisual(parsed, patternData = null) {
         console.log('🔍 renderPatternVisual chamado com:', typeof parsed, parsed);
@@ -4831,7 +5062,6 @@ const DIAMOND_LEVEL_DEFAULTS = {
         </div>
         ` : ''}`;
     }
-    
     // Update sidebar with new data
     function updateSidebar(data) {
         const lastSpinNumber = document.getElementById('lastSpinNumber');
@@ -4843,7 +5073,6 @@ const DIAMOND_LEVEL_DEFAULTS = {
         const patternInfo = document.getElementById('patternInfo');
         const totalSpins = document.getElementById('totalSpins');
         const lastUpdate = document.getElementById('lastUpdate');
-        // Entries panel will live at top now
         
         if (data.lastSpin) {
             const spin = data.lastSpin;
@@ -5572,7 +5801,6 @@ const DIAMOND_LEVEL_DEFAULTS = {
             saveSidebarState(element);
         }
     }
-    
     // Make sidebar resizable
     function makeResizable(element) {
         const handles = element.querySelectorAll('.resize-handle');
@@ -6317,7 +6545,6 @@ const DIAMOND_LEVEL_DEFAULTS = {
             });
         } catch (e) { console.error('Erro ao carregar configurações:', e); }
     }
-
     async function saveSettings() {
         console.log('');
         console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #00D4FF; font-weight: bold;');
@@ -6994,7 +7221,6 @@ const DIAMOND_LEVEL_DEFAULTS = {
             totalSpins.textContent = currentHistoryData.length;
         }
     }
-    
     // ═══════════════════════════════════════════════════════════════
     // 🌐 ATUALIZAÇÃO COMPLETA DO HISTÓRICO (COM REQUISIÇÃO HTTP)
     // ═══════════════════════════════════════════════════════════════
@@ -7149,8 +7375,8 @@ const DIAMOND_LEVEL_DEFAULTS = {
         console.log('');
         console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #FF6B00; font-weight: bold;');
         console.log('%c║  🔄 POLLING DE HISTÓRICO ATIVADO                         ║', 'color: #FF6B00; font-weight: bold;');
-        console.log('%c║  WebSocket desconectado - atualizando via HTTP          ║', 'color: #FF6B00;');
-        console.log('%c║  Frequência: a cada 2 segundos                          ║', 'color: #FF6B00;');
+        console.log('%c║  WebSocket desconectado - atualizando via HTTP          ║', 'color: #FF6B00; font-weight: bold;');
+        console.log('%c║  Frequência: a cada 2 segundos                          ║', 'color: #FF6B00; font-weight: bold;');
         console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #FF6B00; font-weight: bold;');
         console.log('');
         
