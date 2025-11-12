@@ -1350,7 +1350,7 @@
     // ═══════════════════════════════════════════════════════════════════════════════
     
     let customPatternsData = []; // Array de padrões customizados
-
+    
 const DIAMOND_LEVEL_DEFAULTS = {
     n1HotPattern: 60,
     n2Recent: 5,
@@ -7332,5 +7332,5 @@ const DIAMOND_LEVEL_DEFAULTS = {
         createSidebar();
     }
 }
-
+    
 })();
