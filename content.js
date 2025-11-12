@@ -96,7 +96,9 @@
     }
 
     function formatPlanName(plan) {
-        if (!plan) return 'Plano não definido';
+        if (!plan) {
+            return 'Plano não definido';
+        }
         const map = {
             '1month': 'Plano 1 mês',
             '3months': 'Plano 3 meses'
@@ -115,7 +117,9 @@
     }
 
     function formatExpirationDate(dateStr) {
-        if (!dateStr) return '---';
+        if (!dateStr) {
+            return '---';
+        }
         const date = new Date(dateStr);
         if (Number.isNaN(date.getTime())) {
             return '---';
@@ -175,18 +179,17 @@
         return { text: `Restam ${diffDays} dias`, status: 'neutral' };
     }
 
-    window.addEventListener('doubleAnalyzerUserUpdated', (event) => {
-        const detailUser = event?.detail?.user || null;
-        if (detailUser) {
-            cachedUserData = detailUser;
-        } else {
-            cachedUserData = null;
-        }
-
-        if (typeof userMenuUpdateFn === 'function') {
-            userMenuUpdateFn(!detailUser);
-        }
-    }, false);
+    window.addEventListener(
+        'doubleAnalyzerUserUpdated',
+        (event) => {
+            const detailUser = event && event.detail ? event.detail.user : null;
+            cachedUserData = detailUser || null;
+            if (typeof userMenuUpdateFn === 'function') {
+                userMenuUpdateFn(!detailUser);
+            }
+        },
+        false
+    );
 
     function initializeUserMenu(sidebar) {
         const toggleButton = sidebar.querySelector('#userMenuToggle');
@@ -7314,4 +7317,20 @@ const DIAMOND_LEVEL_DEFAULTS = {
     // ⚠️ REMOVIDO: O histórico agora é carregado APÓS a sidebar ser criada
     // Ver createSidebar() para o novo local de inicialização
     
+    // ═══════════════════════════════════════════════════════════════════════════════
+    // 🚀 INICIALIZAR SIDEBAR AUTOMATICAMENTE
+    // ═══════════════════════════════════════════════════════════════════════════════
+    console.log('%c🎬 Aguardando DOM para criar sidebar...', 'color: #00AAFF; font-weight: bold;');
+    
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', () => {
+            console.log('%c✅ DOM carregado - criando sidebar...', 'color: #00FF88;');
+            createSidebar();
+        });
+    } else {
+        console.log('%c✅ DOM já carregado - criando sidebar imediatamente...', 'color: #00FF88;');
+        createSidebar();
+    }
+}
+
 })();
