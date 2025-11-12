@@ -9137,7 +9137,7 @@ async function analyzeWithPatternSystem(history) {
                     const indexById = history.findIndex(spin => spin && spin.id === lastSignalSpinId);
                     if (indexById >= 0) {
                         spinsDesdeUltimoSinal = indexById;
-                    } else {
+                } else {
                         // Sinal anterior não está mais no histórico → considerar intervalo cumprido
                         spinsDesdeUltimoSinal = history.length;
                     }
@@ -9182,7 +9182,7 @@ async function analyzeWithPatternSystem(history) {
                 
                 if (girosEstimados >= minIntervalSpins) {
                     console.log('%c✅ Intervalo estimado suficiente (fallback temporal)', 'color: #00FF88; font-weight: bold;');
-                } else {
+            } else {
                     const girosRestantes = minIntervalSpins - girosEstimados;
                     intervalBlocked = true;
                     intervalMessage = `⏳ Aguardando ${girosRestantes} giro(s)... ${girosEstimados}/${minIntervalSpins}`;
@@ -9392,7 +9392,7 @@ async function analyzeWithPatternSystem(history) {
     // ═══════════════════════════════════════════════════════════════
         console.log('%c║  🎯 NÍVEL 1: PADRÃO QUENTE                              ║', 'color: #FF6B35; font-weight: bold; font-size: 14px;');
         
-		let nivel4 = null;
+        let nivel4 = null;
 		let patternDescription = 'Análise Nível Diamante - 7 Níveis';
         
     // ETAPA 1: Verificar PADRÕES CUSTOMIZADOS
@@ -9701,7 +9701,7 @@ async function analyzeWithPatternSystem(history) {
                         alternanceBlocked = true;
                         alternanceBlockReason = 'Entradas consecutivas desativadas';
                         console.log('%c   ⏸️ BLOQUEADO: Entradas consecutivas desativadas pelo usuário', 'color: #FFAA00; font-weight: bold;');
-                    } else {
+        } else {
                         console.log('%c   ✅ PERMITIDO: WIN na 1ª entrada + consecutivas ativas → pode fazer 2ª', 'color: #00FF88; font-weight: bold;');
                     }
                 }
@@ -9709,8 +9709,8 @@ async function analyzeWithPatternSystem(history) {
                 // Nova alternância detectada
                 console.log('%c   🆕 Nova alternância detectada!', 'color: #00AAFF; font-weight: bold;');
             }
-            
-            // ═══════════════════════════════════════════════════════════════
+        
+        // ═══════════════════════════════════════════════════════════════
             
             if (alternanceBlocked) {
                 console.log('%c   🚫 Alternância BLOQUEADA:', alternanceBlockReason, 'color: #FF6666; font-weight: bold;');
@@ -10084,7 +10084,7 @@ async function analyzeWithPatternSystem(history) {
         
         console.log('%c✅ BARREIRA LIBERADA! Sequência é viável.', 'color: #00FF88; font-weight: bold; font-size: 14px;');
         
-		// ═══════════════════════════════════════════════════════════════
+        // ═══════════════════════════════════════════════════════════════
 		const votingLevelsList = levelReports.filter(lvl => lvl.id !== 'N6');
 		const positiveVotingLevels = votingLevelsList.filter(lvl => lvl.color && (lvl.strength || 0) > 0);
 		const negativeVotingLevels = votingLevelsList.filter(lvl => lvl.color && (lvl.strength || 0) < 0);
@@ -10100,11 +10100,11 @@ async function analyzeWithPatternSystem(history) {
 			negative: negativeVotingLevels.length
 		};
 
-		const signalIntensity = analyzerConfig.signalIntensity || 'moderate';
-
-		console.log('   signalIntensity:', signalIntensity);
-		console.log('   analyzerConfig.signalIntensity:', analyzerConfig.signalIntensity);
-		console.log('   finalColor:', finalColor);
+        const signalIntensity = analyzerConfig.signalIntensity || 'moderate';
+        
+        console.log('   signalIntensity:', signalIntensity);
+        console.log('   analyzerConfig.signalIntensity:', analyzerConfig.signalIntensity);
+        console.log('   finalColor:', finalColor);
 		console.log('   votos positivos por cor:', {
 			red: positiveVotingLevels.filter(lvl => lvl.color === 'red').map(lvl => lvl.id),
 			black: positiveVotingLevels.filter(lvl => lvl.color === 'black').map(lvl => lvl.id)
@@ -10112,9 +10112,9 @@ async function analyzeWithPatternSystem(history) {
 		console.log('   votos negativos:', negativeVotingLevels.map(lvl => `${lvl.id}-${lvl.color}`));
 		console.log('   votos neutros/indisponíveis:', neutralVotingLevels.map(lvl => lvl.id));
 
-		console.log('%c║  🎚️ VALIDAÇÃO DE INTENSIDADE DE SINAIS                 ║', 'color: #9C27B0; font-weight: bold; font-size: 14px;');
-
-		const intensityConfig = {
+        console.log('%c║  🎚️ VALIDAÇÃO DE INTENSIDADE DE SINAIS                 ║', 'color: #9C27B0; font-weight: bold; font-size: 14px;');
+        
+        const intensityConfig = {
 			'aggressive': { min: 3, name: '🔥 AGRESSIVO', emoji: '🔥' },
 			'moderate': { min: 5, name: '⚖️ MODERADO', emoji: '⚖️' },
 			'conservative': { min: 6, name: '🛡️ CONSERVADOR', emoji: '🛡️' },
@@ -10124,18 +10124,18 @@ async function analyzeWithPatternSystem(history) {
 		const currentIntensity = intensityConfig[signalIntensity] || intensityConfig.moderate;
 		const effectiveThreshold = availableVotes > 0 ? Math.min(currentIntensity.min, availableVotes) : currentIntensity.min;
 		const consensusValid = availableVotes > 0 && winningVotes >= effectiveThreshold;
-
-		console.log(`%c${currentIntensity.emoji} Modo ativo: ${currentIntensity.name}`, 'color: #9C27B0; font-weight: bold; font-size: 14px;');
+        
+        console.log(`%c${currentIntensity.emoji} Modo ativo: ${currentIntensity.name}`, 'color: #9C27B0; font-weight: bold; font-size: 14px;');
 		console.log(`%c   Slots disponíveis (positivos): ${availableVotes}/${maxVotingSlots}`, 'color: #9C27B0;');
 		console.log(`%c   Votos para ${finalColor.toUpperCase()}: ${winningVotes}`, `color: ${finalColor === 'red' ? '#FF0000' : '#FFFFFF'}; font-weight: bold;`);
 		console.log(`%c   Exigidos: ${currentIntensity.min} (após ajuste: ${effectiveThreshold})`, 'color: #9C27B0;');
-
-	if (!consensusValid) {
+        
+    if (!consensusValid) {
         console.log('%c║  ❌ SINAL REJEITADO - CONSENSO INSUFICIENTE!             ║', 'color: #FF6666; font-weight: bold; font-size: 14px;');
         console.log(`%c║  ${currentIntensity.emoji} Modo: ${currentIntensity.name.padEnd(44)} ║`, 'color: #FF6666;');
-		console.log(`%c║  ➤ Votos necessários: ${currentIntensity.min.toString().padEnd(36)} ║`, 'color: #FF6666;');
+        console.log(`%c║  ➤ Votos necessários: ${currentIntensity.min.toString().padEnd(36)} ║`, 'color: #FF6666;');
 		console.log(`%c║  ➤ Disponíveis (positivos): ${availableVotes.toString().padEnd(34)} ║`, 'color: #FF6666;');
-		console.log(`%c║  ➤ Votos obtidos: ${winningVotes.toString().padEnd(40)} ║`, 'color: #FF6666;');
+        console.log(`%c║  ➤ Votos obtidos: ${winningVotes.toString().padEnd(40)} ║`, 'color: #FF6666;');
         console.log('%c║  💡 Aumente o consenso ou mude para modo menos rigoroso  ║', 'color: #FFD700;');
         
         // ✅ MOSTRAR AS 6 FASES COM DELAY (para o usuário ver o processo)
@@ -10177,11 +10177,11 @@ async function analyzeWithPatternSystem(history) {
         
 		if (retracementResult && retracementResult.color) {
 			sendAnalysisStatus(`📉 N6 - Retração Histórica → ${retracementResult.color.toUpperCase()}`);
-		} else {
+        } else {
 			sendAnalysisStatus(`📉 N6 - Retração Histórica → NULO`);
-		}
-		await sleep(1500);
-
+        }
+        await sleep(1500);
+        
 		if (continuityResult && continuityResult.color && (continuityResult.strength || 0) !== 0) {
 			const prefix = continuityResult.strength > 0 ? 'Reforço' : 'Redução';
 			sendAnalysisStatus(`📈 N7 - Continuidade Global → ${continuityResult.color.toUpperCase()} (${prefix})`);
@@ -10275,35 +10275,35 @@ async function analyzeWithPatternSystem(history) {
         sendAnalysisStatus(`🛑 N8 - Barreira Final → ${barrierStatusText3}`);
         await sleep(1500);
         
-		// ✅ Mostrar resultado da análise (MODO DIAMANTE: mensagem fixa) e depois o motivo do bloqueio
-		if (analyzerConfig.aiMode) {
-			sendAnalysisStatus(`Sinal de entrada`);
-		} else {
+        // ✅ Mostrar resultado da análise (MODO DIAMANTE: mensagem fixa) e depois o motivo do bloqueio
+        if (analyzerConfig.aiMode) {
+            sendAnalysisStatus(`Sinal de entrada`);
+        } else {
 			sendAnalysisStatus(`✅ Análise: ${finalColor.toUpperCase()} (${winningVotes} de ${maxVotingSlots} votos)`);
-		}
-		await sleep(2000);
-		
+        }
+        await sleep(2000);
+        
 		if (intervalMessage) {
-			sendAnalysisStatus(intervalMessage);
-			await sleep(2000);
+        sendAnalysisStatus(intervalMessage);
+        await sleep(2000);
 		}
-		
-		// ✅ Restaurar status "IA ativada"
-		await restoreIAStatus();
-		
-		return null;
-	}
-		
-		// ═══════════════════════════════════════════════════════════════
-		// 📊 CÁLCULO DE CONFIANÇA (BASEADO NA VOTAÇÃO)
-		// ═══════════════════════════════════════════════════════════════
-		
+        
+        // ✅ Restaurar status "IA ativada"
+        await restoreIAStatus();
+        
+        return null;
+    }
+        
+        // ═══════════════════════════════════════════════════════════════
+        // 📊 CÁLCULO DE CONFIANÇA (BASEADO NA VOTAÇÃO)
+        // ═══════════════════════════════════════════════════════════════
+        
 	const totalVotantes = maxVotingSlots;
 	const consensusPercent = totalVotantes > 0 ? (winningVotes / totalVotantes) * 100 : 0;
 	
-	let rawConfidence = Math.round(consensusPercent);
-	rawConfidence = Math.max(50, Math.min(100, rawConfidence));
-		
+    let rawConfidence = Math.round(consensusPercent);
+    rawConfidence = Math.max(50, Math.min(100, rawConfidence));
+        
 		console.log('%c📊 RESUMO COMPLETO DOS NÍVEIS ATIVOS:', 'color: #FFD700; font-weight: bold; font-size: 16px;');
 		levelReports
 			.filter(level => level.id !== 'N8')
@@ -10320,33 +10320,33 @@ async function analyzeWithPatternSystem(history) {
 		if (voteTotals.neutral > 0) voteSegments.push(`${voteTotals.neutral} NEUTRO`);
 		if (voteTotals.negative > 0) voteSegments.push(`${voteTotals.negative} REDUÇÃO`);
 		
-		console.log(`%c║  🎯 DECISÃO FINAL: ${finalColor.toUpperCase().padEnd(33)}║`, 'color: #00FF00; font-weight: bold; font-size: 16px;');
+        console.log(`%c║  🎯 DECISÃO FINAL: ${finalColor.toUpperCase().padEnd(33)}║`, 'color: #00FF00; font-weight: bold; font-size: 16px;');
 		console.log(`%c║  🗳️ Votos: ${voteSegments.join(' | ').padEnd(42)}║`, 'color: #00FF88;');
-		console.log(`%c║  📊 Consenso: ${consensusPercent.toFixed(1)}%${''.padEnd(33)}║`, 'color: #00FFFF;');
-		console.log(`%c║  📐 Confiança Calculada: ${rawConfidence}%${''.padEnd(28)}║`, 'color: #00FFFF;');
-		console.log(`%c║  ✅ SISTEMA DEMOCRÁTICO DE VOTAÇÃO                       ║`, 'color: #00FF00; font-weight: bold;');
-		console.log(`%c║  ✅ BARREIRA VALIDOU VIABILIDADE HISTÓRICA              ║`, 'color: #00FF00; font-weight: bold;');
-		console.log('%c║  🔧 APLICANDO CALIBRADOR AUTOMÁTICO...                   ║', 'color: #FFD700; font-weight: bold;');
-		
-		// ═══════════════════════════════════════════════════════════════
-		// 🔧 APLICAR CALIBRADOR AUTOMÁTICO DE PORCENTAGEM
-		// ═══════════════════════════════════════════════════════════════
-		let finalConfidence = applyCalibratedConfidence(rawConfidence);
-		
-		console.log(`%c║  ✅ CONFIANÇA FINAL (CALIBRADA): ${finalConfidence}%${''.padEnd(19)}║`, 'color: #FFD700; font-weight: bold; font-size: 16px;');
-		
-		console.log('%c✅ SINAL APROVADO!', 'color: #00FF00; font-weight: bold; font-size: 14px;');
-		
-		// ═══════════════════════════════════════════════════════════════
+        console.log(`%c║  📊 Consenso: ${consensusPercent.toFixed(1)}%${''.padEnd(33)}║`, 'color: #00FFFF;');
+        console.log(`%c║  📐 Confiança Calculada: ${rawConfidence}%${''.padEnd(28)}║`, 'color: #00FFFF;');
+        console.log(`%c║  ✅ SISTEMA DEMOCRÁTICO DE VOTAÇÃO                       ║`, 'color: #00FF00; font-weight: bold;');
+        console.log(`%c║  ✅ BARREIRA VALIDOU VIABILIDADE HISTÓRICA              ║`, 'color: #00FF00; font-weight: bold;');
+        console.log('%c║  🔧 APLICANDO CALIBRADOR AUTOMÁTICO...                   ║', 'color: #FFD700; font-weight: bold;');
+        
+        // ═══════════════════════════════════════════════════════════════
+        // 🔧 APLICAR CALIBRADOR AUTOMÁTICO DE PORCENTAGEM
+        // ═══════════════════════════════════════════════════════════════
+        let finalConfidence = applyCalibratedConfidence(rawConfidence);
+        
+        console.log(`%c║  ✅ CONFIANÇA FINAL (CALIBRADA): ${finalConfidence}%${''.padEnd(19)}║`, 'color: #FFD700; font-weight: bold; font-size: 16px;');
+        
+        console.log('%c✅ SINAL APROVADO!', 'color: #00FF00; font-weight: bold; font-size: 14px;');
+        
+        // ═══════════════════════════════════════════════════════════════
 		// 📝 MONTAR RACIOCÍNIO DETALHADO (NÍVEIS ATIVOS + VOTAÇÃO)
-		// ═══════════════════════════════════════════════════════════════
-		
+        // ═══════════════════════════════════════════════════════════════
+        
 		let nivel1Description = '';
-		if (nivel4 && nivel4.source === 'custom') {
+        if (nivel4 && nivel4.source === 'custom') {
 			nivel1Description = `N1 - Padrões: ${nivel4.color.toUpperCase()} (Custom)`;
-		} else if (nivel4 && nivel4.source === 'hot') {
+        } else if (nivel4 && nivel4.source === 'hot') {
 			nivel1Description = `N1 - Padrões: ${nivel4.color.toUpperCase()} (Quente)`;
-		} else {
+        } else {
 			nivel1Description = `N1 - Padrões: NULO`;
 		}
 		
@@ -10376,13 +10376,13 @@ async function analyzeWithPatternSystem(history) {
 			? `N8 - Barreira Final: ✅ LIBERADO`
 			: `N8 - Barreira Final: 🚫 BLOQUEADO`;
 		
-		const intensityName = {
-			'aggressive': '🔥 AGRESSIVO',
-			'moderate': '⚖️ MODERADO',
-			'conservative': '🛡️ CONSERVADOR',
+        const intensityName = {
+            'aggressive': '🔥 AGRESSIVO',
+            'moderate': '⚖️ MODERADO',
+            'conservative': '🛡️ CONSERVADOR',
 			'ultraconservative': '🛡️ ULTRA CONSERVADOR'
-		}[signalIntensity] || '⚖️ MODERADO';
-		
+        }[signalIntensity] || '⚖️ MODERADO';
+        
 		const votingDescription = (() => {
 			const segments = [
 				`${voteTotals.red} VERMELHO`,
@@ -10392,22 +10392,22 @@ async function analyzeWithPatternSystem(history) {
 			if (voteTotals.negative > 0) segments.push(`${voteTotals.negative} REDUÇÃO`);
 			return `🗳️ ${segments.join(' | ')}`;
 		})();
-		
-		const reasoning = `${nivel1Description}\n` +
-			`${nivel2Description}\n` +
-			`${nivel3Description}\n` +
-			`${nivel4Description}\n` +
-			`${nivel5Description}\n` +
+        
+        const reasoning = `${nivel1Description}\n` +
+            `${nivel2Description}\n` +
+            `${nivel3Description}\n` +
+            `${nivel4Description}\n` +
+            `${nivel5Description}\n` +
 			`${retracementDescription}\n` +
 			`${continuityDescription}\n` +
 			`${barrierDescription}\n` +
-			`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
-			`${votingDescription}\n` +
+            `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+            `${votingDescription}\n` +
 			`🏆 ${finalColor.toUpperCase()} (${winningVotes}/${totalVotantes} votos = ${consensusPercent.toFixed(1)}%)\n` +
 			`🎚️ ${intensityName} (mín ${currentIntensity.min}/${totalVotantes})\n` +
-			`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
-			`🎯 DECISÃO: ${finalColor.toUpperCase()}\n` +
-			`📊 Confiança: ${finalConfidence}%`;
+            `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+            `🎯 DECISÃO: ${finalColor.toUpperCase()}\n` +
+            `📊 Confiança: ${finalConfidence}%`;
         
         // Registrar sinal para verificação futura
         const signal = {
@@ -12083,8 +12083,8 @@ async function verifyWithSavedPatterns(history) {
 	const validation = validateDisparoColor(firstPatternNormalized, currentTriggerNormalized);
 	if (!validation.valid) {
 		console.log('❌ Padrão salvo rejeitado: cor de disparo atual inválida', {
-			pattern: pat.pattern,
-			currentTrigger: currentTrigger,
+				pattern: pat.pattern,
+				currentTrigger: currentTrigger,
 			currentTriggerNormalized,
 			firstPatternColor: getInitialPatternColor(pat.pattern),
 			firstPatternNormalized,
