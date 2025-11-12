@@ -9085,10 +9085,7 @@ async function analyzeWithPatternSystem(history) {
     console.log('');
     
     try {
-        console.log('');
-        console.log('%c🔍 DEBUG: Iniciando try block principal...', 'color: #00FF00; font-weight: bold;');
-        console.log('%c   analyzerConfig:', 'color: #00FF00;', analyzerConfig);
-        console.log('%c   analyzerConfig.signalIntensity:', 'color: #00FF00;', analyzerConfig.signalIntensity);
+        // Logs de debug removidos: redução de verbosidade
         console.log('');
         
         // Verificar acerto do sinal anterior (se houver)
@@ -10562,13 +10559,7 @@ async function analyzeWithAI(history) {
         // ✅ CRÍTICO: Enviar os últimos 20 giros em DESTAQUE para a IA
         const last20Spins = history.slice(0, 20);
         
-        // 🔍 DEBUG: Mostrar os primeiros 20 giros para validar a ordem
-        console.log('%c📊 ÚLTIMOS 20 GIROS (do array history[0] até history[19]):', 'color: #FFFF00; font-weight: bold;');
-        for (let i = 0; i < Math.min(20, recentHistory.length); i++) {
-            const spin = recentHistory[i];
-            console.log(`%c   ${i === 0 ? '🔥 MAIS RECENTE →' : `   ${i + 1}.`} ${spin.color.toUpperCase()} (número ${spin.number})`, 
-                `color: ${spin.color === 'red' ? '#FF0000' : spin.color === 'black' ? '#FFFFFF' : '#00FF00'}; font-weight: bold;`);
-        }
+        // Log de debug removido: redução de verbosidade
         
         // Criar texto com DESTAQUE para os últimos 20 giros
         const last20Text = last20Spins.map((spin, idx) => 
@@ -11214,14 +11205,7 @@ async function runAnalysisController(history) {
 		console.log(`%c🤖 MODO: ANÁLISE COM INTELIGÊNCIA ARTIFICIAL IA | ${memoriaStatus}`, `color: ${memoriaColor}; font-weight: bold; font-size: 16px; background: #003300; padding: 10px;`);
 		console.log(`%c${memoriaInfo}`, 'color: #00FF88; font-weight: bold; font-size: 12px;');
 		} else {
-			console.log('%c███╗   ███╗ ██████╗ ██████╗  ██████╗     ██████╗  █████╗ ██████╗ ██████╗  █████╗  ██████╗ ', 'color: #00AAFF; font-weight: bold; font-size: 14px;');
-			console.log('%c████╗ ████║██╔═══██╗██╔══██╗██╔═══██╗    ██╔══██╗██╔══██╗██╔══██╗██╔══██╗██╔══██╗██╔═══██╗', 'color: #00AAFF; font-weight: bold; font-size: 14px;');
-			console.log('%c██╔████╔██║██║   ██║██║  ██║██║   ██║    ██████╔╝███████║██║  ██║██████╔╝███████║██║   ██║', 'color: #00AAFF; font-weight: bold; font-size: 14px;');
-			console.log('%c██║╚██╔╝██║██║   ██║██║  ██║██║   ██║    ██╔═══╝ ██╔══██║██║  ██║██╔══██╗██╔══██║██║   ██║', 'color: #00AAFF; font-weight: bold; font-size: 14px;');
-			console.log('%c██║ ╚═╝ ██║╚██████╔╝██████╔╝╚██████╔╝    ██║     ██║  ██║██████╔╝██║  ██║██║  ██║╚██████╔╝', 'color: #00AAFF; font-weight: bold; font-size: 14px;');
-			console.log('%c╚═╝     ╚═╝ ╚═════╝ ╚═════╝  ╚═════╝     ╚═╝     ╚═╝  ╚═╝╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝ ╚═════╝ ', 'color: #00AAFF; font-weight: bold; font-size: 14px;');
-			console.log('%c📊 MODO DE ANÁLISE ATIVO: SISTEMA PADRÃO (173+ ANÁLISES)', 'color: #00AAFF; font-weight: bold; font-size: 16px; background: #003366; padding: 10px;');
-			console.log('%c🔍 Usando banco de padrões salvos + análises locais', 'color: #00BBFF; font-weight: bold; font-size: 12px;');
+			console.log('%c📊 MODO PADRÃO ATIVO | Análise em tempo real', 'color: #00AAFF; font-weight: bold; background: #003366; padding: 6px 12px; border-radius: 4px;');
 		}
 		
 		// ⚠️ CRÍTICO: VERIFICAR MODO CONSECUTIVO COM MARTINGALE ATIVO (APLICA PARA AMBOS OS MODOS)
@@ -11234,50 +11218,38 @@ async function runAnalysisController(history) {
 			console.log('%c❌ RETORNANDO SEM ANALISAR (MOTIVO: Martingale ativo em modo consecutivo)', 'color: #FF0000; font-weight: bold; font-size: 16px; background: #330000; padding: 5px;');
 			return; // ✅ NÃO executar nova análise em modo consecutivo com Martingale ativo
 		}
-		console.log('%c✅ CHECK 1: Não há Martingale consecutivo ativo - PROSSEGUINDO', 'color: #00FF88; font-weight: bold;');
+		// Log removido: redução de verbosidade
 		
 		// ✅ VERIFICAR SE JÁ EXISTE UMA ANÁLISE PENDENTE (que ainda não foi avaliada)
 		const existingAnalysisResult = await chrome.storage.local.get(['analysis']);
 		const existingAnalysis = existingAnalysisResult['analysis'];
 		
-		console.log('   existingAnalysis:', existingAnalysis ? 'SIM' : 'NÃO');
+	// Log removido: redução de verbosidade
+	
+	if (existingAnalysis && existingAnalysis.createdOnTimestamp && history && history.length > 0) {
+		const latestSpinTimestamp = history[0].timestamp;
+		const isAnalysisPending = existingAnalysis.createdOnTimestamp !== latestSpinTimestamp;
 		
-		if (existingAnalysis && existingAnalysis.createdOnTimestamp && history && history.length > 0) {
-			const latestSpinTimestamp = history[0].timestamp;
-			const isAnalysisPending = existingAnalysis.createdOnTimestamp !== latestSpinTimestamp;
-			
-			console.log('   Timestamp da análise:', existingAnalysis.createdOnTimestamp);
-			console.log('   Timestamp do giro atual:', latestSpinTimestamp);
-			console.log('   É diferente (pendente)?', isAnalysisPending ? 'SIM' : 'NÃO');
-			
-			if (isAnalysisPending) {
-				console.log('%c║  ⚠️ JÁ EXISTE ANÁLISE PENDENTE - NÃO SOBRESCREVER!      ║', 'color: #FF6600; font-weight: bold; font-size: 16px; background: #332200; padding: 5px;');
-				console.log('%c║  Cor recomendada: ' + existingAnalysis.color, 'color: #FF6600; font-weight: bold; background: #332200; padding: 5px;');
-				console.log('%c║  Confiança: ' + existingAnalysis.confidence + '%', 'color: #FF6600; font-weight: bold; background: #332200; padding: 5px;');
-				console.log('%c❌ RETORNANDO SEM ANALISAR (MOTIVO: Análise pendente não avaliada)', 'color: #FF6600; font-weight: bold; font-size: 16px; background: #332200; padding: 5px;');
-				return; // ✅ NÃO executar nova análise se já há uma pendente
-			}
+		if (isAnalysisPending) {
+			console.log('%c⚠️ Análise pendente | ' + existingAnalysis.color + ' (' + existingAnalysis.confidence + '%)', 'color: #FF9900; font-weight: bold; background: #332200; padding: 4px 8px; border-radius: 4px;');
+			return; // ✅ NÃO executar nova análise se já há uma pendente
 		}
-		console.log('%c✅ CHECK 2: Não há análise pendente - PROSSEGUINDO', 'color: #00FF88; font-weight: bold;');
+	}
+	// Log removido: redução de verbosidade
 		
 		// 1) Verificação com padrões salvos (rápido) - PRIORIDADE MÁXIMA
 		// ⚠️ CRÍTICO: PULAR VERIFICAÇÃO DE PADRÕES SALVOS SE MODO IA ESTIVER ATIVO
 		let verifyResult = null;
 		if (!analyzerConfig.aiMode) {
-			console.log('%c║                                                                               ║', 'color: #00AAFF; font-weight: bold; font-size: 16px; background: #003366; padding: 5px;');
-			console.log('%c║       🔎 INICIANDO ANÁLISE COM PADRÕES SALVOS (MODO PADRÃO)! 🔎             ║', 'color: #00AAFF; font-weight: bold; font-size: 16px; background: #003366; padding: 5px;');
-			console.log('%c║                                                                               ║', 'color: #00AAFF; font-weight: bold; font-size: 16px; background: #003366; padding: 5px;');
+			console.log('%c🔎 Analisando padrões...', 'color: #00AAFF; font-weight: bold; background: #003366; padding: 4px 8px; border-radius: 4px;');
 			sendAnalysisStatus('🔎 Verificando padrões salvos...');
 			verifyResult = await verifyWithSavedPatterns(history);
 		} else {
-			console.log('%c🤖 MODO IA ATIVO: Pulando verificação de padrões salvos...', 'color: #00FF88; font-weight: bold; font-size: 14px;');
-			console.log('%c⏭️  Indo direto para análise por Inteligência Artificial', 'color: #00FF88;');
+			console.log('%c🤖 Modo IA ativo | Analisando...', 'color: #00FF88; font-weight: bold; background: #003300; padding: 4px 8px; border-radius: 4px;');
 		}
 		
-		if (verifyResult) {
-			console.log('║  ✅ USANDO: PADRÃO SALVO (PRIORIDADE MÁXIMA)             ║');
-			console.log('║  📊 Sistema de análise: BANCO DE PADRÕES                 ║');
-			console.log('║  🎯 Padrão encontrado e validado                         ║');
+	if (verifyResult) {
+		console.log('%c✅ Padrão encontrado | ' + verifyResult.color + ' (' + verifyResult.confidence + '%)', 'color: #00FF88; font-weight: bold; background: #003322; padding: 4px 8px; border-radius: 4px;');
 			
 			// ⚠️ CRÍTICO: VERIFICAR SE HÁ MARTINGALE ATIVO
 			if (martingaleState.active && martingaleState.entryColor) {
@@ -11893,10 +11865,7 @@ async function startInitialPatternSearch(history) {
 	const duration = 30 * 1000; // 30 segundos (30s)
 	const updateInterval = 1000; // ✅ ATUALIZAR A CADA 1 SEGUNDO (cronômetro fluido)
 	
-	console.log('║  🔍 BUSCA INICIAL DE PADRÕES (30s)                      ║');
-	console.log(`║  📊 Histórico: ${history.length} giros disponíveis                    ║`);
-	console.log('║  ⏱️  Duração: 30 segundos                                ║');
-	console.log('║  🎯 Limite: 5000 padrões únicos                          ║');
+	console.log('%c🔍 Busca de padrões iniciada | 30s | ' + history.length + ' giros', 'color: #00D4FF; font-weight: bold; background: #002244; padding: 4px 8px; border-radius: 4px;');
 	
 	// ✅ NOTIFICAR IMEDIATAMENTE COM 0 PADRÕES (antes da primeira iteração)
 	sendMessageToContent('INITIAL_SEARCH_START', { 
@@ -11924,9 +11893,7 @@ async function startInitialPatternSearch(history) {
 			const db = await loadPatternDB(); // ✅ Aqui pode logar (busca finalizada)
 			const total = db.patterns_found ? db.patterns_found.length : 0;
 			
-			console.log('║  ✅ BUSCA INICIAL CONCLUÍDA                               ║');
-			console.log(`║  📊 Total de padrões únicos: ${total.toString().padEnd(4)}                    ║`);
-			console.log('║  🎯 Pronto para jogar!                                   ║');
+		console.log('%c✅ Busca concluída | ' + total + '/5000 padrões | 🎯 Pronto!', 'color: #00FF88; font-weight: bold; background: #003322; padding: 4px 8px; border-radius: 4px;');
 			
 			sendMessageToContent('INITIAL_SEARCH_COMPLETE', { 
 				total: total,
@@ -11961,18 +11928,17 @@ async function startInitialPatternSearch(history) {
 				
 				await discoverAndPersistPatterns(history, iterationStartTs, iterationBudget);
 				
-				const dbAfterSearch = await loadPatternDB(true); // silent = true
-				const totalAfterSearch = dbAfterSearch.patterns_found ? dbAfterSearch.patterns_found.length : 0;
-				
-				console.log(`%c🔍 Busca [iteração ${Math.floor(elapsed/5000)}]: ${totalAfterSearch}/5000 padrões | ${minutes}m ${seconds}s restantes`, 'color: #00D4FF; font-weight: bold;');
+			const dbAfterSearch = await loadPatternDB(true); // silent = true
+			const totalAfterSearch = dbAfterSearch.patterns_found ? dbAfterSearch.patterns_found.length : 0;
+			
+			// Log removido: já temos o cronômetro periódico
 				
 				// Se atingiu o limite, parar
 				if (totalAfterSearch >= 5000) {
 					clearInterval(initialSearchInterval);
 					initialSearchActive = false;
 					
-					console.log('║  ✅ LIMITE DE PADRÕES ATINGIDO (5000)                    ║');
-					console.log('║  🎯 Pronto para jogar!                                   ║');
+				console.log('%c✅ Limite atingido | 5000 padrões | 🎯 Pronto!', 'color: #00FF88; font-weight: bold; background: #003322; padding: 4px 8px; border-radius: 4px;');
 					
 					sendMessageToContent('INITIAL_SEARCH_COMPLETE', { 
 						total: totalAfterSearch,
@@ -11991,7 +11957,7 @@ function stopInitialPatternSearch() {
 	if (initialSearchInterval) {
 		clearInterval(initialSearchInterval);
 		initialSearchActive = false;
-		console.log('⏸️ Busca inicial de padrões interrompida.');
+		console.log('%c⏸️ Busca interrompida', 'color: #FF9900; font-weight: bold;');
 	}
 }
 
@@ -12597,31 +12563,15 @@ async function discoverAndPersistPatterns(history, startTs, budgetMs) {
 		}
 	}
 
-	// ✅ MOSTRAR RESUMO DE DUPLICATAS E REJEIÇÕES
-	if (duplicatesCount > 0) {
-		console.log(`🔍 ${duplicatesCount} padrão(ões) duplicado(s) ignorado(s)`);
-	}
-	if (rejectedByInvalidTriggerCount > 0) {
-		console.log(`%c❌ ${rejectedByInvalidTriggerCount} padrão(ões) REJEITADO(S) por trigger inválida`, 'color: #FF6666; font-weight: bold;');
-	}
-
+	// Log resumido: apenas se encontrou novos padrões
 	if (discovered.length === 0) {
-		console.log('🔍 Descoberta: Nenhum padrão novo encontrado (todos já existem no banco)');
+		// Silencioso: não precisa logar quando não encontra nada novo
 		return;
 	}
 	
-	console.log(`%c🎯 ${discovered.length} padrão(ões) novo(s) encontrado(s)`, 'color: #00FF88; font-weight: bold; background: #003322; padding: 2px 6px;');
-
-	// Log de descoberta (RESUMIDO - sem detalhes individuais)
-	console.log(`
-╔═══════════════════════════════════════════════════════════╗
-║  🔍 NOVOS PADRÕES (total: ${discovered.length})                             
-╠═══════════════════════════════════════════════════════════╣
-║  ✨ ${discovered.length.toString().padStart(3)} novos padrões encontrados!                     
-║  ⏱️  Tempo decorrido: ${((Date.now() - startTs) / 1000).toFixed(2)}s                    
-║  📊 Total de tarefas executadas: ${tasks.length}                  
-╚═══════════════════════════════════════════════════════════╝
-	`.trim());
+	// Log compacto de novos padrões
+	const timeElapsed = ((Date.now() - startTs) / 1000).toFixed(2);
+	console.log(`%c🎯 +${discovered.length} padrão(ões) | ⏱️ ${timeElapsed}s`, 'color: #00FF88; font-weight: bold; background: #003322; padding: 4px 8px; border-radius: 4px;');
 
 	// ✅ UPSERT NO DB - REFATORADO COM ANTI-DUPLICAÇÃO
 	const nowIso = new Date().toISOString();
@@ -12675,12 +12625,7 @@ async function discoverAndPersistPatterns(history, startTs, budgetMs) {
 			
 			if (!triggerValidation.valid) {
 				rejectedByInvalidTriggerCount++; // Incrementar contador
-				console.log(`❌ Padrão REJEITADO antes de salvar: trigger inválida`, {
-					pattern: p.pattern.join('-'),
-					firstColor: firstColorNormalized,
-					trigger: triggerNormalized,
-					reason: triggerValidation.reason
-				});
+				// Log removido: não é necessário logar padrões rejeitados individualmente
 				continue; // ❌ NÃO SALVAR este padrão no banco
 			}
 		}
@@ -12703,13 +12648,7 @@ async function discoverAndPersistPatterns(history, startTs, budgetMs) {
 	db.patterns_found = db.patterns_found.slice(0, 5000);
 	await savePatternDB(db);
 	
-	// ✅ LOG FINAL: Resumo da descoberta
-	const savedCount = discovered.length - rejectedByInvalidTriggerCount;
-	console.log('%c║  📊 RESUMO DA DESCOBERTA DE PADRÕES                      ║', 'color: #00FF88; font-weight: bold;');
-	console.log(`%c║  ✅ Padrões SALVOS: ${savedCount.toString().padEnd(4)}                                  ║`, 'color: #00FF88; font-weight: bold;');
-	console.log(`%c║  ❌ Padrões REJEITADOS (trigger inválida): ${rejectedByInvalidTriggerCount.toString().padEnd(4)}      ║`, 'color: #FF6666; font-weight: bold;');
-	console.log(`%c║  🔄 Padrões DUPLICADOS (ignorados): ${duplicatesCount.toString().padEnd(4)}           ║`, 'color: #FFAA00; font-weight: bold;');
-	console.log(`%c║  📦 Total no banco: ${db.patterns_found.length.toString().padEnd(4)} / 5000                      ║`, 'color: #00AAFF; font-weight: bold;');
+	// Log removido: resumo já foi mostrado acima (compacto)
 }
 
 // Varredura rápida por padrões de cores (sem exigir match atual, apenas descoberta)
@@ -16667,7 +16606,7 @@ async function sendMessageToContent(type, data = null) {
             // ✅ ENVIAR COM TRATAMENTO DE ERRO
             chrome.tabs.sendMessage(targetTab.id, message)
                 .then(() => {
-                    console.log(`✅ [${type}] enviado para aba Blaze (ID: ${targetTab.id})`);
+                    // Log removido: redução de verbosidade
                     resolve(true);
                 })
                 .catch(error => {
@@ -17158,7 +17097,7 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
 
 // Listen for messages from popup
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-    console.log('%c║  🎯 BACKGROUND.JS LISTENER EXECUTADO! (VERSÃO 17)                ║', 'color: #FF00FF; font-weight: bold; font-size: 16px;');
+    // Log removido: redução de verbosidade
     
     if (request.action === 'start') {
         startDataCollection();
@@ -17544,8 +17483,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         console.log('%c✅ RETORNANDO TRUE do resetPatterns!', 'color: #00FF00; font-weight: bold; font-size: 16px;');
         return true; // async response
     } else {
-        console.log('%c⚠️ NENHUM else if correspondeu! Action:', 'color: #FF0000; font-weight: bold; font-size: 16px;', request.action);
-        console.log('%c⚠️ Listener vai retornar undefined!', 'color: #FF0000; font-weight: bold;');
+        // Log removido: não é necessário avisar sobre ações não correspondidas
     }
 });
 
