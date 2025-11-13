@@ -331,7 +331,6 @@
                 }
                 resolve(true);
             };
-            
             // Montar modal
             buttonsContainer.appendChild(cancelBtn);
             buttonsContainer.appendChild(okBtn);
@@ -642,7 +641,6 @@
         modal.appendChild(buttonsContainer);
         document.body.appendChild(modal);
     }
-    
     // ═══════════════════════════════════════════════════════════════════════════════
     // FUNÇÃO: Ativar/Desativar modo IA
     // ═══════════════════════════════════════════════════════════════════════════════
@@ -972,7 +970,6 @@
             console.log('%c═══════════════════════════════════════════════════════════', 'color: #00CED1; font-weight: bold;');
             return; // ✅ NÃO sobrescrever durante análise progressiva
         }
-        
         console.log('%c╔══════════════════════════════════════════════════════════╗', 'color: #00CED1; font-weight: bold;');
         console.log('%c║  🧠 [CONTENT] INICIANDO ATUALIZAÇÃO DO STATUS          ║', 'color: #00CED1; font-weight: bold;');
         console.log('%c╚══════════════════════════════════════════════════════════╝', 'color: #00CED1; font-weight: bold;');
@@ -1141,8 +1138,49 @@ const DIAMOND_LEVEL_DEFAULTS = {
     n6RetracementWindow: 80,
     n7DecisionWindow: 20,
     n7HistoryWindow: 100,
-    n8Barrier: 50
+    n8Barrier: 50,
+    n9BayesHistory: 150,
+    n9BayesNeutralThreshold: 0.08,
+    n10WhiteWindow: 100,
+    n10WhiteThreshold: 1.8,
+    n11CusumWindow: 200,
+    n11CusumThreshold: 0.55,
+    n11CusumCooldown: 12,
+    n12KellyFraction: 0.1,
+    n12KellyMaxStake: 0.25,
+    n12WhiteRiskVeto: 0.4,
+    n12LossStreakVeto: 3,
+    n12MinimumStake: 0.02
 };
+
+const ANALYZER_CONFIG_DEFAULTS = {
+    historyDepth: 500,
+    minOccurrences: 2,
+    maxOccurrences: 0,
+    minIntervalSpins: 2,
+    minPatternSize: 3,
+    maxPatternSize: 0,
+    winPercentOthers: 100,
+    requireTrigger: true,
+    consecutiveMartingale: false,
+    maxGales: 0,
+    telegramChatId: '',
+    aiApiKey: '',
+    aiMode: false,
+    signalIntensity: 'moderate',
+    diamondLevelWindows: { ...DIAMOND_LEVEL_DEFAULTS }
+};
+
+function readNumericInput(id, min, max, fallback) {
+    const el = document.getElementById(id);
+    if (!el) return fallback;
+    const raw = String(el.value ?? '').trim().replace(',', '.');
+    let value = Number(raw);
+    if (!Number.isFinite(value)) value = fallback;
+    if (typeof min === 'number') value = Math.max(min, value);
+    if (typeof max === 'number') value = Math.min(max, value);
+    return value;
+}
     // Função para mostrar notificação toast (simples e rápida)
     function showToast(message, duration = 2000) {
         // Remover toast anterior se existir
@@ -1301,7 +1339,6 @@ const DIAMOND_LEVEL_DEFAULTS = {
                 height: 100%;
                 background: rgba(0, 0, 0, 0.85);
             }
-            
             .bank-patterns-modal-content {
                 position: relative;
                 background: #0f1f2a;
@@ -1559,9 +1596,71 @@ const DIAMOND_LEVEL_DEFAULTS = {
                                 </div>
                             </div>
                         </div>
+                        <div style="margin: 14px 0 6px; font-weight: 600; color: #ff003f;">Proteções & Gestão (N8 – N12)</div>
                         <div class="diamond-level-field">
-                            <label for="diamondN8Barrier">N8 - Barreira Final (janela)</label>
+                            <label for="diamondN8Barrier">N8 - Giros mínimos para validar sequência (barreira histórica)</label>
                             <input type="number" id="diamondN8Barrier" min="10" max="200" value="50" />
+                            <small style="display:block;margin-top:5px;font-size:11px;color:#8da2bb;">Ex.: 50 giros = só libera se essa sequência já aconteceu nos últimos 50 giros.</small>
+                        </div>
+                        <div class="diamond-level-field">
+                            <label for="diamondN9BayesHistory">N9 - Giros analisados para calibrar probabilidades</label>
+                            <input type="number" id="diamondN9BayesHistory" min="50" max="600" value="150" />
+                            <small style="display:block;margin-top:5px;font-size:11px;color:#8da2bb;">Quanto maior a amostra, mais estáveis ficam as probabilidades (P🔴, P⚫, P⚪).</small>
+                        </div>
+                        <div class="diamond-level-field">
+                            <label for="diamondN9BayesNeutralThreshold">N9 - Diferença mínima para manter voto (vermelho × preto)</label>
+                            <input type="number" id="diamondN9BayesNeutralThreshold" min="0.02" max="0.25" step="0.01" value="0.08" />
+                            <small style="display:block;margin-top:5px;font-size:11px;color:#8da2bb;">Ex.: 0,08 = exige 8 p.p. de vantagem. Abaixo disso o voto é neutralizado.</small>
+                        </div>
+                        <div class="diamond-level-field">
+                            <label for="diamondN10WhiteWindow">N10 - Giros monitorados para detectar branco em série</label>
+                            <input type="number" id="diamondN10WhiteWindow" min="30" max="400" value="100" />
+                            <small style="display:block;margin-top:5px;font-size:11px;color:#8da2bb;">Amplie para reduzir falsos alertas; reduza para reagir mais rápido.</small>
+                        </div>
+                        <div class="diamond-level-field">
+                            <label for="diamondN10WhiteThreshold">N10 - Quando acender alerta (taxa recente ÷ taxa histórica)</label>
+                            <input type="number" id="diamondN10WhiteThreshold" min="1.1" max="3" step="0.1" value="1.8" />
+                            <small style="display:block;margin-top:5px;font-size:11px;color:#8da2bb;">Ex.: 1,8 = alerta se a taxa recente de brancos estiver 80% maior que a normal.</small>
+                        </div>
+                        <div class="diamond-level-field">
+                            <label for="diamondN11CusumWindow">N11 - Giros usados no detector de mudança de regime</label>
+                            <input type="number" id="diamondN11CusumWindow" min="60" max="600" value="200" />
+                            <small style="display:block;margin-top:5px;font-size:11px;color:#8da2bb;">Janela maior = detector mais estável e com menos ruído.</small>
+                        </div>
+                        <div class="diamond-level-field">
+                            <label for="diamondN11CusumThreshold">N11 - Sensibilidade do detector (0,3 = muito sensível)</label>
+                            <input type="number" id="diamondN11CusumThreshold" min="0.3" max="0.9" step="0.05" value="0.55" />
+                            <small style="display:block;margin-top:5px;font-size:11px;color:#8da2bb;">Valores menores detectam mudanças cedo, porém podem gerar mais alarmes.</small>
+                        </div>
+                        <div class="diamond-level-field">
+                            <label for="diamondN11CusumCooldown">N11 - Giros de estabilização após detectar nova fase</label>
+                            <input type="number" id="diamondN11CusumCooldown" min="5" max="30" value="12" />
+                            <small style="display:block;margin-top:5px;font-size:11px;color:#8da2bb;">Durante esse período o sistema mantém pesos cautelosos.</small>
+                        </div>
+                        <div class="diamond-level-field">
+                            <label for="diamondN12KellyFraction">N12 - Percentual base de aposta por entrada (Kelly fracionário)</label>
+                            <input type="number" id="diamondN12KellyFraction" min="0.02" max="0.5" step="0.01" value="0.1" />
+                            <small style="display:block;margin-top:5px;font-size:11px;color:#8da2bb;">Ex.: 0,10 = apostar 10% do valor sugerido após os ajustes de risco.</small>
+                        </div>
+                        <div class="diamond-level-field">
+                            <label for="diamondN12KellyMaxStake">N12 - Limite máximo permitido em uma entrada</label>
+                            <input type="number" id="diamondN12KellyMaxStake" min="0.05" max="0.5" step="0.01" value="0.25" />
+                            <small style="display:block;margin-top:5px;font-size:11px;color:#8da2bb;">Garante que nenhuma aposta ultrapasse esse percentual, mesmo com alta confiança.</small>
+                        </div>
+                        <div class="diamond-level-field">
+                            <label for="diamondN12WhiteRiskVeto">N12 - Bloquear quando chance de branco for ≥</label>
+                            <input type="number" id="diamondN12WhiteRiskVeto" min="0.1" max="0.6" step="0.01" value="0.4" />
+                            <small style="display:block;margin-top:5px;font-size:11px;color:#8da2bb;">Ex.: 0,40 = veto automático se o branco estiver com 40% ou mais de probabilidade.</small>
+                        </div>
+                        <div class="diamond-level-field">
+                            <label for="diamondN12LossStreakVeto">N12 - Bloquear após X perdas consecutivas</label>
+                            <input type="number" id="diamondN12LossStreakVeto" min="1" max="6" step="1" value="3" />
+                            <small style="display:block;margin-top:5px;font-size:11px;color:#8da2bb;">Ajuda a proteger em fases ruins. Use 3 como padrão; 0 desativa.</small>
+                        </div>
+                        <div class="diamond-level-field">
+                            <label for="diamondN12MinimumStake">N12 - Valor mínimo sugerido quando a entrada é liberada</label>
+                            <input type="number" id="diamondN12MinimumStake" min="0" max="0.1" step="0.01" value="0.02" />
+                            <small style="display:block;margin-top:5px;font-size:11px;color:#8da2bb;">Define um piso para evitar sinais irrelevantes. Use 0 para desativar.</small>
                         </div>
                     </div>
                     <div class="custom-pattern-modal-footer">
@@ -1581,7 +1680,6 @@ const DIAMOND_LEVEL_DEFAULTS = {
         cancelBtn.addEventListener('click', closeModal);
         overlay.addEventListener('click', closeModal);
     }
-
     function populateDiamondLevelsForm(config) {
         const windows = (config && config.diamondLevelWindows) || {};
         const legacyKeyMap = {
@@ -1614,6 +1712,18 @@ const DIAMOND_LEVEL_DEFAULTS = {
         setInput('diamondN7DecisionWindow', getValue('n7DecisionWindow', DIAMOND_LEVEL_DEFAULTS.n7DecisionWindow));
         setInput('diamondN7HistoryWindow', getValue('n7HistoryWindow', DIAMOND_LEVEL_DEFAULTS.n7HistoryWindow));
         setInput('diamondN8Barrier', getValue('n8Barrier', DIAMOND_LEVEL_DEFAULTS.n8Barrier));
+        setInput('diamondN9BayesHistory', getValue('n9BayesHistory', DIAMOND_LEVEL_DEFAULTS.n9BayesHistory));
+        setInput('diamondN9BayesNeutralThreshold', getValue('n9BayesNeutralThreshold', DIAMOND_LEVEL_DEFAULTS.n9BayesNeutralThreshold));
+        setInput('diamondN10WhiteWindow', getValue('n10WhiteWindow', DIAMOND_LEVEL_DEFAULTS.n10WhiteWindow));
+        setInput('diamondN10WhiteThreshold', getValue('n10WhiteThreshold', DIAMOND_LEVEL_DEFAULTS.n10WhiteThreshold));
+        setInput('diamondN11CusumWindow', getValue('n11CusumWindow', DIAMOND_LEVEL_DEFAULTS.n11CusumWindow));
+        setInput('diamondN11CusumThreshold', getValue('n11CusumThreshold', DIAMOND_LEVEL_DEFAULTS.n11CusumThreshold));
+        setInput('diamondN11CusumCooldown', getValue('n11CusumCooldown', DIAMOND_LEVEL_DEFAULTS.n11CusumCooldown));
+        setInput('diamondN12KellyFraction', getValue('n12KellyFraction', DIAMOND_LEVEL_DEFAULTS.n12KellyFraction));
+        setInput('diamondN12KellyMaxStake', getValue('n12KellyMaxStake', DIAMOND_LEVEL_DEFAULTS.n12KellyMaxStake));
+        setInput('diamondN12WhiteRiskVeto', getValue('n12WhiteRiskVeto', DIAMOND_LEVEL_DEFAULTS.n12WhiteRiskVeto));
+        setInput('diamondN12LossStreakVeto', getValue('n12LossStreakVeto', DIAMOND_LEVEL_DEFAULTS.n12LossStreakVeto));
+        setInput('diamondN12MinimumStake', getValue('n12MinimumStake', DIAMOND_LEVEL_DEFAULTS.n12MinimumStake));
     }
 
     function openDiamondLevelsModal() {
@@ -1647,7 +1757,8 @@ const DIAMOND_LEVEL_DEFAULTS = {
         const getNumber = (id, min, max, fallback) => {
             const el = document.getElementById(id);
             if (!el) return fallback;
-            let value = Number(el.value);
+            let raw = String(el.value || '').trim().replace(',', '.');
+            let value = Number(raw);
             if (!Number.isFinite(value)) value = fallback;
             value = Math.max(min, Math.min(max, value));
             return value;
@@ -1662,7 +1773,19 @@ const DIAMOND_LEVEL_DEFAULTS = {
             n6RetracementWindow: getNumber('diamondN6Retracement', 30, 120, DIAMOND_LEVEL_DEFAULTS.n6RetracementWindow),
             n7DecisionWindow: getNumber('diamondN7DecisionWindow', 10, 50, DIAMOND_LEVEL_DEFAULTS.n7DecisionWindow),
             n7HistoryWindow: getNumber('diamondN7HistoryWindow', 50, 200, DIAMOND_LEVEL_DEFAULTS.n7HistoryWindow),
-            n8Barrier: getNumber('diamondN8Barrier', 10, 200, DIAMOND_LEVEL_DEFAULTS.n8Barrier)
+            n8Barrier: getNumber('diamondN8Barrier', 10, 200, DIAMOND_LEVEL_DEFAULTS.n8Barrier),
+            n9BayesHistory: getNumber('diamondN9BayesHistory', 50, 600, DIAMOND_LEVEL_DEFAULTS.n9BayesHistory),
+            n9BayesNeutralThreshold: getNumber('diamondN9BayesNeutralThreshold', 0.02, 0.25, DIAMOND_LEVEL_DEFAULTS.n9BayesNeutralThreshold),
+            n10WhiteWindow: getNumber('diamondN10WhiteWindow', 30, 400, DIAMOND_LEVEL_DEFAULTS.n10WhiteWindow),
+            n10WhiteThreshold: getNumber('diamondN10WhiteThreshold', 1.1, 3, DIAMOND_LEVEL_DEFAULTS.n10WhiteThreshold),
+            n11CusumWindow: getNumber('diamondN11CusumWindow', 60, 600, DIAMOND_LEVEL_DEFAULTS.n11CusumWindow),
+            n11CusumThreshold: getNumber('diamondN11CusumThreshold', 0.3, 0.9, DIAMOND_LEVEL_DEFAULTS.n11CusumThreshold),
+            n11CusumCooldown: Math.round(getNumber('diamondN11CusumCooldown', 5, 30, DIAMOND_LEVEL_DEFAULTS.n11CusumCooldown)),
+            n12KellyFraction: getNumber('diamondN12KellyFraction', 0.02, 0.5, DIAMOND_LEVEL_DEFAULTS.n12KellyFraction),
+            n12KellyMaxStake: getNumber('diamondN12KellyMaxStake', 0.05, 0.5, DIAMOND_LEVEL_DEFAULTS.n12KellyMaxStake),
+            n12WhiteRiskVeto: getNumber('diamondN12WhiteRiskVeto', 0.1, 0.6, DIAMOND_LEVEL_DEFAULTS.n12WhiteRiskVeto),
+            n12LossStreakVeto: Math.round(getNumber('diamondN12LossStreakVeto', 1, 6, DIAMOND_LEVEL_DEFAULTS.n12LossStreakVeto)),
+            n12MinimumStake: getNumber('diamondN12MinimumStake', 0, 0.1, DIAMOND_LEVEL_DEFAULTS.n12MinimumStake)
         };
 
         if (newWindows.n2Previous <= newWindows.n2Recent) {
@@ -1672,6 +1795,16 @@ const DIAMOND_LEVEL_DEFAULTS = {
 
         if (newWindows.n7HistoryWindow < newWindows.n7DecisionWindow) {
             alert('O histórico base do N7 deve ser maior ou igual ao número de decisões analisadas.');
+            return;
+        }
+
+        if (newWindows.n12KellyFraction > newWindows.n12KellyMaxStake) {
+            alert('O Kelly fracionário (N12) não pode ser maior que a stake máxima configurada.');
+            return;
+        }
+
+        if (newWindows.n12MinimumStake > newWindows.n12KellyMaxStake) {
+            alert('O stake mínimo (N12) deve ser menor ou igual ao stake máximo.');
             return;
         }
 
@@ -1706,6 +1839,119 @@ const DIAMOND_LEVEL_DEFAULTS = {
         } catch (err) {
             console.error('❌ Erro ao salvar configurações dos níveis diamante:', err);
             alert('Não foi possível salvar as configurações dos níveis. Tente novamente.');
+        }
+    }
+
+    async function loadAnalyzerSettingsUI(retry = 0) {
+        const historyField = document.getElementById('cfgHistoryDepth');
+        const minOccurrencesField = document.getElementById('cfgMinOccurrences');
+        if (!historyField || !minOccurrencesField) {
+            if (retry < 10) {
+                setTimeout(() => loadAnalyzerSettingsUI(retry + 1), 300);
+            }
+            return;
+        }
+
+        try {
+            const storageData = await storageCompat.get(['analyzerConfig']);
+            const config = { ...ANALYZER_CONFIG_DEFAULTS, ...(storageData.analyzerConfig || {}) };
+
+            const applyNumber = (id, value) => {
+                const input = document.getElementById(id);
+                if (input && value !== undefined && value !== null) {
+                    input.value = value;
+                }
+            };
+
+            applyNumber('cfgHistoryDepth', config.historyDepth);
+            applyNumber('cfgMinOccurrences', config.minOccurrences);
+            applyNumber('cfgMaxOccurrences', config.maxOccurrences);
+            applyNumber('cfgMinInterval', config.minIntervalSpins);
+            applyNumber('cfgMinPatternSize', config.minPatternSize);
+            applyNumber('cfgMaxPatternSize', config.maxPatternSize);
+            applyNumber('cfgWinPercentOthers', config.winPercentOthers);
+            applyNumber('cfgMaxGales', config.maxGales);
+
+            const requireTriggerField = document.getElementById('cfgRequireTrigger');
+            if (requireTriggerField) requireTriggerField.checked = !!config.requireTrigger;
+
+            const consecutiveMartingaleField = document.getElementById('cfgConsecutiveMartingale');
+            if (consecutiveMartingaleField) consecutiveMartingaleField.checked = !!config.consecutiveMartingale;
+
+            const tgChatIdField = document.getElementById('cfgTgChatId');
+            if (tgChatIdField) tgChatIdField.value = config.telegramChatId || '';
+
+            const signalIntensitySelect = document.getElementById('signalIntensitySelect');
+            if (signalIntensitySelect) {
+                const candidate = config.signalIntensity || 'moderate';
+                signalIntensitySelect.value = Array.from(signalIntensitySelect.options).some(opt => opt.value === candidate)
+                    ? candidate
+                    : 'moderate';
+            }
+
+            const apiKeyField = document.getElementById('cfgAiApiKey');
+            if (apiKeyField) apiKeyField.value = config.aiApiKey || '';
+
+            const syncCheckbox = document.getElementById('syncConfigToAccount');
+            if (syncCheckbox) syncCheckbox.checked = getSyncConfigPreference();
+        } catch (error) {
+            console.error('❌ Erro ao carregar configurações:', error);
+        }
+    }
+
+    async function saveSettings() {
+        try {
+            const storageData = await storageCompat.get(['analyzerConfig']);
+            const currentConfig = { ...ANALYZER_CONFIG_DEFAULTS, ...(storageData.analyzerConfig || {}) };
+
+            const updatedConfig = {
+                ...currentConfig,
+                historyDepth: Math.round(readNumericInput('cfgHistoryDepth', 100, 2000, currentConfig.historyDepth)),
+                minOccurrences: Math.max(1, Math.round(readNumericInput('cfgMinOccurrences', 1, 100, currentConfig.minOccurrences))),
+                maxOccurrences: Math.max(0, Math.round(readNumericInput('cfgMaxOccurrences', 0, 1000, currentConfig.maxOccurrences))),
+                minIntervalSpins: Math.max(0, Math.round(readNumericInput('cfgMinInterval', 0, 1000, currentConfig.minIntervalSpins))),
+                minPatternSize: Math.max(2, Math.round(readNumericInput('cfgMinPatternSize', 2, 200, currentConfig.minPatternSize))),
+                maxPatternSize: Math.max(0, Math.round(readNumericInput('cfgMaxPatternSize', 0, 500, currentConfig.maxPatternSize))),
+                winPercentOthers: Math.max(0, Math.min(100, Math.round(readNumericInput('cfgWinPercentOthers', 0, 100, currentConfig.winPercentOthers)))),
+                requireTrigger: !!document.getElementById('cfgRequireTrigger')?.checked,
+                consecutiveMartingale: !!document.getElementById('cfgConsecutiveMartingale')?.checked,
+                maxGales: Math.max(0, Math.round(readNumericInput('cfgMaxGales', 0, 200, currentConfig.maxGales))),
+                telegramChatId: document.getElementById('cfgTgChatId')?.value.trim() || '',
+                signalIntensity: document.getElementById('signalIntensitySelect')?.value || currentConfig.signalIntensity || 'moderate'
+            };
+
+            const aiApiKeyField = document.getElementById('cfgAiApiKey');
+            if (aiApiKeyField) {
+                updatedConfig.aiApiKey = aiApiKeyField.value.trim();
+            }
+
+            const syncCheckbox = document.getElementById('syncConfigToAccount');
+            const shouldSync = syncCheckbox ? !!syncCheckbox.checked : getSyncConfigPreference();
+            if (syncCheckbox) {
+                saveSyncConfigPreference(shouldSync);
+            }
+
+            await storageCompat.set({ analyzerConfig: updatedConfig });
+
+            try {
+                chrome.runtime.sendMessage({ action: 'applyConfig' });
+            } catch (err) {
+                console.warn('⚠️ Não foi possível notificar background sobre nova configuração geral:', err);
+            }
+
+            if (shouldSync) {
+                try {
+                    await syncConfigToServer(updatedConfig);
+                } catch (syncError) {
+                    console.warn('⚠️ Erro ao sincronizar configurações com o servidor:', syncError);
+                }
+            }
+
+            showToast('Configurações salvas!', 2200);
+            loadAnalyzerSettingsUI();
+        } catch (error) {
+            console.error('❌ Erro ao salvar configurações:', error);
+            alert('Não foi possível salvar as configurações. Tente novamente.');
         }
     }
     
@@ -2158,7 +2404,6 @@ const DIAMOND_LEVEL_DEFAULTS = {
         
         console.log('🔥 Padrão Quente inicializado (modelos customizados desativados)');
     }
-    
     // Configurar listeners do modal
     function setupCustomPatternModalListeners() {
         const modal = document.getElementById('customPatternModal');
@@ -2830,7 +3075,6 @@ const DIAMOND_LEVEL_DEFAULTS = {
             return false;
         }
     }
-    
     // Carregar configurações do servidor
     async function loadConfigFromServer() {
         const token = localStorage.getItem('authToken');
@@ -3174,7 +3418,6 @@ const DIAMOND_LEVEL_DEFAULTS = {
                                 `;
                             }
                         }).join('');
-                        
                         return `
                             <div class="view-pattern-item" style="${isNewest ? 'border: 2px solid #ef4444; box-shadow: 0 0 8px rgba(239, 68, 68, 0.3);' : ''}">
                                 <div class="view-pattern-name">
@@ -3828,7 +4071,6 @@ const DIAMOND_LEVEL_DEFAULTS = {
                 forceLogout('Logout manual');
             });
         }
-
         if (activeUserMenuKeyHandler) {
             document.removeEventListener('keydown', activeUserMenuKeyHandler);
         }
@@ -4459,7 +4701,6 @@ const DIAMOND_LEVEL_DEFAULTS = {
             </div>
         </div>`;
     }
-    
     // Função auxiliar para renderizar análise IA SEM círculos (formato antigo)
     function renderAIAnalysisOldFormat(aiData) {
         const reasoning = (aiData.reasoning || 'Análise por IA')
@@ -4783,7 +5024,6 @@ const DIAMOND_LEVEL_DEFAULTS = {
             var allTriggerTimestamps = parsed.colorAnalysis.allTriggerTimestamps || [];
             var allTriggerColors = parsed.colorAnalysis.allTriggerColors || [];
         }
-        
         // Se não tem análise de cores, tentar outras análises
         if (!patternInfo) {
             if (parsed.numberAnalysis) {
@@ -5107,7 +5347,6 @@ const DIAMOND_LEVEL_DEFAULTS = {
                 } catch(_) { lastSpinTime.textContent = ''; }
             }
         }
-        
         if (Object.prototype.hasOwnProperty.call(data, 'analysis')) {
             if (data.analysis) {
                 const analysis = data.analysis;
@@ -5456,7 +5695,6 @@ const DIAMOND_LEVEL_DEFAULTS = {
             // Fallback: mostrar por padrão
             return true;
         });
-        
         console.log(`📊 Entradas: ${entries.length} total | ${entriesByMode.length} do modo ${currentMode} | ${filteredEntries.length} exibidas (${entriesByMode.length - filteredEntries.length} LOSSes intermediários ocultos)`);
         
         // Renderizar apenas as entradas filtradas
@@ -5761,7 +5999,6 @@ const DIAMOND_LEVEL_DEFAULTS = {
             console.error('Erro ao salvar estado da sidebar:', e);
         }
     }
-    
     // Make sidebar draggable
     function makeDraggable(element) {
         const header = document.getElementById('sidebarHeader');
@@ -6112,7 +6349,6 @@ const DIAMOND_LEVEL_DEFAULTS = {
             }
         }
     });
-    
     // ✅ Confirmar que o listener foi registrado
     console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #00FF88; font-weight: bold;');
     console.log('%c✅ CONTENT.JS LISTENER REGISTRADO!', 'color: #00FF88; font-weight: bold;');
@@ -6463,7 +6699,6 @@ const DIAMOND_LEVEL_DEFAULTS = {
             this.style.transform = 'scale(1)';
             this.style.boxShadow = 'none';
         });
-        
         // Botões container
         const buttonsContainer = document.createElement('div');
         buttonsContainer.style.cssText = 'display: flex; gap: 10px; justify-content: center;';
@@ -6484,333 +6719,6 @@ const DIAMOND_LEVEL_DEFAULTS = {
             }
         });
     }
-    
-    async function loadSettings() {
-        try {
-            // ✅ CARREGAR CONFIGURAÇÃO LOCAL ATUAL PRIMEIRO (para preservar aiMode)
-            const localResult = await storageCompat.get(['analyzerConfig']);
-            const localConfig = localResult.analyzerConfig || {};
-            const localAIMode = localConfig.aiMode; // Preservar modo ativo local
-            
-            // ✅ VERIFICAR SE USUÁRIO QUER SINCRONIZAR
-            const shouldSync = getSyncConfigPreference();
-            
-            if (shouldSync) {
-                console.log('☁️ Sincronização ATIVADA - tentando carregar do servidor...');
-                // ✅ TENTAR CARREGAR DO SERVIDOR (se autenticado)
-                const serverConfig = await loadConfigFromServer();
-                
-                if (serverConfig) {
-                    // Se tem configuração no servidor, mesclar com aiMode local
-                    console.log('✅ Usando configurações do servidor (sincronizado)');
-                    const mergedConfig = {
-                        ...serverConfig,
-                        aiMode: localAIMode // ✅ PRESERVAR aiMode local
-                    };
-                    await storageCompat.set({ analyzerConfig: mergedConfig });
-                } else {
-                    console.log('⚠️ Não foi possível carregar do servidor - usando configuração local');
-                }
-            } else {
-                console.log('💾 Sincronização DESATIVADA - usando APENAS configuração local');
-            }
-            
-            // Carregar do localStorage (que agora pode ter sido atualizado do servidor)
-            chrome.storage.local.get(['analyzerConfig'], function(res) {
-                const cfg = res && res.analyzerConfig ? res.analyzerConfig : {};
-                const histDepth = document.getElementById('cfgHistoryDepth');
-                const minOcc = document.getElementById('cfgMinOccurrences');
-                const maxOcc = document.getElementById('cfgMaxOccurrences');
-                const minInt = document.getElementById('cfgMinInterval');
-                const minSize = document.getElementById('cfgMinPatternSize');
-                const maxSize = document.getElementById('cfgMaxPatternSize');
-                const winPct = document.getElementById('cfgWinPercentOthers');
-                const reqTrig = document.getElementById('cfgRequireTrigger');
-                const consecutiveMartingale = document.getElementById('cfgConsecutiveMartingale');
-                const maxGales = document.getElementById('cfgMaxGales');
-                const tgChatId = document.getElementById('cfgTgChatId');
-                if (histDepth) histDepth.value = cfg.historyDepth != null ? cfg.historyDepth : 2000;
-                if (minOcc) minOcc.value = cfg.minOccurrences != null ? cfg.minOccurrences : 1;
-                if (maxOcc) maxOcc.value = cfg.maxOccurrences != null ? cfg.maxOccurrences : 0;
-                if (minInt) minInt.value = cfg.minIntervalSpins != null ? cfg.minIntervalSpins : 0;
-                if (minSize) minSize.value = cfg.minPatternSize != null ? cfg.minPatternSize : 3;
-                if (maxSize) maxSize.value = cfg.maxPatternSize != null ? cfg.maxPatternSize : 0;
-                if (winPct) winPct.value = cfg.winPercentOthers != null ? cfg.winPercentOthers : 25;
-                if (reqTrig) reqTrig.checked = cfg.requireTrigger != null ? cfg.requireTrigger : true;
-                if (consecutiveMartingale) consecutiveMartingale.checked = cfg.consecutiveMartingale != null ? cfg.consecutiveMartingale : false;
-                if (maxGales) maxGales.value = cfg.maxGales != null ? cfg.maxGales : 2;
-                if (tgChatId) tgChatId.value = cfg.telegramChatId || '';
-                
-                // 🎚️ Carregar intensidade de sinais
-                const signalIntensitySelect = document.getElementById('signalIntensitySelect');
-                if (signalIntensitySelect) {
-                    signalIntensitySelect.value = cfg.signalIntensity || 'moderate';
-                    console.log(`🎚️ Intensidade carregada: ${cfg.signalIntensity || 'moderate'}`);
-                }
-                
-                // ✅ Aplicar visibilidade dos campos baseado no modo IA
-                const isAIMode = cfg.aiMode || false;
-                toggleAIConfigFields(isAIMode);
-                
-                // ✅ Carregar preferência de sincronização de configurações
-                const syncConfigCheckbox = document.getElementById('syncConfigToAccount');
-                if (syncConfigCheckbox) {
-                    syncConfigCheckbox.checked = getSyncConfigPreference();
-                    console.log(`🔄 Preferência de sincronização de configurações carregada: ${syncConfigCheckbox.checked ? 'ATIVADA' : 'DESATIVADA'}`);
-                }
-            });
-        } catch (e) { console.error('Erro ao carregar configurações:', e); }
-    }
-    async function saveSettings() {
-        console.log('');
-        console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #00D4FF; font-weight: bold;');
-        console.log('%c║  💾 SALVANDO CONFIGURAÇÕES                                ║', 'color: #00D4FF; font-weight: bold;');
-        console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #00D4FF; font-weight: bold;');
-        console.log('');
-        
-        // ✅ Feedback visual IMEDIATO para o usuário
-        const btn = document.getElementById('cfgSaveBtn');
-        if (btn) {
-            btn.textContent = 'Salvando...';
-            btn.style.background = '#1976d2';
-        }
-        
-        // ✅ BUSCAR CONFIGURAÇÃO ATUAL PRIMEIRO (para preservar aiMode e outros estados)
-        chrome.storage.local.get(['analyzerConfig'], async function(result) {
-            try {
-                const currentConfig = result.analyzerConfig || {};
-                console.log('📊 Configuração atual:', currentConfig);
-                
-                // ✅ CAPTURAR VALORES COM VERIFICAÇÃO DE EXISTÊNCIA
-                const getElementValue = (id, defaultValue, isCheckbox = false) => {
-                    const el = document.getElementById(id);
-                    if (!el) {
-                        console.warn(`⚠️ Elemento "${id}" não encontrado - usando padrão: ${defaultValue}`);
-                        return defaultValue;
-                    }
-                    return isCheckbox ? !!el.checked : (el.value || defaultValue);
-                };
-                
-                const historyDepth = Math.max(100, Math.min(2000, parseInt(getElementValue('cfgHistoryDepth', '2000'), 10)));
-                const minOcc = Math.max(parseInt(getElementValue('cfgMinOccurrences', '1'), 10), 1);
-                const maxOcc = Math.max(parseInt(getElementValue('cfgMaxOccurrences', '0'), 10), 0);
-                const minInt = Math.max(parseInt(getElementValue('cfgMinInterval', '0'), 10), 0);
-                let minSize = Math.max(parseInt(getElementValue('cfgMinPatternSize', '2'), 10), 2);
-                let maxSize = Math.max(parseInt(getElementValue('cfgMaxPatternSize', '0'), 10), 0);
-                const winPct = Math.max(0, Math.min(100, parseInt(getElementValue('cfgWinPercentOthers', '25'), 10)));
-                const reqTrig = getElementValue('cfgRequireTrigger', false, true);
-                const consecutiveMartingale = getElementValue('cfgConsecutiveMartingale', false, true);
-                const maxGales = Math.max(0, Math.min(200, parseInt(getElementValue('cfgMaxGales', '2'), 10)));
-                const tgChatId = String(getElementValue('cfgTgChatId', '')).trim();
-                
-                // 🎚️ Intensidade de sinais
-                const signalIntensitySelect = document.getElementById('signalIntensitySelect');
-                const signalIntensity = signalIntensitySelect ? signalIntensitySelect.value : 'moderate';
-                
-                // ✅ RESETAR HISTÓRICO DE SINAIS (limpar penalidades de losses consecutivos)
-                console.log('%c🔄 Resetando histórico de sinais (limpar losses consecutivos)...', 'color: #00D4FF; font-weight: bold;');
-                await storageCompat.set({
-                    signalsHistory: {
-                        totalSignals: 0,
-                        wins: 0,
-                        losses: 0,
-                        consecutiveLosses: 0,
-                        consecutiveWins: 0,
-                        lastSignalTimestamp: null,
-                        recent: []
-                    }
-                });
-                console.log('%c✅ Histórico de sinais resetado!', 'color: #00FF88; font-weight: bold;');
-                
-                console.log('📝 Valores capturados dos campos:');
-                console.log('   • minOccurrences:', minOcc);
-                console.log('   • maxOccurrences:', maxOcc);
-                console.log('   • minIntervalSpins:', minInt);
-                console.log('   • minPatternSize:', minSize);
-                console.log('   • maxPatternSize:', maxSize);
-                console.log('   • winPercentOthers:', winPct + '%');
-                console.log('   • signalIntensity:', signalIntensity);
-                
-                // ✅ VALIDAÇÃO: maxOccurrences não pode ser menor que minOccurrences (se não for 0)
-                if (maxOcc > 0 && maxOcc < minOcc) {
-                    alert(`❌ ERRO: Ocorrências MÁXIMAS (${maxOcc}) não pode ser menor que MÍNIMAS (${minOcc})!\n\nAjuste os valores e tente novamente.`);
-                    if (btn) {
-                        btn.textContent = 'Salvar';
-                        btn.style.background = '';
-                    }
-                    return;
-                }
-                
-                // ✅ VALIDAÇÃO: maxPatternSize não pode ser menor que minPatternSize (se não for 0)
-                if (maxSize > 0 && maxSize < minSize) {
-                    alert(`❌ ERRO: Tamanho MÁXIMO do padrão (${maxSize}) não pode ser menor que MÍNIMO (${minSize})!\n\n⚠️ Isso impede qualquer padrão de ser encontrado!\n\nAjuste os valores e tente novamente.`);
-                    if (btn) {
-                        btn.textContent = 'Salvar';
-                        btn.style.background = '';
-                    }
-                    return;
-                }
-                
-                // ✅ PRESERVAR aiMode ESPECÍFICO DESTA ABA (sessionStorage)
-                const tabSpecificModeStr = sessionStorage.getItem('tabSpecificAIMode');
-                let tabSpecificAIMode = currentConfig.aiMode || false; // Fallback para padrão global
-                
-                if (tabSpecificModeStr !== null) {
-                    tabSpecificAIMode = JSON.parse(tabSpecificModeStr);
-                    console.log(`%c🔒 Preservando aiMode específico desta aba: ${tabSpecificAIMode ? '💎 DIAMANTE' : '⚙️ PADRÃO'}`, 'color: #00FF88; font-weight: bold;');
-                }
-                
-                // ✅ MESCLAR com configuração atual para preservar aiMode e outros estados
-                const cfg = {
-                    ...currentConfig, // Preservar configurações existentes
-                    aiMode: tabSpecificAIMode, // ✅ USAR MODO ESPECÍFICO DESTA ABA!
-                    historyDepth: historyDepth,
-                    minOccurrences: minOcc,
-                    maxOccurrences: maxOcc,
-                    minIntervalSpins: minInt,
-                    minPatternSize: minSize,
-                    maxPatternSize: maxSize,
-                    winPercentOthers: winPct,
-                    requireTrigger: reqTrig,
-                    consecutiveMartingale: consecutiveMartingale,
-                    maxGales: maxGales,
-                    telegramChatId: tgChatId,
-                    signalIntensity: signalIntensity
-                };
-                
-                console.log('');
-                console.log('%c💾 Salvando em chrome.storage.local...', 'color: #00FF88; font-weight: bold;');
-                console.log('   aiMode preservado (específico desta aba):', cfg.aiMode);
-                console.log('   Objeto completo:', cfg);
-                
-                chrome.storage.local.set({ analyzerConfig: cfg }, async function() {
-                    if (chrome.runtime.lastError) {
-                        console.error('%c❌ ERRO ao salvar no storage!', 'color: #FF0000; font-weight: bold;');
-                        console.error(chrome.runtime.lastError);
-                        showConfigFeedback(false);
-                        return;
-                    }
-                    
-                    console.log('%c✅ SALVO NO STORAGE COM SUCESSO!', 'color: #00FF00; font-weight: bold;');
-                    console.log('');
-                    
-                    // ✅ VERIFICAR SE DEVE SINCRONIZAR COM SERVIDOR
-                    const syncCheckbox = document.getElementById('syncConfigToAccount');
-                    const shouldSync = syncCheckbox ? syncCheckbox.checked : true;
-                    
-                    // Salvar preferência do usuário
-                    if (syncCheckbox) {
-                        saveSyncConfigPreference(shouldSync);
-                    }
-                    
-                    if (shouldSync) {
-                        console.log('☁️ Sincronização de configurações ATIVADA - enviando para o servidor...');
-                        syncConfigToServer(cfg).catch(err => {
-                            console.warn('⚠️ Não foi possível sincronizar com servidor:', err);
-                        });
-                    } else {
-                        console.log('💾 Sincronização de configurações DESATIVADA - salvando apenas localmente');
-                    }
-                    
-                    // Pedir para o background aplicar imediatamente e dar feedback
-                    console.log('%c📡 Enviando mensagem para background.js...', 'color: #00D4FF; font-weight: bold;');
-                    try {
-                        chrome.runtime.sendMessage({ action: 'applyConfig' }, function(resp) {
-                            console.log('%c📨 Resposta recebida do background.js:', 'color: #00FF88; font-weight: bold;', resp);
-                            
-                            if (chrome.runtime.lastError) {
-                                console.error('%c❌ Erro ao comunicar com background:', 'color: #FF6666; font-weight: bold;');
-                                console.error(chrome.runtime.lastError);
-                                // ✅ MESMO COM ERRO NA COMUNICAÇÃO, OS DADOS JÁ FORAM SALVOS!
-                                console.log('%c⚠️ MAS: Configurações JÁ FORAM SALVAS no storage!', 'color: #FFA500; font-weight: bold;');
-                                showConfigFeedback(true); // Mostrar sucesso porque salvou
-                            } else {
-                                // ✅ ACEITAR AMBOS OS FORMATOS DE RESPOSTA:
-                                // - {status: 'applied'} quando background.js responde corretamente
-                                // - {success: true} quando chrome-shim.js responde por padrão
-                                // Como já salvamos em chrome.storage.local, qualquer resposta sem erro = sucesso!
-                                const isSuccess = resp && (resp.status === 'applied' || resp.success === true);
-                                console.log('%c✅ CONFIGURAÇÕES APLICADAS E ATIVAS!', 'color: #00FF00; font-weight: bold; font-size: 14px;');
-                                console.log('');
-                                showConfigFeedback(isSuccess);
-                            }
-                        });
-                    } catch (e) {
-                        console.error('%c❌ Exception ao enviar mensagem:', 'color: #FF0000; font-weight: bold;', e);
-                        // ✅ MESMO COM ERRO, OS DADOS JÁ FORAM SALVOS!
-                        console.log('%c⚠️ MAS: Configurações JÁ FORAM SALVAS no storage!', 'color: #FFA500; font-weight: bold;');
-                        showConfigFeedback(true); // Mostrar sucesso porque salvou
-                    }
-                });
-            } catch (e) {
-                console.error('%c❌ ERRO CRÍTICO ao processar configurações:', 'color: #FF0000; font-weight: bold;', e);
-                console.error(e.stack);
-                showConfigFeedback(false);
-            }
-        }); // Fecha chrome.storage.local.get
-    }
-
-    function showConfigFeedback(success) {
-        const btn = document.getElementById('cfgSaveBtn');
-        if (!btn) {
-            console.warn('⚠️ Botão cfgSaveBtn não encontrado para feedback visual');
-            return;
-        }
-        
-        console.log('%c🎨 Mostrando feedback visual:', 'color: #00D4FF; font-weight: bold;', success ? '✅ SUCESSO' : '❌ ERRO');
-        
-        if (success) {
-            btn.textContent = '✅ Salvo!';
-            btn.style.background = '#2e7d32';
-            btn.style.color = '#fff';
-        } else {
-            btn.textContent = '❌ Erro';
-            btn.style.background = '#b71c1c';
-            btn.style.color = '#fff';
-        }
-        
-        setTimeout(function(){
-            btn.textContent = 'Salvar';
-            btn.style.background = '';
-            btn.style.color = '';
-        }, 2000);
-    }
-
-    // ========== BANCO DE PADRÕES ==========
-    
-    // Função para atualizar a UI do banco de padrões
-    function updatePatternBankUI(data) {
-        const total = data.total || 0;
-        const limit = data.limit || 3000;
-        const percentage = total > 0 ? ((total / limit) * 100).toFixed(1) : 0;
-        const high = data.byConfidence?.high || 0;
-        const medium = data.byConfidence?.medium || 0;
-        const low = data.byConfidence?.low || 0;
-        
-        // Atualizar elementos
-        const bankTotal = document.getElementById('bankTotal');
-        const bankLimit = document.getElementById('bankLimit');
-        const bankPercent = document.getElementById('bankPercent');
-        const capacityFill = document.getElementById('capacityFill');
-        const confHigh = document.getElementById('confHigh');
-        const confMedium = document.getElementById('confMedium');
-        const confLow = document.getElementById('confLow');
-        const bankStats = document.getElementById('bankStats');
-        
-        if (bankTotal) bankTotal.textContent = total;
-        if (bankLimit) bankLimit.textContent = limit;
-        if (bankPercent) bankPercent.textContent = percentage;
-        if (capacityFill) capacityFill.style.width = percentage + '%';
-        if (confHigh) confHigh.textContent = high;
-        if (confMedium) confMedium.textContent = medium;
-        if (confLow) confLow.textContent = low;
-        
-        // Remover loading
-        if (bankStats) {
-            bankStats.innerHTML = '';
-        }
-    }
-    
     // Função para carregar dados do banco
     function loadPatternBank() {
         chrome.storage.local.get(['patternDB', 'analyzerConfig'], function(result) {
@@ -7087,6 +6995,8 @@ const DIAMOND_LEVEL_DEFAULTS = {
         }
     });
 
+    loadAnalyzerSettingsUI();
+
     // ═══════════════════════════════════════════════════════════════════════════════
     // ATUALIZAÇÃO AUTOMÁTICA DO HISTÓRICO DE GIROS DO SERVIDOR
     // ═══════════════════════════════════════════════════════════════════════════════
@@ -7138,7 +7048,6 @@ const DIAMOND_LEVEL_DEFAULTS = {
             isUpdatingHistory = false;
         }
     }
-    
     // ═══════════════════════════════════════════════════════════════
     // 🚀 ATUALIZAÇÃO INSTANTÂNEA DO HISTÓRICO (SEM REQUISIÇÃO HTTP)
     // ═══════════════════════════════════════════════════════════════
@@ -7481,86 +7390,6 @@ const DIAMOND_LEVEL_DEFAULTS = {
             // Cor saiu muito, pode estar "quente", bonus menor
             colorBonus = 2;
         }
-        
         weightedConfidence += (colorBonus * colorAnalysisWeight);
-        
-        // ✅ BASE 4: ANÁLISE DE PADRÕES E TENDÊNCIAS (PESO: 20%)
-        const patternWeight = 0.20;
-        let patternBonus = 0;
-        
-        // Verificar padrões de alternância
-        if (lossColors.length >= 2) {
-            const lastTwoColors = lossColors.slice(-2);
-            const isAlternating = lastTwoColors[0] !== lastTwoColors[1];
-            
-            if (isAlternating) {
-                // Padrão de alternância detectado, bonus de 5-10%
-                patternBonus = 7;
-            } else {
-                // Mesma cor consecutiva, pode quebrar, bonus de 3-8%
-                patternBonus = 5;
-            }
-        }
-        
-        // Verificar se há padrão de números específicos
-        if (analysis.patternDescription) {
-            try {
-                let pattern;
-                const desc = analysis.patternDescription;
-                
-                // ✅ VERIFICAR SE É ANÁLISE DE IA
-                if (typeof desc === 'string' && desc.trim().startsWith('🤖')) {
-                    // É análise de IA - não tem campo "occurrences" no formato esperado
-                    // Pular este bonus
-                    pattern = null;
-                } else {
-                    // É análise padrão - fazer parse do JSON
-                    pattern = typeof desc === 'string' ? JSON.parse(desc) : desc;
-                }
-                
-                if (pattern && pattern.occurrences >= 3) {
-                    // Padrão com muitas ocorrências, bonus adicional
-                    patternBonus += 3;
-                }
-            } catch (e) {
-                // Ignorar erro de parsing
-            }
-        }
-        
-        weightedConfidence += (patternBonus * patternWeight);
-        
-        // ✅ APLICAR LIMITES E AJUSTES FINAIS
-        let finalConfidence = weightedConfidence;
-        
-        // Limite mínimo: 45%
-        if (finalConfidence < 45) {
-            finalConfidence = 45;
-        }
-        
-        // Limite máximo: 95%
-        if (finalConfidence > 95) {
-            finalConfidence = 95;
-        }
-        
-        // Ajuste baseado no número de Gales (Gales altos têm confiança reduzida)
-        if (lossCount >= 4) {
-            finalConfidence *= 0.85; // Reduzir 15% para G4+
-        } else if (lossCount >= 3) {
-            finalConfidence *= 0.90; // Reduzir 10% para G3
-        }
-        
-        console.log('📊 RESULTADO DO CÁLCULO:', {
-            baseConfidence: baseConfidence,
-            consecutiveBonus: consecutiveBonus,
-            colorBonus: colorBonus,
-            patternBonus: patternBonus,
-            finalConfidence: finalConfidence.toFixed(1)
-        });
-        
-        return Math.round(finalConfidence * 10) / 10; // Arredondar para 1 casa decimal
     }
-    
-    // ⚠️ REMOVIDO: O histórico agora é carregado APÓS a sidebar ser criada
-    // Ver createSidebar() para o novo local de inicialização
-    
 })();
