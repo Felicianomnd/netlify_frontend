@@ -1895,16 +1895,45 @@ function readNumericInput(id, min, max, fallback) {
             } catch (error) {
                 console.warn('⚠️ Não foi possível notificar background sobre nova configuração dos níveis:', error);
             }
+            
+            // 🚀 Sincronização otimizada e com feedback
             const shouldSync = getSyncConfigPreference();
+            let syncSuccess = false;
+            
             if (shouldSync) {
                 try {
-                    await syncConfigToServer(updatedConfig);
+                    showToast('⏳ Salvando localmente e sincronizando...', 1500);
+                    
+                    // Timeout de 10 segundos para não travar
+                    const syncPromise = syncConfigToServer(updatedConfig);
+                    const timeoutPromise = new Promise((_, reject) => 
+                        setTimeout(() => reject(new Error('Timeout')), 10000)
+                    );
+                    
+                    syncSuccess = await Promise.race([syncPromise, timeoutPromise]);
+                    
+                    if (syncSuccess) {
+                        console.log('✅ Configurações dos níveis sincronizadas com sucesso!');
+                    } else {
+                        console.warn('⚠️ Sincronização falhou - configurações salvas apenas localmente');
+                        showToast('⚠️ Salvo localmente (servidor não respondeu)', 2500);
+                    }
                 } catch (syncError) {
-                    console.warn('⚠️ Erro ao sincronizar configurações dos níveis com o servidor:', syncError);
+                    console.warn('⚠️ Erro ao sincronizar configurações dos níveis:', syncError);
+                    showToast('⚠️ Salvo localmente (sincronização falhou)', 2500);
                 }
             }
+            
             if (modal) modal.style.display = 'none';
-            showToast('Configuração dos níveis atualizada!', 2200);
+            
+            // Feedback final baseado no resultado
+            if (shouldSync && syncSuccess) {
+                showToast('✅ Configuração salva e sincronizada!', 2200);
+            } else if (shouldSync && !syncSuccess) {
+                showToast('✅ Configuração salva localmente', 2200);
+            } else {
+                showToast('✅ Configuração dos níveis atualizada!', 2200);
+            }
         } catch (err) {
             console.error('❌ Erro ao salvar configurações dos níveis diamante:', err);
             alert('Não foi possível salvar as configurações dos níveis. Tente novamente.');
@@ -2008,15 +2037,42 @@ function readNumericInput(id, min, max, fallback) {
                 console.warn('⚠️ Não foi possível notificar background sobre nova configuração geral:', err);
             }
 
+            // 🚀 Sincronização otimizada e com feedback
+            let syncSuccess = false;
+            
             if (shouldSync) {
                 try {
-                    await syncConfigToServer(updatedConfig);
+                    showToast('⏳ Salvando localmente e sincronizando...', 1500);
+                    
+                    // Timeout de 10 segundos para não travar
+                    const syncPromise = syncConfigToServer(updatedConfig);
+                    const timeoutPromise = new Promise((_, reject) => 
+                        setTimeout(() => reject(new Error('Timeout')), 10000)
+                    );
+                    
+                    syncSuccess = await Promise.race([syncPromise, timeoutPromise]);
+                    
+                    if (syncSuccess) {
+                        console.log('✅ Configurações gerais sincronizadas com sucesso!');
+                    } else {
+                        console.warn('⚠️ Sincronização falhou - configurações salvas apenas localmente');
+                        showToast('⚠️ Salvo localmente (servidor não respondeu)', 2500);
+                    }
                 } catch (syncError) {
-                    console.warn('⚠️ Erro ao sincronizar configurações com o servidor:', syncError);
+                    console.warn('⚠️ Erro ao sincronizar configurações gerais:', syncError);
+                    showToast('⚠️ Salvo localmente (sincronização falhou)', 2500);
                 }
             }
 
-            showToast('Configurações salvas!', 2200);
+            // Feedback final baseado no resultado
+            if (shouldSync && syncSuccess) {
+                showToast('✅ Configurações salvas e sincronizadas!', 2200);
+            } else if (shouldSync && !syncSuccess) {
+                showToast('✅ Configurações salvas localmente', 2200);
+            } else {
+                showToast('✅ Configurações salvas!', 2200);
+            }
+            
             loadAnalyzerSettingsUI();
         } catch (error) {
             console.error('❌ Erro ao salvar configurações:', error);
