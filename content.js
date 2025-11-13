@@ -1553,9 +1553,13 @@ function readNumericInput(id, min, max, fallback) {
                         <div class="diamond-level-field">
                             <label for="diamondN1HotPattern">N1 - Padrão Quente (giros analisados)</label>
                             <input type="number" id="diamondN1HotPattern" min="12" max="200" value="60" />
+                            <small style="display:block;margin-top:5px;font-size:11px;color:#8da2bb;line-height:1.3;">
+                                📌 <strong>O que faz:</strong> Busca padrões customizados que você salvou e identifica quando eles reaparecem no histórico.<br>
+                                💡 <strong>Ajuste:</strong> Quanto maior a janela, mais profundo o sistema procura, mas também mais lento. Use 60 como equilíbrio.
+                            </small>
                         </div>
                         <div class="diamond-level-field">
-                            <label>N2 - Momentum</label>
+                            <label>N2 - Momentum (Tendência de Curto × Longo Prazo)</label>
                             <div class="diamond-level-double">
                                 <div>
                                     <span>Janela recente</span>
@@ -1566,25 +1570,46 @@ function readNumericInput(id, min, max, fallback) {
                                     <input type="number" id="diamondN2Previous" min="3" max="200" value="15" />
                                 </div>
                             </div>
+                            <small style="display:block;margin-top:5px;font-size:11px;color:#8da2bb;line-height:1.3;">
+                                📌 <strong>O que faz:</strong> Compara a tendência dos últimos giros (recente) com uma base maior (anterior) para detectar se há momentum (aceleração em uma cor).<br>
+                                💡 <strong>Ajuste:</strong> Recente pequeno (5) vs. anterior maior (15) = ideal para detectar mudanças rápidas.
+                            </small>
                         </div>
                         <div class="diamond-level-field">
-                            <label for="diamondN3Alternance">N3 - Alternância (janela)</label>
+                            <label for="diamondN3Alternance">N3 - Padrão de Alternância (janela de análise)</label>
                             <input type="number" id="diamondN3Alternance" min="12" max="50" value="12" />
+                            <small style="display:block;margin-top:5px;font-size:11px;color:#8da2bb;line-height:1.3;">
+                                📌 <strong>O que faz:</strong> Detecta alternâncias entre vermelho/preto (simples, dupla, tripla) e prevê quando a cor oposta deve sair.<br>
+                                💡 <strong>Ajuste:</strong> 12 giros captura alternâncias recentes. Aumente para 20–30 se quiser padrões mais estáveis, mas menos ágeis.<br>
+                                ⭐ <strong>Tem prioridade especial:</strong> Quando detectado, pode anular votos de outros níveis se tiver alta confiança.
+                            </small>
                         </div>
                         <div class="diamond-level-field">
-                            <label for="diamondN4Persistence">N4 - Persistência / Ciclos (janela)</label>
+                            <label for="diamondN4Persistence">N4 - Persistência / Ciclos (janela de análise)</label>
                             <input type="number" id="diamondN4Persistence" min="20" max="120" value="20" />
+                            <small style="display:block;margin-top:5px;font-size:11px;color:#8da2bb;line-height:1.3;">
+                                📌 <strong>O que faz:</strong> Analisa sequências longas da mesma cor (ex.: 5 vermelhos seguidos) e calcula quando ela deve CONTINUAR, não inverter.<br>
+                                💡 <strong>Ajuste:</strong> 20 giros é bom para capturar ciclos médios. Aumente para 40–60 se quiser detectar tendências mais longas.
+                            </small>
                         </div>
                         <div class="diamond-level-field">
-                            <label for="diamondN5MinuteBias">N5 - Ritmo por Giro (amostras)</label>
+                            <label for="diamondN5MinuteBias">N5 - Ritmo por Giro (amostras analisadas)</label>
                             <input type="number" id="diamondN5MinuteBias" min="10" max="200" value="60" />
+                            <small style="display:block;margin-top:5px;font-size:11px;color:#8da2bb;line-height:1.3;">
+                                📌 <strong>O que faz:</strong> Identifica se certas cores tendem a sair mais no "Giro 1" ou "Giro 2" de cada minuto (padrão temporal).<br>
+                                💡 <strong>Ajuste:</strong> 60 amostras é o mínimo para detectar padrões de ritmo confiáveis. Se usar menos, pode ter resultados instáveis.
+                            </small>
                         </div>
                         <div class="diamond-level-field">
-                            <label for="diamondN6Retracement">N6 - Retração Histórica (janela)</label>
+                            <label for="diamondN6Retracement">N6 - Retração Histórica (janela de análise)</label>
                             <input type="number" id="diamondN6Retracement" min="30" max="120" value="80" />
+                            <small style="display:block;margin-top:5px;font-size:11px;color:#8da2bb;line-height:1.3;">
+                                📌 <strong>O que faz:</strong> Depois de uma sequência longa de uma cor, analisa o histórico para ver se há "retração" (inversão) ou se continua.<br>
+                                💡 <strong>Ajuste:</strong> 80 giros oferece visão histórica sólida. Aumente para 100–120 se quiser detectar retrações em janelas mais amplas.
+                            </small>
                         </div>
                         <div class="diamond-level-field">
-                            <label>N7 - Continuidade Global</label>
+                            <label>N7 - Continuidade Global (Desempenho Histórico)</label>
                             <div class="diamond-level-double">
                                 <div>
                                     <span>Decisões analisadas</span>
@@ -1595,72 +1620,116 @@ function readNumericInput(id, min, max, fallback) {
                                     <input type="number" id="diamondN7HistoryWindow" min="50" max="200" value="100" />
                                 </div>
                             </div>
+                            <small style="display:block;margin-top:5px;font-size:11px;color:#8da2bb;line-height:1.3;">
+                                📌 <strong>O que faz:</strong> Verifica quantos dos últimos X sinais do sistema acertaram, e calibra a confiança com base na taxa de acerto.<br>
+                                💡 <strong>Ajuste:</strong> Decisões = quantos sinais analisar. Histórico base = janela de giros usada para calcular acurácia. Mantenha histórico ≥ 5× decisões.
+                            </small>
                         </div>
                         <div style="margin: 14px 0 6px; font-weight: 600; color: #ff003f;">Proteções & Gestão (N8 – N12)</div>
                         <div class="diamond-level-field">
-                            <label for="diamondN8Barrier">N8 - Giros mínimos para validar sequência (barreira histórica)</label>
+                            <label for="diamondN8Barrier">N8 - Barreira Final (validação de segurança histórica)</label>
                             <input type="number" id="diamondN8Barrier" min="10" max="200" value="50" />
-                            <small style="display:block;margin-top:5px;font-size:11px;color:#8da2bb;">Ex.: 50 giros = só libera se essa sequência já aconteceu nos últimos 50 giros.</small>
+                            <small style="display:block;margin-top:5px;font-size:11px;color:#8da2bb;line-height:1.3;">
+                                📌 <strong>O que faz:</strong> Só libera um sinal se a sequência prevista (ex.: 4 vermelhos seguidos) JÁ aconteceu nos últimos X giros. É uma trava de segurança.<br>
+                                💡 <strong>Ajuste:</strong> 50 giros = proteção equilibrada. Aumente para 80–100 para ser mais conservador (menos sinais, mas mais seguros).<br>
+                                🛑 <strong>Função:</strong> Bloqueia previsões "impossíveis" (sequências nunca vistas no histórico recente).
+                            </small>
                         </div>
                         <div class="diamond-level-field">
-                            <label for="diamondN9BayesHistory">N9 - Giros analisados para calibrar probabilidades</label>
+                            <label for="diamondN9BayesHistory">N9 - Calibração Bayesiana (giros para calcular probabilidades reais)</label>
                             <input type="number" id="diamondN9BayesHistory" min="50" max="600" value="150" />
-                            <small style="display:block;margin-top:5px;font-size:11px;color:#8da2bb;">Quanto maior a amostra, mais estáveis ficam as probabilidades (P🔴, P⚫, P⚪).</small>
+                            <small style="display:block;margin-top:5px;font-size:11px;color:#8da2bb;line-height:1.3;">
+                                📌 <strong>O que faz:</strong> Calcula probabilidades reais de 🔴, ⚫ e ⚪ usando estatística Bayesiana (atualização com prior). Ajusta a força dos votos dos outros níveis.<br>
+                                💡 <strong>Ajuste:</strong> 150 giros = equilíbrio entre estabilidade e atualização. Use 200–300 se quiser probabilidades mais conservadoras (menos voláteis).
+                            </small>
                         </div>
                         <div class="diamond-level-field">
-                            <label for="diamondN9BayesNeutralThreshold">N9 - Diferença mínima para manter voto (vermelho × preto)</label>
+                            <label for="diamondN9BayesNeutralThreshold">N9 - Diferença mínima exigida para manter voto (vermelho × preto)</label>
                             <input type="number" id="diamondN9BayesNeutralThreshold" min="0.02" max="0.25" step="0.01" value="0.08" />
-                            <small style="display:block;margin-top:5px;font-size:11px;color:#8da2bb;">Ex.: 0,08 = exige 8 p.p. de vantagem. Abaixo disso o voto é neutralizado.</small>
+                            <small style="display:block;margin-top:5px;font-size:11px;color:#8da2bb;line-height:1.3;">
+                                📌 <strong>O que faz:</strong> Se a diferença entre P(🔴) e P(⚫) for menor que esse valor, o N9 neutraliza o voto (considera empate técnico).<br>
+                                💡 <strong>Ajuste:</strong> 0,08 (8 p.p.) = padrão. Aumente para 0,12–0,15 para ser mais rigoroso e evitar sinais em situações indefinidas.
+                            </small>
                         </div>
                         <div class="diamond-level-field">
-                            <label for="diamondN10WhiteWindow">N10 - Giros monitorados para detectar branco em série</label>
+                            <label for="diamondN10WhiteWindow">N10 - Detector de Branco (giros monitorados para alertas)</label>
                             <input type="number" id="diamondN10WhiteWindow" min="30" max="400" value="100" />
-                            <small style="display:block;margin-top:5px;font-size:11px;color:#8da2bb;">Amplie para reduzir falsos alertas; reduza para reagir mais rápido.</small>
+                            <small style="display:block;margin-top:5px;font-size:11px;color:#8da2bb;line-height:1.3;">
+                                📌 <strong>O que faz:</strong> Monitora a frequência de brancos (⚪) em clusters (concentrações). Quando detecta taxa anormal, reduz confiança geral ou bloqueia sinais.<br>
+                                💡 <strong>Ajuste:</strong> 100 giros = visão adequada. Aumente para 150–200 para reduzir falsos alertas; diminua para 50–70 para reagir mais rápido.
+                            </small>
                         </div>
                         <div class="diamond-level-field">
-                            <label for="diamondN10WhiteThreshold">N10 - Quando acender alerta (taxa recente ÷ taxa histórica)</label>
+                            <label for="diamondN10WhiteThreshold">N10 - Limiar de alerta (multiplicador de taxa de brancos)</label>
                             <input type="number" id="diamondN10WhiteThreshold" min="1.1" max="3" step="0.1" value="1.8" />
-                            <small style="display:block;margin-top:5px;font-size:11px;color:#8da2bb;">Ex.: 1,8 = alerta se a taxa recente de brancos estiver 80% maior que a normal.</small>
+                            <small style="display:block;margin-top:5px;font-size:11px;color:#8da2bb;line-height:1.3;">
+                                📌 <strong>O que faz:</strong> Alerta quando a taxa de brancos recente é X vezes maior que a taxa histórica normal.<br>
+                                💡 <strong>Ajuste:</strong> 1,8 = alerta com 80% de aumento. Use 2,0–2,5 para alertar só em casos extremos; 1,3–1,5 para ser mais sensível.
+                            </small>
                         </div>
                         <div class="diamond-level-field">
-                            <label for="diamondN11CusumWindow">N11 - Giros usados no detector de mudança de regime</label>
+                            <label for="diamondN11CusumWindow">N11 - Detector de Mudança de Regime (CUSUM - janela de análise)</label>
                             <input type="number" id="diamondN11CusumWindow" min="60" max="600" value="200" />
-                            <small style="display:block;margin-top:5px;font-size:11px;color:#8da2bb;">Janela maior = detector mais estável e com menos ruído.</small>
+                            <small style="display:block;margin-top:5px;font-size:11px;color:#8da2bb;line-height:1.3;">
+                                📌 <strong>O que faz:</strong> Detecta mudanças estatísticas na distribuição das cores (ex.: mesa ficou mais favorável ao vermelho). Usa o método CUSUM (estatística avançada).<br>
+                                💡 <strong>Ajuste:</strong> 200 giros = ideal para detectar mudanças reais sem ruído. Use 300–400 para ser mais conservador e evitar alarmes falsos.
+                            </small>
                         </div>
                         <div class="diamond-level-field">
-                            <label for="diamondN11CusumThreshold">N11 - Sensibilidade do detector (0,3 = muito sensível)</label>
+                            <label for="diamondN11CusumThreshold">N11 - Sensibilidade do detector (0,3 = hiper-sensível / 0,9 = muito lento)</label>
                             <input type="number" id="diamondN11CusumThreshold" min="0.3" max="0.9" step="0.05" value="0.55" />
-                            <small style="display:block;margin-top:5px;font-size:11px;color:#8da2bb;">Valores menores detectam mudanças cedo, porém podem gerar mais alarmes.</small>
+                            <small style="display:block;margin-top:5px;font-size:11px;color:#8da2bb;line-height:1.3;">
+                                📌 <strong>O que faz:</strong> Define quão "fácil" é disparar o alerta de mudança de regime.<br>
+                                💡 <strong>Ajuste:</strong> 0,55 = equilibrado. Use 0,35–0,45 para detectar mais cedo (porém com mais ruído); 0,65–0,75 para detectar só mudanças grandes.
+                            </small>
                         </div>
                         <div class="diamond-level-field">
-                            <label for="diamondN11CusumCooldown">N11 - Giros de estabilização após detectar nova fase</label>
+                            <label for="diamondN11CusumCooldown">N11 - Giros de estabilização pós-detecção (cooldown)</label>
                             <input type="number" id="diamondN11CusumCooldown" min="5" max="30" value="12" />
-                            <small style="display:block;margin-top:5px;font-size:11px;color:#8da2bb;">Durante esse período o sistema mantém pesos cautelosos.</small>
+                            <small style="display:block;margin-top:5px;font-size:11px;color:#8da2bb;line-height:1.3;">
+                                📌 <strong>O que faz:</strong> Após detectar mudança de regime, mantém ajustes cautelosos por X giros (período de adaptação).<br>
+                                💡 <strong>Ajuste:</strong> 12 giros = padrão. Use 15–20 se quiser período maior de cautela; 5–8 para voltar ao normal mais rápido.
+                            </small>
                         </div>
                         <div class="diamond-level-field">
-                            <label for="diamondN12KellyFraction">N12 - Percentual base de aposta por entrada (Kelly fracionário)</label>
+                            <label for="diamondN12KellyFraction">N12 - Gestão de Stake (percentual base por entrada - Kelly fracionário)</label>
                             <input type="number" id="diamondN12KellyFraction" min="0.02" max="0.5" step="0.01" value="0.1" />
-                            <small style="display:block;margin-top:5px;font-size:11px;color:#8da2bb;">Ex.: 0,10 = apostar 10% do valor sugerido após os ajustes de risco.</small>
+                            <small style="display:block;margin-top:5px;font-size:11px;color:#8da2bb;line-height:1.3;">
+                                📌 <strong>O que faz:</strong> Define quanto do bankroll (%) você deve apostar em cada entrada, baseado no Critério de Kelly (matemática de apostas ótimas).<br>
+                                💡 <strong>Ajuste:</strong> 0,10 (10%) = conservador e recomendado. NÃO use mais de 0,20 (20%) a menos que queira alta volatilidade.
+                            </small>
                         </div>
                         <div class="diamond-level-field">
-                            <label for="diamondN12KellyMaxStake">N12 - Limite máximo permitido em uma entrada</label>
+                            <label for="diamondN12KellyMaxStake">N12 - Limite máximo de stake por entrada (teto de segurança)</label>
                             <input type="number" id="diamondN12KellyMaxStake" min="0.05" max="0.5" step="0.01" value="0.25" />
-                            <small style="display:block;margin-top:5px;font-size:11px;color:#8da2bb;">Garante que nenhuma aposta ultrapasse esse percentual, mesmo com alta confiança.</small>
+                            <small style="display:block;margin-top:5px;font-size:11px;color:#8da2bb;line-height:1.3;">
+                                📌 <strong>O que faz:</strong> Mesmo com alta confiança, nunca permite apostar mais que esse percentual do bankroll.<br>
+                                💡 <strong>Ajuste:</strong> 0,25 (25%) = teto seguro. Use 0,15–0,20 para ser mais conservador; NUNCA acima de 0,30 (risco de ruína).
+                            </small>
                         </div>
                         <div class="diamond-level-field">
-                            <label for="diamondN12WhiteRiskVeto">N12 - Bloquear quando chance de branco for ≥</label>
+                            <label for="diamondN12WhiteRiskVeto">N12 - Veto automático por risco de branco (probabilidade mínima)</label>
                             <input type="number" id="diamondN12WhiteRiskVeto" min="0.1" max="0.6" step="0.01" value="0.4" />
-                            <small style="display:block;margin-top:5px;font-size:11px;color:#8da2bb;">Ex.: 0,40 = veto automático se o branco estiver com 40% ou mais de probabilidade.</small>
+                            <small style="display:block;margin-top:5px;font-size:11px;color:#8da2bb;line-height:1.3;">
+                                📌 <strong>O que faz:</strong> Se o N9 (Bayes) calcular que o branco tem ≥ X% de chance, o N12 bloqueia o sinal automaticamente.<br>
+                                💡 <strong>Ajuste:</strong> 0,40 (40%) = proteção forte. Use 0,30–0,35 para ser mais rigoroso; 0,45–0,50 para permitir mais sinais (maior risco).
+                            </small>
                         </div>
                         <div class="diamond-level-field">
-                            <label for="diamondN12LossStreakVeto">N12 - Bloquear após X perdas consecutivas</label>
+                            <label for="diamondN12LossStreakVeto">N12 - Veto automático após X perdas consecutivas (circuit breaker)</label>
                             <input type="number" id="diamondN12LossStreakVeto" min="1" max="6" step="1" value="3" />
-                            <small style="display:block;margin-top:5px;font-size:11px;color:#8da2bb;">Ajuda a proteger em fases ruins. Use 3 como padrão; 0 desativa.</small>
+                            <small style="display:block;margin-top:5px;font-size:11px;color:#8da2bb;line-height:1.3;">
+                                📌 <strong>O que faz:</strong> Após X perdas seguidas, bloqueia novos sinais (respiro para evitar "tiltar" ou seguir fase ruim).<br>
+                                💡 <strong>Ajuste:</strong> 3 = recomendado. Use 2 para ser mais protetor; 4–5 se confiar na recuperação. Use 0 para DESATIVAR (não recomendado).
+                            </small>
                         </div>
                         <div class="diamond-level-field">
-                            <label for="diamondN12MinimumStake">N12 - Valor mínimo sugerido quando a entrada é liberada</label>
+                            <label for="diamondN12MinimumStake">N12 - Stake mínimo permitido (filtro de sinais fracos)</label>
                             <input type="number" id="diamondN12MinimumStake" min="0" max="0.1" step="0.01" value="0.02" />
-                            <small style="display:block;margin-top:5px;font-size:11px;color:#8da2bb;">Define um piso para evitar sinais irrelevantes. Use 0 para desativar.</small>
+                            <small style="display:block;margin-top:5px;font-size:11px;color:#8da2bb;line-height:1.3;">
+                                📌 <strong>O que faz:</strong> Se o stake sugerido for menor que esse valor, o sinal é bloqueado (considera-se confiança insuficiente).<br>
+                                💡 <strong>Ajuste:</strong> 0,02 (2%) = piso razoável. Use 0,03–0,05 para filtrar mais sinais fracos; 0 para desativar (aceita qualquer stake).
+                            </small>
                         </div>
                     </div>
                     <div class="custom-pattern-modal-footer">
