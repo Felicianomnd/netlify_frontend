@@ -8648,17 +8648,21 @@ function analyzeAlternancePattern(history, configuredSize = 12) {
     console.log('%c└─────────────────────────────────────────────────────────┘', 'color: #8E44AD; font-weight: bold;');
     
     const effectiveSize = Math.max(12, Math.min(50, configuredSize));
-    const filtered = [];
+    
+    // ✅ CORREÇÃO: Procurar branco e pegar apenas os giros ANTES dele (os mais recentes)
     let whiteFoundIndex = -1;
-    for (let i = 0; i < history.length && filtered.length < effectiveSize; i++) {
-        const spin = history[i];
-        if (spin.color === 'white') {
+    for (let i = 0; i < history.length; i++) {
+        if (history[i].color === 'white') {
             whiteFoundIndex = i;
-            console.log(`   ⚪ BRANCO detectado ${i === 0 ? 'no último giro!' : `há ${i} giro(s)`}. Reiniciando contagem a partir dele.`);
+            console.log(`   ⚪ BRANCO detectado na posição ${i} ${i === 0 ? '(último giro!)' : `(${i} giros atrás)`}`);
             break;
         }
-        filtered.push(spin);
     }
+    
+    // Pegar apenas os giros ANTES do branco (mais recentes)
+    const filtered = whiteFoundIndex === -1 
+        ? history.slice(0, effectiveSize)  // Sem branco: pega normalmente
+        : history.slice(0, whiteFoundIndex);  // Com branco: pega só os giros antes dele
     
     console.log(`   📊 Total de giros disponíveis: ${history.length}`);
     console.log(`   ⚙️ Histórico configurado pelo usuário: ${configuredSize} giros`);
@@ -8666,7 +8670,7 @@ function analyzeAlternancePattern(history, configuredSize = 12) {
     if (whiteFoundIndex !== -1) {
         console.log(`   ⏱️ Giros desde o último branco: ${whiteFoundIndex}`);
     } else {
-        console.log('   ⏱️ Nenhum branco recente encontrado nessa janela');
+        console.log('   ⏱️ Nenhum branco encontrado na janela configurada');
     }
     
     if (filtered.length < 4) {
@@ -9220,7 +9224,7 @@ function analyzePersistence(history, configuredSize = 20) {
     console.log(`   📊 Analisando últimos: ${lastN.length} giros`);
     
     // ═══════════════════════════════════════════════════════════════
-    // 🔥 CRÍTICO: SE HOUVER BRANCO, DESCARTAR TUDO ANTES DELE!
+    // ✅ CORREÇÃO: SE HOUVER BRANCO, PEGAR APENAS OS GIROS ANTES DELE!
     // ═══════════════════════════════════════════════════════════════
     let validHistory = lastN;
     
@@ -9228,23 +9232,22 @@ function analyzePersistence(history, configuredSize = 20) {
     const firstWhiteIndex = lastN.findIndex(spin => spin.color === 'white');
     
     if (firstWhiteIndex !== -1) {
-        // ⚠️ BRANCO ENCONTRADO! Descartar tudo a partir dele (inclusive)
+        // ✅ BRANCO ENCONTRADO! Pegar apenas os giros ANTES dele (mais recentes)
         validHistory = lastN.slice(0, firstWhiteIndex);
         console.log(`   ⚪ BRANCO ENCONTRADO na posição ${firstWhiteIndex}!`);
-        console.log(`   🔄 RESETANDO análise! Descartando ${lastN.length - validHistory.length} giros`);
-        console.log(`   ✅ Giros válidos após o reset: ${validHistory.length}`);
+        console.log(`   ✅ Analisando apenas os ${validHistory.length} giros ANTES do branco`);
     } else {
         console.log(`   ✅ Nenhum BRANCO encontrado - analisando todos os ${validHistory.length} giros`);
     }
     
     if (validHistory.length < 5) {
-        console.log(`   ❌ Dados insuficientes após reset! Mínimo: 5 giros, disponível: ${validHistory.length}`);
+        console.log(`   ❌ Dados insuficientes! Mínimo: 5 giros, disponível: ${validHistory.length}`);
         return {
             color: null,
             currentSequence: 0,
             averageSequence: 0,
             confidence: 0,
-            details: `Apenas ${validHistory.length} giros após branco (mín: 5)`
+            details: `Apenas ${validHistory.length} giros antes do branco (mín: 5)`
         };
     }
     
@@ -9362,8 +9365,8 @@ function sleep(ms) {
 async function analyzeWithPatternSystem(history) {
     
     // ✅ DEBUG: Enviar mensagem inicial
-    sendAnalysisStatus('🔍 Iniciando análise dos 6 níveis...');
-    console.log('✅ DEBUG: sendAnalysisStatus chamado - Iniciando análise dos 6 níveis...');
+    sendAnalysisStatus('🔍 Iniciando análise dos 12 níveis...');
+    console.log('✅ DEBUG: sendAnalysisStatus chamado - Iniciando análise dos 12 níveis...');
     await sleep(1000);
     
     // VALIDAÇÃO DE DADOS DE ENTRADA
@@ -9967,14 +9970,14 @@ async function analyzeWithPatternSystem(history) {
         // 🧮 CONSOLIDAÇÃO DOS NÍVEIS (PONTUAÇÃO CONTÍNUA)
         // ═══════════════════════════════════════════════════════════════
         const levelWeights = {
-            patterns: 0.21,
-            momentum: 0.17,
-            alternance: 0.14,
-            persistence: 0.12,
-            minuteSpin: 0.10,
-            retracement: 0.09,
-            globalContinuity: 0.11,
-            barrier: 0.06
+            patterns: 0.22,
+            momentum: 0.12,
+            alternance: 0.18,
+            persistence: 0.14,
+            minuteSpin: 0.11,
+            retracement: 0.12,
+            globalContinuity: 0.08,
+            barrier: 0.03
         };
         const levelMeta = {
             N1: { emoji: '🎯', label: 'N1 - Padrões' },
@@ -10446,6 +10449,26 @@ async function analyzeWithPatternSystem(history) {
         if (alternanceOverride) {
             normalizedScore = directionValue(alternanceColor);
         }
+        
+        // 🔥 BOOST DE MAIORIA: Se 4+ níveis concordam, aumentar score
+        const votingLevelIdsForBoost = new Set(['N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7']);
+        const votingLevelsForBoost = levelReports.filter(lvl => 
+            votingLevelIdsForBoost.has(lvl.id) && lvl.color && (lvl.strength || 0) > 0
+        );
+        const redVotes = votingLevelsForBoost.filter(lvl => lvl.color === 'red');
+        const blackVotes = votingLevelsForBoost.filter(lvl => lvl.color === 'black');
+        const majorityColor = redVotes.length > blackVotes.length ? 'red' : 'black';
+        const majorityCount = Math.max(redVotes.length, blackVotes.length);
+        const minorityCount = Math.min(redVotes.length, blackVotes.length);
+        
+        if (majorityCount >= 4 && (majorityCount - minorityCount) >= 2) {
+            const boost = Math.min(0.20, 0.05 * (majorityCount - minorityCount));
+            normalizedScore = normalizedScore >= 0 
+                ? normalizedScore + boost 
+                : normalizedScore - boost;
+            console.log(`%c🚀 BOOST DE MAIORIA APLICADO: ${majorityCount} vs ${minorityCount} → +${(boost * 100).toFixed(1)}%`, 'color: #00FF88; font-weight: bold;');
+        }
+        
         const scoreMagnitude = Math.abs(normalizedScore);
         let finalColor = alternanceOverride
             ? alternanceColor
@@ -10454,10 +10477,10 @@ async function analyzeWithPatternSystem(history) {
                 : (normalizedScore >= 0 ? 'red' : 'black');
 
         const intensityConfig = {
-            aggressive: { minScore: 0.25, name: '🔥 AGRESSIVO', emoji: '🔥' },
-            moderate: { minScore: 0.45, name: '⚖️ MODERADO', emoji: '⚖️' },
-            conservative: { minScore: 0.65, name: '🛡️ CONSERVADOR', emoji: '🛡️' },
-            ultraconservative: { minScore: 0.65, name: '🛡️ CONSERVADOR', emoji: '🛡️' }
+            aggressive: { minScore: 0.15, name: '🔥 AGRESSIVO', emoji: '🔥' },
+            moderate: { minScore: 0.25, name: '⚖️ MODERADO', emoji: '⚖️' },
+            conservative: { minScore: 0.45, name: '🛡️ CONSERVADOR', emoji: '🛡️' },
+            ultraconservative: { minScore: 0.65, name: '🛡️ ULTRA-CONSERVADOR', emoji: '🛡️' }
         };
         const signalIntensity = analyzerConfig.signalIntensity || 'moderate';
         const currentIntensity = intensityConfig[signalIntensity] || intensityConfig.moderate;
