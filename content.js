@@ -740,6 +740,7 @@
     function toggleAIConfigFields(isAIMode) {
         // ✅ CAMPOS DO MODO PADRÃO: Ocultar quando IA está ativa
         const standardModeFields = [
+            'cfgHistoryDepth',       // ✅ NOVO: Profundidade de Análise (giros) - VÁLIDO APENAS NO MODO PADRÃO
             'cfgMinOccurrences',     // Ocorrências mínima (modo padrão)
             'cfgMaxOccurrences',     // Quantidade máxima de ocorrências
             'cfgMinPatternSize',     // Tamanho mínimo do padrão
@@ -1129,7 +1130,7 @@
     // ═══════════════════════════════════════════════════════════════════════════════
     
     let customPatternsData = []; // Array de padrões customizados
-
+    
 const DIAMOND_LEVEL_DEFAULTS = {
     n1HotPattern: 60,
     n2Recent: 5,
@@ -3430,7 +3431,7 @@ const DIAMOND_LEVEL_DEFAULTS = {
             <div class="analyzer-header" id="sidebarHeader">
                 <div class="header-content">
                     <div class="header-main">
-                        <h3 class="header-title">Double Analyzer <span class="title-badge" id="titleBadge">PREMIUM</span></h3>
+                    <h3 class="header-title">Double Analyzer <span class="title-badge" id="titleBadge">PREMIUM</span></h3>
                         <button type="button" class="user-menu-toggle" id="userMenuToggle" title="Abrir informações da conta" aria-controls="userMenuPanel" aria-expanded="false">
                             <span></span>
                             <span></span>
@@ -3608,9 +3609,9 @@ const DIAMOND_LEVEL_DEFAULTS = {
                 <div class="settings-section">
                     <h4>Configurações</h4>
                     <div class="settings-grid">
-                        <div class="setting-item">
+                        <div class="setting-item" id="historyDepthSetting">
                             <span class="setting-label">Profundidade de Análise (giros):</span>
-                            <input type="number" id="cfgHistoryDepth" min="100" max="2000" value="2000" title="Quantidade de giros para análise e busca de padrões (100-2000)" placeholder="Ex: 500 giros" />
+                            <input type="number" id="cfgHistoryDepth" min="100" max="2000" value="2000" title="Quantidade de giros para análise e busca de padrões (100-2000) - VÁLIDO APENAS NO MODO PADRÃO" placeholder="Ex: 500 giros" />
                         </div>
                         <div class="setting-item">
                             <span class="setting-label">Ocorrências mínima:</span>
@@ -3840,7 +3841,7 @@ const DIAMOND_LEVEL_DEFAULTS = {
 
         document.addEventListener('keydown', handleUserMenuKeyDown);
         activeUserMenuKeyHandler = handleUserMenuKeyDown;
-
+        
         // Add to page
         console.log('%c➕ Adicionando sidebar ao document.body...', 'color: #00AAFF;');
         console.log('%c   document.body existe?', 'color: #00AAFF;', document.body ? '✅ SIM' : '❌ NÃO');
@@ -4903,11 +4904,17 @@ const DIAMOND_LEVEL_DEFAULTS = {
                 
                 if (hasDetails) {
                     occDetail = occDetails[i];
-                    occurrenceNumbers = lastOccurrenceNumbers[i] || [];
-                    occurrenceTimestamps = lastOccurrenceTimestamps[i] || [];
-                    trigNum = occDetail.giro_numbers && occDetail.giro_numbers.length > 0 ? occDetail.giro_numbers[0] : '';
-                    trigTs = occDetail.timestamp || '';
-                    trigClr = occDetail.cor_disparo || null;
+                    const detailNumbers = Array.isArray(occDetail?.sequence_numbers) ? occDetail.sequence_numbers : [];
+                    const detailTimestamps = Array.isArray(occDetail?.sequence_timestamps) ? occDetail.sequence_timestamps : [];
+                    occurrenceNumbers = detailNumbers.length > 0 ? detailNumbers : (lastOccurrenceNumbers[i] || []);
+                    occurrenceTimestamps = detailTimestamps.length > 0 ? detailTimestamps : (lastOccurrenceTimestamps[i] || []);
+                    trigNum = occDetail.trigger_number != null
+                        ? occDetail.trigger_number
+                        : (occDetail.giro_numbers && occDetail.giro_numbers.length > 0
+                            ? occDetail.giro_numbers[0]
+                            : (allTriggerNumbers ? allTriggerNumbers[i] : null));
+                    trigTs = occDetail.trigger_timestamp || occDetail.timestamp || (allTriggerTimestamps ? allTriggerTimestamps[i] : null);
+                    trigClr = occDetail.cor_disparo || (allTriggerColors ? allTriggerColors[i] : triggerColor);
                 } else {
                     occurrenceNumbers = lastOccurrenceNumbers[i];
                     occurrenceTimestamps = lastOccurrenceTimestamps[i];
@@ -5451,9 +5458,9 @@ const DIAMOND_LEVEL_DEFAULTS = {
         console.log(`📊 Entradas: ${entries.length} total | ${entriesByMode.length} do modo ${currentMode} | ${filteredEntries.length} exibidas (${entriesByMode.length - filteredEntries.length} LOSSes intermediários ocultos)`);
         
         // Renderizar apenas as entradas filtradas
-        const items = filteredEntries.map((e) => {
-            // Encontrar índice original para manter referência correta ao clicar
-            const originalIndex = entriesByMode.indexOf(e);
+        const items = filteredEntries.map((e, idx) => {
+            // ✅ CORREÇÃO: Usar índice da lista filtrada para manter referência correta
+            const entryIndex = idx;
             const time = new Date(e.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
             const cls = e.color;
             const badge = e.color === 'white' ? blazeWhiteSVG(16) : `<span>${e.number}</span>`;
@@ -5533,7 +5540,7 @@ const DIAMOND_LEVEL_DEFAULTS = {
             // Estágio do Martingale (abaixo da %)
             const stageLabel = stageText ? `<div class="entry-stage ${barClass}">${stageText}</div>` : '';
             
-            return `<div class="entry-item-wrap clickable-entry" title="${title}" data-entry-index="${originalIndex}">
+            return `<div class="entry-item-wrap clickable-entry" title="${title}" data-entry-index="${entryIndex}">
                 ${confTop ? `<div class="entry-conf-top">${confTop}</div>` : ''}
                 ${stageLabel}
                 <div class="entry-item">
@@ -5573,12 +5580,13 @@ const DIAMOND_LEVEL_DEFAULTS = {
             // Inserir indicador no TOPO + itens
             list.innerHTML = galeActiveIndicator + (items || '<div class="no-history">Sem entradas registradas</div>');
             
-            // Adicionar evento de clique para mostrar padrão (precisa ser aqui dentro do callback)
+            // ✅ CORREÇÃO: Adicionar evento de clique para mostrar padrão usando o array filtrado correto
             const clickableEntries = list.querySelectorAll('.clickable-entry');
             clickableEntries.forEach((entryEl) => {
                 entryEl.addEventListener('click', function() {
                     const entryIndex = parseInt(this.getAttribute('data-entry-index'), 10);
-                    const entry = entries[entryIndex];
+                    // ✅ USAR O ARRAY FILTRADO (filteredEntries) EM VEZ DO ARRAY COMPLETO (entries)
+                    const entry = filteredEntries[entryIndex];
                     if (entry) {
                         showPatternForEntry(entry);
                     }

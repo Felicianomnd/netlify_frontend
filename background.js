@@ -11225,16 +11225,16 @@ async function runAnalysisController(history) {
 		const existingAnalysis = existingAnalysisResult['analysis'];
 		
 	// Log removido: redução de verbosidade
-	
-	if (existingAnalysis && existingAnalysis.createdOnTimestamp && history && history.length > 0) {
-		const latestSpinTimestamp = history[0].timestamp;
-		const isAnalysisPending = existingAnalysis.createdOnTimestamp !== latestSpinTimestamp;
 		
-		if (isAnalysisPending) {
+		if (existingAnalysis && existingAnalysis.createdOnTimestamp && history && history.length > 0) {
+			const latestSpinTimestamp = history[0].timestamp;
+			const isAnalysisPending = existingAnalysis.createdOnTimestamp !== latestSpinTimestamp;
+			
+			if (isAnalysisPending) {
 			console.log('%c⚠️ Análise pendente | ' + existingAnalysis.color + ' (' + existingAnalysis.confidence + '%)', 'color: #FF9900; font-weight: bold; background: #332200; padding: 4px 8px; border-radius: 4px;');
-			return; // ✅ NÃO executar nova análise se já há uma pendente
+				return; // ✅ NÃO executar nova análise se já há uma pendente
+			}
 		}
-	}
 	// Log removido: redução de verbosidade
 		
 		// 1) Verificação com padrões salvos (rápido) - PRIORIDADE MÁXIMA
@@ -11248,7 +11248,7 @@ async function runAnalysisController(history) {
 			console.log('%c🤖 Modo IA ativo | Analisando...', 'color: #00FF88; font-weight: bold; background: #003300; padding: 4px 8px; border-radius: 4px;');
 		}
 		
-	if (verifyResult) {
+		if (verifyResult) {
 		console.log('%c✅ Padrão encontrado | ' + verifyResult.color + ' (' + verifyResult.confidence + '%)', 'color: #00FF88; font-weight: bold; background: #003322; padding: 4px 8px; border-radius: 4px;');
 			
 			// ⚠️ CRÍTICO: VERIFICAR SE HÁ MARTINGALE ATIVO
@@ -11928,9 +11928,9 @@ async function startInitialPatternSearch(history) {
 				
 				await discoverAndPersistPatterns(history, iterationStartTs, iterationBudget);
 				
-			const dbAfterSearch = await loadPatternDB(true); // silent = true
-			const totalAfterSearch = dbAfterSearch.patterns_found ? dbAfterSearch.patterns_found.length : 0;
-			
+				const dbAfterSearch = await loadPatternDB(true); // silent = true
+				const totalAfterSearch = dbAfterSearch.patterns_found ? dbAfterSearch.patterns_found.length : 0;
+				
 			// Log removido: já temos o cronômetro periódico
 				
 				// Se atingiu o limite, parar
@@ -12061,23 +12061,23 @@ async function verifyWithSavedPatterns(history) {
 	}
 		// NÃO exigir que a trigger seja igual à salva; triggers podem variar por ocorrência
 
-	// Reconstruir ocorrências com números e horários a partir do histórico
+		// Reconstruir ocorrências com números e horários a partir do histórico
 	// ✅ APLICAR PROFUNDIDADE DE ANÁLISE CONFIGURADA PELO USUÁRIO
 	const configuredDepth = analyzerConfig.historyDepth || 2000;
 	const searchDepth = Math.min(configuredDepth, history.length);
 	
-	const occNumbers = [];
-	const occTimestamps = [];
-	const trigNumbers = [];
-	const trigTimestamps = [];
+		const occNumbers = [];
+		const occTimestamps = [];
+		const trigNumbers = [];
+		const trigTimestamps = [];
 	const occurrenceDetails = [];
-	let occCount = 0;
+		let occCount = 0;
 	for (let i = need; i < searchDepth; i++) {
-		const seq = history.slice(i, i + need);
-		if (seq.length < need) break;
-		const seqColors = seq.map(s => s.color);
-		const match = seqColors.every((c, idx) => c === pat.pattern[idx]);
-		if (match) {
+			const seq = history.slice(i, i + need);
+			if (seq.length < need) break;
+			const seqColors = seq.map(s => s.color);
+			const match = seqColors.every((c, idx) => c === pat.pattern[idx]);
+			if (match) {
 			const trigSpin = history[i + need];
 			const trigColorRaw = trigSpin ? trigSpin.color : null;
 			
@@ -12091,7 +12091,7 @@ async function verifyWithSavedPatterns(history) {
 			if (!triggerValid) continue;
 
 			const resultColor = history[i - 1] ? history[i - 1].color : null;
-			const occurrenceRecord = createOccurrenceRecord(pat.pattern, trigColorRaw, resultColor, trigSpin, occCount + 1);
+			const occurrenceRecord = createOccurrenceRecord(pat.pattern, trigColorRaw, resultColor, seq, trigSpin, occCount + 1);
 
 			if (occurrenceRecord.flag_invalid_disparo) {
 				continue;
@@ -12568,7 +12568,7 @@ async function discoverAndPersistPatterns(history, startTs, budgetMs) {
 		// Silencioso: não precisa logar quando não encontra nada novo
 		return;
 	}
-	
+
 	// Log compacto de novos padrões
 	const timeElapsed = ((Date.now() - startTs) / 1000).toFixed(2);
 	console.log(`%c🎯 +${discovered.length} padrão(ões) | ⏱️ ${timeElapsed}s`, 'color: #00FF88; font-weight: bold; background: #003322; padding: 4px 8px; border-radius: 4px;');
@@ -13209,23 +13209,38 @@ function validateDisparoColor(corInicial, corDisparo) {
 }
 
 // Criar objeto de ocorrência individual (append-only)
-function createOccurrenceRecord(patternSequence, triggerColor, resultColor, spin, index) {
+function createOccurrenceRecord(patternSequence, triggerColor, resultColor, sequenceSpins, triggerSpin, index) {
 	const corInicial = normalizeColorName(getInitialPatternColor(patternSequence));
     const triggerNormalized = normalizeColorName(triggerColor);
     const resultNormalized = normalizeColorName(resultColor);
 	const validation = validateDisparoColor(corInicial, triggerNormalized);
-    
+
+	const spinsArray = Array.isArray(sequenceSpins) ? sequenceSpins : [];
+	const sequenceNumbers = spinsArray.map(spin => spin.number ?? null);
+	const sequenceColors = spinsArray.map(spin => normalizeColorName(spin.color));
+	const sequenceTimestamps = spinsArray.map(spin => spin.timestamp || spin.created_at || null);
+
+	const triggerNumber = triggerSpin ? triggerSpin.number ?? null : null;
+	const triggerTimestamp = triggerSpin ? (triggerSpin.timestamp || triggerSpin.created_at || null) : null;
+
+	const occurrenceTimestamp = sequenceTimestamps[0] || triggerTimestamp || new Date().toISOString();
+
     return {
-        occurrence_id: spin ? (spin.created_at || spin.timestamp || `${Date.now()}_${index}`) : `${Date.now()}_${index}`,
+        occurrence_id: triggerSpin ? (triggerSpin.created_at || triggerSpin.timestamp || `${Date.now()}_${index}`) : `${Date.now()}_${index}`,
         index: index,
         cor_inicial: corInicial,
         cor_disparo: triggerNormalized,
         resultado: resultNormalized,
-        timestamp: spin ? (spin.timestamp || spin.created_at) : new Date().toISOString(),
-        giro_numbers: Array.isArray(spin) ? spin.map(s => s.number) : (spin ? [spin.number] : []),
+        timestamp: occurrenceTimestamp,
+		sequence_numbers: sequenceNumbers,
+		sequence_colors: sequenceColors,
+		sequence_timestamps: sequenceTimestamps,
+		trigger_number: triggerNumber,
+		trigger_timestamp: triggerTimestamp,
+        giro_numbers: triggerNumber != null ? [triggerNumber] : [],
         flag_invalid_disparo: !validation.valid,
         invalid_reason: validation.valid ? null : validation.reason,
-        raw_color: !validation.valid ? triggerColor : null
+        raw_trigger_color: !validation.valid ? triggerColor : null
     };
 }
 
