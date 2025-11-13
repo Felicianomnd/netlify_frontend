@@ -9197,12 +9197,14 @@ async function analyzeWithPatternSystem(history) {
         }
         
         // ═══════════════════════════════════════════════════════════════
-        // 🔥 MODO PADRÃO QUENTE (SE ATIVO)
+        // 🔥 MODO PADRÃO QUENTE (NÍVEL 1 DO MODO DIAMANTE)
         // ═══════════════════════════════════════════════════════════════
         let hotPatternSignal = null;
         
-        if (hotPatternMode) {
-            console.log('%c║  🔥 MODO PADRÃO QUENTE ATIVO                             ║', 'color: #FF6B35; font-weight: bold; font-size: 14px;');
+        // ✅ CORREÇÃO: Executar quando Modo Diamante (aiMode) estiver ativo
+        // O Padrão Quente é o NÍVEL 1 do sistema Diamante
+        if (analyzerConfig.aiMode) {
+            console.log('%c║  🔥 NÍVEL 1 - PADRÃO QUENTE (MODO DIAMANTE ATIVO)        ║', 'color: #FF6B35; font-weight: bold; font-size: 14px;');
             console.log('%c🔍 STATUS ATUAL DO PADRÃO QUENTE:', 'color: #FF6B35; font-weight: bold;');
             console.log(`%c   ➤ Status: ${hotPatternState.status.toUpperCase()}`, 'color: #FF6B35;');
             console.log(`%c   ➤ LOSSes consecutivos: ${hotPatternState.consecutiveLosses}`, 'color: #FF6B35;');
@@ -9277,8 +9279,7 @@ async function analyzeWithPatternSystem(history) {
                         console.error('❌ Erro ao salvar padrão:', error);
                     }
                     
-                    // Notificar TODAS as tabs do Blaze
-                    if (!analyzerConfig.aiMode) {
+                    // ✅ CORREÇÃO: Notificar TODAS as tabs do Blaze (Modo Diamante também precisa receber)
                     chrome.tabs.query({url: '*://blaze.com/*'}, function(tabs) {
                         tabs.forEach(tab => {
                             chrome.tabs.sendMessage(tab.id, {
@@ -9294,12 +9295,10 @@ async function analyzeWithPatternSystem(history) {
                             }).catch(() => {});
                         });
                     });
-                    }
                 } else {
                     console.log('⚠️⚠️⚠️ Nenhum padrão quente disponível no momento!');
                     
-                    // Notificar TODAS as tabs do Blaze
-                    if (!analyzerConfig.aiMode) {
+                    // ✅ CORREÇÃO: Notificar TODAS as tabs do Blaze (Modo Diamante também precisa receber)
                     chrome.tabs.query({url: '*://blaze.com/*'}, function(tabs) {
                         tabs.forEach(tab => {
                             chrome.tabs.sendMessage(tab.id, {
@@ -9307,7 +9306,6 @@ async function analyzeWithPatternSystem(history) {
                             }).catch(() => {});
                         });
                     });
-                    }
                 }
             }
             
@@ -13225,7 +13223,7 @@ function createOccurrenceRecord(patternSequence, triggerColor, resultColor, sequ
 	const triggerTimestamp = triggerSpin ? (triggerSpin.timestamp || triggerSpin.created_at || null) : null;
 
 	const occurrenceTimestamp = sequenceTimestamps[0] || triggerTimestamp || new Date().toISOString();
-
+    
     return {
         occurrence_id: triggerSpin ? (triggerSpin.created_at || triggerSpin.timestamp || `${Date.now()}_${index}`) : `${Date.now()}_${index}`,
         index: index,
