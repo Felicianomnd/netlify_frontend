@@ -3611,11 +3611,11 @@ const DIAMOND_LEVEL_DEFAULTS = {
                     <div class="settings-grid">
                         <div class="setting-item" id="historyDepthSetting">
                             <span class="setting-label">Profundidade de Análise (giros):</span>
-                            <input type="number" id="cfgHistoryDepth" min="100" max="2000" value="2000" title="Quantidade de giros para análise e busca de padrões (100-2000) - VÁLIDO APENAS NO MODO PADRÃO" placeholder="Ex: 500 giros" />
+                            <input type="number" id="cfgHistoryDepth" min="100" max="2000" value="500" title="Quantidade de giros para análise e busca de padrões (100-2000) - VÁLIDO APENAS NO MODO PADRÃO" placeholder="Ex: 500 giros" />
                         </div>
                         <div class="setting-item">
                             <span class="setting-label">Ocorrências mínima:</span>
-                            <input type="number" id="cfgMinOccurrences" min="1" value="1" />
+                            <input type="number" id="cfgMinOccurrences" min="1" value="2" />
                         </div>
                         <div class="setting-item">
                             <span class="setting-label">Ocorrências MÁXIMAS (0 = sem limite):</span>
@@ -3623,7 +3623,7 @@ const DIAMOND_LEVEL_DEFAULTS = {
                         </div>
                         <div class="setting-item">
                             <span class="setting-label">Intervalo mínimo (giros):</span>
-                            <input type="number" id="cfgMinInterval" min="0" value="0" title="Quantidade mínima de giros entre sinais (0 = sem intervalo, envia sempre que encontrar padrão válido)" placeholder="Ex: 5 giros (0 = sem intervalo)" />
+                            <input type="number" id="cfgMinInterval" min="0" value="2" title="Quantidade mínima de giros entre sinais (0 = sem intervalo, envia sempre que encontrar padrão válido)" placeholder="Ex: 2 giros (0 = sem intervalo)" />
                         </div>
                         <div class="setting-item">
                             <span class="setting-label">Tamanho MÍNIMO do padrão (giros):</span>
@@ -3635,7 +3635,7 @@ const DIAMOND_LEVEL_DEFAULTS = {
                         </div>
                         <div class="setting-item">
                             <span class="setting-label">WIN% das demais ocorrências:</span>
-                            <input type="number" id="cfgWinPercentOthers" min="0" max="100" value="25" />
+                            <input type="number" id="cfgWinPercentOthers" min="0" max="100" value="100" />
                         </div>
                         <div class="setting-item setting-row">
                             <label class="checkbox-label"><input type="checkbox" id="cfgRequireTrigger" checked /> Exigir cor de disparo</label>
@@ -3645,7 +3645,7 @@ const DIAMOND_LEVEL_DEFAULTS = {
                         </div>
                         <div class="setting-item">
                             <span class="setting-label">Quantidade de Gales (0-200):</span>
-                            <input type="number" id="cfgMaxGales" min="0" max="200" value="2" />
+                            <input type="number" id="cfgMaxGales" min="0" max="200" value="0" />
                         </div>
                         <div class="setting-item setting-row">
                             <span class="setting-label">Telegram Chat ID:</span>
@@ -4024,16 +4024,18 @@ const DIAMOND_LEVEL_DEFAULTS = {
                 // ✅ BUSCAR CONFIGURAÇÃO MAIS RECENTE DO STORAGE (pode ter sido salva agora)
                 chrome.storage.local.get(['analyzerConfig'], function(result) {
                     // ✅ IMPORTANTE: Mesclar com DEFAULT para garantir que temos todos os campos
+                    // ✅ CONFIGURAÇÕES PADRÃO OTIMIZADAS (sincronizadas com background.js)
                     const DEFAULT_CONFIG = {
-                        minOccurrences: 5,
+                        historyDepth: 500,
+                        minOccurrences: 2,
                         maxOccurrences: 0,
-                        minIntervalSpins: 0,
+                        minIntervalSpins: 2,
                         minPatternSize: 3,
                         maxPatternSize: 0,
-                        winPercentOthers: 25,
+                        winPercentOthers: 100,
                         requireTrigger: true,
                         consecutiveMartingale: false,
-                        maxGales: 2,
+                        maxGales: 0,
                         telegramChatId: '',
                         signalIntensity: 'moderate',
                         aiApiKey: '',

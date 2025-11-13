@@ -69,17 +69,18 @@ let memoriaAtiva = {
 let memoriaAtivaInicializando = false;  // Flag para evitar inicializações simultâneas
 
 // Runtime analyzer configuration (overridable via chrome.storage.local)
+// ✅ CONFIGURAÇÕES PADRÃO OTIMIZADAS (Modo de Análise Padrão do Sistema)
 const DEFAULT_ANALYZER_CONFIG = {
-    historyDepth: 2000,           // profundidade de análise em giros (100-2000) - MODO PADRÃO
-    minOccurrences: 5,            // quantidade mínima de WINS exigida (padrão: 5) - MODO PADRÃO
-    maxOccurrences: 0,            // quantidade MÁXIMA de ocorrências (0 = sem limite)
-    minIntervalSpins: 0,          // intervalo mínimo em GIROS entre sinais (0 = sem intervalo, 5 = aguardar 5 giros)
-    minPatternSize: 3,            // tamanho MÍNIMO do padrão (giros)
-    maxPatternSize: 0,            // tamanho MÁXIMO do padrão (0 = sem limite)
-    winPercentOthers: 25,         // WIN% mínima para as ocorrências restantes
-    requireTrigger: true,         // exigir cor de disparo
-    consecutiveMartingale: false, // Martingale consecutivo (G1/G2 imediatos) ou aguardar novo padrão
-    maxGales: 2,                  // Quantidade máxima de Gales (0=sem gale, 1=G1, 2=G1+G2, até 200)
+    historyDepth: 500,            // ✅ profundidade de análise em giros (100-2000) - MODO PADRÃO
+    minOccurrences: 2,            // ✅ quantidade mínima de WINS exigida (padrão: 2) - MODO PADRÃO
+    maxOccurrences: 0,            // ✅ quantidade MÁXIMA de ocorrências (0 = sem limite)
+    minIntervalSpins: 2,          // ✅ intervalo mínimo em GIROS entre sinais (2 = aguardar 2 giros)
+    minPatternSize: 3,            // ✅ tamanho MÍNIMO do padrão (giros)
+    maxPatternSize: 0,            // ✅ tamanho MÁXIMO do padrão (0 = sem limite)
+    winPercentOthers: 100,        // ✅ WIN% mínima para as ocorrências restantes (100% = apenas padrões perfeitos)
+    requireTrigger: true,         // ✅ exigir cor de disparo (ATIVADO)
+    consecutiveMartingale: false, // ✅ Martingale consecutivo (DESATIVADO)
+    maxGales: 0,                  // ✅ Quantidade máxima de Gales (0 = sem gale, entrada única)
     telegramChatId: '',           // Chat ID do Telegram para enviar sinais
     aiMode: false,                // Modo Diamante (true) ou Modo Padrão (false)
     signalIntensity: 'moderate',  // Intensidade de sinais: 'aggressive', 'moderate', 'conservative', 'ultraconservative'
