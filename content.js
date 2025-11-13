@@ -6483,8 +6483,46 @@ function readNumericInput(id, min, max, fallback) {
     console.log('');
     
     // Load initial data (com retry safe) - SEM histórico (vem do servidor)
-    function loadInitialData() {
+    async function loadInitialData() {
         try {
+            // 🔄 PRIMEIRO: Verificar se há configurações no servidor para sincronizar
+            const shouldSync = getSyncConfigPreference();
+            if (shouldSync) {
+                try {
+                    console.log('🔄 Verificando configurações no servidor...');
+                    const serverConfig = await loadConfigFromServer();
+                    
+                    if (serverConfig) {
+                        console.log('✅ Configurações do servidor encontradas! Sincronizando...');
+                        
+                        // Mesclar com configurações locais (servidor tem prioridade)
+                        const localData = await storageCompat.get(['analyzerConfig']);
+                        const currentConfig = localData.analyzerConfig || {};
+                        
+                        const mergedConfig = {
+                            ...currentConfig,
+                            ...serverConfig,
+                            // Preservar aiMode local (cada dispositivo tem seu próprio)
+                            aiMode: currentConfig.aiMode
+                        };
+                        
+                        await storageCompat.set({ analyzerConfig: mergedConfig });
+                        console.log('✅ Configurações sincronizadas do servidor!');
+                        
+                        // Notificar background
+                        try {
+                            chrome.runtime.sendMessage({ action: 'applyConfig' });
+                        } catch (err) {
+                            console.warn('⚠️ Não foi possível notificar background:', err);
+                        }
+                    } else {
+                        console.log('ℹ️ Nenhuma configuração nova no servidor');
+                    }
+                } catch (syncError) {
+                    console.warn('⚠️ Erro ao carregar configurações do servidor:', syncError);
+                }
+            }
+            
             chrome.storage.local.get(['lastSpin', 'analysis', 'pattern', 'entriesHistory'], function(result) {
                 // Só chama updateSidebar se a extensão não foi invalidada/descarregada
                 if (chrome && chrome.runtime && chrome.runtime.id) {
