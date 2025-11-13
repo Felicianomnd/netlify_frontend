@@ -6543,6 +6543,10 @@ function readNumericInput(id, min, max, fallback) {
                     // ✅ CARREGAR CALIBRADOR DE PORCENTAGENS
                     console.log('📊 Carregando estatísticas do Calibrador de porcentagens...');
                     loadObserverStats();
+                    
+                    // ✅ CARREGAR BANCO DE PADRÕES
+                    console.log('📂 Carregando Banco de Padrões...');
+                    loadPatternBank();
                 }
             });
         } catch (e) {
@@ -6883,12 +6887,86 @@ function readNumericInput(id, min, max, fallback) {
         });
     }
     // Função para carregar dados do banco
+    // Função para atualizar UI do banco de padrões
+    function updatePatternBankUI(data) {
+        console.log('🎨 Atualizando UI do Banco de Padrões:', data);
+        
+        // Remover "Carregando..."
+        const bankStats = document.getElementById('bankStats');
+        if (bankStats) {
+            const loading = bankStats.querySelector('.bank-loading');
+            if (loading) {
+                loading.remove();
+                console.log('✅ Removido "Carregando..." do Banco de Padrões');
+            }
+        }
+        
+        // Atualizar total
+        const bankTotal = document.getElementById('bankTotal');
+        if (bankTotal) {
+            bankTotal.textContent = data.total || 0;
+        }
+        
+        // Atualizar limite
+        const bankLimit = document.getElementById('bankLimit');
+        if (bankLimit) {
+            bankLimit.textContent = data.limit || 5000;
+        }
+        
+        // Atualizar porcentagem
+        const bankPercent = document.getElementById('bankPercent');
+        if (bankPercent) {
+            const percent = data.limit > 0 ? ((data.total / data.limit) * 100).toFixed(1) : 0;
+            bankPercent.textContent = percent;
+        }
+        
+        // Atualizar barra de capacidade
+        const capacityFill = document.getElementById('capacityFill');
+        if (capacityFill) {
+            const percent = data.limit > 0 ? ((data.total / data.limit) * 100) : 0;
+            capacityFill.style.width = Math.min(100, percent) + '%';
+            
+            // Mudar cor baseado na capacidade
+            if (percent >= 90) {
+                capacityFill.style.background = 'linear-gradient(90deg, #ff4444, #ff0000)';
+            } else if (percent >= 70) {
+                capacityFill.style.background = 'linear-gradient(90deg, #ffaa00, #ff6600)';
+            } else {
+                capacityFill.style.background = 'linear-gradient(90deg, #00ff88, #00d4ff)';
+            }
+        }
+        
+        // Atualizar confiança
+        if (data.byConfidence) {
+            const confHigh = document.getElementById('confHigh');
+            if (confHigh) {
+                confHigh.textContent = data.byConfidence.high || 0;
+            }
+            
+            const confMedium = document.getElementById('confMedium');
+            if (confMedium) {
+                confMedium.textContent = data.byConfidence.medium || 0;
+            }
+            
+            const confLow = document.getElementById('confLow');
+            if (confLow) {
+                confLow.textContent = data.byConfidence.low || 0;
+            }
+        }
+        
+        console.log('✅ UI do Banco de Padrões atualizada!');
+    }
+    
     function loadPatternBank() {
+        console.log('📂 Carregando Banco de Padrões...');
+        
         chrome.storage.local.get(['patternDB', 'analyzerConfig'], function(result) {
             const db = result.patternDB || { patterns_found: [] };
             const total = db.patterns_found ? db.patterns_found.length : 0;
             const analyzerConfig = result.analyzerConfig || {};
             const isDiamondModeActive = !!analyzerConfig.aiMode;
+            
+            console.log(`📊 Total de padrões encontrados: ${total}`);
             
             if (!isDiamondModeActive) {
                 if (!suppressAutoPatternSearch && total === 0 && !autoPatternSearchTriggered) {
@@ -6928,6 +7006,8 @@ function readNumericInput(id, min, max, fallback) {
                     else byConfidence.low++;
                 });
             }
+            
+            console.log('📊 Padrões por confiança:', byConfidence);
             
             updatePatternBankUI({
                 total: total,
