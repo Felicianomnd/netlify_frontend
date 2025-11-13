@@ -94,7 +94,10 @@ const DEFAULT_ANALYZER_CONFIG = {
         n6RetracementWindow: 80,  // N6 - Retração Histórica (janela de análise)
         n7DecisionWindow: 20,     // N7 - Continuidade Global (decisões analisadas)
         n7HistoryWindow: 100,     // N7 - Continuidade Global (histórico base)
-        n8Barrier: 50             // N8 - Barreira Final
+        n8Barrier: 50,            // N8 - Barreira Final
+        n9History: 100,           // N9 - Calibração Bayesiana (histórico base)
+        n9NullThreshold: 8,       // N9 - Calibração Bayesiana (diferença mínima em % para votar)
+        n9PriorStrength: 1        // N9 - Calibração Bayesiana (força do prior Dirichlet)
     }
 };
 let analyzerConfig = { ...DEFAULT_ANALYZER_CONFIG };
@@ -1076,7 +1079,7 @@ async function saveGirosToAPI(giros) {
 function displaySystemFooter() {
     
     if (analyzerConfig.aiMode) {
-        console.log('%c║ 🎯 SISTEMA ATIVO: MODO DIAMANTE (8 NÍVEIS DE ANÁLISE)                         ║', 'color: #00FF00; font-weight: bold; background: #001100;');
+        console.log('%c║ 🎯 SISTEMA ATIVO: MODO DIAMANTE (9 NÍVEIS DE ANÁLISE)                         ║', 'color: #00FF00; font-weight: bold; background: #001100;');
         console.log('%c║ 💎 Sistema de votação inteligente com consenso                                ║', 'color: #00AA00;');
         
         // 🧠 INDICADOR DE MEMÓRIA ATIVA (dinâmico)
@@ -1433,7 +1436,7 @@ function logActiveConfiguration() {
         console.log(`║     ${telegramStatus.padEnd(54)}║`);
         
         console.log('║  💎 MODO DIAMANTE:                                        ║');
-        const diamondModeStatus = config.aiMode ? '✅ ATIVO (8 níveis)' : '⚪ Desativado (Modo Padrão)';
+        const diamondModeStatus = config.aiMode ? '✅ ATIVO (9 níveis)' : '⚪ Desativado (Modo Padrão)';
         console.log(`║     ${diamondModeStatus.padEnd(54)}║`);
         
         
@@ -8017,6 +8020,93 @@ function analyzeHistoricalRetracement(history, windowSize = 80, intensity = 'mod
     };
 }
 
+function analyzeBayesianCalibration(history, baseWindow = 100, priorConfig = { red: 1, black: 1, white: 0.5 }, nullDiff = 0.08) {
+    const sanitizedBase = Math.max(20, Math.min(500, Number(baseWindow) || 100));
+    const windowSize = Math.min(history.length, sanitizedBase);
+    const windowSpins = history.slice(0, windowSize);
+
+    const counts = { red: 0, black: 0, white: 0 };
+    windowSpins.forEach(spin => {
+        if (spin && typeof spin.color === 'string' && Object.prototype.hasOwnProperty.call(counts, spin.color)) {
+            counts[spin.color]++;
+        }
+    });
+
+    const totalSamples = counts.red + counts.black + counts.white;
+    const coverage = Math.min(1, totalSamples / Math.max(1, sanitizedBase));
+
+    const prior = {
+        red: Math.max(0.01, Number(priorConfig.red) || 1),
+        black: Math.max(0.01, Number(priorConfig.black) || 1),
+        white: Math.max(0.01, Number(priorConfig.white) || Math.max(0.01, (Number(priorConfig.red) || 1) * 0.5))
+    };
+
+    const posterior = {
+        red: prior.red + counts.red,
+        black: prior.black + counts.black,
+        white: prior.white + counts.white
+    };
+    const posteriorTotal = posterior.red + posterior.black + posterior.white;
+
+    const probabilities = {
+        red: posteriorTotal > 0 ? posterior.red / posteriorTotal : 1 / 3,
+        black: posteriorTotal > 0 ? posterior.black / posteriorTotal : 1 / 3,
+        white: posteriorTotal > 0 ? posterior.white / posteriorTotal : 1 / 3
+    };
+
+    const sorted = Object.entries(probabilities).sort(([, a], [, b]) => b - a);
+    const [topColor, topProb] = sorted[0] || ['red', 1 / 3];
+    const [, secondProb] = sorted[1] || ['black', 1 / 3];
+    const gap = topProb - secondProb;
+    const effectiveThreshold = Math.max(0.01, Number(nullDiff) || 0.08);
+    const normalizedGap = Math.min(1, gap / effectiveThreshold);
+    const strength = coverage * normalizedGap;
+    const shouldStayNeutral = gap < effectiveThreshold || coverage < 0.3;
+    const selectedColor = shouldStayNeutral ? null : topColor;
+
+    const maxProb = Math.max(probabilities.red, probabilities.black, probabilities.white, 0.0001);
+    const adjustments = {};
+    ['red', 'black', 'white'].forEach(color => {
+        const ratio = maxProb > 0 ? probabilities[color] / maxProb : 1;
+        let factor = (ratio * coverage) + (1 - coverage);
+        if (color === topColor) {
+            factor = Math.min(1.05, factor + Math.min(0.05, gap * 0.25));
+        }
+        factor = Math.max(0.35, Math.min(1.05, factor));
+        adjustments[color] = factor;
+    });
+
+    const toPct = value => `${(value * 100).toFixed(1)}%`;
+    const diffPct = (gap * 100).toFixed(1);
+    const detailsParts = [
+        `🔴 ${toPct(probabilities.red)}`,
+        `⚫ ${toPct(probabilities.black)}`,
+        `⚪ ${toPct(probabilities.white)}`,
+        `Δ ${diffPct}%`,
+        `jan ${totalSamples}/${sanitizedBase}`
+    ];
+
+    if (shouldStayNeutral) {
+        detailsParts.push(`nulo < ${(effectiveThreshold * 100).toFixed(0)}%`);
+    } else {
+        detailsParts.push(`lider ${topColor.toUpperCase()}`);
+    }
+
+    return {
+        color: selectedColor,
+        probabilities,
+        strength,
+        gap,
+        coverage,
+        adjustments,
+        details: detailsParts.join(' • '),
+        totalSamples,
+        baseWindow: sanitizedBase,
+        threshold: effectiveThreshold,
+        nullVote: shouldStayNeutral
+    };
+}
+
 function analyzeGlobalContinuity(signalData, decisionWindow = 20, historyLimit = 100, intensity = 'moderate') {
     if (!signalData || !Array.isArray(signalData.signals) || signalData.signals.length === 0) {
         return {
@@ -8930,16 +9020,16 @@ function sleep(ms) {
 
 /**
  * FUNÇÃO PRINCIPAL: Análise Avançada - NÍVEL DIAMANTE
- * NOVO FLUXO: 6 Níveis com Sistema de Votação
- * - 5 Níveis que votam (4, 5, 7, 8, 9)
- * - 1 Nível que bloqueia (6 - Barreira/Freio)
- * - Níveis 1, 2, 3 removidos (análise superficial de frequência)
+ * Fluxo atual: 9 níveis com pontuação contínua + barreira final
+ * - N1..N7 geram votos especializados
+ * - N8 valida sequência (barreira final)
+ * - N9 calibra probabilidades bayesianas e ajusta a força dos demais níveis
  */
 async function analyzeWithPatternSystem(history) {
     
     // ✅ DEBUG: Enviar mensagem inicial
-    sendAnalysisStatus('🔍 Iniciando análise dos 6 níveis...');
-    console.log('✅ DEBUG: sendAnalysisStatus chamado - Iniciando análise dos 6 níveis...');
+    sendAnalysisStatus('🔍 Iniciando análise dos 9 níveis...');
+    console.log('✅ DEBUG: sendAnalysisStatus chamado - Iniciando análise dos 9 níveis...');
     await sleep(1000);
     
     // VALIDAÇÃO DE DADOS DE ENTRADA
@@ -8958,7 +9048,7 @@ async function analyzeWithPatternSystem(history) {
         });
     }
     
-        console.log('%c║  💎 NÍVEL DIAMANTE - ANÁLISE AVANÇADA 6 NÍVEIS           ║', 'color: #00FF00; font-weight: bold; font-size: 16px;');
+        console.log('%c║  💎 NÍVEL DIAMANTE - ANÁLISE AVANÇADA 9 NÍVEIS           ║', 'color: #00FF00; font-weight: bold; font-size: 16px;');
         console.log('%c║  🎯 N1 - Padrões (Customizado → Quente → Nulo)         ║', 'color: #FFD700; font-weight: bold;');
         console.log('%c║  ⚡ N2 - Momentum (5 vs 15 giros)                      ║', 'color: #00FF88;');
         console.log('%c║  🔷 N3 - Padrão Alternância (12 giros)                 ║', 'color: #8E44AD; font-weight: bold;');
@@ -8971,7 +9061,7 @@ async function analyzeWithPatternSystem(history) {
     // ═══════════════════════════════════════════════════════════════
     // 📊 EXIBIR CONFIGURAÇÕES SALVAS PELO USUÁRIO (VALORES REAIS)
     // ═══════════════════════════════════════════════════════════════
-    console.log('%c║  ⚙️ CONFIGURAÇÕES DOS 8 NÍVEIS SALVAS PELO USUÁRIO (VALORES REAIS)          ║', 'color: #FF00FF; font-weight: bold; font-size: 16px; background: #000000;');
+    console.log('%c║  ⚙️ CONFIGURAÇÕES DOS 9 NÍVEIS SALVAS PELO USUÁRIO (VALORES REAIS)          ║', 'color: #FF00FF; font-weight: bold; font-size: 16px; background: #000000;');
     console.log('%c╠═══════════════════════════════════════════════════════════════════════════════╣', 'color: #FF00FF; font-weight: bold; background: #000000;');
     
     // Pegar configurações do analyzerConfig
@@ -9170,7 +9260,7 @@ async function analyzeWithPatternSystem(history) {
                     console.log(`%c║  📊 Giros desde último sinal: ${spinsDesdeUltimoSinal}${' '.repeat(Math.max(0, 29 - spinsDesdeUltimoSinal.toString().length))}║`, 'color: #FFAA00;');
                     console.log(`%c║  🎯 Intervalo mínimo: ${minIntervalSpins} giros${' '.repeat(Math.max(0, 32 - minIntervalSpins.toString().length))}║`, 'color: #FFAA00;');
                     console.log(`%c║  ⏳ Faltam: ${girosRestantes} giros${' '.repeat(Math.max(0, 37 - girosRestantes.toString().length))}║`, 'color: #FFAA00; font-weight: bold;');
-                    console.log('%c║  ✅ Análise dos 6 níveis será executada normalmente      ║', 'color: #00FF88;');
+                    console.log('%c║  ✅ Análise dos 9 níveis será executada normalmente      ║', 'color: #00FF88;');
                     console.log('%c║  🚫 Mas SINAL NÃO será enviado (intervalo insuficiente)  ║', 'color: #FFAA00;');
                 }
             } else if (lastSignalTimestamp && history.length > 0) {
@@ -9390,7 +9480,7 @@ async function analyzeWithPatternSystem(history) {
         console.log('%c║  🎯 NÍVEL 1: PADRÃO QUENTE                              ║', 'color: #FF6B35; font-weight: bold; font-size: 14px;');
         
         let nivel4 = null;
-		let patternDescription = 'Análise Nível Diamante - 7 Níveis';
+		let patternDescription = 'Análise Nível Diamante - 9 Níveis';
         
     // ETAPA 1: Verificar PADRÕES CUSTOMIZADOS
         console.log('%cℹ️ Padrões customizados desativados para o Nível 1', 'color: #888; font-style: italic;');
@@ -9490,14 +9580,15 @@ async function analyzeWithPatternSystem(history) {
         // 🧮 CONSOLIDAÇÃO DOS NÍVEIS (PONTUAÇÃO CONTÍNUA)
         // ═══════════════════════════════════════════════════════════════
         const levelWeights = {
-            patterns: 0.21,
-            momentum: 0.17,
-            alternance: 0.14,
-            persistence: 0.12,
-            minuteSpin: 0.10,
-            retracement: 0.09,
+            patterns: 0.19,
+            momentum: 0.15,
+            alternance: 0.13,
+            persistence: 0.11,
+            minuteSpin: 0.095,
+            retracement: 0.085,
             globalContinuity: 0.11,
-            barrier: 0.06
+            barrier: 0.05,
+            bayesianCalibration: 0.08
         };
         const levelMeta = {
             N1: { emoji: '🎯', label: 'N1 - Padrões' },
@@ -9507,7 +9598,8 @@ async function analyzeWithPatternSystem(history) {
             N5: { emoji: '🕑', label: 'N5 - Ritmo por Giro' },
             N6: { emoji: '📉', label: 'N6 - Retração Histórica' },
             N7: { emoji: '📈', label: 'N7 - Continuidade Global' },
-            N8: { emoji: '🛑', label: 'N8 - Barreira Final' }
+            N8: { emoji: '🛑', label: 'N8 - Barreira Final' },
+            N9: { emoji: '🧮', label: 'N9 - Calibração Bayesiana' }
         };
         const clamp01 = (value) => Math.max(0, Math.min(1, typeof value === 'number' ? value : 0));
         const directionValue = (color) => color === 'red' ? 1 : color === 'black' ? -1 : 0;
@@ -9650,6 +9742,60 @@ async function analyzeWithPatternSystem(history) {
 			details: continuityResult.details
 		});
 
+        console.log('%c║  🧮 N9 - CALIBRAÇÃO BAYESIANA (PROBABILIDADES)          ║', 'color: #1ABC9C; font-weight: bold; font-size: 14px;');
+        const bayesHistoryConfigured = Math.max(30, Math.min(400, getDiamondWindow('n9History', 100)));
+        const bayesNullThresholdConfigured = Math.max(2, Math.min(20, getDiamondWindow('n9NullThreshold', 8)));
+        const bayesPriorStrengthConfigured = Math.max(0.2, Math.min(5, getDiamondWindow('n9PriorStrength', 1)));
+        const bayesPriorConfig = {
+            red: bayesPriorStrengthConfigured,
+            black: bayesPriorStrengthConfigured,
+            white: Math.max(0.1, bayesPriorStrengthConfigured * 0.5)
+        };
+        const bayesResult = analyzeBayesianCalibration(
+            history,
+            bayesHistoryConfigured,
+            bayesPriorConfig,
+            bayesNullThresholdConfigured / 100
+        );
+
+        console.log(`%c   Histórico base: ${bayesResult.totalSamples}/${bayesHistoryConfigured} giros (cobertura ${(bayesResult.coverage * 100).toFixed(0)}%)`, 'color: #1ABC9C;');
+        console.log(`%c   Probabilidades → 🔴 ${(bayesResult.probabilities.red * 100).toFixed(1)}% | ⚫ ${(bayesResult.probabilities.black * 100).toFixed(1)}% | ⚪ ${(bayesResult.probabilities.white * 100).toFixed(2)}%`, 'color: #1ABC9C;');
+        console.log(`%c   Diferença líder: ${(bayesResult.gap * 100).toFixed(1)}% (limiar ${bayesNullThresholdConfigured.toFixed(1)}%)`, 'color: #1ABC9C;');
+        if (!bayesResult.color) {
+            console.log('%c   🛑 VOTO NULO: Probabilidades próximas ou cobertura baixa', 'color: #FFAA00; font-weight: bold;');
+        } else {
+            console.log(`%c   🗳️ VOTA: ${bayesResult.color.toUpperCase()} • Força ${(Math.round((bayesResult.strength || 0) * 100))}%`, 'color: #1ABC9C; font-weight: bold;');
+        }
+
+        if (bayesResult && bayesResult.adjustments) {
+            levelReports.forEach(level => {
+                if (!level.color) return;
+                const factor = bayesResult.adjustments[level.color] ?? 1;
+                const originalStrength = level.strength;
+                const adjustedStrength = clamp01((level.strength || 0) * factor);
+                level.strength = adjustedStrength;
+                level.score = directionValue(level.color) * adjustedStrength;
+                if (level.details) {
+                    const factorPct = Math.round(factor * 100);
+                    if (factorPct !== 100) {
+                        level.details += ` • N9 ${factorPct}%`;
+                    }
+                }
+                console.log(`%c   • Ajuste N9 ${level.id}: fator ${(factor * 100).toFixed(0)}% (de ${(originalStrength * 100).toFixed(0)}% → ${(adjustedStrength * 100).toFixed(0)}%)`, 'color: #1ABC9C;');
+            });
+        }
+
+        const bayesStrength = clamp01(bayesResult.strength || 0);
+        levelReports.push({
+            id: 'N9',
+            name: 'Calibração Bayesiana',
+            color: bayesResult.color,
+            weight: levelWeights.bayesianCalibration,
+            strength: bayesStrength,
+            score: directionValue(bayesResult.color) * bayesStrength,
+            details: bayesResult.details
+        });
+
         // 🔥 NOVA LÓGICA: Alternância precisa de pelo menos 2 outros níveis concordando
         let alternanceOverride = false;
         let alternanceBlocked = false;
@@ -9663,7 +9809,7 @@ async function analyzeWithPatternSystem(history) {
             
             console.log('%c🔍 Validando Override de Alternância...', 'color: #8E44AD; font-weight: bold;');
             console.log(`   Cor da alternância: ${alternanceColor.toUpperCase()}`);
-			console.log(`   Outros níveis concordando: ${otherLevelsAgreeingCount}/6 (N1, N2, N4, N5, N6, N7)`);
+			console.log(`   Outros níveis concordando: ${otherLevelsAgreeingCount}/7 (N1, N2, N4, N5, N6, N7, N9)`);
         
         // ═══════════════════════════════════════════════════════════════
             // 🛡️ CONTROLE DE ENTRADAS: Máximo 2 entradas por alternância
@@ -10210,7 +10356,7 @@ async function analyzeWithPatternSystem(history) {
         // ═══════════════════════════════════════════════════════════════
     if (intervalBlocked) {
         console.log('%c║  🚫 SINAL BLOQUEADO - INTERVALO INSUFICIENTE!            ║', 'color: #FFAA00; font-weight: bold; font-size: 14px;');
-        console.log('%c║  ✅ Análise dos 6 níveis foi executada com sucesso       ║', 'color: #00FF88;');
+        console.log('%c║  ✅ Análise dos 9 níveis foi executada com sucesso       ║', 'color: #00FF88;');
         console.log('%c║  ✅ Sistema recomendaria: ' + finalColor.toUpperCase().padEnd(34) + '║', 'color: #FFD700;');
         console.log('%c║  🚫 MAS sinal não será enviado (aguarde intervalo)       ║', 'color: #FFAA00;');
         
@@ -10474,7 +10620,7 @@ async function analyzeWithPatternSystem(history) {
         console.log('%c✅ GARANTIAS:', 'color: #00FF00; font-weight: bold;');
         console.log('%c   ✓ Todos os dados vêm do histórico REAL da Blaze', 'color: #00FF88;');
         console.log('%c   ✓ Nenhum valor foi inventado ou simulado', 'color: #00FF88;');
-        console.log('%c   ✓ Todos os 6 níveis foram executados com rigor', 'color: #00FF88;');
+        console.log('%c   ✓ Todos os 9 níveis foram executados com rigor', 'color: #00FF88;');
         console.log('%c   ✓ Sistema democrático de votação aplicado', 'color: #00FF88;');
         console.log('%c   ✓ Barreira validou viabilidade histórica', 'color: #00FF88;');
         console.log('%c   ✓ Padrões customizados do usuário foram respeitados', 'color: #00FF88;');

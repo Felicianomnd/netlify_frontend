@@ -1141,7 +1141,10 @@ const DIAMOND_LEVEL_DEFAULTS = {
     n6RetracementWindow: 80,
     n7DecisionWindow: 20,
     n7HistoryWindow: 100,
-    n8Barrier: 50
+    n8Barrier: 50,
+    n9History: 100,
+    n9NullThreshold: 8,
+    n9PriorStrength: 1
 };
     // Função para mostrar notificação toast (simples e rápida)
     function showToast(message, duration = 2000) {
@@ -1479,6 +1482,27 @@ const DIAMOND_LEVEL_DEFAULTS = {
                 transform: scale(1.05);
             }
             
+            .diamond-level-note {
+                display: flex;
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 2px;
+                font-size: 7.9px;
+                color: rgba(200, 214, 233, 0.72);
+                margin: 2px 0 6px 0;
+                line-height: 1.2;
+                max-width: 100%;
+            }
+
+            .diamond-level-note-label {
+                font-size: 7.4px;
+                font-weight: 700;
+                text-transform: uppercase;
+                letter-spacing: 0.6px;
+                color: #6ab7ff;
+                opacity: 0.78;
+            }
+            
             .pattern-details-list {
                 display: flex;
                 flex-direction: column;
@@ -1515,10 +1539,18 @@ const DIAMOND_LEVEL_DEFAULTS = {
                     <div class="custom-pattern-modal-body">
                         <div class="diamond-level-field">
                             <label for="diamondN1HotPattern">N1 - Padrão Quente (giros analisados)</label>
+                            <div class="diamond-level-note">
+                                <span class="diamond-level-note-label">Nota</span>
+                                <span>Amostra de giros que confirma o padrão quente automático. Mais giros = leitura estável; menos giros = resposta rápida.</span>
+                            </div>
                             <input type="number" id="diamondN1HotPattern" min="12" max="200" value="60" />
                         </div>
                         <div class="diamond-level-field">
                             <label>N2 - Momentum</label>
+                            <div class="diamond-level-note">
+                                <span class="diamond-level-note-label">Nota</span>
+                                <span>Compara janelas para medir aceleração de cor. Ajuste para capturar viradas ou suavizar ruídos; mantenha a janela anterior maior.</span>
+                            </div>
                             <div class="diamond-level-double">
                                 <div>
                                     <span>Janela recente</span>
@@ -1532,22 +1564,42 @@ const DIAMOND_LEVEL_DEFAULTS = {
                         </div>
                         <div class="diamond-level-field">
                             <label for="diamondN3Alternance">N3 - Alternância (janela)</label>
+                            <div class="diamond-level-note">
+                                <span class="diamond-level-note-label">Nota</span>
+                                <span>Histórico dedicado a alternâncias. Janelas menores focam padrões curtos; maiores revelam sequências longas.</span>
+                            </div>
                             <input type="number" id="diamondN3Alternance" min="12" max="50" value="12" />
                         </div>
                         <div class="diamond-level-field">
                             <label for="diamondN4Persistence">N4 - Persistência / Ciclos (janela)</label>
+                            <div class="diamond-level-note">
+                                <span class="diamond-level-note-label">Nota</span>
+                                <span>Número de giros avaliados para medir sequências consecutivas. Auxilia a decidir entre continuação ou espera de reversão.</span>
+                            </div>
                             <input type="number" id="diamondN4Persistence" min="20" max="120" value="20" />
                         </div>
                         <div class="diamond-level-field">
                             <label for="diamondN5MinuteBias">N5 - Ritmo por Giro (amostras)</label>
+                            <div class="diamond-level-note">
+                                <span class="diamond-level-note-label">Nota</span>
+                                <span>Amostra usada no viés por minuto/posição. Valores altos suavizam ruído; baixos reagem rápido a mudanças.</span>
+                            </div>
                             <input type="number" id="diamondN5MinuteBias" min="10" max="200" value="60" />
                         </div>
                         <div class="diamond-level-field">
                             <label for="diamondN6Retracement">N6 - Retração Histórica (janela)</label>
+                            <div class="diamond-level-note">
+                                <span class="diamond-level-note-label">Nota</span>
+                                <span>Histórico consultado pela barreira final. Janelas maiores tornam o bloqueio mais rígido contra sequências sem precedente.</span>
+                            </div>
                             <input type="number" id="diamondN6Retracement" min="30" max="120" value="80" />
                         </div>
                         <div class="diamond-level-field">
                             <label>N7 - Continuidade Global</label>
+                            <div class="diamond-level-note">
+                                <span class="diamond-level-note-label">Nota</span>
+                                <span>“Decisões analisadas” é a janela recente; “Histórico base” é a referência total (igual ou maior). Ajuste para calibrar o peso do histórico na consistência dos sinais.</span>
+                            </div>
                             <div class="diamond-level-double">
                                 <div>
                                     <span>Decisões analisadas</span>
@@ -1561,7 +1613,37 @@ const DIAMOND_LEVEL_DEFAULTS = {
                         </div>
                         <div class="diamond-level-field">
                             <label for="diamondN8Barrier">N8 - Barreira Final (janela)</label>
+                            <div class="diamond-level-note">
+                                <span class="diamond-level-note-label">Nota</span>
+                                <span>Total de giros usados para checar precedentes quando o freio final atua. Janelas maiores elevam a exigência.</span>
+                            </div>
                             <input type="number" id="diamondN8Barrier" min="10" max="200" value="50" />
+                        </div>
+                        <div class="diamond-level-field">
+                            <label>N9 - Calibração Bayesiana</label>
+                            <div class="diamond-level-note">
+                                <span class="diamond-level-note-label">Nota</span>
+                                <span>Calibra probabilidades via Bayes. Ajuste amostra, diferença mínima para votar e força do prior (peso do histórico global).</span>
+                            </div>
+                            <div class="diamond-level-double">
+                                <div>
+                                    <span>Histórico base</span>
+                                    <input type="number" id="diamondN9History" min="30" max="400" value="100" />
+                                </div>
+                                <div>
+                                    <span>Limiar nulo (%)</span>
+                                    <input type="number" id="diamondN9NullThreshold" min="2" max="20" value="8" />
+                                </div>
+                            </div>
+                            <div class="diamond-level-double">
+                                <div>
+                                    <span>Força do prior</span>
+                                    <input type="number" id="diamondN9PriorStrength" step="0.1" min="0.2" max="5" value="1" />
+                                </div>
+                                <div style="font-size: 11px; color: #8da2bb;">
+                                    Prior Dirichlet padrão: α = [prior, prior, prior × 0.5]
+                                </div>
+                            </div>
                         </div>
                     </div>
                     <div class="custom-pattern-modal-footer">
@@ -1614,6 +1696,9 @@ const DIAMOND_LEVEL_DEFAULTS = {
         setInput('diamondN7DecisionWindow', getValue('n7DecisionWindow', DIAMOND_LEVEL_DEFAULTS.n7DecisionWindow));
         setInput('diamondN7HistoryWindow', getValue('n7HistoryWindow', DIAMOND_LEVEL_DEFAULTS.n7HistoryWindow));
         setInput('diamondN8Barrier', getValue('n8Barrier', DIAMOND_LEVEL_DEFAULTS.n8Barrier));
+        setInput('diamondN9History', getValue('n9History', DIAMOND_LEVEL_DEFAULTS.n9History));
+        setInput('diamondN9NullThreshold', getValue('n9NullThreshold', DIAMOND_LEVEL_DEFAULTS.n9NullThreshold));
+        setInput('diamondN9PriorStrength', getValue('n9PriorStrength', DIAMOND_LEVEL_DEFAULTS.n9PriorStrength));
     }
 
     function openDiamondLevelsModal() {
@@ -1662,7 +1747,10 @@ const DIAMOND_LEVEL_DEFAULTS = {
             n6RetracementWindow: getNumber('diamondN6Retracement', 30, 120, DIAMOND_LEVEL_DEFAULTS.n6RetracementWindow),
             n7DecisionWindow: getNumber('diamondN7DecisionWindow', 10, 50, DIAMOND_LEVEL_DEFAULTS.n7DecisionWindow),
             n7HistoryWindow: getNumber('diamondN7HistoryWindow', 50, 200, DIAMOND_LEVEL_DEFAULTS.n7HistoryWindow),
-            n8Barrier: getNumber('diamondN8Barrier', 10, 200, DIAMOND_LEVEL_DEFAULTS.n8Barrier)
+            n8Barrier: getNumber('diamondN8Barrier', 10, 200, DIAMOND_LEVEL_DEFAULTS.n8Barrier),
+            n9History: getNumber('diamondN9History', 30, 400, DIAMOND_LEVEL_DEFAULTS.n9History),
+            n9NullThreshold: getNumber('diamondN9NullThreshold', 2, 20, DIAMOND_LEVEL_DEFAULTS.n9NullThreshold),
+            n9PriorStrength: getNumber('diamondN9PriorStrength', 0.2, 5, DIAMOND_LEVEL_DEFAULTS.n9PriorStrength)
         };
 
         if (newWindows.n2Previous <= newWindows.n2Recent) {
@@ -4450,6 +4538,10 @@ const DIAMOND_LEVEL_DEFAULTS = {
                     .replace(/N3 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N3</span> -')
                     .replace(/N4 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N4</span> -')
                     .replace(/N5 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N5</span> -')
+                    .replace(/N6 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N6</span> -')
+                    .replace(/N7 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N7</span> -')
+                    .replace(/N8 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N8</span> -')
+                    .replace(/N9 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N9</span> -')
                     .replace(/🗳️/g, '<span style="color: #FFD700; font-weight: bold;">🗳️</span>')
                     .replace(/🏆/g, '<span style="color: #FFD700; font-weight: bold;">🏆</span>')
                     .replace(/🎚️/g, '<span style="color: #b794f6; font-weight: bold;">🎚️</span>')
@@ -4468,6 +4560,10 @@ const DIAMOND_LEVEL_DEFAULTS = {
             .replace(/N3 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N3</span> -')
             .replace(/N4 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N4</span> -')
             .replace(/N5 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N5</span> -')
+            .replace(/N6 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N6</span> -')
+            .replace(/N7 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N7</span> -')
+            .replace(/N8 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N8</span> -')
+            .replace(/N9 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N9</span> -')
             .replace(/🗳️/g, '<span style="color: #FFD700; font-weight: bold;">🗳️</span>')
             .replace(/🏆/g, '<span style="color: #FFD700; font-weight: bold;">🏆</span>')
             .replace(/🎚️/g, '<span style="color: #b794f6; font-weight: bold;">🎚️</span>')
@@ -4678,6 +4774,10 @@ const DIAMOND_LEVEL_DEFAULTS = {
                                 .replace(/N3 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N3</span> -')
                                 .replace(/N4 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N4</span> -')
                                 .replace(/N5 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N5</span> -')
+                                .replace(/N6 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N6</span> -')
+                                .replace(/N7 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N7</span> -')
+                                .replace(/N8 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N8</span> -')
+                                .replace(/N9 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N9</span> -')
                                 .replace(/🗳️/g, '<span style="color: #FFD700; font-weight: bold;">🗳️</span>')
                                 .replace(/🏆/g, '<span style="color: #FFD700; font-weight: bold;">🏆</span>')
                                 .replace(/🎚️/g, '<span style="color: #b794f6; font-weight: bold;">🎚️</span>')
@@ -4698,6 +4798,10 @@ const DIAMOND_LEVEL_DEFAULTS = {
                         .replace(/N3 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N3</span> -')
                         .replace(/N4 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N4</span> -')
                         .replace(/N5 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N5</span> -')
+                        .replace(/N6 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N6</span> -')
+                        .replace(/N7 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N7</span> -')
+                        .replace(/N8 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N8</span> -')
+                        .replace(/N9 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N9</span> -')
                         .replace(/🗳️/g, '<span style="color: #FFD700; font-weight: bold;">🗳️</span>')
                         .replace(/🏆/g, '<span style="color: #FFD700; font-weight: bold;">🏆</span>')
                         .replace(/🎚️/g, '<span style="color: #b794f6; font-weight: bold;">🎚️</span>')
@@ -6219,7 +6323,17 @@ const DIAMOND_LEVEL_DEFAULTS = {
         
         if (modeApiStatus) {
             // ✅ Apenas a mensagem, SEM prefixo
-            modeApiStatus.textContent = status;
+            const highlightLevels = (text) => String(text || '')
+                .replace(/N1 -/g, '<span style="color: #00d4ff; font-weight: bold;">N1</span> -')
+                .replace(/N2 -/g, '<span style="color: #00d4ff; font-weight: bold;">N2</span> -')
+                .replace(/N3 -/g, '<span style="color: #00d4ff; font-weight: bold;">N3</span> -')
+                .replace(/N4 -/g, '<span style="color: #00d4ff; font-weight: bold;">N4</span> -')
+                .replace(/N5 -/g, '<span style="color: #00d4ff; font-weight: bold;">N5</span> -')
+                .replace(/N6 -/g, '<span style="color: #00d4ff; font-weight: bold;">N6</span> -')
+                .replace(/N7 -/g, '<span style="color: #00d4ff; font-weight: bold;">N7</span> -')
+                .replace(/N8 -/g, '<span style="color: #00d4ff; font-weight: bold;">N8</span> -')
+                .replace(/N9 -/g, '<span style="color: #00d4ff; font-weight: bold;">N9</span> -');
+            modeApiStatus.innerHTML = highlightLevels(status);
             console.log('%c   ✅ Texto atualizado:', 'color: #00FF00;', status);
             
             if (modeApiContainer) {
