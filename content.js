@@ -1482,25 +1482,28 @@ const DIAMOND_LEVEL_DEFAULTS = {
                 transform: scale(1.05);
             }
             
-            .diamond-level-note {
+            .custom-pattern-modal-body .diamond-level-note {
                 display: flex;
                 flex-direction: column;
                 align-items: flex-start;
                 gap: 2px;
-                font-size: 7.9px;
-                color: rgba(200, 214, 233, 0.72);
-                margin: 2px 0 6px 0;
-                line-height: 1.2;
+                font-size: 10px !important;
+                font-weight: 400;
+                font-family: 'Inter', 'Segoe UI', sans-serif;
+                color: rgba(200, 214, 233, 0.78) !important;
+                margin: 4px 0 6px 0;
+                line-height: 1.22;
                 max-width: 100%;
             }
 
-            .diamond-level-note-label {
-                font-size: 7.4px;
-                font-weight: 700;
-                text-transform: uppercase;
-                letter-spacing: 0.6px;
-                color: #6ab7ff;
-                opacity: 0.78;
+            .custom-pattern-modal-body .diamond-level-subnote {
+                display: block;
+                font-size: 8px !important;
+                font-weight: 400;
+                font-family: 'Inter', 'Segoe UI', sans-serif;
+                color: rgba(200, 214, 233, 0.56) !important;
+                margin-top: 3px;
+                line-height: 1.14;
             }
             
             .pattern-details-list {
@@ -1540,108 +1543,139 @@ const DIAMOND_LEVEL_DEFAULTS = {
                         <div class="diamond-level-field">
                             <label for="diamondN1HotPattern">N1 - Padrão Quente (giros analisados)</label>
                             <div class="diamond-level-note">
-                                <span class="diamond-level-note-label">Nota</span>
-                                <span>Amostra de giros que confirma o padrão quente automático. Mais giros = leitura estável; menos giros = resposta rápida.</span>
+                                Busca padrões que se repetem no histórico. Valores menores = mais ágil porém menos estável. Valores maiores = mais robusto porém menos sensível.
                             </div>
                             <input type="number" id="diamondN1HotPattern" min="12" max="200" value="60" />
+                            <span class="diamond-level-subnote">
+                                Recomendado: 60 giros para equilíbrio entre estabilidade e agilidade
+                            </span>
                         </div>
                         <div class="diamond-level-field">
                             <label>N2 - Momentum</label>
                             <div class="diamond-level-note">
-                                <span class="diamond-level-note-label">Nota</span>
-                                <span>Compara janelas para medir aceleração de cor. Ajuste para capturar viradas ou suavizar ruídos; mantenha a janela anterior maior.</span>
+                                Detecta aceleração comparando giros recentes com anteriores. Quanto menor a diferença entre janelas, mais rápido detecta mudanças.
                             </div>
                             <div class="diamond-level-double">
                                 <div>
                                     <span>Janela recente</span>
                                     <input type="number" id="diamondN2Recent" min="2" max="20" value="5" />
+                                    <span class="diamond-level-subnote">
+                                        Últimos giros (recomendado: 5)
+                                    </span>
                                 </div>
                                 <div>
                                     <span>Janela anterior</span>
                                     <input type="number" id="diamondN2Previous" min="3" max="200" value="15" />
+                                    <span class="diamond-level-subnote">
+                                        Base de comparação (deve ser > recente)
+                                    </span>
                                 </div>
                             </div>
                         </div>
                         <div class="diamond-level-field">
                             <label for="diamondN3Alternance">N3 - Alternância (janela)</label>
                             <div class="diamond-level-note">
-                                <span class="diamond-level-note-label">Nota</span>
-                                <span>Histórico dedicado a alternâncias. Janelas menores focam padrões curtos; maiores revelam sequências longas.</span>
+                                Identifica padrões de alternância entre vermelho e preto (ex: V-P-V-P). Janelas menores detectam alternâncias curtas, maiores captam ciclos prolongados.
                             </div>
                             <input type="number" id="diamondN3Alternance" min="12" max="50" value="12" />
+                            <span class="diamond-level-subnote">
+                                Recomendado: 12 giros para alternâncias típicas
+                            </span>
                         </div>
                         <div class="diamond-level-field">
                             <label for="diamondN4Persistence">N4 - Persistência / Ciclos (janela)</label>
                             <div class="diamond-level-note">
-                                <span class="diamond-level-note-label">Nota</span>
-                                <span>Número de giros avaliados para medir sequências consecutivas. Auxilia a decidir entre continuação ou espera de reversão.</span>
+                                Analisa sequências consecutivas da mesma cor para prever continuação ou reversão. Janelas maiores = análise de ciclos mais longos.
                             </div>
                             <input type="number" id="diamondN4Persistence" min="20" max="120" value="20" />
+                            <span class="diamond-level-subnote">
+                                Recomendado: 20-40 giros para detectar padrões de persistência
+                            </span>
                         </div>
                         <div class="diamond-level-field">
                             <label for="diamondN5MinuteBias">N5 - Ritmo por Giro (amostras)</label>
                             <div class="diamond-level-note">
-                                <span class="diamond-level-note-label">Nota</span>
-                                <span>Amostra usada no viés por minuto/posição. Valores altos suavizam ruído; baixos reagem rápido a mudanças.</span>
+                                Detecta viés temporal por minuto e posição do giro (1º ou 2º giro de cada minuto). Mais amostras = análise mais confiável porém menos sensível.
                             </div>
                             <input type="number" id="diamondN5MinuteBias" min="10" max="200" value="60" />
+                            <span class="diamond-level-subnote">
+                                Recomendado: 60 amostras para equilibrar confiabilidade e sensibilidade
+                            </span>
                         </div>
                         <div class="diamond-level-field">
                             <label for="diamondN6Retracement">N6 - Retração Histórica (janela)</label>
                             <div class="diamond-level-note">
-                                <span class="diamond-level-note-label">Nota</span>
-                                <span>Histórico consultado pela barreira final. Janelas maiores tornam o bloqueio mais rígido contra sequências sem precedente.</span>
+                                Verifica se a sequência atual está próxima do máximo histórico, prevendo reversão ou continuação. Janelas maiores = contexto mais amplo.
                             </div>
                             <input type="number" id="diamondN6Retracement" min="30" max="120" value="80" />
+                            <span class="diamond-level-subnote">
+                                Recomendado: 80 giros para análise robusta de retração
+                            </span>
                         </div>
                         <div class="diamond-level-field">
                             <label>N7 - Continuidade Global</label>
                             <div class="diamond-level-note">
-                                <span class="diamond-level-note-label">Nota</span>
-                                <span>“Decisões analisadas” é a janela recente; “Histórico base” é a referência total (igual ou maior). Ajuste para calibrar o peso do histórico na consistência dos sinais.</span>
+                                Avalia se as decisões recentes da IA mantêm consistência com o histórico de acertos. Ajuda a calibrar confiança baseada em performance real.
                             </div>
                             <div class="diamond-level-double">
                                 <div>
                                     <span>Decisões analisadas</span>
                                     <input type="number" id="diamondN7DecisionWindow" min="10" max="50" value="20" />
+                                    <span class="diamond-level-subnote">
+                                        Últimas decisões avaliadas (rec: 20)
+                                    </span>
                                 </div>
                                 <div>
                                     <span>Histórico base (giros)</span>
                                     <input type="number" id="diamondN7HistoryWindow" min="50" max="200" value="100" />
+                                    <span class="diamond-level-subnote">
+                                        Total de decisões de referência (≥ decisões analisadas)
+                                    </span>
                                 </div>
                             </div>
                         </div>
                         <div class="diamond-level-field">
                             <label for="diamondN8Barrier">N8 - Barreira Final (janela)</label>
                             <div class="diamond-level-note">
-                                <span class="diamond-level-note-label">Nota</span>
-                                <span>Total de giros usados para checar precedentes quando o freio final atua. Janelas maiores elevam a exigência.</span>
+                                Última validação de segurança: verifica se a sequência prevista tem precedente histórico. Valores maiores = filtro mais rigoroso, menos sinais porém mais seguros.
                             </div>
                             <input type="number" id="diamondN8Barrier" min="10" max="200" value="50" />
+                            <span class="diamond-level-subnote">
+                                Recomendado: 50 giros para filtro equilibrado de segurança
+                            </span>
                         </div>
                         <div class="diamond-level-field">
                             <label>N9 - Calibração Bayesiana</label>
                             <div class="diamond-level-note">
-                                <span class="diamond-level-note-label">Nota</span>
-                                <span>Calibra probabilidades via Bayes. Ajuste amostra, diferença mínima para votar e força do prior (peso do histórico global).</span>
+                                Calcula probabilidades reais de cada cor (🔴/⚫/⚪) usando estatística bayesiana. Ajusta a força dos outros níveis e só vota quando há diferença significativa entre cores.
                             </div>
                             <div class="diamond-level-double">
                                 <div>
                                     <span>Histórico base</span>
                                     <input type="number" id="diamondN9History" min="30" max="400" value="100" />
+                                    <span class="diamond-level-subnote">
+                                        Giros usados no cálculo de probabilidades (rec: 100)
+                                    </span>
                                 </div>
                                 <div>
                                     <span>Limiar nulo (%)</span>
                                     <input type="number" id="diamondN9NullThreshold" min="2" max="20" value="8" />
+                                    <span class="diamond-level-subnote">
+                                        Diferença mínima para votar (abaixo = voto nulo)
+                                    </span>
                                 </div>
                             </div>
                             <div class="diamond-level-double">
                                 <div>
                                     <span>Força do prior</span>
                                     <input type="number" id="diamondN9PriorStrength" step="0.1" min="0.2" max="5" value="1" />
+                                    <span class="diamond-level-subnote">
+                                        Peso do histórico geral: maior = mais conservador
+                                    </span>
                                 </div>
-                                <div style="font-size: 11px; color: #8da2bb;">
-                                    Prior Dirichlet padrão: α = [prior, prior, prior × 0.5]
+                                <div style="font-size: 11px; color: #8da2bb; padding-top: 8px;">
+                                    Prior Dirichlet: α = [prior, prior, prior × 0.5]<br>
+                                    Branco tem metade do peso por ser mais raro
                                 </div>
                             </div>
                         </div>
