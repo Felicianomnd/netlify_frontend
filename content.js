@@ -1358,25 +1358,27 @@ const DIAMOND_LEVEL_DEFAULTS = {
                 margin: 0;
             }
             
-            /* Ajustes específicos para MOBILE: afastar do topo do navegador e evitar overflow lateral */
+            /* Ajustes específicos para MOBILE: afastar do topo do navegador e evitar overflow lateral/duplo scroll */
             @media (max-width: 768px) {
+                /* Empurrar o painel para baixo da barra do navegador */
                 .pattern-modal-content {
-                    padding-top: calc(12px + env(safe-area-inset-top, 0px));
-                    padding-left: 8px;
-                    padding-right: 8px;
-                }
-                
-                .pattern-modal-header {
-                    padding-left: 4px;
-                    padding-right: 4px;
-                }
-                
-                .pattern-modal-body {
-                    padding-left: 4px;
-                    padding-right: 4px;
+                    top: calc(12px + env(safe-area-inset-top, 0px));
+                    bottom: 0;
+                    height: auto;
+                    overflow-y: auto;
                     overflow-x: hidden;
+                    padding: 0 6px 8px 6px;
                 }
                 
+                /* Corpo do modal ocupa o restante e rola suavemente */
+                .pattern-modal-body {
+                    max-height: none;
+                    overflow-y: visible;
+                    padding-left: 4px;
+                    padding-right: 4px;
+                }
+                
+                /* Linha de estatísticas do padrão nunca sai para fora */
                 .pattern-agg-row {
                     flex-wrap: wrap;
                     align-items: flex-start;

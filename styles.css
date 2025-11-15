@@ -219,7 +219,7 @@
 .pattern-stats .win-loss { font-weight: 600; color: #cdd6e8; }
 .pattern-stats .pattern-len { color: #8da2bb; opacity: 0.95; }
 .pattern-agg { margin-top: 6px; color: #cdd6e8; font-size: 12px; font-weight: 600; }
-.pattern-agg-row { margin-top: 6px; display: flex; align-items: center; gap: 8px; }
+.pattern-agg-row { margin-top: 6px; display: flex; align-items: center; gap: 8px; flex-wrap: nowrap; }
 .pattern-agg-row.simple .agg-text { font-weight: 700; color: #cdd6e8; }
 .pattern-agg-row.simple .agg-text.strong { color: #e6f0ff; }
 .pattern-agg-row.simple .agg-text.loss { color: #ff6b6b; }
