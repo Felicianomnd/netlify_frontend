@@ -1357,6 +1357,26 @@ const DIAMOND_LEVEL_DEFAULTS = {
                 max-height: none;
                 margin: 0;
             }
+
+            /* Ajustes específicos para MOBILE: afastar do topo do navegador e dar respiro lateral */
+            @media (max-width: 768px) {
+                .pattern-modal-content {
+                    padding-top: calc(12px + env(safe-area-inset-top, 0px));
+                    padding-left: 12px;
+                    padding-right: 12px;
+                }
+
+                .pattern-modal-header {
+                    padding-left: 4px;
+                    padding-right: 4px;
+                }
+
+                .pattern-modal-body {
+                    padding-left: 4px;
+                    padding-right: 4px;
+                    overflow-x: hidden;
+                }
+            }
             
             .bank-patterns-modal-header {
                 display: flex;
