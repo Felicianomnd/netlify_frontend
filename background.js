@@ -74,7 +74,7 @@ const DEFAULT_ANALYZER_CONFIG = {
     historyDepth: 500,            // ✅ profundidade de análise em giros (100-2000) - MODO PADRÃO
     minOccurrences: 2,            // ✅ quantidade mínima de WINS exigida (padrão: 2) - MODO PADRÃO
     maxOccurrences: 0,            // ✅ quantidade MÁXIMA de ocorrências (0 = sem limite)
-    minIntervalSpins: 2,          // ✅ intervalo mínimo em GIROS entre sinais (2 = aguardar 2 giros)
+    minIntervalSpins: 2,          // ✅ intervalo mínimo em GIROS entre OCORRÊNCIAS do MESMO padrão (modo padrão) e entre sinais (modo Diamante)
     minPatternSize: 3,            // ✅ tamanho MÍNIMO do padrão (giros)
     maxPatternSize: 0,            // ✅ tamanho MÁXIMO do padrão (0 = sem limite)
     winPercentOthers: 100,        // ✅ WIN% mínima para as ocorrências restantes (100% = apenas padrões perfeitos)
@@ -94,10 +94,16 @@ const DEFAULT_ANALYZER_CONFIG = {
         n6RetracementWindow: 80,  // N6 - Retração Histórica (janela de análise)
         n7DecisionWindow: 20,     // N7 - Continuidade Global (decisões analisadas)
         n7HistoryWindow: 100,     // N7 - Continuidade Global (histórico base)
-        n8Barrier: 50,            // N8 - Barreira Final
+        n8Barrier: 50,            // N9 - Barreira Final (mantido como n8Barrier por compatibilidade)
         n9History: 100,           // N9 - Calibração Bayesiana (histórico base)
         n9NullThreshold: 8,       // N9 - Calibração Bayesiana (diferença mínima em % para votar)
-        n9PriorStrength: 1        // N9 - Calibração Bayesiana (força do prior Dirichlet)
+        n9PriorStrength: 1,       // N9 - Calibração Bayesiana (força do prior Dirichlet)
+        // N10 - Walk-forward Não-Sobreposto (janela em giros e histórico base)
+        n10Window: 20,            // Tamanho da janela NÃO-SOBREPOSTA (W)
+        n10History: 500,          // Quantidade de giros usados no walk-forward
+        n10Analyses: 600,         // Quantidade alvo de estratégias/variações testadas
+        n10MinWindows: 8,         // Número mínimo de janelas com predição para ser elegível
+        n10ConfMin: 60            // Confiança mínima global (%) para N10 votar
     }
 };
 let analyzerConfig = { ...DEFAULT_ANALYZER_CONFIG };
@@ -1163,7 +1169,7 @@ function rigorLogString() {
     try {
         const maxOccStr = analyzerConfig.maxOccurrences > 0 ? analyzerConfig.maxOccurrences : 'sem limite';
         const maxSizeStr = analyzerConfig.maxPatternSize > 0 ? analyzerConfig.maxPatternSize : 'sem limite';
-        return `minOcc=${analyzerConfig.minOccurrences} | maxOcc=${maxOccStr} | intervaloMin=${analyzerConfig.minIntervalSpins}giros | minTam=${analyzerConfig.minPatternSize} | maxTam=${maxSizeStr} | win%Outras=${analyzerConfig.winPercentOthers}% | exigirTrigger=${analyzerConfig.requireTrigger}`;
+        return `minOcc=${analyzerConfig.minOccurrences} | maxOcc=${maxOccStr} | intervaloPadrao=${analyzerConfig.minIntervalSpins}giros | minTam=${analyzerConfig.minPatternSize} | maxTam=${maxSizeStr} | win%Outras=${analyzerConfig.winPercentOthers}% | exigirTrigger=${analyzerConfig.requireTrigger}`;
     } catch(_) { return '[rigor indisponível]'; }
 }
 
@@ -1412,7 +1418,7 @@ function logActiveConfiguration() {
         
         // INTERVALO E QUALIDADE
         console.log('║  ⏱️ INTERVALO E QUALIDADE:                                ║');
-        console.log(`║     • Intervalo mínimo: ${config.minIntervalSpins.toString().padEnd(25)} giro(s) ║`);
+        console.log(`║     • Intervalo entre padrões: ${config.minIntervalSpins.toString().padEnd(21)} giro(s) ║`);
         console.log(`║     • WIN% demais ocorrências: ${config.winPercentOthers.toString().padEnd(20)}%     ║`);
         
         // COR DE DISPARO
@@ -9020,6 +9026,406 @@ function sleep(ms) {
 }
 
 /**
+ * NÍVEL 10 (N10) - Walk-forward NÃO-SOBREPOSTO
+ * Implementa a lógica descrita pelo usuário:
+ * - Usa janelas NÃO-sobrepostas de tamanho W (n10Window)
+ * - Testa diversas estratégias (majority, last_pattern, markov, etc.)
+ * - Faz backtest walk-forward e seleciona a melhor combinação (type + params)
+ * - Aplica a melhor estratégia na última janela completa para gerar um voto
+ */
+function runDiamondLevelN10(history, options = {}) {
+    try {
+        const windowSize = Math.max(2, Number(options.windowSize) || 20);   // W
+        const historySize = Math.max(windowSize * 2, Number(options.historySize) || 500); // N_total mínimo 2W
+        const analysesToRun = Math.max(50, Number(options.analysesToRun) || 600);
+        const minWindowsRequired = Math.max(3, Number(options.minWindows) || 8);
+        const confMin = Math.max(0, Math.min(1, Number(options.confMin) || 0.6)); // 0..1
+        
+        if (!Array.isArray(history) || history.length < windowSize * 2) {
+            const available = history ? history.length : 0;
+            console.log('⚠️ [N10] Histórico insuficiente para análise:', available, `/< ${windowSize * 2} giros necessários`);
+            return {
+                enabled: false,
+                summaryText: `N10 - Walk-forward → NULO (dados insuficientes: ${available} giros, mínimo ${windowSize * 2})`
+            };
+        }
+        
+        console.log('%c┌─────────────────────────────────────────────────────────┐', 'color: #00FFFF; font-weight: bold;');
+        console.log('%c│ 🔟 N10: WALK-FORWARD NÃO-SOBREPOSTO                    │', 'color: #00FFFF; font-weight: bold;');
+        console.log('%c└─────────────────────────────────────────────────────────┘', 'color: #00FFFF; font-weight: bold;');
+        console.log(`   📊 Janela (W): ${windowSize} giros | Histórico base alvo: ${historySize} giros`);
+        
+        // Converter histórico (mais recente → mais antigo) para ordem cronológica (mais antigo → mais recente)
+        const chronologicalSpins = history.slice().reverse().filter(s => s && s.color);
+        
+        const normalizedChars = chronologicalSpins.map(s => {
+            if (s.color === 'red') return 'R';
+            if (s.color === 'black') return 'B';
+            return 'W';
+        });
+        
+        const N_total = Math.min(historySize, normalizedChars.length);
+        const seqStart = normalizedChars.length - N_total;
+        const seq = normalizedChars.slice(seqStart); // mais antigo → mais recente
+        
+        const m = Math.floor(N_total / windowSize); // número de janelas completas
+        if (m < 2) {
+            console.log('⚠️ [N10] Menos de 2 janelas completas disponíveis:', m);
+            return {
+                enabled: false,
+                summaryText: `N10 - Walk-forward → NULO (menos de 2 janelas completas para W=${windowSize})`
+            };
+        }
+        
+        const windows = [];
+        for (let k = 0; k < m; k++) {
+            const start = k * windowSize;
+            const end = start + windowSize;
+            const targetIdx = end;
+            if (targetIdx >= seq.length) continue;
+            const window = seq.slice(start, end);
+            const target = seq[targetIdx];
+            windows.push({ window, target, start, targetIdx });
+        }
+        
+        const n_windows = windows.length;
+        if (n_windows < minWindowsRequired) {
+            console.log('⚠️ [N10] Poucas janelas úteis:', n_windows, `< minWindowsRequired=${minWindowsRequired}`);
+            return {
+                enabled: false,
+                summaryText: `N10 - Walk-forward → NULO (janelas úteis ${n_windows}, mínimo exigido ${minWindowsRequired})`
+            };
+        }
+        
+        // Helpers de análise básica
+        const majority = (window) => {
+            let r = 0, b = 0;
+            for (const c of window) {
+                if (c === 'R') r++;
+                else if (c === 'B') b++;
+            }
+            if (r === 0 && b === 0) return null;
+            if (r > b) return 'R';
+            if (b > r) return 'B';
+            return null;
+        };
+        
+        const majorityThreshold = (window, thresh) => {
+            let r = 0, b = 0;
+            for (const c of window) {
+                if (c === 'R') r++;
+                else if (c === 'B') b++;
+            }
+            const total = r + b;
+            if (total === 0) return null;
+            const pR = r / total;
+            const pB = b / total;
+            if (pR >= thresh && pR > pB) return 'R';
+            if (pB >= thresh && pB > pR) return 'B';
+            return null;
+        };
+        
+        const lastPattern = (window, L, nextThreshold) => {
+            const nonWhite = window.filter(c => c !== 'W');
+            if (nonWhite.length < L + 1) return null;
+            const pattern = nonWhite.slice(nonWhite.length - L); // últimos L
+            const seqNoW = window.filter(c => c !== 'W');
+            const followers = [];
+            for (let i = 0; i + L < seqNoW.length; i++) {
+                const slice = seqNoW.slice(i, i + L);
+                if (slice.every((c, idx) => c === pattern[idx])) {
+                    const follower = seqNoW[i + L];
+                    if (follower === 'R' || follower === 'B') {
+                        followers.push(follower);
+                    }
+                }
+            }
+            if (followers.length === 0) return null;
+            let r = 0, b = 0;
+            followers.forEach(c => { if (c === 'R') r++; else if (c === 'B') b++; });
+            const total = r + b;
+            if (total === 0) return null;
+            const pR = r / total;
+            const pB = b / total;
+            if (pR >= nextThreshold && pR > pB) return 'R';
+            if (pB >= nextThreshold && pB > pR) return 'B';
+            return null;
+        };
+        
+        const markovOrderK = (window, k) => {
+            if (window.length <= k) return null;
+            const transitions = {};
+            const clean = window.filter(c => c === 'R' || c === 'B'); // ignorar W
+            if (clean.length <= k) return null;
+            for (let i = 0; i + k < clean.length; i++) {
+                const key = clean.slice(i, i + k).join('');
+                const next = clean[i + k];
+                if (next !== 'R' && next !== 'B') continue;
+                if (!transitions[key]) transitions[key] = { R: 0, B: 0 };
+                transitions[key][next]++;
+            }
+            const lastSeq = clean.slice(clean.length - k).join('');
+            const stats = transitions[lastSeq];
+            if (!stats) return null;
+            if (stats.R === 0 && stats.B === 0) return null;
+            return stats.R >= stats.B ? 'R' : 'B';
+        };
+        
+        const momentumCompare = (window, splitRatio, delta) => {
+            const nonWhite = window.filter(c => c !== 'W');
+            if (nonWhite.length < 4) return null;
+            const splitIndex = Math.max(1, Math.min(nonWhite.length - 1, Math.floor(nonWhite.length * splitRatio)));
+            const prev = nonWhite.slice(0, splitIndex);
+            const recent = nonWhite.slice(splitIndex);
+            const countStats = arr => {
+                let r = 0, b = 0;
+                arr.forEach(c => { if (c === 'R') r++; else if (c === 'B') b++; });
+                const total = r + b;
+                if (total === 0) return { pR: 0, pB: 0 };
+                return { pR: r / total, pB: b / total };
+            };
+            const prevStats = countStats(prev);
+            const recentStats = countStats(recent);
+            const diffR = recentStats.pR - prevStats.pR;
+            const diffB = recentStats.pB - prevStats.pB;
+            if (Math.abs(diffR) < delta && Math.abs(diffB) < delta) return null;
+            if (diffR > diffB && diffR >= delta) return 'R';
+            if (diffB > diffR && diffB >= delta) return 'B';
+            return null;
+        };
+        
+        const retraction = (window, upperThresh) => {
+            let r = 0, b = 0;
+            for (const c of window) {
+                if (c === 'R') r++;
+                else if (c === 'B') b++;
+            }
+            const total = r + b;
+            if (total === 0) return null;
+            const pR = r / total;
+            const pB = b / total;
+            if (pR >= upperThresh && pR > pB) return 'B';
+            if (pB >= upperThresh && pB > pR) return 'R';
+            return null;
+        };
+        
+        const weightedRecency = (window, mode) => {
+            let score = 0;
+            const n = window.length;
+            for (let i = 0; i < n; i++) {
+                const c = window[i];
+                if (c !== 'R' && c !== 'B') continue;
+                const pos = i + 1; // mais antigo = menor peso
+                let w;
+                if (mode === 'exp') {
+                    w = Math.pow(1.3, pos);
+                } else {
+                    w = pos;
+                }
+                const sign = c === 'R' ? 1 : -1;
+                score += sign * w;
+            }
+            if (score > 0) return 'R';
+            if (score < 0) return 'B';
+            return null;
+        };
+        
+        // Gerar conjunto determinístico de configurações
+        const configs = [];
+        
+        // majority simples
+        configs.push({ type: 'majority', params: {} });
+        
+        // majority_threshold
+        [0.55, 0.6, 0.65, 0.7].forEach(thresh => {
+            configs.push({ type: 'majority_threshold', params: { thresh } });
+        });
+        
+        // last_pattern
+        [2, 3, 4, 5].forEach(L => {
+            [0.6, 0.7].forEach(next_threshold => {
+                configs.push({ type: 'last_pattern', params: { L, next_threshold } });
+            });
+        });
+        
+        // markov
+        [1, 2, 3].forEach(k => {
+            configs.push({ type: 'markov', params: { k } });
+        });
+        
+        // momentum
+        [0.3, 0.4, 0.5].forEach(split_ratio => {
+            [0.05, 0.1].forEach(delta => {
+                configs.push({ type: 'momentum', params: { split_ratio, delta } });
+            });
+        });
+        
+        // retraction
+        [0.7, 0.75, 0.8].forEach(upper => {
+            configs.push({ type: 'retraction', params: { upper } });
+        });
+        
+        // weighted recency
+        ['linear', 'exp'].forEach(mode => {
+            configs.push({ type: 'weighted_recency', params: { mode } });
+        });
+        
+        // Garantir limite de análises
+        const limitedConfigs = configs.slice(0, analysesToRun);
+        
+        const summary = [];
+        const detailsByConfig = new Map();
+        
+        const applyAnalysis = (cfg, window) => {
+            switch (cfg.type) {
+                case 'majority': return majority(window);
+                case 'majority_threshold': return majorityThreshold(window, cfg.params.thresh);
+                case 'last_pattern': return lastPattern(window, cfg.params.L, cfg.params.next_threshold);
+                case 'markov': return markovOrderK(window, cfg.params.k);
+                case 'momentum': return momentumCompare(window, cfg.params.split_ratio, cfg.params.delta);
+                case 'retraction': return retraction(window, cfg.params.upper);
+                case 'weighted_recency': return weightedRecency(window, cfg.params.mode);
+                default: return null;
+            }
+        };
+        
+        for (let idx = 0; idx < limitedConfigs.length; idx++) {
+            const cfg = limitedConfigs[idx];
+            const cfgId = `${cfg.type}#${idx}`;
+            const preds = [];
+            const trues = [];
+            const details = [];
+            
+            for (let j = 0; j < n_windows; j++) {
+                const { window, target, start, targetIdx } = windows[j];
+                const pred = applyAnalysis(cfg, window);
+                
+                if (pred === null || (target !== 'R' && target !== 'B')) {
+                    continue;
+                }
+                
+                preds.push(pred);
+                trues.push(target);
+                details.push({ start, targetIdx, pred, target });
+            }
+            
+            const n_preds = preds.length;
+            let accuracy = null;
+            let coverage = 0;
+            let acc_recent = null;
+            
+            if (n_preds > 0) {
+                let hits = 0;
+                for (let i = 0; i < n_preds; i++) {
+                    if (preds[i] === trues[i]) hits++;
+                }
+                accuracy = hits / n_preds;
+                coverage = n_preds / n_windows;
+                
+                const half = Math.max(1, Math.floor(n_preds / 2));
+                let recentHits = 0;
+                for (let i = n_preds - half; i < n_preds; i++) {
+                    if (preds[i] === trues[i]) recentHits++;
+                }
+                acc_recent = recentHits / half;
+            }
+            
+            summary.push({
+                cfg,
+                cfgId,
+                n_preds,
+                accuracy,
+                coverage,
+                acc_recent
+            });
+            detailsByConfig.set(cfgId, details);
+        }
+        
+        const valid = summary.filter(rec => rec.n_preds >= minWindowsRequired && rec.accuracy !== null);
+        if (valid.length === 0) {
+            console.log('⚠️ [N10] Nenhuma análise elegível (n_preds < minWindowsRequired)');
+            return { enabled: false };
+        }
+        
+        valid.sort((a, b) => {
+            if (b.accuracy !== a.accuracy) return b.accuracy - a.accuracy;
+            if ((b.acc_recent || 0) !== (a.acc_recent || 0)) return (b.acc_recent || 0) - (a.acc_recent || 0);
+            if (b.coverage !== a.coverage) return b.coverage - a.coverage;
+            if (b.n_preds !== a.n_preds) return b.n_preds - a.n_preds;
+            if (a.cfg.type < b.cfg.type) return -1;
+            if (a.cfg.type > b.cfg.type) return 1;
+            return 0;
+        });
+        
+        const best = valid[0];
+        const bestCfg = best.cfg;
+        const bestDetails = detailsByConfig.get(best.cfgId) || [];
+        
+        const lastWindowStart = (m - 1) * windowSize;
+        const lastWindow = seq.slice(lastWindowStart, lastWindowStart + windowSize);
+        const pred_live = applyAnalysis(bestCfg, lastWindow);
+        
+        if (pred_live !== 'R' && pred_live !== 'B') {
+            console.log('⚠️ [N10] Melhor análise não conseguiu votar na última janela (voto nulo)');
+            return { enabled: false, bestConfig: bestCfg, metrics: best };
+        }
+        
+        const accuracyVal = best.accuracy || 0;
+        const accRecentVal = best.acc_recent != null ? best.acc_recent : accuracyVal;
+        const coverageVal = best.coverage || 0;
+        let conf = 0.5 * accuracyVal + 0.4 * accRecentVal + 0.1 * coverageVal;
+        conf = Math.max(0, Math.min(1, conf));
+        
+        if (conf < confMin) {
+            const confPct = (conf * 100).toFixed(1);
+            const confMinPct = (confMin * 100).toFixed(1);
+            console.log(`⚠️ [N10] Confiança ${confPct}% abaixo do mínimo configurado (${confMinPct}%) - voto neutro`);
+            return {
+                enabled: false,
+                bestConfig: bestCfg,
+                metrics: {
+                    accuracy: accuracyVal,
+                    acc_recent: accRecentVal,
+                    coverage: coverageVal,
+                    n_preds: best.n_preds,
+                    n_windows
+                },
+                summaryText: `N10 - Walk-forward → NULO (conf. ${confPct}% < mínimo ${confMinPct}% | melhor análise ${bestCfg.type}, W=${windowSize}, hist=${N_total}, acurácia ${(accuracyVal * 100).toFixed(1)}%, coverage ${(coverageVal * 100).toFixed(1)}%, n_preds=${best.n_preds}/${n_windows})`
+            };
+        }
+        
+        const color = pred_live === 'R' ? 'red' : 'black';
+        
+        const confPct = (conf * 100).toFixed(1);
+        console.log(`✅ [N10] Melhor análise: ${bestCfg.type} | acurácia ${(accuracyVal * 100).toFixed(1)}% | acc_recent ${(accRecentVal * 100).toFixed(1)}% | coverage ${(coverageVal * 100).toFixed(1)}% | n_preds=${best.n_preds}/${n_windows}`);
+        console.log(`🎯 [N10] Voto ao vivo: ${color.toUpperCase()} (confiança ${confPct}%)`);
+        
+        const summaryText = `N10 - Walk-forward → ${color.toUpperCase()} (${confPct}% | melhor análise: ${bestCfg.type}, W=${windowSize}, hist=${N_total}, acurácia ${(accuracyVal * 100).toFixed(1)}%, coverage ${(coverageVal * 100).toFixed(1)}%, n_preds=${best.n_preds}/${n_windows})`;
+        
+        return {
+            enabled: true,
+            color,
+            confidence: conf, // 0..1
+            metrics: {
+                accuracy: accuracyVal,
+                acc_recent: accRecentVal,
+                coverage: coverageVal,
+                n_preds: best.n_preds,
+                n_windows
+            },
+            bestConfig: bestCfg,
+            summaryText
+        };
+    } catch (e) {
+        console.error('❌ Erro em runDiamondLevelN10:', e);
+        return {
+            enabled: false,
+            summaryText: 'N10 - Walk-forward → NULO (erro interno na análise)'
+        };
+    }
+}
+
+/**
  * FUNÇÃO PRINCIPAL: Análise Avançada - NÍVEL DIAMANTE
  * Fluxo atual: 9 níveis com pontuação contínua + barreira final
  * - N1..N7 geram votos especializados
@@ -9057,7 +9463,9 @@ async function analyzeWithPatternSystem(history) {
     console.log('%c║  🕑 N5 - Ritmo por Giro (minuto alvo)                  ║', 'color: #1ABC9C; font-weight: bold;');
     console.log('%c║  📉 N6 - Retração Histórica                             ║', 'color: #3498DB; font-weight: bold;');
     console.log('%c║  📈 N7 - Continuidade Global                           ║', 'color: #2ECC71; font-weight: bold;');
-    console.log('%c║  🛑 N8 - Barreira Final (validação histórica)          ║', 'color: #FF6666; font-weight: bold;');
+    console.log('%c║  🔟 N8 - Walk-forward não-sobreposto                  ║', 'color: #00FFFF; font-weight: bold;');
+    console.log('%c║  🛑 N9 - Barreira Final (validação histórica)          ║', 'color: #FF6666; font-weight: bold;');
+    console.log('%c║  🧮 N10 - Calibração Bayesiana                         ║', 'color: #00FFFF; font-weight: bold;');
     
     // ═══════════════════════════════════════════════════════════════
     // 📊 EXIBIR CONFIGURAÇÕES SALVAS PELO USUÁRIO (VALORES REAIS)
@@ -9076,7 +9484,9 @@ async function analyzeWithPatternSystem(history) {
     const n6Window = getDiamondWindow('n6RetracementWindow', 80);
     const n7DecisionWindow = getDiamondWindow('n7DecisionWindow', 20);
     const n7HistoryWindow = getDiamondWindow('n7HistoryWindow', 100);
-    const n8Window = getDiamondWindow('n8Barrier', 50);
+    const n8WalkWindow = getDiamondWindow('n10Window', 20);
+    const n8WalkHistory = Number(userDiamondWindows.n10History) > 0 ? Number(userDiamondWindows.n10History) : 500;
+    const n9BarrierWindow = getDiamondWindow('n8Barrier', 50);
     const displayValue = (key, fallback, ...legacyKeys) => {
         if (Number.isFinite(Number(userDiamondWindows[key])) && Number(userDiamondWindows[key]) > 0) {
             return Number(userDiamondWindows[key]);
@@ -9127,9 +9537,15 @@ async function analyzeWithPatternSystem(history) {
     console.log(`%c║     VALORES REAIS USADOS: decisões ${String(n7DecisionWindow).padEnd(3)} | histórico ${String(n7HistoryWindow).padEnd(3)}${' '.repeat(14)}║`, 'color: #00FF00; font-weight: bold; background: #000000;');
     console.log('%c║                                                                               ║', 'color: #FF00FF; background: #000000;');
     
-    console.log('%c║  🛑 N8 - BARREIRA FINAL:                                                      ║', 'color: #FF0000; font-weight: bold; background: #000000;');
+    console.log('%c║  🔟 N8 - WALK-FORWARD NÃO-SOBREPOSTO:                                        ║', 'color: #00FFFF; font-weight: bold; background: #000000;');
+    console.log(`%c║     Janela (W): ${String(displayValue('n10Window', 20)).padEnd(3)} giros (padrão: 20)${' '.repeat(38)}║`, 'color: #00FFFF; background: #000000;');
+    console.log(`%c║     Histórico base: ${String(n8WalkHistory).padEnd(3)} giros (padrão: 500)${' '.repeat(34)}║`, 'color: #00FFFF; background: #000000;');
+    console.log(`%c║     VALORES REAIS USADOS: janela ${String(n8WalkWindow).padEnd(3)} | histórico ${String(n8WalkHistory).padEnd(3)}${' '.repeat(18)}║`, 'color: #00FF00; font-weight: bold; background: #000000;');
+    console.log('%c║                                                                               ║', 'color: #FF00FF; background: #000000;');
+    
+    console.log('%c║  🛑 N9 - BARREIRA FINAL:                                                      ║', 'color: #FF0000; font-weight: bold; background: #000000;');
     console.log(`%c║     Janela de validação: ${String(displayValue('n8Barrier', 50, 'n6Barrier')).padEnd(3)} giros (padrão: 50)${' '.repeat(32)}║`, 'color: #FF0000; background: #000000;');
-    console.log(`%c║     VALOR REAL USADO: ${String(n8Window).padEnd(3)} giros${' '.repeat(46)}║`, 'color: #00FF00; font-weight: bold; background: #000000;');
+    console.log(`%c║     VALOR REAL USADO: ${String(n9BarrierWindow).padEnd(3)} giros${' '.repeat(44)}║`, 'color: #00FF00; font-weight: bold; background: #000000;');
     console.log('%c║                                                                               ║', 'color: #FF00FF; background: #000000;');
     
     console.log('%c╠═══════════════════════════════════════════════════════════════════════════════╣', 'color: #FF00FF; font-weight: bold; background: #000000;');
@@ -9144,7 +9560,8 @@ async function analyzeWithPatternSystem(history) {
     const isN5Custom = n5Window !== 60;
     const isN6Custom = n6Window !== 80;
     const isN7Custom = n7DecisionWindow !== 20 || n7HistoryWindow !== 100;
-    const isN8Custom = n8Window !== 50;
+    const isN8Custom = n8WalkWindow !== 20 || n8WalkHistory !== 500;
+    const isN9Custom = n9BarrierWindow !== 50;
     
     const customCount = [
         isN1Custom,
@@ -9154,7 +9571,8 @@ async function analyzeWithPatternSystem(history) {
         isN5Custom,
         isN6Custom,
         isN7Custom,
-        isN8Custom
+        isN8Custom,
+        isN9Custom
     ].filter(Boolean).length;
     
     if (customCount === 0) {
@@ -9168,7 +9586,8 @@ async function analyzeWithPatternSystem(history) {
         if (isN5Custom) console.log('%c║     • N5 (Ritmo por Giro) - PERSONALIZADO                                     ║', 'color: #1ABC9C; background: #000000;');
         if (isN6Custom) console.log('%c║     • N6 (Retração Histórica) - PERSONALIZADO                                 ║', 'color: #3498DB; background: #000000;');
         if (isN7Custom) console.log('%c║     • N7 (Continuidade Global) - PERSONALIZADO                                ║', 'color: #2ECC71; background: #000000;');
-        if (isN8Custom) console.log('%c║     • N8 (Barreira Final) - PERSONALIZADO                                     ║', 'color: #FF0000; background: #000000;');
+        if (isN8Custom) console.log('%c║     • N8 (Walk-forward Não-Sobreposto) - PERSONALIZADO                        ║', 'color: #00FFFF; background: #000000;');
+        if (isN9Custom) console.log('%c║     • N9 (Barreira Final) - PERSONALIZADO                                     ║', 'color: #FF0000; background: #000000;');
     }
     
     console.log('%c║                                                                               ║', 'color: #FF00FF; background: #000000;');
@@ -9188,7 +9607,7 @@ async function analyzeWithPatternSystem(history) {
         console.log('');
         
         // ═══════════════════════════════════════════════════════════════
-        // ⏱️ VERIFICAÇÃO DE INTERVALO MÍNIMO ENTRE SINAIS
+        // ⏱️ VERIFICAÇÃO DE INTERVALO MÍNIMO ENTRE SINAIS (APENAS MODO DIAMANTE)
         // ═══════════════════════════════════════════════════════════════
         const minIntervalSpins = analyzerConfig.minIntervalSpins || 0;
         
@@ -9196,95 +9615,97 @@ async function analyzeWithPatternSystem(history) {
         let intervalBlocked = false;
         let intervalMessage = '';
         
-        console.log('');
-        console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #00D4FF; font-weight: bold;');
-        console.log('%c║  ⏱️ VERIFICAÇÃO DE INTERVALO ENTRE SINAIS                ║', 'color: #00D4FF; font-weight: bold;');
-        console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #00D4FF; font-weight: bold;');
-        console.log(`📊 Intervalo mínimo configurado: ${minIntervalSpins} giro(s)`);
-        console.log(`📊 Giro atual: #${history[0]?.number || 'N/A'}`);
-        
-        if (minIntervalSpins > 0) {
-            const entriesResult = await chrome.storage.local.get([
-                'lastSignalSpinNumber',
-                'lastSignalTimestamp',
-                'lastSignalSpinId',
-                'lastSignalSpinTimestamp'
-            ]);
-            const lastSignalSpinNumber = entriesResult.lastSignalSpinNumber ?? null;
-            const lastSignalTimestamp = entriesResult.lastSignalTimestamp || null;
-            const lastSignalSpinId = entriesResult.lastSignalSpinId || null;
-            const lastSignalSpinTimestamp = entriesResult.lastSignalSpinTimestamp || null;
+        if (analyzerConfig.aiMode) {
+            console.log('');
+            console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #00D4FF; font-weight: bold;');
+            console.log('%c║  ⏱️ VERIFICAÇÃO DE INTERVALO ENTRE SINAIS                ║', 'color: #00D4FF; font-weight: bold;');
+            console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #00D4FF; font-weight: bold;');
+            console.log(`📊 Intervalo mínimo configurado: ${minIntervalSpins} giro(s)`);
+            console.log(`📊 Giro atual: #${history[0]?.number || 'N/A'}`);
             
-            console.log(`📊 Último sinal salvo: ${lastSignalSpinNumber !== null ? '#' + lastSignalSpinNumber : 'Nenhum'}`);
-            if (lastSignalTimestamp) {
-                const tempoDecorrido = Math.round((Date.now() - lastSignalTimestamp) / 1000);
-                console.log(`   ⏱️ Registrado há ${tempoDecorrido}s`);
-            }
-            
-            let spinsDesdeUltimoSinal = null;
-            if (history.length > 0) {
-                if (lastSignalSpinId) {
-                    const indexById = history.findIndex(spin => spin && spin.id === lastSignalSpinId);
-                    if (indexById >= 0) {
-                        spinsDesdeUltimoSinal = indexById;
-                } else {
-                        // Sinal anterior não está mais no histórico → considerar intervalo cumprido
-                        spinsDesdeUltimoSinal = history.length;
-                    }
-                } else if (lastSignalSpinTimestamp) {
-                    const referenceTime = new Date(lastSignalSpinTimestamp).getTime();
-                    if (!Number.isNaN(referenceTime)) {
-                        for (let i = 0; i < history.length; i++) {
-                            const spinTime = history[i]?.timestamp ? new Date(history[i].timestamp).getTime() : NaN;
-                            if (!Number.isNaN(spinTime) && spinTime <= referenceTime) {
-                                spinsDesdeUltimoSinal = i;
-                                break;
-                            }
-                        }
-                        if (spinsDesdeUltimoSinal === null) {
+            if (minIntervalSpins > 0) {
+                const entriesResult = await chrome.storage.local.get([
+                    'lastSignalSpinNumber',
+                    'lastSignalTimestamp',
+                    'lastSignalSpinId',
+                    'lastSignalSpinTimestamp'
+                ]);
+                const lastSignalSpinNumber = entriesResult.lastSignalSpinNumber ?? null;
+                const lastSignalTimestamp = entriesResult.lastSignalTimestamp || null;
+                const lastSignalSpinId = entriesResult.lastSignalSpinId || null;
+                const lastSignalSpinTimestamp = entriesResult.lastSignalSpinTimestamp || null;
+                
+                console.log(`📊 Último sinal salvo: ${lastSignalSpinNumber !== null ? '#' + lastSignalSpinNumber : 'Nenhum'}`);
+                if (lastSignalTimestamp) {
+                    const tempoDecorrido = Math.round((Date.now() - lastSignalTimestamp) / 1000);
+                    console.log(`   ⏱️ Registrado há ${tempoDecorrido}s`);
+                }
+                
+                let spinsDesdeUltimoSinal = null;
+                if (history.length > 0) {
+                    if (lastSignalSpinId) {
+                        const indexById = history.findIndex(spin => spin && spin.id === lastSignalSpinId);
+                        if (indexById >= 0) {
+                            spinsDesdeUltimoSinal = indexById;
+                        } else {
+                            // Sinal anterior não está mais no histórico → considerar intervalo cumprido
                             spinsDesdeUltimoSinal = history.length;
                         }
+                    } else if (lastSignalSpinTimestamp) {
+                        const referenceTime = new Date(lastSignalSpinTimestamp).getTime();
+                        if (!Number.isNaN(referenceTime)) {
+                            for (let i = 0; i < history.length; i++) {
+                                const spinTime = history[i]?.timestamp ? new Date(history[i].timestamp).getTime() : NaN;
+                                if (!Number.isNaN(spinTime) && spinTime <= referenceTime) {
+                                    spinsDesdeUltimoSinal = i;
+                                    break;
+                                }
+                            }
+                            if (spinsDesdeUltimoSinal === null) {
+                                spinsDesdeUltimoSinal = history.length;
+                            }
+                        }
                     }
                 }
-            }
-            
-            if (spinsDesdeUltimoSinal !== null) {
-                console.log(`📊 Giros desde o último sinal (histórico real): ${spinsDesdeUltimoSinal}`);
-                if (spinsDesdeUltimoSinal >= minIntervalSpins) {
-                    console.log('%c✅ Intervalo de giros respeitado!', 'color: #00FF88; font-weight: bold;');
-                } else {
-                    const girosRestantes = minIntervalSpins - spinsDesdeUltimoSinal;
-                    intervalBlocked = true;
-                    intervalMessage = `⏳ Aguardando ${girosRestantes} giro(s)... ${spinsDesdeUltimoSinal}/${minIntervalSpins}`;
-                    
-                    console.log('%c║  ⚠️ INTERVALO INSUFICIENTE (análise continua)            ║', 'color: #FFAA00; font-weight: bold;');
-                    console.log(`%c║  📊 Giros desde último sinal: ${spinsDesdeUltimoSinal}${' '.repeat(Math.max(0, 29 - spinsDesdeUltimoSinal.toString().length))}║`, 'color: #FFAA00;');
-                    console.log(`%c║  🎯 Intervalo mínimo: ${minIntervalSpins} giros${' '.repeat(Math.max(0, 32 - minIntervalSpins.toString().length))}║`, 'color: #FFAA00;');
-                    console.log(`%c║  ⏳ Faltam: ${girosRestantes} giros${' '.repeat(Math.max(0, 37 - girosRestantes.toString().length))}║`, 'color: #FFAA00; font-weight: bold;');
-                    console.log('%c║  ✅ Análise dos 9 níveis será executada normalmente      ║', 'color: #00FF88;');
-                    console.log('%c║  🚫 Mas SINAL NÃO será enviado (intervalo insuficiente)  ║', 'color: #FFAA00;');
-                }
-            } else if (lastSignalTimestamp && history.length > 0) {
-                const timeSinceSignal = Date.now() - lastSignalTimestamp;
-                const minutosDecorridos = timeSinceSignal / 60000;
-                const girosEstimados = Math.floor(minutosDecorridos * 2);
-                console.log(`📊 Giros estimados desde último sinal: ~${girosEstimados}`);
                 
-                if (girosEstimados >= minIntervalSpins) {
-                    console.log('%c✅ Intervalo estimado suficiente (fallback temporal)', 'color: #00FF88; font-weight: bold;');
-            } else {
-                    const girosRestantes = minIntervalSpins - girosEstimados;
-                    intervalBlocked = true;
-                    intervalMessage = `⏳ Aguardando ${girosRestantes} giro(s)... ${girosEstimados}/${minIntervalSpins}`;
-                    console.log('%c║  ⚠️ INTERVALO INSUFICIENTE (estimativa temporal)        ║', 'color: #FFAA00; font-weight: bold;');
+                if (spinsDesdeUltimoSinal !== null) {
+                    console.log(`📊 Giros desde o último sinal (histórico real): ${spinsDesdeUltimoSinal}`);
+                    if (spinsDesdeUltimoSinal >= minIntervalSpins) {
+                        console.log('%c✅ Intervalo de giros respeitado!', 'color: #00FF88; font-weight: bold;');
+                    } else {
+                        const girosRestantes = minIntervalSpins - spinsDesdeUltimoSinal;
+                        intervalBlocked = true;
+                        intervalMessage = `⏳ Aguardando ${girosRestantes} giro(s)... ${spinsDesdeUltimoSinal}/${minIntervalSpins}`;
+                        
+                        console.log('%c║  ⚠️ INTERVALO INSUFICIENTE (análise continua)            ║', 'color: #FFAA00; font-weight: bold;');
+                        console.log(`%c║  📊 Giros desde último sinal: ${spinsDesdeUltimoSinal}${' '.repeat(Math.max(0, 29 - spinsDesdeUltimoSinal.toString().length))}║`, 'color: #FFAA00;');
+                        console.log(`%c║  🎯 Intervalo mínimo: ${minIntervalSpins} giros${' '.repeat(Math.max(0, 32 - minIntervalSpins.toString().length))}║`, 'color: #FFAA00;');
+                        console.log(`%c║  ⏳ Faltam: ${girosRestantes} giros${' '.repeat(Math.max(0, 37 - girosRestantes.toString().length))}║`, 'color: #FFAA00; font-weight: bold;');
+                        console.log('%c║  ✅ Análise dos 9 níveis será executada normalmente      ║', 'color: #00FF88;');
+                        console.log('%c║  🚫 Mas SINAL NÃO será enviado (intervalo insuficiente)  ║', 'color: #FFAA00;');
+                    }
+                } else if (lastSignalTimestamp && history.length > 0) {
+                    const timeSinceSignal = Date.now() - lastSignalTimestamp;
+                    const minutosDecorridos = timeSinceSignal / 60000;
+                    const girosEstimados = Math.floor(minutosDecorridos * 2);
+                    console.log(`📊 Giros estimados desde último sinal: ~${girosEstimados}`);
+                    
+                    if (girosEstimados >= minIntervalSpins) {
+                        console.log('%c✅ Intervalo estimado suficiente (fallback temporal)', 'color: #00FF88; font-weight: bold;');
+                    } else {
+                        const girosRestantes = minIntervalSpins - girosEstimados;
+                        intervalBlocked = true;
+                        intervalMessage = `⏳ Aguardando ${girosRestantes} giro(s)... ${girosEstimados}/${minIntervalSpins}`;
+                        console.log('%c║  ⚠️ INTERVALO INSUFICIENTE (estimativa temporal)        ║', 'color: #FFAA00; font-weight: bold;');
+                    }
+                } else {
+                    console.log('%c✅ NENHUM SINAL ANTERIOR REGISTRADO!', 'color: #00FF88; font-weight: bold;');
+                    console.log('%c   ✅ PERMITIDO: Primeiro sinal ou intervalo já expirado', 'color: #00FF88; font-weight: bold;');
                 }
             } else {
-                console.log('%c✅ NENHUM SINAL ANTERIOR REGISTRADO!', 'color: #00FF88; font-weight: bold;');
-                console.log('%c   ✅ PERMITIDO: Primeiro sinal ou intervalo já expirado', 'color: #00FF88; font-weight: bold;');
+                console.log('%c✅ SEM INTERVALO CONFIGURADO!', 'color: #00FF88; font-weight: bold;');
+                console.log('%c   ✅ PERMITIDO: Sinais enviados sempre que encontrar padrão válido', 'color: #00FF88; font-weight: bold;');
             }
-        } else {
-            console.log('%c✅ SEM INTERVALO CONFIGURADO!', 'color: #00FF88; font-weight: bold;');
-            console.log('%c   ✅ PERMITIDO: Sinais enviados sempre que encontrar padrão válido', 'color: #00FF88; font-weight: bold;');
         }
         
         // ═══════════════════════════════════════════════════════════════
@@ -9589,7 +10010,8 @@ async function analyzeWithPatternSystem(history) {
             retracement: 0.085,
             globalContinuity: 0.11,
             barrier: 0.05,
-            bayesianCalibration: 0.08
+            bayesianCalibration: 0.08,
+            walkForward: 0.12
         };
         const levelMeta = {
             N1: { emoji: '🎯', label: 'N1 - Padrões' },
@@ -9599,8 +10021,9 @@ async function analyzeWithPatternSystem(history) {
             N5: { emoji: '🕑', label: 'N5 - Ritmo por Giro' },
             N6: { emoji: '📉', label: 'N6 - Retração Histórica' },
             N7: { emoji: '📈', label: 'N7 - Continuidade Global' },
-            N8: { emoji: '🛑', label: 'N8 - Barreira Final' },
-            N9: { emoji: '🧮', label: 'N9 - Calibração Bayesiana' }
+            N8: { emoji: '🔟', label: 'N8 - Walk-forward' },
+            N9: { emoji: '🛑', label: 'N9 - Barreira Final' },
+            N10:{ emoji: '🧮', label: 'N10 - Calibração Bayesiana' }
         };
         const clamp01 = (value) => Math.max(0, Math.min(1, typeof value === 'number' ? value : 0));
         const directionValue = (color) => color === 'red' ? 1 : color === 'black' ? -1 : 0;
@@ -9613,12 +10036,128 @@ async function analyzeWithPatternSystem(history) {
             const strengthPct = Math.round(level.strength * 100);
             return `${meta.emoji} ${meta.label} → ${level.color.toUpperCase()} (${strengthPct}% • ${level.details})`;
         };
-        const emitLevelStatuses = async (reports) => {
-            for (const report of reports) {
-                sendAnalysisStatus(describeLevel(report));
-                await sleep(1500);
+        const displayOrder = ['N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9', 'N10'];
+        let diamondSequenceDisplayed = false;
+        const emitLevelStatuses = async (reports, options = {}) => {
+            const { perLevelDelay = 1500, force = false } = options;
+            if (diamondSequenceDisplayed && !force) return;
+            if (!force) {
+                diamondSequenceDisplayed = true;
+            }
+
+            const sequence = displayOrder.map(id => {
+                const level = Array.isArray(reports) ? reports.find(lvl => lvl.id === id) : null;
+                const meta = levelMeta[id] || {};
+                const [idLabel, nameLabel] = (meta.label || id).split(' - ');
+                const friendlyName = nameLabel ? `${idLabel} ${nameLabel}` : (meta.label || id);
+
+                if (id === 'N8') {
+                    if (level && level.color) {
+                        const pct = Math.round((level.strength || 0) * 100);
+                        const extra = level.details ? ` • ${level.details}` : '';
+                        return { id, message: `${friendlyName}: ${level.color.toUpperCase()} (${pct}%${extra})` };
+                    }
+                    return { id, message: `${friendlyName}: NULO` };
+                }
+
+                if (id === 'N9') {
+                    const status = barrierResult.allowed ? 'APROVADO' : 'BLOQUEADO';
+                    return { id, message: `${friendlyName}: ${status}` };
+                }
+
+                if (level && level.color) {
+                    const pct = Math.round((level.strength || 0) * 100);
+                    const text = pct > 0
+                        ? `${friendlyName}: ${level.color.toUpperCase()} (${pct}%)`
+                        : `${friendlyName}: ${level.color.toUpperCase()}`;
+                    return { id, message: text };
+                }
+
+                return { id, message: `${friendlyName}: NULO` };
+            });
+
+            for (const item of sequence) {
+                sendAnalysisStatus(item.message);
+                await sleep(perLevelDelay);
             }
         };
+
+        // N10 - Walk-forward (votante especializado baseado em janelas não-sobrepostas)
+        let n10SummaryText = null;
+        try {
+            const windowsCfg = analyzerConfig.diamondLevelWindows || {};
+            const n10WindowCfg = getDiamondWindow('n10Window', 20);
+            const n10HistoryCfg = Number(windowsCfg.n10History) > 0 ? Number(windowsCfg.n10History) : 500;
+            const n10AnalysesCfg = Number(windowsCfg.n10Analyses) > 0 ? Number(windowsCfg.n10Analyses) : 600;
+            const n10MinWindowsCfg = Number(windowsCfg.n10MinWindows) > 0 ? Number(windowsCfg.n10MinWindows) : 8;
+            const n10ConfMinPctCfg = Number(windowsCfg.n10ConfMin) > 0 ? Number(windowsCfg.n10ConfMin) : 60;
+            const n10ConfMinCfg = Math.max(0, Math.min(1, n10ConfMinPctCfg / 100));
+
+            const n10ResultLocal = runDiamondLevelN10(history, {
+                windowSize: n10WindowCfg,
+                historySize: n10HistoryCfg,
+                analysesToRun: n10AnalysesCfg,
+                minWindows: n10MinWindowsCfg,
+                confMin: n10ConfMinCfg
+            });
+
+            if (n10ResultLocal && n10ResultLocal.summaryText) {
+                n10SummaryText = n10ResultLocal.summaryText;
+            }
+
+            if (n10ResultLocal && n10ResultLocal.enabled && n10ResultLocal.color) {
+                const n10Color = n10ResultLocal.color;
+                const n10Strength = clamp01(n10ResultLocal.confidence || 0); // confiança já em 0..1
+                const metrics = n10ResultLocal.metrics || {};
+                const accPct = metrics.accuracy != null ? (metrics.accuracy * 100).toFixed(1) : null;
+                const covPct = metrics.coverage != null ? (metrics.coverage * 100).toFixed(1) : null;
+                const predsInfo = (metrics.n_preds != null && metrics.n_windows != null)
+                    ? `${metrics.n_preds}/${metrics.n_windows} janelas`
+                    : null;
+                let n10Details = 'Walk-forward não-sobreposto';
+                const parts = [];
+                if (accPct != null) parts.push(`acurácia ${accPct}%`);
+                if (covPct != null) parts.push(`coverage ${covPct}%`);
+                if (predsInfo) parts.push(predsInfo);
+                if (parts.length > 0) {
+                    n10Details += ' • ' + parts.join(' • ');
+                }
+
+                levelReports.push({
+                    id: 'N8',
+                    name: 'Walk-forward',
+                    color: n10Color,
+                    weight: levelWeights.walkForward,
+                    strength: n10Strength,
+                    score: directionValue(n10Color) * n10Strength,
+                    details: n10Details
+                });
+            } else {
+                // N10 neutro: registra como NULO para aparecer no raciocínio
+                levelReports.push({
+                    id: 'N8',
+                    name: 'Walk-forward',
+                    color: null,
+                    weight: levelWeights.walkForward,
+                    strength: 0,
+                    score: 0,
+                    details: n10SummaryText
+                        ? n10SummaryText.replace(/^N10 - /, '')
+                        : 'NULO'
+                });
+            }
+        } catch (e) {
+            console.error('❌ Erro em N10 dentro do modo Diamante:', e);
+            levelReports.push({
+                id: 'N8',
+                name: 'Walk-forward',
+                color: null,
+                weight: levelWeights.walkForward,
+                strength: 0,
+                score: 0,
+                details: 'Erro interno em N10'
+            });
+        }
 
         // N1 - Padrões
         let patternStrength = 0;
@@ -9788,7 +10327,7 @@ async function analyzeWithPatternSystem(history) {
 
         const bayesStrength = clamp01(bayesResult.strength || 0);
         levelReports.push({
-            id: 'N9',
+            id: 'N10',
             name: 'Calibração Bayesiana',
             color: bayesResult.color,
             weight: levelWeights.bayesianCalibration,
@@ -9804,13 +10343,13 @@ async function analyzeWithPatternSystem(history) {
         
         if (alternanceOverrideActive && alternanceColor) {
             // Contar quantos outros níveis concordam com a cor da alternância
-            const otherLevelsAgreeingCount = levelReports.filter(lvl => 
-                lvl.id !== 'N3' && lvl.id !== 'N8' && lvl.color === alternanceColor
+            const otherLevelsAgreeingCount = levelReports.filter(lvl =>
+                lvl.id !== 'N3' && lvl.id !== 'N9' && lvl.color === alternanceColor
             ).length;
             
             console.log('%c🔍 Validando Override de Alternância...', 'color: #8E44AD; font-weight: bold;');
             console.log(`   Cor da alternância: ${alternanceColor.toUpperCase()}`);
-			console.log(`   Outros níveis concordando: ${otherLevelsAgreeingCount}/7 (N1, N2, N4, N5, N6, N7, N9)`);
+			console.log(`   Outros níveis concordando: ${otherLevelsAgreeingCount}/8 (N1, N2, N4, N5, N6, N7, N9, N10)`);
         
         // ═══════════════════════════════════════════════════════════════
             // 🛡️ CONTROLE DE ENTRADAS: Máximo 2 entradas por alternância
@@ -9918,7 +10457,7 @@ async function analyzeWithPatternSystem(history) {
         if (alternanceBlocked && alternanceOverrideActive) {
             console.log('%c🚫🚫🚫 SINAL BLOQUEADO - CONTROLE DE ALTERNÂNCIA! 🚫🚫🚫', 'color: #FFFFFF; font-weight: bold; font-size: 16px; background: #FF0000;');
             console.log(`%c   Motivo: ${alternanceBlockReason}`, 'color: #FF6666; font-weight: bold;');
-            await emitLevelStatuses(levelReports);
+            await emitLevelStatuses(levelReports, { force: true });
             sendAnalysisStatus(`🛑 N3 - Alternância → ❌ BLOQUEADO (${alternanceBlockReason})`);
             await sleep(1500);
             sendAnalysisStatus('❌ Sinal rejeitado: limite de entradas de alternância');
@@ -9927,34 +10466,62 @@ async function analyzeWithPatternSystem(history) {
             return null;
         }
         
-        if (!barrierResult.allowed) {
-            console.log('%c🚫🚫🚫 SINAL BLOQUEADO PELA BARREIRA! 🚫🚫🚫', 'color: #FFFFFF; font-weight: bold; font-size: 16px; background: #FF0000;');
-            console.log('%c   Sequência sem precedente histórico!', 'color: #FF6666; font-weight: bold;');
-            await emitLevelStatuses(levelReports);
-            sendAnalysisStatus(`🛑 N8 - Barreira Final → ❌ BLOQUEADO (${barrierDetailsText})`);
-            await sleep(1500);
-            sendAnalysisStatus('❌ Sinal rejeitado: sem precedente histórico');
-            await sleep(2000);
-            await restoreIAStatus();
-            return null;
-        }
-
-        let barrierStrength = 0.4;
+        let barrierStrength = 0;
         const streakGap = barrierResult.maxStreakFound - barrierResult.targetStreak;
-        if (streakGap >= 2) {
-            barrierStrength = 0.6;
-        } else if (streakGap === 1) {
-            barrierStrength = 0.5;
+        if (barrierResult.allowed) {
+            barrierStrength = 0.4;
+            if (streakGap >= 2) {
+                barrierStrength = 0.6;
+            } else if (streakGap === 1) {
+                barrierStrength = 0.5;
+            }
         }
+        const barrierStatusLabel = barrierResult.allowed ? 'APROVADO' : 'BLOQUEADO';
         levelReports.push({
-            id: 'N8',
+            id: 'N9',
             name: 'Barreira Final',
             color: predictedColor,
             weight: levelWeights.barrier,
             strength: barrierStrength,
-            score: directionValue(predictedColor) * barrierStrength,
-            details: `${barrierDetailsText} (liberado)`
+            score: barrierResult.allowed ? directionValue(predictedColor) * barrierStrength : 0,
+            details: `${barrierStatusLabel} • ${barrierDetailsText}`
         });
+
+        levelReports.sort((a, b) => {
+            const aIndex = displayOrder.indexOf(a.id);
+            const bIndex = displayOrder.indexOf(b.id);
+            const safeA = aIndex === -1 ? displayOrder.length : aIndex;
+            const safeB = bIndex === -1 ? displayOrder.length : bIndex;
+            return safeA - safeB;
+        });
+
+        const summaryStyle = 'color: #00FFFF; font-weight: bold;';
+        console.log('%c╔════════════════════════════════════════════════════════════╗', summaryStyle);
+        console.log('%c║  💎 NÍVEIS DIAMANTE - CONSOLIDADO                         ║', summaryStyle);
+        displayOrder.forEach(id => {
+            const level = levelReports.find(lvl => lvl.id === id);
+            let description;
+            if (level) {
+                description = describeLevel(level);
+            } else {
+                const meta = levelMeta[id] || { emoji: '▫️', label: `${id}` };
+                description = `${meta.emoji} ${meta.label} → N/A`;
+            }
+            console.log(`%c║  ${description}`, summaryStyle);
+        });
+        console.log('%c╚════════════════════════════════════════════════════════════╝', summaryStyle);
+
+        await emitLevelStatuses(levelReports);
+
+        if (!barrierResult.allowed) {
+            console.log('%c🚫🚫🚫 SINAL BLOQUEADO PELA BARREIRA! 🚫🚫🚫', 'color: #FFFFFF; font-weight: bold; font-size: 16px; background: #FF0000;');
+            console.log('%c   Sequência sem precedente histórico!', 'color: #FF6666; font-weight: bold;');
+        sendAnalysisStatus(`N9 - Barreira Final: BLOQUEADO (${barrierDetailsText})`);
+        await sleep(2000);
+            await restoreIAStatus();
+            console.log('%c   ❌ SINAL CANCELADO!', 'color: #FF0000; font-weight: bold; font-size: 14px;');
+            return null;
+        }
 
         console.log('%c✅ BARREIRA LIBERADA! Sequência é viável.', 'color: #00FF88; font-weight: bold; font-size: 14px;');
         
@@ -9991,7 +10558,6 @@ async function analyzeWithPatternSystem(history) {
         
         if (!thresholdMet && !alternanceOverride) {
             console.log('%c🚫 SINAL REJEITADO: SCORE ABAIXO DO LIMITE', 'color: #FF6666; font-weight: bold; font-size: 14px;');
-            await emitLevelStatuses(levelReports);
             sendAnalysisStatus(`❌ Rejeitado: score ${(scoreMagnitude * 100).toFixed(1)}% < ${Math.round(currentIntensity.minScore * 100)}% (${currentIntensity.name})`);
             await sleep(2000);
             await restoreIAStatus();
@@ -9999,7 +10565,6 @@ async function analyzeWithPatternSystem(history) {
         }
 
         if (intervalBlocked) {
-            await emitLevelStatuses(levelReports);
             sendAnalysisStatus(intervalMessage || '⏳ Aguardando intervalo configurado...');
             await sleep(2000);
             await restoreIAStatus();
@@ -10039,7 +10604,6 @@ async function analyzeWithPatternSystem(history) {
                         totalLosses: 0
                     };
                 }
-				await emitLevelStatuses(levelReports);
 				sendAnalysisStatus(`❌ Rejeitado: apenas ${agreeingCount}/3 níveis positivos concordam (${finalColor.toUpperCase()})`);
                 await sleep(2000);
                 await restoreIAStatus();
@@ -10061,7 +10625,6 @@ async function analyzeWithPatternSystem(history) {
         console.log(`%c📈 Score normalizado: ${(normalizedScore * 100).toFixed(1)}%`, 'color: #00FFFF; font-weight: bold;');
         console.log(`%c📊 Confiança bruta: ${rawConfidence}% • calibrada: ${finalConfidence}%`, 'color: #FFD700; font-weight: bold;');
 
-        await emitLevelStatuses(levelReports);
         if (analyzerConfig.aiMode) {
             sendAnalysisStatus('Sinal de entrada');
         } else {
@@ -10210,7 +10773,7 @@ async function analyzeWithPatternSystem(history) {
         const barrierStatusText = barrierResult.alternanceBlocked
             ? '🚫 BLOQUEADO (Alternância)'
             : '❌ BLOQUEADO';
-        sendAnalysisStatus(`🛑 N8 - Barreira Final → ${barrierStatusText}`);
+        sendAnalysisStatus(`🛑 N9 - Barreira Final → ${barrierStatusText}`);
         await sleep(1500);
         
         // ✅ Mostrar motivo do bloqueio
@@ -10337,7 +10900,7 @@ async function analyzeWithPatternSystem(history) {
         const barrierStatusText2 = barrierResult.alternanceBlocked
             ? '🚫 BLOQUEADO (Alternância)'
             : barrierResult.allowed ? '✅ APROVADO' : '🚫 BLOQUEADO';
-        sendAnalysisStatus(`🛑 N8 - Barreira Final → ${barrierStatusText2}`);
+        sendAnalysisStatus(`🛑 N9 - Barreira Final → ${barrierStatusText2}`);
         await sleep(1500);
         
 		const totalVotantes = maxVotingSlots;
@@ -10416,7 +10979,7 @@ async function analyzeWithPatternSystem(history) {
         const barrierStatusText3 = barrierResult.alternanceBlocked
             ? '🚫 BLOQUEADO (Alternância)'
             : barrierResult.allowed ? '✅ APROVADO' : '🚫 BLOQUEADO';
-        sendAnalysisStatus(`🛑 N8 - Barreira Final → ${barrierStatusText3}`);
+        sendAnalysisStatus(`🛑 N9 - Barreira Final → ${barrierStatusText3}`);
         await sleep(1500);
         
         // ✅ Mostrar resultado da análise (MODO DIAMANTE: mensagem fixa) e depois o motivo do bloqueio
@@ -10450,9 +11013,9 @@ async function analyzeWithPatternSystem(history) {
         
 		console.log('%c📊 RESUMO COMPLETO DOS NÍVEIS ATIVOS:', 'color: #FFD700; font-weight: bold; font-size: 16px;');
 		levelReports
-			.filter(level => level.id !== 'N8')
+			.filter(level => level.id !== 'N9')
 			.forEach(level => console.log(`   ${describeLevel(level)}`));
-		const barrierReport = levelReports.find(level => level.id === 'N8');
+		const barrierReport = levelReports.find(level => level.id === 'N9');
 		if (barrierReport) {
 			console.log(`   ${describeLevel(barrierReport)}`);
 		}
@@ -10516,9 +11079,19 @@ async function analyzeWithPatternSystem(history) {
 			? `N7 - Continuidade Global: ${continuityResult.details}`
 			: `N7 - Continuidade Global: NULO`;
 
+		const walkForwardReport = levelReports.find(level => level.id === 'N8');
+		const walkForwardDescription = walkForwardReport && walkForwardReport.color
+			? `N8 - Walk-forward: ${walkForwardReport.color.toUpperCase()} (${Math.round((walkForwardReport.strength || 0) * 100)}% • ${walkForwardReport.details || 'sem detalhes'})`
+			: `N8 - Walk-forward: NULO`;
+
 		const barrierDescription = barrierResult.allowed
-			? `N8 - Barreira Final: ✅ LIBERADO`
-			: `N8 - Barreira Final: 🚫 BLOQUEADO`;
+			? `N9 - Barreira Final: ✅ LIBERADO`
+			: `N9 - Barreira Final: 🚫 BLOQUEADO`;
+
+		const bayesReport = levelReports.find(level => level.id === 'N10');
+		const bayesDescription = bayesReport && bayesReport.color
+			? `N10 - Calibração Bayesiana: ${bayesReport.color.toUpperCase()} (${Math.round((bayesReport.strength || 0) * 100)}% • ${bayesReport.details || 'sem detalhes'})`
+			: `N10 - Calibração Bayesiana: NULO`;
 		
         const intensityName = {
             'aggressive': '🔥 AGRESSIVO',
@@ -10544,7 +11117,9 @@ async function analyzeWithPatternSystem(history) {
             `${nivel5Description}\n` +
 			`${retracementDescription}\n` +
 			`${continuityDescription}\n` +
+			`${walkForwardDescription}\n` +
 			`${barrierDescription}\n` +
+			`${bayesDescription}\n` +
             `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
             `${votingDescription}\n` +
 			`🏆 ${finalColor.toUpperCase()} (${winningVotes}/${totalVotantes} votos = ${consensusPercent.toFixed(1)}%)\n` +
@@ -12211,6 +12786,7 @@ async function verifyWithSavedPatterns(history) {
 	// ✅ APLICAR PROFUNDIDADE DE ANÁLISE CONFIGURADA PELO USUÁRIO
 	const configuredDepth = analyzerConfig.historyDepth || 2000;
 	const searchDepth = Math.min(configuredDepth, history.length);
+	const minIntervalSpins = analyzerConfig.minIntervalSpins || 0;
 	
 		const occNumbers = [];
 		const occTimestamps = [];
@@ -12218,12 +12794,21 @@ async function verifyWithSavedPatterns(history) {
 		const trigTimestamps = [];
 	const occurrenceDetails = [];
 		let occCount = 0;
+		let lastAcceptedIndexForDetails = null;
 	for (let i = need; i < searchDepth; i++) {
 			const seq = history.slice(i, i + need);
 			if (seq.length < need) break;
 			const seqColors = seq.map(s => s.color);
 			const match = seqColors.every((c, idx) => c === pat.pattern[idx]);
 			if (match) {
+			// ⏱️ INTERVALO ENTRE PADRÕES (ocorrências detalhadas do MESMO padrão)
+			if (minIntervalSpins > 0 && lastAcceptedIndexForDetails !== null) {
+				const diff = i - lastAcceptedIndexForDetails;
+				if (diff < minIntervalSpins) {
+					continue; // ocorrência muito próxima da última deste padrão
+				}
+			}
+			
 			const trigSpin = history[i + need];
 			const trigColorRaw = trigSpin ? trigSpin.color : null;
 			
@@ -12249,6 +12834,7 @@ async function verifyWithSavedPatterns(history) {
 				trigNumbers.push(trigSpin ? trigSpin.number : null);
 				trigTimestamps.push(trigSpin ? trigSpin.timestamp : null);
 			occurrenceDetails.push(occurrenceRecord);
+			lastAcceptedIndexForDetails = i;
 			}
 		}
 
@@ -12260,6 +12846,7 @@ async function verifyWithSavedPatterns(history) {
 	// Contar todas as ocorrências do padrão no histórico
 	const colorResults = { red: 0, black: 0, white: 0 };
 	let totalOccurrences = 0;
+	let lastAcceptedIndexForStats = null;
 	
 		for (let i = need; i < history.length; i++) {
 			const seq = history.slice(i, i + need);
@@ -12267,6 +12854,14 @@ async function verifyWithSavedPatterns(history) {
 			const seqColors = seq.map(s => s.color);
 			const match = seqColors.every((c, idx) => c === pat.pattern[idx]);
 			if (!match) continue;
+		
+		// ⏱️ INTERVALO ENTRE PADRÕES (contagem estatística do MESMO padrão)
+		if (minIntervalSpins > 0 && lastAcceptedIndexForStats !== null) {
+			const diff = i - lastAcceptedIndexForStats;
+			if (diff < minIntervalSpins) {
+				continue;
+			}
+		}
 		
 		const trigEntry = history[i + need] ? history[i + need].color : null;
 		const trigNormalized = normalizeColorName(trigEntry);
@@ -12277,6 +12872,7 @@ async function verifyWithSavedPatterns(history) {
 		}
 		
 		totalOccurrences++;
+		lastAcceptedIndexForStats = i;
 		const resultColor = history[i - 1] ? history[i - 1].color : null;
 		if (resultColor) {
 			colorResults[resultColor]++;
@@ -12560,11 +13156,35 @@ async function verifyWithSavedPatterns(history) {
 			firstPatternColor: firstFinalNormalized,
 			isOpposite: finalTriggerNormalized === 'white' || (finalTriggerNormalized === 'red' && firstFinalNormalized === 'black') || (finalTriggerNormalized === 'black' && firstFinalNormalized === 'red')
 		});
-
+		
 		// Se assertCalc existe, já vem calibrado; senão, calibrar a confidence salva
 		const rawPatternConfidence = typeof pat.confidence === 'number' ? pat.confidence : 70;
 		const patternConfidence = assertCalc ? assertCalc.finalConfidence : applyCalibratedConfidence(rawPatternConfidence);
-
+		
+		// ✅ FILTRO DE RISCO DE SEQUÊNCIA: EVITAR PADRÕES SALVOS COM ALTO RISCO DE 3 LOSS CONSECUTIVOS
+		// Usamos preferencialmente o winPct real calculado em summary; se não existir, usamos a confidence do padrão.
+		let estimatedWinProb = null;
+		if (summary && typeof summary.winPct === 'number') {
+			estimatedWinProb = summary.winPct / 100;
+		} else {
+			estimatedWinProb = (typeof patternConfidence === 'number' ? patternConfidence : rawPatternConfidence) / 100;
+		}
+		// Proteger contra extremos 0% e 100%
+		estimatedWinProb = Math.min(Math.max(estimatedWinProb, 0.01), 0.99);
+		const probThreeLossSaved = Math.pow(1 - estimatedWinProb, 3);
+		const maxThreeLossProbSaved = 0.02; // 2% de tolerância (mesmo limite do modo padrão multidimensional)
+		
+		if (probThreeLossSaved > maxThreeLossProbSaved) {
+			console.log('❌ Padrão salvo rejeitado pelo filtro de risco de sequência (P(3 LOSS) acima do limite)', {
+				pattern: pat.pattern,
+				suggested,
+				estimatedWinProb: (estimatedWinProb * 100).toFixed(2) + '%',
+				probThreeLoss: (probThreeLossSaved * 100).toFixed(2) + '%',
+				maxAllowed: (maxThreeLossProbSaved * 100).toFixed(2) + '%'
+			});
+			continue;
+		}
+		
 		const candidate = {
 			color: suggested,
 			suggestion: 'Padrão salvo',
@@ -13132,6 +13752,10 @@ function analyzeColorPatternsWithTrigger(history) {
     const patternLength = patternToFind.length;
     
     const occurrences = [];
+    const minIntervalSpins = analyzerConfig.minIntervalSpins || 0;
+    
+    // Guardar último índice aceito para o MESMO padrão (intervalo entre ocorrências)
+    let lastAcceptedIndex = null;
     
     // Varrer histórico LIMITADO procurando a SEQUÊNCIA COMPLETA
     // ✅ CORREÇÃO: Usar limitedHistory.length em vez de history.length
@@ -13142,6 +13766,14 @@ function analyzeColorPatternsWithTrigger(history) {
         const isMatch = historicalSequence.every((c, idx) => c === patternToFind[idx]);
         
         if (isMatch) {
+            // ⏱️ INTERVALO ENTRE PADRÕES (somente MESMO padrão)
+            if (minIntervalSpins > 0 && lastAcceptedIndex !== null) {
+                const diff = i - lastAcceptedIndex;
+                if (diff < minIntervalSpins) {
+                    continue; // muito próximo da última ocorrência do MESMO padrão
+                }
+            }
+            
             const triggerColor = colors[i + patternLength]; // Cor antes da sequência
             const resultColor = colors[i - 1]; // Cor que saiu APÓS a sequência completa
             
@@ -13159,6 +13791,9 @@ function analyzeColorPatternsWithTrigger(history) {
                 number: limitedHistory[i - 1]?.number,
                 timestamp: limitedHistory[i - 1]?.timestamp
             });
+            
+            // Atualizar último índice aceito para este padrão
+            lastAcceptedIndex = i;
         }
     }
     
@@ -16035,9 +16670,22 @@ async function combineMultidimensionalAnalyses(colorAnalysis, numberAnalysis, ti
     
     // Verificar se atende aos critérios
     const bestAnalysis = bestRecommendation.analyses.sort((a, b) => b.confidence - a.confidence)[0];
+    
+    // ✅ ESTIMAR RISCO DE 3 LOSS CONSECUTIVOS COM BASE NA CONFIANÇA DO PADRÃO
+    // Usamos a confiança do melhor padrão como aproximação da probabilidade de acerto (p_hat).
+    // Probabilidade aproximada de 3 LOSS seguidos: (1 - p_hat)^3.
+    const estimatedWinProb = Math.min(
+        Math.max((bestAnalysis.confidence || bestRecommendation.adjustedConfidence || 0) / 100, 0.01),
+        0.99
+    );
+    const probThreeLoss = Math.pow(1 - estimatedWinProb, 3);
+    const maxThreeLossProb = 0.02; // 2% de tolerância para 3 LOSS seguidos
+    const streakRiskOk = probThreeLoss <= maxThreeLossProb;
+    
     const meetsCriteria = bestRecommendation.adjustedConfidence >= minConfidence && 
                          bestAnalysis.occurrences >= minOccurrences && 
-                         bestAnalysis.statisticalSignificance >= minStatisticalSignificance;
+                         bestAnalysis.statisticalSignificance >= minStatisticalSignificance &&
+                         streakRiskOk;
     
     // ═══════════════════════════════════════════════════════════════════════════════
     // VALIDAÇÃO DE RIGOR POR TIPO DE ANÁLISE
@@ -16160,7 +16808,10 @@ async function combineMultidimensionalAnalyses(colorAnalysis, numberAnalysis, ti
         const confStr = bestRecommendation?.adjustedConfidence != null ? bestRecommendation.adjustedConfidence.toFixed(1) : 'N/A';
         const occStr = bestAnalysis?.occurrences != null ? bestAnalysis.occurrences : 'N/A';
         const sigStr = bestAnalysis?.statisticalSignificance != null ? bestAnalysis.statisticalSignificance.toFixed(2) : 'N/A';
-        console.log(`❌ Análise rejeitada: conf=${confStr}%/${minConfidence}%, occ=${occStr}/${minOccurrences}, sig=${sigStr}`);
+        const streakStr = probThreeLoss != null ? (probThreeLoss * 100).toFixed(2) + '%' : 'N/A';
+        console.log(`❌ Análise rejeitada: conf=${confStr}%/${minConfidence}%, occ=${occStr}/${minOccurrences}, sig=${sigStr}, P(3 LOSS)=${streakStr} (máx ${(
+            maxThreeLossProb * 100
+        ).toFixed(2)}%)`);
         return null;
     }
     
@@ -16845,14 +17496,38 @@ function sendAnalysisStatus(status) {
     sendMessageToContent('ANALYSIS_STATUS', { status: status });
 }
 
+// Helper local para obter um snapshot simples da memória ativa
+function getMemoriaAtivaStatus() {
+    try {
+        const totalGiros = Array.isArray(memoriaAtiva.giros) ? memoriaAtiva.giros.length : 0;
+        return {
+            inicializada: !!memoriaAtiva.inicializada,
+            totalAtualizacoes: memoriaAtiva.totalAtualizacoes || 0,
+            tempoUltimaAtualizacao: memoriaAtiva.tempoUltimaAtualizacao || 0,
+            totalGiros
+        };
+    } catch (e) {
+        return {
+            inicializada: false,
+            totalAtualizacoes: 0,
+            tempoUltimaAtualizacao: 0,
+            totalGiros: 0
+        };
+    }
+}
+
 // Função para restaurar o status "IA ativada" após análise
 async function restoreIAStatus() {
+    lastDiamondLevelTimeouts.forEach(timeoutId => clearTimeout(timeoutId));
+    lastDiamondLevelTimeouts = [];
     try {
         const status = getMemoriaAtivaStatus();
         const updates = status.totalAtualizacoes || 0;
-        const statusText = `IA ativada • ${updates} análises`;
-        sendAnalysisStatus(statusText);
-        console.log('%c✅ Status restaurado:', 'color: #00FF88; font-weight: bold;', statusText);
+        const baseText = updates > 0
+            ? `Memória ativada • ${updates} análises`
+            : 'IA ativada';
+        sendAnalysisStatus(baseText);
+        console.log('%c✅ Status restaurado:', 'color: #00FF88; font-weight: bold;', baseText);
     } catch (error) {
         console.error('❌ Erro ao restaurar status:', error);
     }

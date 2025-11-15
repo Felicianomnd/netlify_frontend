@@ -2923,6 +2923,27 @@
     padding: 0 !important;
     margin: 0 !important;
 }
+.mode-api-status .diamond-status-tag {
+    color: #00d4ff !important;
+    font-weight: 600 !important;
+}
+.mode-api-status .typing-caret {
+    display: inline-block;
+    width: 2px;
+    height: 1em;
+    background: #00d4ff;
+    margin-left: 2px;
+    animation: diamondTypingCaret 1s steps(2, start) infinite;
+    vertical-align: baseline;
+}
+.mode-api-status[data-typing="true"] {
+    white-space: nowrap !important;
+}
+@keyframes diamondTypingCaret {
+    50% {
+        opacity: 0;
+    }
+}
 
 /* ═══════════════════════════════════════════════════════════════════════════════ */
 /* 🔒 BOTÃO DE MOSTRAR/OCULTAR SENHA (PROFISSIONAL)                                */
@@ -3730,6 +3751,28 @@
 /* Modal body - COMPACTO */
 .custom-pattern-modal-body {
     padding: 16px;
+}
+
+.custom-pattern-modal-body .diamond-level-title {
+    font-size: 11px;
+    font-weight: 600;
+    color: #00d4ff;
+    margin-bottom: 4px;
+    display: block;
+}
+
+.custom-pattern-modal-body .diamond-level-note {
+    font-size: 10px;
+    font-weight: 400;
+    color: #c8d6e9;
+    line-height: 1.35;
+    margin: 4px 0;
+}
+
+.custom-pattern-modal-body .diamond-level-subnote {
+    font-size: 10px;
+    font-weight: 400;
+    color: #c8d6e9;
 }
 
 .custom-pattern-field {
