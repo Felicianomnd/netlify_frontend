@@ -1319,6 +1319,45 @@ const DIAMOND_LEVEL_DEFAULTS = {
                 z-index: 1;
             }
             
+            /* Modal de Padrão da Entrada (overlay geral) – SEMPRE 100% DA EXTENSÃO */
+            .pattern-modal {
+                position: absolute;
+                top: 0;
+                left: 0;
+                right: 0;
+                bottom: 0;
+                width: 100%;
+                height: 100%;
+                z-index: 999998;
+                display: flex;
+                align-items: stretch;
+                justify-content: center;
+                background: rgba(0, 0, 0, 0.65);
+                padding: 0;
+                box-sizing: border-box;
+            }
+            
+            .pattern-modal-content {
+                position: absolute;
+                box-sizing: border-box;
+                background: #0f1f2a;
+                border-radius: 0;
+                border: 1px solid #2a3c48;
+                box-shadow: 0 4px 20px rgba(0, 0, 0, 0.8);
+                overflow: hidden;
+                display: flex;
+                flex-direction: column;
+                top: 0;
+                left: 0;
+                right: 0;
+                bottom: 0;
+                width: 100%;
+                height: 100%;
+                max-width: none;
+                max-height: none;
+                margin: 0;
+            }
+            
             .bank-patterns-modal-header {
                 display: flex;
                 justify-content: space-between;
@@ -4323,64 +4362,42 @@ const DIAMOND_LEVEL_DEFAULTS = {
                 </div>
             `;
             
-            // Adicionar ao body
-            document.body.appendChild(modal);
-            
-            // ✅ CENTRALIZAR MODAL COM BASE NA POSIÇÃO DA EXTENSÃO (com delay para renderização)
-            setTimeout(() => {
-                const sidebar = document.getElementById('blaze-double-analyzer');
-                if (sidebar) {
-                    const rect = sidebar.getBoundingClientRect();
-                    const modalContent = modal.querySelector('.pattern-modal-content');
-                    
-                    if (modalContent) {
-                        // Centralizar horizontalmente com a sidebar
-                        const sidebarCenterX = rect.left + (rect.width / 2);
-                        const modalWidth = modalContent.offsetWidth || 500;
-                        const leftPosition = sidebarCenterX - (modalWidth / 2);
-                        
-                        // Centralizar verticalmente no viewport
-                        const modalHeight = modalContent.offsetHeight || 300;
-                        const viewportHeight = window.innerHeight;
-                        const topPosition = (viewportHeight - modalHeight) / 2;
-                        
-                        // Garantir que não saia da tela (margens mínimas)
-                        const finalLeft = Math.max(20, Math.min(leftPosition, window.innerWidth - modalWidth - 20));
-                        const finalTop = Math.max(20, topPosition);
-                        
-                        modalContent.style.position = 'fixed';
-                        modalContent.style.left = `${finalLeft}px`;
-                        modalContent.style.top = `${finalTop}px`;
-                        modalContent.style.transform = 'none'; // Remove transform padrão
-                        
-                        console.log('✅ Modal de entrada centralizado com a extensão:', {
-                            sidebarRect: rect,
-                            modalWidth: modalWidth,
-                            modalHeight: modalHeight,
-                            finalPosition: { left: finalLeft, top: finalTop }
-                        });
-                    }
+            // Anexar o modal DENTRO da extensão para casar 100% com a largura/altura
+            const sidebar = document.getElementById('blaze-double-analyzer');
+            if (sidebar) {
+                // Garantir que o container seja relativo
+                if (getComputedStyle(sidebar).position === 'static') {
+                    sidebar.style.position = 'relative';
                 }
-            }, 10);
+                sidebar.appendChild(modal);
+            } else {
+                // Fallback raro: se não achar a sidebar, cai para body
+                document.body.appendChild(modal);
+            }
             
             // Eventos do modal
             const closeBtn = modal.querySelector('.pattern-modal-close');
-            closeBtn.onclick = function() {
-                document.body.removeChild(modal);
+            const removeModal = function() {
+                if (modal.parentElement) {
+                    modal.parentElement.removeChild(modal);
+                }
+                document.removeEventListener('keydown', handleEsc);
             };
             
-            // Fechar ao clicar fora do modal
+            // Fechar ao clicar no botão
+            closeBtn.onclick = removeModal;
+            
+            // Fechar ao clicar fora do conteúdo
             modal.onclick = function(e) {
                 if (e.target === modal) {
-                    document.body.removeChild(modal);
+                    removeModal();
                 }
             };
             
             // Fechar com ESC
             const handleEsc = function(e) {
                 if (e.key === 'Escape') {
-                    document.body.removeChild(modal);
-                    document.removeEventListener('keydown', handleEsc);
+                    removeModal();
                 }
             };
             document.addEventListener('keydown', handleEsc);

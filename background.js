@@ -2069,7 +2069,8 @@ async function startDataCollection() {
     await initializeHistoryIfNeeded().catch(e => console.warn('Falha ao inicializar histórico completo:', e));
     
     // 5. Busca de padrões agora é MANUAL (usuário clica no botão)
-    console.log('💡 Para buscar padrões, clique em "🔍 Buscar Padrões (5min)" na interface.');
+    // ⏱️ Duração atual: 30s (busca rápida e intensiva)
+    console.log('💡 Para buscar padrões, clique em "🔍 Buscar Padrões (30s)" na interface.');
     
     // 6. ✅ CONECTAR AO WEBSOCKET PARA RECEBER GIROS EM TEMPO REAL
     if (API_CONFIG.useWebSocket) {
@@ -12933,8 +12934,26 @@ function colorsForNumberSeq(seq) {
 
 // AI Pattern Analysis System - MULTIDIMENSIONAL
 async function performPatternAnalysis(history) {
-    console.log('🔍 Iniciando análise multidimensional de IA com', history.length, 'giros', '| Rigor:', rigorLogString());
-    
+    // ✅ VALIDAÇÃO INICIAL DO HISTÓRICO
+    console.log('🔍 Iniciando análise multidimensional de IA com', history ? history.length : 'N/A', 'giros', '| Rigor:', rigorLogString());
+
+    if (!history || !Array.isArray(history) || history.length === 0) {
+        console.log('⚠️ Histórico inválido ou vazio recebido em performPatternAnalysis');
+        return null;
+    }
+
+    // ✅ APLICAR PROFUNDIDADE DE ANÁLISE CONFIGURADA (historyDepth) PARA O MODO PADRÃO
+    // 🔹 IMPORTANTE: performPatternAnalysis só é chamado quando aiMode = false (Modo Padrão)
+    const configuredDepth = analyzerConfig && typeof analyzerConfig.historyDepth === 'number'
+        ? analyzerConfig.historyDepth
+        : 2000;
+    const effectiveDepth = Math.min(Math.max(50, configuredDepth), history.length);
+    const limitedHistory = history.slice(0, effectiveDepth);
+
+    console.log(`📊 Histórico total disponível: ${history.length} giros`);
+    console.log(`⚙️ Profundidade configurada (historyDepth): ${configuredDepth} giros`);
+    console.log(`✅ performPatternAnalysis vai usar apenas os últimos: ${effectiveDepth} giros (respeitando historyDepth)`);
+
     // ✅ BLOQUEAR ANÁLISES DURANTE A BUSCA DE PADRÕES (30s)
     if (initialSearchActive) {
         console.log('%c🚫 ANÁLISE BLOQUEADA - Busca de padrões em andamento (30s)', 'color: #FFA500; font-weight: bold;');
@@ -12942,21 +12961,21 @@ async function performPatternAnalysis(history) {
     }
     
     // Verificar se há dados suficientes para análise
-    if (history.length < 50) {
-        console.log('⚠️ Dados insuficientes para análise multidimensional:', history.length, '/ 50 giros necessários');
-        sendAnalysisStatus(`Coletando dados... ${history.length}/50 giros`);
+    if (limitedHistory.length < 50) {
+        console.log('⚠️ Dados insuficientes para análise multidimensional:', limitedHistory.length, '/ 50 giros necessários');
+        sendAnalysisStatus(`Coletando dados... ${limitedHistory.length}/50 giros`);
         return null;
     }
     
-    // Enviar status inicial com quantidade de giros
-    sendAnalysisStatus(`🔍 Iniciando análise multidimensional de IA com ${history.length} giros`);
+    // Enviar status inicial com quantidade de giros (APÓS aplicar historyDepth)
+    sendAnalysisStatus(`🔍 Iniciando análise multidimensional de IA com ${limitedHistory.length} giros (limite historyDepth)`);
     
     // ═══════════════════════════════════════════════════════════════════════════════
     // ANÁLISE PADRÃO (CONTINUA NORMALMENTE SE NÃO HOUVER PADRÃO CUSTOMIZADO)
     // ═══════════════════════════════════════════════════════════════════════════════
     
     // 1. ANÁLISE DE PADRÕES DE COR COM COR DE DISPARO (baseada nos exemplos)
-    const colorAnalysis = analyzeColorPatternsWithTrigger(history);
+    const colorAnalysis = analyzeColorPatternsWithTrigger(limitedHistory);
     if (colorAnalysis) {
         console.log(`📊 Padrão de cores: ${colorAnalysis.pattern.join('-')} → ${colorAnalysis.suggestedColor} (${colorAnalysis.confidence.toFixed(1)}%, ${colorAnalysis.occurrences}x)`);
     }
@@ -12965,7 +12984,7 @@ async function performPatternAnalysis(history) {
     sendAnalysisStatus('🧮 Verificando padrões numéricos...');
     
     // 2. ANÁLISE DE PADRÕES NUMÉRICOS
-    const numberAnalysis = analyzeNumberPatterns(history);
+    const numberAnalysis = analyzeNumberPatterns(limitedHistory);
     if (numberAnalysis) {
         console.log(`🔢 Padrão numérico: ${numberAnalysis.pattern} → ${numberAnalysis.suggestedNumber} (${numberAnalysis.confidence.toFixed(1)}%)`);
     }
@@ -12974,7 +12993,7 @@ async function performPatternAnalysis(history) {
     sendAnalysisStatus('⏰ Analisando tendências temporais...');
     
     // 3. ANÁLISE TEMPORAL E MISTA AVANÇADA (baseada nos exemplos 21-33)
-    const timeAnalysis = analyzeTemporalAndMixedPatterns(history);
+    const timeAnalysis = analyzeTemporalAndMixedPatterns(limitedHistory);
     if (timeAnalysis) {
         console.log(`⏰ Padrão temporal/misto: ${timeAnalysis.pattern} → ${timeAnalysis.suggestedColor} (${timeAnalysis.confidence.toFixed(1)}%)`);
     }
@@ -12983,7 +13002,7 @@ async function performPatternAnalysis(history) {
     sendAnalysisStatus('🔗 Calculando correlações...');
     
     // 4. ANÁLISE DE CORRELAÇÕES
-    const correlationAnalysis = analyzeCorrelations(history);
+    const correlationAnalysis = analyzeCorrelations(limitedHistory);
     if (correlationAnalysis) {
         console.log(`🔗 Correlação: ${correlationAnalysis.pattern} → ${correlationAnalysis.suggestedColor} (${correlationAnalysis.confidence.toFixed(1)}%)`);
     }
@@ -12992,7 +13011,7 @@ async function performPatternAnalysis(history) {
     sendAnalysisStatus('📊 Avaliando frequências...');
     
     // 5. ANÁLISE DE FREQUÊNCIA MULTIDIMENSIONAL
-    const frequencyAnalysis = analyzeMultidimensionalFrequency(history);
+    const frequencyAnalysis = analyzeMultidimensionalFrequency(limitedHistory);
     if (frequencyAnalysis) {
         console.log(`📈 Frequência multidimensional: ${frequencyAnalysis.pattern} → ${frequencyAnalysis.suggestedColor} (${frequencyAnalysis.confidence.toFixed(1)}%)`);
     }
@@ -13070,11 +13089,19 @@ function analyzeColorPatternsWithTrigger(history) {
         return null;
     }
     
-    console.log(`🔍 Iniciando análise de padrões de cores com ${history.length} giros`);
+    // ✅ APLICAR PROFUNDIDADE DE ANÁLISE CONFIGURADA PELO USUÁRIO (historyDepth)
+    const configuredDepth = analyzerConfig.historyDepth || 2000;
+    const effectiveDepth = Math.min(configuredDepth, history.length);
+    const limitedHistory = history.slice(0, effectiveDepth);
+    
+    console.log(`🔍 Iniciando análise de padrões de cores`);
+    console.log(`📊 Histórico total disponível: ${history.length} giros`);
+    console.log(`⚙️ Profundidade configurada pelo usuário: ${configuredDepth} giros`);
+    console.log(`✅ Analisando apenas os últimos: ${effectiveDepth} giros (respeitando historyDepth)`);
     console.log('🚨 CORREÇÃO ATIVADA: Identificando SEQUÊNCIAS COMPLETAS de cores');
     
-    // ✅ EXTRAÇÃO DE CORES
-    const colors = history.map(s => {
+    // ✅ EXTRAÇÃO DE CORES (usando histórico limitado)
+    const colors = limitedHistory.map(s => {
         if (!s || !s.color) {
             console.warn('⚠️ Giro inválido detectado:', s);
             return 'red'; // Fallback seguro
@@ -13100,14 +13127,15 @@ function analyzeColorPatternsWithTrigger(history) {
     console.log(`   Blocos: ${currentPattern.blocks.map(b => `${b.count}x${b.color.toUpperCase()}`).join(' + ')}`);
     console.log(`   Tamanho total: ${currentPattern.length} giros`);
     
-    // 🔍 PASSO 2: BUSCAR ESSA SEQUÊNCIA COMPLETA NO HISTÓRICO
+    // 🔍 PASSO 2: BUSCAR ESSA SEQUÊNCIA COMPLETA NO HISTÓRICO (LIMITADO)
     const patternToFind = currentPattern.sequence;
     const patternLength = patternToFind.length;
     
     const occurrences = [];
     
-    // Varrer histórico procurando a SEQUÊNCIA COMPLETA
-    for (let i = patternLength; i < history.length - 1; i++) {
+    // Varrer histórico LIMITADO procurando a SEQUÊNCIA COMPLETA
+    // ✅ CORREÇÃO: Usar limitedHistory.length em vez de history.length
+    for (let i = patternLength; i < limitedHistory.length - 1; i++) {
         const historicalSequence = colors.slice(i, i + patternLength);
         
         // Verificar se a sequência completa é igual
@@ -13128,8 +13156,8 @@ function analyzeColorPatternsWithTrigger(history) {
                 index: i,
                 trigger: triggerColor,
                 result: resultColor,
-                number: history[i - 1]?.number,
-                timestamp: history[i - 1]?.timestamp
+                number: limitedHistory[i - 1]?.number,
+                timestamp: limitedHistory[i - 1]?.timestamp
             });
         }
     }
@@ -13209,6 +13237,26 @@ function analyzeColorPatternsWithTrigger(history) {
     console.log(`   LOSS: ${totalLoss}`);
     console.log(`   Saldo: ${balance > 0 ? '+' : ''}${balance}`);
     
+    // ✅ RECONSTRUIR NÚMEROS E TIMESTAMPS DE CADA OCORRÊNCIA
+    // Isso alimenta a UI para desenhar cada ocorrência completa (igual ao histórico de giros)
+    const allOccurrenceNumbers = [];
+    const allOccurrenceTimestamps = [];
+    const allTriggerNumbers = [];
+    const allTriggerTimestamps = [];
+    const allTriggerColors = [];
+
+    occurrences.forEach(occ => {
+        const seqStart = occ.index;
+        const seqSpins = limitedHistory.slice(seqStart, seqStart + patternLength);
+        const triggerSpin = limitedHistory[seqStart + patternLength];
+
+        allOccurrenceNumbers.push(seqSpins.map(s => s?.number ?? null));
+        allOccurrenceTimestamps.push(seqSpins.map(s => s?.timestamp ?? null));
+        allTriggerNumbers.push(triggerSpin ? triggerSpin.number : null);
+        allTriggerTimestamps.push(triggerSpin ? triggerSpin.timestamp : null);
+        allTriggerColors.push(triggerSpin ? triggerSpin.color : null);
+    });
+    
     // ✅ FILTRAR PADRÕES FRACOS
     if (totalWins < minOccurrences) {
         console.log(`❌ WINS insuficientes: ${totalWins} < ${minOccurrences} (mínimo)`);
@@ -13243,7 +13291,7 @@ function analyzeColorPatternsWithTrigger(history) {
         }
     }
     
-    // ✅ CONSTRUIR RESULTADO FINAL
+    // ✅ CONSTRUIR RESULTADO FINAL (incluindo detalhes das ocorrências para a UI)
     const bestPattern = {
         pattern: patternToFind,
         blocks: currentPattern.blocks, // 🆕 Informação dos blocos (ex: 7xPRETO + 7xVERMELHO)
@@ -13259,7 +13307,13 @@ function analyzeColorPatternsWithTrigger(history) {
         patternType: identifyPatternType(patternToFind, currentTriggerColor),
         isCurrentMatch: true,
         currentTriggerValid: true,
-        createdOnTimestamp: history[0]?.timestamp || null,
+        createdOnTimestamp: limitedHistory[0]?.timestamp || null,
+        // Arrays usados pela UI para desenhar as ocorrências
+        allOccurrenceNumbers,
+        allOccurrenceTimestamps,
+        allTriggerNumbers,
+        allTriggerTimestamps,
+        allTriggerColors,
         summary: {
             occurrences: totalOccurrences,
             wins: totalWins,
