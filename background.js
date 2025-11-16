@@ -2897,7 +2897,7 @@ async function processNewSpinFromServer(spinData) {
                                         martingaleState
                                     });
                                     
-                                    sendMessageToContent('NEW_ANALYSIS', g1Analysis);
+                                    emitAnalysisToContent(g1Analysis, 'standard');
                                 } else {
                                     // ❌ MODO PADRÃO: Aguardar novo padrão para enviar G1
                                     console.log('⏳ MODO PADRÃO: Aguardando novo padrão para enviar G1...');
@@ -3043,7 +3043,7 @@ async function processNewSpinFromServer(spinData) {
                                         martingaleState
                                     });
                                     
-                                    sendMessageToContent('NEW_ANALYSIS', nextGaleAnalysis);
+                                    emitAnalysisToContent(nextGaleAnalysis, 'standard');
                                 } else {
                                     // ❌ MODO PADRÃO
                                     console.log(`⏳ MODO PADRÃO: Aguardando novo padrão para enviar G${nextGaleNumber}...`);
@@ -3125,7 +3125,7 @@ async function processNewSpinFromServer(spinData) {
                                         martingaleState
                                     });
                                     
-                                    sendMessageToContent('NEW_ANALYSIS', g2Analysis);
+                                    emitAnalysisToContent(g2Analysis, 'standard');
                                 } else {
                                     // ❌ MODO PADRÃO: Aguardar novo padrão para enviar G2
                                     console.log('⏳ MODO PADRÃO: Aguardando novo padrão para enviar G2...');
@@ -3455,7 +3455,7 @@ async function analyzePatterns(history) {
                 lastBet: { status: 'pending', phase: analysis.phase || 'G0', createdOnTimestamp: analysis.createdOnTimestamp }
             });
             
-            sendMessageToContent('NEW_ANALYSIS', analysis);
+            emitAnalysisToContent(analysis, 'standard');
             } else {
             console.log('❌ Nenhum padrão válido encontrado na análise');
             // Limpar análise primeiro
@@ -14108,7 +14108,7 @@ async function runAnalysisController(history) {
 			
 			// 1. Enviar para extensão (UI)
 			try {
-				sendResults.extensao = await sendMessageToContent('NEW_ANALYSIS', verifyResult);
+				sendResults.extensao = await emitAnalysisToContent(verifyResult, 'standard');
 			} catch (e) {
 				console.error('❌ Erro crítico ao enviar para extensão:', e);
 			}
@@ -14301,7 +14301,7 @@ async function runAnalysisController(history) {
 				
 				// 1. Enviar para extensão (UI)
 				try {
-					sendResults.extensao = await sendMessageToContent('NEW_ANALYSIS', analysis);
+					sendResults.extensao = await emitAnalysisToContent(analysis, 'diamond');
 				} catch (e) {
 					console.error('❌ Erro crítico ao enviar para extensão:', e);
 				}
@@ -14405,7 +14405,7 @@ async function runAnalysisController(history) {
 				
 				// 1. Enviar para extensão (UI)
 				try {
-					sendResults.extensao = await sendMessageToContent('NEW_ANALYSIS', analysis);
+					sendResults.extensao = await emitAnalysisToContent(analysis, 'diamond');
 				} catch (e) {
 					console.error('❌ Erro crítico ao enviar para extensão:', e);
 				}
@@ -19516,52 +19516,66 @@ function computeAssertivenessForColorPattern(patternColors, expectedNext, histor
 // ═══════════════════════════════════════════════════════════════════════════════
 async function sendMessageToContent(type, data = null) {
     return new Promise((resolve) => {
-        // ✅ BUSCAR TODAS AS ABAS DA BLAZE (não apenas ativa/janela atual)
         chrome.tabs.query({}, function(tabs) {
-            // ✅ FILTRAR APENAS ABAS DA BLAZE
             const blazeTabs = tabs.filter(tab => {
                 if (!tab.url) return false;
-                return tab.url.includes('blaze.bet.br') || 
-                       tab.url.includes('blaze.com') || 
+                return tab.url.includes('blaze.bet.br') ||
+                       tab.url.includes('blaze.com') ||
                        tab.url.includes('blaze1.space') ||
                        tab.url.includes('blaze-1.com');
             });
-            
-            // ✅ VALIDAR SE TEM ALGUMA ABA DA BLAZE
+
             if (!blazeTabs || blazeTabs.length === 0) {
-                // Não logar erro - é normal quando Blaze está fechada
                 resolve(false);
                 return;
             }
-            
-            // ✅ PREFERIR ABA ATIVA, senão usar a primeira encontrada
-            let targetTab = blazeTabs.find(tab => tab.active) || blazeTabs[0];
-            
-            // ✅ PREPARAR MENSAGEM
-            const message = { type: type };
-            if (data) message.data = data;
-            
-            // ✅ ENVIAR COM TRATAMENTO DE ERRO
-            chrome.tabs.sendMessage(targetTab.id, message)
-                .then(() => {
-                    // Log removido: redução de verbosidade
-                    resolve(true);
-                })
-                .catch(error => {
-                    // ✅ TRATAMENTO DE ERRO SILENCIOSO (content script pode não estar pronto)
-                    if (error.message && error.message.includes('Could not establish connection')) {
-                        // Content script ainda não carregou - normal após reload
-                        resolve(false);
-                    } else if (error.message && error.message.includes('Receiving end does not exist')) {
-                        // Content script não está respondendo - normal em algumas situações
-                        resolve(false);
-                } else {
-                        console.error(`❌ Erro ao enviar ${type}:`, error);
-                        resolve(false);
+
+            const message = { type };
+            if (data) {
+                message.data = data;
+            }
+
+            let successCount = 0;
+            let processedCount = 0;
+
+            const finalize = () => {
+                if (processedCount === blazeTabs.length) {
+                    resolve(successCount > 0);
                 }
+            };
+
+            blazeTabs.forEach(tab => {
+                chrome.tabs.sendMessage(tab.id, message)
+                    .then(() => {
+                        successCount += 1;
+                        processedCount += 1;
+                        finalize();
+                    })
+                    .catch(error => {
+                        processedCount += 1;
+                        if (error?.message && (
+                            error.message.includes('Could not establish connection') ||
+                            error.message.includes('Receiving end does not exist')
+                        )) {
+                            finalize();
+                        } else {
+                            if (error) {
+                                console.error(`❌ Erro ao enviar ${type} para a aba ${tab.id}:`, error);
+                            }
+                            finalize();
+                        }
+                    });
             });
         });
     });
+}
+
+function emitAnalysisToContent(analysis, mode) {
+    const payload = analysis ? { ...analysis } : {};
+    if (mode) {
+        payload.analysisMode = mode;
+    }
+    return sendMessageToContent('NEW_ANALYSIS', payload);
 }
 
 // Função para enviar status de análise para o content script

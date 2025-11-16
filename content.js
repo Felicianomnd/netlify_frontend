@@ -6203,6 +6203,15 @@ const DIAMOND_LEVEL_DEFAULTS = {
     // Listen for messages from background script
     chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         if (request.type === 'NEW_ANALYSIS') {
+            const messageMode = request.data && request.data.analysisMode ? request.data.analysisMode : null;
+            const tabMode = getTabSpecificAIMode(false) ? 'diamond' : 'standard';
+
+            if (messageMode && messageMode !== tabMode) {
+                console.log(`%c⚠️ [NEW_ANALYSIS] Ignorado (modo ${messageMode} ≠ aba ${tabMode})`, 'color: #FFA500; font-weight: bold;');
+                sendResponse && sendResponse({ accepted: false, reason: 'mode_mismatch' });
+                return;
+            }
+
             console.log('%c🔍 [NEW_ANALYSIS] Recebido!', 'color: #00FFFF; font-weight: bold;');
             console.log('%c   📦 request.data:', 'color: #00FFFF;', request.data);
             console.log('%c   🎲 last5Spins existe?', 'color: #00FFFF;', request.data.last5Spins ? '✅ SIM' : '❌ NÃO');
