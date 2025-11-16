@@ -1214,9 +1214,7 @@
                 }
             } else {
                 // Fallback se não conseguir pegar status
-                console.warn('%c⚠️ [CONTENT] Resposta inválida ou vazia!', 'color: #FFA500; font-weight: bold;');
-                console.warn('%c   response:', 'color: #FFA500;', response);
-                console.warn('%c   response.status:', 'color: #FFA500;', response?.status);
+                statusLogger.setError('Status da memória retornou vazio');
                 elemento.textContent = 'Memória ativada';
                 // ✅ NÃO mexer no display - já está gerenciado pelo updateAIModeUI
             }
@@ -6932,6 +6930,14 @@ const DIAMOND_LEVEL_DEFAULTS = {
             chrome.storage.local.get(['analyzerConfig'], function(res) {
                 let cfg = res && res.analyzerConfig ? { ...res.analyzerConfig } : {};
                 cfg = ensureModeProfiles(cfg);
+
+                const tabModeStr = sessionStorage.getItem('tabSpecificAIMode');
+                if (tabModeStr !== null) {
+                    const tabMode = JSON.parse(tabModeStr);
+                    cfg.aiMode = !!tabMode;
+                    cfg = ensureModeProfiles(cfg);
+                }
+
                 const histDepth = document.getElementById('cfgHistoryDepth');
                 const minOcc = document.getElementById('cfgMinOccurrences');
                 const maxOcc = document.getElementById('cfgMaxOccurrences');

@@ -161,6 +161,13 @@ function mergeAnalyzerConfig(partial = {}) {
         [MODE_KEY_DIAMOND]: buildModeProfile(diamondSource, activeKey === MODE_KEY_DIAMOND ? fallbackActive : MODE_SETTINGS_DEFAULT)
     };
 
+    if (partial.modeSettings && activeKey === MODE_KEY_STANDARD) {
+        merged.modeSettings[MODE_KEY_DIAMOND] = buildModeProfile(partial.modeSettings[MODE_KEY_DIAMOND], merged.modeSettings[MODE_KEY_DIAMOND]);
+    }
+    if (partial.modeSettings && activeKey === MODE_KEY_DIAMOND) {
+        merged.modeSettings[MODE_KEY_STANDARD] = buildModeProfile(partial.modeSettings[MODE_KEY_STANDARD], merged.modeSettings[MODE_KEY_STANDARD]);
+    }
+
     const activeProfile = merged.modeSettings[activeKey];
     merged.maxGales = Number.isFinite(activeProfile.maxGales) ? activeProfile.maxGales : MODE_SETTINGS_DEFAULT.maxGales;
     merged.consecutiveMartingale = typeof activeProfile.consecutiveMartingale === 'boolean'
