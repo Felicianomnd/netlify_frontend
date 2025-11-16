@@ -79,8 +79,12 @@ const DEFAULT_ANALYZER_CONFIG = {
     maxPatternSize: 0,            // ✅ tamanho MÁXIMO do padrão (0 = sem limite)
     winPercentOthers: 100,        // ✅ WIN% mínima para as ocorrências restantes (100% = apenas padrões perfeitos)
     requireTrigger: true,         // ✅ exigir cor de disparo (ATIVADO)
-    consecutiveMartingale: false, // ✅ Martingale consecutivo (DESATIVADO)
-    maxGales: 0,                  // ✅ Quantidade máxima de Gales (0 = sem gale, entrada única)
+    consecutiveMartingale: false, // ✅ Legado: valor do modo ativo (mantido para compatibilidade)
+    maxGales: 0,                  // ✅ Legado: valor do modo ativo (mantido para compatibilidade)
+    martingaleProfiles: {         // ✅ Perfis independentes por modo
+        standard: { maxGales: 0, consecutiveMartingale: false },
+        diamond: { maxGales: 0, consecutiveMartingale: false }
+    },
     telegramChatId: '',           // Chat ID do Telegram para enviar sinais
     aiMode: false,                // Modo Diamante (true) ou Modo Padrão (false)
     signalIntensity: 'moderate',  // Intensidade de sinais: 'aggressive', 'moderate', 'conservative', 'ultraconservative'
@@ -106,7 +110,78 @@ const DEFAULT_ANALYZER_CONFIG = {
         n10ConfMin: 60            // Confiança mínima global (%) para N10 votar
     }
 };
-let analyzerConfig = { ...DEFAULT_ANALYZER_CONFIG };
+
+function sanitizeMaxGales(value, fallback = 0) {
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric)) {
+        const fallbackNumeric = Number(fallback);
+        return Math.max(0, Math.min(200, Number.isFinite(fallbackNumeric) ? Math.floor(fallbackNumeric) : 0));
+    }
+    return Math.max(0, Math.min(200, Math.floor(numeric)));
+}
+
+function ensureMartingaleProfiles(config) {
+    if (!config) return;
+    const defaults = DEFAULT_ANALYZER_CONFIG.martingaleProfiles || {};
+    if (!config.martingaleProfiles || typeof config.martingaleProfiles !== 'object') {
+        config.martingaleProfiles = {};
+    }
+    ['standard', 'diamond'].forEach(mode => {
+        const profile = config.martingaleProfiles[mode] || {};
+        const defaultProfile = defaults[mode] || { maxGales: 0, consecutiveMartingale: false };
+        const inheritedMax = profile.maxGales != null ? profile.maxGales : config.maxGales;
+        const inheritedConsecutive = profile.consecutiveMartingale != null ? profile.consecutiveMartingale : config.consecutiveMartingale;
+        config.martingaleProfiles[mode] = {
+            maxGales: sanitizeMaxGales(inheritedMax, defaultProfile.maxGales),
+            consecutiveMartingale: typeof inheritedConsecutive === 'boolean'
+                ? inheritedConsecutive
+                : defaultProfile.consecutiveMartingale
+        };
+    });
+}
+
+function getModeKey(config = analyzerConfig) {
+    return config && config.aiMode ? 'diamond' : 'standard';
+}
+
+function getMartingaleSettings(modeKey = getModeKey(), config = analyzerConfig) {
+    if (!config) {
+        return { maxGales: 0, consecutiveMartingale: false };
+    }
+    ensureMartingaleProfiles(config);
+    const profiles = config.martingaleProfiles || {};
+    const profile = profiles[modeKey] || { maxGales: 0, consecutiveMartingale: false };
+    return {
+        maxGales: sanitizeMaxGales(profile.maxGales),
+        consecutiveMartingale: !!profile.consecutiveMartingale
+    };
+}
+
+function syncActiveMartingaleSettings(config = analyzerConfig) {
+    if (!config) return;
+    const activeProfile = getMartingaleSettings(getModeKey(config), config);
+    config.maxGales = activeProfile.maxGales;
+    config.consecutiveMartingale = activeProfile.consecutiveMartingale;
+}
+
+function mergeAnalyzerConfig(overrides = {}) {
+    const defaults = DEFAULT_ANALYZER_CONFIG.martingaleProfiles || {};
+    const overrideProfiles = (overrides && overrides.martingaleProfiles) || {};
+    analyzerConfig = {
+        ...DEFAULT_ANALYZER_CONFIG,
+        ...(overrides || {})
+    };
+    analyzerConfig.martingaleProfiles = {
+        standard: { ...(defaults.standard || {}), ...(overrideProfiles.standard || {}) },
+        diamond: { ...(defaults.diamond || {}), ...(overrideProfiles.diamond || {}) }
+    };
+    ensureMartingaleProfiles(analyzerConfig);
+    syncActiveMartingaleSettings(analyzerConfig);
+    return analyzerConfig;
+}
+
+let analyzerConfig;
+mergeAnalyzerConfig();
 
 function getDiamondWindow(key, fallback) {
     const windows = analyzerConfig && analyzerConfig.diamondLevelWindows ? analyzerConfig.diamondLevelWindows : {};
@@ -1428,13 +1503,25 @@ function logActiveConfiguration() {
         
         // MARTINGALE
         console.log('║  🎲 SISTEMA DE MARTINGALE (GALE):                         ║');
-        const galeQty = config.maxGales === 0 ? 'DESATIVADO' : 
-                        config.maxGales === 1 ? '1 Gale (G1)' : 
-                        config.maxGales === 2 ? '2 Gales (G1, G2)' : 
-                        `${config.maxGales} Gales`;
-        console.log(`║     • Quantidade de Gales: ${galeQty.padEnd(28)}║`);
-        const martingaleMode = config.consecutiveMartingale ? 'CONSECUTIVO (imediato)' : 'PADRÃO (aguarda novo)';
-        console.log(`║     • Modo: ${martingaleMode.padEnd(44)}║`);
+        const padMartingaleLine = (text) => text.padEnd(54);
+        const formatGaleQty = (value) => value === 0
+            ? 'DESATIVADO'
+            : value === 1
+                ? '1 Gale (G1)'
+                : value === 2
+                    ? '2 Gales (G1, G2)'
+                    : `${value} Gales`;
+        const activeModeKey = getModeKey(config);
+        const otherModeKey = activeModeKey === 'diamond' ? 'standard' : 'diamond';
+        const activeProfile = getMartingaleSettings(activeModeKey, config);
+        const otherProfile = getMartingaleSettings(otherModeKey, config);
+        const activeLabel = activeModeKey === 'diamond' ? 'Diamante' : 'Padrão';
+        const otherLabel = otherModeKey === 'diamond' ? 'Diamante' : 'Padrão';
+        
+        console.log(`║     ${padMartingaleLine(`• ${activeLabel} (ativo): ${formatGaleQty(activeProfile.maxGales)}`)}║`);
+        console.log(`║     ${padMartingaleLine(`  Modo: ${activeProfile.consecutiveMartingale ? 'CONSECUTIVO (imediato)' : 'PADRÃO (aguarda novo)'}`)}║`);
+        console.log(`║     ${padMartingaleLine(`• ${otherLabel} (perfil): ${formatGaleQty(otherProfile.maxGales)}`)}║`);
+        console.log(`║     ${padMartingaleLine(`  Modo: ${otherProfile.consecutiveMartingale ? 'CONSECUTIVO (imediato)' : 'PADRÃO (aguarda novo)'}`)}║`);
         
         // TELEGRAM
         console.log('║  📲 TELEGRAM:                                             ║');
@@ -1480,7 +1567,7 @@ function logActiveConfiguration() {
     try {
         const res = await chrome.storage.local.get(['analyzerConfig']);
         if (res && res.analyzerConfig) {
-            analyzerConfig = { ...DEFAULT_ANALYZER_CONFIG, ...res.analyzerConfig };
+            mergeAnalyzerConfig(res.analyzerConfig);
         } else {
             await chrome.storage.local.set({ analyzerConfig: analyzerConfig });
         }
@@ -1521,7 +1608,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
     if (area === 'local' && changes.analyzerConfig) {
         try {
             const newVal = changes.analyzerConfig.newValue || {};
-            analyzerConfig = { ...DEFAULT_ANALYZER_CONFIG, ...newVal };
+            mergeAnalyzerConfig(newVal);
             console.log('AnalyzerConfig aplicado imediatamente:', analyzerConfig);
             
             // ✅ EXIBIR NOVAS CONFIGURAÇÕES
@@ -2002,7 +2089,7 @@ async function startDataCollection() {
         
         // Carregar configurações
         if (storageData.analyzerConfig) {
-            analyzerConfig = { ...DEFAULT_ANALYZER_CONFIG, ...storageData.analyzerConfig };
+            mergeAnalyzerConfig(storageData.analyzerConfig);
             console.log('✅ Configurações carregadas do storage com sucesso!');
             console.log('🔧 DEBUG - Config carregada:', {
                 aiMode: analyzerConfig.aiMode,
@@ -2329,10 +2416,15 @@ async function processNewSpinFromServer(spinData) {
                 
                 // Carregar configurações
                 if (storageData.analyzerConfig) {
-                    analyzerConfig = { ...DEFAULT_ANALYZER_CONFIG, ...storageData.analyzerConfig };
+                    mergeAnalyzerConfig(storageData.analyzerConfig);
+                    const activeModeKey = getModeKey();
+                    const otherModeKey = activeModeKey === 'diamond' ? 'standard' : 'diamond';
                     console.log('⚙️ Configurações carregadas:', {
-                        consecutiveMartingale: analyzerConfig.consecutiveMartingale,
-                        maxGales: analyzerConfig.maxGales
+                        aiMode: analyzerConfig.aiMode,
+                        martingale: {
+                            [activeModeKey]: getMartingaleSettings(activeModeKey),
+                            [otherModeKey]: getMartingaleSettings(otherModeKey)
+                        }
                     });
                 }
                 
@@ -2614,7 +2706,7 @@ async function processNewSpinFromServer(spinData) {
                             }
                             
                             const nextGaleNumber = currentGaleNumber + 1;
-                            const maxGales = analyzerConfig.maxGales || 0;
+                            const { maxGales, consecutiveMartingale } = getMartingaleSettings();
                             
                             console.log(`║  ❌ LOSS no ${currentStage === 'ENTRADA' ? 'ENTRADA PADRÃO' : currentStage}                                  ║`);
                             console.log(`║  ⚙️  Configuração: ${maxGales} Gale${maxGales !== 1 ? 's' : ''} permitido${maxGales !== 1 ? 's' : ''}           ║`);
@@ -2720,7 +2812,7 @@ async function processNewSpinFromServer(spinData) {
                                 
                                 // ✅ TEM GALES: Tentar G1
                                 console.log(`🔄 Tentando G${nextGaleNumber}...`);
-                                console.log(`⚙️ Martingale Consecutivo: ${analyzerConfig.consecutiveMartingale ? 'ATIVADO' : 'DESATIVADO'}`);
+                                console.log(`⚙️ Martingale Consecutivo: ${consecutiveMartingale ? 'ATIVADO' : 'DESATIVADO'}`);
                                 
                                 // ✅ ENVIAR MENSAGEM DE LOSS ENTRADA (vai tentar G1)
                                 await sendTelegramMartingaleLoss(
@@ -2769,7 +2861,7 @@ async function processNewSpinFromServer(spinData) {
                                 // VERIFICAR MODO DE MARTINGALE
                                 // ═══════════════════════════════════════════════════════════════
                                 
-                                if (analyzerConfig.consecutiveMartingale) {
+                                if (consecutiveMartingale) {
                                     // ✅ MODO CONSECUTIVO: Enviar G1 IMEDIATAMENTE no próximo giro
                                     console.log('🎯 MODO CONSECUTIVO: G1 será enviado no PRÓXIMO GIRO');
                                     
@@ -2873,7 +2965,7 @@ async function processNewSpinFromServer(spinData) {
                                 
                                 // ✅ TEM GALES: Tentar próximo
                                 console.log(`🔄 Tentando G${nextGaleNumber}...`);
-                                console.log(`⚙️ Martingale Consecutivo: ${analyzerConfig.consecutiveMartingale ? 'ATIVADO' : 'DESATIVADO'}`);
+                                console.log(`⚙️ Martingale Consecutivo: ${consecutiveMartingale ? 'ATIVADO' : 'DESATIVADO'}`);
                                 
                                 // ✅ ENVIAR MENSAGEM DE LOSS (vai tentar próximo Gale)
                                 await sendTelegramMartingaleLoss(
@@ -2916,7 +3008,7 @@ async function processNewSpinFromServer(spinData) {
                                 martingaleState.lossColors.push(rollColor);
                                 
                                 // Verificar modo de Martingale
-                                if (analyzerConfig.consecutiveMartingale) {
+                                if (consecutiveMartingale) {
                                     // ✅ MODO CONSECUTIVO
                                     console.log(`🎯 MODO CONSECUTIVO: G${nextGaleNumber} será enviado no PRÓXIMO GIRO`);
                                     
@@ -2960,7 +3052,7 @@ async function processNewSpinFromServer(spinData) {
                                 // ═══════════════════════════════════════════════════════════════
                                 // ✅ LOSS NO G1: Verificar modo de Martingale
                                 // ═══════════════════════════════════════════════════════════════
-                                console.log(`⚙️ Martingale Consecutivo: ${analyzerConfig.consecutiveMartingale ? 'ATIVADO' : 'DESATIVADO'}`);
+                                console.log(`⚙️ Martingale Consecutivo: ${consecutiveMartingale ? 'ATIVADO' : 'DESATIVADO'}`);
                                 
                                 // ✅ USAR SEMPRE A MESMA COR DA ENTRADA ORIGINAL
                                 const g2Color = martingaleState.entryColor;
@@ -2997,7 +3089,7 @@ async function processNewSpinFromServer(spinData) {
                                 // VERIFICAR MODO DE MARTINGALE
                                 // ═══════════════════════════════════════════════════════════════
                                 
-                                if (analyzerConfig.consecutiveMartingale) {
+                                if (consecutiveMartingale) {
                                     // ✅ MODO CONSECUTIVO: Enviar G2 IMEDIATAMENTE no próximo giro
                                     console.log('🎯 MODO CONSECUTIVO: G2 será enviado no PRÓXIMO GIRO');
                                     
@@ -10380,11 +10472,12 @@ async function analyzeWithPatternSystem(history) {
                 }
                 // ✅ REGRA 3: WIN na 1ª + tem entradas consecutivas configuradas → Pode fazer 2ª
                 else if (alternanceEntryControl.lastResult === 'win' && alternanceEntryControl.entryCount === 1) {
-                    if (!analyzerConfig.consecutiveMartingale) {
+                    const { consecutiveMartingale: allowsConsecutiveEntries } = getMartingaleSettings();
+                    if (!allowsConsecutiveEntries) {
                         alternanceBlocked = true;
                         alternanceBlockReason = 'Entradas consecutivas desativadas';
                         console.log('%c   ⏸️ BLOQUEADO: Entradas consecutivas desativadas pelo usuário', 'color: #FFAA00; font-weight: bold;');
-        } else {
+                    } else {
                         console.log('%c   ✅ PERMITIDO: WIN na 1ª entrada + consecutivas ativas → pode fazer 2ª', 'color: #00FF88; font-weight: bold;');
                     }
                 }
@@ -11887,7 +11980,7 @@ async function runAnalysisController(history) {
 		console.log('%c🔄 Recarregando configuração do storage...', 'color: #FFAA00; font-weight: bold;');
 		const storageResult = await chrome.storage.local.get(['analyzerConfig']);
 		if (storageResult && storageResult.analyzerConfig) {
-			analyzerConfig = { ...DEFAULT_ANALYZER_CONFIG, ...storageResult.analyzerConfig };
+			mergeAnalyzerConfig(storageResult.analyzerConfig);
 			console.log('%c✅ Configuração recarregada com sucesso!', 'color: #00FF00; font-weight: bold;');
 		} else {
 			console.log('%c⚠️ Nenhuma config no storage, usando padrão', 'color: #FFAA00;');
@@ -11930,7 +12023,8 @@ async function runAnalysisController(history) {
 		}
 		
 		// ⚠️ CRÍTICO: VERIFICAR MODO CONSECUTIVO COM MARTINGALE ATIVO (APLICA PARA AMBOS OS MODOS)
-		if (analyzerConfig.consecutiveMartingale && martingaleState.active) {
+		const { consecutiveMartingale: activeConsecutiveMartingale } = getMartingaleSettings();
+		if (activeConsecutiveMartingale && martingaleState.active) {
 			console.log('%c║  🔒 MODO CONSECUTIVO COM MARTINGALE ATIVO                ║', 'color: #FF0000; font-weight: bold; font-size: 16px; background: #330000; padding: 5px;');
 			console.log('%c║  Estágio: ' + martingaleState.stage, 'color: #FF0000; font-weight: bold; background: #330000; padding: 5px;');
 			console.log('%c║  Cor: ' + martingaleState.entryColor, 'color: #FF0000; font-weight: bold; background: #330000; padding: 5px;');
@@ -17823,11 +17917,12 @@ async function sendTelegramMartingaleGale(galeNumber, color, percentage) {
     
     // Determinar texto de alerta baseado no número do Gale
     let warningText = '';
-    const maxGales = analyzerConfig.maxGales || 2;
-    if (galeNumber === maxGales) {
+    const { maxGales } = getMartingaleSettings();
+    const configuredMaxGales = maxGales || 2;
+    if (galeNumber === configuredMaxGales) {
         warningText = '\n⚠️ <b>ÚLTIMA TENTATIVA!</b> ⚠️';
     } else if (galeNumber >= 3) {
-        warningText = `\n⚠️ Gale ${galeNumber} de ${maxGales}`;
+        warningText = `\n⚠️ Gale ${galeNumber} de ${configuredMaxGales}`;
     }
     
     const message = `
@@ -18034,7 +18129,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                 
                 const res = await chrome.storage.local.get(['analyzerConfig']);
                 if (res && res.analyzerConfig) {
-                    analyzerConfig = { ...DEFAULT_ANALYZER_CONFIG, ...res.analyzerConfig };
+                    mergeAnalyzerConfig(res.analyzerConfig);
                 }
                 console.log('%c⚙️ Nova configuração aplicada via UI:', 'color: #00D4FF; font-weight: bold;');
                 console.log('%c📊 Profundidade de Análise: ' + (analyzerConfig.historyDepth || 2000) + ' giros', 'color: #00FF88; font-weight: bold; background: #003322; padding: 4px 8px; border-radius: 4px;');
@@ -18125,7 +18220,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                     console.log('%c   aiMode: ' + res.analyzerConfig.aiMode, 'color: #00FFFF; font-weight: bold; font-size: 13px;');
                     console.log('%c   minOccurrences: ' + res.analyzerConfig.minOccurrences, 'color: #00FFFF;');
                     
-                    analyzerConfig = { ...DEFAULT_ANALYZER_CONFIG, ...res.analyzerConfig };
+                    mergeAnalyzerConfig(res.analyzerConfig);
                     
                     console.log('%c🤖 Modo IA ' + (analyzerConfig.aiMode ? 'ATIVADO' : 'DESATIVADO'), 'color: ' + (analyzerConfig.aiMode ? '#00FF00' : '#FF6666') + '; font-weight: bold; font-size: 16px; background: ' + (analyzerConfig.aiMode ? '#003300' : '#330000') + '; padding: 5px;');
                     
@@ -18399,7 +18494,7 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
         const newConfig = changes.analyzerConfig.newValue;
         if (newConfig) {
             // ✅ ATUALIZAR CONFIGURAÇÕES
-            analyzerConfig = { ...DEFAULT_ANALYZER_CONFIG, ...newConfig };
+            mergeAnalyzerConfig(newConfig);
             
             // ✅ MOSTRAR LOG COMPLETO DAS NOVAS CONFIGURAÇÕES
             console.log('║  🔄 CONFIGURAÇÕES ATUALIZADAS EM TEMPO REAL!             ║');

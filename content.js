@@ -22,6 +22,66 @@
     let forceLogoutAlreadyTriggered = false;
     let activeUserMenuKeyHandler = null;
 
+    const MARTINGALE_PROFILE_DEFAULTS = Object.freeze({
+        standard: { maxGales: 0, consecutiveMartingale: false },
+        diamond: { maxGales: 0, consecutiveMartingale: false }
+    });
+
+    function clampMartingaleMax(value, fallback = 0) {
+        const numeric = Number(value);
+        if (!Number.isFinite(numeric)) {
+            const fallbackNumeric = Number(fallback);
+            return Math.max(0, Math.min(200, Number.isFinite(fallbackNumeric) ? Math.floor(fallbackNumeric) : 0));
+        }
+        return Math.max(0, Math.min(200, Math.floor(numeric)));
+    }
+
+    function sanitizeMartingaleProfilesFromConfig(config = {}) {
+        const sanitized = {
+            standard: { ...MARTINGALE_PROFILE_DEFAULTS.standard },
+            diamond: { ...MARTINGALE_PROFILE_DEFAULTS.diamond }
+        };
+        const sourceProfiles = config && typeof config.martingaleProfiles === 'object'
+            ? config.martingaleProfiles
+            : null;
+
+        ['standard', 'diamond'].forEach(mode => {
+            const rawProfile = sourceProfiles && typeof sourceProfiles[mode] === 'object' ? sourceProfiles[mode] : {};
+            const fallbackProfile = MARTINGALE_PROFILE_DEFAULTS[mode];
+            const inheritedMax = rawProfile.maxGales != null ? rawProfile.maxGales : config.maxGales;
+            const inheritedConsecutive = rawProfile.consecutiveMartingale != null
+                ? rawProfile.consecutiveMartingale
+                : config.consecutiveMartingale;
+            sanitized[mode] = {
+                maxGales: clampMartingaleMax(inheritedMax, fallbackProfile.maxGales),
+                consecutiveMartingale: typeof inheritedConsecutive === 'boolean'
+                    ? inheritedConsecutive
+                    : fallbackProfile.consecutiveMartingale
+            };
+        });
+
+        return sanitized;
+    }
+
+    function getTabSpecificAIMode(defaultValue) {
+        const tabSpecificModeStr = sessionStorage.getItem('tabSpecificAIMode');
+        if (tabSpecificModeStr !== null) {
+            try {
+                return !!JSON.parse(tabSpecificModeStr);
+            } catch (error) {
+                console.warn('⚠️ Não foi possível interpretar tabSpecificAIMode do sessionStorage:', error);
+            }
+        }
+        return !!defaultValue;
+    }
+
+    function applyActiveMartingaleToLegacyFields(config, modeKey, profiles) {
+        if (!config || !profiles) return;
+        const profile = profiles[modeKey] || MARTINGALE_PROFILE_DEFAULTS[modeKey];
+        config.maxGales = profile.maxGales;
+        config.consecutiveMartingale = profile.consecutiveMartingale;
+    }
+
     function getAuthPageUrl() {
         try {
             if (typeof chrome !== 'undefined' && chrome.runtime?.getURL) {
@@ -649,6 +709,9 @@
     function activateAIMode(config, newAIMode, toggleElement) {
         // Atualizar configuração
         config.aiMode = newAIMode;
+        config.martingaleProfiles = sanitizeMartingaleProfilesFromConfig(config);
+        const activeModeKey = newAIMode ? 'diamond' : 'standard';
+        applyActiveMartingaleToLegacyFields(config, activeModeKey, config.martingaleProfiles);
         
         // ✅ LOG DE DEBUG
         console.log('🔧 Salvando aiMode no storage:', newAIMode);
@@ -681,6 +744,8 @@
             
             // ✅ Habilitar/Desabilitar campos irrelevantes para IA
             toggleAIConfigFields(newAIMode);
+            // ✅ Recarregar configurações para refletir perfis específicos de cada modo
+            setTimeout(loadSettings, 0);
             
             // 🧠 Se modo IA foi ativado, atualizar status e iniciar intervalo
             if (newAIMode) {
@@ -4204,6 +4269,10 @@ const DIAMOND_LEVEL_DEFAULTS = {
                         requireTrigger: true,
                         consecutiveMartingale: false,
                         maxGales: 0,
+                        martingaleProfiles: {
+                            standard: { maxGales: 0, consecutiveMartingale: false },
+                            diamond: { maxGales: 0, consecutiveMartingale: false }
+                        },
                         telegramChatId: '',
                         signalIntensity: 'moderate',
                         aiApiKey: '',
@@ -6742,6 +6811,11 @@ const DIAMOND_LEVEL_DEFAULTS = {
             // Carregar do localStorage (que agora pode ter sido atualizado do servidor)
             chrome.storage.local.get(['analyzerConfig'], function(res) {
                 const cfg = res && res.analyzerConfig ? res.analyzerConfig : {};
+                const sanitizedProfiles = sanitizeMartingaleProfilesFromConfig(cfg);
+                cfg.martingaleProfiles = sanitizedProfiles;
+                const currentAIMode = getTabSpecificAIMode(cfg.aiMode || false);
+                const activeModeKey = currentAIMode ? 'diamond' : 'standard';
+                const activeMartingaleProfile = sanitizedProfiles[activeModeKey];
                 const histDepth = document.getElementById('cfgHistoryDepth');
                 const minOcc = document.getElementById('cfgMinOccurrences');
                 const maxOcc = document.getElementById('cfgMaxOccurrences');
@@ -6761,8 +6835,8 @@ const DIAMOND_LEVEL_DEFAULTS = {
                 if (maxSize) maxSize.value = cfg.maxPatternSize != null ? cfg.maxPatternSize : 0;
                 if (winPct) winPct.value = cfg.winPercentOthers != null ? cfg.winPercentOthers : 25;
                 if (reqTrig) reqTrig.checked = cfg.requireTrigger != null ? cfg.requireTrigger : true;
-                if (consecutiveMartingale) consecutiveMartingale.checked = cfg.consecutiveMartingale != null ? cfg.consecutiveMartingale : false;
-                if (maxGales) maxGales.value = cfg.maxGales != null ? cfg.maxGales : 2;
+                if (consecutiveMartingale) consecutiveMartingale.checked = activeMartingaleProfile.consecutiveMartingale;
+                if (maxGales) maxGales.value = activeMartingaleProfile.maxGales;
                 if (tgChatId) tgChatId.value = cfg.telegramChatId || '';
                 
                 // 🎚️ Carregar intensidade de sinais
@@ -6772,9 +6846,8 @@ const DIAMOND_LEVEL_DEFAULTS = {
                     console.log(`🎚️ Intensidade carregada: ${cfg.signalIntensity || 'moderate'}`);
                 }
                 
-                // ✅ Aplicar visibilidade dos campos baseado no modo IA
-                const isAIMode = cfg.aiMode || false;
-                toggleAIConfigFields(isAIMode);
+                // ✅ Aplicar visibilidade dos campos baseado no modo IA (considerando modo específico da aba)
+                toggleAIConfigFields(currentAIMode);
                 
                 // ✅ Carregar preferência de sincronização de configurações
                 const syncConfigCheckbox = document.getElementById('syncConfigToAccount');
@@ -6803,6 +6876,7 @@ const DIAMOND_LEVEL_DEFAULTS = {
         chrome.storage.local.get(['analyzerConfig'], async function(result) {
             try {
                 const currentConfig = result.analyzerConfig || {};
+                const martingaleProfiles = sanitizeMartingaleProfilesFromConfig(currentConfig);
                 console.log('📊 Configuração atual:', currentConfig);
                 
                 // ✅ CAPTURAR VALORES COM VERIFICAÇÃO DE EXISTÊNCIA
@@ -6823,8 +6897,7 @@ const DIAMOND_LEVEL_DEFAULTS = {
                 let maxSize = Math.max(parseInt(getElementValue('cfgMaxPatternSize', '0'), 10), 0);
                 const winPct = Math.max(0, Math.min(100, parseInt(getElementValue('cfgWinPercentOthers', '25'), 10)));
                 const reqTrig = getElementValue('cfgRequireTrigger', false, true);
-                const consecutiveMartingale = getElementValue('cfgConsecutiveMartingale', false, true);
-                const maxGales = Math.max(0, Math.min(200, parseInt(getElementValue('cfgMaxGales', '2'), 10)));
+                const consecutiveMartingaleSelected = getElementValue('cfgConsecutiveMartingale', false, true);
                 const tgChatId = String(getElementValue('cfgTgChatId', '')).trim();
                 
                 // 🎚️ Intensidade de sinais
@@ -6877,12 +6950,22 @@ const DIAMOND_LEVEL_DEFAULTS = {
                 
                 // ✅ PRESERVAR aiMode ESPECÍFICO DESTA ABA (sessionStorage)
                 const tabSpecificModeStr = sessionStorage.getItem('tabSpecificAIMode');
-                let tabSpecificAIMode = currentConfig.aiMode || false; // Fallback para padrão global
+                let tabSpecificAIMode = getTabSpecificAIMode(currentConfig.aiMode || false);
                 
                 if (tabSpecificModeStr !== null) {
-                    tabSpecificAIMode = JSON.parse(tabSpecificModeStr);
                     console.log(`%c🔒 Preservando aiMode específico desta aba: ${tabSpecificAIMode ? '💎 DIAMANTE' : '⚙️ PADRÃO'}`, 'color: #00FF88; font-weight: bold;');
                 }
+
+                const activeModeKey = tabSpecificAIMode ? 'diamond' : 'standard';
+                const maxGalesInput = parseInt(getElementValue('cfgMaxGales', String(martingaleProfiles[activeModeKey].maxGales)), 10);
+                const maxGales = clampMartingaleMax(maxGalesInput, martingaleProfiles[activeModeKey].maxGales);
+                const updatedProfiles = {
+                    ...martingaleProfiles,
+                    [activeModeKey]: {
+                        maxGales,
+                        consecutiveMartingale: consecutiveMartingaleSelected
+                    }
+                };
                 
                 // ✅ MESCLAR com configuração atual para preservar aiMode e outros estados
                 const cfg = {
@@ -6896,11 +6979,11 @@ const DIAMOND_LEVEL_DEFAULTS = {
                     maxPatternSize: maxSize,
                     winPercentOthers: winPct,
                     requireTrigger: reqTrig,
-                    consecutiveMartingale: consecutiveMartingale,
-                    maxGales: maxGales,
                     telegramChatId: tgChatId,
-                    signalIntensity: signalIntensity
+                    signalIntensity: signalIntensity,
+                    martingaleProfiles: updatedProfiles
                 };
+                applyActiveMartingaleToLegacyFields(cfg, activeModeKey, updatedProfiles);
                 
                 console.log('');
                 console.log('%c💾 Salvando em chrome.storage.local...', 'color: #00FF88; font-weight: bold;');
