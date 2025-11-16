@@ -21,6 +21,18 @@ let forceLogoutTabOpened = false;
 let cachedHistory = [];  // Histórico de giros em memória (até 2000)
 let historyInitialized = false;  // Flag de inicialização
 
+const MODE_KEY_STANDARD = 'standard';
+const MODE_KEY_DIAMOND = 'diamond';
+const MODE_SETTINGS_DEFAULT = Object.freeze({
+    maxGales: 0,
+    consecutiveMartingale: false
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 🔁 CONTROLE DE EXIBIÇÃO DO MODO DIAMANTE (TIMEOUTS PARA STATUS SEQUENCIAL)
+// ═══════════════════════════════════════════════════════════════════════════════
+let lastDiamondLevelTimeouts = [];
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // 🧠 MEMÓRIA ATIVA - SISTEMA INCREMENTAL DE ANÁLISE
 // Sistema inteligente que mantém análises pré-calculadas em memória
@@ -84,6 +96,10 @@ const DEFAULT_ANALYZER_CONFIG = {
     telegramChatId: '',           // Chat ID do Telegram para enviar sinais
     aiMode: false,                // Modo Diamante (true) ou Modo Padrão (false)
     signalIntensity: 'moderate',  // Intensidade de sinais: 'aggressive', 'moderate', 'conservative', 'ultraconservative'
+    modeSettings: {
+        [MODE_KEY_STANDARD]: { ...MODE_SETTINGS_DEFAULT },
+        [MODE_KEY_DIAMOND]: { ...MODE_SETTINGS_DEFAULT }
+    },
     diamondLevelWindows: {        // Configuração dos níveis do modo Diamante
         n1HotPattern: 60,         // N1 - Padrão Quente (histórico analisado)
         n2Recent: 5,              // N2 - Momentum (janela recente)
@@ -106,7 +122,53 @@ const DEFAULT_ANALYZER_CONFIG = {
         n10ConfMin: 60            // Confiança mínima global (%) para N10 votar
     }
 };
-let analyzerConfig = { ...DEFAULT_ANALYZER_CONFIG };
+let analyzerConfig = mergeAnalyzerConfig();
+
+const buildModeProfile = (profile, fallback) => ({
+    maxGales: Number.isFinite(profile?.maxGales) ? profile.maxGales : fallback.maxGales,
+    consecutiveMartingale: typeof profile?.consecutiveMartingale === 'boolean'
+        ? profile.consecutiveMartingale
+        : fallback.consecutiveMartingale
+});
+
+function mergeAnalyzerConfig(partial = {}) {
+    const merged = {
+        ...DEFAULT_ANALYZER_CONFIG,
+        ...partial
+    };
+
+    merged.diamondLevelWindows = {
+        ...DEFAULT_ANALYZER_CONFIG.diamondLevelWindows,
+        ...(partial.diamondLevelWindows || {})
+    };
+
+    const activeKey = merged.aiMode ? MODE_KEY_DIAMOND : MODE_KEY_STANDARD;
+
+    const fallbackActive = {
+        maxGales: Number.isFinite(partial.maxGales) ? partial.maxGales
+            : Number.isFinite(merged.maxGales) ? merged.maxGales : MODE_SETTINGS_DEFAULT.maxGales,
+        consecutiveMartingale: typeof partial.consecutiveMartingale === 'boolean' ? partial.consecutiveMartingale
+            : (typeof merged.consecutiveMartingale === 'boolean' ? merged.consecutiveMartingale : MODE_SETTINGS_DEFAULT.consecutiveMartingale)
+    };
+
+    const standardSource = (partial.modeSettings && partial.modeSettings[MODE_KEY_STANDARD])
+        || (merged.modeSettings && merged.modeSettings[MODE_KEY_STANDARD]);
+    const diamondSource = (partial.modeSettings && partial.modeSettings[MODE_KEY_DIAMOND])
+        || (merged.modeSettings && merged.modeSettings[MODE_KEY_DIAMOND]);
+
+    merged.modeSettings = {
+        [MODE_KEY_STANDARD]: buildModeProfile(standardSource, activeKey === MODE_KEY_STANDARD ? fallbackActive : MODE_SETTINGS_DEFAULT),
+        [MODE_KEY_DIAMOND]: buildModeProfile(diamondSource, activeKey === MODE_KEY_DIAMOND ? fallbackActive : MODE_SETTINGS_DEFAULT)
+    };
+
+    const activeProfile = merged.modeSettings[activeKey];
+    merged.maxGales = Number.isFinite(activeProfile.maxGales) ? activeProfile.maxGales : MODE_SETTINGS_DEFAULT.maxGales;
+    merged.consecutiveMartingale = typeof activeProfile.consecutiveMartingale === 'boolean'
+        ? activeProfile.consecutiveMartingale
+        : MODE_SETTINGS_DEFAULT.consecutiveMartingale;
+
+    return merged;
+}
 
 function getDiamondWindow(key, fallback) {
     const windows = analyzerConfig && analyzerConfig.diamondLevelWindows ? analyzerConfig.diamondLevelWindows : {};
@@ -1480,7 +1542,7 @@ function logActiveConfiguration() {
     try {
         const res = await chrome.storage.local.get(['analyzerConfig']);
         if (res && res.analyzerConfig) {
-            analyzerConfig = { ...DEFAULT_ANALYZER_CONFIG, ...res.analyzerConfig };
+            analyzerConfig = mergeAnalyzerConfig(res.analyzerConfig);
         } else {
             await chrome.storage.local.set({ analyzerConfig: analyzerConfig });
         }
@@ -1521,7 +1583,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
     if (area === 'local' && changes.analyzerConfig) {
         try {
             const newVal = changes.analyzerConfig.newValue || {};
-            analyzerConfig = { ...DEFAULT_ANALYZER_CONFIG, ...newVal };
+            analyzerConfig = mergeAnalyzerConfig(newVal);
             console.log('AnalyzerConfig aplicado imediatamente:', analyzerConfig);
             
             // ✅ EXIBIR NOVAS CONFIGURAÇÕES
@@ -2002,7 +2064,7 @@ async function startDataCollection() {
         
         // Carregar configurações
         if (storageData.analyzerConfig) {
-            analyzerConfig = { ...DEFAULT_ANALYZER_CONFIG, ...storageData.analyzerConfig };
+            analyzerConfig = mergeAnalyzerConfig(storageData.analyzerConfig);
             console.log('✅ Configurações carregadas do storage com sucesso!');
             console.log('🔧 DEBUG - Config carregada:', {
                 aiMode: analyzerConfig.aiMode,
@@ -2329,7 +2391,7 @@ async function processNewSpinFromServer(spinData) {
                 
                 // Carregar configurações
                 if (storageData.analyzerConfig) {
-                    analyzerConfig = { ...DEFAULT_ANALYZER_CONFIG, ...storageData.analyzerConfig };
+                    analyzerConfig = mergeAnalyzerConfig(storageData.analyzerConfig);
                     console.log('⚙️ Configurações carregadas:', {
                         consecutiveMartingale: analyzerConfig.consecutiveMartingale,
                         maxGales: analyzerConfig.maxGales
@@ -11887,7 +11949,7 @@ async function runAnalysisController(history) {
 		console.log('%c🔄 Recarregando configuração do storage...', 'color: #FFAA00; font-weight: bold;');
 		const storageResult = await chrome.storage.local.get(['analyzerConfig']);
 		if (storageResult && storageResult.analyzerConfig) {
-			analyzerConfig = { ...DEFAULT_ANALYZER_CONFIG, ...storageResult.analyzerConfig };
+			analyzerConfig = mergeAnalyzerConfig(storageResult.analyzerConfig);
 			console.log('%c✅ Configuração recarregada com sucesso!', 'color: #00FF00; font-weight: bold;');
 		} else {
 			console.log('%c⚠️ Nenhuma config no storage, usando padrão', 'color: #FFAA00;');
@@ -18034,7 +18096,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                 
                 const res = await chrome.storage.local.get(['analyzerConfig']);
                 if (res && res.analyzerConfig) {
-                    analyzerConfig = { ...DEFAULT_ANALYZER_CONFIG, ...res.analyzerConfig };
+                    analyzerConfig = mergeAnalyzerConfig(res.analyzerConfig);
                 }
                 console.log('%c⚙️ Nova configuração aplicada via UI:', 'color: #00D4FF; font-weight: bold;');
                 console.log('%c📊 Profundidade de Análise: ' + (analyzerConfig.historyDepth || 2000) + ' giros', 'color: #00FF88; font-weight: bold; background: #003322; padding: 4px 8px; border-radius: 4px;');
@@ -18125,7 +18187,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                     console.log('%c   aiMode: ' + res.analyzerConfig.aiMode, 'color: #00FFFF; font-weight: bold; font-size: 13px;');
                     console.log('%c   minOccurrences: ' + res.analyzerConfig.minOccurrences, 'color: #00FFFF;');
                     
-                    analyzerConfig = { ...DEFAULT_ANALYZER_CONFIG, ...res.analyzerConfig };
+                    analyzerConfig = mergeAnalyzerConfig(res.analyzerConfig);
                     
                     console.log('%c🤖 Modo IA ' + (analyzerConfig.aiMode ? 'ATIVADO' : 'DESATIVADO'), 'color: ' + (analyzerConfig.aiMode ? '#00FF00' : '#FF6666') + '; font-weight: bold; font-size: 16px; background: ' + (analyzerConfig.aiMode ? '#003300' : '#330000') + '; padding: 5px;');
                     
@@ -18399,7 +18461,7 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
         const newConfig = changes.analyzerConfig.newValue;
         if (newConfig) {
             // ✅ ATUALIZAR CONFIGURAÇÕES
-            analyzerConfig = { ...DEFAULT_ANALYZER_CONFIG, ...newConfig };
+            analyzerConfig = mergeAnalyzerConfig(newConfig);
             
             // ✅ MOSTRAR LOG COMPLETO DAS NOVAS CONFIGURAÇÕES
             console.log('║  🔄 CONFIGURAÇÕES ATUALIZADAS EM TEMPO REAL!             ║');

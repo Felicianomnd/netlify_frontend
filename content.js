@@ -3,12 +3,185 @@
     'use strict';
     
     const scriptStartTime = Date.now();
-    console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #00AAFF; font-weight: bold;');
-    console.log('%c🚀 CONTENT.JS INICIANDO...', 'color: #00AAFF; font-weight: bold; font-size: 14px;');
-    console.log('%c   Versão WEB', 'color: #00AAFF;');
-    console.log('%c⏱️ [TIMING] Início do script:', new Date().toLocaleTimeString());
-    console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #00AAFF; font-weight: bold;');
-    console.log('');
+
+    const originalConsole = {
+        log: console.log.bind(console),
+        info: console.info ? console.info.bind(console) : console.log.bind(console),
+        debug: console.debug ? console.debug.bind(console) : console.log.bind(console),
+        warn: console.warn.bind(console),
+        error: console.error.bind(console)
+    };
+
+    ['log', 'info', 'debug'].forEach(method => {
+        if (console[method]) {
+            console[method] = () => {};
+        }
+    });
+
+    const statusLogger = (() => {
+        const state = {
+            connection: 'Verificando...',
+            lastSpin: null,
+            mode: 'Definindo...',
+            config: 'Carregando configurações...',
+            lastSync: null,
+            lastSyncSource: null,
+            lastError: null
+        };
+
+        const formatTime = (value) => {
+            try {
+                const date = value instanceof Date ? value : new Date(value);
+                if (Number.isNaN(date.getTime())) return '—';
+                return date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: undefined });
+            } catch (_) {
+                return '—';
+            }
+        };
+
+        const formatColor = (color) => {
+            if (color === 'red') return 'Vermelho';
+            if (color === 'black') return 'Preto';
+            if (color === 'white') return 'Branco';
+            return 'Desconhecida';
+        };
+
+        const print = () => {
+            if (console.clear) {
+                console.clear();
+            }
+
+            originalConsole.log('%cBlaze Double Analyzer • Painel de Status', 'color: #00d4ff; font-weight: 700; font-size: 14px;');
+            originalConsole.log(`Servidor de giros: ${state.connection}`);
+
+            if (state.lastSpin) {
+                const { number, color, timestamp } = state.lastSpin;
+                originalConsole.log(`Último giro: ${number} • ${formatColor(color)} • ${formatTime(timestamp)}`);
+            } else {
+                originalConsole.log('Último giro: aguardando dados...');
+            }
+
+            originalConsole.log(`Modo ativo: ${state.mode}`);
+            originalConsole.log(`Configuração: ${state.config}`);
+
+            if (state.lastSync) {
+                const fonte = state.lastSyncSource ? ` (${state.lastSyncSource})` : '';
+                originalConsole.log(`Última sincronização: ${formatTime(state.lastSync)}${fonte}`);
+            } else {
+                originalConsole.log('Última sincronização: aguardando...');
+            }
+
+            if (state.lastError) {
+                originalConsole.warn(`⚠️ ${state.lastError}`);
+            }
+        };
+
+        return {
+            setConnection(label) {
+                state.connection = label || 'Desconhecido';
+                print();
+            },
+            updateLastSpin(spin) {
+                if (!spin) return;
+                state.lastSpin = {
+                    number: spin.number,
+                    color: spin.color,
+                    timestamp: spin.timestamp || Date.now()
+                };
+                print();
+            },
+            setMode(modeLabel) {
+                state.mode = modeLabel || 'Desconhecido';
+                print();
+            },
+            setConfig(summary) {
+                state.config = summary || 'Configuração indisponível';
+                print();
+            },
+            markSync(sourceLabel) {
+                state.lastSync = new Date();
+                state.lastSyncSource = sourceLabel || null;
+                print();
+            },
+            setError(message) {
+                state.lastError = message || null;
+                print();
+            },
+            clearError() {
+                state.lastError = null;
+                print();
+            }
+        };
+    })();
+
+    const MODE_STANDARD = 'standard';
+    const MODE_DIAMOND = 'diamond';
+    const DEFAULT_MODE_SETTINGS = Object.freeze({
+        maxGales: 0,
+        consecutiveMartingale: false
+    });
+
+    const buildModeProfile = (profile, fallback) => ({
+        maxGales: Number.isFinite(profile?.maxGales) ? profile.maxGales : fallback.maxGales,
+        consecutiveMartingale: typeof profile?.consecutiveMartingale === 'boolean'
+            ? profile.consecutiveMartingale
+            : fallback.consecutiveMartingale
+    });
+
+    function getActiveModeKey(config = {}) {
+        return config && config.aiMode ? MODE_DIAMOND : MODE_STANDARD;
+    }
+
+    function ensureModeProfiles(config = {}) {
+        if (!config || typeof config !== 'object') {
+            return {
+                aiMode: false,
+                modeSettings: {
+                    [MODE_STANDARD]: { ...DEFAULT_MODE_SETTINGS },
+                    [MODE_DIAMOND]: { ...DEFAULT_MODE_SETTINGS }
+                },
+                maxGales: DEFAULT_MODE_SETTINGS.maxGales,
+                consecutiveMartingale: DEFAULT_MODE_SETTINGS.consecutiveMartingale
+            };
+        }
+
+        if (!config.modeSettings || typeof config.modeSettings !== 'object') {
+            config.modeSettings = {};
+        }
+
+        const activeKey = getActiveModeKey(config);
+        const fallbackActive = {
+            maxGales: Number.isFinite(config.maxGales) ? config.maxGales : DEFAULT_MODE_SETTINGS.maxGales,
+            consecutiveMartingale: typeof config.consecutiveMartingale === 'boolean'
+                ? config.consecutiveMartingale
+                : DEFAULT_MODE_SETTINGS.consecutiveMartingale
+        };
+
+        const standardFallback = activeKey === MODE_STANDARD ? fallbackActive : DEFAULT_MODE_SETTINGS;
+        const diamondFallback = activeKey === MODE_DIAMOND ? fallbackActive : DEFAULT_MODE_SETTINGS;
+
+        config.modeSettings = {
+            [MODE_STANDARD]: buildModeProfile(config.modeSettings[MODE_STANDARD], standardFallback),
+            [MODE_DIAMOND]: buildModeProfile(config.modeSettings[MODE_DIAMOND], diamondFallback)
+        };
+
+        const activeProfile = config.modeSettings[activeKey];
+        config.maxGales = activeProfile.maxGales;
+        config.consecutiveMartingale = activeProfile.consecutiveMartingale;
+
+        return config;
+    }
+
+    const buildConfigSummary = (cfg = {}, syncEnabled) => {
+        const historyDepth = cfg.historyDepth != null ? cfg.historyDepth : '—';
+        const maxGales = cfg.maxGales != null ? cfg.maxGales : '—';
+        const intensity = (cfg.signalIntensity || 'moderate').toString().toUpperCase();
+        const syncText = syncEnabled ? 'Sincronização: ativada' : 'Sincronização: desativada';
+        const martingaleLabel = cfg.consecutiveMartingale ? 'Martingale: CONSECUTIVO' : 'Martingale: PADRÃO';
+        return `Histórico: ${historyDepth} • Gales: ${maxGales} • ${martingaleLabel} • Intensidade: ${intensity} • ${syncText}`;
+    };
+
+    let hasLoggedInitialSync = false;
     
     // ═══════════════════════════════════════════════════════════════════════════════
     // VARIÁVEL GLOBAL: Controle de exibição do histórico por camadas
@@ -649,6 +822,7 @@
     function activateAIMode(config, newAIMode, toggleElement) {
         // Atualizar configuração
         config.aiMode = newAIMode;
+        config = ensureModeProfiles(config);
         
         // ✅ LOG DE DEBUG
         console.log('🔧 Salvando aiMode no storage:', newAIMode);
@@ -727,6 +901,13 @@
                 }
             });
             
+            const syncEnabled = getSyncConfigPreference();
+            statusLogger.setMode(newAIMode ? 'Diamante (IA)' : 'Modo padrão');
+            statusLogger.setConfig(buildConfigSummary(config, syncEnabled));
+            statusLogger.markSync('Modo alterado');
+
+            setTimeout(loadSettings, 0);
+
             // Notificar background.js
             chrome.runtime.sendMessage({
                 action: 'aiModeChanged',
@@ -928,6 +1109,8 @@
                 console.log('%c🛑 Intervalo parado (modo DESATIVADO)', 'color: #FFA500; font-weight: bold;');
             }
         }
+
+        statusLogger.setMode(isActive ? 'Diamante (IA)' : 'Modo padrão');
     }
 
     // 🧠 Atualizar status da memória ativa na interface
@@ -6109,6 +6292,7 @@ const DIAMOND_LEVEL_DEFAULTS = {
             // ⚡⚡⚡ ATUALIZAÇÃO INSTANTÂNEA - OPERAÇÕES SÍNCRONAS APENAS! ⚡⚡⚡
             if (request.data && request.data.lastSpin) {
                 const newSpin = request.data.lastSpin;
+                statusLogger.updateLastSpin(newSpin);
                 
                 // ✅ 1. ATUALIZAR ÚLTIMO GIRO (síncrono, super rápido!)
                 const lastSpinNumber = document.getElementById('lastSpinNumber');
@@ -6224,23 +6408,11 @@ const DIAMOND_LEVEL_DEFAULTS = {
             isWebSocketConnected = request.data.connected;
             
             if (request.data.connected) {
-                console.log('');
-                console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #00FF00; font-weight: bold;');
-                console.log('%c║  ✅ WEBSOCKET RECONECTADO!                               ║', 'color: #00FF00; font-weight: bold;');
-                console.log('%c║  Histórico voltará a atualizar INSTANTANEAMENTE         ║', 'color: #00FF00;');
-                console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #00FF00; font-weight: bold;');
-                console.log('');
-                
+                statusLogger.setConnection('Conectado (WebSocket)');
                 // Parar polling de fallback
                 stopHistoryPolling();
             } else {
-                console.log('');
-                console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #FF0000; font-weight: bold;');
-                console.log('%c║  ❌ WEBSOCKET DESCONECTADO!                              ║', 'color: #FF0000; font-weight: bold;');
-                console.log('%c║  Ativando polling de fallback (a cada 2 segundos)       ║', 'color: #FF0000;');
-                console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #FF0000; font-weight: bold;');
-                console.log('');
-                
+                statusLogger.setConnection('Desconectado • Fallback HTTP');
                 // Iniciar polling de fallback
                 startHistoryPolling();
             }
@@ -6320,10 +6492,27 @@ const DIAMOND_LEVEL_DEFAULTS = {
                     // ✅ CARREGAR CALIBRADOR DE PORCENTAGENS
                     console.log('📊 Carregando estatísticas do Calibrador de porcentagens...');
                     loadObserverStats();
+
+                    if (result.lastSpin) {
+                        statusLogger.updateLastSpin(result.lastSpin);
+                    }
+
+                    if (!hasLoggedInitialSync) {
+                        const isDiamondMode = document.querySelector('.ai-mode-toggle.active');
+                        statusLogger.setMode(isDiamondMode ? 'Diamante (IA)' : 'Modo padrão');
+                        statusLogger.markSync('Sincronização local');
+                        if (isWebSocketConnected) {
+                            statusLogger.setConnection('Conectado (WebSocket)');
+                        }
+                        hasLoggedInitialSync = true;
+                    }
+
+                    statusLogger.clearError();
                 }
             });
         } catch (e) {
             console.error('Erro ao carregar dados:', e);
+            statusLogger.setError('Erro ao carregar dados locais');
             // Provável context invalidated; tenta em 2 segundos
             setTimeout(loadInitialData, 2000);
         }
@@ -6741,7 +6930,8 @@ const DIAMOND_LEVEL_DEFAULTS = {
             
             // Carregar do localStorage (que agora pode ter sido atualizado do servidor)
             chrome.storage.local.get(['analyzerConfig'], function(res) {
-                const cfg = res && res.analyzerConfig ? res.analyzerConfig : {};
+                let cfg = res && res.analyzerConfig ? { ...res.analyzerConfig } : {};
+                cfg = ensureModeProfiles(cfg);
                 const histDepth = document.getElementById('cfgHistoryDepth');
                 const minOcc = document.getElementById('cfgMinOccurrences');
                 const maxOcc = document.getElementById('cfgMaxOccurrences');
@@ -6782,8 +6972,17 @@ const DIAMOND_LEVEL_DEFAULTS = {
                     syncConfigCheckbox.checked = getSyncConfigPreference();
                     console.log(`🔄 Preferência de sincronização de configurações carregada: ${syncConfigCheckbox.checked ? 'ATIVADA' : 'DESATIVADA'}`);
                 }
+
+                const syncEnabled = getSyncConfigPreference();
+                statusLogger.setMode(cfg.aiMode ? 'Diamante (IA)' : 'Modo padrão');
+                statusLogger.setConfig(buildConfigSummary(cfg, syncEnabled));
+                statusLogger.markSync('Configurações carregadas');
+                statusLogger.clearError();
             });
-        } catch (e) { console.error('Erro ao carregar configurações:', e); }
+        } catch (e) {
+            console.error('Erro ao carregar configurações:', e);
+            statusLogger.setError('Erro ao carregar configurações');
+        }
     }
     async function saveSettings() {
         console.log('');
@@ -6802,7 +7001,7 @@ const DIAMOND_LEVEL_DEFAULTS = {
         // ✅ BUSCAR CONFIGURAÇÃO ATUAL PRIMEIRO (para preservar aiMode e outros estados)
         chrome.storage.local.get(['analyzerConfig'], async function(result) {
             try {
-                const currentConfig = result.analyzerConfig || {};
+                const currentConfig = ensureModeProfiles({ ...(result.analyzerConfig || {}) });
                 console.log('📊 Configuração atual:', currentConfig);
                 
                 // ✅ CAPTURAR VALORES COM VERIFICAÇÃO DE EXISTÊNCIA
@@ -6886,8 +7085,8 @@ const DIAMOND_LEVEL_DEFAULTS = {
                 
                 // ✅ MESCLAR com configuração atual para preservar aiMode e outros estados
                 const cfg = {
-                    ...currentConfig, // Preservar configurações existentes
-                    aiMode: tabSpecificAIMode, // ✅ USAR MODO ESPECÍFICO DESTA ABA!
+                    ...currentConfig,
+                    aiMode: tabSpecificAIMode,
                     historyDepth: historyDepth,
                     minOccurrences: minOcc,
                     maxOccurrences: maxOcc,
@@ -6896,11 +7095,21 @@ const DIAMOND_LEVEL_DEFAULTS = {
                     maxPatternSize: maxSize,
                     winPercentOthers: winPct,
                     requireTrigger: reqTrig,
-                    consecutiveMartingale: consecutiveMartingale,
-                    maxGales: maxGales,
                     telegramChatId: tgChatId,
                     signalIntensity: signalIntensity
                 };
+
+                ensureModeProfiles(cfg);
+
+                const activeModeKey = getActiveModeKey(cfg);
+                cfg.modeSettings[activeModeKey] = {
+                    ...cfg.modeSettings[activeModeKey],
+                    maxGales,
+                    consecutiveMartingale
+                };
+
+                cfg.maxGales = cfg.modeSettings[activeModeKey].maxGales;
+                cfg.consecutiveMartingale = cfg.modeSettings[activeModeKey].consecutiveMartingale;
                 
                 console.log('');
                 console.log('%c💾 Salvando em chrome.storage.local...', 'color: #00FF88; font-weight: bold;');
@@ -6912,6 +7121,7 @@ const DIAMOND_LEVEL_DEFAULTS = {
                         console.error('%c❌ ERRO ao salvar no storage!', 'color: #FF0000; font-weight: bold;');
                         console.error(chrome.runtime.lastError);
                         showConfigFeedback(false);
+                        statusLogger.setError('Erro ao salvar configurações');
                         return;
                     }
                     
@@ -6935,6 +7145,11 @@ const DIAMOND_LEVEL_DEFAULTS = {
                     } else {
                         console.log('💾 Sincronização de configurações DESATIVADA - salvando apenas localmente');
                     }
+
+                    statusLogger.setConfig(buildConfigSummary(cfg, shouldSync));
+                    statusLogger.setMode(cfg.aiMode ? 'Diamante (IA)' : 'Modo padrão');
+                    statusLogger.markSync('Configurações salvas');
+                    statusLogger.clearError();
                     
                     // Pedir para o background aplicar imediatamente e dar feedback
                     console.log('%c📡 Enviando mensagem para background.js...', 'color: #00D4FF; font-weight: bold;');
@@ -6964,12 +7179,14 @@ const DIAMOND_LEVEL_DEFAULTS = {
                         // ✅ MESMO COM ERRO, OS DADOS JÁ FORAM SALVOS!
                         console.log('%c⚠️ MAS: Configurações JÁ FORAM SALVAS no storage!', 'color: #FFA500; font-weight: bold;');
                         showConfigFeedback(true); // Mostrar sucesso porque salvou
+                        statusLogger.setError('Erro ao aplicar configurações (background desconectado)');
                     }
                 });
             } catch (e) {
                 console.error('%c❌ ERRO CRÍTICO ao processar configurações:', 'color: #FF0000; font-weight: bold;', e);
                 console.error(e.stack);
                 showConfigFeedback(false);
+                statusLogger.setError('Erro ao processar configurações');
             }
         }); // Fecha chrome.storage.local.get
     }
@@ -7350,6 +7567,7 @@ const DIAMOND_LEVEL_DEFAULTS = {
             if (data.success && data.data) {
                 console.log(`✅ ${data.data.length} giros carregados em ${totalTime}ms`);
                 lastHistoryUpdate = new Date();
+                statusLogger.clearError();
                 return data.data;
             }
             
@@ -7357,6 +7575,7 @@ const DIAMOND_LEVEL_DEFAULTS = {
         } catch (error) {
             const totalTime = Date.now() - (Date.now() - 8000);
             console.error(`❌ [TIMING] Erro após timeout/erro:`, error.message);
+            statusLogger.setError('Erro ao buscar histórico de giros');
             return [];
         } finally {
             isUpdatingHistory = false;
@@ -7568,6 +7787,7 @@ const DIAMOND_LEVEL_DEFAULTS = {
             if (spins[0]) {
                 const lastSpin = spins[0];
                 updateSidebar({ lastSpin: lastSpin });
+                statusLogger.updateLastSpin(lastSpin);
             }
             
             // Atualizar total de giros
@@ -7627,6 +7847,8 @@ const DIAMOND_LEVEL_DEFAULTS = {
             console.log('🔄 Atualizando histórico via HTTP (WebSocket offline)...');
             updateHistoryUIFromServer();
         }, 2000); // A cada 2 segundos
+
+        statusLogger.setConnection('Desconectado • Fallback HTTP');
     }
     
     function stopHistoryPolling() {
@@ -7635,6 +7857,7 @@ const DIAMOND_LEVEL_DEFAULTS = {
             historyPollingInterval = null;
             console.log('✅ Polling de histórico parado - WebSocket reconectado');
         }
+        statusLogger.setConnection('Conectado (WebSocket)');
     }
     
     // Iniciar histórico (atualiza instantaneamente via WebSocket)
