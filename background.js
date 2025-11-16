@@ -11685,7 +11685,7 @@ async function analyzeWithPatternSystem(history) {
         console.log('%c║  🎯 NÍVEL 1: PADRÃO QUENTE                              ║', 'color: #FF6B35; font-weight: bold; font-size: 14px;');
         
         let nivel4 = null;
-		let patternDescription = 'Análise Nível Diamante - 9 Níveis';
+		let patternDescription = 'Análise Nível Diamante - 11 Níveis';
         
     // ETAPA 1: Verificar PADRÕES CUSTOMIZADOS
         console.log('%cℹ️ Padrões customizados desativados para o Nível 1', 'color: #888; font-style: italic;');
@@ -12645,8 +12645,12 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
             return null;
         }
 
-		if (signalIntensity === 'aggressive') {
+		const votingLevelsList = levelReports.filter(lvl => lvl.id !== 'N6' && lvl.id !== 'N0');
 		const positiveVotingLevels = votingLevelsList.filter(lvl => lvl.color && (lvl.strength || 0) > 0);
+		const negativeVotingLevels = votingLevelsList.filter(lvl => lvl.color && (lvl.strength || 0) < 0);
+		const neutralVotingLevels = votingLevelsList.filter(lvl => !lvl.color || (lvl.strength || 0) === 0);
+
+		if (signalIntensity === 'aggressive') {
 			const agreeingLevels = positiveVotingLevels.filter(lvl => lvl.color === finalColor);
 			const agreeingCount = agreeingLevels.length;
 			const availableCount = positiveVotingLevels.length;
@@ -12865,11 +12869,6 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
         console.log('%c✅ BARREIRA LIBERADA! Sequência é viável.', 'color: #00FF88; font-weight: bold; font-size: 14px;');
         
         // ═══════════════════════════════════════════════════════════════
-		const votingLevelsList = levelReports.filter(lvl => lvl.id !== 'N6' && lvl.id !== 'N0');
-		const positiveVotingLevels = votingLevelsList.filter(lvl => lvl.color && (lvl.strength || 0) > 0);
-		const negativeVotingLevels = votingLevelsList.filter(lvl => lvl.color && (lvl.strength || 0) < 0);
-		const neutralVotingLevels = votingLevelsList.filter(lvl => !lvl.color || (lvl.strength || 0) === 0);
-
 		const winningVotes = positiveVotingLevels.filter(lvl => lvl.color === finalColor).length;
 		const availableVotes = positiveVotingLevels.length;
 		const maxVotingSlots = votingLevelsList.length;
