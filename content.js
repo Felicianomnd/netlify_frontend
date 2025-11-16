@@ -1197,6 +1197,8 @@
     let customPatternsData = []; // Array de padrões customizados
     
 const DIAMOND_LEVEL_DEFAULTS = {
+    n0History: 2000,
+    n0Window: 100,
     n1HotPattern: 60,
     n2Recent: 5,
     n2Previous: 15,
@@ -1620,6 +1622,32 @@ const DIAMOND_LEVEL_DEFAULTS = {
                     </div>
                     <div class="custom-pattern-modal-body">
                         <div class="diamond-level-field">
+                            <div class="diamond-level-title">N0 - Detector de Branco</div>
+                            <div class="diamond-level-note">
+                                Roda 1000 estratégias em janelas NÃO-sobrepostas para detectar BRANCO com alta confiança. Pode bloquear todos os demais níveis quando a probabilidade é alta.
+                            </div>
+                            <div class="diamond-level-double">
+                                <div>
+                                    <span>Histórico analisado (N)</span>
+                                    <input type="number" id="diamondN0History" min="500" max="5000" value="2000" />
+                                    <span class="diamond-level-subnote">
+                                        Recomendado: 2000 giros (mín. 500 • máx. 5000)
+                                    </span>
+                                </div>
+                                <div>
+                                    <span>Tamanho da janela W (giros)</span>
+                                    <input type="number" id="diamondN0Window" min="25" max="250" value="100" />
+                                    <span class="diamond-level-subnote">
+                                        Recomendado: 100 giros (mín. 25 • máx. 250)
+                                    </span>
+                                </div>
+                            </div>
+                            <label class="checkbox-label" style="margin-top: 10px;">
+                                <input type="checkbox" id="diamondN0AllowBlockAll" checked />
+                                Permitir bloqueio total (BLOCK ALL) — desmarque para usar apenas como alerta
+                            </label>
+                        </div>
+                        <div class="diamond-level-field">
                             <div class="diamond-level-title">N1 - Padrão Quente (giros analisados)</div>
                             <div class="diamond-level-note">
                                 Busca padrões que se repetem no histórico. Valores menores = mais ágil porém menos estável. Valores maiores = mais robusto porém menos sensível.
@@ -1805,7 +1833,9 @@ const DIAMOND_LEVEL_DEFAULTS = {
             n6RetracementWindow: 'n8RetracementWindow',
             n7DecisionWindow: 'n10DecisionWindow',
             n7HistoryWindow: 'n10HistoryWindow',
-            n8Barrier: 'n6Barrier'
+            n8Barrier: 'n6Barrier',
+            n0History: 'n0TotalHistory',
+            n0Window: 'n0WindowSize'
         };
         const getValue = (key, def) => {
             const direct = Number(windows[key]);
@@ -1821,6 +1851,16 @@ const DIAMOND_LEVEL_DEFAULTS = {
             const input = document.getElementById(id);
             if (input) input.value = value;
         };
+        setInput('diamondN0History', getValue('n0History', DIAMOND_LEVEL_DEFAULTS.n0History));
+        setInput('diamondN0Window', getValue('n0Window', DIAMOND_LEVEL_DEFAULTS.n0Window));
+        const allowBlockCheckbox = document.getElementById('diamondN0AllowBlockAll');
+        if (allowBlockCheckbox) {
+            if (config && Object.prototype.hasOwnProperty.call(config, 'n0AllowBlockAll')) {
+                allowBlockCheckbox.checked = !!config.n0AllowBlockAll;
+            } else {
+                allowBlockCheckbox.checked = true;
+            }
+        }
         setInput('diamondN1HotPattern', getValue('n1HotPattern', DIAMOND_LEVEL_DEFAULTS.n1HotPattern));
         setInput('diamondN2Recent', getValue('n2Recent', DIAMOND_LEVEL_DEFAULTS.n2Recent));
         setInput('diamondN2Previous', getValue('n2Previous', DIAMOND_LEVEL_DEFAULTS.n2Previous));
@@ -1875,6 +1915,8 @@ const DIAMOND_LEVEL_DEFAULTS = {
             return value;
         };
         const newWindows = {
+            n0History: getNumber('diamondN0History', 500, 5000, DIAMOND_LEVEL_DEFAULTS.n0History),
+            n0Window: getNumber('diamondN0Window', 25, 250, DIAMOND_LEVEL_DEFAULTS.n0Window),
             n1HotPattern: getNumber('diamondN1HotPattern', 12, 200, DIAMOND_LEVEL_DEFAULTS.n1HotPattern),
             n2Recent: getNumber('diamondN2Recent', 2, 20, DIAMOND_LEVEL_DEFAULTS.n2Recent),
             n2Previous: getNumber('diamondN2Previous', 3, 200, DIAMOND_LEVEL_DEFAULTS.n2Previous),
@@ -1902,6 +1944,9 @@ const DIAMOND_LEVEL_DEFAULTS = {
             return;
         }
 
+        const allowBlockCheckbox = document.getElementById('diamondN0AllowBlockAll');
+        const allowBlockAll = allowBlockCheckbox ? !!allowBlockCheckbox.checked : true;
+
         try {
             const storageData = await storageCompat.get(['analyzerConfig']);
             const currentConfig = storageData.analyzerConfig || {};
@@ -1911,7 +1956,8 @@ const DIAMOND_LEVEL_DEFAULTS = {
                     ...(currentConfig.diamondLevelWindows || {}),
                     ...newWindows
                 },
-                minuteSpinWindow: newWindows.n5MinuteBias
+                minuteSpinWindow: newWindows.n5MinuteBias,
+                n0AllowBlockAll: allowBlockAll
             };
 
             await storageCompat.set({ analyzerConfig: updatedConfig });

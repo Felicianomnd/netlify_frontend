@@ -81,6 +81,7 @@ const DEFAULT_ANALYZER_CONFIG = {
     requireTrigger: true,         // ✅ exigir cor de disparo (ATIVADO)
     consecutiveMartingale: false, // ✅ Legado: valor do modo ativo (mantido para compatibilidade)
     maxGales: 0,                  // ✅ Legado: valor do modo ativo (mantido para compatibilidade)
+    n0AllowBlockAll: true,        // ✅ Permite bloqueio total pelo detector de branco (modo informativo se false)
     martingaleProfiles: {         // ✅ Perfis independentes por modo
         standard: { maxGales: 0, consecutiveMartingale: false },
         diamond: { maxGales: 0, consecutiveMartingale: false }
@@ -98,6 +99,8 @@ const DEFAULT_ANALYZER_CONFIG = {
         n6RetracementWindow: 80,  // N6 - Retração Histórica (janela de análise)
         n7DecisionWindow: 20,     // N7 - Continuidade Global (decisões analisadas)
         n7HistoryWindow: 100,     // N7 - Continuidade Global (histórico base)
+        n0History: 2000,          // N0 - Detector de Branco (histórico analisado)
+        n0Window: 100,            // N0 - Detector de Branco (tamanho da janela não-sobreposta)
         n8Barrier: 50,            // N9 - Barreira Final (mantido como n8Barrier por compatibilidade)
         n9History: 100,           // N9 - Calibração Bayesiana (histórico base)
         n9NullThreshold: 8,       // N9 - Calibração Bayesiana (diferença mínima em % para votar)
@@ -171,6 +174,10 @@ function mergeAnalyzerConfig(overrides = {}) {
         ...DEFAULT_ANALYZER_CONFIG,
         ...(overrides || {})
     };
+    const hasAllowBlockOverride = overrides && Object.prototype.hasOwnProperty.call(overrides, 'n0AllowBlockAll');
+    analyzerConfig.n0AllowBlockAll = hasAllowBlockOverride
+        ? !!overrides.n0AllowBlockAll
+        : DEFAULT_ANALYZER_CONFIG.n0AllowBlockAll;
     analyzerConfig.martingaleProfiles = {
         standard: { ...(defaults.standard || {}), ...(overrideProfiles.standard || {}) },
         diamond: { ...(defaults.diamond || {}), ...(overrideProfiles.diamond || {}) }
@@ -193,7 +200,9 @@ function getDiamondWindow(key, fallback) {
         n6RetracementWindow: 'n8RetracementWindow',
         n7DecisionWindow: 'n10DecisionWindow',
         n7HistoryWindow: 'n10HistoryWindow',
-        n8Barrier: 'n6Barrier'
+        n8Barrier: 'n6Barrier',
+        n0History: 'n0TotalHistory',
+        n0Window: 'n0WindowSize'
     };
     const legacyKey = legacyKeyMap[key];
     if (legacyKey && Number.isFinite(Number(windows[legacyKey])) && Number(windows[legacyKey]) > 0) {
@@ -209,6 +218,9 @@ function getDiamondWindow(key, fallback) {
 
 // ⚠️ FLAG DE CONTROLE: Evitar envio de sinal na primeira análise após ativar modo IA
 let aiModeJustActivated = false;
+
+// Armazena timeouts usados para animar a exibição sequencial dos níveis Diamante
+let lastDiamondLevelTimeouts = [];
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // 🔥 MODO PADRÃO QUENTE - VARIÁVEIS GLOBAIS
@@ -1160,7 +1172,7 @@ async function saveGirosToAPI(giros) {
 function displaySystemFooter() {
     
     if (analyzerConfig.aiMode) {
-        console.log('%c║ 🎯 SISTEMA ATIVO: MODO DIAMANTE (9 NÍVEIS DE ANÁLISE)                         ║', 'color: #00FF00; font-weight: bold; background: #001100;');
+        console.log('%c║ 🎯 SISTEMA ATIVO: MODO DIAMANTE (11 NÍVEIS DE ANÁLISE)                        ║', 'color: #00FF00; font-weight: bold; background: #001100;');
         console.log('%c║ 💎 Sistema de votação inteligente com consenso                                ║', 'color: #00AA00;');
         
         // 🧠 INDICADOR DE MEMÓRIA ATIVA (dinâmico)
@@ -1529,7 +1541,7 @@ function logActiveConfiguration() {
         console.log(`║     ${telegramStatus.padEnd(54)}║`);
         
         console.log('║  💎 MODO DIAMANTE:                                        ║');
-        const diamondModeStatus = config.aiMode ? '✅ ATIVO (9 níveis)' : '⚪ Desativado (Modo Padrão)';
+        const diamondModeStatus = config.aiMode ? '✅ ATIVO (11 níveis)' : '⚪ Desativado (Modo Padrão)';
         console.log(`║     ${diamondModeStatus.padEnd(54)}║`);
         
         
@@ -2421,6 +2433,7 @@ async function processNewSpinFromServer(spinData) {
                     const otherModeKey = activeModeKey === 'diamond' ? 'standard' : 'diamond';
                     console.log('⚙️ Configurações carregadas:', {
                         aiMode: analyzerConfig.aiMode,
+                        n0AllowBlockAll: analyzerConfig.n0AllowBlockAll !== false,
                         martingale: {
                             [activeModeKey]: getMartingaleSettings(activeModeKey),
                             [otherModeKey]: getMartingaleSettings(otherModeKey)
@@ -9117,6 +9130,1672 @@ function sleep(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+const N0_DEFAULTS = Object.freeze({
+    historySize: 2000,
+    windowSize: 100,
+    analysesToRun: 1000,
+    minWindowsRequired: 4,
+    precisionMin: 0.45,
+    confidenceGrid: [0.5, 0.55, 0.6, 0.65, 0.7, 0.75, 0.8, 0.85, 0.9, 0.95],
+    holdoutEnabled: true,
+    holdoutTolerance: 0.2,
+    seed: 42,
+    softBlockFactor: 0.5
+});
+
+const N0_FAMILY_LIST = Object.freeze([
+    'freq_threshold',
+    'freq_segmented',
+    'weighted_recency',
+    'last_run',
+    'run_stats',
+    'markov',
+    'n_gram_pattern',
+    'burst_detector',
+    'entropy_change',
+    'lagged_sum',
+    'trend_accel',
+    'switch_pattern',
+    'compound_and',
+    'compound_or'
+]);
+
+const N0_FAMILY_MIN_PER_TYPE = 20;
+const N0_DIVERSITY_MIN_DISTANCE_BASE = 0.2;
+const N0_CONFIG_LIBRARY_KEY = 'n0_diverse_configs_cache_v1';
+
+function clamp01(value) {
+    return Math.max(0, Math.min(1, Number.isFinite(value) ? value : 0));
+}
+
+let n0ConfigLibraryCache = null;
+let n0ConfigLibrarySeed = null;
+
+function normalizeN0History(entries) {
+    if (!Array.isArray(entries)) return [];
+    const normalized = [];
+    for (const item of entries) {
+        if (item == null) {
+            normalized.push('W');
+            continue;
+        }
+        if (typeof item === 'string' || typeof item === 'number') {
+            const parsed = String(item).trim().toLowerCase();
+            if (parsed.includes('branc') || parsed === 'w' || parsed.includes('white')) {
+                normalized.push('W');
+                continue;
+            }
+            if (parsed.includes('verm') || parsed === 'r' || parsed.includes('red')) {
+                normalized.push('R');
+                continue;
+            }
+            if (parsed.includes('pret') || parsed === 'b' || parsed.includes('black')) {
+                normalized.push('B');
+                continue;
+            }
+            const numeric = Number(parsed);
+            if (Number.isFinite(numeric)) {
+                normalized.push(Math.abs(numeric) % 2 === 0 ? 'B' : 'R');
+                continue;
+            }
+            normalized.push('W');
+            continue;
+        }
+        if (typeof item === 'object') {
+            const colorValue = item.color || item.result || item.Color || item.cor || null;
+            if (colorValue != null) {
+                const parsed = String(colorValue).trim().toLowerCase();
+                if (parsed.includes('branc') || parsed === 'w' || parsed.includes('white')) {
+                    normalized.push('W');
+                    continue;
+                }
+                if (parsed.includes('verm') || parsed === 'r' || parsed.includes('red')) {
+                    normalized.push('R');
+                    continue;
+                }
+                if (parsed.includes('pret') || parsed === 'b' || parsed.includes('black')) {
+                    normalized.push('B');
+                    continue;
+                }
+                const numeric = Number(parsed);
+                if (Number.isFinite(numeric)) {
+                    normalized.push(Math.abs(numeric) % 2 === 0 ? 'B' : 'R');
+                    continue;
+                }
+            }
+            const numberValue = item.number ?? item.numero ?? item.slot ?? null;
+            if (Number.isFinite(Number(numberValue))) {
+                normalized.push(Math.abs(Number(numberValue)) % 2 === 0 ? 'B' : 'R');
+                continue;
+            }
+        }
+        normalized.push('W');
+    }
+    return normalized;
+}
+
+function buildN0Windows(sequence, windowSize) {
+    const windows = [];
+    if (!Array.isArray(sequence) || sequence.length < windowSize + 1) return windows;
+    const total = sequence.length;
+    const totalWindows = Math.floor(total / windowSize);
+    for (let k = 0; k < totalWindows; k++) {
+        const start = k * windowSize;
+        const end = start + windowSize;
+        const targetIndex = end;
+        if (targetIndex >= total) continue;
+        windows.push({
+            index: k,
+            window: sequence.slice(start, end),
+            target: sequence[targetIndex],
+            start,
+            targetIndex
+        });
+    }
+    return windows;
+}
+
+function createSeededRandomGenerator(seed) {
+    let state = seed >>> 0;
+    return function nextRandom() {
+        state = Math.imul(state ^ state >>> 11, 0x45d9f3b);
+        state ^= state << 7;
+        state = Math.imul(state ^ state >>> 15, 0x45d9f3b);
+        return ((state ^ state >>> 14) >>> 0) / 4294967296;
+    };
+}
+
+function generateN0ConfigsLegacy(count, seed = N0_DEFAULTS.seed) {
+    const configs = [];
+
+    const addConfig = (cfg) => {
+        if (configs.length < count) {
+            configs.push(cfg);
+        }
+    };
+
+    // Grade fixa
+    [0.01, 0.02, 0.03, 0.05, 0.08, 0.1, 0.15, 0.2].forEach(thresh => {
+        addConfig({ type: 'freq', thresh });
+    });
+
+    [2, 3, 4, 5].forEach(L => {
+        [0.6, 0.7, 0.8, 0.9].forEach(next_threshold => {
+            addConfig({ type: 'pattern', L, next_threshold });
+        });
+    });
+
+    [1, 2].forEach(k => {
+        [0.4, 0.5, 0.6, 0.7].forEach(thresh => {
+            addConfig({ type: 'markov', k, thresh });
+        });
+    });
+
+    [0.7, 0.8, 0.9].forEach(decay => {
+        [0.05, 0.1, 0.15, 0.2].forEach(thresh => {
+            addConfig({ type: 'recency', decay, thresh });
+        });
+    });
+
+    [1, 2, 3].forEach(min_run => {
+        addConfig({ type: 'lastrun', min_run });
+    });
+
+    if (configs.length >= count) {
+        return configs.slice(0, count);
+    }
+
+    const random = createSeededRandomGenerator(seed);
+    const typePool = ['freq', 'pattern', 'markov', 'recency', 'lastrun'];
+    while (configs.length < count) {
+        const type = typePool[Math.floor(random() * typePool.length)];
+        if (type === 'freq') {
+            const options = [0.01, 0.02, 0.03, 0.05, 0.08, 0.1, 0.12, 0.15, 0.2];
+            addConfig({ type, thresh: options[Math.floor(random() * options.length)] });
+        } else if (type === 'pattern') {
+            const lengths = [2, 3, 4, 5];
+            const thresholds = [0.55, 0.6, 0.65, 0.7, 0.75, 0.8, 0.85, 0.9];
+            addConfig({
+                type,
+                L: lengths[Math.floor(random() * lengths.length)],
+                next_threshold: thresholds[Math.floor(random() * thresholds.length)]
+            });
+        } else if (type === 'markov') {
+            const orders = [1, 2];
+            const thresholds = [0.35, 0.4, 0.5, 0.6, 0.7];
+            addConfig({
+                type,
+                k: orders[Math.floor(random() * orders.length)],
+                thresh: thresholds[Math.floor(random() * thresholds.length)]
+            });
+        } else if (type === 'recency') {
+            const decays = [0.6, 0.7, 0.8, 0.9];
+            const thresholds = [0.03, 0.05, 0.08, 0.1, 0.12, 0.15, 0.2];
+            addConfig({
+                type,
+                decay: decays[Math.floor(random() * decays.length)],
+                thresh: thresholds[Math.floor(random() * thresholds.length)]
+            });
+        } else {
+            const runs = [1, 2, 3, 4];
+            addConfig({ type, min_run: runs[Math.floor(random() * runs.length)] });
+        }
+    }
+
+    return configs.slice(0, count);
+}
+
+function applyN0AnalysisLegacy(cfg, window) {
+    const cleanWindow = Array.isArray(window) ? window.filter(c => c === 'R' || c === 'B' || c === 'W') : [];
+    if (cleanWindow.length === 0) {
+        return { prediction: null, confidence: 0 };
+    }
+
+    switch (cfg.type) {
+        case 'freq': {
+            const total = cleanWindow.length;
+            const whites = cleanWindow.filter(c => c === 'W').length;
+            const pW = total > 0 ? whites / total : 0;
+            return pW >= (cfg.thresh ?? 0.05)
+                ? { prediction: 'W', confidence: Math.max(0, Math.min(1, pW)) }
+                : { prediction: null, confidence: Math.max(0, Math.min(1, pW)) };
+        }
+        case 'pattern': {
+            const L = Math.max(1, Number(cfg.L) || 3);
+            const nextThreshold = cfg.next_threshold != null ? Number(cfg.next_threshold) : 0.6;
+            if (cleanWindow.length < L + 1) return { prediction: null, confidence: 0 };
+            const pattern = cleanWindow.slice(cleanWindow.length - L).join('');
+            const followers = [];
+            for (let i = 0; i + L < cleanWindow.length; i++) {
+                const candidate = cleanWindow.slice(i, i + L).join('');
+                if (candidate === pattern) {
+                    followers.push(cleanWindow[i + L]);
+                }
+            }
+            if (followers.length === 0) return { prediction: null, confidence: 0 };
+            const whites = followers.filter(c => c === 'W').length;
+            const pW = whites / followers.length;
+            return pW >= nextThreshold
+                ? { prediction: 'W', confidence: Math.max(0, Math.min(1, pW)) }
+                : { prediction: null, confidence: Math.max(0, Math.min(1, pW)) };
+        }
+        case 'markov': {
+            const order = Math.max(1, Number(cfg.k) || 1);
+            const thresh = cfg.thresh != null ? Number(cfg.thresh) : 0.5;
+            if (cleanWindow.length <= order) return { prediction: null, confidence: 0 };
+            const transitions = new Map();
+            for (let i = 0; i + order < cleanWindow.length; i++) {
+                const key = cleanWindow.slice(i, i + order).join('');
+                const next = cleanWindow[i + order];
+                if (!transitions.has(key)) {
+                    transitions.set(key, { R: 0, B: 0, W: 0 });
+                }
+                const entry = transitions.get(key);
+                entry[next] = (entry[next] || 0) + 1;
+            }
+            const lastKey = cleanWindow.slice(cleanWindow.length - order).join('');
+            if (!transitions.has(lastKey)) return { prediction: null, confidence: 0 };
+            const counts = transitions.get(lastKey);
+            const total = (counts.R || 0) + (counts.B || 0) + (counts.W || 0);
+            if (total === 0) return { prediction: null, confidence: 0 };
+            const pW = (counts.W || 0) / total;
+            return pW >= thresh
+                ? { prediction: 'W', confidence: Math.max(0, Math.min(1, pW)) }
+                : { prediction: null, confidence: Math.max(0, Math.min(1, pW)) };
+        }
+        case 'recency': {
+            const decay = cfg.decay != null ? Number(cfg.decay) : 0.9;
+            const thresh = cfg.thresh != null ? Number(cfg.thresh) : 0.1;
+            let weight = 1;
+            let totalWeight = 0;
+            let weightedWhite = 0;
+            for (let i = cleanWindow.length - 1; i >= 0; i--) {
+                const value = cleanWindow[i];
+                totalWeight += weight;
+                if (value === 'W') {
+                    weightedWhite += weight;
+                }
+                weight *= decay;
+            }
+            const pW = totalWeight > 0 ? weightedWhite / totalWeight : 0;
+            return pW >= thresh
+                ? { prediction: 'W', confidence: Math.max(0, Math.min(1, pW)) }
+                : { prediction: null, confidence: Math.max(0, Math.min(1, pW)) };
+        }
+        case 'lastrun': {
+            const minRun = Math.max(1, Number(cfg.min_run) || 1);
+            let run = 0;
+            for (let i = cleanWindow.length - 1; i >= 0; i--) {
+                if (cleanWindow[i] === 'W') {
+                    run += 1;
+                } else {
+                    break;
+                }
+            }
+            const confidence = cleanWindow.length > 0 ? run / cleanWindow.length : 0;
+            return run >= minRun
+                ? { prediction: 'W', confidence: Math.max(0, Math.min(1, confidence)) }
+                : { prediction: null, confidence: Math.max(0, Math.min(1, confidence)) };
+        }
+        default:
+            return { prediction: null, confidence: 0 };
+    }
+}
+
+function hashStringToUnit(value) {
+    if (value == null) return 0;
+    const str = String(value);
+    let hash = 0;
+    for (let i = 0; i < str.length; i++) {
+        hash = ((hash << 5) - hash) + str.charCodeAt(i);
+        hash |= 0;
+    }
+    return Math.abs(hash % 1000) / 1000;
+}
+
+function createN0ConfigId(index) {
+    return `N0CFG-${String(index + 1).padStart(4, '0')}`;
+}
+
+function describeN0Config(cfg) {
+    if (!cfg || !cfg.family) return 'config inválida';
+    const params = cfg.params || {};
+    const entries = Object.entries(params)
+        .map(([key, value]) => `${key}=${Array.isArray(value) ? JSON.stringify(value) : value}`)
+        .join(', ');
+    return `${cfg.family}${entries ? ` (${entries})` : ''}`;
+}
+
+function encodeN0ConfigVector(cfg) {
+    const vectorLength = N0_FAMILY_LIST.length + 15;
+    const vector = new Array(vectorLength).fill(0);
+    const familyIndex = Math.max(0, N0_FAMILY_LIST.indexOf(cfg.family));
+    vector[familyIndex] = 1;
+    const baseIndex = N0_FAMILY_LIST.length;
+    const params = cfg.params || {};
+    vector[baseIndex + 0] = clamp01(params.thresh);
+    vector[baseIndex + 1] = clamp01(params.seg_thresh ?? params.thresh);
+    vector[baseIndex + 2] = clamp01((params.segments ?? params.segment_count ?? 0) / 6);
+    vector[baseIndex + 3] = clamp01(params.decay ?? 0);
+    vector[baseIndex + 4] = clamp01((params.min_run ?? params.min_max_run ?? 0) / 15);
+    vector[baseIndex + 5] = clamp01((params.min_run_count ?? params.min_occurrences ?? 0) / 12);
+    vector[baseIndex + 6] = clamp01((params.order ?? params.k ?? 0) / 5);
+    vector[baseIndex + 7] = clamp01(params.prob_thresh ?? params.next_thresh ?? 0);
+    vector[baseIndex + 8] = clamp01(hashStringToUnit(params.pattern ?? params.pattern_code));
+    vector[baseIndex + 9] = clamp01((params.sub_window ?? params.subW ?? 0) / 50);
+    vector[baseIndex + 10] = clamp01(params.frac_thresh ?? params.seg_thresh ?? 0);
+    vector[baseIndex + 11] = clamp01(params.delta_thresh ?? params.accel_thresh ?? params.min_switch_rate ?? 0);
+    vector[baseIndex + 12] = clamp01((params.lag_k ?? params.lag ?? 0) / 20);
+    vector[baseIndex + 13] = clamp01((params.sum_thresh ?? params.switch_count ?? 0) / 30);
+    vector[baseIndex + 14] = clamp01((Array.isArray(params.parts) ? params.parts.length : params.component_count ?? 0) / 6);
+    return vector;
+}
+
+function n0ConfigDistance(vectorA, vectorB) {
+    let sum = 0;
+    for (let i = 0; i < vectorA.length; i++) {
+        const diff = vectorA[i] - vectorB[i];
+        sum += diff * diff;
+    }
+    return Math.sqrt(sum);
+}
+
+function maybePersistN0ConfigLibrary(configs) {
+    try {
+        if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
+            chrome.storage.local.set({ [N0_CONFIG_LIBRARY_KEY]: configs });
+        }
+    } catch (error) {
+        console.debug('⚠️ [N0] Falha ao persistir biblioteca de configs:', error);
+    }
+}
+
+function buildN0BaseConfigs() {
+    const configs = [];
+    const push = (family, params) => configs.push({ family, params });
+
+    [0.06, 0.08, 0.1, 0.12, 0.15, 0.18, 0.2, 0.22, 0.25, 0.3].forEach(thresh => {
+        push('freq_threshold', { thresh: Number(thresh.toFixed(3)) });
+    });
+
+    [3, 4, 5].forEach(segments => {
+        [0.18, 0.22, 0.25, 0.28, 0.3, 0.35].forEach(seg_thresh => {
+            push('freq_segmented', { segments, seg_thresh: Number(seg_thresh.toFixed(3)) });
+        });
+    });
+
+    [0.6, 0.7, 0.8, 0.85, 0.9].forEach(decay => {
+        [0.18, 0.2, 0.22, 0.25, 0.28].forEach(thresh => {
+            push('weighted_recency', { decay: Number(decay.toFixed(2)), thresh: Number(thresh.toFixed(3)) });
+        });
+    });
+
+    [2, 3, 4, 5, 6, 7].forEach(min_run => {
+        push('last_run', { min_run });
+    });
+
+    [
+        { min_max_run: 3, min_run_count: 2 },
+        { min_max_run: 4, min_run_count: 2 },
+        { min_max_run: 4, min_run_count: 3 },
+        { min_max_run: 5, min_run_count: 3 },
+        { min_max_run: 6, min_run_count: 3 },
+        { min_max_run: 6, min_run_count: 4 },
+        { min_max_run: 7, min_run_count: 4 }
+    ].forEach(params => push('run_stats', params));
+
+    [1, 2, 3].forEach(order => {
+        [0.45, 0.5, 0.55, 0.6, 0.65, 0.7].forEach(prob_thresh => {
+            push('markov', { order, prob_thresh: Number(prob_thresh.toFixed(2)) });
+        });
+    });
+
+    const patternLibrary = ['RR', 'RB', 'BR', 'BB', 'RRR', 'RBR', 'BRB', 'BBB', 'RBRB', 'BRBR'];
+    patternLibrary.forEach(pattern => {
+        [0.55, 0.6, 0.65, 0.7, 0.75].forEach(next_thresh => {
+            push('n_gram_pattern', { pattern, next_thresh: Number(next_thresh.toFixed(2)) });
+        });
+    });
+
+    [8, 10, 12, 15, 20, 25].forEach(sub_window => {
+        [0.35, 0.4, 0.45, 0.5, 0.55, 0.6].forEach(frac_thresh => {
+            push('burst_detector', { sub_window, frac_thresh: Number(frac_thresh.toFixed(2)) });
+        });
+    });
+
+    [0.08, 0.1, 0.12, 0.15, 0.18].forEach(delta_thresh => {
+        [1.0, 1.1, 1.2].forEach(max_entropy => {
+            push('entropy_change', { delta_thresh: Number(delta_thresh.toFixed(2)), max_entropy });
+        });
+    });
+
+    [2, 3, 4, 5, 6, 7].forEach(lag_k => {
+        [3, 4, 5, 6, 7, 8, 9, 10, 12].forEach(sum_thresh => {
+            push('lagged_sum', { lag_k, sum_thresh });
+        });
+    });
+
+    [3, 4, 5, 6].forEach(segments => {
+        [0.06, 0.08, 0.1, 0.12, 0.15, 0.18].forEach(accel_thresh => {
+            push('trend_accel', { segments, accel_thresh: Number(accel_thresh.toFixed(3)), min_final_pw: 0.25 });
+        });
+    });
+
+    [0.65, 0.7, 0.75, 0.8, 0.85, 0.9].forEach(min_switch_rate => {
+        [6, 8, 10, 12, 14, 16, 18].forEach(min_total_switches => {
+            push('switch_pattern', { min_switch_rate: Number(min_switch_rate.toFixed(2)), min_total_switches });
+        });
+    });
+
+    const compoundParts = [
+        [
+            { family: 'freq_threshold', params: { thresh: 0.16 } },
+            { family: 'last_run', params: { min_run: 3 } }
+        ],
+        [
+            { family: 'weighted_recency', params: { decay: 0.85, thresh: 0.2 } },
+            { family: 'trend_accel', params: { segments: 4, accel_thresh: 0.1, min_final_pw: 0.25 } }
+        ],
+        [
+            { family: 'freq_segmented', params: { segments: 4, seg_thresh: 0.25 } },
+            { family: 'lagged_sum', params: { lag_k: 3, sum_thresh: 6 } }
+        ]
+    ];
+
+    compoundParts.forEach((parts, idx) => {
+        push('compound_and', { parts, component_count: parts.length, id: `AND_BASE_${idx + 1}` });
+        push('compound_or', { parts, component_count: parts.length, min_hits: 1, id: `OR_BASE_${idx + 1}` });
+    });
+
+    return configs;
+}
+
+function sampleRandomN0Config(rng, forcedFamily) {
+    const family = forcedFamily || N0_FAMILY_LIST[Math.floor(rng() * N0_FAMILY_LIST.length)];
+    const rFloat = () => rng();
+    const randBetween = (min, max, decimals = 3) => {
+        const value = min + (max - min) * rFloat();
+        const factor = Math.pow(10, decimals);
+        return Math.round(value * factor) / factor;
+    };
+    const randInt = (min, max) => Math.floor(min + (max - min + 1) * rFloat());
+
+    switch (family) {
+        case 'freq_threshold':
+            return { family, params: { thresh: randBetween(0.05, 0.32) } };
+        case 'freq_segmented':
+            return {
+                family,
+                params: {
+                    segments: randInt(3, 6),
+                    seg_thresh: randBetween(0.18, 0.35)
+                }
+            };
+        case 'weighted_recency':
+            return {
+                family,
+                params: {
+                    decay: randBetween(0.6, 0.95, 2),
+                    thresh: randBetween(0.18, 0.32)
+                }
+            };
+        case 'last_run':
+            return {
+                family,
+                params: {
+                    min_run: randInt(2, 8)
+                }
+            };
+        case 'run_stats':
+            return {
+                family,
+                params: {
+                    min_max_run: randInt(3, 9),
+                    min_run_count: randInt(2, 5)
+                }
+            };
+        case 'markov':
+            return {
+                family,
+                params: {
+                    order: randInt(1, 3),
+                    prob_thresh: randBetween(0.45, 0.75, 2)
+                }
+            };
+        case 'n_gram_pattern': {
+            const patterns = ['RR', 'RB', 'BB', 'BR', 'RRR', 'RBR', 'BRB', 'BBR', 'RBB', 'RRBR', 'BRRB'];
+            const pattern = patterns[Math.floor(rng() * patterns.length)];
+            return {
+                family,
+                params: {
+                    pattern,
+                    next_thresh: randBetween(0.55, 0.8, 2)
+                }
+            };
+        }
+        case 'burst_detector':
+            return {
+                family,
+                params: {
+                    sub_window: randInt(6, 30),
+                    frac_thresh: randBetween(0.3, 0.7, 2)
+                }
+            };
+        case 'entropy_change':
+            return {
+                family,
+                params: {
+                    delta_thresh: randBetween(0.08, 0.2, 3),
+                    max_entropy: randBetween(0.9, 1.3, 3)
+                }
+            };
+        case 'lagged_sum':
+            return {
+                family,
+                params: {
+                    lag_k: randInt(2, 8),
+                    sum_thresh: randInt(4, 12)
+                }
+            };
+        case 'trend_accel':
+            return {
+                family,
+                params: {
+                    segments: randInt(3, 6),
+                    accel_thresh: randBetween(0.05, 0.2, 3),
+                    min_final_pw: randBetween(0.2, 0.35, 3)
+                }
+            };
+        case 'switch_pattern':
+            return {
+                family,
+                params: {
+                    min_switch_rate: randBetween(0.6, 0.92, 2),
+                    min_total_switches: randInt(6, 20)
+                }
+            };
+        case 'compound_and':
+        case 'compound_or': {
+            const partCount = randInt(2, 3);
+            const partFamilies = ['freq_threshold', 'weighted_recency', 'last_run', 'run_stats', 'lagged_sum', 'trend_accel'];
+            const parts = [];
+            for (let i = 0; i < partCount; i++) {
+                const subFamily = partFamilies[Math.floor(rng() * partFamilies.length)];
+                parts.push(sampleRandomN0Config(rng, subFamily));
+            }
+            const params = {
+                parts,
+                component_count: parts.length,
+                id: `${family.toUpperCase()}_${hashStringToUnit(JSON.stringify(parts)).toString(36).slice(2, 8)}`
+            };
+            if (family === 'compound_or') {
+                params.min_hits = Math.max(1, Math.min(parts.length, Math.round(parts.length * randBetween(0.4, 0.7, 2))));
+            }
+            return { family, params };
+        }
+        default:
+            return null;
+    }
+}
+
+function tryAddN0Config(candidate, accepted, acceptedVectors, diversityThreshold) {
+    if (!candidate || !candidate.family) return false;
+    const vector = encodeN0ConfigVector(candidate);
+    for (const existingVector of acceptedVectors) {
+        if (n0ConfigDistance(vector, existingVector) < diversityThreshold) {
+            return false;
+        }
+    }
+    accepted.push(candidate);
+    acceptedVectors.push(vector);
+    return true;
+}
+
+function generateN0Configs(count, seed = N0_DEFAULTS.seed) {
+    if (n0ConfigLibraryCache && n0ConfigLibraryCache.length >= count && n0ConfigLibrarySeed === seed) {
+        return n0ConfigLibraryCache.slice(0, count);
+    }
+
+    const rng = createSeededRandomGenerator(seed);
+    const baseConfigs = buildN0BaseConfigs();
+    const accepted = [];
+    const acceptedVectors = [];
+    const familyCounts = {};
+    let diversityThreshold = N0_DIVERSITY_MIN_DISTANCE_BASE;
+
+    const pushWithDiversity = (cfg, allowRelax = false) => {
+        if (!cfg) return false;
+        const success = tryAddN0Config(cfg, accepted, acceptedVectors, diversityThreshold);
+        if (success) {
+            familyCounts[cfg.family] = (familyCounts[cfg.family] || 0) + 1;
+        } else if (allowRelax && diversityThreshold > 0.08) {
+            const relaxedSuccess = tryAddN0Config(cfg, accepted, acceptedVectors, diversityThreshold * 0.9);
+            if (relaxedSuccess) {
+                familyCounts[cfg.family] = (familyCounts[cfg.family] || 0) + 1;
+            }
+            return relaxedSuccess;
+        }
+        return success;
+    };
+
+    baseConfigs.forEach(cfg => {
+        if (accepted.length < count) {
+            pushWithDiversity(cfg, true);
+        }
+    });
+
+    let attempts = 0;
+    const maxAttempts = count * 50;
+    while (accepted.length < count && attempts < maxAttempts) {
+        const candidateFamily = N0_FAMILY_LIST[Math.floor(rng() * N0_FAMILY_LIST.length)];
+        const candidate = sampleRandomN0Config(rng, candidateFamily);
+        const added = pushWithDiversity(candidate, true);
+        if (!added && attempts % N0_FAMILY_LIST.length === 0 && diversityThreshold > 0.08) {
+            diversityThreshold *= 0.97;
+        }
+        attempts++;
+    }
+
+    N0_FAMILY_LIST.forEach(family => {
+        while ((familyCounts[family] || 0) < N0_FAMILY_MIN_PER_TYPE && accepted.length < count) {
+            const candidate = sampleRandomN0Config(rng, family);
+            if (!pushWithDiversity(candidate, true)) {
+                break;
+            }
+        }
+    });
+
+    diversityThreshold = Math.max(0.05, diversityThreshold);
+    while (accepted.length < count) {
+        const candidate = sampleRandomN0Config(rng);
+        if (!candidate) continue;
+        if (!pushWithDiversity(candidate, true)) {
+            if (diversityThreshold > 0.05) {
+                diversityThreshold *= 0.95;
+            } else {
+                accepted.push(candidate);
+                acceptedVectors.push(encodeN0ConfigVector(candidate));
+                familyCounts[candidate.family] = (familyCounts[candidate.family] || 0) + 1;
+            }
+        }
+    }
+
+    const trimmed = accepted.slice(0, count).map((cfg, index) => ({
+        id: createN0ConfigId(index),
+        family: cfg.family,
+        params: cfg.params || {},
+        description: describeN0Config(cfg)
+    }));
+
+    n0ConfigLibraryCache = trimmed;
+    n0ConfigLibrarySeed = seed;
+    maybePersistN0ConfigLibrary(trimmed);
+
+    return trimmed;
+}
+
+function computeWindowStats(windowChars) {
+    const total = windowChars.length;
+    let whites = 0;
+    let reds = 0;
+    let blacks = 0;
+    let currentWhiteRun = 0;
+    let maxWhiteRun = 0;
+    let whiteRunCount = 0;
+    let tailWhiteRun = 0;
+    let consecutiveSwitches = 0;
+    let nonWhiteTransitions = 0;
+    let lastNonWhite = null;
+    const whitePrefix = new Array(total + 1).fill(0);
+    let entropyFirstHalf = 0;
+    let entropySecondHalf = 0;
+
+    for (let i = 0; i < total; i++) {
+        const color = windowChars[i];
+        whitePrefix[i + 1] = whitePrefix[i] + (color === 'W' ? 1 : 0);
+        if (color === 'W') {
+            whites += 1;
+            currentWhiteRun += 1;
+        } else {
+            if (currentWhiteRun > 0) {
+                whiteRunCount += 1;
+                if (currentWhiteRun > maxWhiteRun) {
+                    maxWhiteRun = currentWhiteRun;
+                }
+                currentWhiteRun = 0;
+            }
+            if (color === 'R') reds += 1;
+            if (color === 'B') blacks += 1;
+            if (color === 'R' || color === 'B') {
+                if (lastNonWhite && lastNonWhite !== color) {
+                    consecutiveSwitches += 1;
+                }
+                if (lastNonWhite) {
+                    nonWhiteTransitions += 1;
+                }
+                lastNonWhite = color;
+            }
+        }
+    }
+
+    if (currentWhiteRun > 0) {
+        whiteRunCount += 1;
+        if (currentWhiteRun > maxWhiteRun) {
+            maxWhiteRun = currentWhiteRun;
+        }
+    }
+
+    tailWhiteRun = 0;
+    for (let i = total - 1; i >= 0; i--) {
+        if (windowChars[i] === 'W') tailWhiteRun += 1;
+        else if (windowChars[i] === 'R' || windowChars[i] === 'B') break;
+    }
+
+    const half = Math.max(1, Math.floor(total / 2));
+    const firstHalfCounts = { W: 0, R: 0, B: 0 };
+    const secondHalfCounts = { W: 0, R: 0, B: 0 };
+    for (let i = 0; i < total; i++) {
+        const color = windowChars[i];
+        if (i < half) firstHalfCounts[color] = (firstHalfCounts[color] || 0) + 1;
+        else secondHalfCounts[color] = (secondHalfCounts[color] || 0) + 1;
+    }
+
+    const entropy = (counts) => {
+        const sum = Object.values(counts).reduce((acc, val) => acc + val, 0);
+        if (sum === 0) return 0;
+        let value = 0;
+        Object.values(counts).forEach(count => {
+            if (count <= 0) return;
+            const p = count / sum;
+            value -= p * Math.log2(p);
+        });
+        return value;
+    };
+
+    entropyFirstHalf = entropy(firstHalfCounts);
+    entropySecondHalf = entropy(secondHalfCounts);
+
+    return {
+        total,
+        whites,
+        reds,
+        blacks,
+        pW: total > 0 ? whites / total : 0,
+        pR: total > 0 ? reds / total : 0,
+        pB: total > 0 ? blacks / total : 0,
+        maxWhiteRun,
+        whiteRunCount,
+        tailWhiteRun,
+        switches: consecutiveSwitches,
+        nonWhiteTransitions,
+        whitePrefix,
+        entropyFirstHalf,
+        entropySecondHalf,
+        segmentCache: new Map(),
+        weightedCache: new Map()
+    };
+}
+
+function getSegmentFractions(stats, segments, windowChars) {
+    if (stats.segmentCache.has(segments)) {
+        return stats.segmentCache.get(segments);
+    }
+    const fractions = [];
+    const len = stats.total;
+    const segSize = Math.max(1, Math.floor(len / segments));
+    for (let s = 0; s < segments; s++) {
+        const start = s * segSize;
+        const end = s === segments - 1 ? len : Math.min(len, start + segSize);
+        if (start >= len) {
+            fractions.push(0);
+            continue;
+        }
+        let whites = 0;
+        for (let i = start; i < end; i++) {
+            if (windowChars[i] === 'W') whites += 1;
+        }
+        fractions.push((end - start) > 0 ? whites / (end - start) : 0);
+    }
+    stats.segmentCache.set(segments, fractions);
+    return fractions;
+}
+
+function getWeightedWhiteness(stats, windowChars, decay) {
+    const key = `decay_${decay}`;
+    if (stats.weightedCache.has(key)) {
+        return stats.weightedCache.get(key);
+    }
+    let weightedWhites = 0;
+    let totalWeight = 0;
+    let currentWeight = 1;
+    for (let i = windowChars.length - 1; i >= 0; i--) {
+        const color = windowChars[i];
+        if (color === 'W') {
+            weightedWhites += currentWeight;
+        }
+        totalWeight += currentWeight;
+        currentWeight *= decay;
+    }
+    const result = totalWeight > 0 ? weightedWhites / totalWeight : 0;
+    stats.weightedCache.set(key, result);
+    return result;
+}
+
+function buildN0WindowContext(windows) {
+    const stats = windows.map(entry => computeWindowStats(entry.window));
+    const whitenessSeries = stats.map(s => s.pW);
+    const whiteCounts = stats.map(s => s.whites);
+    return {
+        stats,
+        whitenessSeries,
+        whiteCounts
+    };
+}
+
+function applyN0Config(cfg, windowChars, idxWindow, windows, context, depth = 0) {
+    if (!cfg || !cfg.family || !Array.isArray(windowChars) || windowChars.length === 0) {
+        return { prediction: null, confidence: 0 };
+    }
+    if (depth > 3) {
+        return { prediction: null, confidence: 0 };
+    }
+    const params = cfg.params || {};
+    const stats = context.stats[idxWindow];
+
+    switch (cfg.family) {
+        case 'freq_threshold': {
+            const confidence = stats.pW;
+            return {
+                prediction: confidence >= (params.thresh ?? 0.2) ? 'W' : null,
+                confidence
+            };
+        }
+        case 'freq_segmented': {
+            const segments = Math.max(2, Math.min(8, Number(params.segments) || 4));
+            const fractions = getSegmentFractions(stats, segments, windowChars);
+            const maxSegment = Math.max(...fractions);
+            return {
+                prediction: maxSegment >= (params.seg_thresh ?? 0.25) ? 'W' : null,
+                confidence: clamp01(maxSegment)
+            };
+        }
+        case 'weighted_recency': {
+            const decay = clamp01(params.decay ?? 0.85);
+            const thresh = params.thresh ?? 0.22;
+            const confidence = getWeightedWhiteness(stats, windowChars, Math.max(0.4, Math.min(0.98, decay)));
+            return {
+                prediction: confidence >= thresh ? 'W' : null,
+                confidence: clamp01(confidence)
+            };
+        }
+        case 'last_run': {
+            const minRun = Math.max(1, Number(params.min_run) || 3);
+            const tail = stats.tailWhiteRun;
+            const confidence = clamp01(tail / Math.max(1, minRun));
+            return {
+                prediction: tail >= minRun ? 'W' : null,
+                confidence
+            };
+        }
+        case 'run_stats': {
+            const minMaxRun = Math.max(2, Number(params.min_max_run) || 4);
+            const minRunCount = Math.max(1, Number(params.min_run_count) || 2);
+            const condition = stats.maxWhiteRun >= minMaxRun && stats.whiteRunCount >= minRunCount;
+            const confidence = clamp01(
+                ((stats.maxWhiteRun / Math.max(1, minMaxRun)) + (stats.whiteRunCount / Math.max(1, minRunCount))) / 2
+            );
+            return {
+                prediction: condition ? 'W' : null,
+                confidence
+            };
+        }
+        case 'markov': {
+            const order = Math.max(1, Math.min(3, Number(params.order) || 1));
+            const probThresh = clamp01(params.prob_thresh ?? 0.55);
+            const transitions = {};
+            for (let i = 0; i + order < windowChars.length; i++) {
+                const key = windowChars.slice(i, i + order).join('');
+                const next = windowChars[i + order];
+                if (!transitions[key]) transitions[key] = { W: 0, N: 0 };
+                if (next === 'W') transitions[key].W += 1;
+                else if (next === 'R' || next === 'B') transitions[key].N += 1;
+            }
+            const lastKey = windowChars.slice(-order).join('');
+            const statsKey = transitions[lastKey];
+            if (!statsKey) {
+                return { prediction: null, confidence: 0 };
+            }
+            const total = statsKey.W + statsKey.N;
+            const confidence = total > 0 ? statsKey.W / total : 0;
+            return {
+                prediction: confidence >= probThresh ? 'W' : null,
+                confidence: clamp01(confidence)
+            };
+        }
+        case 'n_gram_pattern': {
+            const pattern = String(params.pattern || '').replace(/[^R BW]/g, '').replace(/\s+/g, '');
+            const nextThresh = clamp01(params.next_thresh ?? 0.6);
+            const L = pattern.length;
+            if (!pattern || L < 2 || windowChars.length <= L) {
+                return { prediction: null, confidence: 0 };
+            }
+            let occurrences = 0;
+            let whiteFollowers = 0;
+            for (let i = 0; i + L < windowChars.length; i++) {
+                const candidate = windowChars.slice(i, i + L).join('');
+                if (candidate === pattern) {
+                    occurrences += 1;
+                    if (windowChars[i + L] === 'W') {
+                        whiteFollowers += 1;
+                    }
+                }
+            }
+            if (occurrences === 0) {
+                return { prediction: null, confidence: 0 };
+            }
+            const confidence = whiteFollowers / occurrences;
+            return {
+                prediction: confidence >= nextThresh ? 'W' : null,
+                confidence: clamp01(confidence)
+            };
+        }
+        case 'burst_detector': {
+            const subWindow = Math.max(3, Math.min(windowChars.length, Number(params.sub_window) || 12));
+            const fracThresh = clamp01(params.frac_thresh ?? 0.45);
+            let maxFraction = 0;
+            for (let start = 0; start + subWindow <= windowChars.length; start++) {
+                const whitesInSubWindow = stats.whitePrefix[start + subWindow] - stats.whitePrefix[start];
+                const fraction = whitesInSubWindow / subWindow;
+                if (fraction > maxFraction) {
+                    maxFraction = fraction;
+                }
+            }
+            return {
+                prediction: maxFraction >= fracThresh ? 'W' : null,
+                confidence: clamp01(maxFraction)
+            };
+        }
+        case 'entropy_change': {
+            const deltaThresh = params.delta_thresh ?? 0.1;
+            const maxEntropy = params.max_entropy ?? 1.2;
+            const delta = stats.entropyFirstHalf - stats.entropySecondHalf;
+            const confidence = clamp01(stats.pW + Math.max(0, delta));
+            const condition = delta >= deltaThresh && stats.entropySecondHalf <= maxEntropy;
+            return {
+                prediction: condition ? 'W' : null,
+                confidence
+            };
+        }
+        case 'lagged_sum': {
+            const lagK = Math.max(1, Number(params.lag_k) || 3);
+            if (idxWindow + 1 < lagK) {
+                return { prediction: null, confidence: 0 };
+            }
+            let sumWhites = 0;
+            for (let i = idxWindow - lagK + 1; i <= idxWindow; i++) {
+                sumWhites += context.whiteCounts[i];
+            }
+            const sumThresh = Number(params.sum_thresh) || 6;
+            const confidence = clamp01(sumWhites / (lagK * windowChars.length));
+            return {
+                prediction: sumWhites >= sumThresh ? 'W' : null,
+                confidence
+            };
+        }
+        case 'trend_accel': {
+            const segments = Math.max(3, Math.min(6, Number(params.segments) || 4));
+            const fractions = getSegmentFractions(stats, segments, windowChars);
+            if (fractions.length < 3) {
+                return { prediction: null, confidence: 0 };
+            }
+            const midIndex = Math.floor(fractions.length / 2);
+            const slopeEarly = fractions[midIndex] - fractions[0];
+            const slopeLate = fractions[fractions.length - 1] - fractions[midIndex];
+            const accel = slopeLate - slopeEarly;
+            const accelThresh = params.accel_thresh ?? 0.1;
+            const minFinal = params.min_final_pw ?? 0.25;
+            const confidence = clamp01(fractions[fractions.length - 1] + Math.max(0, accel));
+            const condition = accel >= accelThresh && fractions[fractions.length - 1] >= minFinal;
+            return {
+                prediction: condition ? 'W' : null,
+                confidence
+            };
+        }
+        case 'switch_pattern': {
+            const minRate = clamp01(params.min_switch_rate ?? 0.75);
+            const minTotal = Math.max(3, Number(params.min_total_switches) || 8);
+            const switchRate = stats.nonWhiteTransitions > 0
+                ? stats.switches / stats.nonWhiteTransitions
+                : 0;
+            const confidence = clamp01((switchRate + stats.pW) / 2);
+            const condition = stats.switches >= minTotal && switchRate >= minRate;
+            return {
+                prediction: condition ? 'W' : null,
+                confidence
+            };
+        }
+        case 'compound_and':
+        case 'compound_or': {
+            const parts = Array.isArray(params.parts) ? params.parts : [];
+            if (parts.length === 0) {
+                return { prediction: null, confidence: 0 };
+            }
+            const results = parts.map(part => applyN0Config(part, windowChars, idxWindow, windows, context, depth + 1));
+            const activeParts = results.filter(res => res.prediction === 'W');
+            if (cfg.family === 'compound_and') {
+                const condition = activeParts.length === results.length;
+                const confidenceAvg = activeParts.length > 0
+                    ? activeParts.reduce((acc, item) => acc + item.confidence, 0) / activeParts.length
+                    : 0;
+                return {
+                    prediction: condition ? 'W' : null,
+                    confidence: clamp01(confidenceAvg)
+                };
+            }
+            const minHits = Math.max(1, Math.min(results.length, Number(params.min_hits) || 1));
+            const condition = activeParts.length >= minHits;
+            const confidenceAvg = activeParts.length > 0
+                ? activeParts.reduce((acc, item) => acc + item.confidence, 0) / activeParts.length
+                : 0;
+            return {
+                prediction: condition ? 'W' : null,
+                confidence: clamp01(confidenceAvg)
+            };
+        }
+        default:
+            return { prediction: null, confidence: 0 };
+    }
+}
+
+function computeN0RecentRecall(confList) {
+    if (!Array.isArray(confList) || confList.length === 0) return 0;
+    const half = Math.max(1, Math.floor(confList.length / 2));
+    const recent = confList.slice(-half);
+    let truePositives = 0;
+    let falseNegatives = 0;
+    recent.forEach(({ confidence, isWhite }) => {
+        if (!isWhite) return;
+        if (confidence >= 0.5) truePositives += 1;
+        else falseNegatives += 1;
+    });
+    return truePositives + falseNegatives > 0 ? truePositives / (truePositives + falseNegatives) : 0;
+}
+
+function evaluateN0Config(windows, cfg, context, options = {}) {
+    const { collectLogs = false } = options;
+    let TP = 0;
+    let FP = 0;
+    let FN = 0;
+    let nPreds = 0;
+    const confList = [];
+    const perWindowLog = collectLogs ? [] : null;
+
+    windows.forEach((entry, idx) => {
+        const { window, target } = entry;
+        const result = applyN0Config(cfg, window, idx, windows, context);
+        const confidence = clamp01(result.confidence ?? 0);
+        const predictedWhite = result.prediction === 'W';
+        const targetIsWhite = target === 'W';
+
+        confList.push({
+            confidence,
+            isWhite: targetIsWhite,
+            predictedWhite
+        });
+
+        let logResult = 'nulo';
+        if (predictedWhite) {
+            nPreds += 1;
+            if (targetIsWhite) {
+                TP += 1;
+                logResult = 'hit';
+            } else {
+                FP += 1;
+                logResult = 'false_positive';
+            }
+        } else if (targetIsWhite) {
+            FN += 1;
+            logResult = 'miss_white';
+        } else {
+            logResult = 'null';
+        }
+
+        if (perWindowLog) {
+            perWindowLog.push({
+                window_index: entry.index,
+                start_idx: entry.start,
+                prediction: predictedWhite ? 'W' : '-',
+                confidence: Number(confidence.toFixed(4)),
+                target,
+                result: logResult
+            });
+        }
+    });
+
+    const precision = TP + FP > 0 ? TP / (TP + FP) : 0;
+    const recall = TP + FN > 0 ? TP / (TP + FN) : 0;
+    const f1 = precision + recall > 0 ? (2 * precision * recall) / (precision + recall) : 0;
+    const coverage = windows.length > 0 ? nPreds / windows.length : 0;
+    const accRecent = computeN0RecentRecall(confList);
+
+    return {
+        cfg,
+        metrics: {
+            TP,
+            FP,
+            FN,
+            n_preds: nPreds,
+            precision,
+            recall,
+            f1,
+            coverage,
+            acc_recent: accRecent,
+            n_windows: windows.length
+        },
+        confList,
+        perWindowLog
+    };
+}
+
+function evaluateN0ConfigLegacy(windows, cfg) {
+    let TP = 0;
+    let FP = 0;
+    let FN = 0;
+    let nPreds = 0;
+    const confList = [];
+
+    windows.forEach(({ window, target }) => {
+        const { prediction, confidence } = applyN0AnalysisLegacy(cfg, window);
+        const confValue = Number.isFinite(confidence) ? Math.max(0, Math.min(1, confidence)) : 0;
+        confList.push({ confidence: confValue, isWhite: target === 'W' });
+        if (prediction === 'W') {
+            nPreds += 1;
+            if (target === 'W') TP += 1;
+            else FP += 1;
+        } else if (target === 'W') {
+            FN += 1;
+        }
+    });
+
+    const precision = TP + FP > 0 ? TP / (TP + FP) : 0;
+    const recall = TP + FN > 0 ? TP / (TP + FN) : 0;
+    const f1 = precision + recall > 0 ? (2 * precision * recall) / (precision + recall) : 0;
+    const coverage = windows.length > 0 ? nPreds / windows.length : 0;
+    const accRecent = computeN0RecentRecall(confList);
+
+    return {
+        cfg,
+        n_preds: nPreds,
+        TP,
+        FP,
+        FN,
+        precision,
+        recall,
+        f1,
+        coverage,
+        acc_recent: accRecent,
+        confList
+    };
+}
+
+function calculateN0BlockMetrics(confList, threshold) {
+    let TP = 0;
+    let FP = 0;
+    let FN = 0;
+    confList.forEach(({ confidence, isWhite }) => {
+        const passes = confidence >= threshold;
+        if (passes && isWhite) TP += 1;
+        else if (passes && !isWhite) FP += 1;
+        else if (!passes && isWhite) FN += 1;
+    });
+    const precision = TP + FP > 0 ? TP / (TP + FP) : 0;
+    const recall = TP + FN > 0 ? TP / (TP + FN) : 0;
+    const f1 = precision + recall > 0 ? (2 * precision * recall) / (precision + recall) : 0;
+    return { TP, FP, FN, precision, recall, f1 };
+}
+
+function determineDominantNonWhite(window) {
+    if (!Array.isArray(window) || window.length === 0) return null;
+    let reds = 0;
+    let blacks = 0;
+    window.forEach(char => {
+        if (char === 'R') reds += 1;
+        if (char === 'B') blacks += 1;
+    });
+    if (reds === blacks) return null;
+    if (reds === 0 && blacks === 0) return null;
+    return reds > blacks ? 'red' : 'black';
+}
+
+function runN0DetectorLegacy(history, options = {}) {
+    try {
+        const settings = {
+            historySize: Number(options.historySize) > 0 ? Math.floor(options.historySize) : N0_DEFAULTS.historySize,
+            windowSize: Number(options.windowSize) > 0 ? Math.floor(options.windowSize) : N0_DEFAULTS.windowSize,
+            analysesToRun: Number(options.analysesToRun) > 0 ? Math.floor(options.analysesToRun) : N0_DEFAULTS.analysesToRun,
+            minWindowsRequired: Number(options.minWindowsRequired) > 0 ? Math.floor(options.minWindowsRequired) : N0_DEFAULTS.minWindowsRequired,
+            precisionMin: typeof options.precisionMin === 'number' ? Math.max(0, Math.min(1, options.precisionMin)) : N0_DEFAULTS.precisionMin,
+            confidenceGrid: Array.isArray(options.confidenceGrid) && options.confidenceGrid.length > 0
+                ? options.confidenceGrid.map(Number).filter(v => Number.isFinite(v) && v > 0 && v < 1).sort((a, b) => a - b)
+                : [...N0_DEFAULTS.confidenceGrid],
+            holdoutEnabled: options.holdoutEnabled !== undefined ? !!options.holdoutEnabled : N0_DEFAULTS.holdoutEnabled,
+            holdoutTolerance: typeof options.holdoutTolerance === 'number'
+                ? Math.max(0, Math.min(1, options.holdoutTolerance))
+                : N0_DEFAULTS.holdoutTolerance,
+            seed: Number.isFinite(Number(options.seed)) ? Number(options.seed) : N0_DEFAULTS.seed
+        };
+
+        const chronologicalHistory = Array.isArray(history) ? history.slice().reverse() : [];
+        const normalizedHistory = normalizeN0History(chronologicalHistory).slice(-settings.historySize);
+
+        if (normalizedHistory.length < settings.windowSize * 2) {
+            return {
+                enabled: false,
+                reason: `Histórico insuficiente: ${normalizedHistory.length}/${settings.windowSize * 2}`,
+                code: 'insufficient_history'
+            };
+        }
+
+        const windows = buildN0Windows(normalizedHistory, settings.windowSize);
+        if (windows.length < settings.minWindowsRequired) {
+            return {
+                enabled: false,
+                reason: `Janelas úteis insuficientes: ${windows.length}/${settings.minWindowsRequired}`,
+                code: 'insufficient_windows'
+            };
+        }
+
+        const holdoutPossible = settings.holdoutEnabled && windows.length >= settings.minWindowsRequired * 2;
+        const trainingWindows = holdoutPossible ? windows.filter((_, idx) => idx % 2 === 0) : windows;
+        const validationWindows = holdoutPossible ? windows.filter((_, idx) => idx % 2 === 1) : [];
+
+        if (trainingWindows.length < settings.minWindowsRequired) {
+            return {
+                enabled: false,
+                reason: `Validação: menos de ${settings.minWindowsRequired} janelas na amostra de treino`,
+                code: 'insufficient_training'
+            };
+        }
+
+        const candidateConfigs = generateN0Configs(settings.analysesToRun, settings.seed);
+        const evaluations = [];
+        candidateConfigs.forEach(cfg => {
+            const evaluation = evaluateN0Config(trainingWindows, cfg);
+            if (evaluation.n_preds >= settings.minWindowsRequired) {
+                evaluations.push(evaluation);
+            }
+        });
+
+        if (evaluations.length === 0) {
+            return {
+                enabled: false,
+                reason: 'Nenhuma configuração elegível',
+                code: 'no_valid_configs',
+                tested_configs: candidateConfigs.length
+            };
+        }
+
+        evaluations.sort((a, b) => {
+            if (b.f1 !== a.f1) return b.f1 - a.f1;
+            if (b.recall !== a.recall) return b.recall - a.recall;
+            if (b.precision !== a.precision) return b.precision - a.precision;
+            if ((b.acc_recent || 0) !== (a.acc_recent || 0)) return (b.acc_recent || 0) - (a.acc_recent || 0);
+            if (b.coverage !== a.coverage) return b.coverage - a.coverage;
+            return 0;
+        });
+
+        const bestEvaluation = evaluations[0];
+        const grid = settings.confidenceGrid.length > 0 ? settings.confidenceGrid : [...N0_DEFAULTS.confidenceGrid];
+
+        let chosenThreshold = null;
+        let chosenMetrics = null;
+        grid.forEach(candidate => {
+            const metrics = calculateN0BlockMetrics(bestEvaluation.confList, candidate);
+            if (metrics.precision >= settings.precisionMin) {
+                if (!chosenMetrics || metrics.f1 > chosenMetrics.f1) {
+                    chosenMetrics = metrics;
+                    chosenThreshold = candidate;
+                }
+            }
+        });
+
+        if (!chosenMetrics) {
+            const confValues = bestEvaluation.confList
+                .map(entry => entry.confidence)
+                .filter(Number.isFinite)
+                .sort((a, b) => a - b);
+            const percentileIndex = Math.max(0, Math.min(confValues.length - 1, Math.floor(confValues.length * 0.9)));
+            const percentile90 = confValues.length > 0 ? confValues[percentileIndex] : 0.8;
+            chosenThreshold = Math.max(0.8, percentile90);
+            chosenMetrics = calculateN0BlockMetrics(bestEvaluation.confList, chosenThreshold);
+        }
+
+        const holdoutInfo = {
+            enabled: holdoutPossible,
+            passed: true,
+            reason: null,
+            training: chosenMetrics,
+            validation: null
+        };
+
+        if (holdoutPossible && validationWindows.length >= settings.minWindowsRequired) {
+            const validationEval = evaluateN0Config(validationWindows, bestEvaluation.cfg);
+            const validationMetrics = calculateN0BlockMetrics(validationEval.confList, chosenThreshold);
+            holdoutInfo.validation = validationMetrics;
+            const trainingF1 = chosenMetrics.f1;
+            const validationF1 = validationMetrics.f1;
+            if (validationMetrics.precision < settings.precisionMin) {
+                holdoutInfo.passed = false;
+                holdoutInfo.reason = `Precisão da validação abaixo do mínimo (${(validationMetrics.precision * 100).toFixed(1)}% < ${(settings.precisionMin * 100).toFixed(1)}%)`;
+            } else if (validationF1 < (trainingF1 - settings.holdoutTolerance)) {
+                holdoutInfo.passed = false;
+                holdoutInfo.reason = `F1 caiu de ${(trainingF1 * 100).toFixed(1)}% para ${(validationF1 * 100).toFixed(1)}%`;
+            }
+        }
+
+        const liveWindow = normalizedHistory.slice(-settings.windowSize);
+        if (liveWindow.length < settings.windowSize) {
+            return {
+                enabled: false,
+                reason: 'Janela incompleta para predição ao vivo',
+                code: 'incomplete_live_window'
+            };
+        }
+        const liveAnalysis = applyN0Analysis(bestEvaluation.cfg, liveWindow);
+        const liveConfidence = Number.isFinite(liveAnalysis.confidence) ? Math.max(0, Math.min(1, liveAnalysis.confidence)) : 0;
+        const livePrediction = liveAnalysis.prediction === 'W' ? 'W' : null;
+
+        let blockingAction = 'no_block';
+        if (livePrediction === 'W') {
+            if (liveConfidence >= chosenThreshold) {
+                blockingAction = 'block_all';
+            } else if (liveConfidence >= chosenThreshold * 0.8) {
+                blockingAction = 'soft_block';
+            }
+        }
+
+        if (!holdoutInfo.passed && blockingAction !== 'no_block') {
+            blockingAction = 'no_block';
+        }
+
+        const dominantNonWhite = determineDominantNonWhite(liveWindow);
+
+        return {
+            enabled: true,
+            best_config: bestEvaluation.cfg,
+            metrics: {
+                training: bestEvaluation,
+                block: chosenMetrics
+            },
+            pred_live: livePrediction,
+            white_confidence: liveConfidence,
+            blocking_action: blockingAction,
+            blocking_threshold: chosenThreshold,
+            dominant_nonwhite: dominantNonWhite,
+            n_windows: windows.length,
+            tested_configs: evaluations.length,
+            holdout: holdoutInfo
+        };
+    } catch (error) {
+        console.error('❌ Erro no detector de branco (N0):', error);
+        return {
+            enabled: false,
+            reason: 'Erro interno no detector de branco',
+            code: 'internal_error',
+            error: String(error)
+        };
+    }
+}
+
+function runN0Detector(history, options = {}) {
+    const runTimestamp = Date.now();
+    const runId = `N0-${runTimestamp}-${Math.floor(Math.random() * 1e6).toString(16)}`;
+    try {
+        const settings = {
+            historySize: Number(options.historySize) > 0 ? Math.floor(options.historySize) : N0_DEFAULTS.historySize,
+            windowSize: Number(options.windowSize) > 0 ? Math.floor(options.windowSize) : N0_DEFAULTS.windowSize,
+            analysesToRun: Number(options.analysesToRun) > 0 ? Math.floor(options.analysesToRun) : N0_DEFAULTS.analysesToRun,
+            minWindowsRequired: Number(options.minWindowsRequired) > 0 ? Math.floor(options.minWindowsRequired) : N0_DEFAULTS.minWindowsRequired,
+            precisionMin: typeof options.precisionMin === 'number' ? clamp01(options.precisionMin) : N0_DEFAULTS.precisionMin,
+            confidenceGrid: Array.isArray(options.confidenceGrid) && options.confidenceGrid.length > 0
+                ? options.confidenceGrid.map(Number).filter(v => Number.isFinite(v) && v > 0 && v < 1).sort((a, b) => a - b)
+                : [...N0_DEFAULTS.confidenceGrid],
+            holdoutEnabled: options.holdoutEnabled !== undefined ? !!options.holdoutEnabled : N0_DEFAULTS.holdoutEnabled,
+            holdoutTolerance: typeof options.holdoutTolerance === 'number'
+                ? clamp01(options.holdoutTolerance)
+                : N0_DEFAULTS.holdoutTolerance,
+            seed: Number.isFinite(Number(options.seed)) ? Number(options.seed) : N0_DEFAULTS.seed
+        };
+
+        const chronologicalHistory = Array.isArray(history) ? history.slice().reverse() : [];
+        const normalizedHistory = normalizeN0History(chronologicalHistory).slice(-settings.historySize);
+
+        if (normalizedHistory.length < settings.windowSize * 2) {
+            return {
+                enabled: false,
+                reason: `Histórico insuficiente: ${normalizedHistory.length}/${settings.windowSize * 2}`,
+                code: 'insufficient_history'
+            };
+        }
+
+        const windows = buildN0Windows(normalizedHistory, settings.windowSize);
+        if (windows.length < settings.minWindowsRequired) {
+            return {
+                enabled: false,
+                reason: `Janelas úteis insuficientes: ${windows.length}/${settings.minWindowsRequired}`,
+                code: 'insufficient_windows'
+            };
+        }
+
+        const holdoutPossible = settings.holdoutEnabled && windows.length >= settings.minWindowsRequired * 2;
+        const trainingWindows = holdoutPossible ? windows.filter((_, idx) => idx % 2 === 0) : windows;
+        const validationWindows = holdoutPossible ? windows.filter((_, idx) => idx % 2 === 1) : [];
+
+        if (trainingWindows.length < settings.minWindowsRequired) {
+            return {
+                enabled: false,
+                reason: `Validação: menos de ${settings.minWindowsRequired} janelas na amostra de treino`,
+                code: 'insufficient_training'
+            };
+        }
+
+        const candidateConfigs = generateN0Configs(settings.analysesToRun, settings.seed);
+        console.log(`%c   ➤ Biblioteca N0: ${candidateConfigs.length} configs avaliadas`, 'color: #CCCCFF; font-weight: bold;');
+        const trainingContext = buildN0WindowContext(trainingWindows);
+        const evaluations = [];
+
+        candidateConfigs.forEach(cfg => {
+            const evaluation = evaluateN0Config(trainingWindows, cfg, trainingContext);
+            if (evaluation.metrics.n_preds >= settings.minWindowsRequired) {
+                evaluations.push(evaluation);
+            }
+        });
+
+        if (evaluations.length === 0) {
+            return {
+                enabled: false,
+                reason: 'Nenhuma configuração elegível',
+                code: 'no_valid_configs',
+                tested_configs: candidateConfigs.length
+            };
+        }
+
+        evaluations.sort((a, b) => {
+            const mA = a.metrics;
+            const mB = b.metrics;
+            if (mB.f1 !== mA.f1) return mB.f1 - mA.f1;
+            if (mB.recall !== mA.recall) return mB.recall - mA.recall;
+            if (mB.precision !== mA.precision) return mB.precision - mA.precision;
+            if ((mB.acc_recent || 0) !== (mA.acc_recent || 0)) return (mB.acc_recent || 0) - (mA.acc_recent || 0);
+            if (mB.coverage !== mA.coverage) return mB.coverage - mA.coverage;
+            return 0;
+        });
+
+        const TOP_K = Math.min(20, evaluations.length);
+        const topEvaluations = evaluations.slice(0, TOP_K);
+        const bestEvaluation = topEvaluations[0];
+        const bestDetailed = evaluateN0Config(trainingWindows, bestEvaluation.cfg, trainingContext, { collectLogs: true });
+        const bestMetrics = bestDetailed.metrics;
+        const bestConfList = bestDetailed.confList;
+        const perWindowLog = bestDetailed.perWindowLog || [];
+
+        const grid = settings.confidenceGrid.length > 0 ? settings.confidenceGrid : [...N0_DEFAULTS.confidenceGrid];
+        let chosenThreshold = null;
+        let chosenMetrics = null;
+        grid.forEach(candidate => {
+            const metrics = calculateN0BlockMetrics(bestConfList, candidate);
+            if (metrics.precision >= settings.precisionMin) {
+                if (!chosenMetrics || metrics.f1 > chosenMetrics.f1) {
+                    chosenMetrics = { ...metrics, threshold: candidate };
+                    chosenThreshold = candidate;
+                }
+            }
+        });
+
+        if (!chosenMetrics) {
+            const confValues = bestConfList
+                .map(entry => entry.confidence)
+                .filter(Number.isFinite)
+                .sort((a, b) => a - b);
+            const percentileIndex = Math.max(0, Math.min(confValues.length - 1, Math.floor(confValues.length * 0.9)));
+            const percentile90 = confValues.length > 0 ? confValues[percentileIndex] : 0.8;
+            chosenThreshold = Math.max(0.8, percentile90);
+            const fallbackMetrics = calculateN0BlockMetrics(bestConfList, chosenThreshold);
+            chosenMetrics = { ...fallbackMetrics, threshold: chosenThreshold, fallback: true };
+        } else if (!('threshold' in chosenMetrics)) {
+            chosenMetrics.threshold = chosenThreshold;
+        }
+
+        const holdoutInfo = {
+            enabled: holdoutPossible,
+            passed: true,
+            reason: null,
+            training: chosenMetrics,
+            validation: null
+        };
+        const warnings = [];
+
+        if (holdoutPossible && validationWindows.length >= settings.minWindowsRequired) {
+            const validationContext = buildN0WindowContext(validationWindows);
+            const validationEval = evaluateN0Config(validationWindows, bestDetailed.cfg, validationContext);
+            const validationMetrics = calculateN0BlockMetrics(validationEval.confList, chosenThreshold);
+            holdoutInfo.validation = { ...validationMetrics, threshold: chosenThreshold };
+            const trainingF1 = chosenMetrics.f1 ?? 0;
+            const validationF1 = validationMetrics.f1 ?? 0;
+            if (validationMetrics.precision < settings.precisionMin) {
+                holdoutInfo.passed = false;
+                holdoutInfo.reason = `Precisão da validação abaixo do mínimo (${(validationMetrics.precision * 100).toFixed(1)}% < ${(settings.precisionMin * 100).toFixed(1)}%)`;
+                warnings.push(holdoutInfo.reason);
+            } else if (validationF1 < (trainingF1 - settings.holdoutTolerance)) {
+                holdoutInfo.passed = false;
+                holdoutInfo.reason = `F1 caiu de ${(trainingF1 * 100).toFixed(1)}% para ${(validationF1 * 100).toFixed(1)}%`;
+                warnings.push(holdoutInfo.reason);
+            }
+        }
+
+        const liveWindow = normalizedHistory.slice(-settings.windowSize);
+        if (liveWindow.length < settings.windowSize) {
+            return {
+                enabled: false,
+                reason: 'Janela incompleta para predição ao vivo',
+                code: 'incomplete_live_window'
+            };
+        }
+
+        const liveWindows = [{
+            window: liveWindow,
+            target: null,
+            index: windows.length,
+            start: Math.max(0, normalizedHistory.length - settings.windowSize),
+            targetIndex: normalizedHistory.length
+        }];
+        const liveContext = buildN0WindowContext(liveWindows);
+        const liveResult = applyN0Config(bestDetailed.cfg, liveWindow, 0, liveWindows, liveContext);
+        const liveConfidence = clamp01(liveResult.confidence ?? 0);
+        const livePrediction = liveResult.prediction === 'W' ? 'W' : null;
+
+        let blockingAction = 'no_block';
+        if (livePrediction === 'W') {
+            if (liveConfidence >= chosenThreshold) {
+                blockingAction = 'block_all';
+            } else if (liveConfidence >= chosenThreshold * 0.8) {
+                blockingAction = 'soft_block';
+            }
+        }
+
+        if (!holdoutInfo.passed && blockingAction !== 'no_block') {
+            blockingAction = 'no_block';
+            warnings.push('Ação de bloqueio suprimida devido à reprovação no holdout.');
+        }
+
+        const dominantNonWhite = determineDominantNonWhite(liveWindow);
+
+        const topCandidates = topEvaluations.slice(0, Math.min(10, topEvaluations.length)).map(entry => ({
+            id: entry.cfg.id,
+            family: entry.cfg.family,
+            params: entry.cfg.params,
+            metrics: entry.metrics
+        }));
+
+        const runSummary = {
+            run_id: runId,
+            timestamp: runTimestamp,
+            history_size: settings.historySize,
+            window_size: settings.windowSize,
+            analyses_to_run: settings.analysesToRun,
+            min_windows_required: settings.minWindowsRequired,
+            seed: settings.seed
+        };
+
+        return {
+            enabled: true,
+            run_summary: runSummary,
+            best_config: bestDetailed.cfg,
+            best_metrics: bestMetrics,
+            conf_list: bestConfList,
+            per_window_log: perWindowLog,
+            blocking_threshold: chosenThreshold,
+            blocking_metrics: chosenMetrics,
+            pred_live: livePrediction,
+            white_confidence: liveConfidence,
+            blocking_action: blockingAction,
+            dominant_nonwhite: dominantNonWhite,
+            tested_configs: candidateConfigs.length,
+            effective_configs: evaluations.length,
+            top_candidates: topCandidates,
+            n_windows: windows.length,
+            holdout: holdoutInfo,
+            config_library: candidateConfigs,
+            warnings
+        };
+    } catch (error) {
+        console.error('❌ Erro no detector de branco (N0):', error);
+        return {
+            enabled: false,
+            reason: 'Erro interno no detector de branco',
+            code: 'internal_error',
+            error: String(error),
+            run_summary: {
+                run_id: runId,
+                timestamp: runTimestamp
+            }
+        };
+    }
+}
+
+function getN0SettingsFromAnalyzerConfig() {
+    const windows = analyzerConfig && analyzerConfig.diamondLevelWindows ? analyzerConfig.diamondLevelWindows : {};
+    const historySizeRaw = Number(windows.n0History);
+    const windowSizeRaw = Number(windows.n0Window);
+    const historySize = Number.isFinite(historySizeRaw) && historySizeRaw > 0 ? Math.floor(historySizeRaw) : N0_DEFAULTS.historySize;
+    const windowSize = Number.isFinite(windowSizeRaw) && windowSizeRaw > 0 ? Math.floor(windowSizeRaw) : N0_DEFAULTS.windowSize;
+    return {
+        historySize: Math.max(200, Math.min(5000, historySize)),
+        windowSize: Math.max(25, Math.min(250, windowSize)),
+        allowBlockAll: analyzerConfig && analyzerConfig.n0AllowBlockAll !== false
+    };
+}
+
 /**
  * NÍVEL 10 (N10) - Walk-forward NÃO-SOBREPOSTO
  * Implementa a lógica descrita pelo usuário:
@@ -9519,7 +11198,8 @@ function runDiamondLevelN10(history, options = {}) {
 
 /**
  * FUNÇÃO PRINCIPAL: Análise Avançada - NÍVEL DIAMANTE
- * Fluxo atual: 9 níveis com pontuação contínua + barreira final
+ * Fluxo atual: 11 níveis com pontuação contínua + barreira final
+ * - N0 detecta branco e pode bloquear os demais níveis
  * - N1..N7 geram votos especializados
  * - N8 valida sequência (barreira final)
  * - N9 calibra probabilidades bayesianas e ajusta a força dos demais níveis
@@ -9527,8 +11207,8 @@ function runDiamondLevelN10(history, options = {}) {
 async function analyzeWithPatternSystem(history) {
     
     // ✅ DEBUG: Enviar mensagem inicial
-    sendAnalysisStatus('🔍 Iniciando análise dos 9 níveis...');
-    console.log('✅ DEBUG: sendAnalysisStatus chamado - Iniciando análise dos 9 níveis...');
+    sendAnalysisStatus('🔍 Iniciando análise dos 11 níveis...');
+    console.log('✅ DEBUG: sendAnalysisStatus chamado - Iniciando análise dos 11 níveis...');
     await sleep(1000);
     
     // VALIDAÇÃO DE DADOS DE ENTRADA
@@ -9547,7 +11227,8 @@ async function analyzeWithPatternSystem(history) {
         });
     }
     
-        console.log('%c║  💎 NÍVEL DIAMANTE - ANÁLISE AVANÇADA 9 NÍVEIS           ║', 'color: #00FF00; font-weight: bold; font-size: 16px;');
+        console.log('%c║  💎 NÍVEL DIAMANTE - ANÁLISE AVANÇADA 11 NÍVEIS          ║', 'color: #00FF00; font-weight: bold; font-size: 16px;');
+        console.log('%c║  ⚪ N0 - Detector de Branco (bloqueio dinâmico)         ║', 'color: #FFFFFF; font-weight: bold;');
         console.log('%c║  🎯 N1 - Padrões (Customizado → Quente → Nulo)         ║', 'color: #FFD700; font-weight: bold;');
         console.log('%c║  ⚡ N2 - Momentum (5 vs 15 giros)                      ║', 'color: #00FF88;');
         console.log('%c║  🔷 N3 - Padrão Alternância (12 giros)                 ║', 'color: #8E44AD; font-weight: bold;');
@@ -9562,7 +11243,7 @@ async function analyzeWithPatternSystem(history) {
     // ═══════════════════════════════════════════════════════════════
     // 📊 EXIBIR CONFIGURAÇÕES SALVAS PELO USUÁRIO (VALORES REAIS)
     // ═══════════════════════════════════════════════════════════════
-    console.log('%c║  ⚙️ CONFIGURAÇÕES DOS 9 NÍVEIS SALVAS PELO USUÁRIO (VALORES REAIS)          ║', 'color: #FF00FF; font-weight: bold; font-size: 16px; background: #000000;');
+    console.log('%c║  ⚙️ CONFIGURAÇÕES DOS 11 NÍVEIS SALVAS PELO USUÁRIO (VALORES REAIS)         ║', 'color: #FF00FF; font-weight: bold; font-size: 16px; background: #000000;');
     console.log('%c╠═══════════════════════════════════════════════════════════════════════════════╣', 'color: #FF00FF; font-weight: bold; background: #000000;');
     
     // Pegar configurações do analyzerConfig
@@ -9590,8 +11271,15 @@ async function analyzeWithPatternSystem(history) {
         }
         return fallback;
     };
+
+    const n0HistoryConfigured = displayValue('n0History', N0_DEFAULTS.historySize);
+    const n0WindowConfigured = getDiamondWindow('n0Window', N0_DEFAULTS.windowSize);
     
     console.log('%c║                                                                               ║', 'color: #FF00FF; background: #000000;');
+    console.log('%c║  ⚪ N0 - DETECTOR DE BRANCO:                                                  ║', 'color: #FFFFFF; font-weight: bold; background: #000000;');
+    console.log(`%c║     Histórico analisado (N): ${String(n0HistoryConfigured).padEnd(4)} giros (padrão: ${N0_DEFAULTS.historySize})${' '.repeat(20)}║`, 'color: #FFFFFF; background: #000000;');
+    console.log(`%c║     Janela (W): ${String(n0WindowConfigured).padEnd(4)} giros (padrão: ${N0_DEFAULTS.windowSize})${' '.repeat(30)}║`, 'color: #FFFFFF; background: #000000;');
+    console.log(`%c║     Bloqueio total habilitado: ${analyzerConfig.n0AllowBlockAll !== false ? 'SIM' : 'NÃO'}${' '.repeat(33)}║`, 'color: #FFFFFF; background: #000000;');
     console.log('%c║  🎯 N1 - PADRÃO QUENTE:                                                      ║', 'color: #FFD700; font-weight: bold; background: #000000;');
     console.log(`%c║     Giros configurados: ${String(displayValue('n1HotPattern', 60)).padEnd(3)} (padrão: 60)${' '.repeat(38)}║`, 'color: #FFD700; background: #000000;');
     console.log(`%c║     VALOR REAL USADO: ${String(n1Window).padEnd(3)} giros${' '.repeat(47)}║`, 'color: #00FF00; font-weight: bold; background: #000000;');
@@ -9645,6 +11333,7 @@ async function analyzeWithPatternSystem(history) {
     console.log('%c║                                                                               ║', 'color: #FF00FF; background: #000000;');
     
     // Verificar se os valores são padrão ou personalizados
+    const isN0Custom = n0HistoryConfigured !== N0_DEFAULTS.historySize || n0WindowConfigured !== N0_DEFAULTS.windowSize;
     const isN1Custom = n1Window !== 60;
     const isN2Custom = n2RecentWindow !== 5 || n2PreviousWindow !== 15;
     const isN3Custom = n3Window !== 12;
@@ -9656,6 +11345,7 @@ async function analyzeWithPatternSystem(history) {
     const isN9Custom = n9BarrierWindow !== 50;
     
     const customCount = [
+        isN0Custom,
         isN1Custom,
         isN2Custom,
         isN3Custom,
@@ -9671,6 +11361,7 @@ async function analyzeWithPatternSystem(history) {
         console.log('%c║  ✅ Todos os níveis estão usando VALORES PADRÃO                             ║', 'color: #00FF88; font-weight: bold; background: #000000;');
     } else {
         console.log(`%c║  ⚙️ ${customCount} nível(is) com configuração PERSONALIZADA pelo usuário${' '.repeat(29 - String(customCount).length)}║`, 'color: #FFD700; font-weight: bold; background: #000000;');
+        if (isN0Custom) console.log('%c║     • N0 (Detector de Branco) - PERSONALIZADO                               ║', 'color: #FFFFFF; background: #000000;');
         if (isN1Custom) console.log('%c║     • N1 (Padrão Quente) - PERSONALIZADO                                     ║', 'color: #FFD700; background: #000000;');
         if (isN2Custom) console.log('%c║     • N2 (Momentum) - PERSONALIZADO                                           ║', 'color: #00AAFF; background: #000000;');
         if (isN3Custom) console.log('%c║     • N3 (Alternância) - PERSONALIZADO                                        ║', 'color: #8E44AD; background: #000000;');
@@ -9773,7 +11464,7 @@ async function analyzeWithPatternSystem(history) {
                     console.log(`%c║  📊 Giros desde último sinal: ${spinsDesdeUltimoSinal}${' '.repeat(Math.max(0, 29 - spinsDesdeUltimoSinal.toString().length))}║`, 'color: #FFAA00;');
                     console.log(`%c║  🎯 Intervalo mínimo: ${minIntervalSpins} giros${' '.repeat(Math.max(0, 32 - minIntervalSpins.toString().length))}║`, 'color: #FFAA00;');
                     console.log(`%c║  ⏳ Faltam: ${girosRestantes} giros${' '.repeat(Math.max(0, 37 - girosRestantes.toString().length))}║`, 'color: #FFAA00; font-weight: bold;');
-                    console.log('%c║  ✅ Análise dos 9 níveis será executada normalmente      ║', 'color: #00FF88;');
+        console.log('%c║  ✅ Análise dos 11 níveis será executada normalmente     ║', 'color: #00FF88;');
                     console.log('%c║  🚫 Mas SINAL NÃO será enviado (intervalo insuficiente)  ║', 'color: #FFAA00;');
                 }
             } else if (lastSignalTimestamp && history.length > 0) {
@@ -10094,6 +11785,7 @@ async function analyzeWithPatternSystem(history) {
         // 🧮 CONSOLIDAÇÃO DOS NÍVEIS (PONTUAÇÃO CONTÍNUA)
         // ═══════════════════════════════════════════════════════════════
         const levelWeights = {
+            whiteDetector: 0,
             patterns: 0.19,
             momentum: 0.15,
             alternance: 0.13,
@@ -10106,6 +11798,7 @@ async function analyzeWithPatternSystem(history) {
             walkForward: 0.12
         };
         const levelMeta = {
+            N0: { emoji: '⚪', label: 'N0 - Detector de Branco' },
             N1: { emoji: '🎯', label: 'N1 - Padrões' },
             N2: { emoji: '⚡', label: 'N2 - Momentum' },
             N3: { emoji: '🔷', label: 'N3 - Alternância' },
@@ -10128,8 +11821,154 @@ async function analyzeWithPatternSystem(history) {
             const strengthPct = Math.round(level.strength * 100);
             return `${meta.emoji} ${meta.label} → ${level.color.toUpperCase()} (${strengthPct}% • ${level.details})`;
         };
-        const displayOrder = ['N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9', 'N10'];
+const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9', 'N10'];
         let diamondSequenceDisplayed = false;
+
+        const n0Settings = getN0SettingsFromAnalyzerConfig();
+        const n0Options = {
+            historySize: n0Settings.historySize,
+            windowSize: n0Settings.windowSize,
+            analysesToRun: N0_DEFAULTS.analysesToRun,
+            minWindowsRequired: N0_DEFAULTS.minWindowsRequired,
+            precisionMin: N0_DEFAULTS.precisionMin,
+            confidenceGrid: N0_DEFAULTS.confidenceGrid,
+            holdoutEnabled: N0_DEFAULTS.holdoutEnabled,
+            holdoutTolerance: N0_DEFAULTS.holdoutTolerance,
+            seed: N0_DEFAULTS.seed
+        };
+
+        let n0Result = null;
+        let n0EffectiveAction = 'no_block';
+        let n0ForceWhite = false;
+        let n0SoftBlockActive = false;
+        let n0WhiteStrength = 0;
+        let n0ActionSuppressed = false;
+        let n0DetailSummary = 'NULO';
+
+        try {
+            console.log('%c║  ⚪ NÍVEL 0 - DETECTOR DE BRANCO                         ║', 'color: #FFFFFF; font-weight: bold; font-size: 14px;');
+            console.log(`%c   Histórico analisado: ${n0Options.historySize} giros | Janela: ${n0Options.windowSize} giros`, 'color: #FFFFFF; font-weight: bold;');
+            console.log(`%c   Modelos avaliados: ${n0Options.analysesToRun} | Holdout: ${n0Options.holdoutEnabled ? 'ATIVO' : 'DESATIVADO'}`, 'color: #FFFFFF; font-weight: bold;');
+
+            n0Result = runN0Detector(history, n0Options);
+
+            if (n0Result && n0Result.enabled) {
+                const actionRequested = n0Result.blocking_action || 'no_block';
+                const blockAllAllowed = n0Settings.allowBlockAll;
+                n0WhiteStrength = clamp01(n0Result.white_confidence || 0);
+                const bestMetrics = n0Result.best_metrics || {};
+                const blockMetrics = n0Result.blocking_metrics || {};
+                const testedConfigs = n0Result.tested_configs != null ? n0Result.tested_configs : n0Options.analysesToRun;
+                const effectiveConfigs = n0Result.effective_configs != null ? n0Result.effective_configs : testedConfigs;
+                const holdoutData = n0Result.holdout || {};
+                if (n0Result.run_summary) {
+                    console.log('%c   ➤ Resumo da execução N0:', 'color: #AAAAAA; font-weight: bold;');
+                    console.log(n0Result.run_summary);
+                }
+
+                n0EffectiveAction = actionRequested;
+                if (actionRequested === 'block_all' && !blockAllAllowed) {
+                    n0EffectiveAction = 'no_block';
+                    n0ActionSuppressed = true;
+                }
+                if (n0ActionSuppressed) {
+                    console.log('%c   ℹ️ BLOCK ALL desativado pelo usuário (modo informativo)', 'color: #FFAA00; font-weight: bold;');
+                }
+
+                n0ForceWhite = n0EffectiveAction === 'block_all' && n0Result.pred_live === 'W';
+                n0SoftBlockActive = n0EffectiveAction === 'soft_block' && n0Result.pred_live === 'W';
+
+                const actionLabel = n0ForceWhite
+                    ? 'BLOCK ALL'
+                    : n0SoftBlockActive
+                        ? 'SOFT BLOCK'
+                        : (n0Result.pred_live === 'W' ? 'ALERTA' : 'NULO');
+                const confidencePct = Math.round(n0WhiteStrength * 100);
+                const thresholdPct = n0Result.blocking_threshold != null
+                    ? Math.round(n0Result.blocking_threshold * 100)
+                    : null;
+                const detailsParts = [
+                    actionLabel,
+                    `conf ${confidencePct}%`
+                ];
+                if (thresholdPct !== null) {
+                    detailsParts.push(`t* ${thresholdPct}%`);
+                }
+                if (n0Result.dominant_nonwhite) {
+                    detailsParts.push(`dom ${n0Result.dominant_nonwhite.toUpperCase()}`);
+                }
+                if (bestMetrics.f1 != null) {
+                    detailsParts.push(`f1 ${(bestMetrics.f1 * 100).toFixed(1)}%`);
+                }
+                if (blockMetrics.precision != null) {
+                    detailsParts.push(`p* ${(blockMetrics.precision * 100).toFixed(1)}%`);
+                }
+                if (testedConfigs != null) {
+                    detailsParts.push(`${testedConfigs} cfgs`);
+                    if (effectiveConfigs != null && effectiveConfigs !== testedConfigs) {
+                        detailsParts.push(`${effectiveConfigs} válidas`);
+                    }
+                }
+                if (holdoutData.enabled) {
+                    detailsParts.push(holdoutData.passed ? 'holdout ok' : 'holdout falhou');
+                }
+                if (n0ActionSuppressed) {
+                    detailsParts.push('informativo');
+                }
+                n0DetailSummary = detailsParts.join(' • ');
+
+                console.log(`%c   ➤ Ação sugerida: ${actionRequested.toUpperCase()}${n0ActionSuppressed ? ' (modo informativo)' : ''}`, 'color: #FFFFFF; font-weight: bold;');
+                console.log(`%c   ➤ Confiança: ${(n0WhiteStrength * 100).toFixed(2)}% | Threshold: ${(n0Result.blocking_threshold * 100 || 0).toFixed(2)}% | Precision*: ${blockMetrics.precision != null ? (blockMetrics.precision * 100).toFixed(1) + '%' : 'n/d'}`, 'color: #FFFFFF; font-weight: bold;');
+                if (n0Result.best_config) {
+                    console.log('%c   ➤ Melhor configuração:', 'color: #FFFFFF; font-weight: bold;');
+                    console.log(n0Result.best_config);
+                }
+                console.log(`%c   ➤ Métricas Treino: F1 ${(bestMetrics.f1 != null ? (bestMetrics.f1 * 100).toFixed(1) : 'n/d')}% | Recall ${(bestMetrics.recall != null ? (bestMetrics.recall * 100).toFixed(1) : 'n/d')}% | Precision ${(bestMetrics.precision != null ? (bestMetrics.precision * 100).toFixed(1) : 'n/d')}% | Cobertura ${(bestMetrics.coverage != null ? (bestMetrics.coverage * 100).toFixed(1) : 'n/d')}%`, 'color: #FFFFFF; font-weight: bold;');
+                if (Array.isArray(n0Result.top_candidates) && n0Result.top_candidates.length > 0) {
+                    console.log(`%c   ➤ Top configs (F1%%): ${n0Result.top_candidates.slice(0, 3).map(c => `${c.id}:${(c.metrics.f1 * 100).toFixed(1)}`).join(' | ')}`, 'color: #AAAAFF; font-weight: bold;');
+                }
+                if (Array.isArray(n0Result.per_window_log)) {
+                    console.log(`%c   ➤ Audit trail disponível (${n0Result.per_window_log.length} linhas)`, 'color: #AAAAFF; font-weight: bold;');
+                }
+                if (Array.isArray(n0Result.warnings) && n0Result.warnings.length > 0) {
+                    n0Result.warnings.forEach(warning => {
+                        console.log(`%c   ⚠️ Aviso: ${warning}`, 'color: #FFAA00; font-weight: bold;');
+                    });
+                }
+                if (n0Result.holdout && n0Result.holdout.enabled) {
+                    console.log(`%c   ➤ Holdout: ${n0Result.holdout.passed ? 'APROVADO' : 'REPROVADO'}${n0Result.holdout.reason ? ` (${n0Result.holdout.reason})` : ''}`, n0Result.holdout.passed ? 'color: #00FF88; font-weight: bold;' : 'color: #FFAA00; font-weight: bold;');
+                }
+                if (n0SoftBlockActive) {
+                    console.log('%c   ⚠️ Soft block: pesos reduzidos em 50% para os demais níveis', 'color: #FFAA00; font-weight: bold;');
+                }
+            } else if (n0Result) {
+                console.log(`%c   ➤ Detector indisponível: ${n0Result.reason || 'motivo não informado'}`, 'color: #FFAA00; font-weight: bold;');
+                n0DetailSummary = n0Result.reason || 'Indisponível';
+            } else {
+                console.log('%c   ➤ Detector indisponível: erro desconhecido', 'color: #FFAA00; font-weight: bold;');
+                n0DetailSummary = 'Indisponível';
+            }
+        } catch (error) {
+            console.error('❌ Erro ao executar N0 - Detector de Branco:', error);
+            n0Result = {
+                enabled: false,
+                reason: 'Erro interno no detector'
+            };
+            n0DetailSummary = 'Erro interno';
+        }
+
+        levelReports.push({
+            id: 'N0',
+            name: 'Detector de Branco',
+            color: n0Result && n0Result.pred_live === 'W' ? 'white' : null,
+            weight: levelWeights.whiteDetector,
+            strength: n0WhiteStrength,
+            score: 0,
+            details: n0DetailSummary
+        });
+
+        const n0WeightModifier = n0SoftBlockActive ? N0_DEFAULTS.softBlockFactor : 1;
+        const weightFor = (baseWeight) => baseWeight * n0WeightModifier;
         const emitLevelStatuses = async (reports, options = {}) => {
             const { perLevelDelay = 1500, force = false } = options;
             if (diamondSequenceDisplayed && !force) return;
@@ -10142,6 +11981,41 @@ async function analyzeWithPatternSystem(history) {
                 const meta = levelMeta[id] || {};
                 const [idLabel, nameLabel] = (meta.label || id).split(' - ');
                 const friendlyName = nameLabel ? `${idLabel} ${nameLabel}` : (meta.label || id);
+
+                if (id === 'N0') {
+                    if (!level || !n0Result) {
+                        return { id, message: `${friendlyName}: NULO` };
+                    }
+                    const confPct = Math.round((n0WhiteStrength || 0) * 100);
+                    const thresholdPct = n0Result.blocking_threshold != null
+                        ? Math.round(n0Result.blocking_threshold * 100)
+                        : null;
+                    const suffixThreshold = thresholdPct !== null ? ` • t* ${thresholdPct}%` : '';
+                    if (n0ForceWhite) {
+                        const suppressedLabel = n0ActionSuppressed ? ' (informativo)' : '';
+                        return {
+                            id,
+                            message: `${friendlyName}: BLOCK ALL (${confPct}%${suffixThreshold})${suppressedLabel}`
+                        };
+                    }
+                    if (n0SoftBlockActive) {
+                        return {
+                            id,
+                            message: `${friendlyName}: SOFT BLOCK (${confPct}%${suffixThreshold})`
+                        };
+                    }
+                    if (level.color === 'white') {
+                        const infoSuffix = n0ActionSuppressed ? ' • informativo' : '';
+                        return {
+                            id,
+                            message: `${friendlyName}: ALERTA (${confPct}%${suffixThreshold})${infoSuffix}`
+                        };
+                    }
+                    if (n0Result.enabled === false) {
+                        return { id, message: `${friendlyName}: ${n0Result.reason || 'INDISPONÍVEL'}` };
+                    }
+                    return { id, message: `${friendlyName}: NULO` };
+                }
 
                 if (id === 'N8') {
                     if (level && level.color) {
@@ -10219,7 +12093,7 @@ async function analyzeWithPatternSystem(history) {
                     id: 'N8',
                     name: 'Walk-forward',
                     color: n10Color,
-                    weight: levelWeights.walkForward,
+                    weight: weightFor(levelWeights.walkForward),
                     strength: n10Strength,
                     score: directionValue(n10Color) * n10Strength,
                     details: n10Details
@@ -10230,7 +12104,7 @@ async function analyzeWithPatternSystem(history) {
                     id: 'N8',
                     name: 'Walk-forward',
                     color: null,
-                    weight: levelWeights.walkForward,
+                    weight: weightFor(levelWeights.walkForward),
                     strength: 0,
                     score: 0,
                     details: n10SummaryText
@@ -10244,7 +12118,7 @@ async function analyzeWithPatternSystem(history) {
                 id: 'N8',
                 name: 'Walk-forward',
                 color: null,
-                weight: levelWeights.walkForward,
+                weight: weightFor(levelWeights.walkForward),
                 strength: 0,
                 score: 0,
                 details: 'Erro interno em N10'
@@ -10265,7 +12139,7 @@ async function analyzeWithPatternSystem(history) {
             id: 'N1',
             name: 'Padrões',
             color: patternColor,
-            weight: levelWeights.patterns,
+            weight: weightFor(levelWeights.patterns),
             strength: patternStrength,
             score: directionValue(patternColor) * patternStrength,
             details: patternDetailsText
@@ -10282,7 +12156,7 @@ async function analyzeWithPatternSystem(history) {
             id: 'N2',
             name: 'Momentum',
             color: nivel5.color,
-            weight: levelWeights.momentum,
+            weight: weightFor(levelWeights.momentum),
             strength: momentumStrength,
             score: directionValue(nivel5.color) * momentumStrength,
             details: momentumDetailsText
@@ -10305,7 +12179,7 @@ async function analyzeWithPatternSystem(history) {
             id: 'N3',
             name: 'Alternância',
             color: alternanceColor,
-            weight: levelWeights.alternance,
+            weight: weightFor(levelWeights.alternance),
             strength: alternanceStrength,
             score: directionValue(alternanceColor) * alternanceStrength,
             details: alternanceDetailsText,
@@ -10324,7 +12198,7 @@ async function analyzeWithPatternSystem(history) {
             id: 'N4',
             name: 'Persistência',
             color: persistenceColor,
-            weight: levelWeights.persistence,
+            weight: weightFor(levelWeights.persistence),
             strength: persistenceStrength,
             score: directionValue(persistenceColor) * persistenceStrength,
             details: persistenceDetailsText
@@ -10343,7 +12217,7 @@ async function analyzeWithPatternSystem(history) {
 			id: 'N5',
 			name: 'Ritmo por Giro',
 			color: minuteBiasColor,
-			weight: levelWeights.minuteSpin,
+            weight: weightFor(levelWeights.minuteSpin),
 			strength: minuteBiasStrength,
 			score: directionValue(minuteBiasColor) * minuteBiasStrength,
 			details: minuteBiasDetailsText
@@ -10355,7 +12229,7 @@ async function analyzeWithPatternSystem(history) {
 			id: 'N6',
 			name: 'Retração Histórica',
 			color: retracementResult.color,
-			weight: levelWeights.retracement,
+			weight: weightFor(levelWeights.retracement),
 			strength: retracementResult.strength || 0,
 			score: directionValue(retracementResult.color) * (retracementResult.strength || 0),
 			details: retracementResult.details
@@ -10368,7 +12242,7 @@ async function analyzeWithPatternSystem(history) {
 			id: 'N7',
 			name: 'Continuidade Global',
 			color: continuityResult.color,
-			weight: levelWeights.globalContinuity,
+			weight: weightFor(levelWeights.globalContinuity),
 			strength: continuityResult.strength || 0,
 			score: directionValue(continuityResult.color) * (continuityResult.strength || 0),
 			details: continuityResult.details
@@ -10422,7 +12296,7 @@ async function analyzeWithPatternSystem(history) {
             id: 'N10',
             name: 'Calibração Bayesiana',
             color: bayesResult.color,
-            weight: levelWeights.bayesianCalibration,
+            weight: weightFor(levelWeights.bayesianCalibration),
             strength: bayesStrength,
             score: directionValue(bayesResult.color) * bayesStrength,
             details: bayesResult.details
@@ -10525,7 +12399,114 @@ async function analyzeWithPatternSystem(history) {
             }
         }
 
+        if (n0ForceWhite) {
+            console.log('%c⚪ N0 FORÇOU BLOQUEIO TOTAL DOS DEMAIS NÍVEIS - SINAL BRANCO!', 'color: #FFFFFF; font-weight: bold; font-size: 16px; background: #000000;');
+            levelReports.sort((a, b) => {
+                const aIndex = displayOrder.indexOf(a.id);
+                const bIndex = displayOrder.indexOf(b.id);
+                const safeA = aIndex === -1 ? displayOrder.length : aIndex;
+                const safeB = bIndex === -1 ? displayOrder.length : bIndex;
+                return safeA - safeB;
+            });
+
+            await emitLevelStatuses(levelReports, { force: true });
+
+            if (intervalBlocked) {
+                sendAnalysisStatus(intervalMessage || '⏳ Aguardando intervalo configurado...');
+                await sleep(2000);
+                await restoreIAStatus();
+                console.log('%c   ❌ SINAL CANCELADO PELO INTERVALO!', 'color: #FF0000; font-weight: bold; font-size: 14px;');
+                return null;
+            }
+
+            const whiteConfidencePct = Math.max(0, Math.min(100, Math.round(n0WhiteStrength * 100)));
+            const thresholdPct = n0Result && n0Result.blocking_threshold != null
+                ? Math.round(n0Result.blocking_threshold * 100)
+                : null;
+
+            sendAnalysisStatus(`⚪ N0 - Detector de Branco: BLOCK ALL (${whiteConfidencePct}%${thresholdPct !== null ? ` • t* ${thresholdPct}%` : ''})${n0ActionSuppressed ? ' (informativo)' : ''}`);
+            await sleep(2000);
+            if (analyzerConfig.aiMode) {
+                sendAnalysisStatus('Sinal de entrada');
+            } else {
+                sendAnalysisStatus(`✅ Sinal aprovado: WHITE (${whiteConfidencePct}%)`);
+            }
+            await sleep(2000);
+
+            const scoreSummary = levelReports.map(level => ({
+                id: level.id,
+                name: level.name,
+                color: level.color,
+                strength: Number((level.strength || 0).toFixed(3)),
+                weight: Number((level.weight || 0).toFixed(3)),
+                contribution: Number(((level.score || 0) * (level.weight || 0)).toFixed(3)),
+                details: level.details
+            }));
+
+            const bestMetrics = n0Result && n0Result.best_metrics ? n0Result.best_metrics : {};
+            const blockMetrics = n0Result && n0Result.blocking_metrics ? n0Result.blocking_metrics : {};
+            const holdoutReasoning = n0Result && n0Result.holdout && n0Result.holdout.enabled
+                ? `Holdout: ${n0Result.holdout.passed ? 'OK' : 'Falhou'}${n0Result.holdout.reason ? ` (${n0Result.holdout.reason})` : ''}\n`
+                : '';
+            const reasoning =
+                `${levelReports.map(level => describeLevel(level)).join('\n')}\n` +
+                `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+                `⚪ Detector de Branco\n` +
+                `Confiança: ${whiteConfidencePct}%\n` +
+                `t*: ${thresholdPct !== null ? `${thresholdPct}%` : 'n/d'} • F1 ${(bestMetrics.f1 != null ? (bestMetrics.f1 * 100).toFixed(1) : 'n/d')}% • Precision* ${(blockMetrics.precision != null ? (blockMetrics.precision * 100).toFixed(1) : 'n/d')}%\n` +
+                holdoutReasoning +
+                `Configs: ${n0Result && n0Result.effective_configs != null ? `${n0Result.effective_configs}/${n0Result.tested_configs}` : (n0Result && n0Result.tested_configs != null ? n0Result.tested_configs : 'n/d')}\n` +
+                `Ação: BLOCK ALL${n0ActionSuppressed ? ' (modo informativo)' : ''}`;
+
+            const signal = {
+                timestamp: Date.now(),
+                patternType: 'nivel-diamante',
+                patternName: 'Detector de Branco (N0)',
+                colorRecommended: 'white',
+                normalizedScore: Number(n0WhiteStrength.toFixed(4)),
+                scoreMagnitude: Number(n0WhiteStrength.toFixed(4)),
+                intensityMode: analyzerConfig.signalIntensity || 'moderate',
+                rawConfidence: whiteConfidencePct,
+                finalConfidence: whiteConfidencePct,
+                levelBreakdown: scoreSummary,
+                reasoning,
+                verified: false,
+                colorThatCame: null,
+                hit: null
+            };
+
+            if (signalsHistory && signalsHistory.signals) {
+                signalsHistory.signals.push(signal);
+                if (signalsHistory.signals.length > 200) {
+                    signalsHistory.signals = signalsHistory.signals.slice(-200);
+                }
+                await saveSignalsHistory();
+            }
+
+            if (!memoriaAtiva.inicializada) {
+                memoriaAtiva.inicializada = true;
+                memoriaAtiva.ultimaAtualizacao = Date.now();
+                memoriaAtiva.totalAtualizacoes = 1;
+                memoriaAtiva.giros = history.slice(0, 2000);
+                console.log('%c✅ Memória Ativa marcada como INICIALIZADA!', 'color: #00FF00; font-weight: bold;');
+            } else {
+                memoriaAtiva.totalAtualizacoes++;
+                memoriaAtiva.ultimaAtualizacao = Date.now();
+            }
+
+            return {
+                color: 'white',
+                confidence: whiteConfidencePct,
+                probability: whiteConfidencePct,
+                reasoning,
+                patternDescription: 'Detector de Branco (N0)'
+            };
+        }
+
         const scoreWithoutBarrier = levelReports.reduce((sum, lvl) => sum + (lvl.score * lvl.weight), 0);
+        if (n0SoftBlockActive) {
+            console.log('%c⚠️ Soft block ativo: pesos dos níveis reduzidos em 50% para este giro', 'color: #FFAA00; font-weight: bold;');
+        }
         let predictedColor = scoreWithoutBarrier === 0
             ? (minuteBiasColor || nivel5.color || patternColor || 'red')
             : (scoreWithoutBarrier >= 0 ? 'red' : 'black');
@@ -10574,7 +12555,7 @@ async function analyzeWithPatternSystem(history) {
             id: 'N9',
             name: 'Barreira Final',
             color: predictedColor,
-            weight: levelWeights.barrier,
+            weight: weightFor(levelWeights.barrier),
             strength: barrierStrength,
             score: barrierResult.allowed ? directionValue(predictedColor) * barrierStrength : 0,
             details: `${barrierStatusLabel} • ${barrierDetailsText}`
@@ -10665,7 +12646,7 @@ async function analyzeWithPatternSystem(history) {
         }
 
 		if (signalIntensity === 'aggressive') {
-			const positiveVotingLevels = levelReports.filter(lvl => lvl.id !== 'N6' && lvl.color && (lvl.strength || 0) > 0);
+		const positiveVotingLevels = votingLevelsList.filter(lvl => lvl.color && (lvl.strength || 0) > 0);
 			const agreeingLevels = positiveVotingLevels.filter(lvl => lvl.color === finalColor);
 			const agreeingCount = agreeingLevels.length;
 			const availableCount = positiveVotingLevels.length;
@@ -10723,7 +12704,6 @@ async function analyzeWithPatternSystem(history) {
         } else {
             sendAnalysisStatus(`✅ Sinal aprovado: ${finalColor.toUpperCase()} (score ${(scoreMagnitude * 100).toFixed(1)}%)`);
         }
-        await sleep(2000);
 
         const scoreSummary = levelReports.map(level => ({
             id: level.id,
@@ -10885,7 +12865,7 @@ async function analyzeWithPatternSystem(history) {
         console.log('%c✅ BARREIRA LIBERADA! Sequência é viável.', 'color: #00FF88; font-weight: bold; font-size: 14px;');
         
         // ═══════════════════════════════════════════════════════════════
-		const votingLevelsList = levelReports.filter(lvl => lvl.id !== 'N6');
+		const votingLevelsList = levelReports.filter(lvl => lvl.id !== 'N6' && lvl.id !== 'N0');
 		const positiveVotingLevels = votingLevelsList.filter(lvl => lvl.color && (lvl.strength || 0) > 0);
 		const negativeVotingLevels = votingLevelsList.filter(lvl => lvl.color && (lvl.strength || 0) < 0);
 		const neutralVotingLevels = votingLevelsList.filter(lvl => !lvl.color || (lvl.strength || 0) === 0);
@@ -11013,7 +12993,7 @@ async function analyzeWithPatternSystem(history) {
         // ═══════════════════════════════════════════════════════════════
     if (intervalBlocked) {
         console.log('%c║  🚫 SINAL BLOQUEADO - INTERVALO INSUFICIENTE!            ║', 'color: #FFAA00; font-weight: bold; font-size: 14px;');
-        console.log('%c║  ✅ Análise dos 9 níveis foi executada com sucesso       ║', 'color: #00FF88;');
+        console.log('%c║  ✅ Análise dos 11 níveis foi executada com sucesso      ║', 'color: #00FF88;');
         console.log('%c║  ✅ Sistema recomendaria: ' + finalColor.toUpperCase().padEnd(34) + '║', 'color: #FFD700;');
         console.log('%c║  🚫 MAS sinal não será enviado (aguarde intervalo)       ║', 'color: #FFAA00;');
         
@@ -11289,7 +13269,7 @@ async function analyzeWithPatternSystem(history) {
         console.log('%c✅ GARANTIAS:', 'color: #00FF00; font-weight: bold;');
         console.log('%c   ✓ Todos os dados vêm do histórico REAL da Blaze', 'color: #00FF88;');
         console.log('%c   ✓ Nenhum valor foi inventado ou simulado', 'color: #00FF88;');
-        console.log('%c   ✓ Todos os 9 níveis foram executados com rigor', 'color: #00FF88;');
+        console.log('%c   ✓ Todos os 11 níveis foram executados com rigor', 'color: #00FF88;');
         console.log('%c   ✓ Sistema democrático de votação aplicado', 'color: #00FF88;');
         console.log('%c   ✓ Barreira validou viabilidade histórica', 'color: #00FF88;');
         console.log('%c   ✓ Padrões customizados do usuário foram respeitados', 'color: #00FF88;');
@@ -12355,13 +14335,13 @@ async function runAnalysisController(history) {
 				return;
 			} else {
 				// ⚠️ CRÍTICO: Se IA não encontrou resultado, PARAR AQUI (não executar análise padrão)
-				console.log('%c║  ⚠️ MODO IA: API NÃO RETORNOU RESULTADO VÁLIDO           ║', 'color: #FFAA00; font-weight: bold;');
-				console.log('%c║  Possíveis causas:                                        ║', 'color: #FFAA00; font-weight: bold;');
-				console.log('%c║    • API retornou erro (verifique chave)                  ║', 'color: #FFAA00;');
-				console.log('%c║    • Timeout excedido (>10s)                              ║', 'color: #FFAA00;');
-				console.log('%c║    • Formato de resposta inválido                         ║', 'color: #FFAA00;');
+				console.log('%c║  ⚠️ MODO DIAMANTE: Nenhum nível liberou sinal neste giro  ║', 'color: #FFAA00; font-weight: bold;');
+				console.log('%c║  Possíveis motivos:                                       ║', 'color: #FFAA00; font-weight: bold;');
+				console.log('%c║    • Barreira final (N9) bloqueou a entrada               ║', 'color: #FFAA00;');
+				console.log('%c║    • Falta de consenso entre os níveis                    ║', 'color: #FFAA00;');
+				console.log('%c║    • Todos os níveis reportaram NULO                      ║', 'color: #FFAA00;');
 				console.log('%c║  ⏳ Aguardando próximo giro para nova tentativa...        ║', 'color: #FFAA00; font-weight: bold;');
-				console.log('%c║  🚫 Análise padrão BLOQUEADA (modo IA permanece ativo)    ║', 'color: #FFAA00; font-weight: bold;');
+				console.log('%c║  🚫 Análise padrão BLOQUEADA (modo Diamante permanece)    ║', 'color: #FFAA00; font-weight: bold;');
 				sendAnalysisStatus('⏳ IA aguardando novo giro...');
 				
 				// ✅ EXIBIR RODAPÉ FIXO COM SISTEMA ATIVO
