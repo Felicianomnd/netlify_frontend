@@ -21,18 +21,6 @@ let forceLogoutTabOpened = false;
 let cachedHistory = [];  // Histórico de giros em memória (até 2000)
 let historyInitialized = false;  // Flag de inicialização
 
-const MODE_KEY_STANDARD = 'standard';
-const MODE_KEY_DIAMOND = 'diamond';
-const MODE_SETTINGS_DEFAULT = Object.freeze({
-    maxGales: 0,
-    consecutiveMartingale: false
-});
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// 🔁 CONTROLE DE EXIBIÇÃO DO MODO DIAMANTE (TIMEOUTS PARA STATUS SEQUENCIAL)
-// ═══════════════════════════════════════════════════════════════════════════════
-let lastDiamondLevelTimeouts = [];
-
 // ═══════════════════════════════════════════════════════════════════════════════
 // 🧠 MEMÓRIA ATIVA - SISTEMA INCREMENTAL DE ANÁLISE
 // Sistema inteligente que mantém análises pré-calculadas em memória
@@ -96,10 +84,6 @@ const DEFAULT_ANALYZER_CONFIG = {
     telegramChatId: '',           // Chat ID do Telegram para enviar sinais
     aiMode: false,                // Modo Diamante (true) ou Modo Padrão (false)
     signalIntensity: 'moderate',  // Intensidade de sinais: 'aggressive', 'moderate', 'conservative', 'ultraconservative'
-    modeSettings: {
-        [MODE_KEY_STANDARD]: { ...MODE_SETTINGS_DEFAULT },
-        [MODE_KEY_DIAMOND]: { ...MODE_SETTINGS_DEFAULT }
-    },
     diamondLevelWindows: {        // Configuração dos níveis do modo Diamante
         n1HotPattern: 60,         // N1 - Padrão Quente (histórico analisado)
         n2Recent: 5,              // N2 - Momentum (janela recente)
@@ -122,60 +106,7 @@ const DEFAULT_ANALYZER_CONFIG = {
         n10ConfMin: 60            // Confiança mínima global (%) para N10 votar
     }
 };
-let analyzerConfig = mergeAnalyzerConfig();
-
-const buildModeProfile = (profile, fallback) => ({
-    maxGales: Number.isFinite(profile?.maxGales) ? profile.maxGales : fallback.maxGales,
-    consecutiveMartingale: typeof profile?.consecutiveMartingale === 'boolean'
-        ? profile.consecutiveMartingale
-        : fallback.consecutiveMartingale
-});
-
-function mergeAnalyzerConfig(partial = {}) {
-    const merged = {
-        ...DEFAULT_ANALYZER_CONFIG,
-        ...partial
-    };
-
-    merged.diamondLevelWindows = {
-        ...DEFAULT_ANALYZER_CONFIG.diamondLevelWindows,
-        ...(partial.diamondLevelWindows || {})
-    };
-
-    const activeKey = merged.aiMode ? MODE_KEY_DIAMOND : MODE_KEY_STANDARD;
-
-    const fallbackActive = {
-        maxGales: Number.isFinite(partial.maxGales) ? partial.maxGales
-            : Number.isFinite(merged.maxGales) ? merged.maxGales : MODE_SETTINGS_DEFAULT.maxGales,
-        consecutiveMartingale: typeof partial.consecutiveMartingale === 'boolean' ? partial.consecutiveMartingale
-            : (typeof merged.consecutiveMartingale === 'boolean' ? merged.consecutiveMartingale : MODE_SETTINGS_DEFAULT.consecutiveMartingale)
-    };
-
-    const standardSource = (partial.modeSettings && partial.modeSettings[MODE_KEY_STANDARD])
-        || (merged.modeSettings && merged.modeSettings[MODE_KEY_STANDARD]);
-    const diamondSource = (partial.modeSettings && partial.modeSettings[MODE_KEY_DIAMOND])
-        || (merged.modeSettings && merged.modeSettings[MODE_KEY_DIAMOND]);
-
-    merged.modeSettings = {
-        [MODE_KEY_STANDARD]: buildModeProfile(standardSource, activeKey === MODE_KEY_STANDARD ? fallbackActive : MODE_SETTINGS_DEFAULT),
-        [MODE_KEY_DIAMOND]: buildModeProfile(diamondSource, activeKey === MODE_KEY_DIAMOND ? fallbackActive : MODE_SETTINGS_DEFAULT)
-    };
-
-    if (partial.modeSettings && activeKey === MODE_KEY_STANDARD) {
-        merged.modeSettings[MODE_KEY_DIAMOND] = buildModeProfile(partial.modeSettings[MODE_KEY_DIAMOND], merged.modeSettings[MODE_KEY_DIAMOND]);
-    }
-    if (partial.modeSettings && activeKey === MODE_KEY_DIAMOND) {
-        merged.modeSettings[MODE_KEY_STANDARD] = buildModeProfile(partial.modeSettings[MODE_KEY_STANDARD], merged.modeSettings[MODE_KEY_STANDARD]);
-    }
-
-    const activeProfile = merged.modeSettings[activeKey];
-    merged.maxGales = Number.isFinite(activeProfile.maxGales) ? activeProfile.maxGales : MODE_SETTINGS_DEFAULT.maxGales;
-    merged.consecutiveMartingale = typeof activeProfile.consecutiveMartingale === 'boolean'
-        ? activeProfile.consecutiveMartingale
-        : MODE_SETTINGS_DEFAULT.consecutiveMartingale;
-
-    return merged;
-}
+let analyzerConfig = { ...DEFAULT_ANALYZER_CONFIG };
 
 function getDiamondWindow(key, fallback) {
     const windows = analyzerConfig && analyzerConfig.diamondLevelWindows ? analyzerConfig.diamondLevelWindows : {};
@@ -1549,7 +1480,7 @@ function logActiveConfiguration() {
     try {
         const res = await chrome.storage.local.get(['analyzerConfig']);
         if (res && res.analyzerConfig) {
-            analyzerConfig = mergeAnalyzerConfig(res.analyzerConfig);
+            analyzerConfig = { ...DEFAULT_ANALYZER_CONFIG, ...res.analyzerConfig };
         } else {
             await chrome.storage.local.set({ analyzerConfig: analyzerConfig });
         }
@@ -1590,7 +1521,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
     if (area === 'local' && changes.analyzerConfig) {
         try {
             const newVal = changes.analyzerConfig.newValue || {};
-            analyzerConfig = mergeAnalyzerConfig(newVal);
+            analyzerConfig = { ...DEFAULT_ANALYZER_CONFIG, ...newVal };
             console.log('AnalyzerConfig aplicado imediatamente:', analyzerConfig);
             
             // ✅ EXIBIR NOVAS CONFIGURAÇÕES
@@ -2071,7 +2002,7 @@ async function startDataCollection() {
         
         // Carregar configurações
         if (storageData.analyzerConfig) {
-            analyzerConfig = mergeAnalyzerConfig(storageData.analyzerConfig);
+            analyzerConfig = { ...DEFAULT_ANALYZER_CONFIG, ...storageData.analyzerConfig };
             console.log('✅ Configurações carregadas do storage com sucesso!');
             console.log('🔧 DEBUG - Config carregada:', {
                 aiMode: analyzerConfig.aiMode,
@@ -2398,7 +2329,7 @@ async function processNewSpinFromServer(spinData) {
                 
                 // Carregar configurações
                 if (storageData.analyzerConfig) {
-                    analyzerConfig = mergeAnalyzerConfig(storageData.analyzerConfig);
+                    analyzerConfig = { ...DEFAULT_ANALYZER_CONFIG, ...storageData.analyzerConfig };
                     console.log('⚙️ Configurações carregadas:', {
                         consecutiveMartingale: analyzerConfig.consecutiveMartingale,
                         maxGales: analyzerConfig.maxGales
@@ -9685,95 +9616,95 @@ async function analyzeWithPatternSystem(history) {
         let intervalMessage = '';
         
         if (analyzerConfig.aiMode) {
-            console.log('');
-            console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #00D4FF; font-weight: bold;');
-            console.log('%c║  ⏱️ VERIFICAÇÃO DE INTERVALO ENTRE SINAIS                ║', 'color: #00D4FF; font-weight: bold;');
-            console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #00D4FF; font-weight: bold;');
-            console.log(`📊 Intervalo mínimo configurado: ${minIntervalSpins} giro(s)`);
-            console.log(`📊 Giro atual: #${history[0]?.number || 'N/A'}`);
+        console.log('');
+        console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #00D4FF; font-weight: bold;');
+        console.log('%c║  ⏱️ VERIFICAÇÃO DE INTERVALO ENTRE SINAIS                ║', 'color: #00D4FF; font-weight: bold;');
+        console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #00D4FF; font-weight: bold;');
+        console.log(`📊 Intervalo mínimo configurado: ${minIntervalSpins} giro(s)`);
+        console.log(`📊 Giro atual: #${history[0]?.number || 'N/A'}`);
+        
+        if (minIntervalSpins > 0) {
+            const entriesResult = await chrome.storage.local.get([
+                'lastSignalSpinNumber',
+                'lastSignalTimestamp',
+                'lastSignalSpinId',
+                'lastSignalSpinTimestamp'
+            ]);
+            const lastSignalSpinNumber = entriesResult.lastSignalSpinNumber ?? null;
+            const lastSignalTimestamp = entriesResult.lastSignalTimestamp || null;
+            const lastSignalSpinId = entriesResult.lastSignalSpinId || null;
+            const lastSignalSpinTimestamp = entriesResult.lastSignalSpinTimestamp || null;
             
-            if (minIntervalSpins > 0) {
-                const entriesResult = await chrome.storage.local.get([
-                    'lastSignalSpinNumber',
-                    'lastSignalTimestamp',
-                    'lastSignalSpinId',
-                    'lastSignalSpinTimestamp'
-                ]);
-                const lastSignalSpinNumber = entriesResult.lastSignalSpinNumber ?? null;
-                const lastSignalTimestamp = entriesResult.lastSignalTimestamp || null;
-                const lastSignalSpinId = entriesResult.lastSignalSpinId || null;
-                const lastSignalSpinTimestamp = entriesResult.lastSignalSpinTimestamp || null;
-                
-                console.log(`📊 Último sinal salvo: ${lastSignalSpinNumber !== null ? '#' + lastSignalSpinNumber : 'Nenhum'}`);
-                if (lastSignalTimestamp) {
-                    const tempoDecorrido = Math.round((Date.now() - lastSignalTimestamp) / 1000);
-                    console.log(`   ⏱️ Registrado há ${tempoDecorrido}s`);
-                }
-                
-                let spinsDesdeUltimoSinal = null;
-                if (history.length > 0) {
-                    if (lastSignalSpinId) {
-                        const indexById = history.findIndex(spin => spin && spin.id === lastSignalSpinId);
-                        if (indexById >= 0) {
-                            spinsDesdeUltimoSinal = indexById;
-                        } else {
-                            // Sinal anterior não está mais no histórico → considerar intervalo cumprido
+            console.log(`📊 Último sinal salvo: ${lastSignalSpinNumber !== null ? '#' + lastSignalSpinNumber : 'Nenhum'}`);
+            if (lastSignalTimestamp) {
+                const tempoDecorrido = Math.round((Date.now() - lastSignalTimestamp) / 1000);
+                console.log(`   ⏱️ Registrado há ${tempoDecorrido}s`);
+            }
+            
+            let spinsDesdeUltimoSinal = null;
+            if (history.length > 0) {
+                if (lastSignalSpinId) {
+                    const indexById = history.findIndex(spin => spin && spin.id === lastSignalSpinId);
+                    if (indexById >= 0) {
+                        spinsDesdeUltimoSinal = indexById;
+                } else {
+                        // Sinal anterior não está mais no histórico → considerar intervalo cumprido
+                        spinsDesdeUltimoSinal = history.length;
+                    }
+                } else if (lastSignalSpinTimestamp) {
+                    const referenceTime = new Date(lastSignalSpinTimestamp).getTime();
+                    if (!Number.isNaN(referenceTime)) {
+                        for (let i = 0; i < history.length; i++) {
+                            const spinTime = history[i]?.timestamp ? new Date(history[i].timestamp).getTime() : NaN;
+                            if (!Number.isNaN(spinTime) && spinTime <= referenceTime) {
+                                spinsDesdeUltimoSinal = i;
+                                break;
+                            }
+                        }
+                        if (spinsDesdeUltimoSinal === null) {
                             spinsDesdeUltimoSinal = history.length;
                         }
-                    } else if (lastSignalSpinTimestamp) {
-                        const referenceTime = new Date(lastSignalSpinTimestamp).getTime();
-                        if (!Number.isNaN(referenceTime)) {
-                            for (let i = 0; i < history.length; i++) {
-                                const spinTime = history[i]?.timestamp ? new Date(history[i].timestamp).getTime() : NaN;
-                                if (!Number.isNaN(spinTime) && spinTime <= referenceTime) {
-                                    spinsDesdeUltimoSinal = i;
-                                    break;
-                                }
-                            }
-                            if (spinsDesdeUltimoSinal === null) {
-                                spinsDesdeUltimoSinal = history.length;
-                            }
-                        }
                     }
                 }
-                
-                if (spinsDesdeUltimoSinal !== null) {
-                    console.log(`📊 Giros desde o último sinal (histórico real): ${spinsDesdeUltimoSinal}`);
-                    if (spinsDesdeUltimoSinal >= minIntervalSpins) {
-                        console.log('%c✅ Intervalo de giros respeitado!', 'color: #00FF88; font-weight: bold;');
-                    } else {
-                        const girosRestantes = minIntervalSpins - spinsDesdeUltimoSinal;
-                        intervalBlocked = true;
-                        intervalMessage = `⏳ Aguardando ${girosRestantes} giro(s)... ${spinsDesdeUltimoSinal}/${minIntervalSpins}`;
-                        
-                        console.log('%c║  ⚠️ INTERVALO INSUFICIENTE (análise continua)            ║', 'color: #FFAA00; font-weight: bold;');
-                        console.log(`%c║  📊 Giros desde último sinal: ${spinsDesdeUltimoSinal}${' '.repeat(Math.max(0, 29 - spinsDesdeUltimoSinal.toString().length))}║`, 'color: #FFAA00;');
-                        console.log(`%c║  🎯 Intervalo mínimo: ${minIntervalSpins} giros${' '.repeat(Math.max(0, 32 - minIntervalSpins.toString().length))}║`, 'color: #FFAA00;');
-                        console.log(`%c║  ⏳ Faltam: ${girosRestantes} giros${' '.repeat(Math.max(0, 37 - girosRestantes.toString().length))}║`, 'color: #FFAA00; font-weight: bold;');
-                        console.log('%c║  ✅ Análise dos 9 níveis será executada normalmente      ║', 'color: #00FF88;');
-                        console.log('%c║  🚫 Mas SINAL NÃO será enviado (intervalo insuficiente)  ║', 'color: #FFAA00;');
-                    }
-                } else if (lastSignalTimestamp && history.length > 0) {
-                    const timeSinceSignal = Date.now() - lastSignalTimestamp;
-                    const minutosDecorridos = timeSinceSignal / 60000;
-                    const girosEstimados = Math.floor(minutosDecorridos * 2);
-                    console.log(`📊 Giros estimados desde último sinal: ~${girosEstimados}`);
-                    
-                    if (girosEstimados >= minIntervalSpins) {
-                        console.log('%c✅ Intervalo estimado suficiente (fallback temporal)', 'color: #00FF88; font-weight: bold;');
-                    } else {
-                        const girosRestantes = minIntervalSpins - girosEstimados;
-                        intervalBlocked = true;
-                        intervalMessage = `⏳ Aguardando ${girosRestantes} giro(s)... ${girosEstimados}/${minIntervalSpins}`;
-                        console.log('%c║  ⚠️ INTERVALO INSUFICIENTE (estimativa temporal)        ║', 'color: #FFAA00; font-weight: bold;');
-                    }
+            }
+            
+            if (spinsDesdeUltimoSinal !== null) {
+                console.log(`📊 Giros desde o último sinal (histórico real): ${spinsDesdeUltimoSinal}`);
+                if (spinsDesdeUltimoSinal >= minIntervalSpins) {
+                    console.log('%c✅ Intervalo de giros respeitado!', 'color: #00FF88; font-weight: bold;');
                 } else {
-                    console.log('%c✅ NENHUM SINAL ANTERIOR REGISTRADO!', 'color: #00FF88; font-weight: bold;');
-                    console.log('%c   ✅ PERMITIDO: Primeiro sinal ou intervalo já expirado', 'color: #00FF88; font-weight: bold;');
+                    const girosRestantes = minIntervalSpins - spinsDesdeUltimoSinal;
+                    intervalBlocked = true;
+                    intervalMessage = `⏳ Aguardando ${girosRestantes} giro(s)... ${spinsDesdeUltimoSinal}/${minIntervalSpins}`;
+                    
+                    console.log('%c║  ⚠️ INTERVALO INSUFICIENTE (análise continua)            ║', 'color: #FFAA00; font-weight: bold;');
+                    console.log(`%c║  📊 Giros desde último sinal: ${spinsDesdeUltimoSinal}${' '.repeat(Math.max(0, 29 - spinsDesdeUltimoSinal.toString().length))}║`, 'color: #FFAA00;');
+                    console.log(`%c║  🎯 Intervalo mínimo: ${minIntervalSpins} giros${' '.repeat(Math.max(0, 32 - minIntervalSpins.toString().length))}║`, 'color: #FFAA00;');
+                    console.log(`%c║  ⏳ Faltam: ${girosRestantes} giros${' '.repeat(Math.max(0, 37 - girosRestantes.toString().length))}║`, 'color: #FFAA00; font-weight: bold;');
+                    console.log('%c║  ✅ Análise dos 9 níveis será executada normalmente      ║', 'color: #00FF88;');
+                    console.log('%c║  🚫 Mas SINAL NÃO será enviado (intervalo insuficiente)  ║', 'color: #FFAA00;');
+                }
+            } else if (lastSignalTimestamp && history.length > 0) {
+                const timeSinceSignal = Date.now() - lastSignalTimestamp;
+                const minutosDecorridos = timeSinceSignal / 60000;
+                const girosEstimados = Math.floor(minutosDecorridos * 2);
+                console.log(`📊 Giros estimados desde último sinal: ~${girosEstimados}`);
+                
+                if (girosEstimados >= minIntervalSpins) {
+                    console.log('%c✅ Intervalo estimado suficiente (fallback temporal)', 'color: #00FF88; font-weight: bold;');
+            } else {
+                    const girosRestantes = minIntervalSpins - girosEstimados;
+                    intervalBlocked = true;
+                    intervalMessage = `⏳ Aguardando ${girosRestantes} giro(s)... ${girosEstimados}/${minIntervalSpins}`;
+                    console.log('%c║  ⚠️ INTERVALO INSUFICIENTE (estimativa temporal)        ║', 'color: #FFAA00; font-weight: bold;');
                 }
             } else {
-                console.log('%c✅ SEM INTERVALO CONFIGURADO!', 'color: #00FF88; font-weight: bold;');
-                console.log('%c   ✅ PERMITIDO: Sinais enviados sempre que encontrar padrão válido', 'color: #00FF88; font-weight: bold;');
+                console.log('%c✅ NENHUM SINAL ANTERIOR REGISTRADO!', 'color: #00FF88; font-weight: bold;');
+                console.log('%c   ✅ PERMITIDO: Primeiro sinal ou intervalo já expirado', 'color: #00FF88; font-weight: bold;');
+            }
+        } else {
+            console.log('%c✅ SEM INTERVALO CONFIGURADO!', 'color: #00FF88; font-weight: bold;');
+            console.log('%c   ✅ PERMITIDO: Sinais enviados sempre que encontrar padrão válido', 'color: #00FF88; font-weight: bold;');
             }
         }
         
@@ -10412,7 +10343,7 @@ async function analyzeWithPatternSystem(history) {
         
         if (alternanceOverrideActive && alternanceColor) {
             // Contar quantos outros níveis concordam com a cor da alternância
-            const otherLevelsAgreeingCount = levelReports.filter(lvl =>
+            const otherLevelsAgreeingCount = levelReports.filter(lvl => 
                 lvl.id !== 'N3' && lvl.id !== 'N9' && lvl.color === alternanceColor
             ).length;
             
@@ -10539,11 +10470,11 @@ async function analyzeWithPatternSystem(history) {
         const streakGap = barrierResult.maxStreakFound - barrierResult.targetStreak;
         if (barrierResult.allowed) {
             barrierStrength = 0.4;
-            if (streakGap >= 2) {
-                barrierStrength = 0.6;
-            } else if (streakGap === 1) {
-                barrierStrength = 0.5;
-            }
+        if (streakGap >= 2) {
+            barrierStrength = 0.6;
+        } else if (streakGap === 1) {
+            barrierStrength = 0.5;
+        }
         }
         const barrierStatusLabel = barrierResult.allowed ? 'APROVADO' : 'BLOQUEADO';
         levelReports.push({
@@ -11956,7 +11887,7 @@ async function runAnalysisController(history) {
 		console.log('%c🔄 Recarregando configuração do storage...', 'color: #FFAA00; font-weight: bold;');
 		const storageResult = await chrome.storage.local.get(['analyzerConfig']);
 		if (storageResult && storageResult.analyzerConfig) {
-			analyzerConfig = mergeAnalyzerConfig(storageResult.analyzerConfig);
+			analyzerConfig = { ...DEFAULT_ANALYZER_CONFIG, ...storageResult.analyzerConfig };
 			console.log('%c✅ Configuração recarregada com sucesso!', 'color: #00FF00; font-weight: bold;');
 		} else {
 			console.log('%c⚠️ Nenhuma config no storage, usando padrão', 'color: #FFAA00;');
@@ -13225,7 +13156,7 @@ async function verifyWithSavedPatterns(history) {
 			firstPatternColor: firstFinalNormalized,
 			isOpposite: finalTriggerNormalized === 'white' || (finalTriggerNormalized === 'red' && firstFinalNormalized === 'black') || (finalTriggerNormalized === 'black' && firstFinalNormalized === 'red')
 		});
-		
+
 		// Se assertCalc existe, já vem calibrado; senão, calibrar a confidence salva
 		const rawPatternConfidence = typeof pat.confidence === 'number' ? pat.confidence : 70;
 		const patternConfidence = assertCalc ? assertCalc.finalConfidence : applyCalibratedConfidence(rawPatternConfidence);
@@ -13253,7 +13184,7 @@ async function verifyWithSavedPatterns(history) {
 			});
 			continue;
 		}
-		
+
 		const candidate = {
 			color: suggested,
 			suggestion: 'Padrão salvo',
@@ -13642,7 +13573,7 @@ async function performPatternAnalysis(history) {
     console.log(`📊 Histórico total disponível: ${history.length} giros`);
     console.log(`⚙️ Profundidade configurada (historyDepth): ${configuredDepth} giros`);
     console.log(`✅ performPatternAnalysis vai usar apenas os últimos: ${effectiveDepth} giros (respeitando historyDepth)`);
-
+    
     // ✅ BLOQUEAR ANÁLISES DURANTE A BUSCA DE PADRÕES (30s)
     if (initialSearchActive) {
         console.log('%c🚫 ANÁLISE BLOQUEADA - Busca de padrões em andamento (30s)', 'color: #FFA500; font-weight: bold;');
@@ -18103,7 +18034,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                 
                 const res = await chrome.storage.local.get(['analyzerConfig']);
                 if (res && res.analyzerConfig) {
-                    analyzerConfig = mergeAnalyzerConfig(res.analyzerConfig);
+                    analyzerConfig = { ...DEFAULT_ANALYZER_CONFIG, ...res.analyzerConfig };
                 }
                 console.log('%c⚙️ Nova configuração aplicada via UI:', 'color: #00D4FF; font-weight: bold;');
                 console.log('%c📊 Profundidade de Análise: ' + (analyzerConfig.historyDepth || 2000) + ' giros', 'color: #00FF88; font-weight: bold; background: #003322; padding: 4px 8px; border-radius: 4px;');
@@ -18194,7 +18125,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                     console.log('%c   aiMode: ' + res.analyzerConfig.aiMode, 'color: #00FFFF; font-weight: bold; font-size: 13px;');
                     console.log('%c   minOccurrences: ' + res.analyzerConfig.minOccurrences, 'color: #00FFFF;');
                     
-                    analyzerConfig = mergeAnalyzerConfig(res.analyzerConfig);
+                    analyzerConfig = { ...DEFAULT_ANALYZER_CONFIG, ...res.analyzerConfig };
                     
                     console.log('%c🤖 Modo IA ' + (analyzerConfig.aiMode ? 'ATIVADO' : 'DESATIVADO'), 'color: ' + (analyzerConfig.aiMode ? '#00FF00' : '#FF6666') + '; font-weight: bold; font-size: 16px; background: ' + (analyzerConfig.aiMode ? '#003300' : '#330000') + '; padding: 5px;');
                     
@@ -18468,7 +18399,7 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
         const newConfig = changes.analyzerConfig.newValue;
         if (newConfig) {
             // ✅ ATUALIZAR CONFIGURAÇÕES
-            analyzerConfig = mergeAnalyzerConfig(newConfig);
+            analyzerConfig = { ...DEFAULT_ANALYZER_CONFIG, ...newConfig };
             
             // ✅ MOSTRAR LOG COMPLETO DAS NOVAS CONFIGURAÇÕES
             console.log('║  🔄 CONFIGURAÇÕES ATUALIZADAS EM TEMPO REAL!             ║');
