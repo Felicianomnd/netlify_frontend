@@ -12616,10 +12616,10 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
                 : (normalizedScore >= 0 ? 'red' : 'black');
 
         const intensityConfig = {
-            aggressive: { minScore: 0.25, name: '🔥 AGRESSIVO', emoji: '🔥' },
-            moderate: { minScore: 0.45, name: '⚖️ MODERADO', emoji: '⚖️' },
-            conservative: { minScore: 0.65, name: '🛡️ CONSERVADOR', emoji: '🛡️' },
-            ultraconservative: { minScore: 0.65, name: '🛡️ CONSERVADOR', emoji: '🛡️' }
+            aggressive: { minScore: 0.18, name: '🔥 AGRESSIVO', emoji: '🔥' },
+            moderate: { minScore: 0.30, name: '⚖️ MODERADO', emoji: '⚖️' },
+            conservative: { minScore: 0.42, name: '🛡️ CONSERVADOR', emoji: '🛡️' },
+            ultraconservative: { minScore: 0.52, name: '🛡️ ULTRA CONSERVADOR', emoji: '🛡️' }
         };
         const signalIntensity = analyzerConfig.signalIntensity || 'moderate';
         const currentIntensity = intensityConfig[signalIntensity] || intensityConfig.moderate;
@@ -12895,9 +12895,9 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
         
         const intensityConfig = {
 			'aggressive': { min: 3, name: '🔥 AGRESSIVO', emoji: '🔥' },
-			'moderate': { min: 5, name: '⚖️ MODERADO', emoji: '⚖️' },
-			'conservative': { min: 6, name: '🛡️ CONSERVADOR', emoji: '🛡️' },
-			'ultraconservative': { min: 7, name: '🛡️ ULTRA CONSERVADOR', emoji: '🛡️' }
+			'moderate': { min: 4, name: '⚖️ MODERADO', emoji: '⚖️' },
+			'conservative': { min: 5, name: '🛡️ CONSERVADOR', emoji: '🛡️' },
+			'ultraconservative': { min: 6, name: '🛡️ ULTRA CONSERVADOR', emoji: '🛡️' }
 		};
 
 		const currentIntensity = intensityConfig[signalIntensity] || intensityConfig.moderate;
