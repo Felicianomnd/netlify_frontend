@@ -108,11 +108,43 @@ const DEFAULT_ANALYZER_CONFIG = {
         // N10 - Walk-forward Não-Sobreposto (janela em giros e histórico base)
         n10Window: 20,            // Tamanho da janela NÃO-SOBREPOSTA (W)
         n10History: 500,          // Quantidade de giros usados no walk-forward
-        n10Analyses: 600,         // Quantidade alvo de estratégias/variações testadas
+        n10Analyses: 1000,        // Quantidade alvo de estratégias/variações testadas
         n10MinWindows: 8,         // Número mínimo de janelas com predição para ser elegível
         n10ConfMin: 60            // Confiança mínima global (%) para N10 votar
+    },
+    diamondLevelEnabled: {        // Controle individual dos 11 níveis (todos ativos por padrão)
+        n0: true,
+        n1: true,
+        n2: true,
+        n3: true,
+        n4: true,
+        n5: true,
+        n6: true,
+        n7: true,
+        n8: true,  // N8 - Walk-forward não-sobreposto
+        n9: true,  // N9 - Barreira Final
+        n10: true  // N10 - Calibração Bayesiana
     }
 };
+
+const DIAMOND_LEVEL_IDS = Object.freeze(['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9', 'N10']);
+
+function getDiamondLevelKeyFromId(levelId = '') {
+    return String(levelId).toLowerCase();
+}
+
+function isDiamondLevelEnabled(levelId, config = analyzerConfig) {
+    const key = getDiamondLevelKeyFromId(levelId);
+    const enabledMap = config && config.diamondLevelEnabled ? config.diamondLevelEnabled : DEFAULT_ANALYZER_CONFIG.diamondLevelEnabled;
+    if (enabledMap && Object.prototype.hasOwnProperty.call(enabledMap, key)) {
+        return !!enabledMap[key];
+    }
+    return true;
+}
+
+function countEnabledDiamondLevels(config = analyzerConfig) {
+    return DIAMOND_LEVEL_IDS.reduce((sum, id) => sum + (isDiamondLevelEnabled(id, config) ? 1 : 0), 0);
+}
 
 function sanitizeMaxGales(value, fallback = 0) {
     const numeric = Number(value);
@@ -182,6 +214,19 @@ function mergeAnalyzerConfig(overrides = {}) {
         standard: { ...(defaults.standard || {}), ...(overrideProfiles.standard || {}) },
         diamond: { ...(defaults.diamond || {}), ...(overrideProfiles.diamond || {}) }
     };
+    const defaultEnabled = DEFAULT_ANALYZER_CONFIG.diamondLevelEnabled || {};
+    const overrideEnabled = (overrides && overrides.diamondLevelEnabled) || {};
+    analyzerConfig.diamondLevelEnabled = {};
+    Object.keys(defaultEnabled).forEach(key => {
+        analyzerConfig.diamondLevelEnabled[key] = Object.prototype.hasOwnProperty.call(overrideEnabled, key)
+            ? !!overrideEnabled[key]
+            : !!defaultEnabled[key];
+    });
+    Object.keys(overrideEnabled).forEach(key => {
+        if (!Object.prototype.hasOwnProperty.call(analyzerConfig.diamondLevelEnabled, key)) {
+            analyzerConfig.diamondLevelEnabled[key] = !!overrideEnabled[key];
+        }
+    });
     ensureMartingaleProfiles(analyzerConfig);
     syncActiveMartingaleSettings(analyzerConfig);
     return analyzerConfig;
@@ -1172,7 +1217,8 @@ async function saveGirosToAPI(giros) {
 function displaySystemFooter() {
     
     if (analyzerConfig.aiMode) {
-        console.log('%c║ 🎯 SISTEMA ATIVO: MODO DIAMANTE (11 NÍVEIS DE ANÁLISE)                        ║', 'color: #00FF00; font-weight: bold; background: #001100;');
+        const activeLevelsSummary = `${countEnabledDiamondLevels()}/${DIAMOND_LEVEL_IDS.length}`;
+        console.log(`%c║ 🎯 SISTEMA ATIVO: MODO DIAMANTE (${activeLevelsSummary} NÍVEIS ATIVOS)                        ║`, 'color: #00FF00; font-weight: bold; background: #001100;');
         console.log('%c║ 💎 Sistema de votação inteligente com consenso                                ║', 'color: #00AA00;');
         
         // 🧠 INDICADOR DE MEMÓRIA ATIVA (dinâmico)
@@ -1541,8 +1587,20 @@ function logActiveConfiguration() {
         console.log(`║     ${telegramStatus.padEnd(54)}║`);
         
         console.log('║  💎 MODO DIAMANTE:                                        ║');
-        const diamondModeStatus = config.aiMode ? '✅ ATIVO (11 níveis)' : '⚪ Desativado (Modo Padrão)';
+        const activeLevelsCount = countEnabledDiamondLevels(config);
+        const totalLevels = DIAMOND_LEVEL_IDS.length;
+        const diamondModeStatus = config.aiMode
+            ? `✅ ATIVO (${activeLevelsCount}/${totalLevels} níveis)`
+            : '⚪ Desativado (Modo Padrão)';
         console.log(`║     ${diamondModeStatus.padEnd(54)}║`);
+        if (config.aiMode) {
+            const disabledLevels = DIAMOND_LEVEL_IDS.filter(id => !isDiamondLevelEnabled(id, config));
+            if (disabledLevels.length > 0) {
+                const disabledList = disabledLevels.join(', ');
+                const line = `• Níveis desativados: ${disabledList}`;
+                console.log(`║     ${line.padEnd(54)}║`);
+            }
+        }
         
         
         // ⚠️ AVISOS DE CONFIGURAÇÃO PERMISSIVA/RIGOROSA
@@ -9171,6 +9229,39 @@ function clamp01(value) {
 let n0ConfigLibraryCache = null;
 let n0ConfigLibrarySeed = null;
 
+const N8_DEFAULTS = Object.freeze({
+    historySize: 1200,
+    windowSize: 20,
+    analysesToRun: 1000,
+    minWindowsRequired: 6,
+    precisionMin: 0.55,
+    confidenceGrid: [0.55, 0.6, 0.65, 0.7, 0.75, 0.8, 0.85, 0.9, 0.95],
+    holdoutEnabled: true,
+    holdoutTolerance: 0.18,
+    seed: 1337,
+    confMinLive: 0.58
+});
+
+const N8_FAMILY_LIST = Object.freeze([
+    'dominance_threshold',
+    'segmented_dominance',
+    'recency_weighted',
+    'momentum_split',
+    'markov_chain',
+    'pattern_follow',
+    'streak_bias',
+    'entropy_shift',
+    'lagged_correlation',
+    'compound_vote'
+]);
+
+const N8_FAMILY_MIN_PER_TYPE = 22;
+const N8_DIVERSITY_MIN_DISTANCE_BASE = 0.18;
+const N8_CONFIG_LIBRARY_KEY = 'n8_diverse_configs_cache_v1';
+
+let n8ConfigLibraryCache = null;
+let n8ConfigLibrarySeed = null;
+
 function normalizeN0History(entries) {
     if (!Array.isArray(entries)) return [];
     const normalized = [];
@@ -10747,6 +10838,18 @@ function runN0Detector(history, options = {}) {
             seed: settings.seed
         };
 
+        const bestDescription = bestDetailed.cfg.description || bestDetailed.cfg.family || 'desconhecido';
+        const f1Display = bestMetrics.f1 != null ? (bestMetrics.f1 * 100).toFixed(1) : 'n/d';
+        const precisionDisplay = bestMetrics.precision != null ? (bestMetrics.precision * 100).toFixed(1) : 'n/d';
+        const recallDisplay = bestMetrics.recall != null ? (bestMetrics.recall * 100).toFixed(1) : 'n/d';
+        const coverageDisplay = bestMetrics.coverage != null ? (bestMetrics.coverage * 100).toFixed(1) : 'n/d';
+        console.log(`✅ [N8] Melhor análise: ${bestDescription} | F1 ${f1Display}% | prec ${precisionDisplay}% | rec ${recallDisplay}% | coverage ${coverageDisplay}% | n_preds ${bestMetrics.n_preds}/${bestMetrics.n_windows}`);
+        if (finalColor) {
+            console.log(`🎯 [N8] Voto ao vivo: ${finalColor.toUpperCase()} (confiança ${(finalConfidence * 100).toFixed(1)}%) | conf_live ${Math.round(liveConfidence * 100)}% | t* ${Math.round(thresholdGate * 100)}%`);
+        } else {
+            console.log(`⚠️ [N8] Sem voto ao vivo (conf ${Math.round(liveConfidence * 100)}% | limiar ${Math.round(thresholdGate * 100)}%${holdoutInfo.passed ? '' : ' | holdout reprovado'})`);
+        }
+
         return {
             enabled: true,
             run_summary: runSummary,
@@ -10797,14 +10900,9 @@ function getN0SettingsFromAnalyzerConfig() {
 }
 
 /**
- * NÍVEL 10 (N10) - Walk-forward NÃO-SOBREPOSTO
- * Implementa a lógica descrita pelo usuário:
- * - Usa janelas NÃO-sobrepostas de tamanho W (n10Window)
- * - Testa diversas estratégias (majority, last_pattern, markov, etc.)
- * - Faz backtest walk-forward e seleciona a melhor combinação (type + params)
- * - Aplica a melhor estratégia na última janela completa para gerar um voto
+ * LEGACY: implementação anterior do walk-forward (mantida apenas para referência)
  */
-function runDiamondLevelN10(history, options = {}) {
+function runDiamondLevelN10Legacy(history, options = {}) {
     try {
         const windowSize = Math.max(2, Number(options.windowSize) || 20);   // W
         const historySize = Math.max(windowSize * 2, Number(options.historySize) || 500); // N_total mínimo 2W
@@ -11188,10 +11286,1149 @@ function runDiamondLevelN10(history, options = {}) {
             summaryText
         };
     } catch (e) {
-        console.error('❌ Erro em runDiamondLevelN10:', e);
+        console.error('❌ Erro em runDiamondLevelN10Legacy:', e);
         return {
             enabled: false,
             summaryText: 'N10 - Walk-forward → NULO (erro interno na análise)'
+        };
+    }
+}
+
+function formatN8Number(value, digits = 2) {
+    const num = Number(value);
+    if (!Number.isFinite(num)) return 'n/a';
+    return num.toFixed(digits);
+}
+
+function createN8ConfigId(index) {
+    return `N8CFG-${String(index).padStart(4, '0')}`;
+}
+
+function describeN8Config(cfg) {
+    if (!cfg || !cfg.family) return 'desconhecido';
+    const params = cfg.params || {};
+    switch (cfg.family) {
+        case 'dominance_threshold':
+            return `dominance_threshold (thresh=${formatN8Number(params.thresh)}, delta=${formatN8Number(params.delta)})`;
+        case 'segmented_dominance':
+            return `segmented_dominance (segments=${params.segments ?? 'n/a'}, seg_thresh=${formatN8Number(params.seg_thresh)}, delta=${formatN8Number(params.delta)})`;
+        case 'recency_weighted':
+            return `recency_weighted (${params.mode || 'linear'}, decay=${formatN8Number(params.decay)}, min_delta=${formatN8Number(params.min_delta)})`;
+        case 'momentum_split':
+            return `momentum_split (split=${formatN8Number(params.split_ratio)}, delta=${formatN8Number(params.delta)})`;
+        case 'markov_chain':
+            return `markov_chain (order=${params.order ?? 'n/a'}, prob=${formatN8Number(params.prob_thresh)}, support=${params.min_support ?? 'n/a'})`;
+        case 'pattern_follow':
+            return `pattern_follow (length=${params.length ?? 'n/a'}, next=${formatN8Number(params.next_threshold)}, min_occ=${params.min_occurrences ?? 'n/a'})`;
+        case 'streak_bias':
+            return `streak_bias (${params.mode || 'continue'}, min_run=${params.min_run ?? 'n/a'}, tolerance=${formatN8Number(params.tolerance)})`;
+        case 'entropy_shift':
+            return `entropy_shift (delta=${formatN8Number(params.delta)}, variance=${formatN8Number(params.variance)})`;
+        case 'lagged_correlation':
+            return `lagged_correlation (lag=${params.lag ?? 'n/a'}, bias=${formatN8Number(params.bias_thresh)}, support=${params.min_support ?? 'n/a'})`;
+        case 'compound_vote':
+            return `compound_vote (parts=${Array.isArray(params.parts) ? params.parts.length : 0}, min_hits=${params.min_hits ?? 'n/a'})`;
+        default:
+            return `${cfg.family}`;
+    }
+}
+
+function encodeN8ConfigVector(cfg) {
+    const vector = [];
+    if (!cfg || !cfg.family) return [0, 0, 0, 0, 0, 0, 0, 0];
+    const familyIndex = Math.max(0, N8_FAMILY_LIST.indexOf(cfg.family));
+    vector.push(familyIndex / Math.max(1, N8_FAMILY_LIST.length - 1));
+    const params = cfg.params || {};
+    switch (cfg.family) {
+        case 'dominance_threshold': {
+            const thresh = clamp01(params.thresh ?? 0.6);
+            const delta = clamp01(params.delta ?? 0.05);
+            vector.push(thresh, delta, 0, 0, 0, 0, 0);
+            break;
+        }
+        case 'segmented_dominance': {
+            const segments = Math.max(2, Math.min(10, Number(params.segments) || 4));
+            const segThresh = clamp01(params.seg_thresh ?? 0.6);
+            const delta = clamp01(params.delta ?? 0.05);
+            vector.push(segments / 10, segThresh, delta, 0, 0, 0, 0);
+            break;
+        }
+        case 'recency_weighted': {
+            const decay = clamp01(params.decay ?? 0.9);
+            const minDelta = clamp01(params.min_delta ?? 0.08);
+            const modeHash = hashStringToUnit(String(params.mode || 'linear'));
+            vector.push(decay, minDelta, modeHash, 0, 0, 0, 0);
+            break;
+        }
+        case 'momentum_split': {
+            const split = clamp01(params.split_ratio ?? 0.45);
+            const delta = clamp01(params.delta ?? 0.1);
+            vector.push(split, delta, 0, 0, 0, 0, 0);
+            break;
+        }
+        case 'markov_chain': {
+            const order = Math.max(1, Math.min(4, Number(params.order) || 1));
+            const prob = clamp01(params.prob_thresh ?? 0.6);
+            const support = Math.max(2, Math.min(20, Number(params.min_support) || (order + 2)));
+            vector.push(order / 4, prob, support / 20, 0, 0, 0, 0);
+            break;
+        }
+        case 'pattern_follow': {
+            const length = Math.max(2, Math.min(6, Number(params.length) || 3));
+            const next = clamp01(params.next_threshold ?? 0.65);
+            const minOcc = Math.max(1, Math.min(12, Number(params.min_occurrences) || 2));
+            vector.push(length / 6, next, minOcc / 12, 0, 0, 0, 0);
+            break;
+        }
+        case 'streak_bias': {
+            const modeHash = hashStringToUnit(String(params.mode || 'continue'));
+            const minRun = Math.max(1, Math.min(12, Number(params.min_run) || 3));
+            const tolerance = clamp01(params.tolerance ?? 0.25);
+            vector.push(modeHash, minRun / 12, tolerance, 0, 0, 0, 0);
+            break;
+        }
+        case 'entropy_shift': {
+            const delta = clamp01(params.delta ?? 0.15);
+            const variance = clamp01(params.variance ?? 0.08);
+            vector.push(delta, variance, 0, 0, 0, 0, 0);
+            break;
+        }
+        case 'lagged_correlation': {
+            const lag = Math.max(1, Math.min(10, Number(params.lag) || 2));
+            const bias = clamp01(params.bias_thresh ?? 0.12);
+            const support = Math.max(2, Math.min(30, Number(params.min_support) || (lag + 2)));
+            vector.push(lag / 10, bias, support / 30, 0, 0, 0, 0);
+            break;
+        }
+        case 'compound_vote': {
+            const parts = Array.isArray(params.parts) ? params.parts.length : 0;
+            const minHits = Math.max(1, Math.min(parts, Number(params.min_hits) || Math.ceil(parts * 0.6)));
+            vector.push(parts / 6, minHits / Math.max(1, parts), 0, 0, 0, 0, 0);
+            break;
+        }
+        default:
+            vector.push(0, 0, 0, 0, 0, 0, 0);
+    }
+    while (vector.length < 8) {
+        vector.push(0);
+    }
+    return vector;
+}
+
+function n8ConfigDistance(vectorA, vectorB) {
+    const len = Math.min(vectorA.length, vectorB.length);
+    let sum = 0;
+    for (let i = 0; i < len; i++) {
+        const diff = vectorA[i] - vectorB[i];
+        sum += diff * diff;
+    }
+    return Math.sqrt(sum);
+}
+
+function maybePersistN8ConfigLibrary(configs) {
+    try {
+        if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
+            chrome.storage.local.set({ [N8_CONFIG_LIBRARY_KEY]: configs });
+        }
+    } catch (error) {
+        console.debug('⚠️ [N8] Falha ao persistir biblioteca de configs:', error);
+    }
+}
+
+function buildN8BaseConfigs() {
+    const base = [];
+    const add = (family, params) => base.push({ family, params });
+
+    [0.56, 0.6, 0.64, 0.68].forEach(thresh => {
+        [0.03, 0.05, 0.08].forEach(delta => add('dominance_threshold', { thresh, delta }));
+    });
+
+    [3, 4, 5, 6].forEach(segments => {
+        [0.58, 0.62, 0.68].forEach(seg_thresh => {
+            [0.03, 0.05].forEach(delta => add('segmented_dominance', { segments, seg_thresh, delta }));
+        });
+    });
+
+    ['linear', 'exp'].forEach(mode => {
+        [0.84, 0.88, 0.92, 0.96].forEach(decay => {
+            [0.06, 0.1, 0.15].forEach(min_delta => add('recency_weighted', { mode, decay, min_delta }));
+        });
+    });
+
+    [0.35, 0.4, 0.45, 0.5].forEach(split_ratio => {
+        [0.08, 0.12, 0.16].forEach(delta => add('momentum_split', { split_ratio, delta }));
+    });
+
+    [1, 2, 3].forEach(order => {
+        [0.55, 0.6, 0.66].forEach(prob_thresh => {
+            [order + 1, order + 3, order + 5].forEach(min_support =>
+                add('markov_chain', { order, prob_thresh, min_support })
+            );
+        });
+    });
+
+    [2, 3, 4].forEach(length => {
+        [0.6, 0.68, 0.75].forEach(next_threshold => {
+            [2, 3, 4].forEach(min_occurrences =>
+                add('pattern_follow', { length, next_threshold, min_occurrences })
+            );
+        });
+    });
+
+    ['continue', 'revert'].forEach(mode => {
+        [2, 3, 4].forEach(min_run => {
+            [0.2, 0.3, 0.4].forEach(tolerance =>
+                add('streak_bias', { mode, min_run, tolerance })
+            );
+        });
+    });
+
+    [0.12, 0.18, 0.24].forEach(delta => {
+        [0.06, 0.1, 0.14].forEach(variance =>
+            add('entropy_shift', { delta, variance })
+        );
+    });
+
+    [2, 3, 4, 5].forEach(lag => {
+        [0.1, 0.14, 0.18].forEach(bias_thresh => {
+            [lag + 1, lag + 3, lag + 5].forEach(min_support =>
+                add('lagged_correlation', { lag, bias_thresh, min_support })
+            );
+        });
+    });
+
+    // Compound combinations
+    const compoundSeeds = [
+        {
+            parts: [
+                { family: 'dominance_threshold', params: { thresh: 0.6, delta: 0.05 } },
+                { family: 'recency_weighted', params: { mode: 'exp', decay: 0.9, min_delta: 0.08 } },
+                { family: 'momentum_split', params: { split_ratio: 0.4, delta: 0.12 } }
+            ],
+            min_hits: 2
+        },
+        {
+            parts: [
+                { family: 'markov_chain', params: { order: 2, prob_thresh: 0.6, min_support: 6 } },
+                { family: 'pattern_follow', params: { length: 3, next_threshold: 0.68, min_occurrences: 3 } }
+            ],
+            min_hits: 2
+        },
+        {
+            parts: [
+                { family: 'streak_bias', params: { mode: 'continue', min_run: 3, tolerance: 0.25 } },
+                { family: 'segmented_dominance', params: { segments: 4, seg_thresh: 0.62, delta: 0.05 } },
+                { family: 'lagged_correlation', params: { lag: 3, bias_thresh: 0.14, min_support: 6 } }
+            ],
+            min_hits: 2
+        }
+    ];
+    compoundSeeds.forEach(seed => add('compound_vote', seed));
+
+    return base;
+}
+
+function sampleRandomN8Config(rng, family) {
+    const pick = (arr) => arr[Math.floor(rng() * arr.length)];
+    switch (family) {
+        case 'dominance_threshold':
+            return {
+                family,
+                params: {
+                    thresh: 0.53 + rng() * 0.2,
+                    delta: 0.02 + rng() * 0.08
+                }
+            };
+        case 'segmented_dominance':
+            return {
+                family,
+                params: {
+                    segments: Math.floor(3 + rng() * 4),
+                    seg_thresh: 0.55 + rng() * 0.25,
+                    delta: 0.02 + rng() * 0.08
+                }
+            };
+        case 'recency_weighted':
+            return {
+                family,
+                params: {
+                    mode: rng() < 0.5 ? 'linear' : 'exp',
+                    decay: 0.82 + rng() * 0.16,
+                    min_delta: 0.05 + rng() * 0.12
+                }
+            };
+        case 'momentum_split':
+            return {
+                family,
+                params: {
+                    split_ratio: 0.32 + rng() * 0.26,
+                    delta: 0.06 + rng() * 0.14
+                }
+            };
+        case 'markov_chain':
+            return {
+                family,
+                params: {
+                    order: Math.floor(1 + rng() * 3),
+                    prob_thresh: 0.52 + rng() * 0.25,
+                    min_support: Math.floor(3 + rng() * 8)
+                }
+            };
+        case 'pattern_follow':
+            return {
+                family,
+                params: {
+                    length: Math.floor(2 + rng() * 4),
+                    next_threshold: 0.58 + rng() * 0.25,
+                    min_occurrences: Math.floor(2 + rng() * 4)
+                }
+            };
+        case 'streak_bias':
+            return {
+                family,
+                params: {
+                    mode: rng() < 0.5 ? 'continue' : 'revert',
+                    min_run: Math.floor(2 + rng() * 4),
+                    tolerance: 0.15 + rng() * 0.35
+                }
+            };
+        case 'entropy_shift':
+            return {
+                family,
+                params: {
+                    delta: 0.1 + rng() * 0.2,
+                    variance: 0.05 + rng() * 0.12
+                }
+            };
+        case 'lagged_correlation':
+            return {
+                family,
+                params: {
+                    lag: Math.floor(2 + rng() * 4),
+                    bias_thresh: 0.08 + rng() * 0.18,
+                    min_support: Math.floor(3 + rng() * 10)
+                }
+            };
+        case 'compound_vote': {
+            const partFamilies = ['dominance_threshold', 'recency_weighted', 'momentum_split', 'markov_chain', 'pattern_follow', 'streak_bias'];
+            const partsCount = Math.floor(2 + rng() * 2);
+            const parts = [];
+            for (let i = 0; i < partsCount; i++) {
+                const fam = pick(partFamilies);
+                parts.push(sampleRandomN8Config(rng, fam));
+            }
+            const min_hits = Math.max(1, Math.min(parts.length, Math.floor(1 + rng() * parts.length)));
+            return { family, params: { parts, min_hits } };
+        }
+        default:
+            return null;
+    }
+}
+
+function tryAddN8Config(candidate, accepted, acceptedVectors, diversityThreshold) {
+    if (!candidate || !candidate.family) return false;
+    const vector = encodeN8ConfigVector(candidate);
+    for (const existing of acceptedVectors) {
+        if (n8ConfigDistance(vector, existing) < diversityThreshold) {
+            return false;
+        }
+    }
+    accepted.push(candidate);
+    acceptedVectors.push(vector);
+    return true;
+}
+
+function generateN8Configs(count, seed = N8_DEFAULTS.seed) {
+    if (n8ConfigLibraryCache && n8ConfigLibraryCache.length >= count && n8ConfigLibrarySeed === seed) {
+        return n8ConfigLibraryCache.slice(0, count);
+    }
+
+    const rng = createSeededRandomGenerator(seed);
+    const baseConfigs = buildN8BaseConfigs();
+    const accepted = [];
+    const acceptedVectors = [];
+    const familyCounts = {};
+    let diversityThreshold = N8_DIVERSITY_MIN_DISTANCE_BASE;
+
+    const pushWithDiversity = (cfg, allowRelax = false) => {
+        if (!cfg) return false;
+        const success = tryAddN8Config(cfg, accepted, acceptedVectors, diversityThreshold);
+        if (success) {
+            familyCounts[cfg.family] = (familyCounts[cfg.family] || 0) + 1;
+        } else if (allowRelax && diversityThreshold > 0.06) {
+            const relaxed = tryAddN8Config(cfg, accepted, acceptedVectors, diversityThreshold * 0.9);
+            if (relaxed) {
+                familyCounts[cfg.family] = (familyCounts[cfg.family] || 0) + 1;
+            }
+            return relaxed;
+        }
+        return success;
+    };
+
+    baseConfigs.forEach(cfg => {
+        if (accepted.length < count) {
+            pushWithDiversity(cfg, true);
+        }
+    });
+
+    let attempts = 0;
+    const maxAttempts = count * 60;
+    while (accepted.length < count && attempts < maxAttempts) {
+        const family = N8_FAMILY_LIST[Math.floor(rng() * N8_FAMILY_LIST.length)];
+        const candidate = sampleRandomN8Config(rng, family);
+        if (!pushWithDiversity(candidate, true) && attempts % N8_FAMILY_LIST.length === 0 && diversityThreshold > 0.06) {
+            diversityThreshold *= 0.97;
+        }
+        attempts++;
+    }
+
+    N8_FAMILY_LIST.forEach(family => {
+        while ((familyCounts[family] || 0) < N8_FAMILY_MIN_PER_TYPE && accepted.length < count) {
+            const candidate = sampleRandomN8Config(rng, family);
+            if (!pushWithDiversity(candidate, true)) {
+                break;
+            }
+        }
+    });
+
+    diversityThreshold = Math.max(0.04, diversityThreshold);
+    while (accepted.length < count) {
+        const candidate = sampleRandomN8Config(rng, N8_FAMILY_LIST[Math.floor(rng() * N8_FAMILY_LIST.length)]);
+        if (!candidate) continue;
+        if (!pushWithDiversity(candidate, true)) {
+            if (diversityThreshold > 0.04) {
+                diversityThreshold *= 0.95;
+            } else {
+                accepted.push(candidate);
+                acceptedVectors.push(encodeN8ConfigVector(candidate));
+                familyCounts[candidate.family] = (familyCounts[candidate.family] || 0) + 1;
+            }
+        }
+    }
+
+    const trimmed = accepted.slice(0, count).map((cfg, index) => ({
+        id: createN8ConfigId(index),
+        family: cfg.family,
+        params: cfg.params || {},
+        description: describeN8Config(cfg)
+    }));
+
+    n8ConfigLibraryCache = trimmed;
+    n8ConfigLibrarySeed = seed;
+    maybePersistN8ConfigLibrary(trimmed);
+
+    return trimmed;
+}
+
+function buildN8WindowContext(windows) {
+    return {
+        stats: windows.map(entry => computeWindowStats(entry.window)),
+        clean: windows.map(entry => entry.window.filter(char => char === 'R' || char === 'B')),
+        windows
+    };
+}
+
+function applyN8Config(cfg, windowChars, idxWindow, windows, context, depth = 0) {
+    if (!cfg || !cfg.family || !Array.isArray(windowChars) || windowChars.length === 0) {
+        return { prediction: null, confidence: 0 };
+    }
+    if (depth > 3) {
+        return { prediction: null, confidence: 0 };
+    }
+
+    const params = cfg.params || {};
+    const stats = context.stats[idxWindow] || computeWindowStats(windowChars);
+    const clean = context.clean[idxWindow] || windowChars.filter(char => char === 'R' || char === 'B');
+
+    switch (cfg.family) {
+        case 'dominance_threshold': {
+            const thresh = clamp01(params.thresh ?? 0.6);
+            const delta = clamp01(params.delta ?? 0.05);
+            const pR = stats.pR || 0;
+            const pB = stats.pB || 0;
+            if (pR >= thresh && (pR - pB) >= delta) {
+                return { prediction: 'R', confidence: clamp01(pR) };
+            }
+            if (pB >= thresh && (pB - pR) >= delta) {
+                return { prediction: 'B', confidence: clamp01(pB) };
+            }
+            const diff = Math.abs(pR - pB);
+            if (diff >= delta * 0.7 && (pR + pB) > 0) {
+                const color = pR >= pB ? 'R' : 'B';
+                return { prediction: color, confidence: clamp01(Math.max(pR, pB)) };
+            }
+            return { prediction: null, confidence: 0 };
+        }
+        case 'segmented_dominance': {
+            const segments = Math.max(2, Math.min(12, Number(params.segments) || 4));
+            const segThresh = clamp01(params.seg_thresh ?? 0.6);
+            const delta = clamp01(params.delta ?? 0.05);
+            const len = windowChars.length;
+            const segSize = Math.max(1, Math.floor(len / segments));
+            let bestColor = null;
+            let bestScore = 0;
+            for (let s = 0; s < segments; s++) {
+                const start = s * segSize;
+                const end = s === segments - 1 ? len : Math.min(len, start + segSize);
+                if (start >= len) break;
+                let reds = 0;
+                let blacks = 0;
+                for (let i = start; i < end; i++) {
+                    const c = windowChars[i];
+                    if (c === 'R') reds++;
+                    else if (c === 'B') blacks++;
+                }
+                const total = reds + blacks;
+                if (total === 0) continue;
+                const frac = Math.max(reds, blacks) / total;
+                if (frac >= segThresh && frac > bestScore) {
+                    bestScore = frac;
+                    bestColor = reds >= blacks ? 'R' : 'B';
+                }
+            }
+            if (bestColor) {
+                return { prediction: bestColor, confidence: clamp01(bestScore + delta) };
+            }
+            return { prediction: null, confidence: 0 };
+        }
+        case 'recency_weighted': {
+            const mode = params.mode === 'linear' ? 'linear' : 'exp';
+            const decay = clamp01(params.decay ?? 0.9);
+            const minDelta = clamp01(params.min_delta ?? 0.08);
+            if (clean.length === 0) return { prediction: null, confidence: 0 };
+            let score = 0;
+            let totalWeight = 0;
+            if (mode === 'exp') {
+                let weight = 1;
+                for (let i = clean.length - 1; i >= 0; i--) {
+                    const color = clean[i];
+                    if (color !== 'R' && color !== 'B') continue;
+                    const sign = color === 'R' ? 1 : -1;
+                    score += sign * weight;
+                    totalWeight += Math.abs(weight);
+                    weight *= decay;
+                }
+            } else {
+                for (let i = 0; i < clean.length; i++) {
+                    const color = clean[i];
+                    if (color !== 'R' && color !== 'B') continue;
+                    const weight = i + 1;
+                    const sign = color === 'R' ? 1 : -1;
+                    score += sign * weight;
+                    totalWeight += weight;
+                }
+            }
+            if (totalWeight === 0) return { prediction: null, confidence: 0 };
+            const normalized = score / totalWeight;
+            if (Math.abs(normalized) < minDelta) {
+                return { prediction: null, confidence: 0 };
+            }
+            const color = normalized >= 0 ? 'R' : 'B';
+            return { prediction: color, confidence: clamp01(Math.abs(normalized)) };
+        }
+        case 'momentum_split': {
+            const splitRatio = clamp01(params.split_ratio ?? 0.45);
+            const delta = clamp01(params.delta ?? 0.1);
+            if (clean.length < 4) return { prediction: null, confidence: 0 };
+            const splitIndex = Math.max(1, Math.min(clean.length - 1, Math.floor(clean.length * splitRatio)));
+            const prev = clean.slice(0, splitIndex);
+            const recent = clean.slice(splitIndex);
+            const countStats = (arr) => {
+                let r = 0;
+                let b = 0;
+                arr.forEach(c => {
+                    if (c === 'R') r++;
+                    else if (c === 'B') b++;
+                });
+                const total = r + b;
+                return {
+                    pR: total > 0 ? r / total : 0,
+                    pB: total > 0 ? b / total : 0
+                };
+            };
+            const prevStats = countStats(prev);
+            const recentStats = countStats(recent);
+            const diffR = recentStats.pR - prevStats.pR;
+            const diffB = recentStats.pB - prevStats.pB;
+            if (Math.abs(diffR) < delta && Math.abs(diffB) < delta) {
+                return { prediction: null, confidence: 0 };
+            }
+            if (diffR > diffB && diffR >= delta) {
+                return { prediction: 'R', confidence: clamp01(diffR) };
+            }
+            if (diffB > diffR && diffB >= delta) {
+                return { prediction: 'B', confidence: clamp01(diffB) };
+            }
+            return { prediction: null, confidence: 0 };
+        }
+        case 'markov_chain': {
+            const order = Math.max(1, Math.min(4, Number(params.order) || 1));
+            const probThresh = clamp01(params.prob_thresh ?? 0.6);
+            const minSupport = Math.max(order + 1, Number(params.min_support) || (order + 2));
+            if (clean.length <= order) return { prediction: null, confidence: 0 };
+            const transitions = {};
+            for (let i = 0; i + order < clean.length; i++) {
+                const key = clean.slice(i, i + order).join('');
+                const next = clean[i + order];
+                if (next !== 'R' && next !== 'B') continue;
+                if (!transitions[key]) transitions[key] = { R: 0, B: 0 };
+                transitions[key][next] += 1;
+            }
+            const lastKey = clean.slice(-order).join('');
+            const statsKey = transitions[lastKey];
+            if (!statsKey) return { prediction: null, confidence: 0 };
+            const total = statsKey.R + statsKey.B;
+            if (total < minSupport) return { prediction: null, confidence: 0 };
+            const pR = statsKey.R / total;
+            const pB = statsKey.B / total;
+            if (pR >= probThresh && pR > pB) {
+                return { prediction: 'R', confidence: clamp01(pR) };
+            }
+            if (pB >= probThresh && pB > pR) {
+                return { prediction: 'B', confidence: clamp01(pB) };
+            }
+            const diff = Math.abs(pR - pB);
+            if (diff >= 0.15) {
+                const color = pR >= pB ? 'R' : 'B';
+                return { prediction: color, confidence: clamp01(Math.max(pR, pB)) };
+            }
+            return { prediction: null, confidence: 0 };
+        }
+        case 'pattern_follow': {
+            const length = Math.max(2, Math.min(6, Number(params.length) || 3));
+            const nextThreshold = clamp01(params.next_threshold ?? 0.65);
+            const minOccurrences = Math.max(1, Number(params.min_occurrences) || 2);
+            if (clean.length <= length) return { prediction: null, confidence: 0 };
+            const pattern = clean.slice(clean.length - length);
+            let followersR = 0;
+            let followersB = 0;
+            let occurrences = 0;
+            const arraysEqual = (a, b) => a.length === b.length && a.every((val, idx) => val === b[idx]);
+            for (let i = 0; i + length < clean.length; i++) {
+                const slice = clean.slice(i, i + length);
+                if (arraysEqual(slice, pattern)) {
+                    occurrences += 1;
+                    const follower = clean[i + length];
+                    if (follower === 'R') followersR += 1;
+                    if (follower === 'B') followersB += 1;
+                }
+            }
+            if (occurrences < minOccurrences) return { prediction: null, confidence: 0 };
+            const totalFollowers = followersR + followersB;
+            if (totalFollowers === 0) return { prediction: null, confidence: 0 };
+            const pR = followersR / totalFollowers;
+            const pB = followersB / totalFollowers;
+            if (pR >= nextThreshold && pR > pB) {
+                return { prediction: 'R', confidence: clamp01(pR) };
+            }
+            if (pB >= nextThreshold && pB > pR) {
+                return { prediction: 'B', confidence: clamp01(pB) };
+            }
+            return { prediction: null, confidence: 0 };
+        }
+        case 'streak_bias': {
+            if (clean.length === 0) return { prediction: null, confidence: 0 };
+            const mode = params.mode === 'revert' ? 'revert' : 'continue';
+            const minRun = Math.max(1, Number(params.min_run) || 3);
+            const tolerance = clamp01(params.tolerance ?? 0.25);
+            const lastColor = clean[clean.length - 1];
+            let currentRun = 1;
+            for (let i = clean.length - 2; i >= 0; i--) {
+                if (clean[i] === lastColor) currentRun += 1;
+                else break;
+            }
+            let runSumR = 0;
+            let runCountR = 0;
+            let runSumB = 0;
+            let runCountB = 0;
+            let currentColor = clean[0];
+            let runLength = 1;
+            for (let i = 1; i < clean.length; i++) {
+                if (clean[i] === currentColor) {
+                    runLength += 1;
+                } else {
+                    if (currentColor === 'R') {
+                        runSumR += runLength;
+                        runCountR += 1;
+                    } else if (currentColor === 'B') {
+                        runSumB += runLength;
+                        runCountB += 1;
+                    }
+                    currentColor = clean[i];
+                    runLength = 1;
+                }
+            }
+            if (currentColor === 'R') {
+                runSumR += runLength;
+                runCountR += 1;
+            } else if (currentColor === 'B') {
+                runSumB += runLength;
+                runCountB += 1;
+            }
+            const avgR = runCountR > 0 ? runSumR / runCountR : 1;
+            const avgB = runCountB > 0 ? runSumB / runCountB : 1;
+            const avgForColor = lastColor === 'R' ? avgR : avgB;
+            if (mode === 'continue') {
+                if (currentRun >= minRun) {
+                    const confidence = clamp01((currentRun / Math.max(1, avgForColor)) + tolerance / 2);
+                    return { prediction: lastColor, confidence };
+                }
+            } else {
+                const diff = currentRun - avgForColor;
+                if (diff >= Math.max(1, avgForColor * tolerance)) {
+                    const opposite = lastColor === 'R' ? 'B' : 'R';
+                    const confidence = clamp01(diff / Math.max(1, avgForColor + diff));
+                    return { prediction: opposite, confidence };
+                }
+            }
+            return { prediction: null, confidence: 0 };
+        }
+        case 'entropy_shift': {
+            const delta = clamp01(params.delta ?? 0.15);
+            const variance = clamp01(params.variance ?? 0.08);
+            const entropyDiff = (stats.entropyFirstHalf || 0) - (stats.entropySecondHalf || 0);
+            if (Math.abs(entropyDiff) < delta) {
+                return { prediction: null, confidence: 0 };
+            }
+            const bias = (stats.pR || 0) - (stats.pB || 0);
+            const color = bias >= 0 ? 'R' : 'B';
+            const confidence = clamp01(Math.abs(entropyDiff) + Math.abs(bias) - variance);
+            if (confidence <= 0) return { prediction: null, confidence: 0 };
+            return { prediction: color, confidence };
+        }
+        case 'lagged_correlation': {
+            const lag = Math.max(1, Math.min(6, Number(params.lag) || 2));
+            const biasThresh = clamp01(params.bias_thresh ?? 0.12);
+            const minSupport = Math.max(lag + 1, Number(params.min_support) || (lag + 2));
+            if (clean.length <= lag) return { prediction: null, confidence: 0 };
+            const transitions = {};
+            for (let i = lag; i < clean.length; i++) {
+                const key = clean.slice(i - lag, i).join('');
+                const next = clean[i];
+                if (next !== 'R' && next !== 'B') continue;
+                if (!transitions[key]) transitions[key] = { R: 0, B: 0 };
+                transitions[key][next] += 1;
+            }
+            const lastKey = clean.slice(-lag).join('');
+            const statsKey = transitions[lastKey];
+            if (!statsKey) return { prediction: null, confidence: 0 };
+            const total = statsKey.R + statsKey.B;
+            if (total < minSupport) return { prediction: null, confidence: 0 };
+            const bias = Math.abs(statsKey.R - statsKey.B) / total;
+            if (bias < biasThresh) return { prediction: null, confidence: 0 };
+            const color = statsKey.R >= statsKey.B ? 'R' : 'B';
+            return { prediction: color, confidence: clamp01(bias) };
+        }
+        case 'compound_vote': {
+            const parts = Array.isArray(params.parts) ? params.parts : [];
+            if (parts.length === 0) return { prediction: null, confidence: 0 };
+            const minHits = Math.max(1, Math.min(parts.length, Number(params.min_hits) || Math.ceil(parts.length * 0.6)));
+            const results = parts.map(part => applyN8Config(part, windowChars, idxWindow, windows, context, depth + 1));
+            const votes = results.filter(res => res && (res.prediction === 'R' || res.prediction === 'B'));
+            if (votes.length < minHits) return { prediction: null, confidence: 0 };
+            const count = votes.reduce((acc, item) => {
+                if (item.prediction === 'R') acc.R += 1;
+                else if (item.prediction === 'B') acc.B += 1;
+                return acc;
+            }, { R: 0, B: 0 });
+            const color = count.R > count.B ? 'R' : count.B > count.R ? 'B' : null;
+            if (!color) return { prediction: null, confidence: 0 };
+            const supporters = votes.filter(item => item.prediction === color);
+            if (supporters.length < minHits) return { prediction: null, confidence: 0 };
+            const confidence = clamp01(supporters.reduce((acc, item) => acc + clamp01(item.confidence ?? 0), 0) / supporters.length);
+            return { prediction: color, confidence };
+        }
+        default:
+            return { prediction: null, confidence: 0 };
+    }
+}
+
+function computeN8RecentAccuracy(confList) {
+    if (!Array.isArray(confList) || confList.length === 0) return 0;
+    const half = Math.max(1, Math.floor(confList.length / 2));
+    const recent = confList.slice(-half);
+    let hits = 0;
+    let total = 0;
+    recent.forEach(entry => {
+        if (!entry || !entry.predictedColor) return;
+        total += 1;
+        if (entry.predictedColor === entry.targetColor) {
+            hits += 1;
+        }
+    });
+    return total > 0 ? hits / total : 0;
+}
+
+function evaluateN8Config(windows, cfg, context, options = {}) {
+    const { collectLogs = false } = options;
+    let TP = 0;
+    let FP = 0;
+    let FN = 0;
+    let nPreds = 0;
+    let totalTargets = 0;
+    const confList = [];
+    const perWindowLog = collectLogs ? [] : null;
+
+    windows.forEach((entry, idx) => {
+        const target = entry.target === 'R' || entry.target === 'B' ? entry.target : null;
+        if (!target) return;
+        totalTargets += 1;
+        const result = applyN8Config(cfg, entry.window, idx, windows, context);
+        const confidence = clamp01(result.confidence ?? 0);
+        const predicted = result.prediction === 'R' || result.prediction === 'B' ? result.prediction : null;
+
+        confList.push({
+            confidence,
+            predictedColor: predicted,
+            targetColor: target,
+            isHit: predicted != null && predicted === target
+        });
+
+        if (predicted) {
+            nPreds += 1;
+            if (predicted === target) {
+                TP += 1;
+            } else {
+                FP += 1;
+            }
+        } else {
+            FN += 1;
+        }
+
+        if (perWindowLog) {
+            perWindowLog.push({
+                window_index: entry.index,
+                start_idx: entry.start,
+                prediction: predicted || '-',
+                confidence: Number(confidence.toFixed(4)),
+                target,
+                result: predicted === target ? 'hit' : predicted ? 'miss' : 'null'
+            });
+        }
+    });
+
+    const precision = TP + FP > 0 ? TP / (TP + FP) : 0;
+    const recall = TP + FN > 0 ? TP / (TP + FN) : 0;
+    const f1 = precision + recall > 0 ? (2 * precision * recall) / (precision + recall) : 0;
+    const coverage = windows.length > 0 ? nPreds / windows.length : 0;
+    const accuracy = totalTargets > 0 ? TP / totalTargets : 0;
+    const accRecent = computeN8RecentAccuracy(confList);
+
+    return {
+        cfg,
+        metrics: {
+            TP,
+            FP,
+            FN,
+            n_preds: nPreds,
+            precision,
+            recall,
+            f1,
+            coverage,
+            accuracy,
+            acc_recent: accRecent,
+            n_windows: windows.length,
+            targets: totalTargets
+        },
+        confList,
+        perWindowLog
+    };
+}
+
+function calculateN8ThresholdMetrics(confList, threshold) {
+    let TP = 0;
+    let FP = 0;
+    let FN = 0;
+    let considered = 0;
+    confList.forEach(entry => {
+        if (!entry || !entry.targetColor) return;
+        considered += 1;
+        const passes = entry.predictedColor && entry.confidence >= threshold;
+        if (passes && entry.predictedColor === entry.targetColor) {
+            TP += 1;
+        } else if (passes && entry.predictedColor !== entry.targetColor) {
+            FP += 1;
+        } else {
+            FN += 1;
+        }
+    });
+    const precision = TP + FP > 0 ? TP / (TP + FP) : 0;
+    const recall = TP + FN > 0 ? TP / (TP + FN) : 0;
+    const f1 = precision + recall > 0 ? (2 * precision * recall) / (precision + recall) : 0;
+    const coverage = considered > 0 ? (TP + FP) / considered : 0;
+    return { TP, FP, FN, precision, recall, f1, coverage };
+}
+
+function runN8Detector(history, options = {}) {
+    const runTimestamp = Date.now();
+    const runId = `N8-${runTimestamp}-${Math.floor(Math.random() * 1e6).toString(16)}`;
+    try {
+        const settings = {
+            historySize: Number(options.historySize) > 0 ? Math.floor(options.historySize) : N8_DEFAULTS.historySize,
+            windowSize: Number(options.windowSize) > 0 ? Math.floor(options.windowSize) : N8_DEFAULTS.windowSize,
+            analysesToRun: Number(options.analysesToRun) > 0 ? Math.floor(options.analysesToRun) : N8_DEFAULTS.analysesToRun,
+            minWindowsRequired: Number(options.minWindows) > 0 ? Math.floor(options.minWindows) : N8_DEFAULTS.minWindowsRequired,
+            precisionMin: typeof options.precisionMin === 'number' ? clamp01(options.precisionMin) : N8_DEFAULTS.precisionMin,
+            confidenceGrid: Array.isArray(options.confidenceGrid) && options.confidenceGrid.length > 0
+                ? options.confidenceGrid.map(Number).filter(v => Number.isFinite(v) && v > 0 && v < 1).sort((a, b) => a - b)
+                : [...N8_DEFAULTS.confidenceGrid],
+            holdoutEnabled: options.holdoutEnabled !== undefined ? !!options.holdoutEnabled : N8_DEFAULTS.holdoutEnabled,
+            holdoutTolerance: typeof options.holdoutTolerance === 'number'
+                ? clamp01(options.holdoutTolerance)
+                : N8_DEFAULTS.holdoutTolerance,
+            seed: Number.isFinite(Number(options.seed)) ? Number(options.seed) : N8_DEFAULTS.seed,
+            confMinLive: typeof options.confMinLive === 'number'
+                ? clamp01(options.confMinLive)
+                : N8_DEFAULTS.confMinLive
+        };
+
+        const chronologicalHistory = Array.isArray(history) ? history.slice().reverse() : [];
+        const normalizedHistory = normalizeN0History(chronologicalHistory);
+        const trimmedHistory = normalizedHistory.slice(-Math.max(settings.historySize, settings.windowSize * 3));
+
+        if (trimmedHistory.length < settings.windowSize + 1) {
+            return {
+                enabled: false,
+                summaryText: `N8 - Walk-forward → NULO (histórico insuficiente: ${trimmedHistory.length}/${settings.windowSize + 1})`,
+                code: 'insufficient_history',
+                run_summary: { run_id: runId, timestamp: runTimestamp }
+            };
+        }
+
+        const rawWindows = buildN0Windows(trimmedHistory, settings.windowSize);
+        const windows = rawWindows.filter(entry => entry.target === 'R' || entry.target === 'B');
+        if (windows.length < settings.minWindowsRequired) {
+            return {
+                enabled: false,
+                summaryText: `N8 - Walk-forward → NULO (janelas úteis ${windows.length}, mínimo ${settings.minWindowsRequired})`,
+                code: 'insufficient_windows',
+                run_summary: { run_id: runId, timestamp: runTimestamp }
+            };
+        }
+
+        const holdoutPossible = settings.holdoutEnabled && windows.length >= settings.minWindowsRequired * 2;
+        const trainingWindows = holdoutPossible ? windows.filter((_, idx) => idx % 2 === 0) : windows;
+        const validationWindows = holdoutPossible ? windows.filter((_, idx) => idx % 2 === 1) : [];
+
+        if (trainingWindows.length < settings.minWindowsRequired) {
+            return {
+                enabled: false,
+                summaryText: `N8 - Walk-forward → NULO (treino com ${trainingWindows.length} janelas)`,
+                code: 'insufficient_training',
+                run_summary: { run_id: runId, timestamp: runTimestamp }
+            };
+        }
+
+        const candidateConfigs = generateN8Configs(settings.analysesToRun, settings.seed);
+        console.log(`%c   ➤ Biblioteca N8: ${candidateConfigs.length} configs avaliadas`, 'color: #33CCFF; font-weight: bold;');
+        const trainingContext = buildN8WindowContext(trainingWindows);
+        const evaluations = [];
+        candidateConfigs.forEach(cfg => {
+            const evaluation = evaluateN8Config(trainingWindows, cfg, trainingContext);
+            if (evaluation.metrics.n_preds >= settings.minWindowsRequired) {
+                evaluations.push(evaluation);
+            }
+        });
+
+        if (evaluations.length === 0) {
+            return {
+                enabled: false,
+                summaryText: 'N8 - Walk-forward → NULO (nenhuma configuração elegível)',
+                code: 'no_valid_configs',
+                tested_configs: candidateConfigs.length,
+                run_summary: { run_id: runId, timestamp: runTimestamp }
+            };
+        }
+
+        evaluations.sort((a, b) => {
+            const mA = a.metrics;
+            const mB = b.metrics;
+            if (mB.f1 !== mA.f1) return mB.f1 - mA.f1;
+            if (mB.recall !== mA.recall) return mB.recall - mA.recall;
+            if (mB.precision !== mA.precision) return mB.precision - mA.precision;
+            if ((mB.acc_recent || 0) !== (mA.acc_recent || 0)) return (mB.acc_recent || 0) - (mA.acc_recent || 0);
+            if (mB.coverage !== mA.coverage) return mB.coverage - mA.coverage;
+            return 0;
+        });
+
+        const TOP_K = Math.min(20, evaluations.length);
+        const topEvaluations = evaluations.slice(0, TOP_K);
+        const bestEvaluation = topEvaluations[0];
+        const bestDetailed = evaluateN8Config(trainingWindows, bestEvaluation.cfg, trainingContext, { collectLogs: true });
+        const bestMetrics = bestDetailed.metrics;
+        const bestConfList = bestDetailed.confList;
+        const perWindowLog = bestDetailed.perWindowLog || [];
+
+        const grid = settings.confidenceGrid.length > 0 ? settings.confidenceGrid : [...N8_DEFAULTS.confidenceGrid];
+        let chosenThreshold = null;
+        let chosenMetrics = null;
+        grid.forEach(candidate => {
+            const metrics = calculateN8ThresholdMetrics(bestConfList, candidate);
+            if (metrics.precision >= settings.precisionMin) {
+                if (!chosenMetrics || metrics.f1 > chosenMetrics.f1) {
+                    chosenMetrics = { ...metrics, threshold: candidate };
+                    chosenThreshold = candidate;
+                }
+            }
+        });
+
+        if (!chosenMetrics) {
+            const confValues = bestConfList
+                .map(entry => entry.confidence)
+                .filter(Number.isFinite)
+                .sort((a, b) => a - b);
+            const percentileIndex = Math.max(0, Math.min(confValues.length - 1, Math.floor(confValues.length * 0.85)));
+            const fallbackThreshold = confValues.length > 0 ? confValues[percentileIndex] : settings.confMinLive;
+            chosenThreshold = clamp01(Math.max(settings.confMinLive, fallbackThreshold));
+            chosenMetrics = { ...calculateN8ThresholdMetrics(bestConfList, chosenThreshold), threshold: chosenThreshold, fallback: true };
+        }
+
+        const holdoutInfo = {
+            enabled: holdoutPossible,
+            passed: true,
+            reason: null,
+            training: chosenMetrics,
+            validation: null
+        };
+        const warnings = [];
+
+        if (holdoutPossible && validationWindows.length >= settings.minWindowsRequired) {
+            const validationContext = buildN8WindowContext(validationWindows);
+            const validationEval = evaluateN8Config(validationWindows, bestDetailed.cfg, validationContext);
+            const validationMetrics = calculateN8ThresholdMetrics(validationEval.confList, chosenThreshold);
+            holdoutInfo.validation = { ...validationMetrics, threshold: chosenThreshold };
+            const trainingF1 = chosenMetrics.f1 ?? 0;
+            const validationF1 = validationMetrics.f1 ?? 0;
+            if (validationMetrics.precision < settings.precisionMin) {
+                holdoutInfo.passed = false;
+                holdoutInfo.reason = `Precisão da validação abaixo do mínimo (${(validationMetrics.precision * 100).toFixed(1)}% < ${(settings.precisionMin * 100).toFixed(1)}%)`;
+                warnings.push(holdoutInfo.reason);
+            } else if (validationF1 < (trainingF1 - settings.holdoutTolerance)) {
+                holdoutInfo.passed = false;
+                holdoutInfo.reason = `F1 caiu de ${(trainingF1 * 100).toFixed(1)}% para ${(validationF1 * 100).toFixed(1)}%`;
+                warnings.push(holdoutInfo.reason);
+            }
+        }
+
+        const liveWindow = trimmedHistory.slice(-settings.windowSize);
+        if (liveWindow.length < settings.windowSize) {
+            return {
+                enabled: false,
+                summaryText: 'N8 - Walk-forward → NULO (janela incompleta para previsão ao vivo)',
+                code: 'incomplete_live_window',
+                run_summary: { run_id: runId, timestamp: runTimestamp }
+            };
+        }
+
+        const liveWindows = [{
+            window: liveWindow,
+            target: null,
+            index: windows.length,
+            start: Math.max(0, trimmedHistory.length - settings.windowSize),
+            targetIndex: trimmedHistory.length
+        }];
+        const liveContext = buildN8WindowContext(liveWindows);
+        const liveResult = applyN8Config(bestDetailed.cfg, liveWindow, 0, liveWindows, liveContext);
+        const liveConfidence = clamp01(liveResult.confidence ?? 0);
+        const livePrediction = liveResult.prediction === 'R' || liveResult.prediction === 'B' ? liveResult.prediction : null;
+
+        const thresholdGate = Math.max(settings.confMinLive, chosenThreshold ?? settings.confMinLive);
+        let finalColor = null;
+        if (livePrediction && liveConfidence >= thresholdGate && holdoutInfo.passed) {
+            finalColor = livePrediction === 'R' ? 'red' : 'black';
+        } else if (!holdoutInfo.passed) {
+            warnings.push('Previsão ao vivo suprimida devido à reprovação no holdout.');
+        } else if (livePrediction && liveConfidence < thresholdGate) {
+            warnings.push(`Confiança ao vivo ${Math.round(liveConfidence * 100)}% abaixo do limiar ${Math.round(thresholdGate * 100)}%.`);
+        }
+
+        const trainingStrength = clamp01(
+            (bestMetrics.f1 ?? 0) * 0.5 +
+            (bestMetrics.precision ?? 0) * 0.2 +
+            (bestMetrics.acc_recent ?? 0) * 0.2 +
+            (bestMetrics.coverage ?? 0) * 0.1
+        );
+        const liveBoost = clamp01(
+            thresholdGate < 1
+                ? (liveConfidence - thresholdGate) / Math.max(0.05, 1 - thresholdGate)
+                : liveConfidence
+        );
+        let finalConfidence = clamp01(trainingStrength * 0.6 + liveBoost * 0.4);
+        if (!holdoutInfo.passed) {
+            finalConfidence *= 0.5;
+        }
+        if (!finalColor) {
+            finalConfidence = 0;
+        }
+
+        const topCandidates = topEvaluations.slice(0, Math.min(10, topEvaluations.length)).map(entry => ({
+            id: entry.cfg.id,
+            family: entry.cfg.family,
+            params: entry.cfg.params,
+            metrics: entry.metrics
+        }));
+
+        const summaryParts = [];
+        if (finalColor) {
+            summaryParts.push(`N8 - Walk-forward → ${finalColor.toUpperCase()} (${Math.round(finalConfidence * 100)}%)`);
+        } else {
+            summaryParts.push('N8 - Walk-forward → NULO');
+        }
+        summaryParts.push(`melhor família: ${bestDetailed.cfg.family}`);
+        summaryParts.push(`F1 ${(bestMetrics.f1 * 100).toFixed(1)}%`);
+        summaryParts.push(`precision ${(bestMetrics.precision * 100).toFixed(1)}%`);
+        summaryParts.push(`recall ${(bestMetrics.recall * 100).toFixed(1)}%`);
+        const summaryText = summaryParts.join(' | ');
+
+        const runSummary = {
+            run_id: runId,
+            timestamp: runTimestamp,
+            history_size: settings.historySize,
+            window_size: settings.windowSize,
+            analyses_to_run: settings.analysesToRun,
+            min_windows_required: settings.minWindowsRequired,
+            seed: settings.seed
+        };
+
+        return {
+            enabled: true,
+            run_summary: runSummary,
+            best_config: bestDetailed.cfg,
+            best_metrics: bestMetrics,
+            conf_list: bestConfList,
+            per_window_log: perWindowLog,
+            threshold: chosenThreshold,
+            threshold_metrics: chosenMetrics,
+            color: finalColor,
+            confidence: finalConfidence,
+            live_confidence: liveConfidence,
+            live_threshold_gate: thresholdGate,
+            tested_configs: candidateConfigs.length,
+            effective_configs: evaluations.length,
+            top_candidates: topCandidates,
+            n_windows: windows.length,
+            holdout: holdoutInfo,
+            warnings,
+            summaryText,
+            metrics: {
+                accuracy: bestMetrics.accuracy ?? 0,
+                acc_recent: bestMetrics.acc_recent ?? 0,
+                coverage: bestMetrics.coverage ?? 0,
+                precision: bestMetrics.precision ?? 0,
+                recall: bestMetrics.recall ?? 0,
+                f1: bestMetrics.f1 ?? 0,
+                n_preds: bestMetrics.n_preds ?? 0,
+                n_windows: bestMetrics.n_windows ?? windows.length
+            }
+        };
+    } catch (error) {
+        console.error('❌ Erro em runN8Detector:', error);
+        return {
+            enabled: false,
+            summaryText: 'N8 - Walk-forward → NULO (erro interno na análise)',
+            code: 'internal_error',
+            error: String(error),
+            run_summary: { run_id: runId, timestamp: runTimestamp }
         };
     }
 }
@@ -11206,9 +12443,24 @@ function runDiamondLevelN10(history, options = {}) {
  */
 async function analyzeWithPatternSystem(history) {
     
+    const totalDiamondLevels = DIAMOND_LEVEL_IDS.length;
+    const diamondLevelEnabledMap = {};
+    DIAMOND_LEVEL_IDS.forEach(id => {
+        diamondLevelEnabledMap[id] = isDiamondLevelEnabled(id);
+    });
+    const isLevelEnabledLocal = (id) => !!diamondLevelEnabledMap[id];
+    const activeDiamondLevels = DIAMOND_LEVEL_IDS.filter(id => diamondLevelEnabledMap[id]);
+    const activeLevelsSummary = `${activeDiamondLevels.length}/${totalDiamondLevels}`;
+    
     // ✅ DEBUG: Enviar mensagem inicial
-    sendAnalysisStatus('🔍 Iniciando análise dos 11 níveis...');
-    console.log('✅ DEBUG: sendAnalysisStatus chamado - Iniciando análise dos 11 níveis...');
+    sendAnalysisStatus(`🔍 Iniciando análise (${activeLevelsSummary} níveis ativos)...`);
+    console.log(`✅ DEBUG: sendAnalysisStatus chamado - Iniciando análise com ${activeLevelsSummary} níveis ativos...`);
+
+    if (activeDiamondLevels.length === 0) {
+        console.warn('⚠️ Nenhum nível do modo Diamante está ativo. Análise cancelada.');
+        await restoreIAStatus();
+        return null;
+    }
     await sleep(1000);
     
     // VALIDAÇÃO DE DADOS DE ENTRADA
@@ -11227,7 +12479,7 @@ async function analyzeWithPatternSystem(history) {
         });
     }
     
-        console.log('%c║  💎 NÍVEL DIAMANTE - ANÁLISE AVANÇADA 11 NÍVEIS          ║', 'color: #00FF00; font-weight: bold; font-size: 16px;');
+        console.log(`%c║  💎 NÍVEL DIAMANTE - ANÁLISE (${activeLevelsSummary} níveis ativos)          ║`, 'color: #00FF00; font-weight: bold; font-size: 16px;');
         console.log('%c║  ⚪ N0 - Detector de Branco (bloqueio dinâmico)         ║', 'color: #FFFFFF; font-weight: bold;');
         console.log('%c║  🎯 N1 - Padrões (Customizado → Quente → Nulo)         ║', 'color: #FFD700; font-weight: bold;');
         console.log('%c║  ⚡ N2 - Momentum (5 vs 15 giros)                      ║', 'color: #00FF88;');
@@ -11243,7 +12495,7 @@ async function analyzeWithPatternSystem(history) {
     // ═══════════════════════════════════════════════════════════════
     // 📊 EXIBIR CONFIGURAÇÕES SALVAS PELO USUÁRIO (VALORES REAIS)
     // ═══════════════════════════════════════════════════════════════
-    console.log('%c║  ⚙️ CONFIGURAÇÕES DOS 11 NÍVEIS SALVAS PELO USUÁRIO (VALORES REAIS)         ║', 'color: #FF00FF; font-weight: bold; font-size: 16px; background: #000000;');
+    console.log(`%c║  ⚙️ CONFIGURAÇÕES DOS ${totalDiamondLevels} NÍVEIS (ATIVOS: ${activeLevelsSummary}) SALVAS PELO USUÁRIO         ║`, 'color: #FF00FF; font-weight: bold; font-size: 16px; background: #000000;');
     console.log('%c╠═══════════════════════════════════════════════════════════════════════════════╣', 'color: #FF00FF; font-weight: bold; background: #000000;');
     
     // Pegar configurações do analyzerConfig
@@ -11464,7 +12716,7 @@ async function analyzeWithPatternSystem(history) {
                     console.log(`%c║  📊 Giros desde último sinal: ${spinsDesdeUltimoSinal}${' '.repeat(Math.max(0, 29 - spinsDesdeUltimoSinal.toString().length))}║`, 'color: #FFAA00;');
                     console.log(`%c║  🎯 Intervalo mínimo: ${minIntervalSpins} giros${' '.repeat(Math.max(0, 32 - minIntervalSpins.toString().length))}║`, 'color: #FFAA00;');
                     console.log(`%c║  ⏳ Faltam: ${girosRestantes} giros${' '.repeat(Math.max(0, 37 - girosRestantes.toString().length))}║`, 'color: #FFAA00; font-weight: bold;');
-        console.log('%c║  ✅ Análise dos 11 níveis será executada normalmente     ║', 'color: #00FF88;');
+        console.log(`%c║  ✅ Análise dos ${activeLevelsSummary} níveis ativos será executada normalmente     ║`, 'color: #00FF88;');
                     console.log('%c║  🚫 Mas SINAL NÃO será enviado (intervalo insuficiente)  ║', 'color: #FFAA00;');
                 }
             } else if (lastSignalTimestamp && history.length > 0) {
@@ -11815,6 +13067,9 @@ async function analyzeWithPatternSystem(history) {
         const levelReports = [];
         const describeLevel = (level) => {
             const meta = levelMeta[level.id];
+            if (level.disabled) {
+                return `${meta.emoji} ${meta.label} → DESATIVADO`;
+            }
             if (!level.color) {
                 return `${meta.emoji} ${meta.label} → NULO`;
             }
@@ -11845,14 +13100,23 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
         let n0ActionSuppressed = false;
         let n0DetailSummary = 'NULO';
 
-        try {
-            console.log('%c║  ⚪ NÍVEL 0 - DETECTOR DE BRANCO                         ║', 'color: #FFFFFF; font-weight: bold; font-size: 14px;');
-            console.log(`%c   Histórico analisado: ${n0Options.historySize} giros | Janela: ${n0Options.windowSize} giros`, 'color: #FFFFFF; font-weight: bold;');
-            console.log(`%c   Modelos avaliados: ${n0Options.analysesToRun} | Holdout: ${n0Options.holdoutEnabled ? 'ATIVO' : 'DESATIVADO'}`, 'color: #FFFFFF; font-weight: bold;');
+        const n0Enabled = isLevelEnabledLocal('N0');
+        if (!n0Enabled) {
+            console.log('%c║  ⚪ NÍVEL 0 - DETECTOR DE BRANCO (DESATIVADO PELO USUÁRIO) ║', 'color: #777777; font-weight: bold; font-size: 14px;');
+            n0Result = {
+                enabled: false,
+                reason: 'Desativado pelo usuário'
+            };
+            n0DetailSummary = 'DESATIVADO';
+        } else {
+            try {
+                console.log('%c║  ⚪ NÍVEL 0 - DETECTOR DE BRANCO                         ║', 'color: #FFFFFF; font-weight: bold; font-size: 14px;');
+                console.log(`%c   Histórico analisado: ${n0Options.historySize} giros | Janela: ${n0Options.windowSize} giros`, 'color: #FFFFFF; font-weight: bold;');
+                console.log(`%c   Modelos avaliados: ${n0Options.analysesToRun} | Holdout: ${n0Options.holdoutEnabled ? 'ATIVO' : 'DESATIVADO'}`, 'color: #FFFFFF; font-weight: bold;');
 
-            n0Result = runN0Detector(history, n0Options);
+                n0Result = runN0Detector(history, n0Options);
 
-            if (n0Result && n0Result.enabled) {
+                if (n0Result && n0Result.enabled) {
                 const actionRequested = n0Result.blocking_action || 'no_block';
                 const blockAllAllowed = n0Settings.allowBlockAll;
                 n0WhiteStrength = clamp01(n0Result.white_confidence || 0);
@@ -11941,33 +13205,35 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
                 if (n0SoftBlockActive) {
                     console.log('%c   ⚠️ Soft block: pesos reduzidos em 50% para os demais níveis', 'color: #FFAA00; font-weight: bold;');
                 }
-            } else if (n0Result) {
+                } else if (n0Result) {
                 console.log(`%c   ➤ Detector indisponível: ${n0Result.reason || 'motivo não informado'}`, 'color: #FFAA00; font-weight: bold;');
                 n0DetailSummary = n0Result.reason || 'Indisponível';
-            } else {
+                } else {
                 console.log('%c   ➤ Detector indisponível: erro desconhecido', 'color: #FFAA00; font-weight: bold;');
                 n0DetailSummary = 'Indisponível';
+                }
+            } catch (error) {
+                console.error('❌ Erro ao executar N0 - Detector de Branco:', error);
+                n0Result = {
+                    enabled: false,
+                    reason: 'Erro interno no detector'
+                };
+                n0DetailSummary = 'Erro interno';
             }
-        } catch (error) {
-            console.error('❌ Erro ao executar N0 - Detector de Branco:', error);
-            n0Result = {
-                enabled: false,
-                reason: 'Erro interno no detector'
-            };
-            n0DetailSummary = 'Erro interno';
         }
 
         levelReports.push({
             id: 'N0',
             name: 'Detector de Branco',
             color: n0Result && n0Result.pred_live === 'W' ? 'white' : null,
-            weight: levelWeights.whiteDetector,
+            weight: n0Enabled ? levelWeights.whiteDetector : 0,
             strength: n0WhiteStrength,
             score: 0,
-            details: n0DetailSummary
+            details: n0DetailSummary,
+            disabled: !n0Enabled
         });
 
-        const n0WeightModifier = n0SoftBlockActive ? N0_DEFAULTS.softBlockFactor : 1;
+        const n0WeightModifier = (n0Enabled && n0SoftBlockActive) ? N0_DEFAULTS.softBlockFactor : 1;
         const weightFor = (baseWeight) => baseWeight * n0WeightModifier;
         const emitLevelStatuses = async (reports, options = {}) => {
             const { perLevelDelay = 1500, force = false } = options;
@@ -11981,8 +13247,12 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
                 const meta = levelMeta[id] || {};
                 const [idLabel, nameLabel] = (meta.label || id).split(' - ');
                 const friendlyName = nameLabel ? `${idLabel} ${nameLabel}` : (meta.label || id);
+                const enabled = isLevelEnabledLocal(id);
 
                 if (id === 'N0') {
+                    if (!enabled) {
+                        return { id, message: `${friendlyName}: DESATIVADO` };
+                    }
                     if (!level || !n0Result) {
                         return { id, message: `${friendlyName}: NULO` };
                     }
@@ -12018,6 +13288,9 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
                 }
 
                 if (id === 'N8') {
+                    if (!enabled) {
+                        return { id, message: `${friendlyName}: DESATIVADO` };
+                    }
                     if (level && level.color) {
                         const pct = Math.round((level.strength || 0) * 100);
                         const extra = level.details ? ` • ${level.details}` : '';
@@ -12027,8 +13300,15 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
                 }
 
                 if (id === 'N9') {
+                    if (!enabled) {
+                        return { id, message: `${friendlyName}: DESATIVADO` };
+                    }
                     const status = barrierResult.allowed ? 'APROVADO' : 'BLOQUEADO';
                     return { id, message: `${friendlyName}: ${status}` };
+                }
+
+                if (!enabled) {
+                    return { id, message: `${friendlyName}: DESATIVADO` };
                 }
 
                 if (level && level.color) {
@@ -12049,57 +13329,97 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
         };
 
         // N10 - Walk-forward (votante especializado baseado em janelas não-sobrepostas)
-        let n10SummaryText = null;
-        try {
-            const windowsCfg = analyzerConfig.diamondLevelWindows || {};
-            const n10WindowCfg = getDiamondWindow('n10Window', 20);
-            const n10HistoryCfg = Number(windowsCfg.n10History) > 0 ? Number(windowsCfg.n10History) : 500;
-            const n10AnalysesCfg = Number(windowsCfg.n10Analyses) > 0 ? Number(windowsCfg.n10Analyses) : 600;
-            const n10MinWindowsCfg = Number(windowsCfg.n10MinWindows) > 0 ? Number(windowsCfg.n10MinWindows) : 8;
-            const n10ConfMinPctCfg = Number(windowsCfg.n10ConfMin) > 0 ? Number(windowsCfg.n10ConfMin) : 60;
-            const n10ConfMinCfg = Math.max(0, Math.min(1, n10ConfMinPctCfg / 100));
-
-            const n10ResultLocal = runDiamondLevelN10(history, {
-                windowSize: n10WindowCfg,
-                historySize: n10HistoryCfg,
-                analysesToRun: n10AnalysesCfg,
-                minWindows: n10MinWindowsCfg,
-                confMin: n10ConfMinCfg
+        const n8Enabled = isLevelEnabledLocal('N8');
+        let n8SummaryText = null;
+        if (!n8Enabled) {
+            console.log('%c║  🔟 N8 - Walk-forward DESATIVADO (pelo usuário)          ║', 'color: #777777; font-weight: bold; font-size: 14px;');
+            levelReports.push({
+                id: 'N8',
+                name: 'Walk-forward',
+                color: null,
+                weight: 0,
+                strength: 0,
+                score: 0,
+                details: 'DESATIVADO',
+                disabled: true
             });
+        } else {
+            try {
+                const windowsCfg = analyzerConfig.diamondLevelWindows || {};
+                const n8WindowCfg = getDiamondWindow('n10Window', N8_DEFAULTS.windowSize);
+                const n8HistoryCfg = Number(windowsCfg.n10History) > 0 ? Number(windowsCfg.n10History) : N8_DEFAULTS.historySize;
+                const n8AnalysesCfg = Number(windowsCfg.n10Analyses) > 0 ? Number(windowsCfg.n10Analyses) : N8_DEFAULTS.analysesToRun;
+                const n8MinWindowsCfg = Number(windowsCfg.n10MinWindows) > 0 ? Number(windowsCfg.n10MinWindows) : N8_DEFAULTS.minWindowsRequired;
+                const n8ConfMinPctCfg = Number(windowsCfg.n10ConfMin) > 0 ? Number(windowsCfg.n10ConfMin) : N8_DEFAULTS.confMinLive * 100;
+                const n8ConfMinCfg = Math.max(0, Math.min(1, n8ConfMinPctCfg / 100));
 
-            if (n10ResultLocal && n10ResultLocal.summaryText) {
-                n10SummaryText = n10ResultLocal.summaryText;
-            }
+                const n8Result = runN8Detector(history, {
+                    windowSize: n8WindowCfg,
+                    historySize: n8HistoryCfg,
+                    analysesToRun: n8AnalysesCfg,
+                    minWindows: n8MinWindowsCfg,
+                    confMinLive: n8ConfMinCfg
+                });
 
-            if (n10ResultLocal && n10ResultLocal.enabled && n10ResultLocal.color) {
-                const n10Color = n10ResultLocal.color;
-                const n10Strength = clamp01(n10ResultLocal.confidence || 0); // confiança já em 0..1
-                const metrics = n10ResultLocal.metrics || {};
-                const accPct = metrics.accuracy != null ? (metrics.accuracy * 100).toFixed(1) : null;
-                const covPct = metrics.coverage != null ? (metrics.coverage * 100).toFixed(1) : null;
-                const predsInfo = (metrics.n_preds != null && metrics.n_windows != null)
-                    ? `${metrics.n_preds}/${metrics.n_windows} janelas`
-                    : null;
-                let n10Details = 'Walk-forward não-sobreposto';
-                const parts = [];
-                if (accPct != null) parts.push(`acurácia ${accPct}%`);
-                if (covPct != null) parts.push(`coverage ${covPct}%`);
-                if (predsInfo) parts.push(predsInfo);
-                if (parts.length > 0) {
-                    n10Details += ' • ' + parts.join(' • ');
+                if (n8Result && typeof n8Result.summaryText === 'string') {
+                    n8SummaryText = n8Result.summaryText.replace(/^N8 - /, '');
                 }
 
-                levelReports.push({
-                    id: 'N8',
-                    name: 'Walk-forward',
-                    color: n10Color,
-                    weight: weightFor(levelWeights.walkForward),
-                    strength: n10Strength,
-                    score: directionValue(n10Color) * n10Strength,
-                    details: n10Details
-                });
-            } else {
-                // N10 neutro: registra como NULO para aparecer no raciocínio
+                if (n8Result && Array.isArray(n8Result.warnings) && n8Result.warnings.length > 0) {
+                    n8Result.warnings.forEach(warn => console.warn('⚠️ [N8]', warn));
+                }
+
+                if (n8Result && n8Result.enabled && n8Result.color) {
+                    const n8Color = n8Result.color;
+                    const n8Strength = clamp01(n8Result.confidence || 0);
+                    const metrics = n8Result.best_metrics || {};
+                    const f1Pct = metrics.f1 != null ? (metrics.f1 * 100).toFixed(1) : null;
+                    const precisionPct = metrics.precision != null ? (metrics.precision * 100).toFixed(1) : null;
+                    const recallPct = metrics.recall != null ? (metrics.recall * 100).toFixed(1) : null;
+                    const coveragePct = metrics.coverage != null ? (metrics.coverage * 100).toFixed(1) : null;
+                    const predsInfo = (metrics.n_preds != null && metrics.n_windows != null)
+                        ? `${metrics.n_preds}/${metrics.n_windows} janelas`
+                        : null;
+                    const bestConfigLabel = n8Result.best_config ? n8Result.best_config.family : null;
+                    const detailParts = [];
+                    if (bestConfigLabel) detailParts.push(bestConfigLabel);
+                    if (f1Pct != null) detailParts.push(`F1 ${f1Pct}%`);
+                    if (precisionPct != null) detailParts.push(`prec ${precisionPct}%`);
+                    if (recallPct != null) detailParts.push(`rec ${recallPct}%`);
+                    if (coveragePct != null) detailParts.push(`coverage ${coveragePct}%`);
+                    if (predsInfo) detailParts.push(predsInfo);
+                    let n8Details = 'Walk-forward diversificado';
+                    if (detailParts.length > 0) {
+                        n8Details += ' • ' + detailParts.join(' • ');
+                    }
+                    if (n8Result.holdout && n8Result.holdout.enabled && !n8Result.holdout.passed && n8Result.holdout.reason) {
+                        n8Details += ` • Holdout: ${n8Result.holdout.reason}`;
+                    }
+
+                    levelReports.push({
+                        id: 'N8',
+                        name: 'Walk-forward',
+                        color: n8Color,
+                        weight: weightFor(levelWeights.walkForward),
+                        strength: n8Strength,
+                        score: directionValue(n8Color) * n8Strength,
+                        details: n8Details,
+                        disabled: false
+                    });
+                } else {
+                    levelReports.push({
+                        id: 'N8',
+                        name: 'Walk-forward',
+                        color: null,
+                        weight: weightFor(levelWeights.walkForward),
+                        strength: 0,
+                        score: 0,
+                        details: n8SummaryText || 'NULO',
+                        disabled: false
+                    });
+                }
+            } catch (e) {
+                console.error('❌ Erro em N8 dentro do modo Diamante:', e);
                 levelReports.push({
                     id: 'N8',
                     name: 'Walk-forward',
@@ -12107,29 +13427,19 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
                     weight: weightFor(levelWeights.walkForward),
                     strength: 0,
                     score: 0,
-                    details: n10SummaryText
-                        ? n10SummaryText.replace(/^N10 - /, '')
-                        : 'NULO'
+                    details: 'Erro interno em N8',
+                    disabled: false
                 });
             }
-        } catch (e) {
-            console.error('❌ Erro em N10 dentro do modo Diamante:', e);
-            levelReports.push({
-                id: 'N8',
-                name: 'Walk-forward',
-                color: null,
-                weight: weightFor(levelWeights.walkForward),
-                strength: 0,
-                score: 0,
-                details: 'Erro interno em N10'
-            });
         }
 
         // N1 - Padrões
+        const n1Enabled = isLevelEnabledLocal('N1');
         let patternStrength = 0;
-        let patternColor = nivel4 && nivel4.color ? nivel4.color : null;
-        let patternDetailsText = 'NULO';
-        if (patternColor) {
+        let patternColor = null;
+        let patternDetailsText = n1Enabled ? 'NULO' : 'DESATIVADO';
+        if (n1Enabled && nivel4 && nivel4.color) {
+            patternColor = nivel4.color;
             const baseConfidence = clamp01(nivel4.confidence ?? 0.55);
             patternStrength = baseConfidence;
             const sourceLabel = nivel4.source === 'custom' ? 'Custom' : 'Quente';
@@ -12139,35 +13449,43 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
             id: 'N1',
             name: 'Padrões',
             color: patternColor,
-            weight: weightFor(levelWeights.patterns),
+            weight: n1Enabled ? weightFor(levelWeights.patterns) : 0,
             strength: patternStrength,
             score: directionValue(patternColor) * patternStrength,
-            details: patternDetailsText
+            details: patternDetailsText,
+            disabled: !n1Enabled
         });
 
         // N2 - Momentum
-        const redMomentum = Number(nivel5.momentum.red);
-        const blackMomentum = Number(nivel5.momentum.black);
+        const n2Enabled = isLevelEnabledLocal('N2');
+        const redMomentum = Number(nivel5.momentum?.red ?? 0);
+        const blackMomentum = Number(nivel5.momentum?.black ?? 0);
         const diffMomentum = (isFinite(redMomentum) && isFinite(blackMomentum)) ? Math.abs(redMomentum - blackMomentum) : 0;
         let momentumStrength = clamp01(diffMomentum / 12);
         if (momentumStrength < 0.1) momentumStrength = momentumStrength / 2;
-        const momentumDetailsText = `${nivel5.trending === 'accelerating_red' ? 'Acelerando vermelho' : nivel5.trending === 'accelerating_black' ? 'Acelerando preto' : 'Estável'} | Δ ${diffMomentum.toFixed(1)} pts`;
+        const momentumDetailsText = n2Enabled
+            ? `${nivel5.trending === 'accelerating_red' ? 'Acelerando vermelho' : nivel5.trending === 'accelerating_black' ? 'Acelerando preto' : 'Estável'} | Δ ${diffMomentum.toFixed(1)} pts`
+            : 'DESATIVADO';
+        const momentumColor = n2Enabled ? nivel5.color : null;
+        const momentumScore = n2Enabled ? directionValue(momentumColor) * momentumStrength : 0;
         levelReports.push({
             id: 'N2',
             name: 'Momentum',
-            color: nivel5.color,
-            weight: weightFor(levelWeights.momentum),
-            strength: momentumStrength,
-            score: directionValue(nivel5.color) * momentumStrength,
-            details: momentumDetailsText
+            color: momentumColor,
+            weight: n2Enabled ? weightFor(levelWeights.momentum) : 0,
+            strength: n2Enabled ? momentumStrength : 0,
+            score: momentumScore,
+            details: momentumDetailsText,
+            disabled: !n2Enabled
         });
 
         // N3 - Alternância
-        const alternanceColor = nivel7 && nivel7.color ? nivel7.color : null;
+        const n3Enabled = isLevelEnabledLocal('N3');
+        const alternanceColor = n3Enabled && nivel7 && nivel7.color ? nivel7.color : null;
         let alternanceStrength = 0;
-        let alternanceDetailsText = alternanceColor ? nivel7.details : 'NULO';
-        const alternanceOverrideActive = Boolean(nivel7 && nivel7.override && alternanceColor);
-        if (alternanceColor) {
+        let alternanceDetailsText = alternanceColor ? nivel7.details : (n3Enabled ? 'NULO' : 'DESATIVADO');
+        const alternanceOverrideActive = n3Enabled && Boolean(nivel7 && nivel7.override && alternanceColor);
+        if (n3Enabled && alternanceColor) {
             alternanceStrength = alternanceOverrideActive ? 1 : clamp01(nivel7.confidence ?? 0.5);
             const targetLabel = nivel7.alternanceTargetRuns && nivel7.alternanceMaxRuns
                 ? ` • ${nivel7.alternanceTargetRuns}/${nivel7.alternanceMaxRuns || '∞'} blocos`
@@ -12179,18 +13497,20 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
             id: 'N3',
             name: 'Alternância',
             color: alternanceColor,
-            weight: weightFor(levelWeights.alternance),
-            strength: alternanceStrength,
-            score: directionValue(alternanceColor) * alternanceStrength,
+            weight: n3Enabled ? weightFor(levelWeights.alternance) : 0,
+            strength: n3Enabled ? alternanceStrength : 0,
+            score: n3Enabled ? directionValue(alternanceColor) * alternanceStrength : 0,
             details: alternanceDetailsText,
-            override: alternanceOverrideActive
+            override: alternanceOverrideActive,
+            disabled: !n3Enabled
         });
 
         // N4 - Persistência
-        const persistenceColor = nivel9 && nivel9.color ? nivel9.color : null;
+        const n4Enabled = isLevelEnabledLocal('N4');
+        const persistenceColor = n4Enabled && nivel9 && nivel9.color ? nivel9.color : null;
         let persistenceStrength = 0;
-        let persistenceDetailsText = 'NULO';
-        if (persistenceColor) {
+        let persistenceDetailsText = n4Enabled ? 'NULO' : 'DESATIVADO';
+        if (n4Enabled && persistenceColor) {
             persistenceStrength = clamp01(nivel9.confidence ?? 0.5);
             persistenceDetailsText = `Seq ${nivel9.currentSequence} • média ${nivel9.averageSequence} (${Math.round(persistenceStrength * 100)}%)`;
         }
@@ -12198,57 +13518,69 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
             id: 'N4',
             name: 'Persistência',
             color: persistenceColor,
-            weight: weightFor(levelWeights.persistence),
-            strength: persistenceStrength,
-            score: directionValue(persistenceColor) * persistenceStrength,
-            details: persistenceDetailsText
+            weight: n4Enabled ? weightFor(levelWeights.persistence) : 0,
+            strength: n4Enabled ? persistenceStrength : 0,
+            score: n4Enabled ? directionValue(persistenceColor) * persistenceStrength : 0,
+            details: persistenceDetailsText,
+            disabled: !n4Enabled
         });
 
         // N5 - Ritmo por Giro (minuto/posição)
+        const n5Enabled = isLevelEnabledLocal('N5');
         const minuteSpinWindow = Math.max(10, Math.min(200, getDiamondWindow('n5MinuteBias', 60)));
         const minuteBiasResult = analyzeMinuteSpinBias(history, targetMinute, nextSpinPosition, minuteSpinWindow);
-        const minuteBiasColor = minuteBiasResult && minuteBiasResult.color ? minuteBiasResult.color : null;
+        const minuteBiasColor = n5Enabled && minuteBiasResult && minuteBiasResult.color ? minuteBiasResult.color : null;
         let minuteBiasStrength = clamp01(minuteBiasResult ? minuteBiasResult.confidence : 0);
-        let minuteBiasDetailsText = minuteBiasResult ? minuteBiasResult.details : 'NULO';
-        if (minuteBiasResult && minuteBiasResult.totalSamples) {
+        let minuteBiasDetailsText = n5Enabled ? (minuteBiasResult ? minuteBiasResult.details : 'NULO') : 'DESATIVADO';
+        if (n5Enabled && minuteBiasResult && minuteBiasResult.totalSamples) {
             minuteBiasDetailsText += ` • ${minuteBiasResult.totalSamples} amostras`;
         }
 		levelReports.push({
 			id: 'N5',
 			name: 'Ritmo por Giro',
 			color: minuteBiasColor,
-            weight: weightFor(levelWeights.minuteSpin),
-			strength: minuteBiasStrength,
-			score: directionValue(minuteBiasColor) * minuteBiasStrength,
-			details: minuteBiasDetailsText
+            weight: n5Enabled ? weightFor(levelWeights.minuteSpin) : 0,
+			strength: n5Enabled ? minuteBiasStrength : 0,
+			score: n5Enabled ? directionValue(minuteBiasColor) * minuteBiasStrength : 0,
+			details: minuteBiasDetailsText,
+            disabled: !n5Enabled
 		});
 
+		const n6Enabled = isLevelEnabledLocal('N6');
 		const retracementWindow = Math.max(30, Math.min(120, getDiamondWindow('n6RetracementWindow', 80)));
 		const retracementResult = analyzeHistoricalRetracement(history, retracementWindow, analyzerConfig.signalIntensity || 'moderate');
 		levelReports.push({
 			id: 'N6',
 			name: 'Retração Histórica',
-			color: retracementResult.color,
-			weight: weightFor(levelWeights.retracement),
-			strength: retracementResult.strength || 0,
-			score: directionValue(retracementResult.color) * (retracementResult.strength || 0),
-			details: retracementResult.details
+			color: n6Enabled ? retracementResult.color : null,
+			weight: n6Enabled ? weightFor(levelWeights.retracement) : 0,
+			strength: n6Enabled ? (retracementResult.strength || 0) : 0,
+			score: n6Enabled ? directionValue(retracementResult.color) * (retracementResult.strength || 0) : 0,
+			details: n6Enabled ? retracementResult.details : 'DESATIVADO',
+            disabled: !n6Enabled
 		});
 
+		const n7Enabled = isLevelEnabledLocal('N7');
 		const decisionWindowConfigured = Math.max(10, Math.min(50, getDiamondWindow('n7DecisionWindow', 20)));
 		const historyWindowConfigured = Math.max(decisionWindowConfigured, Math.min(200, getDiamondWindow('n7HistoryWindow', 100)));
 		const continuityResult = analyzeGlobalContinuity(signalsHistory, decisionWindowConfigured, historyWindowConfigured, analyzerConfig.signalIntensity || 'moderate');
 		levelReports.push({
 			id: 'N7',
 			name: 'Continuidade Global',
-			color: continuityResult.color,
-			weight: weightFor(levelWeights.globalContinuity),
-			strength: continuityResult.strength || 0,
-			score: directionValue(continuityResult.color) * (continuityResult.strength || 0),
-			details: continuityResult.details
+			color: n7Enabled ? continuityResult.color : null,
+			weight: n7Enabled ? weightFor(levelWeights.globalContinuity) : 0,
+			strength: n7Enabled ? (continuityResult.strength || 0) : 0,
+			score: n7Enabled ? directionValue(continuityResult.color) * (continuityResult.strength || 0) : 0,
+			details: n7Enabled ? continuityResult.details : 'DESATIVADO',
+            disabled: !n7Enabled
 		});
 
-        console.log('%c║  🧮 N9 - CALIBRAÇÃO BAYESIANA (PROBABILIDADES)          ║', 'color: #1ABC9C; font-weight: bold; font-size: 14px;');
+        const n10Enabled = isLevelEnabledLocal('N10');
+        let bayesResult = null;
+        if (!n10Enabled) {
+            console.log('%c║  🧮 N10 - CALIBRAÇÃO BAYESIANA DESATIVADA (pelo usuário) ║', 'color: #777777; font-weight: bold; font-size: 14px;');
+        } else {
+            console.log('%c║  🧮 N10 - CALIBRAÇÃO BAYESIANA (PROBABILIDADES)         ║', 'color: #1ABC9C; font-weight: bold; font-size: 14px;');
         const bayesHistoryConfigured = Math.max(30, Math.min(400, getDiamondWindow('n9History', 100)));
         const bayesNullThresholdConfigured = Math.max(2, Math.min(20, getDiamondWindow('n9NullThreshold', 8)));
         const bayesPriorStrengthConfigured = Math.max(0.2, Math.min(5, getDiamondWindow('n9PriorStrength', 1)));
@@ -12257,7 +13589,7 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
             black: bayesPriorStrengthConfigured,
             white: Math.max(0.1, bayesPriorStrengthConfigured * 0.5)
         };
-        const bayesResult = analyzeBayesianCalibration(
+            bayesResult = analyzeBayesianCalibration(
             history,
             bayesHistoryConfigured,
             bayesPriorConfig,
@@ -12271,9 +13603,10 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
             console.log('%c   🛑 VOTO NULO: Probabilidades próximas ou cobertura baixa', 'color: #FFAA00; font-weight: bold;');
         } else {
             console.log(`%c   🗳️ VOTA: ${bayesResult.color.toUpperCase()} • Força ${(Math.round((bayesResult.strength || 0) * 100))}%`, 'color: #1ABC9C; font-weight: bold;');
+            }
         }
 
-        if (bayesResult && bayesResult.adjustments) {
+        if (n10Enabled && bayesResult && bayesResult.adjustments) {
             levelReports.forEach(level => {
                 if (!level.color) return;
                 const factor = bayesResult.adjustments[level.color] ?? 1;
@@ -12291,15 +13624,16 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
             });
         }
 
-        const bayesStrength = clamp01(bayesResult.strength || 0);
+        const bayesStrength = clamp01(bayesResult && bayesResult.strength ? bayesResult.strength : 0);
         levelReports.push({
             id: 'N10',
             name: 'Calibração Bayesiana',
-            color: bayesResult.color,
-            weight: weightFor(levelWeights.bayesianCalibration),
-            strength: bayesStrength,
-            score: directionValue(bayesResult.color) * bayesStrength,
-            details: bayesResult.details
+            color: n10Enabled ? bayesResult.color : null,
+            weight: n10Enabled ? weightFor(levelWeights.bayesianCalibration) : 0,
+            strength: n10Enabled ? bayesStrength : 0,
+            score: n10Enabled ? directionValue(bayesResult.color) * bayesStrength : 0,
+            details: n10Enabled ? bayesResult.details : 'DESATIVADO',
+            disabled: !n10Enabled
         });
 
         // 🔥 NOVA LÓGICA: Alternância precisa de pelo menos 2 outros níveis concordando
@@ -12351,7 +13685,7 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
                         alternanceBlocked = true;
                         alternanceBlockReason = 'Entradas consecutivas desativadas';
                         console.log('%c   ⏸️ BLOQUEADO: Entradas consecutivas desativadas pelo usuário', 'color: #FFAA00; font-weight: bold;');
-                    } else {
+        } else {
                         console.log('%c   ✅ PERMITIDO: WIN na 1ª entrada + consecutivas ativas → pode fazer 2ª', 'color: #00FF88; font-weight: bold;');
                     }
                 }
@@ -12408,8 +13742,6 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
                 const safeB = bIndex === -1 ? displayOrder.length : bIndex;
                 return safeA - safeB;
             });
-
-            await emitLevelStatuses(levelReports, { force: true });
 
             if (intervalBlocked) {
                 sendAnalysisStatus(intervalMessage || '⏳ Aguardando intervalo configurado...');
@@ -12508,22 +13840,37 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
             console.log('%c⚠️ Soft block ativo: pesos dos níveis reduzidos em 50% para este giro', 'color: #FFAA00; font-weight: bold;');
         }
         let predictedColor = scoreWithoutBarrier === 0
-            ? (minuteBiasColor || nivel5.color || patternColor || 'red')
+            ? (minuteBiasColor || momentumColor || patternColor || 'red')
             : (scoreWithoutBarrier >= 0 ? 'red' : 'black');
 
         if (alternanceOverride) {
             predictedColor = alternanceColor;
         }
+        const n9Enabled = isLevelEnabledLocal('N9');
+        let barrierResult = {
+            allowed: true,
+            currentStreak: 0,
+            targetStreak: 0,
+            maxStreakFound: 0,
+            reason: 'Desativado pelo usuário',
+            alternanceBlocked: false
+        };
+        let barrierDetailsText = 'DESATIVADO';
+        let barrierStrength = 0;
+
+        if (!n9Enabled) {
+            console.log('%c║  🛑 N9 - BARREIRA FINAL DESATIVADA (pelo usuário)       ║', 'color: #777777; font-weight: bold; font-size: 14px;');
+        } else {
         console.log('%c║  🛑 NÍVEL 6: BARREIRA/FREIO (VALIDAÇÃO FINAL)          ║', 'color: #FF0000; font-weight: bold; font-size: 14px;');
         console.log(`%c🎯 Cor candidata antes da barreira: ${predictedColor.toUpperCase()}`, `color: ${predictedColor === 'red' ? '#FF0000' : '#FFFFFF'}; font-weight: bold;`);
         console.log(`%c📊 Configuração: ${historySize} giros para análise`, 'color: #FF0000;');
 
-        const barrierResult = validateSequenceBarrier(history, predictedColor, getDiamondWindow('n8Barrier', historySize), {
+            barrierResult = validateSequenceBarrier(history, predictedColor, getDiamondWindow('n8Barrier', historySize), {
             override: alternanceOverrideActive,
             targetRuns: nivel7 ? nivel7.alternanceTargetRuns : null,
             maxRuns: nivel7 ? nivel7.alternanceMaxRuns : null
         });
-        const barrierDetailsText = barrierResult.alternanceBlocked
+            barrierDetailsText = barrierResult.alternanceBlocked
             ? `Alternância excede histórico (${nivel7 ? nivel7.alternanceTargetRuns : '?'} > ${nivel7 ? nivel7.alternanceMaxRuns || '∞' : '?'})`
             : `Atual ${barrierResult.currentStreak} • alvo ${barrierResult.targetStreak} • máx ${barrierResult.maxStreakFound}`;
 
@@ -12539,8 +13886,6 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
             await restoreIAStatus();
             return null;
         }
-        
-        let barrierStrength = 0;
         const streakGap = barrierResult.maxStreakFound - barrierResult.targetStreak;
         if (barrierResult.allowed) {
             barrierStrength = 0.4;
@@ -12550,15 +13895,17 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
             barrierStrength = 0.5;
         }
         }
+        }
         const barrierStatusLabel = barrierResult.allowed ? 'APROVADO' : 'BLOQUEADO';
         levelReports.push({
             id: 'N9',
             name: 'Barreira Final',
-            color: predictedColor,
-            weight: weightFor(levelWeights.barrier),
-            strength: barrierStrength,
-            score: barrierResult.allowed ? directionValue(predictedColor) * barrierStrength : 0,
-            details: `${barrierStatusLabel} • ${barrierDetailsText}`
+            color: n9Enabled ? predictedColor : null,
+            weight: n9Enabled ? weightFor(levelWeights.barrier) : 0,
+            strength: n9Enabled ? barrierStrength : 0,
+            score: n9Enabled && barrierResult.allowed ? directionValue(predictedColor) * barrierStrength : 0,
+            details: n9Enabled ? `${barrierStatusLabel} • ${barrierDetailsText}` : 'DESATIVADO',
+            disabled: !n9Enabled
         });
 
         levelReports.sort((a, b) => {
@@ -12585,11 +13932,10 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
         });
         console.log('%c╚════════════════════════════════════════════════════════════╝', summaryStyle);
 
-        await emitLevelStatuses(levelReports);
-
         if (!barrierResult.allowed) {
             console.log('%c🚫🚫🚫 SINAL BLOQUEADO PELA BARREIRA! 🚫🚫🚫', 'color: #FFFFFF; font-weight: bold; font-size: 16px; background: #FF0000;');
             console.log('%c   Sequência sem precedente histórico!', 'color: #FF6666; font-weight: bold;');
+        await emitLevelStatuses(levelReports, { force: true });
         sendAnalysisStatus(`N9 - Barreira Final: BLOQUEADO (${barrierDetailsText})`);
         await sleep(2000);
             await restoreIAStatus();
@@ -12645,7 +13991,7 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
             return null;
         }
 
-		const votingLevelsList = levelReports.filter(lvl => lvl.id !== 'N6' && lvl.id !== 'N0');
+		const votingLevelsList = levelReports.filter(lvl => lvl.id !== 'N6' && lvl.id !== 'N0' && !lvl.disabled);
 		const positiveVotingLevels = votingLevelsList.filter(lvl => lvl.color && (lvl.strength || 0) > 0);
 		const negativeVotingLevels = votingLevelsList.filter(lvl => lvl.color && (lvl.strength || 0) < 0);
 		const neutralVotingLevels = votingLevelsList.filter(lvl => !lvl.color || (lvl.strength || 0) === 0);
@@ -12666,7 +14012,8 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
 			console.log(`   Lista (concordam): ${agreeingLabels}`);
 			console.log(`   Lista (discordam): ${disagreeingLabels}`);
 
-			if (agreeingCount < 3) {
+            const requiredAggressive = availableCount > 0 ? Math.max(1, Math.min(3, availableCount)) : 3;
+			if (agreeingCount < requiredAggressive) {
 				console.log('%c❌ SINAL BLOQUEADO: consenso insuficiente para modo agressivo', 'color: #FF6666; font-weight: bold;');
                 if (alternanceOverride) {
                     console.log('%cℹ️ Alternância override ativo - resetando controle por consenso insuficiente', 'color: #FFAA00;');
@@ -12682,7 +14029,7 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
                         totalLosses: 0
                     };
                 }
-				sendAnalysisStatus(`❌ Rejeitado: apenas ${agreeingCount}/3 níveis positivos concordam (${finalColor.toUpperCase()})`);
+				sendAnalysisStatus(`❌ Rejeitado: apenas ${agreeingCount}/${requiredAggressive} níveis positivos concordam (${finalColor.toUpperCase()})`);
                 await sleep(2000);
                 await restoreIAStatus();
                 return null;
@@ -12827,30 +14174,38 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
         }
         await sleep(1500);
         
-        if (nivel9 && nivel9.color) {
             if (!analyzerConfig.aiMode) {
+            if (!n4Enabled) {
+                sendAnalysisStatus(`🔷 N4 - Persistência → DESATIVADO`);
+            } else if (nivel9 && nivel9.color) {
                 sendAnalysisStatus(`🔷 N4 - Persistência → ${nivel9.color.toUpperCase()}`);
-            }
         } else {
-            if (!analyzerConfig.aiMode) {
                 sendAnalysisStatus(`🔷 N4 - Persistência → NULO`);
             }
         }
         await sleep(1500);
         
-        if (minuteBiasColor) {
             if (!analyzerConfig.aiMode) {
+            if (!n5Enabled) {
+                sendAnalysisStatus(`🕑 N5 - Ritmo por Giro → DESATIVADO`);
+            } else if (minuteBiasColor) {
                 sendAnalysisStatus(`🕑 N5 - Ritmo por Giro → ${minuteBiasColor.toUpperCase()}`);
-            }
         } else {
+                sendAnalysisStatus(`🕑 N5 - Ritmo por Giro → NULO`);
+            }
+        } else if (!minuteBiasColor) {
             sendAnalysisStatus(`🕑 N5 - Ritmo por Giro → NULO`);
         }
         await sleep(1500);
         
+        if (!n9Enabled) {
+            sendAnalysisStatus(`🛑 N9 - Barreira Final → DESATIVADO`);
+        } else {
         const barrierStatusText = barrierResult.alternanceBlocked
             ? '🚫 BLOQUEADO (Alternância)'
             : '❌ BLOQUEADO';
-        sendAnalysisStatus(`🛑 N9 - Barreira Final → ${barrierStatusText}`);
+            sendAnalysisStatus(`🛑 N9 - Barreira Final → ${barrierStatusText}`);
+        }
         await sleep(1500);
         
         // ✅ Mostrar motivo do bloqueio
@@ -12901,7 +14256,7 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
 		};
 
 		const currentIntensity = intensityConfig[signalIntensity] || intensityConfig.moderate;
-		const effectiveThreshold = availableVotes > 0 ? Math.min(currentIntensity.min, availableVotes) : currentIntensity.min;
+        const effectiveThreshold = availableVotes > 0 ? Math.max(1, Math.min(currentIntensity.min, availableVotes)) : currentIntensity.min;
 		const consensusValid = availableVotes > 0 && winningVotes >= effectiveThreshold;
         
         console.log(`%c${currentIntensity.emoji} Modo ativo: ${currentIntensity.name}`, 'color: #9C27B0; font-weight: bold; font-size: 14px;');
@@ -12912,7 +14267,7 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
     if (!consensusValid) {
         console.log('%c║  ❌ SINAL REJEITADO - CONSENSO INSUFICIENTE!             ║', 'color: #FF6666; font-weight: bold; font-size: 14px;');
         console.log(`%c║  ${currentIntensity.emoji} Modo: ${currentIntensity.name.padEnd(44)} ║`, 'color: #FF6666;');
-        console.log(`%c║  ➤ Votos necessários: ${currentIntensity.min.toString().padEnd(36)} ║`, 'color: #FF6666;');
+        console.log(`%c║  ➤ Votos necessários: ${effectiveThreshold.toString().padEnd(36)} ║`, 'color: #FF6666;');
 		console.log(`%c║  ➤ Disponíveis (positivos): ${availableVotes.toString().padEnd(34)} ║`, 'color: #FF6666;');
         console.log(`%c║  ➤ Votos obtidos: ${winningVotes.toString().padEnd(40)} ║`, 'color: #FF6666;');
         console.log('%c║  💡 Aumente o consenso ou mude para modo menos rigoroso  ║', 'color: #FFD700;');
@@ -12920,7 +14275,9 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
         // ✅ MOSTRAR AS 6 FASES COM DELAY (para o usuário ver o processo)
         // ❌ Níveis 1, 2, 3 removidos (não mostrar mais)
         
-        if (!nivel4) {
+        if (!n1Enabled) {
+            sendAnalysisStatus('🎯 N1 - Padrões → DESATIVADO');
+        } else if (!nivel4) {
             sendAnalysisStatus(`🎯 N1 - Padrões → NULO`);
         } else {
             const sourceLabel = nivel4.source === 'custom' ? 'Custom' : 'Quente';
@@ -12928,11 +14285,17 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
         }
         await sleep(1500);
         
+        if (!n2Enabled) {
+            sendAnalysisStatus('⚡ N2 - Momentum → DESATIVADO');
+        } else {
         const trendLabel2 = nivel5.trending === 'accelerating_red' ? 'Acelerando' : nivel5.trending === 'accelerating_black' ? 'Acelerando' : 'Estável';
         sendAnalysisStatus(`⚡ N2 - Momentum → ${nivel5.color.toUpperCase()} (${trendLabel2})`);
+        }
         await sleep(1500);
         
-        if (nivel7 && nivel7.color) {
+        if (!n3Enabled) {
+            sendAnalysisStatus('🔷 N3 - Alternância → DESATIVADO');
+        } else if (nivel7 && nivel7.color) {
             const overrideLabel = nivel7.override ? ' (override)' : '';
             sendAnalysisStatus(`🔷 N3 - Alternância${overrideLabel} → ${nivel7.color.toUpperCase()}`);
         } else {
@@ -12940,28 +14303,36 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
         }
         await sleep(1500);
         
-        if (nivel9 && nivel9.color) {
+        if (!n4Enabled) {
+            sendAnalysisStatus(`🔷 N4 - Persistência → DESATIVADO`);
+        } else if (nivel9 && nivel9.color) {
             sendAnalysisStatus(`🔷 N4 - Persistência → ${nivel9.color.toUpperCase()}`);
         } else {
             sendAnalysisStatus(`🔷 N4 - Persistência → NULO`);
         }
         await sleep(1500);
         
-        if (minuteBiasColor) {
+        if (!n5Enabled) {
+            sendAnalysisStatus(`🕑 N5 - Ritmo por Giro → DESATIVADO`);
+        } else if (minuteBiasColor) {
             sendAnalysisStatus(`🕑 N5 - Ritmo por Giro → ${minuteBiasColor.toUpperCase()}`);
         } else {
             sendAnalysisStatus(`🕑 N5 - Ritmo por Giro → NULO`);
         }
         await sleep(1500);
         
-		if (retracementResult && retracementResult.color) {
+		if (!n6Enabled) {
+			sendAnalysisStatus(`📉 N6 - Retração Histórica → DESATIVADO`);
+		} else if (retracementResult && retracementResult.color) {
 			sendAnalysisStatus(`📉 N6 - Retração Histórica → ${retracementResult.color.toUpperCase()}`);
         } else {
 			sendAnalysisStatus(`📉 N6 - Retração Histórica → NULO`);
         }
         await sleep(1500);
         
-		if (continuityResult && continuityResult.color && (continuityResult.strength || 0) !== 0) {
+		if (!n7Enabled) {
+			sendAnalysisStatus(`📈 N7 - Continuidade Global → DESATIVADO`);
+		} else if (continuityResult && continuityResult.color && (continuityResult.strength || 0) !== 0) {
 			const prefix = continuityResult.strength > 0 ? 'Reforço' : 'Redução';
 			sendAnalysisStatus(`📈 N7 - Continuidade Global → ${continuityResult.color.toUpperCase()} (${prefix})`);
 		} else {
@@ -12969,14 +14340,18 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
 		}
 		await sleep(1500);
 
+        if (!n9Enabled) {
+            sendAnalysisStatus('🛑 N9 - Barreira Final → DESATIVADO');
+        } else {
         const barrierStatusText2 = barrierResult.alternanceBlocked
             ? '🚫 BLOQUEADO (Alternância)'
             : barrierResult.allowed ? '✅ APROVADO' : '🚫 BLOQUEADO';
-        sendAnalysisStatus(`🛑 N9 - Barreira Final → ${barrierStatusText2}`);
+            sendAnalysisStatus(`🛑 N9 - Barreira Final → ${barrierStatusText2}`);
+        }
         await sleep(1500);
         
 		const totalVotantes = maxVotingSlots;
-		sendAnalysisStatus(`❌ Rejeitado: ${winningVotes} de ${availableVotes}/${totalVotantes} votos (mín: ${currentIntensity.min})`);
+		sendAnalysisStatus(`❌ Rejeitado: ${winningVotes} de ${availableVotes}/${totalVotantes} votos (mín: ${effectiveThreshold})`);
         await sleep(2000);
         
         // ✅ Restaurar status "IA ativada"
@@ -12992,7 +14367,7 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
         // ═══════════════════════════════════════════════════════════════
     if (intervalBlocked) {
         console.log('%c║  🚫 SINAL BLOQUEADO - INTERVALO INSUFICIENTE!            ║', 'color: #FFAA00; font-weight: bold; font-size: 14px;');
-        console.log('%c║  ✅ Análise dos 11 níveis foi executada com sucesso      ║', 'color: #00FF88;');
+        console.log(`%c║  ✅ Análise dos ${activeLevelsSummary} níveis ativos foi executada com sucesso      ║`, 'color: #00FF88;');
         console.log('%c║  ✅ Sistema recomendaria: ' + finalColor.toUpperCase().padEnd(34) + '║', 'color: #FFD700;');
         console.log('%c║  🚫 MAS sinal não será enviado (aguarde intervalo)       ║', 'color: #FFAA00;');
         
@@ -13121,7 +14496,9 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
         // ═══════════════════════════════════════════════════════════════
         
 		let nivel1Description = '';
-        if (nivel4 && nivel4.source === 'custom') {
+        if (!n1Enabled) {
+			nivel1Description = `N1 - Padrões: DESATIVADO`;
+        } else if (nivel4 && nivel4.source === 'custom') {
 			nivel1Description = `N1 - Padrões: ${nivel4.color.toUpperCase()} (Custom)`;
         } else if (nivel4 && nivel4.source === 'hot') {
 			nivel1Description = `N1 - Padrões: ${nivel4.color.toUpperCase()} (Quente)`;
@@ -13129,39 +14506,57 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
 			nivel1Description = `N1 - Padrões: NULO`;
 		}
 		
-		const nivel2Description = `N2 - Momentum: ${nivel5.color.toUpperCase()} (${nivel5.trending === 'accelerating_red' ? 'acelerando ↗' : nivel5.trending === 'accelerating_black' ? 'acelerando ↗' : 'estável →'})`;
+		const nivel2Description = !n2Enabled
+            ? `N2 - Momentum: DESATIVADO`
+            : `N2 - Momentum: ${nivel5.color.toUpperCase()} (${nivel5.trending === 'accelerating_red' ? 'acelerando ↗' : nivel5.trending === 'accelerating_black' ? 'acelerando ↗' : 'estável →'})`;
 		
-		const nivel3Description = nivel7 && nivel7.color
+		const nivel3Description = !n3Enabled
+            ? `N3 - Alternância: DESATIVADO`
+			: nivel7 && nivel7.color
 			? `N3 - Alternância${nivel7.override ? ' (override)' : ''}: ${nivel7.color.toUpperCase()} (${nivel7.pattern} • ${nivel7.alternanceTargetRuns}/${nivel7.alternanceMaxRuns || '∞'} blocos)`
 			: `N3 - Alternância: NULO`;
 		
-		const nivel4Description = nivel9 && nivel9.color ? 
-			`N4 - Persistência: ${nivel9.color.toUpperCase()} (seq. ${nivel9.currentSequence})` :
-			`N4 - Persistência: NULO`;
+		const nivel4Description = !n4Enabled
+            ? `N4 - Persistência: DESATIVADO`
+            : nivel9 && nivel9.color ? 
+			`N4 - Persistência: ${nivel9.color.toUpperCase()} (seq. ${nivel9.currentSequence})`
+            : `N4 - Persistência: NULO`;
 		
-		const nivel5Description = minuteBiasColor
+		const nivel5Description = !n5Enabled
+            ? `N5 - Ritmo por Giro: DESATIVADO`
+			: minuteBiasColor
 			? `N5 - Ritmo por Giro: ${minuteBiasColor.toUpperCase()} (${Math.round((minuteBiasResult?.confidence || 0) * 100)}% confiança)`
 			: `N5 - Ritmo por Giro: NULO`;
 
-		const retracementDescription = retracementResult && retracementResult.details
+		const retracementDescription = !n6Enabled
+            ? `N6 - Retração Histórica: DESATIVADO`
+			: retracementResult && retracementResult.details
 			? `N6 - Retração Histórica: ${retracementResult.details}`
 			: `N6 - Retração Histórica: NULO`;
 
-		const continuityDescription = continuityResult && continuityResult.details
+		const continuityDescription = !n7Enabled
+            ? `N7 - Continuidade Global: DESATIVADO`
+			: continuityResult && continuityResult.details
 			? `N7 - Continuidade Global: ${continuityResult.details}`
 			: `N7 - Continuidade Global: NULO`;
 
 		const walkForwardReport = levelReports.find(level => level.id === 'N8');
-		const walkForwardDescription = walkForwardReport && walkForwardReport.color
+		const walkForwardDescription = !n8Enabled
+            ? `N8 - Walk-forward: DESATIVADO`
+			: walkForwardReport && walkForwardReport.color
 			? `N8 - Walk-forward: ${walkForwardReport.color.toUpperCase()} (${Math.round((walkForwardReport.strength || 0) * 100)}% • ${walkForwardReport.details || 'sem detalhes'})`
 			: `N8 - Walk-forward: NULO`;
 
-		const barrierDescription = barrierResult.allowed
+		const barrierDescription = !n9Enabled
+            ? `N9 - Barreira Final: DESATIVADO`
+			: barrierResult.allowed
 			? `N9 - Barreira Final: ✅ LIBERADO`
 			: `N9 - Barreira Final: 🚫 BLOQUEADO`;
 
 		const bayesReport = levelReports.find(level => level.id === 'N10');
-		const bayesDescription = bayesReport && bayesReport.color
+		const bayesDescription = !n10Enabled
+            ? `N10 - Calibração Bayesiana: DESATIVADO`
+			: bayesReport && bayesReport.color
 			? `N10 - Calibração Bayesiana: ${bayesReport.color.toUpperCase()} (${Math.round((bayesReport.strength || 0) * 100)}% • ${bayesReport.details || 'sem detalhes'})`
 			: `N10 - Calibração Bayesiana: NULO`;
 		
@@ -13195,7 +14590,7 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
             `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
             `${votingDescription}\n` +
 			`🏆 ${finalColor.toUpperCase()} (${winningVotes}/${totalVotantes} votos = ${consensusPercent.toFixed(1)}%)\n` +
-			`🎚️ ${intensityName} (mín ${currentIntensity.min}/${totalVotantes})\n` +
+			`🎚️ ${intensityName} (mín ${effectiveThreshold}/${totalVotantes})\n` +
             `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
             `🎯 DECISÃO: ${finalColor.toUpperCase()}\n` +
             `📊 Confiança: ${finalConfidence}%`;
@@ -13268,7 +14663,7 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
         console.log('%c✅ GARANTIAS:', 'color: #00FF00; font-weight: bold;');
         console.log('%c   ✓ Todos os dados vêm do histórico REAL da Blaze', 'color: #00FF88;');
         console.log('%c   ✓ Nenhum valor foi inventado ou simulado', 'color: #00FF88;');
-        console.log('%c   ✓ Todos os 11 níveis foram executados com rigor', 'color: #00FF88;');
+        console.log(`%c   ✓ Níveis ativos analisados: ${activeLevelsSummary}`, 'color: #00FF88;');
         console.log('%c   ✓ Sistema democrático de votação aplicado', 'color: #00FF88;');
         console.log('%c   ✓ Barreira validou viabilidade histórica', 'color: #00FF88;');
         console.log('%c   ✓ Padrões customizados do usuário foram respeitados', 'color: #00FF88;');
@@ -19519,17 +20914,17 @@ async function sendMessageToContent(type, data = null) {
         chrome.tabs.query({}, function(tabs) {
             const blazeTabs = tabs.filter(tab => {
                 if (!tab.url) return false;
-                return tab.url.includes('blaze.bet.br') ||
-                       tab.url.includes('blaze.com') ||
+                return tab.url.includes('blaze.bet.br') || 
+                       tab.url.includes('blaze.com') || 
                        tab.url.includes('blaze1.space') ||
                        tab.url.includes('blaze-1.com');
             });
-
+            
             if (!blazeTabs || blazeTabs.length === 0) {
                 resolve(false);
                 return;
             }
-
+            
             const message = { type };
             if (data) {
                 message.data = data;
@@ -19546,19 +20941,19 @@ async function sendMessageToContent(type, data = null) {
 
             blazeTabs.forEach(tab => {
                 chrome.tabs.sendMessage(tab.id, message)
-                    .then(() => {
+                .then(() => {
                         successCount += 1;
                         processedCount += 1;
                         finalize();
-                    })
-                    .catch(error => {
+                })
+                .catch(error => {
                         processedCount += 1;
                         if (error?.message && (
                             error.message.includes('Could not establish connection') ||
                             error.message.includes('Receiving end does not exist')
                         )) {
                             finalize();
-                        } else {
+                } else {
                             if (error) {
                                 console.error(`❌ Erro ao enviar ${type} para a aba ${tab.id}:`, error);
                             }

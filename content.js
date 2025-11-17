@@ -1219,6 +1219,20 @@ const DIAMOND_LEVEL_DEFAULTS = {
     n10MinWindows: 8,
     n10ConfMin: 60
 };
+
+const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
+    n0: true,
+    n1: true,
+    n2: true,
+    n3: true,
+    n4: true,
+    n5: true,
+    n6: true,
+    n7: true,
+    n8: true,
+    n9: true,
+    n10: true
+});
     // Função para mostrar notificação toast (simples e rápida)
     function showToast(message, duration = 2000) {
         // Remover toast anterior se existir
@@ -1587,6 +1601,79 @@ const DIAMOND_LEVEL_DEFAULTS = {
                 line-height: 1.14;
             }
             
+            .diamond-level-header {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                gap: 12px;
+                margin-bottom: 6px;
+            }
+            
+            .diamond-level-switch {
+                display: inline-flex;
+                align-items: center;
+                gap: 8px;
+                cursor: pointer;
+                user-select: none;
+            }
+            
+            .diamond-level-switch input {
+                display: none;
+            }
+            
+            .diamond-level-switch .switch-track {
+                position: relative;
+                width: 34px;
+                height: 18px;
+                background: rgba(255, 255, 255, 0.18);
+                border-radius: 999px;
+                transition: background 0.2s ease;
+            }
+            
+            .diamond-level-switch .switch-thumb {
+                position: absolute;
+                top: 2px;
+                left: 2px;
+                width: 14px;
+                height: 14px;
+                border-radius: 50%;
+                background: #a8b5ff;
+                transition: transform 0.2s ease, background 0.2s ease;
+            }
+            
+            .diamond-level-switch .switch-label {
+                font-size: 9px;
+                letter-spacing: 0.08em;
+                text-transform: uppercase;
+                color: rgba(200, 214, 233, 0.7);
+                font-weight: 600;
+            }
+            
+            .diamond-level-switch input:checked + .switch-track {
+                background: rgba(0, 212, 255, 0.45);
+            }
+            
+            .diamond-level-switch input:checked + .switch-track .switch-thumb {
+                transform: translateX(16px);
+                background: #00d4ff;
+            }
+            
+            .diamond-level-switch input:checked ~ .switch-label {
+                color: #00d4ff;
+            }
+            
+            .diamond-level-field.level-disabled {
+                opacity: 0.55;
+            }
+            
+            .diamond-level-field.level-disabled .diamond-level-switch .switch-label {
+                color: rgba(200, 214, 233, 0.4);
+            }
+            
+            .diamond-level-field.level-disabled .diamond-level-title {
+                color: rgba(0, 212, 255, 0.45);
+            }
+            
             .pattern-details-list {
                 display: flex;
                 flex-direction: column;
@@ -1621,8 +1708,15 @@ const DIAMOND_LEVEL_DEFAULTS = {
                         <button class="custom-pattern-modal-close" id="closeDiamondLevelsModal">Fechar</button>
                     </div>
                     <div class="custom-pattern-modal-body">
-                        <div class="diamond-level-field">
-                            <div class="diamond-level-title">N0 - Detector de Branco</div>
+                        <div class="diamond-level-field" data-level="n0">
+                            <div class="diamond-level-header">
+                                <div class="diamond-level-title">N0 - Detector de Branco</div>
+                                <label class="diamond-level-switch">
+                                    <input type="checkbox" class="diamond-level-toggle-input" id="diamondLevelToggleN0" checked />
+                                    <span class="switch-track"><span class="switch-thumb"></span></span>
+                                    <span class="switch-label">ATIVO</span>
+                                </label>
+                            </div>
                             <div class="diamond-level-note">
                                 Roda 1000 estratégias em janelas NÃO-sobrepostas para detectar BRANCO com alta confiança. Pode bloquear todos os demais níveis quando a probabilidade é alta.
                             </div>
@@ -1647,8 +1741,15 @@ const DIAMOND_LEVEL_DEFAULTS = {
                                 Permitir bloqueio total (BLOCK ALL) — desmarque para usar apenas como alerta
                             </label>
                         </div>
-                        <div class="diamond-level-field">
-                            <div class="diamond-level-title">N1 - Padrão Quente (giros analisados)</div>
+                        <div class="diamond-level-field" data-level="n1">
+                            <div class="diamond-level-header">
+                                <div class="diamond-level-title">N1 - Padrão Quente (giros analisados)</div>
+                                <label class="diamond-level-switch">
+                                    <input type="checkbox" class="diamond-level-toggle-input" id="diamondLevelToggleN1" checked />
+                                    <span class="switch-track"><span class="switch-thumb"></span></span>
+                                    <span class="switch-label">ATIVO</span>
+                                </label>
+                            </div>
                             <div class="diamond-level-note">
                                 Busca padrões que se repetem no histórico. Valores menores = mais ágil porém menos estável. Valores maiores = mais robusto porém menos sensível.
                             </div>
@@ -1657,8 +1758,15 @@ const DIAMOND_LEVEL_DEFAULTS = {
                                 Recomendado: 60 giros para equilíbrio entre estabilidade e agilidade
                             </span>
                         </div>
-                        <div class="diamond-level-field">
-                            <div class="diamond-level-title">N2 - Momentum</div>
+                        <div class="diamond-level-field" data-level="n2">
+                            <div class="diamond-level-header">
+                                <div class="diamond-level-title">N2 - Momentum</div>
+                                <label class="diamond-level-switch">
+                                    <input type="checkbox" class="diamond-level-toggle-input" id="diamondLevelToggleN2" checked />
+                                    <span class="switch-track"><span class="switch-thumb"></span></span>
+                                    <span class="switch-label">ATIVO</span>
+                                </label>
+                            </div>
                             <div class="diamond-level-note">
                                 Detecta aceleração comparando giros recentes com anteriores. Quanto menor a diferença entre janelas, mais rápido detecta mudanças.
                             </div>
@@ -1679,8 +1787,15 @@ const DIAMOND_LEVEL_DEFAULTS = {
                                 </div>
                             </div>
                         </div>
-                        <div class="diamond-level-field">
-                            <div class="diamond-level-title">N3 - Alternância (janela)</div>
+                        <div class="diamond-level-field" data-level="n3">
+                            <div class="diamond-level-header">
+                                <div class="diamond-level-title">N3 - Alternância (janela)</div>
+                                <label class="diamond-level-switch">
+                                    <input type="checkbox" class="diamond-level-toggle-input" id="diamondLevelToggleN3" checked />
+                                    <span class="switch-track"><span class="switch-thumb"></span></span>
+                                    <span class="switch-label">ATIVO</span>
+                                </label>
+                            </div>
                             <div class="diamond-level-note">
                                 Identifica padrões de alternância entre vermelho e preto (ex: V-P-V-P). Janelas menores detectam alternâncias curtas, maiores captam ciclos prolongados.
                             </div>
@@ -1689,8 +1804,15 @@ const DIAMOND_LEVEL_DEFAULTS = {
                                 Recomendado: 12 giros para alternâncias típicas
                             </span>
                         </div>
-                        <div class="diamond-level-field">
-                            <div class="diamond-level-title">N4 - Persistência / Ciclos (janela)</div>
+                        <div class="diamond-level-field" data-level="n4">
+                            <div class="diamond-level-header">
+                                <div class="diamond-level-title">N4 - Persistência / Ciclos (janela)</div>
+                                <label class="diamond-level-switch">
+                                    <input type="checkbox" class="diamond-level-toggle-input" id="diamondLevelToggleN4" checked />
+                                    <span class="switch-track"><span class="switch-thumb"></span></span>
+                                    <span class="switch-label">ATIVO</span>
+                                </label>
+                            </div>
                             <div class="diamond-level-note">
                                 Analisa sequências consecutivas da mesma cor para prever continuação ou reversão. Janelas maiores = análise de ciclos mais longos.
                             </div>
@@ -1699,8 +1821,15 @@ const DIAMOND_LEVEL_DEFAULTS = {
                                 Recomendado: 20-40 giros para detectar padrões de persistência
                             </span>
                         </div>
-                        <div class="diamond-level-field">
-                            <div class="diamond-level-title">N5 - Ritmo por Giro (amostras)</div>
+                        <div class="diamond-level-field" data-level="n5">
+                            <div class="diamond-level-header">
+                                <div class="diamond-level-title">N5 - Ritmo por Giro (amostras)</div>
+                                <label class="diamond-level-switch">
+                                    <input type="checkbox" class="diamond-level-toggle-input" id="diamondLevelToggleN5" checked />
+                                    <span class="switch-track"><span class="switch-thumb"></span></span>
+                                    <span class="switch-label">ATIVO</span>
+                                </label>
+                            </div>
                             <div class="diamond-level-note">
                                 Detecta viés temporal por minuto e posição do giro (1º ou 2º giro de cada minuto). Mais amostras = análise mais confiável porém menos sensível.
                             </div>
@@ -1709,8 +1838,15 @@ const DIAMOND_LEVEL_DEFAULTS = {
                                 Recomendado: 60 amostras para equilibrar confiabilidade e sensibilidade
                             </span>
                         </div>
-                        <div class="diamond-level-field">
-                            <div class="diamond-level-title">N6 - Retração Histórica (janela)</div>
+                        <div class="diamond-level-field" data-level="n6">
+                            <div class="diamond-level-header">
+                                <div class="diamond-level-title">N6 - Retração Histórica (janela)</div>
+                                <label class="diamond-level-switch">
+                                    <input type="checkbox" class="diamond-level-toggle-input" id="diamondLevelToggleN6" checked />
+                                    <span class="switch-track"><span class="switch-thumb"></span></span>
+                                    <span class="switch-label">ATIVO</span>
+                                </label>
+                            </div>
                             <div class="diamond-level-note">
                                 Verifica se a sequência atual está próxima do máximo histórico, prevendo reversão ou continuação. Janelas maiores = contexto mais amplo.
                             </div>
@@ -1719,8 +1855,15 @@ const DIAMOND_LEVEL_DEFAULTS = {
                                 Recomendado: 80 giros para análise robusta de retração
                             </span>
                         </div>
-                        <div class="diamond-level-field">
-                            <div class="diamond-level-title">N7 - Continuidade Global</div>
+                        <div class="diamond-level-field" data-level="n7">
+                            <div class="diamond-level-header">
+                                <div class="diamond-level-title">N7 - Continuidade Global</div>
+                                <label class="diamond-level-switch">
+                                    <input type="checkbox" class="diamond-level-toggle-input" id="diamondLevelToggleN7" checked />
+                                    <span class="switch-track"><span class="switch-thumb"></span></span>
+                                    <span class="switch-label">ATIVO</span>
+                                </label>
+                            </div>
                             <div class="diamond-level-note">
                                 Avalia se as decisões recentes da IA mantêm consistência com o histórico de acertos. Ajuda a calibrar confiança baseada em performance real.
                             </div>
@@ -1741,8 +1884,15 @@ const DIAMOND_LEVEL_DEFAULTS = {
                                 </div>
                             </div>
                         </div>
-                        <div class="diamond-level-field">
-                            <div class="diamond-level-title">N8 - Walk-forward não-sobreposto</div>
+                        <div class="diamond-level-field" data-level="n8">
+                            <div class="diamond-level-header">
+                                <div class="diamond-level-title">N8 - Walk-forward não-sobreposto</div>
+                                <label class="diamond-level-switch">
+                                    <input type="checkbox" class="diamond-level-toggle-input" id="diamondLevelToggleN8" checked />
+                                    <span class="switch-track"><span class="switch-thumb"></span></span>
+                                    <span class="switch-label">ATIVO</span>
+                                </label>
+                            </div>
                             <div class="diamond-level-note">
                                 Testa diversas estratégias em janelas NÃO-sobrepostas para escolher a melhor combinação e aplicar na janela mais recente, sem olhar o futuro.
                             </div>
@@ -1763,8 +1913,15 @@ const DIAMOND_LEVEL_DEFAULTS = {
                                 </div>
                             </div>
                         </div>
-                        <div class="diamond-level-field">
-                            <div class="diamond-level-title">N9 - Barreira Final (janela)</div>
+                        <div class="diamond-level-field" data-level="n9">
+                            <div class="diamond-level-header">
+                                <div class="diamond-level-title">N9 - Barreira Final (janela)</div>
+                                <label class="diamond-level-switch">
+                                    <input type="checkbox" class="diamond-level-toggle-input" id="diamondLevelToggleN9" checked />
+                                    <span class="switch-track"><span class="switch-thumb"></span></span>
+                                    <span class="switch-label">ATIVO</span>
+                                </label>
+                            </div>
                             <div class="diamond-level-note">
                                 Última validação de segurança: verifica se a sequência prevista tem precedente histórico. Valores maiores = filtro mais rigoroso, menos sinais porém mais seguros.
                             </div>
@@ -1773,8 +1930,15 @@ const DIAMOND_LEVEL_DEFAULTS = {
                                 Recomendado: 50 giros para filtro equilibrado de segurança
                             </span>
                         </div>
-                        <div class="diamond-level-field">
-                            <div class="diamond-level-title">N10 - Calibração Bayesiana</div>
+                        <div class="diamond-level-field" data-level="n10">
+                            <div class="diamond-level-header">
+                                <div class="diamond-level-title">N10 - Calibração Bayesiana</div>
+                                <label class="diamond-level-switch">
+                                    <input type="checkbox" class="diamond-level-toggle-input" id="diamondLevelToggleN10" checked />
+                                    <span class="switch-track"><span class="switch-thumb"></span></span>
+                                    <span class="switch-label">ATIVO</span>
+                                </label>
+                            </div>
                             <div class="diamond-level-note">
                                 Calcula probabilidades reais de cada cor (🔴/⚫/⚪) usando estatística bayesiana. Ajusta a força dos outros níveis e só vota quando há diferença significativa entre cores.
                             </div>
@@ -1825,6 +1989,35 @@ const DIAMOND_LEVEL_DEFAULTS = {
         closeBtn.addEventListener('click', closeModal);
         cancelBtn.addEventListener('click', closeModal);
         overlay.addEventListener('click', closeModal);
+        initializeDiamondLevelToggles();
+    }
+
+    function updateDiamondLevelToggleVisual(toggle) {
+        if (!toggle) return;
+        const field = toggle.closest('.diamond-level-field');
+        if (field) {
+            field.classList.toggle('level-disabled', !toggle.checked);
+        }
+        const label = field ? field.querySelector('.switch-label') : null;
+        if (label) {
+            label.textContent = toggle.checked ? 'ATIVO' : 'INATIVO';
+        }
+    }
+
+    function initializeDiamondLevelToggles() {
+        const toggles = document.querySelectorAll('.diamond-level-toggle-input');
+        toggles.forEach(toggle => {
+            if (!toggle.dataset.listenerAttached) {
+                toggle.addEventListener('change', () => updateDiamondLevelToggleVisual(toggle));
+                toggle.dataset.listenerAttached = '1';
+            }
+            updateDiamondLevelToggleVisual(toggle);
+        });
+    }
+
+    function refreshDiamondLevelToggleStates() {
+        const toggles = document.querySelectorAll('.diamond-level-toggle-input');
+        toggles.forEach(updateDiamondLevelToggleVisual);
     }
 
     function populateDiamondLevelsForm(config) {
@@ -1876,6 +2069,33 @@ const DIAMOND_LEVEL_DEFAULTS = {
         setInput('diamondN9PriorStrength', getValue('n9PriorStrength', DIAMOND_LEVEL_DEFAULTS.n9PriorStrength));
         setInput('diamondN10Window', getValue('n10Window', DIAMOND_LEVEL_DEFAULTS.n10Window));
         setInput('diamondN10History', getValue('n10History', DIAMOND_LEVEL_DEFAULTS.n10History));
+
+        const enabledConfig = (config && config.diamondLevelEnabled) || {};
+        const getEnabled = (key) => {
+            if (Object.prototype.hasOwnProperty.call(enabledConfig, key)) {
+                return !!enabledConfig[key];
+            }
+            return !!DIAMOND_LEVEL_ENABLE_DEFAULTS[key];
+        };
+        const setToggle = (id, key) => {
+            const toggle = document.getElementById(id);
+            if (toggle) {
+                toggle.checked = getEnabled(key);
+            }
+        };
+        setToggle('diamondLevelToggleN0', 'n0');
+        setToggle('diamondLevelToggleN1', 'n1');
+        setToggle('diamondLevelToggleN2', 'n2');
+        setToggle('diamondLevelToggleN3', 'n3');
+        setToggle('diamondLevelToggleN4', 'n4');
+        setToggle('diamondLevelToggleN5', 'n5');
+        setToggle('diamondLevelToggleN6', 'n6');
+        setToggle('diamondLevelToggleN7', 'n7');
+        setToggle('diamondLevelToggleN8', 'n8');
+        setToggle('diamondLevelToggleN9', 'n9');
+        setToggle('diamondLevelToggleN10', 'n10');
+        initializeDiamondLevelToggles();
+        refreshDiamondLevelToggleStates();
     }
 
     function openDiamondLevelsModal() {
@@ -1914,6 +2134,11 @@ const DIAMOND_LEVEL_DEFAULTS = {
             value = Math.max(min, Math.min(max, value));
             return value;
         };
+        const getToggleValue = (id, fallback = true) => {
+            const el = document.getElementById(id);
+            if (!el) return fallback;
+            return !!el.checked;
+        };
         const newWindows = {
             n0History: getNumber('diamondN0History', 500, 5000, DIAMOND_LEVEL_DEFAULTS.n0History),
             n0Window: getNumber('diamondN0Window', 25, 250, DIAMOND_LEVEL_DEFAULTS.n0Window),
@@ -1932,6 +2157,19 @@ const DIAMOND_LEVEL_DEFAULTS = {
             n9PriorStrength: getNumber('diamondN9PriorStrength', 0.2, 5, DIAMOND_LEVEL_DEFAULTS.n9PriorStrength),
             n10Window: getNumber('diamondN10Window', 5, 50, DIAMOND_LEVEL_DEFAULTS.n10Window),
             n10History: getNumber('diamondN10History', 100, 2000, DIAMOND_LEVEL_DEFAULTS.n10History)
+        };
+        const newEnabled = {
+            n0: getToggleValue('diamondLevelToggleN0', DIAMOND_LEVEL_ENABLE_DEFAULTS.n0),
+            n1: getToggleValue('diamondLevelToggleN1', DIAMOND_LEVEL_ENABLE_DEFAULTS.n1),
+            n2: getToggleValue('diamondLevelToggleN2', DIAMOND_LEVEL_ENABLE_DEFAULTS.n2),
+            n3: getToggleValue('diamondLevelToggleN3', DIAMOND_LEVEL_ENABLE_DEFAULTS.n3),
+            n4: getToggleValue('diamondLevelToggleN4', DIAMOND_LEVEL_ENABLE_DEFAULTS.n4),
+            n5: getToggleValue('diamondLevelToggleN5', DIAMOND_LEVEL_ENABLE_DEFAULTS.n5),
+            n6: getToggleValue('diamondLevelToggleN6', DIAMOND_LEVEL_ENABLE_DEFAULTS.n6),
+            n7: getToggleValue('diamondLevelToggleN7', DIAMOND_LEVEL_ENABLE_DEFAULTS.n7),
+            n8: getToggleValue('diamondLevelToggleN8', DIAMOND_LEVEL_ENABLE_DEFAULTS.n8),
+            n9: getToggleValue('diamondLevelToggleN9', DIAMOND_LEVEL_ENABLE_DEFAULTS.n9),
+            n10: getToggleValue('diamondLevelToggleN10', DIAMOND_LEVEL_ENABLE_DEFAULTS.n10)
         };
 
         if (newWindows.n2Previous <= newWindows.n2Recent) {
@@ -1955,6 +2193,10 @@ const DIAMOND_LEVEL_DEFAULTS = {
                 diamondLevelWindows: {
                     ...(currentConfig.diamondLevelWindows || {}),
                     ...newWindows
+                },
+                diamondLevelEnabled: {
+                    ...currentConfig.diamondLevelEnabled,
+                    ...newEnabled
                 },
                 minuteSpinWindow: newWindows.n5MinuteBias,
                 n0AllowBlockAll: allowBlockAll
@@ -6525,9 +6767,8 @@ const DIAMOND_LEVEL_DEFAULTS = {
 
             const finalText = typeof status === 'string' ? status : String(status || '');
             const totalChars = finalText.length;
-            const baseSpeed = totalChars > 0
-                ? Math.max(25, Math.min(80, Math.floor(1350 / totalChars)))
-                : 45;
+            const stepSize = totalChars > 0 ? Math.max(1, Math.ceil(totalChars / 10)) : 1;
+            const baseSpeed = totalChars > 0 ? 24 : 24;
 
             const renderFrame = (visibleChars) => {
                 if (visibleChars <= 0) {
@@ -6552,7 +6793,7 @@ const DIAMOND_LEVEL_DEFAULTS = {
                 renderFrame(0);
 
                 const typeNext = () => {
-                    visible += 1;
+                    visible = Math.min(totalChars, visible + stepSize);
                     renderFrame(visible);
                     if (visible >= totalChars) {
                         if (modeApiStatusTypingInterval) {
