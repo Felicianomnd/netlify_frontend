@@ -1203,6 +1203,11 @@ const DIAMOND_LEVEL_DEFAULTS = {
     n2Recent: 5,
     n2Previous: 15,
     n3Alternance: 12,
+    n3PatternLength: 4,
+    n3ThresholdPct: 75,
+    n3MinOccurrences: 1,
+    n3AllowBackoff: false,
+    n3IgnoreWhite: false,
     n4Persistence: 20,
     n5MinuteBias: 60,
     n6RetracementWindow: 80,
@@ -1797,12 +1802,48 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                                 </label>
                             </div>
                             <div class="diamond-level-note">
-                                Identifica padrões de alternância entre vermelho e preto (ex: V-P-V-P). Janelas menores detectam alternâncias curtas, maiores captam ciclos prolongados.
+                Motor inteligente baseado em n-grams: reconhece sequências reais e só vota quando a probabilidade condicional histórica está acima do limiar configurado.
                             </div>
-                            <input type="number" id="diamondN3Alternance" min="12" max="50" value="12" />
-                            <span class="diamond-level-subnote">
-                                Recomendado: 12 giros para alternâncias típicas
-                            </span>
+            <div class="diamond-level-double">
+                <div>
+                    <span>Histórico analisado (giros)</span>
+                    <input type="number" id="diamondN3Alternance" min="12" max="200" value="12" />
+                    <span class="diamond-level-subnote">
+                        Recomendado: 50-80 giros (mín. 12)
+                    </span>
+                </div>
+                <div>
+                    <span>Comprimento da janela L</span>
+                    <input type="number" id="diamondN3PatternLength" min="3" max="8" value="4" />
+                    <span class="diamond-level-subnote">
+                        Padrão comparado (ex.: L=4 → 🔴⚫🔴⚫)
+                    </span>
+                </div>
+            </div>
+            <div class="diamond-level-double">
+                <div>
+                    <span>Rigor mínimo (%)</span>
+                    <input type="number" id="diamondN3ThresholdPct" min="50" max="95" value="75" />
+                    <span class="diamond-level-subnote">
+                        Probabilidade mínima exigida para votar
+                    </span>
+                </div>
+                <div>
+                    <span>Ocorrências mínimas</span>
+                    <input type="number" id="diamondN3MinOccurrences" min="1" max="50" value="1" />
+                    <span class="diamond-level-subnote">
+                        Janela precisa aparecer pelo menos N vezes
+                    </span>
+                </div>
+            </div>
+            <label class="checkbox-label" style="margin-top: 6px;">
+                <input type="checkbox" id="diamondN3AllowBackoff" />
+                Permitir backoff (tentar janelas menores quando faltar histórico)
+            </label>
+            <label class="checkbox-label" style="margin-top: 4px;">
+                <input type="checkbox" id="diamondN3IgnoreWhite" />
+                Ignorar previsões de <strong>branco</strong> (força voto NULO ao invés de WHITE)
+            </label>
                         </div>
                         <div class="diamond-level-field" data-level="n4">
                             <div class="diamond-level-header">
@@ -2044,6 +2085,26 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
             const input = document.getElementById(id);
             if (input) input.value = value;
         };
+        const setCheckbox = (id, value) => {
+            const input = document.getElementById(id);
+            if (input) input.checked = !!value;
+        };
+        const getBoolean = (key, def) => {
+            if (Object.prototype.hasOwnProperty.call(windows, key)) {
+                const raw = windows[key];
+                if (typeof raw === 'boolean') return raw;
+                if (typeof raw === 'string') {
+                    const lowered = raw.toLowerCase();
+                    if (lowered === 'true') return true;
+                    if (lowered === 'false') return false;
+                }
+                const numeric = Number(raw);
+                if (Number.isFinite(numeric)) {
+                    return numeric > 0;
+                }
+            }
+            return def;
+        };
         setInput('diamondN0History', getValue('n0History', DIAMOND_LEVEL_DEFAULTS.n0History));
         setInput('diamondN0Window', getValue('n0Window', DIAMOND_LEVEL_DEFAULTS.n0Window));
         const allowBlockCheckbox = document.getElementById('diamondN0AllowBlockAll');
@@ -2058,6 +2119,11 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
         setInput('diamondN2Recent', getValue('n2Recent', DIAMOND_LEVEL_DEFAULTS.n2Recent));
         setInput('diamondN2Previous', getValue('n2Previous', DIAMOND_LEVEL_DEFAULTS.n2Previous));
         setInput('diamondN3Alternance', getValue('n3Alternance', DIAMOND_LEVEL_DEFAULTS.n3Alternance));
+        setInput('diamondN3PatternLength', getValue('n3PatternLength', DIAMOND_LEVEL_DEFAULTS.n3PatternLength));
+        setInput('diamondN3ThresholdPct', getValue('n3ThresholdPct', DIAMOND_LEVEL_DEFAULTS.n3ThresholdPct));
+        setInput('diamondN3MinOccurrences', getValue('n3MinOccurrences', DIAMOND_LEVEL_DEFAULTS.n3MinOccurrences));
+        setCheckbox('diamondN3AllowBackoff', getBoolean('n3AllowBackoff', DIAMOND_LEVEL_DEFAULTS.n3AllowBackoff));
+        setCheckbox('diamondN3IgnoreWhite', getBoolean('n3IgnoreWhite', DIAMOND_LEVEL_DEFAULTS.n3IgnoreWhite));
         setInput('diamondN4Persistence', getValue('n4Persistence', DIAMOND_LEVEL_DEFAULTS.n4Persistence));
         setInput('diamondN5MinuteBias', getValue('n5MinuteBias', DIAMOND_LEVEL_DEFAULTS.n5MinuteBias));
         setInput('diamondN6Retracement', getValue('n6RetracementWindow', DIAMOND_LEVEL_DEFAULTS.n6RetracementWindow));
@@ -2139,13 +2205,23 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
             if (!el) return fallback;
             return !!el.checked;
         };
+        const getCheckboxValue = (id, fallback = false) => {
+            const el = document.getElementById(id);
+            if (!el) return fallback;
+            return !!el.checked;
+        };
         const newWindows = {
             n0History: getNumber('diamondN0History', 500, 5000, DIAMOND_LEVEL_DEFAULTS.n0History),
             n0Window: getNumber('diamondN0Window', 25, 250, DIAMOND_LEVEL_DEFAULTS.n0Window),
             n1HotPattern: getNumber('diamondN1HotPattern', 12, 200, DIAMOND_LEVEL_DEFAULTS.n1HotPattern),
             n2Recent: getNumber('diamondN2Recent', 2, 20, DIAMOND_LEVEL_DEFAULTS.n2Recent),
             n2Previous: getNumber('diamondN2Previous', 3, 200, DIAMOND_LEVEL_DEFAULTS.n2Previous),
-            n3Alternance: getNumber('diamondN3Alternance', 12, 50, DIAMOND_LEVEL_DEFAULTS.n3Alternance),
+            n3Alternance: getNumber('diamondN3Alternance', 12, 200, DIAMOND_LEVEL_DEFAULTS.n3Alternance),
+            n3PatternLength: getNumber('diamondN3PatternLength', 3, 8, DIAMOND_LEVEL_DEFAULTS.n3PatternLength),
+            n3ThresholdPct: getNumber('diamondN3ThresholdPct', 50, 95, DIAMOND_LEVEL_DEFAULTS.n3ThresholdPct),
+            n3MinOccurrences: getNumber('diamondN3MinOccurrences', 1, 50, DIAMOND_LEVEL_DEFAULTS.n3MinOccurrences),
+            n3AllowBackoff: getCheckboxValue('diamondN3AllowBackoff', DIAMOND_LEVEL_DEFAULTS.n3AllowBackoff),
+            n3IgnoreWhite: getCheckboxValue('diamondN3IgnoreWhite', DIAMOND_LEVEL_DEFAULTS.n3IgnoreWhite),
             n4Persistence: getNumber('diamondN4Persistence', 20, 120, DIAMOND_LEVEL_DEFAULTS.n4Persistence),
             n5MinuteBias: getNumber('diamondN5MinuteBias', 10, 200, DIAMOND_LEVEL_DEFAULTS.n5MinuteBias),
             n6RetracementWindow: getNumber('diamondN6Retracement', 30, 120, DIAMOND_LEVEL_DEFAULTS.n6RetracementWindow),
