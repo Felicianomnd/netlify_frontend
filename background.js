@@ -1,5 +1,7 @@
 // Background service worker for Blaze Double Analyzer
 
+const originalBackgroundConsoleLog = console.log.bind(console);
+
 const LOG_STYLE = Object.freeze({
     banner: 'color:#0D47A1;font-weight:bold;font-size:14px;',
     section: 'color:#1565C0;font-weight:bold;',
@@ -11,22 +13,148 @@ const LOG_STYLE = Object.freeze({
 });
 
 function logBanner(message) {
-    console.log(`%c${message}`, LOG_STYLE.banner);
+    originalBackgroundConsoleLog(`%c${message}`, LOG_STYLE.banner);
 }
 
 function logSection(message) {
-    console.log(`%c${message}`, LOG_STYLE.section);
+    originalBackgroundConsoleLog(`%c${message}`, LOG_STYLE.section);
 }
 
 function logInfo(label, value) {
-    console.log(`%c• ${label}: %c${value}`, LOG_STYLE.info, LOG_STYLE.value);
+    originalBackgroundConsoleLog(`%c• ${label}: %c${value}`, LOG_STYLE.info, LOG_STYLE.value);
 }
 
 function logDivider() {
-    console.log('%c------------------------------------------------------------', LOG_STYLE.divider);
+    originalBackgroundConsoleLog('%c------------------------------------------------------------', LOG_STYLE.divider);
 }
 
-logBanner(`background.js v17 carregado • ${new Date().toLocaleString('pt-BR')}`);
+function getGaleSummary() {
+    const martingaleSettings = getMartingaleSettings();
+    if (martingaleState.active) {
+        return `Ativo • fase ${martingaleState.stage} (${martingaleState.entryColor || '-'})`;
+    }
+    if (martingaleSettings.maxGales > 0) {
+        return `Configurado • até ${martingaleSettings.maxGales} gale(s)`;
+    }
+    return 'Desativado';
+}
+
+function getDiamondConfigSnapshot() {
+    const userDiamondWindows = analyzerConfig.diamondLevelWindows || {};
+    const getValue = (key, fallback) => {
+        const raw = Number(userDiamondWindows[key]);
+        return Number.isFinite(raw) && raw > 0 ? raw : fallback;
+    };
+    return [
+        ['N0', `Hist ${getValue('n0History', N0_DEFAULTS.historySize)} | W ${getDiamondWindow('n0Window', N0_DEFAULTS.windowSize)} | BlockAll ${analyzerConfig.n0AllowBlockAll !== false ? 'sim' : 'não'}`],
+        ['N1', `${getDiamondWindow('n1HotPattern', 60)} giros`],
+        ['N2', `Rec ${getDiamondWindow('n2Recent', 5)} | Ant ${getDiamondWindow('n2Previous', 15)}`],
+        ['N3', `Hist ${getDiamondWindow('n3Alternance', 12)} | L ${getDiamondWindow('n3PatternLength', 4)} | Rigor ${getDiamondWindow('n3ThresholdPct', 75)}% | minOcc ${getDiamondWindow('n3MinOccurrences', 1)}`],
+        ['N4', `${getDiamondWindow('n4Persistence', 20)} giros`],
+        ['N5', `${getDiamondWindow('n5MinuteBias', 60)} amostras`],
+        ['N6', `${getDiamondWindow('n6RetracementWindow', 80)} giros`],
+        ['N7', `Dec ${getDiamondWindow('n7DecisionWindow', 20)} | Hist ${getDiamondWindow('n7HistoryWindow', 100)}`],
+        ['N8', `Hist ${getDiamondWindow('n10History', 500)} | W ${getDiamondWindow('n10Window', 20)}`],
+        ['N9', `${getDiamondWindow('n8Barrier', 50)} giros`],
+        ['N10', `Hist ${getDiamondWindow('n9History', 100)} | Δ${getDiamondWindow('n9NullThreshold', 8)}%`]
+    ];
+}
+
+function logModeSnapshot(contextLabel = 'Contexto atual', historyLength = cachedHistory.length) {
+    const modeLabel = analyzerConfig.aiMode ? 'Modo Diamante' : 'Modo Padrão';
+    logDivider();
+    logSection(`[${contextLabel}] ${modeLabel}`);
+    logInfo('Giros disponíveis', historyLength || 'N/A');
+    logInfo('Controle de gale', getGaleSummary());
+    if (analyzerConfig.aiMode) {
+        if (memoriaAtiva.inicializada) {
+            const tempoDecorrido = Math.round((Date.now() - memoriaAtiva.ultimaAtualizacao) / 1000);
+            logInfo('Memória IA', `Ativa • ${memoriaAtiva.totalAtualizacoes} atualizações • ${memoriaAtiva.tempoUltimaAtualizacao.toFixed(1)}ms • há ${tempoDecorrido}s`);
+        } else {
+            logInfo('Memória IA', 'Inicializando...');
+        }
+    } else {
+        logInfo('Min. ocorrências', analyzerConfig.minOccurrences || 1);
+        logInfo('Intervalo entre sinais', analyzerConfig.minIntervalSpins || 0);
+    }
+    if (analyzerConfig.aiMode) {
+        getDiamondConfigSnapshot().forEach(([label, detail]) => logInfo(label, detail));
+    }
+    logDivider();
+    emitModeSnapshotToContent(contextLabel, historyLength);
+}
+
+function buildDiamondLevelSummaries() {
+    const list = getDiamondConfigSnapshot();
+    return list.map(([label, detail]) => {
+        const id = label;
+        return {
+            id,
+            enabled: isDiamondLevelEnabled(label),
+            detail
+        };
+    });
+}
+
+function buildModeSnapshot(contextLabel = 'Contexto atual', historyLength = cachedHistory.length) {
+    const aiModeActive = !!(analyzerConfig && analyzerConfig.aiMode);
+    const snapshot = {
+        context: contextLabel,
+        timestamp: Date.now(),
+        aiMode: aiModeActive,
+        modeLabel: aiModeActive ? 'Análise Diamante' : 'Modo Padrão',
+        historyAvailable: historyLength || 0,
+        signalIntensity: analyzerConfig.signalIntensity || 'moderate',
+        galeSummary: getGaleSummary(),
+        galeSettings: getMartingaleSettings(),
+        galeState: {
+            active: martingaleState.active,
+            stage: martingaleState.stage,
+            entryColor: martingaleState.entryColor
+        }
+    };
+
+    if (aiModeActive) {
+        snapshot.memoriaAtiva = getMemoriaAtivaStatus();
+        snapshot.enabledDiamondLevels = countEnabledDiamondLevels();
+        snapshot.diamondLevels = buildDiamondLevelSummaries();
+    } else {
+        snapshot.standardConfig = {
+            historyDepth: analyzerConfig.historyDepth,
+            minOccurrences: analyzerConfig.minOccurrences,
+            maxOccurrences: analyzerConfig.maxOccurrences,
+            minIntervalSpins: analyzerConfig.minIntervalSpins,
+            minPatternSize: analyzerConfig.minPatternSize,
+            maxPatternSize: analyzerConfig.maxPatternSize,
+            winPercentOthers: analyzerConfig.winPercentOthers
+        };
+    }
+
+    return snapshot;
+}
+
+function emitModeSnapshotToContent(contextLabel = 'Contexto atual', historyLength = cachedHistory.length) {
+    try {
+        const snapshot = buildModeSnapshot(contextLabel, historyLength);
+        sendMessageToContent('MODE_SNAPSHOT', snapshot);
+    } catch (error) {
+        console.warn('Não foi possível emitir MODE_SNAPSHOT para content:', error);
+    }
+}
+
+const BOX_CHAR_PREFIXES = ['%c║', '%c╔', '%c╚', '%c═', '%c████'];
+const ENABLE_LEGACY_LOGS = false;
+console.log = (...args) => {
+    const first = args[0];
+    if (typeof first === 'string') {
+        if (BOX_CHAR_PREFIXES.some(prefix => first.startsWith(prefix)) && !ENABLE_LEGACY_LOGS) {
+            return;
+        }
+    }
+    if (ENABLE_LEGACY_LOGS) {
+        originalBackgroundConsoleLog(...args);
+    }
+};
 
 let isRunning = false;
 let intervalId = null;
@@ -665,6 +793,8 @@ let alternanceEntryControl = {
 // Estrutura: { "patternKey": { after1Loss: {red: 5, black: 3}, after2Loss: {red: 2, black: 8} } }
 let hotColorsHistory = {};
 
+logBanner(`background.js v17 carregado • ${new Date().toLocaleString('pt-BR')}`);
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // FUNÇÕES DO SISTEMA DE MARTINGALE
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -1270,26 +1400,20 @@ async function saveGirosToAPI(giros) {
 // 🔧 FUNÇÃO AUXILIAR: EXIBIR RODAPÉ FIXO COM SISTEMA ATIVO
 // ═════════════════════════════════════════════════════════════════════════════
 function displaySystemFooter() {
-    
     if (analyzerConfig.aiMode) {
         const activeLevelsSummary = `${countEnabledDiamondLevels()}/${DIAMOND_LEVEL_IDS.length}`;
-        console.log(`%c║ 🎯 SISTEMA ATIVO: MODO DIAMANTE (${activeLevelsSummary} NÍVEIS ATIVOS)                        ║`, 'color: #00FF00; font-weight: bold; background: #001100;');
-        console.log('%c║ 💎 Sistema de votação inteligente com consenso                                ║', 'color: #00AA00;');
-        
-        // 🧠 INDICADOR DE MEMÓRIA ATIVA (dinâmico)
+        logSection(`Sistema ativo · Modo Diamante (${activeLevelsSummary})`);
         if (memoriaAtiva.inicializada) {
             const tempoDecorrido = Math.round((Date.now() - memoriaAtiva.ultimaAtualizacao) / 1000);
-            const statusCor = tempoDecorrido < 60 ? '#00FF00' : '#FFA500'; // Verde se recente, laranja se não
-            console.log(`%c║ 🧠 CACHE RAM: ⚡ ATIVO | ${memoriaAtiva.giros.length} giros | ${memoriaAtiva.totalAtualizacoes} updates | ⏱️ ${memoriaAtiva.tempoUltimaAtualizacao.toFixed(1)}ms      ║`, `color: ${statusCor};`);
+            logInfo('Cache', `${memoriaAtiva.giros.length} giros • ${memoriaAtiva.totalAtualizacoes} updates • ${memoriaAtiva.tempoUltimaAtualizacao.toFixed(1)}ms • há ${tempoDecorrido}s`);
         } else {
-            console.log('%c║ 🧠 CACHE RAM: 🔄 INICIALIZANDO... (primeira análise em andamento)            ║', 'color: #FFA500;');
+            logInfo('Cache', 'Inicializando memória ativa...');
         }
     } else {
-        console.log('%c║ 📊 SISTEMA ATIVO: PADRÕES (173+ ANÁLISES LOCAIS)                              ║', 'color: #00AAFF; font-weight: bold; background: #001122;');
-        console.log('%c║ 🔧 Min. Ocorrências: ' + (analyzerConfig.minOccurrences || 5) + '                                                       ║', 'color: #0088FF;');
-        console.log('%c║ 🎯 Trigger: ' + (analyzerConfig.requireTrigger ? 'ATIVO' : 'DESATIVADO') + '                                                           ║', 'color: #0088FF;');
+        logSection('Sistema ativo · Modo Padrão');
+        logInfo('Min. ocorrências', analyzerConfig.minOccurrences || 5);
+        logInfo('Trigger', analyzerConfig.requireTrigger ? 'Ativo' : 'Desativado');
     }
-    
 }
 
 // Sincronização inicial ao carregar extensão
@@ -2252,6 +2376,7 @@ async function startDataCollection() {
     
     // ✅ EXIBIR CONFIGURAÇÕES ATIVAS AO INICIAR
     logActiveConfiguration();
+	logModeSnapshot('Inicialização', cachedHistory.length);
     
     // 1. Limpar padrões locais (começar do zero)
     // ✅ Isso NÃO limpa: entriesHistory, análise pendente, calibrador
@@ -8543,7 +8668,7 @@ function analyzeAlternancePattern(history, options = {}) {
         .map(spin => normalizeSpinColorValue(spin))
         .filter(color => !!color);
     const totalAvailable = normalizedSequence.length;
-
+    
     console.log(`   📊 Total de giros disponíveis: ${history.length}`);
     console.log(`   ⚙️ Config → histórico: ${settings.historySize} | L: ${settings.patternLength} | threshold: ${(settings.threshold * 100).toFixed(0)}% | min occ: ${settings.minOccurrences}`);
     console.log(`   ⚙️ Extras → backoff: ${settings.allowBackoff ? 'SIM' : 'NÃO'} | ignorar branco: ${settings.ignoreWhite ? 'SIM' : 'NÃO'}`);
@@ -8686,7 +8811,7 @@ function analyzeAlternancePattern(history, options = {}) {
         detailsParts.push(finalReason || 'Sem consenso');
     }
     const details = detailsParts.join(' • ');
-
+    
     return {
         color: finalColor,
         pattern: `Alternância Inteligente L${usedLength}`,
@@ -12591,7 +12716,7 @@ async function analyzeWithPatternSystem(history) {
         }
         return fallback;
     };
-
+    
     const n0HistoryConfigured = displayValue('n0History', N0_DEFAULTS.historySize);
     const n0WindowConfigured = getDiamondWindow('n0Window', N0_DEFAULTS.windowSize);
     
@@ -15364,79 +15489,29 @@ async function runAnalysisController(history) {
 	const budgetMs = 5000; // 5s totais
 
 	try {
-		// ═══════════════════════════════════════════════════════════════
-		// 🔍 VALIDAÇÃO CRÍTICA: Verificar se history é um array válido
-		// ═══════════════════════════════════════════════════════════════
-		console.log('📊 Tipo de history:', typeof history);
-		console.log('📊 É um array?', Array.isArray(history));
-		console.log('📊 Length:', history ? history.length : 'N/A');
-		console.log('📊 Primeiro elemento:', history && history[0] ? history[0] : 'N/A');
-		
 		if (!history || !Array.isArray(history) || history.length === 0) {
-			console.error('%c❌ ERRO CRÍTICO: history inválido!', 'color: #FF0000; font-weight: bold; font-size: 16px;');
-			console.error('   Tipo:', typeof history);
-			console.error('   É array?', Array.isArray(history));
-			console.error('   Length:', history ? history.length : 'N/A');
+			console.error('❌ history inválido na análise avançada.');
 			return null;
 		}
-		console.log('%c✅ history validado com sucesso!', 'color: #00FF00; font-weight: bold;');
-		
-		// ⚠️ CRÍTICO: RECARREGAR analyzerConfig do storage ANTES de cada análise
-		// Isso garante que mudanças feitas pelo usuário sejam respeitadas imediatamente
-		console.log('%c🔄 Recarregando configuração do storage...', 'color: #FFAA00; font-weight: bold;');
+
+		logSection('[Controller] Iniciando análise avançada');
+		logInfo('Histórico recebido', `${history.length} giros`);
+
 		const storageResult = await chrome.storage.local.get(['analyzerConfig']);
 		if (storageResult && storageResult.analyzerConfig) {
 			mergeAnalyzerConfig(storageResult.analyzerConfig);
-			console.log('%c✅ Configuração recarregada com sucesso!', 'color: #00FF00; font-weight: bold;');
-		} else {
-			console.log('%c⚠️ Nenhuma config no storage, usando padrão', 'color: #FFAA00;');
+			logInfo('Configuração', 'Recarregada do storage');
 		}
-		
-		// ✅ DEBUG CRÍTICO: Verificar estado real do analyzerConfig
-		console.log('%c🔧 DEBUG: Estado atual do analyzerConfig:', 'color: #FFFF00; font-weight: bold; font-size: 12px; background: #333300; padding: 5px;');
-		console.log('%c   analyzerConfig.aiMode = ' + analyzerConfig.aiMode, 'color: #FFFF00; font-weight: bold; font-size: 14px;');
-		console.log('%c   analyzerConfig.aiApiKey = ' + (analyzerConfig.aiApiKey ? analyzerConfig.aiApiKey.substring(0, 15) + '...' : 'NÃO CONFIGURADA'), 'color: #FFFF00;');
-		console.log('%c   analyzerConfig.minOccurrences = ' + analyzerConfig.minOccurrences, 'color: #FFFF00;');
-		
-		// ✅ LOG INICIAL: Mostrar qual modo está ativo COM DESTAQUE
-		if (analyzerConfig.aiMode) {
-			console.log('%c██████╗ ███╗   ███╗ ██████╗ ██████╗  ██████╗     ██╗ █████╗ ', 'color: #00FF00; font-weight: bold; font-size: 14px;');
-			console.log('%c████╔═╝ ████╗ ████║██╔═══██╗██╔══██╗██╔═══██╗    ██║██╔══██╗', 'color: #00FF00; font-weight: bold; font-size: 14px;');
-			console.log('%c█████╗  ██╔████╔██║██║   ██║██║  ██║██║   ██║    ██║███████║', 'color: #00FF00; font-weight: bold; font-size: 14px;');
-			console.log('%c████╔═╝ ██║╚██╔╝██║██║   ██║██║  ██║██║   ██║    ██║██╔══██║', 'color: #00FF00; font-weight: bold; font-size: 14px;');
-			console.log('%c██████╗ ██║ ╚═╝ ██║╚██████╔╝██████╔╝╚██████╔╝    ██║██║  ██║', 'color: #00FF00; font-weight: bold; font-size: 14px;');
-			console.log('%c╚═════╝ ╚═╝     ╚═╝ ╚═════╝ ╚═════╝  ╚═════╝     ╚═╝╚═╝  ╚═╝', 'color: #00FF00; font-weight: bold; font-size: 14px;');
-		// 🧠 INDICADOR DINÂMICO DE MEMÓRIA ATIVA
-		let memoriaStatus = '';
-		let memoriaColor = '#00FF00';
-		let memoriaInfo = '';
-		
-		if (!memoriaAtiva.inicializada) {
-			memoriaStatus = '🔄 INICIALIZANDO CACHE...';
-			memoriaColor = '#FFA500';
-			memoriaInfo = '⏳ Primeira inicialização (análise completa em andamento)';
-		} else {
-			const tempoDecorrido = Math.round((Date.now() - memoriaAtiva.ultimaAtualizacao) / 1000);
-			memoriaStatus = '⚡ CACHE RAM ATIVO';
-			memoriaColor = '#00FF00';
-			memoriaInfo = `🧠 Memória Viva: ${memoriaAtiva.totalAtualizacoes} atualizações | ⏱️ Última: ${memoriaAtiva.tempoUltimaAtualizacao.toFixed(1)}ms | 🕐 Há ${tempoDecorrido}s`;
-		}
-		
-		console.log(`%c🤖 MODO: ANÁLISE COM INTELIGÊNCIA ARTIFICIAL IA | ${memoriaStatus}`, `color: ${memoriaColor}; font-weight: bold; font-size: 16px; background: #003300; padding: 10px;`);
-		console.log(`%c${memoriaInfo}`, 'color: #00FF88; font-weight: bold; font-size: 12px;');
-		} else {
-			console.log('%c📊 MODO PADRÃO ATIVO | Análise em tempo real', 'color: #00AAFF; font-weight: bold; background: #003366; padding: 6px 12px; border-radius: 4px;');
-		}
+
+		emitModeSnapshotToContent('Análise em andamento', history.length);
 		
 		// ⚠️ CRÍTICO: VERIFICAR MODO CONSECUTIVO COM MARTINGALE ATIVO (APLICA PARA AMBOS OS MODOS)
 		const { consecutiveMartingale: activeConsecutiveMartingale } = getMartingaleSettings();
 		if (activeConsecutiveMartingale && martingaleState.active) {
-			console.log('%c║  🔒 MODO CONSECUTIVO COM MARTINGALE ATIVO                ║', 'color: #FF0000; font-weight: bold; font-size: 16px; background: #330000; padding: 5px;');
-			console.log('%c║  Estágio: ' + martingaleState.stage, 'color: #FF0000; font-weight: bold; background: #330000; padding: 5px;');
-			console.log('%c║  Cor: ' + martingaleState.entryColor, 'color: #FF0000; font-weight: bold; background: #330000; padding: 5px;');
-			console.log('%c║  ⛔ BLOQUEANDO NOVA ANÁLISE                              ║', 'color: #FF0000; font-weight: bold; font-size: 16px; background: #330000; padding: 5px;');
-			console.log('%c║  💡 Sistema em modo consecutivo - aguardando resultado   ║', 'color: #FF0000; font-weight: bold; background: #330000; padding: 5px;');
-			console.log('%c❌ RETORNANDO SEM ANALISAR (MOTIVO: Martingale ativo em modo consecutivo)', 'color: #FF0000; font-weight: bold; font-size: 16px; background: #330000; padding: 5px;');
+			logSection('⛔ Martingale ativo (modo consecutivo)');
+			logInfo('Estágio', martingaleState.stage);
+			logInfo('Cor', martingaleState.entryColor);
+			logInfo('Ação', 'Aguardando resultado anterior');
 			return; // ✅ NÃO executar nova análise em modo consecutivo com Martingale ativo
 		}
 		// Log removido: redução de verbosidade
@@ -15444,8 +15519,6 @@ async function runAnalysisController(history) {
 		// ✅ VERIFICAR SE JÁ EXISTE UMA ANÁLISE PENDENTE (que ainda não foi avaliada)
 		const existingAnalysisResult = await chrome.storage.local.get(['analysis']);
 		const existingAnalysis = existingAnalysisResult['analysis'];
-		
-	// Log removido: redução de verbosidade
 		
 		if (existingAnalysis && existingAnalysis.createdOnTimestamp && history && history.length > 0) {
 			const latestSpinTimestamp = history[0].timestamp;
@@ -15563,20 +15636,14 @@ async function runAnalysisController(history) {
 		}
 		
 		// ✅ MODO AVANÇADO: Se ativado e não achou padrão salvo, usar análise avançada
-		console.log('   analyzerConfig.aiMode:', analyzerConfig.aiMode);
-		console.log('   verifyResult:', verifyResult ? 'ENCONTROU PADRÃO' : 'NÃO ENCONTROU');
-		
 		if (analyzerConfig.aiMode && !verifyResult) {
-			console.log('%c║  🎯 EXECUTANDO: ANÁLISE AVANÇADA POR PADRÕES             ║', 'color: #00FF00; font-weight: bold;');
-			console.log('%c║  📊 Histórico disponível: ' + history.length + ' giros', 'color: #00FF88; font-weight: bold;');
-			console.log('%c║  🔄 Sistema de Auto-Aprendizado ATIVO...                 ║', 'color: #00FF88; font-weight: bold;');
-			console.log('%c║  ⚡ Analisando padrões e tendências...                   ║', 'color: #00FF88; font-weight: bold;');
-			
-			console.log('%c⏱️ Chamando analyzeWithPatternSystem...', 'color: #FFAA00; font-weight: bold;');
+			logSection('Análise avançada (modo Diamante)');
+			logInfo('Histórico disponível', `${history.length} giros`);
+			logInfo('Ação', 'Executando analyzeWithPatternSystem');
 			
 		const aiResult = await analyzeWithPatternSystem(history);
 		
-		console.log('%c⏱️ analyzeWithPatternSystem RETORNOU!', 'color: #FFAA00; font-weight: bold;');
+		logInfo('Resultado IA', aiResult ? 'Retornou com dados' : 'Sem sinal');
 		console.log('   Resultado:', aiResult ? 'ENCONTROU SINAL' : 'NÃO ENCONTROU');
 		
 		if (aiResult) {
@@ -21539,6 +21606,12 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         
         sendResponse({ history: cachedHistory });
         return true;
+	} else if (request.action === 'REQUEST_MODE_SNAPSHOT') {
+		const contextLabel = request.reason ? `Solicitado (${request.reason})` : 'Solicitado pela UI';
+		const snapshot = buildModeSnapshot(contextLabel, cachedHistory.length);
+		sendMessageToContent('MODE_SNAPSHOT', snapshot);
+		sendResponse({ status: 'ok', snapshot });
+		return true;
     } else if (request.action === 'applyConfig') {
         console.log('%c✅ ENTROU NO else if applyConfig!', 'color: #00FF00; font-weight: bold; font-size: 16px;');
         (async () => {

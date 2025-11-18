@@ -1095,12 +1095,9 @@
                     });
                 }
             } else {
-                // Fallback se não conseguir pegar status
-                console.warn('%c⚠️ [CONTENT] Resposta inválida ou vazia!', 'color: #FFA500; font-weight: bold;');
-                console.warn('%c   response:', 'color: #FFA500;', response);
-                console.warn('%c   response.status:', 'color: #FFA500;', response?.status);
+                uiLog('⚠️ [CONTENT] Resposta inválida ou vazia!', response);
                 elemento.textContent = 'Memória ativada';
-                // ✅ NÃO mexer no display - já está gerenciado pelo updateAIModeUI
+                return;
             }
         } catch (error) {
             console.error('%c╔══════════════════════════════════════════════════════════╗', 'color: #FF0000; font-weight: bold;');
@@ -1136,17 +1133,18 @@
         if (!aiModeToggle || !modeApiContainer) return;
         
         const observer = new MutationObserver((mutations) => {
+            if (!ENABLE_VERBOSE_UI_LOGS) return;
             mutations.forEach((mutation) => {
                 if (mutation.type === 'attributes' && (mutation.attributeName === 'style' || mutation.attributeName === 'class')) {
                     const toggleHeight = window.getComputedStyle(aiModeToggle).height;
                     const containerHeight = window.getComputedStyle(modeApiContainer).height;
                     
-                    console.log('%c🚨 [MUTATION OBSERVER] Mudança detectada!', 'color: #FF0000; font-weight: bold; font-size: 14px;');
-                    console.log('%c   Target:', 'color: #FF0000;', mutation.target);
-                    console.log('%c   Attribute:', 'color: #FF0000;', mutation.attributeName);
-                    console.log('%c   📏 Toggle height:', 'color: #FF0000;', toggleHeight);
-                    console.log('%c   📏 Container height:', 'color: #FF0000;', containerHeight);
-                    console.log('%c   Stack trace:', 'color: #FF0000;');
+                    uiLog('🚨 [MUTATION OBSERVER] Mudança detectada!', {
+                        target: mutation.target,
+                        attribute: mutation.attributeName,
+                        toggleHeight,
+                        containerHeight
+                    });
                     console.trace();
                 }
             });
@@ -1162,7 +1160,7 @@
             attributeFilter: ['style', 'class']
         });
         
-        console.log('%c🔍 MutationObserver ativo para rastrear mudanças de altura', 'color: #00FF00; font-weight: bold;');
+        uiLog('🔍 MutationObserver ativo para rastrear mudanças de altura');
     }
     
     // ⚡ Atualizar status da memória ativa periodicamente (a cada 5 segundos)
@@ -1223,6 +1221,68 @@ const DIAMOND_LEVEL_DEFAULTS = {
     n10Analyses: 600,
     n10MinWindows: 8,
     n10ConfMin: 60
+};
+
+const ENABLE_VERBOSE_UI_LOGS = false;
+const originalConsoleLog = console.log.bind(console);
+const uiLog = (...args) => {
+    if (ENABLE_VERBOSE_UI_LOGS) {
+        originalConsoleLog(...args);
+    }
+};
+console.log = uiLog;
+
+let trainingConnectionState = null;
+let trainingSpinLogged = false;
+let lastTrainingSpinData = null;
+let lastModeSnapshot = null;
+
+function logTrainingConnectionStatus(isConnected, force = false) {
+    if (!force && trainingConnectionState === isConnected) return;
+    trainingConnectionState = isConnected;
+    const headerColor = isConnected ? '#00C853' : '#FF5252';
+    const detailColor = isConnected ? '#69F0AE' : '#FF8A80';
+    const labelColor = isConnected ? '#1B5E20' : '#B71C1C';
+    originalConsoleLog(`%c╔══════════════════════════════════════════════════╗`, `color:${headerColor}; font-weight:bold;`);
+    originalConsoleLog(`%c║  Treinamento • API de Giros ↔ Servidor (Render)  ║`, `color:${headerColor}; font-weight:bold;`);
+    originalConsoleLog(`%c║  Status: %c${isConnected ? 'CONEXÃO ATIVA ✅' : 'SEM CONEXÃO ⛔'}                       %c║`, `color:${headerColor}; font-weight:bold;`, `color:${labelColor}; font-weight:bold;`, `color:${headerColor}; font-weight:bold;`);
+    if (isConnected) {
+        originalConsoleLog(`%c║  Origem: Blaze Giros API (Render)                ║`, `color:${detailColor}; font-weight:bold;`);
+        originalConsoleLog(`%c║  Destino: Painel Web (content.js)                ║`, `color:${detailColor}; font-weight:bold;`);
+        originalConsoleLog(`%c║  Fluxo: Servidor ➜ WebSocket ➜ Site             ║`, `color:${detailColor}; font-weight:bold;`);
+    } else {
+        originalConsoleLog(`%c║  Aguardando reconexão automática...             ║`, `color:${detailColor}; font-weight:bold;`);
+    }
+    originalConsoleLog(`%c╚══════════════════════════════════════════════════╝`, `color:${headerColor}; font-weight:bold;`);
+    originalConsoleLog(`%cℹ️  Execute window.showTrainingStatus() para atualizar este bloco.`, `color:${detailColor}; font-weight:bold;`);
+}
+
+function formatSpinColorLabel(color) {
+    if (color === 'red') return '🔴 Vermelho';
+    if (color === 'black') return '⚫ Preto';
+    if (color === 'white') return '⚪ Branco';
+    return color || 'N/D';
+}
+
+function logTrainingLastSpin(spin, force = false) {
+    if (!spin) return;
+    if (!force && trainingSpinLogged) return;
+    trainingSpinLogged = true;
+    lastTrainingSpinData = spin;
+    const detailColor = '#40C4FF';
+    const labelColor = '#01579B';
+    const valueColor = '#0277BD';
+    const ts = spin.timestamp ? new Date(spin.timestamp).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : 'N/D';
+    originalConsoleLog(`%c📥 Treinamento • Último giro recebido do servidor`, `color:${detailColor}; font-weight:bold;`);
+    originalConsoleLog(`%c   • Número: %c${spin.number ?? 'N/D'} %c| Cor: %c${formatSpinColorLabel(spin.color)}`, `color:${labelColor}; font-weight:bold;`, `color:${valueColor}; font-weight:bold;`, `color:${labelColor}; font-weight:bold;`, `color:${valueColor}; font-weight:bold;`);
+    originalConsoleLog(`%c   • Timestamp (local): %c${ts}`, `color:${labelColor}; font-weight:bold;`, `color:${valueColor}; font-weight:bold;`);
+    originalConsoleLog(`%c   • Origem: API de Giros (Render) ➜ WebSocket ➜ Painel`, `color:${detailColor}; font-weight:bold;`);
+    originalConsoleLog(`%cℹ️  Use window.showTrainingStatus() para capturar novamente.`, `color:${detailColor}; font-weight:bold;`);
+}
+
+window.showTrainingStatus = function showTrainingStatus() {
+    logTrainingConnectionStatus(trainingConnectionState ?? false, true);
+    logTrainingLastSpin(lastTrainingSpinData, true);
 };
 
 const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
@@ -5640,12 +5700,12 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
     }
 
     function renderSpinHistory(history = []) {
-        console.log('═══════════════════════════════════════════════════════════');
-        console.log('🎨 RENDERIZANDO HISTÓRICO DE GIROS NA UI');
-        console.log('   Total de giros recebidos:', history.length);
-        console.log('   Primeiro giro:', history[0]);
-        console.log('   Último giro:', history[history.length - 1]);
-        console.log('═══════════════════════════════════════════════════════════');
+        uiLog('═══════════════════════════════════════════════════════════');
+        uiLog('🎨 RENDERIZANDO HISTÓRICO DE GIROS NA UI');
+        uiLog('   Total de giros recebidos:', history.length);
+        uiLog('   Primeiro giro:', history[0]);
+        uiLog('   Último giro:', history[history.length - 1]);
+        uiLog('═══════════════════════════════════════════════════════════');
         
         // ✅ Salvar histórico globalmente para poder re-renderizar com mais giros
         currentHistoryData = history;
@@ -6518,6 +6578,155 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
         }
     }
     
+function cloneModeSnapshot(snapshot) {
+    try {
+        return JSON.parse(JSON.stringify(snapshot));
+    } catch (error) {
+        return snapshot;
+    }
+}
+
+function logFullModeSnapshot(snapshot) {
+    const headerColor = snapshot.aiMode ? '#4FC3F7' : '#26C6DA';
+    originalConsoleLog(`%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, `color: ${headerColor}; font-weight: bold;`);
+    originalConsoleLog(`%c📋 ${snapshot.modeLabel} • ${snapshot.context}`, `color: ${headerColor}; font-weight: bold;`);
+    originalConsoleLog(`%c   • Modo ativo: ${snapshot.aiMode ? 'Diamante' : 'Padrão'}`, `color: ${headerColor};`);
+    originalConsoleLog(`%c   • Histórico analisado: ${snapshot.historyAvailable || 0} giros`, `color: ${headerColor};`);
+    originalConsoleLog(`%c   • Intensidade: ${snapshot.signalIntensity || 'moderate'}`, `color: ${headerColor};`);
+    originalConsoleLog(`%c   • Martingale: ${snapshot.galeSummary} (máx ${snapshot.galeSettings?.maxGales || 0} | consecutivo ${snapshot.galeSettings?.consecutiveMartingale ? 'sim' : 'não'})`, `color: ${headerColor};`);
+
+    if (snapshot.aiMode) {
+        const status = snapshot.memoriaAtiva || {};
+        const memText = status.inicializada
+            ? `Ativa • ${status.totalAtualizacoes || 0} atualizações`
+            : 'Inicializando...';
+        originalConsoleLog(`%c   • Memória IA: ${memText}`, `color: ${headerColor};`);
+        originalConsoleLog(`%c   • Níveis ativos: ${snapshot.enabledDiamondLevels || 0}/11`, `color: ${headerColor};`);
+        (snapshot.diamondLevels || []).forEach(level => {
+            const mark = level.enabled ? '✅' : '⛔';
+            originalConsoleLog(`%c      ${mark} ${level.id}: ${level.detail}`, `color: ${level.enabled ? '#00E676' : '#FF7043'};`);
+        });
+    } else if (snapshot.standardConfig) {
+        const cfg = snapshot.standardConfig;
+        originalConsoleLog(`%c   • Configurações do modo padrão:`, `color: ${headerColor};`);
+        originalConsoleLog(`%c      - Profundidade: ${cfg.historyDepth || 500} giros`, `color: ${headerColor};`);
+        originalConsoleLog(`%c      - Ocorrências mínimas: ${cfg.minOccurrences || 2}`, `color: ${headerColor};`);
+        originalConsoleLog(`%c      - Intervalo mínimo: ${cfg.minIntervalSpins || 0} giros`, `color: ${headerColor};`);
+        originalConsoleLog(`%c      - Tamanho do padrão: ${cfg.minPatternSize || 3} a ${cfg.maxPatternSize || '∞'}`, `color: ${headerColor};`);
+        originalConsoleLog(`%c      - WIN% restante mínima: ${cfg.winPercentOthers || 100}%`, `color: ${headerColor};`);
+    }
+
+    originalConsoleLog(`%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, `color: ${headerColor}; font-weight: bold;`);
+}
+
+function logModeSnapshotUpdates(snapshot) {
+    const headerColor = '#1976D2';
+    originalConsoleLog(`%c╔══════════════════════════════════════════════════╗`, `color:${headerColor}; font-weight:bold;`);
+    originalConsoleLog(`%c║  Atualização do modo ${snapshot.aiMode ? 'Diamante' : 'Padrão'}                   ║`, `color:${headerColor}; font-weight:bold;`);
+}
+
+function logModeSnapshotUI(snapshot) {
+    if (!snapshot) return;
+    try {
+        const prev = lastModeSnapshot;
+        if (!prev || prev.modeLabel !== snapshot.modeLabel || prev.aiMode !== snapshot.aiMode) {
+            logFullModeSnapshot(snapshot);
+            lastModeSnapshot = cloneModeSnapshot(snapshot);
+            return;
+        }
+
+        const generalChanges = [];
+        const pushChange = (label, prevValue, currentValue, formatter = (v) => v) => {
+            if (prevValue === currentValue) return;
+            generalChanges.push({
+                label,
+                prev: formatter(prevValue),
+                curr: formatter(currentValue)
+            });
+        };
+
+        pushChange('Histórico analisado', prev.historyAvailable, snapshot.historyAvailable, v => `${v || 0} giros`);
+        pushChange('Intensidade', prev.signalIntensity, snapshot.signalIntensity);
+        pushChange('Martingale', prev.galeSummary, snapshot.galeSummary);
+
+        if (snapshot.aiMode) {
+            const prevMem = prev.memoriaAtiva || {};
+            const currMem = snapshot.memoriaAtiva || {};
+            const prevText = prevMem.inicializada ? `Ativa • ${prevMem.totalAtualizacoes || 0} updates` : 'Inicializando...';
+            const currText = currMem.inicializada ? `Ativa • ${currMem.totalAtualizacoes || 0} updates` : 'Inicializando...';
+            pushChange('Memória IA', prevText, currText);
+            pushChange('Níveis ativos', prev.enabledDiamondLevels, snapshot.enabledDiamondLevels, v => `${v || 0}/11`);
+        } else if (snapshot.standardConfig && prev.standardConfig) {
+            const cfgPrev = prev.standardConfig;
+            const cfgCurr = snapshot.standardConfig;
+            ['historyDepth', 'minOccurrences', 'minIntervalSpins', 'minPatternSize', 'maxPatternSize', 'winPercentOthers'].forEach(key => {
+                pushChange(key, cfgPrev[key], cfgCurr[key]);
+            });
+        }
+
+        const levelChanges = [];
+        if (snapshot.aiMode && prev.aiMode) {
+            const prevMap = new Map();
+            (prev.diamondLevels || []).forEach(level => prevMap.set(level.id, level));
+            (snapshot.diamondLevels || []).forEach(level => {
+                const previousLevel = prevMap.get(level.id);
+                if (!previousLevel) {
+                    levelChanges.push({ type: 'new', level });
+                    return;
+                }
+                if (previousLevel.enabled !== level.enabled) {
+                    levelChanges.push({ type: level.enabled ? 'enabled' : 'disabled', level });
+                } else if (previousLevel.detail !== level.detail) {
+                    levelChanges.push({ type: 'detail', level });
+                }
+            });
+        }
+
+        if (generalChanges.length === 0 && levelChanges.length === 0) {
+            lastModeSnapshot = cloneModeSnapshot(snapshot);
+            return;
+        }
+
+        const headerColor = '#1976D2';
+        originalConsoleLog(`%c╔══════════════════════════════════════════════════╗`, `color:${headerColor}; font-weight:bold;`);
+        originalConsoleLog(`%c║  Atualização do modo ${snapshot.aiMode ? 'Diamante' : 'Padrão'}                   ║`, `color:${headerColor}; font-weight:bold;`);
+
+        generalChanges.forEach(change => {
+            const changeColor = '#80CBC4';
+            originalConsoleLog(`%c║  ${change.label}: %c${change.prev} %c→ %c${change.curr}`, `color:${headerColor}; font-weight:bold;`, `color:#FF8A65; font-weight:bold;`, `color:${headerColor}; font-weight:bold;`, `color:${changeColor}; font-weight:bold;`);
+        });
+
+        if (levelChanges.length) {
+            originalConsoleLog(`%c║  Níveis ajustados:`, `color:${headerColor}; font-weight:bold;`);
+            levelChanges.forEach(change => {
+                const level = change.level;
+                if (change.type === 'enabled') {
+                    originalConsoleLog(`%c║   • ${level.id} ativado: ${level.detail}`, 'color:#00E676; font-weight:bold;');
+                } else if (change.type === 'disabled') {
+                    originalConsoleLog(`%c║   • ${level.id} desativado`, 'color:#FF5252; font-weight:bold;');
+                } else {
+                    originalConsoleLog(`%c║   • ${level.id} atualizado: ${level.detail}`, 'color:#29B6F6; font-weight:bold;');
+                }
+            });
+        }
+
+        originalConsoleLog(`%c╚══════════════════════════════════════════════════╝`, `color:${headerColor}; font-weight:bold;`);
+        lastModeSnapshot = cloneModeSnapshot(snapshot);
+    } catch (error) {
+        originalConsoleLog('%c❌ Falha ao processar MODE_SNAPSHOT na UI:', 'color: #FF5252;', error, snapshot);
+    }
+}
+
+    function requestModeSnapshot(reason = 'content_init') {
+        if (!chrome?.runtime?.sendMessage) return;
+        try {
+            chrome.runtime.sendMessage({ action: 'REQUEST_MODE_SNAPSHOT', reason })
+                .catch(err => console.warn('⚠️ Falha ao solicitar MODE_SNAPSHOT:', err));
+        } catch (error) {
+            console.warn('⚠️ Erro ao solicitar MODE_SNAPSHOT:', error);
+        }
+    }
+
     // Listen for messages from background script
     chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         if (request.type === 'NEW_ANALYSIS') {
@@ -6551,6 +6760,7 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
             // ⚡⚡⚡ ATUALIZAÇÃO INSTANTÂNEA - OPERAÇÕES SÍNCRONAS APENAS! ⚡⚡⚡
             if (request.data && request.data.lastSpin) {
                 const newSpin = request.data.lastSpin;
+                logTrainingLastSpin(newSpin);
                 
                 // ✅ 1. ATUALIZAR ÚLTIMO GIRO (síncrono, super rápido!)
                 const lastSpinNumber = document.getElementById('lastSpinNumber');
@@ -6665,25 +6875,11 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
             // ✅ GERENCIAR STATUS DO WEBSOCKET
             isWebSocketConnected = request.data.connected;
             
+            logTrainingConnectionStatus(!!request.data.connected);
+            
             if (request.data.connected) {
-                console.log('');
-                console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #00FF00; font-weight: bold;');
-                console.log('%c║  ✅ WEBSOCKET RECONECTADO!                               ║', 'color: #00FF00; font-weight: bold;');
-                console.log('%c║  Histórico voltará a atualizar INSTANTANEAMENTE         ║', 'color: #00FF00;');
-                console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #00FF00; font-weight: bold;');
-                console.log('');
-                
-                // Parar polling de fallback
                 stopHistoryPolling();
             } else {
-                console.log('');
-                console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #FF0000; font-weight: bold;');
-                console.log('%c║  ❌ WEBSOCKET DESCONECTADO!                              ║', 'color: #FF0000; font-weight: bold;');
-                console.log('%c║  Ativando polling de fallback (a cada 2 segundos)       ║', 'color: #FF0000;');
-                console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #FF0000; font-weight: bold;');
-                console.log('');
-                
-                // Iniciar polling de fallback
                 startHistoryPolling();
             }
         } else if (request.type === 'ANALYSIS_STATUS') {
@@ -6728,6 +6924,9 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                 btn.textContent = 'Buscar Padrões (30s)';
                 btn.disabled = false;
             }
+        } else if (request.type === 'MODE_SNAPSHOT') {
+            const snapshot = request.data || request.snapshot || null;
+            logModeSnapshotUI(snapshot);
         }
     });
     
@@ -6738,6 +6937,8 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
     console.log('%c   Aguardando mensagens: NEW_ANALYSIS, NEW_SPIN, etc', 'color: #00FF88;');
     console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #00FF88; font-weight: bold;');
     console.log('');
+
+    requestModeSnapshot('content_init');
     
     // Load initial data (com retry safe) - SEM histórico (vem do servidor)
     function loadInitialData() {
@@ -6815,10 +7016,10 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
         const aiModeToggle = document.querySelector('.ai-mode-toggle.active');
         const isAIMode = !!aiModeToggle;
         
-        console.log('%c═══════════════════════════════════════════════════════════', 'color: #FF00FF; font-weight: bold;');
-        console.log('%c🔍 [DEBUG updateAnalysisStatus]', 'color: #FF00FF; font-weight: bold;');
-        console.log('%c   Status:', 'color: #FF00FF;', status);
-        console.log('%c   Modo IA ativo?', 'color: #FF00FF;', isAIMode);
+        uiLog('═══════════════════════════════════════════════════════════');
+        uiLog('🔍 [DEBUG updateAnalysisStatus]');
+        uiLog('   Status:', status);
+        uiLog('   Modo IA ativo?', isAIMode);
         
         // ✅ SE O MODO IA NÃO ESTIVER ATIVO, MOSTRAR NA CAIXA EMBAIXO (modo padrão)
         if (!isAIMode) {
@@ -6993,8 +7194,8 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                 }
             }
             
-            console.log('%c✅ [updateAnalysisStatus] Atualizado cabeçário:', 'color: #00FF88; font-weight: bold;', status);
-            console.log('%c═══════════════════════════════════════════════════════════', 'color: #FF00FF; font-weight: bold;');
+            uiLog('✅ [updateAnalysisStatus] Atualizado cabeçário:', status);
+            uiLog('═══════════════════════════════════════════════════════════');
         }
         
         // ✅ NÃO modificar o suggestionText (deixar como "Aguardando análise...")
