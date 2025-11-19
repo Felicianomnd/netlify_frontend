@@ -4300,6 +4300,12 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                         <div class="setting-item setting-row">
                             <label class="checkbox-label"><input type="checkbox" id="cfgConsecutiveMartingale" /> Martingale Consecutivo</label>
                         </div>
+                        <div class="setting-item setting-row">
+                            <label class="checkbox-label" style="gap: 8px;">
+                                <input type="checkbox" id="cfgWhiteProtection" />
+                                Proteção no Branco
+                            </label>
+                        </div>
                         <div class="setting-item">
                             <span class="setting-label">Quantidade de Gales (0-200):</span>
                             <input type="number" id="cfgMaxGales" min="0" max="200" value="0" />
@@ -4700,7 +4706,8 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                         telegramChatId: '',
                         signalIntensity: 'moderate',
                         aiApiKey: '',
-                        aiMode: false
+                        aiMode: false,
+                        whiteProtectionAsWin: false
                     };
                     
                     const config = { ...DEFAULT_CONFIG, ...(result.analyzerConfig || {}) };
@@ -5061,7 +5068,7 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                     font-weight: bold;
                     font-size: 13px;
                     margin-bottom: 8px;
-                ">💡 ÚLTIMOS 5 GIROS ANALISADOS:</div>
+                ">💡 ÚLTIMOS 10 GIROS:</div>
                 
                 <div style="
                     background: rgba(0, 0, 0, 0.2);
@@ -5781,9 +5788,12 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
             if (data.analysis) {
                 const analysis = data.analysis;
                 const confidence = analysis.confidence;
+                const phaseLabel = (analysis.phase && analysis.phase !== 'ENTRADA' && analysis.phase !== 'G0')
+                    ? analysis.phase.toUpperCase()
+                    : '';
                 
                 // Só atualiza UI se a análise mudou (evita flutuação a cada 2s)
-                const analysisSig = `${analysis.suggestion}|${analysis.color}|${confidence.toFixed(2)}`;
+                const analysisSig = `${analysis.suggestion}|${analysis.color}|${confidence.toFixed(2)}|${phaseLabel}|${analysis.createdOnTimestamp || analysis.timestamp || ''}`;
                 if (analysisSig !== lastAnalysisSignature) {
                     lastAnalysisSignature = analysisSig;
                     // Update confidence meter
@@ -5796,11 +5806,8 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                                           (analysis.patternDescription.includes('NÍVEL DIAMANTE') || 
                                            analysis.patternDescription.includes('5 Níveis'));
                     
-                    if (isDiamondMode) {
-                        suggestionText.textContent = 'Análise por IA';
-                    } else {
-                        suggestionText.textContent = analysis.suggestion;
-                    }
+                    const suggestionLabel = isDiamondMode ? 'Análise por IA' : analysis.suggestion;
+                    suggestionText.textContent = suggestionLabel;
                     // Cor sugerida com o mesmo estilo do histórico (quadrado com anel)
                     suggestionColor.className = `suggestion-color suggestion-color-box ${analysis.color}`;
                     
@@ -6594,6 +6601,7 @@ function logFullModeSnapshot(snapshot) {
     originalConsoleLog(`%c   • Histórico analisado: ${snapshot.historyAvailable || 0} giros`, `color: ${headerColor};`);
     originalConsoleLog(`%c   • Intensidade: ${snapshot.signalIntensity || 'moderate'}`, `color: ${headerColor};`);
     originalConsoleLog(`%c   • Martingale: ${snapshot.galeSummary} (máx ${snapshot.galeSettings?.maxGales || 0} | consecutivo ${snapshot.galeSettings?.consecutiveMartingale ? 'sim' : 'não'})`, `color: ${headerColor};`);
+    originalConsoleLog(`%c   • Proteção no Branco: ${snapshot.whiteProtectionAsWin ? 'Conta como WIN' : 'Conta como LOSS'}`, `color: ${headerColor};`);
 
     if (snapshot.aiMode) {
         const status = snapshot.memoriaAtiva || {};
@@ -6648,6 +6656,7 @@ function logModeSnapshotUI(snapshot) {
         pushChange('Histórico analisado', prev.historyAvailable, snapshot.historyAvailable, v => `${v || 0} giros`);
         pushChange('Intensidade', prev.signalIntensity, snapshot.signalIntensity);
         pushChange('Martingale', prev.galeSummary, snapshot.galeSummary);
+        pushChange('Proteção no Branco', prev.whiteProtectionAsWin, snapshot.whiteProtectionAsWin, v => v ? 'Conta como WIN' : 'Conta como LOSS');
 
         if (snapshot.aiMode) {
             const prevMem = prev.memoriaAtiva || {};
@@ -7398,6 +7407,7 @@ function logModeSnapshotUI(snapshot) {
                 const winPct = document.getElementById('cfgWinPercentOthers');
                 const reqTrig = document.getElementById('cfgRequireTrigger');
                 const consecutiveMartingale = document.getElementById('cfgConsecutiveMartingale');
+                const whiteProtection = document.getElementById('cfgWhiteProtection');
                 const maxGales = document.getElementById('cfgMaxGales');
                 const tgChatId = document.getElementById('cfgTgChatId');
                 if (histDepth) histDepth.value = cfg.historyDepth != null ? cfg.historyDepth : 2000;
@@ -7409,6 +7419,7 @@ function logModeSnapshotUI(snapshot) {
                 if (winPct) winPct.value = cfg.winPercentOthers != null ? cfg.winPercentOthers : 25;
                 if (reqTrig) reqTrig.checked = cfg.requireTrigger != null ? cfg.requireTrigger : true;
                 if (consecutiveMartingale) consecutiveMartingale.checked = activeMartingaleProfile.consecutiveMartingale;
+                if (whiteProtection) whiteProtection.checked = !!cfg.whiteProtectionAsWin;
                 if (maxGales) maxGales.value = activeMartingaleProfile.maxGales;
                 if (tgChatId) tgChatId.value = cfg.telegramChatId || '';
                 
@@ -7471,6 +7482,7 @@ function logModeSnapshotUI(snapshot) {
                 const winPct = Math.max(0, Math.min(100, parseInt(getElementValue('cfgWinPercentOthers', '25'), 10)));
                 const reqTrig = getElementValue('cfgRequireTrigger', false, true);
                 const consecutiveMartingaleSelected = getElementValue('cfgConsecutiveMartingale', false, true);
+                const whiteProtection = getElementValue('cfgWhiteProtection', false, true);
                 const tgChatId = String(getElementValue('cfgTgChatId', '')).trim();
                 
                 // 🎚️ Intensidade de sinais
@@ -7552,6 +7564,7 @@ function logModeSnapshotUI(snapshot) {
                     maxPatternSize: maxSize,
                     winPercentOthers: winPct,
                     requireTrigger: reqTrig,
+                    whiteProtectionAsWin: whiteProtection,
                     telegramChatId: tgChatId,
                     signalIntensity: signalIntensity,
                     martingaleProfiles: updatedProfiles

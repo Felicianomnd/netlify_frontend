@@ -66,6 +66,7 @@ function logModeSnapshot(contextLabel = 'Contexto atual', historyLength = cached
     logSection(`[${contextLabel}] ${modeLabel}`);
     logInfo('Giros disponíveis', historyLength || 'N/A');
     logInfo('Controle de gale', getGaleSummary());
+    logInfo('Proteção no Branco', analyzerConfig.whiteProtectionAsWin ? 'Conta como WIN' : 'Conta como LOSS');
     if (analyzerConfig.aiMode) {
         if (memoriaAtiva.inicializada) {
             const tempoDecorrido = Math.round((Date.now() - memoriaAtiva.ultimaAtualizacao) / 1000);
@@ -111,7 +112,8 @@ function buildModeSnapshot(contextLabel = 'Contexto atual', historyLength = cach
             active: martingaleState.active,
             stage: martingaleState.stage,
             entryColor: martingaleState.entryColor
-        }
+        },
+        whiteProtectionAsWin: !!analyzerConfig.whiteProtectionAsWin
     };
 
     if (aiModeActive) {
@@ -234,6 +236,7 @@ const DEFAULT_ANALYZER_CONFIG = {
     telegramChatId: '',           // Chat ID do Telegram para enviar sinais
     aiMode: false,                // Modo Diamante (true) ou Modo Padrão (false)
     signalIntensity: 'moderate',  // Intensidade de sinais: 'aggressive', 'moderate', 'conservative', 'ultraconservative'
+    whiteProtectionAsWin: false,  // Proteção no Branco: conta branco como WIN (default: conta como LOSS)
     diamondLevelWindows: {        // Configuração dos níveis do modo Diamante
         n1HotPattern: 60,         // N1 - Padrão Quente (histórico analisado)
         n2Recent: 5,              // N2 - Momentum (janela recente)
@@ -773,6 +776,79 @@ let martingaleState = {
     lossColors: [],                   // Array de cores dos giros que deram LOSS
     patternsWithoutHistory: 0         // Contador de padrões sem histórico que deram LOSS
 };
+
+function calculateGaleConfidenceValue(baseConfidence = 0, analysis = null, state = martingaleState) {
+    if (!state || !state.active) {
+        return Number.isFinite(baseConfidence) ? Math.round(baseConfidence * 10) / 10 : 0;
+    }
+
+    const lossCount = Number(state.lossCount || 0);
+    const lossColors = Array.isArray(state.lossColors) ? state.lossColors : [];
+    const targetColor = state.entryColor || analysis?.color || null;
+    const numericBase = Number(baseConfidence) || 0;
+
+    const baseWeight = 0.30;
+    const consecutiveWeight = 0.25;
+    const colorWeight = 0.25;
+    const patternWeight = 0.20;
+
+    let weightedConfidence = numericBase * baseWeight;
+
+    let consecutiveBonus = 0;
+    if (lossCount === 1) {
+        consecutiveBonus = 10;
+    } else if (lossCount === 2) {
+        consecutiveBonus = 15;
+    } else if (lossCount >= 3) {
+        consecutiveBonus = 20;
+    }
+    weightedConfidence += consecutiveBonus * consecutiveWeight;
+
+    let colorBonus = 0;
+    if (targetColor) {
+        const recentColors = lossColors.slice(-5);
+        const targetHits = recentColors.filter(color => color === targetColor).length;
+        if (targetHits === 0) {
+            colorBonus = 12;
+        } else if (targetHits === 1) {
+            colorBonus = 5;
+        } else {
+            colorBonus = 2;
+        }
+    }
+    weightedConfidence += colorBonus * colorWeight;
+
+    let patternBonus = 0;
+    if (analysis && analysis.patternDescription) {
+        try {
+            let patternObj = analysis.patternDescription;
+            if (typeof patternObj === 'string') {
+                patternObj = JSON.parse(patternObj);
+            }
+            if (patternObj && typeof patternObj === 'object' && patternObj.type !== 'AI_ANALYSIS') {
+                const occurrences = Number(patternObj.occurrences || patternObj.ocorrencias || 0);
+                if (occurrences >= 3) {
+                    patternBonus += 3;
+                }
+            }
+        } catch (_) {
+            // Ignorar erros de parse
+        }
+    }
+    weightedConfidence += patternBonus * patternWeight;
+
+    let finalConfidence = weightedConfidence;
+    if (finalConfidence < 45) finalConfidence = 45;
+    if (finalConfidence > 95) finalConfidence = 95;
+
+    if (lossCount >= 4) {
+        finalConfidence *= 0.85;
+    } else if (lossCount >= 3) {
+        finalConfidence *= 0.90;
+    }
+
+    return Math.round(finalConfidence * 10) / 10;
+}
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // CONTROLE DE ENTRADAS DE ALTERNÂNCIA (MODO DIAMANTE - NÍVEL 3)
@@ -1732,6 +1808,10 @@ function logActiveConfiguration() {
         console.log('║  ⏱️ INTERVALO E QUALIDADE:                                ║');
         console.log(`║     • Intervalo entre padrões: ${config.minIntervalSpins.toString().padEnd(21)} giro(s) ║`);
         console.log(`║     • WIN% demais ocorrências: ${config.winPercentOthers.toString().padEnd(20)}%     ║`);
+        
+        console.log('║  ⚪ PROTEÇÃO NO BRANCO:                                    ║');
+        const whiteProtectionText = config.whiteProtectionAsWin ? 'Conta como WIN' : 'Conta como LOSS';
+        console.log(`║     • ${`Branco → ${whiteProtectionText}`.padEnd(49)}║`);
         
         // COR DE DISPARO
         console.log('║  🎯 VALIDAÇÃO DE TRIGGER:                                 ║');
@@ -2735,11 +2815,17 @@ async function processNewSpinFromServer(spinData) {
                         // ✅ CORREÇÃO CRÍTICA: Comparação robusta de cores
                         const expectedColor = String(currentAnalysis.color || '').toLowerCase().trim();
                         const actualColor = String(rollColor || '').toLowerCase().trim();
-                        const hit = (expectedColor === actualColor);
+                        const whiteProtectionWin = !!analyzerConfig.whiteProtectionAsWin
+                            && actualColor === 'white'
+                            && (expectedColor === 'red' || expectedColor === 'black');
+                        const hit = whiteProtectionWin || (expectedColor === actualColor);
                     
                     console.log('   🔍 VERIFICAÇÃO FINAL DE WIN/LOSS:');
                     console.log('   Esperado (processado):', expectedColor);
                     console.log('   Real (processado):', actualColor);
+                    if (whiteProtectionWin) {
+                        console.log('   Proteção no Branco ativa? SIM → branco considerado WIN');
+                    }
                     console.log('   São iguais?', hit);
                     console.log('   Resultado FINAL:', hit ? '✅ WIN!' : '❌ LOSS!');
                     
@@ -3126,6 +3212,7 @@ async function processNewSpinFromServer(spinData) {
                                         predictedFor: 'next',
                                         createdOnTimestamp: latestSpin.created_at  // ✅ Usar giro atual
                                     };
+                                    g1Analysis.confidence = calculateGaleConfidenceValue(g1Analysis.confidence, g1Analysis);
                                     
                                     await chrome.storage.local.set({
                                         analysis: g1Analysis,
@@ -3135,7 +3222,8 @@ async function processNewSpinFromServer(spinData) {
                                         martingaleState
                                     });
                                     
-                                    emitAnalysisToContent(g1Analysis, 'standard');
+                                    emitAnalysisToContent(g1Analysis, analyzerConfig.aiMode ? 'diamond' : 'standard');
+                                    sendMessageToContent('ENTRIES_UPDATE', entriesHistory);
                                 } else {
                                     // ❌ MODO PADRÃO: Aguardar novo padrão para enviar G1
                                     console.log('⏳ MODO PADRÃO: Aguardando novo padrão para enviar G1...');
@@ -3272,6 +3360,7 @@ async function processNewSpinFromServer(spinData) {
                                         predictedFor: 'next',
                                         createdOnTimestamp: latestSpin.created_at
                                     };
+                                    nextGaleAnalysis.confidence = calculateGaleConfidenceValue(nextGaleAnalysis.confidence, nextGaleAnalysis);
                                     
                                     await chrome.storage.local.set({
                                         analysis: nextGaleAnalysis,
@@ -3281,7 +3370,8 @@ async function processNewSpinFromServer(spinData) {
                                         martingaleState
                                     });
                                     
-                                    emitAnalysisToContent(nextGaleAnalysis, 'standard');
+                                    emitAnalysisToContent(nextGaleAnalysis, analyzerConfig.aiMode ? 'diamond' : 'standard');
+                                    sendMessageToContent('ENTRIES_UPDATE', entriesHistory);
                                 } else {
                                     // ❌ MODO PADRÃO
                                     console.log(`⏳ MODO PADRÃO: Aguardando novo padrão para enviar G${nextGaleNumber}...`);
@@ -3354,6 +3444,7 @@ async function processNewSpinFromServer(spinData) {
                                         predictedFor: 'next',
                                         createdOnTimestamp: latestSpin.created_at  // ✅ Usar giro atual
                                     };
+                                    g2Analysis.confidence = calculateGaleConfidenceValue(g2Analysis.confidence, g2Analysis);
                                     
                                     await chrome.storage.local.set({
                                         analysis: g2Analysis,
@@ -3363,7 +3454,7 @@ async function processNewSpinFromServer(spinData) {
                                         martingaleState
                                     });
                                     
-                                    emitAnalysisToContent(g2Analysis, 'standard');
+                                    emitAnalysisToContent(g2Analysis, analyzerConfig.aiMode ? 'diamond' : 'standard');
                                 } else {
                                     // ❌ MODO PADRÃO: Aguardar novo padrão para enviar G2
                                     console.log('⏳ MODO PADRÃO: Aguardando novo padrão para enviar G2...');
@@ -11038,6 +11129,9 @@ function runN0Detector(history, options = {}) {
         const recallDisplay = bestMetrics.recall != null ? (bestMetrics.recall * 100).toFixed(1) : 'n/d';
         const coverageDisplay = bestMetrics.coverage != null ? (bestMetrics.coverage * 100).toFixed(1) : 'n/d';
         console.log(`✅ [N8] Melhor análise: ${bestDescription} | F1 ${f1Display}% | prec ${precisionDisplay}% | rec ${recallDisplay}% | coverage ${coverageDisplay}% | n_preds ${bestMetrics.n_preds}/${bestMetrics.n_windows}`);
+        const finalColor = livePrediction === 'W' ? 'white' : null;
+        const finalConfidence = liveConfidence;
+        const thresholdGate = chosenThreshold;
         if (finalColor) {
             console.log(`🎯 [N8] Voto ao vivo: ${finalColor.toUpperCase()} (confiança ${(finalConfidence * 100).toFixed(1)}%) | conf_live ${Math.round(liveConfidence * 100)}% | t* ${Math.round(thresholdGate * 100)}%`);
         } else {
@@ -15556,6 +15650,7 @@ async function runAnalysisController(history) {
 				// ✅ SOBRESCREVER A COR PARA USAR A COR DA ENTRADA ORIGINAL
 				verifyResult.color = martingaleState.entryColor;
 				verifyResult.phase = martingaleState.stage;
+                verifyResult.confidence = calculateGaleConfidenceValue(verifyResult.confidence, verifyResult);
 			}
 			
 			console.log('%c║  💾 SALVANDO SINAL/ENTRADA EM CHROME.STORAGE.LOCAL                         ║', 'color: #FFD700; font-weight: bold; font-size: 16px;');
@@ -15762,6 +15857,9 @@ async function runAnalysisController(history) {
 					createdOnTimestamp: history[0].timestamp,
 					aiPattern: null // ✅ Novo fluxo não usa currentPattern
 				};
+				if (analysis.phase && analysis.phase !== 'G0' && analysis.phase !== 'ENTRADA') {
+					analysis.confidence = calculateGaleConfidenceValue(analysis.confidence, analysis);
+				}
 				
 				console.log('%c║  💾 SALVANDO ANÁLISE IA EM CHROME.STORAGE.LOCAL          ║', 'color: #00FF00; font-weight: bold;');
 				console.log('%c📊 Dados da análise IA:', 'color: #00FF88; font-weight: bold;');
@@ -15873,6 +15971,7 @@ async function runAnalysisController(history) {
 					// ✅ SOBRESCREVER A COR PARA USAR A COR DA ENTRADA ORIGINAL
 					analysis.color = martingaleState.entryColor;
 					analysis.phase = martingaleState.stage;
+					analysis.confidence = calculateGaleConfidenceValue(analysis.confidence, analysis);
 				}
 				
 				console.log('║  💾 SALVANDO ANÁLISE EM CHROME.STORAGE.LOCAL (DESCOBERTA)║');
@@ -21064,8 +21163,51 @@ async function sendMessageToContent(type, data = null) {
     });
 }
 
+function attachLatestSpinsSnapshot(analysis) {
+    if (!analysis || !Array.isArray(cachedHistory)) {
+        return analysis;
+    }
+    try {
+        const payload = { ...analysis };
+        const last10 = cachedHistory.slice(0, 10).map(spin => ({
+            color: spin.color,
+            number: spin.number,
+            timestamp: spin.timestamp
+        }));
+
+        payload.last10Spins = last10;
+        payload.last5Spins = last10;
+
+        if (!payload.phase && martingaleState && martingaleState.active) {
+            payload.phase = martingaleState.stage || 'G0';
+        }
+
+        if (typeof payload.patternDescription === 'string') {
+            try {
+                const parsed = JSON.parse(payload.patternDescription);
+                if (parsed && typeof parsed === 'object') {
+                    parsed.last5Spins = last10;
+                    payload.patternDescription = JSON.stringify(parsed);
+                }
+            } catch (_) {
+                // ignorar: patternDescription não é JSON
+            }
+        } else if (payload.patternDescription && typeof payload.patternDescription === 'object') {
+            payload.patternDescription = {
+                ...payload.patternDescription,
+                last5Spins: last10
+            };
+        }
+
+        return payload;
+    } catch (error) {
+        console.warn('⚠️ Não foi possível anexar últimos giros ao payload da análise:', error);
+        return analysis;
+    }
+}
+
 function emitAnalysisToContent(analysis, mode) {
-    const payload = analysis ? { ...analysis } : {};
+    const payload = analysis ? { ...attachLatestSpinsSnapshot(analysis) } : {};
     if (mode) {
         payload.analysisMode = mode;
     }
