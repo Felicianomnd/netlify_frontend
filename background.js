@@ -8637,7 +8637,7 @@ function validateSequenceBarrier(history, predictedColor, configuredSize, altern
     console.log('%c│ 🔍 NÍVEL 6: BARREIRA (FREIO DE SEGURANÇA)             │', 'color: #FF0000; font-weight: bold;');
     console.log('%c└─────────────────────────────────────────────────────────┘', 'color: #FF0000; font-weight: bold;');
     
-    const barrierWindowConfigured = Math.max(10, Math.min(200, configuredSize || 50));
+    const barrierWindowConfigured = Math.max(1, configuredSize || 50);
     const effectiveWindow = Math.min(barrierWindowConfigured, history.length);
     const last = history.slice(0, effectiveWindow);
     console.log(`   📊 Total de giros disponíveis: ${history.length}`);
@@ -8749,7 +8749,7 @@ function analyzeAlternancePattern(history, options = {}) {
     };
 
     settings.patternLength = Math.max(3, Math.min(8, Math.floor(settings.patternLength)));
-    settings.historySize = Math.max(settings.patternLength + 1, Math.min(200, Math.floor(settings.historySize)));
+    settings.historySize = Math.max(settings.patternLength + 1, Math.floor(Math.max(1, settings.historySize)));
     settings.threshold = clamp01(settings.threshold);
     settings.minOccurrences = Math.max(1, Math.min(100, Math.floor(settings.minOccurrences)));
 
@@ -13237,7 +13237,7 @@ async function analyzeWithPatternSystem(history) {
         // 🔷 N4 - PADRÃO DE ALTERNÂNCIA (CONFIGURÁVEL PELO USUÁRIO)
         // ═══════════════════════════════════════════════════════════════
         console.log('%c║  🔷 N4 - PADRÃO DE ALTERNÂNCIA (CONFIGURÁVEL)          ║', 'color: #8E44AD; font-weight: bold; font-size: 14px;');
-        const n3HistoryWindow = Math.max(12, Math.min(200, getDiamondWindow('n3Alternance', historySize)));
+        const n3HistoryWindow = Math.max(1, getDiamondWindow('n3Alternance', historySize));
         const n3PatternLengthConfigured = Math.max(3, Math.min(8, getDiamondWindow('n3PatternLength', 4)));
         const n3ThresholdPctConfigured = Math.max(50, Math.min(95, getDiamondWindow('n3ThresholdPct', 75)));
         const n3MinOccurrencesConfigured = Math.max(1, Math.min(100, getDiamondWindow('n3MinOccurrences', 1)));

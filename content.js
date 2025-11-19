@@ -1867,9 +1867,9 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
             <div class="diamond-level-double">
                 <div>
                     <span>Histórico analisado (giros)</span>
-                    <input type="number" id="diamondN3Alternance" min="12" max="200" value="12" />
+                    <input type="number" id="diamondN3Alternance" min="1" value="12" />
                     <span class="diamond-level-subnote">
-                        Recomendado: 50-80 giros (mín. 12)
+                        Recomendado: 50-80 giros (mín. 1)
                     </span>
                 </div>
                 <div>
@@ -2026,7 +2026,7 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                             <div class="diamond-level-note">
                                 Última validação de segurança: verifica se a sequência prevista tem precedente histórico. Valores maiores = filtro mais rigoroso, menos sinais porém mais seguros.
                             </div>
-                            <input type="number" id="diamondN8Barrier" min="10" max="200" value="50" />
+                            <input type="number" id="diamondN8Barrier" min="1" value="50" />
                             <span class="diamond-level-subnote">
                                 Recomendado: 50 giros para filtro equilibrado de segurança
                             </span>
@@ -2257,7 +2257,12 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
             if (!el) return fallback;
             let value = Number(el.value);
             if (!Number.isFinite(value)) value = fallback;
-            value = Math.max(min, Math.min(max, value));
+            if (Number.isFinite(min)) {
+                value = Math.max(min, value);
+            }
+            if (Number.isFinite(max)) {
+                value = Math.min(max, value);
+            }
             return value;
         };
         const getToggleValue = (id, fallback = true) => {
@@ -2276,7 +2281,7 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
             n1HotPattern: getNumber('diamondN1HotPattern', 12, 200, DIAMOND_LEVEL_DEFAULTS.n1HotPattern),
             n2Recent: getNumber('diamondN2Recent', 2, 20, DIAMOND_LEVEL_DEFAULTS.n2Recent),
             n2Previous: getNumber('diamondN2Previous', 3, 200, DIAMOND_LEVEL_DEFAULTS.n2Previous),
-            n3Alternance: getNumber('diamondN3Alternance', 12, 200, DIAMOND_LEVEL_DEFAULTS.n3Alternance),
+            n3Alternance: getNumber('diamondN3Alternance', 1, null, DIAMOND_LEVEL_DEFAULTS.n3Alternance),
             n3PatternLength: getNumber('diamondN3PatternLength', 3, 8, DIAMOND_LEVEL_DEFAULTS.n3PatternLength),
             n3ThresholdPct: getNumber('diamondN3ThresholdPct', 50, 95, DIAMOND_LEVEL_DEFAULTS.n3ThresholdPct),
             n3MinOccurrences: getNumber('diamondN3MinOccurrences', 1, 50, DIAMOND_LEVEL_DEFAULTS.n3MinOccurrences),
@@ -2287,7 +2292,7 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
             n6RetracementWindow: getNumber('diamondN6Retracement', 30, 120, DIAMOND_LEVEL_DEFAULTS.n6RetracementWindow),
             n7DecisionWindow: getNumber('diamondN7DecisionWindow', 10, 50, DIAMOND_LEVEL_DEFAULTS.n7DecisionWindow),
             n7HistoryWindow: getNumber('diamondN7HistoryWindow', 50, 200, DIAMOND_LEVEL_DEFAULTS.n7HistoryWindow),
-            n8Barrier: getNumber('diamondN8Barrier', 10, 200, DIAMOND_LEVEL_DEFAULTS.n8Barrier),
+            n8Barrier: getNumber('diamondN8Barrier', 1, null, DIAMOND_LEVEL_DEFAULTS.n8Barrier),
             n9History: getNumber('diamondN9History', 30, 400, DIAMOND_LEVEL_DEFAULTS.n9History),
             n9NullThreshold: getNumber('diamondN9NullThreshold', 2, 20, DIAMOND_LEVEL_DEFAULTS.n9NullThreshold),
             n9PriorStrength: getNumber('diamondN9PriorStrength', 0.2, 5, DIAMOND_LEVEL_DEFAULTS.n9PriorStrength),
