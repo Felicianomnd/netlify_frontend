@@ -85,6 +85,18 @@ function logModeSnapshot(contextLabel = 'Contexto atual', historyLength = cached
     emitModeSnapshotToContent(contextLabel, historyLength);
 }
 
+const DEFAULT_AUTOBET_CONFIG = Object.freeze({
+    enabled: false,
+    simulationOnly: true,
+    baseStake: 2,
+    galeMultiplier: 2,
+    delayMs: 1500,
+    stopWin: 0,
+    stopLoss: 0,
+    simulationBankRoll: 5000,
+    whitePayoutMultiplier: 14
+});
+
 function buildDiamondLevelSummaries() {
     const list = getDiamondConfigSnapshot();
     return list.map(([label, detail]) => {
@@ -159,6 +171,7 @@ console.log = (...args) => {
 };
 
 let isRunning = false;
+let analysisEnabled = true;
 let intervalId = null;
 let forceLogoutTabOpened = false;
 
@@ -237,6 +250,7 @@ const DEFAULT_ANALYZER_CONFIG = {
     aiMode: false,                // Modo Diamante (true) ou Modo Padrão (false)
     signalIntensity: 'moderate',  // Intensidade de sinais: 'aggressive', 'moderate', 'conservative', 'ultraconservative'
     whiteProtectionAsWin: false,  // Proteção no Branco: conta branco como WIN (default: conta como LOSS)
+    autoBetConfig: DEFAULT_AUTOBET_CONFIG,
     diamondLevelWindows: {        // Configuração dos níveis do modo Diamante
         n1HotPattern: 60,         // N1 - Padrão Quente (histórico analisado)
         n2Recent: 5,              // N2 - Momentum (janela recente)
@@ -328,6 +342,29 @@ function ensureMartingaleProfiles(config) {
     });
 }
 
+function sanitizeAutoBetConfig(rawConfig) {
+    const source = rawConfig && typeof rawConfig === 'object' ? rawConfig : {};
+    const parseNumber = (value, fallback) => {
+        const numeric = Number(value);
+        return Number.isFinite(numeric) ? numeric : fallback;
+    };
+    const sanitized = {
+        ...DEFAULT_AUTOBET_CONFIG
+    };
+    sanitized.enabled = !!source.enabled;
+    sanitized.simulationOnly = source.simulationOnly === undefined
+        ? DEFAULT_AUTOBET_CONFIG.simulationOnly
+        : !!source.simulationOnly;
+    sanitized.baseStake = Math.max(0.01, parseNumber(source.baseStake, DEFAULT_AUTOBET_CONFIG.baseStake));
+    sanitized.galeMultiplier = Math.max(1, parseNumber(source.galeMultiplier, DEFAULT_AUTOBET_CONFIG.galeMultiplier));
+    sanitized.delayMs = Math.max(0, Math.round(parseNumber(source.delayMs, DEFAULT_AUTOBET_CONFIG.delayMs)));
+    sanitized.stopWin = Math.max(0, parseNumber(source.stopWin, DEFAULT_AUTOBET_CONFIG.stopWin || 0));
+    sanitized.stopLoss = Math.max(0, parseNumber(source.stopLoss, DEFAULT_AUTOBET_CONFIG.stopLoss || 0));
+    sanitized.simulationBankRoll = Math.max(0, parseNumber(source.simulationBankRoll, DEFAULT_AUTOBET_CONFIG.simulationBankRoll || 0));
+    sanitized.whitePayoutMultiplier = Math.max(2, parseNumber(source.whitePayoutMultiplier, DEFAULT_AUTOBET_CONFIG.whitePayoutMultiplier || 14));
+    return sanitized;
+}
+
 function getModeKey(config = analyzerConfig) {
     return config && config.aiMode ? 'diamond' : 'standard';
 }
@@ -382,6 +419,9 @@ function mergeAnalyzerConfig(overrides = {}) {
     });
     ensureMartingaleProfiles(analyzerConfig);
     syncActiveMartingaleSettings(analyzerConfig);
+    analyzerConfig.autoBetConfig = sanitizeAutoBetConfig(
+        (overrides && overrides.autoBetConfig) || analyzerConfig.autoBetConfig
+    );
     return analyzerConfig;
 }
 
@@ -3562,7 +3602,10 @@ async function processNewSpinFromServer(spinData) {
             console.log('%c║       🤖 Modo IA ativo:', 'color: #FFD700; font-weight: bold; background: #333300; padding: 5px;', analyzerConfig.aiMode);
             console.log('%c║                                                                               ║', 'color: #FFD700; font-weight: bold; font-size: 16px; background: #333300; padding: 5px;');
             
-            await runAnalysisController(cachedHistory);
+            const executed = await runAnalysisIfEnabled(cachedHistory, 'NEW_SPIN');
+            if (!executed) {
+                return;
+            }
             
             console.log('%c✅ runAnalysisController() FINALIZADO!', 'color: #00FF88; font-weight: bold; font-size: 16px; background: #003300; padding: 5px;');
         }
@@ -15577,6 +15620,41 @@ async function callClaudeAPI(apiKey, prompt, timeout) {
 }
 // */
 
+// Utilitário central para garantir que nenhuma análise rode quando o toggle estiver desligado
+async function runAnalysisIfEnabled(history, contextLabel = 'general') {
+    if (!analysisEnabled) {
+        console.log(`⏸️ [${contextLabel}] Análises pausadas – runAnalysisController() não será executado.`);
+        return false;
+    }
+
+    if (!history || !Array.isArray(history) || history.length === 0) {
+        console.log(`⚠️ [${contextLabel}] Histórico indisponível para análise.`);
+        return false;
+    }
+
+    console.log(`▶️ [${contextLabel}] Executando runAnalysisController() com ${history.length} giros.`);
+    await runAnalysisController(history);
+    return true;
+}
+
+async function clearActiveAnalysisState(reason = 'manual-toggle') {
+    console.log(`🧹 [${reason}] Limpando estado de análise e Martingale devido à pausa.`);
+    resetMartingaleState();
+
+    try {
+        await chrome.storage.local.set({
+            analysis: null,
+            pattern: null,
+            lastBet: null,
+            martingaleState
+        });
+    } catch (error) {
+        console.error('❌ Falha ao sincronizar limpeza de análise no storage:', error);
+    }
+
+    sendMessageToContent('CLEAR_ANALYSIS');
+}
+
 // NOVO CONTROLADOR: Orquestra Verificação (padrões salvos) + Descoberta (173+ análises) em ≤5s
 async function runAnalysisController(history) {
 	const startTs = Date.now();
@@ -21723,6 +21801,25 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     } else if (request.action === 'status') {
         sendResponse({status: isRunning ? 'running' : 'stopped'});
         return true;
+    } else if (request.action === 'SET_ANALYSIS_ENABLED') {
+        (async () => {
+            analysisEnabled = request.enabled !== false;
+            console.log(`🔧 Análise ${analysisEnabled ? 'ativada' : 'pausada'} via UI`);
+            
+            if (!analysisEnabled) {
+                await clearActiveAnalysisState('toggle_ui_off');
+            } else if (cachedHistory && cachedHistory.length > 0) {
+                runAnalysisIfEnabled(cachedHistory, 'TOGGLE_ON').catch((error) => {
+                    console.error('❌ Falha ao reativar análises após toggle:', error);
+                });
+            }
+            
+            sendResponse({ status: 'ok', enabled: analysisEnabled });
+        })();
+        return true;
+    } else if (request.action === 'GET_ANALYSIS_STATUS') {
+        sendResponse({ status: 'ok', enabled: analysisEnabled });
+        return true;
     } else if (request.action === 'GET_MEMORIA_ATIVA_STATUS') {
         // 🧠 Retornar status da memória ativa para interface
         console.log('%c🧠 [BACKGROUND] Requisição de status da memória ativa recebida', 'color: #00CED1; font-weight: bold;');
@@ -21753,7 +21850,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 		const snapshot = buildModeSnapshot(contextLabel, cachedHistory.length);
 		sendMessageToContent('MODE_SNAPSHOT', snapshot);
 		sendResponse({ status: 'ok', snapshot });
-		return true;
+        return true;
     } else if (request.action === 'applyConfig') {
         console.log('%c✅ ENTROU NO else if applyConfig!', 'color: #00FF00; font-weight: bold; font-size: 16px;');
         (async () => {
@@ -21772,8 +21869,12 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                 
                 // ⚠️ SÓ REANALISAR SE MODO IA ESTIVER ATIVO E HOUVER HISTÓRICO SUFICIENTE
                 if (analyzerConfig.aiMode && history && history.length >= 10) {
+                    if (!analysisEnabled) {
+                        console.log('⏸️ Análises pausadas – ignorando reanálise automática após applyConfig.');
+                    } else {
                     console.log('📊 Reanalisando com', history.length, 'giros do cache...');
                     await runAnalysisController(history);
+                    }
                 } else {
                     if (!analyzerConfig.aiMode) {
                         console.log('ℹ️ Modo IA desativado - não reanalisando automaticamente');
@@ -21897,8 +21998,10 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                     
                     // Executar nova análise se houver histórico (mas não enviará sinal se aiModeJustActivated = true)
                     if (cachedHistory.length > 0) {
-                        console.log('%c📊 Executando análise com novo modo...', 'color: #00FFFF; font-weight: bold;');
-                        await runAnalysisController(cachedHistory);
+                        const executed = await runAnalysisIfEnabled(cachedHistory, 'MODE_CHANGE');
+                        if (!executed) {
+                            console.log('⏸️ Análises pausadas – mudança de modo aguardará até reativação.');
+                        }
                     } else {
                         console.log('%c⚠️ Nenhum histórico disponível para análise', 'color: #FFAA00;');
                     }
@@ -21952,6 +22055,12 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         
         (async () => {
             try {
+                if (!analysisEnabled) {
+                    console.log('⏸️ Análises pausadas – ignorando requestImmediateAnalysis.');
+                    sendResponse({ status: 'paused' });
+                    return;
+                }
+                
                 if (cachedHistory && cachedHistory.length > 0) {
                     console.log('✅ Executando análise...');
                     const startTime = Date.now();

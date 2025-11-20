@@ -1223,6 +1223,56 @@ const DIAMOND_LEVEL_DEFAULTS = {
     n10ConfMin: 60
 };
 
+const AUTO_BET_DEFAULTS = Object.freeze({
+    enabled: false,
+    simulationOnly: true,
+    baseStake: 2,
+    galeMultiplier: 2,
+    delayMs: 1500,
+    stopWin: 0,
+    stopLoss: 0,
+    simulationBankRoll: 5000,
+    whitePayoutMultiplier: 14,
+    whiteProtection: false
+});
+
+const AUTO_BET_RUNTIME_DEFAULTS = Object.freeze({
+    profit: 0,
+    totalWins: 0,
+    totalLosses: 0,
+    totalProfitEarned: 0,
+    totalLossSpent: 0,
+    blockedReason: null,
+    lastProcessedEntryTimestamp: null,
+    openCycle: null,
+    simulationBalanceBase: AUTO_BET_DEFAULTS.simulationBankRoll,
+    simulationBalance: AUTO_BET_DEFAULTS.simulationBankRoll
+});
+
+function sanitizeAutoBetConfig(raw) {
+    const base = raw && typeof raw === 'object' ? raw : {};
+    const getNumber = (value, fallback) => {
+        const numeric = Number(value);
+        return Number.isFinite(numeric) ? numeric : fallback;
+    };
+    const sanitized = {
+        ...AUTO_BET_DEFAULTS
+    };
+    sanitized.enabled = !!base.enabled;
+    sanitized.simulationOnly = base.simulationOnly === undefined
+        ? AUTO_BET_DEFAULTS.simulationOnly
+        : !!base.simulationOnly;
+    sanitized.baseStake = Math.max(0.01, getNumber(base.baseStake, AUTO_BET_DEFAULTS.baseStake));
+    sanitized.galeMultiplier = Math.max(1, getNumber(base.galeMultiplier, AUTO_BET_DEFAULTS.galeMultiplier));
+    sanitized.delayMs = Math.max(0, Math.round(getNumber(base.delayMs, AUTO_BET_DEFAULTS.delayMs)));
+    sanitized.stopWin = Math.max(0, getNumber(base.stopWin, AUTO_BET_DEFAULTS.stopWin));
+    sanitized.stopLoss = Math.max(0, getNumber(base.stopLoss, AUTO_BET_DEFAULTS.stopLoss));
+    sanitized.simulationBankRoll = Math.max(0, getNumber(base.simulationBankRoll, AUTO_BET_DEFAULTS.simulationBankRoll));
+    sanitized.whiteProtection = !!base.whiteProtection;
+    sanitized.whitePayoutMultiplier = Math.max(2, getNumber(base.whitePayoutMultiplier, AUTO_BET_DEFAULTS.whitePayoutMultiplier));
+    return sanitized;
+}
+
 const ENABLE_VERBOSE_UI_LOGS = false;
 const originalConsoleLog = console.log.bind(console);
 const uiLog = (...args) => {
@@ -1236,6 +1286,55 @@ let trainingConnectionState = null;
 let trainingSpinLogged = false;
 let lastTrainingSpinData = null;
 let lastModeSnapshot = null;
+let analyzerActive = true;
+let analyzerToggleBusy = false;
+let autoBetSummaryVisible = true;
+
+function applyAutoBetSummaryVisibility() {
+    const summary = document.getElementById('autoBetSummary');
+    const collapsed = document.getElementById('autoBetSummaryCollapsed');
+    const hideBtn = document.getElementById('autoBetHideBtn');
+    if (summary) {
+        summary.classList.toggle('hidden', !autoBetSummaryVisible);
+    }
+    if (collapsed) {
+        collapsed.classList.toggle('visible', !autoBetSummaryVisible);
+    }
+    if (hideBtn) {
+        hideBtn.textContent = autoBetSummaryVisible ? 'Ocultar saldo' : 'Mostrar saldo';
+    }
+}
+
+function setAutoBetSummaryVisibility(isVisible, source = 'user') {
+    autoBetSummaryVisible = !!isVisible;
+    try {
+        localStorage.setItem('autoBetSummaryVisible', autoBetSummaryVisible ? '1' : '0');
+    } catch (e) {
+        // ignore
+    }
+    applyAutoBetSummaryVisibility();
+    console.log(`[AUTO-BET] Visibilidade do resumo alterada (${source}):`, autoBetSummaryVisible ? 'visível' : 'oculto');
+}
+
+function initAutoBetSummaryVisibilityControls() {
+    try {
+        const saved = localStorage.getItem('autoBetSummaryVisible');
+        if (saved === '0') {
+            autoBetSummaryVisible = false;
+        }
+    } catch (e) {
+        // ignore
+    }
+    const hideBtn = document.getElementById('autoBetHideBtn');
+    const showBtn = document.getElementById('autoBetShowBtn');
+    if (hideBtn) {
+        hideBtn.addEventListener('click', () => setAutoBetSummaryVisibility(false, 'hide-btn'));
+    }
+    if (showBtn) {
+        showBtn.addEventListener('click', () => setAutoBetSummaryVisibility(true, 'show-btn'));
+    }
+    applyAutoBetSummaryVisibility();
+}
 
 function logTrainingConnectionStatus(isConnected, force = false) {
     if (!force && trainingConnectionState === isConnected) return;
@@ -1280,6 +1379,25 @@ function logTrainingLastSpin(spin, force = false) {
     originalConsoleLog(`%cℹ️  Use window.showTrainingStatus() para capturar novamente.`, `color:${detailColor}; font-weight:bold;`);
 }
 
+function logAnalyzerToggleStatus(isActive, source = 'Painel') {
+    const headerColor = isActive ? '#00E676' : '#FF5252';
+    const detailColor = isActive ? '#1B5E20' : '#B71C1C';
+    const infoColor = isActive ? '#B9F6CA' : '#FFCDD2';
+    const icon = isActive ? '✅' : '⛔';
+    const statusLabel = isActive ? 'ANÁLISE ATIVADA' : 'ANÁLISE DESATIVADA';
+    const timestamp = new Date().toLocaleTimeString('pt-BR', {
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit'
+    });
+
+    originalConsoleLog(`%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, `color:${headerColor}; font-weight:bold;`);
+    originalConsoleLog(`%c${icon} ${statusLabel}`, `color:${detailColor}; font-weight:bold; font-size:14px;`);
+    originalConsoleLog(`%cFonte: ${source}`, `color:${infoColor}; font-weight:bold;`);
+    originalConsoleLog(`%cHorário: ${timestamp}`, `color:${infoColor}; font-weight:bold;`);
+    originalConsoleLog(`%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, `color:${headerColor}; font-weight:bold;`);
+}
+
 window.showTrainingStatus = function showTrainingStatus() {
     logTrainingConnectionStatus(trainingConnectionState ?? false, true);
     logTrainingLastSpin(lastTrainingSpinData, true);
@@ -1321,6 +1439,82 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
             toast.classList.remove('show');
             setTimeout(() => toast.remove(), 300);
         }, duration);
+    }
+    
+    function sendRuntimeMessage(payload) {
+        return new Promise(resolve => {
+            if (!chrome?.runtime?.sendMessage) {
+                resolve(null);
+                return;
+            }
+            try {
+                chrome.runtime.sendMessage(payload, response => {
+                    if (chrome.runtime.lastError) {
+                        console.warn('chrome.runtime.sendMessage falhou:', chrome.runtime.lastError.message);
+                        resolve(null);
+                    } else {
+                        resolve(response);
+                    }
+                });
+            } catch (error) {
+                console.warn('Erro ao enviar mensagem runtime:', error);
+                resolve(null);
+            }
+        });
+    }
+
+    async function syncAnalyzerToggleStatus() {
+        const response = await sendRuntimeMessage({ action: 'GET_ANALYSIS_STATUS' });
+        if (response && typeof response.enabled === 'boolean') {
+            updateAnalyzerToggleUI(response.enabled);
+            return;
+        }
+        updateAnalyzerToggleUI(true);
+    }
+
+    function updateAnalyzerToggleUI(isActive, options = {}) {
+        const previousState = analyzerActive;
+        analyzerActive = !!isActive;
+        const opts = options || {};
+        const shouldLog = !!opts.log;
+        const logSource = typeof opts.source === 'string' && opts.source.trim().length
+            ? opts.source.trim()
+            : 'Painel';
+        
+        const toggleBtn = document.getElementById('toggleAnalyzerBtn');
+        if (!toggleBtn) return;
+        toggleBtn.classList.toggle('active', analyzerActive);
+        const label = toggleBtn.querySelector('.toggle-label');
+        if (label) {
+            label.textContent = analyzerActive ? 'Análise ativa' : 'Ativar análise';
+        }
+        toggleBtn.title = analyzerActive ? 'Desativar análises' : 'Ativar análises';
+        
+        if (shouldLog && previousState !== analyzerActive) {
+            logAnalyzerToggleStatus(analyzerActive, logSource);
+        }
+    }
+
+    async function handleAnalyzerToggle() {
+        if (analyzerToggleBusy) return;
+        analyzerToggleBusy = true;
+        const toggleBtn = document.getElementById('toggleAnalyzerBtn');
+        if (toggleBtn) toggleBtn.classList.add('loading');
+        const targetState = !analyzerActive;
+        try {
+            const response = await sendRuntimeMessage({ action: 'SET_ANALYSIS_ENABLED', enabled: targetState });
+            const success = response && response.status === 'ok';
+            if (success) {
+                updateAnalyzerToggleUI(targetState, { log: true, source: 'Botão "Ativar análise"' });
+                showToast(targetState ? 'Análises ativadas' : 'Análises pausadas', 1800);
+            } else {
+                showToast(targetState ? 'Não foi possível ativar as análises' : 'Não foi possível pausar as análises', 2200);
+                await syncAnalyzerToggleStatus();
+            }
+        } finally {
+            analyzerToggleBusy = false;
+            if (toggleBtn) toggleBtn.classList.remove('loading');
+        }
     }
     
     // ═══════════════════════════════════════════════════════════════════════════════
@@ -3170,7 +3364,1265 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
             return true;
         }
     };
-    
+
+    // ═══════════════════════════════════════════════════════════════════════════════
+    // 🎯 AUTOAPOSTA - CONTROLADOR LOCAL
+    // ═══════════════════════════════════════════════════════════════════════════════
+    const autoBetManager = (() => {
+        let config = { ...AUTO_BET_DEFAULTS };
+        let runtime = { ...AUTO_BET_RUNTIME_DEFAULTS };
+        let uiRefs = null;
+        const betCardRefs = {
+            color: {},
+            white: {}
+        };
+        const betCardState = {
+            color: { stage: '—', amount: 0, active: false },
+            white: { stage: '—', amount: 0, active: false }
+        };
+        let pendingTimeouts = [];
+        let isExecuting = false;
+        let storageListenerAttached = false;
+        let stylesInjected = false;
+        let lastHandledAnalysisSignature = null;
+
+        const currencyFormatter = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
+        const nativeValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set;
+
+        const COLOR_INPUT_SELECTORS = {
+            red: [
+                'input[data-color="red"]',
+                '.bet-input.red input',
+                '.double__bet-input--red input',
+                '.bet-input-wrapper.red input',
+                '.color-card.red input',
+                'input[name="bet_amount_red"]'
+            ],
+            black: [
+                'input[data-color="black"]',
+                '.bet-input.black input',
+                '.double__bet-input--black input',
+                '.bet-input-wrapper.black input',
+                '.color-card.black input',
+                'input[name="bet_amount_black"]'
+            ],
+            white: [
+                'input[data-color="white"]',
+                '.bet-input.white input',
+                '.double__bet-input--white input',
+                '.color-card.white input',
+                'input[name="bet_amount_white"]'
+            ]
+        };
+
+        const COLOR_BUTTON_SELECTORS = {
+            red: [
+                'button[data-color="red"]',
+                '.bet-button.red',
+                '.double__bet-button--red',
+                '.color-card.red button'
+            ],
+            black: [
+                'button[data-color="black"]',
+                '.bet-button.black',
+                '.double__bet-button--black',
+                '.color-card.black button'
+            ],
+            white: [
+                'button[data-color="white"]',
+                '.bet-button.white',
+                '.double__bet-button--white',
+                '.color-card.white button'
+            ]
+        };
+
+        init();
+
+        return {
+            onSidebarReady,
+            handleAnalysis,
+            handleEntriesUpdate,
+            resetRuntime: () => resetRuntimeState(true),
+            applyConfigOverride
+        };
+
+        async function init() {
+            ensureStyles();
+            await reloadConfig();
+            await reloadRuntime();
+            updateStatusUI();
+            if (chrome?.storage?.onChanged && !storageListenerAttached) {
+                chrome.storage.onChanged.addListener(handleStorageChange);
+                storageListenerAttached = true;
+            }
+            window.__autoBetManager = window.__autoBetManager || {
+                enable() { config.enabled = true; updateStatusUI('Ativado manualmente'); },
+                disable() { config.enabled = false; updateStatusUI('Desativado manualmente'); }
+            };
+        }
+
+        async function reloadConfig() {
+            try {
+                const stored = await storageCompat.get(['analyzerConfig']);
+                config = sanitizeAutoBetConfig(stored?.analyzerConfig?.autoBetConfig);
+                updateSimulationSnapshots();
+            } catch (error) {
+                console.warn('AutoBet: erro ao carregar configuração:', error);
+                config = { ...AUTO_BET_DEFAULTS };
+                updateSimulationSnapshots();
+            }
+        }
+
+        async function reloadRuntime() {
+            try {
+                const stored = await storageCompat.get(['autoBetRuntime']);
+                runtime = { ...AUTO_BET_RUNTIME_DEFAULTS, ...(stored.autoBetRuntime || {}) };
+            } catch (error) {
+                runtime = { ...AUTO_BET_RUNTIME_DEFAULTS };
+            }
+            updateSimulationSnapshots();
+        }
+
+        function persistRuntime(silent = false) {
+            storageCompat.set({ autoBetRuntime: runtime }).catch(error => {
+                if (!silent) {
+                    console.warn('AutoBet: erro ao salvar estado:', error);
+                }
+            });
+        }
+
+        function handleStorageChange(changes, area) {
+            if (area !== 'local') return;
+            if (changes.analyzerConfig) {
+                const newConfig = changes.analyzerConfig.newValue || {};
+                config = sanitizeAutoBetConfig(newConfig.autoBetConfig);
+                updateSimulationSnapshots();
+                hydratePanel();
+                updateStatusUI();
+            }
+            if (changes.autoBetRuntime) {
+                runtime = { ...AUTO_BET_RUNTIME_DEFAULTS, ...(changes.autoBetRuntime.newValue || {}) };
+                updateSimulationSnapshots();
+                updateStatusUI();
+            }
+        }
+
+        function getInitialBalanceValue() {
+            return Math.max(0, Number(config.simulationBankRoll) || AUTO_BET_DEFAULTS.simulationBankRoll);
+        }
+
+        function updateSimulationSnapshots() {
+            const baseValue = getInitialBalanceValue();
+            runtime.simulationBalanceBase = baseValue;
+            runtime.simulationBalance = baseValue + (Number(runtime.profit) || 0);
+        }
+
+        function applyConfigOverride(newConfig = {}) {
+            config = sanitizeAutoBetConfig({
+                ...config,
+                ...newConfig
+            });
+            if (typeof newConfig.whiteProtection === 'boolean') {
+                config.whiteProtection = !!newConfig.whiteProtection;
+            }
+            updateSimulationSnapshots();
+            hydratePanel();
+            updateStatusUI();
+            if (!config.whiteProtection) {
+                setWhiteProtectionDisabled();
+            } else if (!betCardState.white.active) {
+                updateBetCard('white', {
+                    stage: '—',
+                    amountText: formatCurrency(0),
+                    status: 'Aguardando sinal',
+                    variant: null
+                });
+            }
+        }
+
+        function ensureStyles() {
+            if (stylesInjected) return;
+            const style = document.createElement('style');
+            style.id = 'auto-bet-styles';
+            style.textContent = `
+                .auto-bet-summary {
+                    display: flex;
+                    flex-direction: column;
+                    gap: 12px;
+                    margin-bottom: 8px;
+                    padding: 12px;
+                    border: 1px solid var(--border-color, rgba(255, 255, 255, 0.08));
+                    border-radius: 12px;
+                    background: var(--bg-tertiary, #162134);
+                    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+                }
+                .auto-bet-summary.hidden {
+                    display: none;
+                }
+                .auto-bet-summary-header {
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                    gap: 12px;
+                }
+                .auto-bet-summary-title {
+                    font-size: 12px;
+                    font-weight: 700;
+                    letter-spacing: 0.6px;
+                    text-transform: uppercase;
+                    color: rgba(255, 255, 255, 0.75);
+                }
+                .auto-bet-summary-body {
+                    display: flex;
+                    align-items: stretch;
+                    gap: 12px;
+                }
+                .auto-bet-active-bets {
+                    display: grid;
+                    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+                    gap: 10px;
+                    margin-top: 4px;
+                }
+                .active-bet-card {
+                    background: rgba(255, 255, 255, 0.03);
+                    border: 1px solid rgba(255, 255, 255, 0.08);
+                    border-radius: 10px;
+                    padding: 14px 12px 10px;
+                    display: flex;
+                    flex-direction: column;
+                    gap: 6px;
+                    transition: border-color 0.25s ease, background 0.25s ease;
+                    position: relative;
+                    overflow: hidden;
+                }
+                .active-bet-card::before {
+                    content: '';
+                    position: absolute;
+                    top: -1px;
+                    left: -1px;
+                    right: -1px;
+                    height: 5px;
+                    border-top-left-radius: 10px;
+                    border-top-right-radius: 10px;
+                }
+                .color-entry-card::before {
+                    background: linear-gradient(90deg, #0d1d2d 0%, #111111 50%, #c62828 50%, #ff4444 100%);
+                }
+                .white-entry-card::before {
+                    background: linear-gradient(90deg, rgba(255,255,255,0.9), rgba(255,255,255,0.9));
+                }
+                .active-bet-amount-row {
+                    display: flex;
+                    align-items: baseline;
+                    justify-content: space-between;
+                }
+                .active-bet-amount {
+                    font-size: 18px;
+                    font-weight: 700;
+                    color: #ffffff;
+                }
+                .active-bet-status {
+                    font-size: 11px;
+                    color: rgba(255, 255, 255, 0.65);
+                }
+                .active-bet-stage {
+                    font-size: 12px;
+                    font-weight: 700;
+                    color: rgba(255, 255, 255, 0.8);
+                    letter-spacing: 0.4px;
+                }
+                .active-bet-card.bet-result-pending {
+                    border-color: rgba(0, 212, 255, 0.4);
+                    background: rgba(0, 212, 255, 0.08);
+                }
+                .active-bet-card.bet-result-win {
+                    border-color: rgba(0, 230, 118, 0.8);
+                    background: rgba(0, 230, 118, 0.08);
+                }
+                .active-bet-card.bet-result-loss {
+                    border-color: rgba(255, 82, 82, 0.7);
+                    background: rgba(255, 82, 82, 0.08);
+                }
+                .active-bet-stage {
+                    font-size: 11px;
+                    font-weight: 600;
+                    color: rgba(255, 255, 255, 0.65);
+                }
+                .auto-bet-summary-metrics {
+                    flex: 1;
+                    display: grid;
+                    grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+                    gap: 10px;
+                }
+                .auto-bet-summary-item {
+                    background: rgba(255, 255, 255, 0.03);
+                    border: 1px solid rgba(255, 255, 255, 0.08);
+                    border-radius: 8px;
+                    padding: 8px 10px;
+                    display: flex;
+                    flex-direction: column;
+                    gap: 2px;
+                }
+                .auto-bet-summary-item span {
+                    font-size: 10px;
+                    text-transform: uppercase;
+                    letter-spacing: 0.5px;
+                    color: rgba(255, 255, 255, 0.6);
+                }
+                .auto-bet-summary-item span.positive-label {
+                    color: #4caf50;
+                }
+                .auto-bet-summary-item span.negative-label {
+                    color: #ef5350;
+                }
+                .auto-bet-summary-item strong {
+                    font-size: 13px;
+                    color: #fff;
+                }
+                .auto-bet-summary-item strong.positive-value {
+                    color: #4caf50;
+                }
+                .auto-bet-summary-item strong.negative-value {
+                    color: #ef5350;
+                }
+                .auto-bet-hide-btn {
+                    border: 1px solid rgba(255, 255, 255, 0.2);
+                    background: rgba(255, 255, 255, 0.05);
+                    color: rgba(255, 255, 255, 0.85);
+                    font-size: 11px;
+                    font-weight: 600;
+                    letter-spacing: 0.5px;
+                    text-transform: uppercase;
+                    border-radius: 999px;
+                    padding: 6px 12px;
+                    cursor: pointer;
+                    transition: all 0.2s ease;
+                }
+                .auto-bet-hide-btn:hover {
+                    border-color: #00d4ff;
+                    color: #00e5ff;
+                }
+                .auto-bet-summary-collapsed {
+                    display: none;
+                    justify-content: center;
+                    margin-bottom: 8px;
+                }
+                .auto-bet-summary-collapsed.visible {
+                    display: flex;
+                }
+                .auto-bet-summary-collapsed button {
+                    border: 1px solid rgba(255, 255, 255, 0.2);
+                    background: rgba(255, 255, 255, 0.03);
+                    color: rgba(255, 255, 255, 0.85);
+                    font-size: 10px;
+                    font-weight: 600;
+                    letter-spacing: 0.6px;
+                    text-transform: uppercase;
+                    border-radius: 999px;
+                    padding: 4px 18px;
+                    cursor: pointer;
+                    transition: all 0.2s ease;
+                }
+                .auto-bet-summary-collapsed button:hover {
+                    border-color: #00d4ff;
+                    color: #00e5ff;
+                }
+                .auto-bet-actions {
+                    display: flex;
+                    flex-direction: column;
+                    gap: 8px;
+                    min-width: 64px;
+                    align-items: stretch;
+                }
+                .auto-bet-config-launcher {
+                    width: 100%;
+                    min-width: 0;
+                    border-radius: 10px;
+                    border: 1px solid var(--border-color, rgba(255, 255, 255, 0.15));
+                    background: var(--bg-secondary, rgba(255, 255, 255, 0.03));
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    cursor: pointer;
+                    transition: all 0.25s ease;
+                    min-height: 48px;
+                }
+                .auto-bet-config-launcher.loading {
+                    opacity: 0.6;
+                    pointer-events: none;
+                }
+                .auto-bet-config-launcher:hover {
+                    border-color: #00d4ff;
+                    box-shadow: 0 0 10px rgba(0, 212, 255, 0.25);
+                }
+                .toggle-analyzer-btn {
+                    flex-direction: column;
+                    gap: 6px;
+                    padding: 8px 6px;
+                }
+                .toggle-label {
+                    font-size: 11px;
+                    font-weight: 600;
+                    color: var(--text-secondary, rgba(255, 255, 255, 0.7));
+                    text-transform: uppercase;
+                    letter-spacing: .3px;
+                }
+                .toggle-indicator {
+                    width: 32px;
+                    height: 16px;
+                    border-radius: 999px;
+                    background: rgba(255, 255, 255, 0.15);
+                    position: relative;
+                    transition: background .25s;
+                }
+                .toggle-indicator::after {
+                    content: '';
+                    position: absolute;
+                    top: 2px;
+                    left: 2px;
+                    width: 12px;
+                    height: 12px;
+                    border-radius: 50%;
+                    background: #fff;
+                    transition: transform .25s;
+                }
+                .toggle-analyzer-btn.active .toggle-indicator {
+                    background: linear-gradient(135deg, #00d4ff, #00ffa3);
+                }
+                .toggle-analyzer-btn.active .toggle-indicator::after {
+                    transform: translateX(16px);
+                }
+                .auto-bet-config-bars {
+                    display: flex;
+                    flex-direction: column;
+                    gap: 5px;
+                    width: 18px;
+                }
+                .auto-bet-config-bars span {
+                    display: block;
+                    height: 3px;
+                    border-radius: 999px;
+                    background: #fff;
+                }
+                body.auto-bet-modal-open {
+                    overflow: hidden;
+                }
+                .auto-bet-modal {
+                    position: fixed;
+                    inset: 0;
+                    display: none;
+                    align-items: center;
+                    justify-content: center;
+                    z-index: 999999;
+                }
+                .auto-bet-modal-overlay {
+                    position: absolute;
+                    inset: 0;
+                    background: rgba(0, 0, 0, 0.8);
+                }
+                .auto-bet-modal-content {
+                    position: relative;
+                    background: #0f1f2a;
+                    border-radius: 6px;
+                    border: 1px solid rgba(255, 255, 255, 0.08);
+                    width: calc(100% - 24px);
+                    max-width: 100%;
+                    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+                    overflow: hidden;
+                    display: flex;
+                    flex-direction: column;
+                }
+                .auto-bet-modal-header {
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                    padding: 14px 20px;
+                    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+                }
+                .auto-bet-modal-header h3 {
+                    margin: 0;
+                    font-size: 16px;
+                    color: #fff;
+                }
+                .auto-bet-modal-close {
+                    background: transparent;
+                    border: none;
+                    color: #fff;
+                    font-size: 20px;
+                    cursor: pointer;
+                }
+                .auto-bet-modal-body {
+                    padding: 18px 20px;
+                    max-height: 65vh;
+                    overflow-y: auto;
+                }
+                .auto-bet-mode-layout {
+                    display: flex;
+                    gap: 16px;
+                    align-items: stretch;
+                    margin-bottom: 18px;
+                }
+                .auto-bet-mode-card {
+                    flex: 1;
+                    display: flex;
+                    flex-direction: column;
+                    gap: 10px;
+                    padding: 14px;
+                    border-radius: 10px;
+                    border: 1px solid rgba(255, 255, 255, 0.08);
+                    background: rgba(255, 255, 255, 0.02);
+                }
+                .auto-bet-mode-card.simulation-mode {
+                    max-width: 230px;
+                }
+                .auto-bet-mode-card .mode-card-title {
+                    font-size: 13px;
+                    font-weight: 600;
+                    color: #ffffff;
+                    text-transform: uppercase;
+                }
+                .auto-bet-mode-card .mode-card-subtitle {
+                    margin: 0;
+                    font-size: 11px;
+                    color: rgba(255, 255, 255, 0.6);
+                }
+                .auto-bet-divider {
+                    width: 1px;
+                    background: rgba(255, 255, 255, 0.1);
+                }
+                .mode-toggle {
+                    position: relative;
+                    display: block;
+                    border: 1px solid rgba(255, 255, 255, 0.15);
+                    border-radius: 10px;
+                    padding: 10px 12px;
+                    cursor: pointer;
+                    transition: all 0.25s ease;
+                    background: rgba(6, 18, 26, 0.35);
+                }
+                .mode-toggle:hover {
+                    border-color: #00d4ff;
+                    box-shadow: 0 0 12px rgba(0, 212, 255, 0.15);
+                }
+                .mode-toggle input {
+                    position: absolute;
+                    opacity: 0;
+                    pointer-events: none;
+                }
+                .mode-toggle-content {
+                    display: flex;
+                    align-items: center;
+                    justify-content: space-between;
+                    gap: 12px;
+                }
+                .mode-toggle-label {
+                    font-size: 13px;
+                    font-weight: 600;
+                    color: rgba(255, 255, 255, 0.85);
+                }
+                .mode-toggle-switch {
+                    width: 36px;
+                    height: 18px;
+                    border-radius: 999px;
+                    background: rgba(255, 255, 255, 0.2);
+                    position: relative;
+                    transition: background 0.25s;
+                }
+                .mode-toggle-switch::after {
+                    content: '';
+                    position: absolute;
+                    top: 2px;
+                    left: 2px;
+                    width: 14px;
+                    height: 14px;
+                    border-radius: 50%;
+                    background: #fff;
+                    transition: transform 0.25s;
+                }
+                .mode-toggle input:checked + .mode-toggle-content .mode-toggle-switch {
+                    background: linear-gradient(135deg, #00d4ff, #00ffa3);
+                }
+                .mode-toggle input:checked + .mode-toggle-content .mode-toggle-switch::after {
+                    transform: translateX(16px);
+                }
+                .mode-toggle input:checked + .mode-toggle-content .mode-toggle-label {
+                    color: #00e5ff;
+                }
+                .auto-bet-field {
+                    display: flex;
+                    flex-direction: column;
+                    gap: 4px;
+                }
+                .auto-bet-field span {
+                    font-size: 11px;
+                    color: rgba(255, 255, 255, 0.7);
+                }
+                .auto-bet-field input {
+                    width: 100%;
+                    padding: 8px;
+                    border-radius: 6px;
+                    border: 1px solid rgba(255, 255, 255, 0.12);
+                    background: rgba(0, 0, 0, 0.35);
+                    color: #fff;
+                    font-weight: 600;
+                    font-size: 13px;
+                }
+                .auto-bet-field input:focus {
+                    outline: none;
+                    border-color: #00d4ff;
+                    box-shadow: 0 0 0 1px rgba(0, 212, 255, 0.25);
+                }
+                .auto-bet-checkbox {
+                    display: flex;
+                    align-items: center;
+                    gap: 8px;
+                    padding: 10px;
+                    border: 1px dashed rgba(255, 255, 255, 0.2);
+                    border-radius: 8px;
+                }
+                .auto-bet-shared-grid {
+                    margin-top: 12px;
+                    display: grid;
+                    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+                    gap: 16px;
+                }
+                .auto-bet-modal-footer {
+                    display: flex;
+                    justify-content: space-between;
+                    gap: 12px;
+                    padding: 16px 20px;
+                    border-top: 1px solid rgba(255, 255, 255, 0.08);
+                }
+                .auto-bet-reset,
+                .auto-bet-save-btn {
+                    flex: 1;
+                    padding: 12px 16px;
+                    border-radius: 8px;
+                    font-size: 13px;
+                    font-weight: 600;
+                    cursor: pointer;
+                    border: none;
+                    transition: all 0.2s ease;
+                }
+                .auto-bet-reset {
+                    background: rgba(255, 255, 255, 0.05);
+                    color: #fff;
+                    border: 1px solid rgba(255, 255, 255, 0.2);
+                }
+                .auto-bet-reset:hover {
+                    border-color: #ff7961;
+                    color: #ff7961;
+                }
+                .auto-bet-save-btn {
+                    background: linear-gradient(135deg, #00bcd4, #00acc1);
+                    color: #0d1b26;
+                    border: none;
+                }
+                .auto-bet-save-btn:hover {
+                    filter: brightness(1.05);
+                }
+                @media (max-width: 520px) {
+                    .auto-bet-summary-body {
+                        flex-direction: column;
+                    }
+                    .auto-bet-active-bets {
+                        grid-template-columns: 1fr;
+                    }
+                    .auto-bet-actions {
+                        flex-direction: row;
+                        justify-content: center;
+                    }
+                    .auto-bet-mode-layout {
+                        flex-direction: column;
+                    }
+                    .auto-bet-divider {
+                        width: 100%;
+                        height: 1px;
+                        margin: 10px 0;
+                    }
+                    .auto-bet-mode-card.simulation-mode {
+                        max-width: none;
+                    }
+                }
+            `;
+            document.head.appendChild(style);
+            stylesInjected = true;
+        }
+
+        function onSidebarReady() {
+            ensureStyles();
+            uiRefs = {
+                profit: document.getElementById('autoBetMetricProfit'),
+                loss: document.getElementById('autoBetMetricLoss'),
+                initialBalance: document.getElementById('autoBetInitialBalance'),
+                currentBalance: document.getElementById('autoBetCurrentBalance'),
+                configBtn: document.getElementById('autoBetConfigBtn')
+            };
+            betCardRefs.color = {
+                card: document.getElementById('autoBetColorCard'),
+                stage: document.getElementById('autoBetColorStage'),
+                amount: document.getElementById('autoBetColorAmount'),
+                status: document.getElementById('autoBetColorStatus')
+            };
+            betCardRefs.white = {
+                card: document.getElementById('autoBetWhiteCard'),
+                stage: document.getElementById('autoBetWhiteStage'),
+                amount: document.getElementById('autoBetWhiteAmount'),
+                status: document.getElementById('autoBetWhiteStatus')
+            };
+            hydratePanel();
+            resetActiveBetCards(config.whiteProtection);
+            const autoBetWhiteToggle = document.getElementById('autoBetWhiteProtection');
+            if (autoBetWhiteToggle) {
+                autoBetWhiteToggle.checked = !!config.whiteProtection;
+                autoBetWhiteToggle.addEventListener('change', (event) => {
+                    const checked = !!event.target.checked;
+                    config.whiteProtection = checked;
+                    const cfgWhite = document.getElementById('cfgWhiteProtection');
+                    if (cfgWhite) {
+                        cfgWhite.checked = checked;
+                    }
+                    if (!checked) {
+                        setWhiteProtectionDisabled();
+                    } else if (!betCardState.white.active) {
+                        updateBetCard('white', {
+                            stage: '—',
+                            amountText: formatCurrency(0),
+                            status: 'Aguardando sinal',
+                            variant: null
+                        });
+                    }
+                });
+            }
+            updateStatusUI();
+        }
+
+        function hydratePanel() {
+            const entries = [
+                ['autoBetEnabled', config.enabled, true],
+                ['autoBetSimulationOnly', config.simulationOnly, true],
+                ['autoBetWhiteProtection', config.whiteProtection, true],
+                ['autoBetBaseStake', config.baseStake],
+                ['autoBetGaleMultiplier', config.galeMultiplier],
+                ['autoBetStopWin', config.stopWin],
+                ['autoBetStopLoss', config.stopLoss],
+                ['autoBetSimulationBank', config.simulationBankRoll]
+            ];
+            entries.forEach(([id, value, isCheckbox]) => {
+                const el = document.getElementById(id);
+                if (!el) return;
+                if (isCheckbox) {
+                    el.checked = !!value;
+                } else if (value !== undefined && value !== null) {
+                    el.value = value;
+                }
+            });
+            if (!config.whiteProtection) {
+                setWhiteProtectionDisabled();
+            } else {
+                const cfgWhiteCheckbox = document.getElementById('cfgWhiteProtection');
+                if (cfgWhiteCheckbox) {
+                    cfgWhiteCheckbox.checked = true;
+                }
+            }
+        }
+
+        function updateStatusUI(message) {
+            if (!uiRefs) return;
+            const shouldDisplayBalances = !!config.simulationOnly || !!config.enabled;
+            
+            const statusText = (() => {
+                if (message) return message;
+                if (!config.enabled) return 'Desativada';
+                if (runtime.blockedReason === 'STOP_WIN') return 'Pausado • Stop WIN';
+                if (runtime.blockedReason === 'STOP_LOSS') return 'Pausado • Stop LOSS';
+                if (config.simulationOnly) return 'Simulação ativa';
+                return 'Operando (real)';
+            })();
+            if (uiRefs.configBtn) {
+                uiRefs.configBtn.setAttribute('title', `Configurar autoaposta • ${statusText}`);
+                uiRefs.configBtn.setAttribute('aria-label', `Configurar autoaposta • ${statusText}`);
+            }
+            const realizedProfit = shouldDisplayBalances ? Number(runtime.profit || 0) : 0;
+            const pendingExposure = shouldDisplayBalances && runtime.openCycle
+                ? (getColorExposure() + getWhiteExposure())
+                : 0;
+            const profitValue = realizedProfit > 0 ? realizedProfit : 0;
+            const lossValue = shouldDisplayBalances ? Math.max(0, -(realizedProfit)) : 0;
+            if (uiRefs.profit) {
+                uiRefs.profit.textContent = formatCurrency(profitValue);
+            }
+            if (uiRefs.loss) {
+                uiRefs.loss.textContent = formatCurrency(lossValue);
+            }
+            const initialBalance = shouldDisplayBalances ? getInitialBalanceValue() : 0;
+            if (uiRefs.initialBalance) {
+                uiRefs.initialBalance.textContent = formatCurrency(initialBalance);
+            }
+            if (uiRefs.currentBalance) {
+                const currentBalanceValue = shouldDisplayBalances
+                    ? initialBalance + realizedProfit - pendingExposure
+                    : 0;
+                uiRefs.currentBalance.textContent = formatCurrency(currentBalanceValue);
+            }
+        }
+
+        function formatCurrency(value) {
+            return currencyFormatter.format(Number.isFinite(value) ? value : 0);
+        }
+
+        function formatSignedCurrency(value) {
+            const abs = formatCurrency(Math.abs(value || 0));
+            return `${value >= 0 ? '+' : '-'}${abs}`;
+        }
+
+        function getBetCardRefs(type) {
+            return betCardRefs[type] || {};
+        }
+
+        function updateBetCard(type, { stage, amountText, status, variant }) {
+            const refs = getBetCardRefs(type);
+            if (!refs.card) return;
+            const classes = ['bet-result-win', 'bet-result-loss', 'bet-result-pending'];
+            refs.card.classList.remove(...classes);
+            if (variant) {
+                refs.card.classList.add(`bet-result-${variant}`);
+            }
+            if (refs.stage && stage !== undefined) {
+                refs.stage.textContent = stage || '—';
+            }
+            if (refs.amount && amountText !== undefined) {
+                refs.amount.textContent = amountText;
+            }
+            if (refs.status && status !== undefined) {
+                refs.status.textContent = status;
+            }
+        }
+
+        function resetActiveBetCards(isWhiteEnabled = true) {
+            betCardState.color = { stage: '—', amount: 0, active: false };
+            betCardState.white = { stage: '—', amount: 0, active: false };
+            updateBetCard('color', {
+                stage: '—',
+                amountText: formatCurrency(0),
+                status: 'Aguardando sinal',
+                variant: null
+            });
+            updateBetCard('white', {
+                stage: '—',
+                amountText: formatCurrency(0),
+                status: isWhiteEnabled ? 'Aguardando sinal' : 'Proteção desativada',
+                variant: null
+            });
+        }
+
+        function setColorBetPending(stage, amount) {
+            betCardState.color = { stage, amount, active: true };
+            updateBetCard('color', {
+                stage,
+                amountText: formatCurrency(amount),
+                status: 'Aguardando resultado',
+                variant: 'pending'
+            });
+        }
+
+        function setWhiteBetPending(stage, amount) {
+            betCardState.white = { stage, amount, active: true };
+            updateBetCard('white', {
+                stage,
+                amountText: formatCurrency(amount),
+                status: 'Aguardando resultado',
+                variant: 'pending'
+            });
+        }
+
+        function setWhiteProtectionDisabled() {
+            betCardState.white = { stage: '—', amount: 0, active: false };
+            updateBetCard('white', {
+                stage: '—',
+                amountText: formatCurrency(0),
+                status: 'Proteção desativada',
+                variant: null
+            });
+        }
+
+        function setColorBetResult(stage, amount, netValue) {
+            betCardState.color.active = false;
+            updateBetCard('color', {
+                stage: stage || betCardState.color.stage || '—',
+                amountText: formatCurrency(amount),
+                status: netValue === undefined || netValue === null
+                    ? 'Resultado pendente'
+                    : `${netValue >= 0 ? 'WIN' : 'LOSS'} ${formatSignedCurrency(netValue)}`,
+                variant: netValue === undefined || netValue === null
+                    ? null
+                    : (netValue >= 0 ? 'win' : 'loss')
+            });
+        }
+
+        function setWhiteBetResult(stage, amount, netValue) {
+            betCardState.white.active = false;
+            updateBetCard('white', {
+                stage: stage || betCardState.white.stage || '—',
+                amountText: formatCurrency(amount),
+                status: netValue === undefined || netValue === null
+                    ? 'Resultado pendente'
+                    : `${netValue >= 0 ? 'WIN' : 'LOSS'} ${formatSignedCurrency(netValue)}`,
+                variant: netValue === undefined || netValue === null
+                    ? null
+                    : (netValue >= 0 ? 'win' : 'loss')
+            });
+        }
+
+        function markIntermediateLoss() {
+            if (!runtime.openCycle || !runtime.openCycle.bets || !runtime.openCycle.bets.length) return;
+            const lostBet = runtime.openCycle.bets[runtime.openCycle.bets.length - 1];
+            const lostAmount = Number(lostBet.amount || 0);
+            if (lostAmount > 0) {
+                setColorBetResult(lostBet.stage || betCardState.color.stage || 'G0', lostAmount, -lostAmount);
+            }
+            const whiteBet = getLastWhiteBetForStage(lostBet.stage);
+            if (whiteBet && whiteBet.amount) {
+                const whiteAmount = Number(whiteBet.amount || 0);
+                setWhiteBetResult(whiteBet.stage || lostBet.stage, whiteAmount, -whiteAmount);
+            } else if (config.whiteProtection) {
+                updateBetCard('white', {
+                    stage: lostBet.stage || betCardState.white.stage || '—',
+                    amountText: formatCurrency(0),
+                    status: 'Sem proteção neste estágio',
+                    variant: null
+                });
+            }
+        }
+
+        function getLastWhiteBetForStage(stage) {
+            if (!runtime.openCycle || !runtime.openCycle.whiteBets) return null;
+            for (let i = runtime.openCycle.whiteBets.length - 1; i >= 0; i--) {
+                const wb = runtime.openCycle.whiteBets[i];
+                if (!stage || wb.stage === stage) {
+                    return wb;
+                }
+            }
+            return null;
+        }
+
+        function isAutomationActive() {
+            return !!config.enabled || !!config.simulationOnly;
+        }
+
+        function handleAnalysis(analysis) {
+            if (!isAutomationActive() || runtime.blockedReason) return;
+            if (!analysis || !analysis.color) return;
+            const normalizedColor = normalizeColor(analysis.color);
+            if (!normalizedColor) return;
+            const stageInfo = normalizeStage(analysis.phase);
+            const analysisId = analysis?.createdOnTimestamp || analysis?.timestamp || Date.now();
+            const nextSignature = `${analysisId}|${stageInfo.label}|${normalizedColor}`;
+            if (nextSignature === lastHandledAnalysisSignature) {
+                return;
+            }
+            lastHandledAnalysisSignature = nextSignature;
+            linkCycle(stageInfo, normalizedColor, analysis);
+            const amount = calculateBetAmount(stageInfo.index);
+            if (!Number.isFinite(amount) || amount <= 0) return;
+            registerPlannedBet(stageInfo, amount, normalizedColor);
+            scheduleExecution({ color: normalizedColor, amount, stage: stageInfo.label });
+            if (config.whiteProtection && normalizedColor !== 'white') {
+                registerWhiteProtectionBet(stageInfo);
+            }
+        }
+
+        function handleEntriesUpdate(entries) {
+            if (!Array.isArray(entries) || !entries.length) return;
+            if (!isAutomationActive() && !runtime.openCycle) return;
+            const latest = entries[0];
+            if (!latest || runtime.lastProcessedEntryTimestamp === latest.timestamp) return;
+            runtime.lastProcessedEntryTimestamp = latest.timestamp;
+            if (!runtime.openCycle) return;
+            const isWin = latest.result === 'WIN';
+            const isFinalLoss = latest.result === 'LOSS' && (latest.finalResult === 'RET' || !hasContinuationFlag(latest));
+            if (isWin) {
+                finalizeCycle('WIN');
+            } else if (isFinalLoss) {
+                finalizeCycle('LOSS');
+            } else {
+                markIntermediateLoss();
+                persistRuntime(true);
+            }
+        }
+
+        function resetRuntimeState(forceMessage) {
+            pendingTimeouts.forEach(id => clearTimeout(id));
+            pendingTimeouts = [];
+            runtime = { ...AUTO_BET_RUNTIME_DEFAULTS };
+            lastHandledAnalysisSignature = null;
+            updateSimulationSnapshots();
+            persistRuntime();
+            updateStatusUI(forceMessage ? 'Resetada manualmente' : undefined);
+            resetActiveBetCards(config.whiteProtection);
+        }
+
+        function linkCycle(stageInfo, color, analysis) {
+            const analysisId = analysis?.createdOnTimestamp || analysis?.timestamp || Date.now();
+            if (!runtime.openCycle || stageInfo.index === 0) {
+                runtime.openCycle = {
+                    id: analysisId,
+                    color,
+                    stage: stageInfo.label,
+                    bets: [],
+                    whiteBets: [],
+                    createdAt: Date.now(),
+                    mode: analysis?.analysisMode || (getTabSpecificAIMode(false) ? 'diamond' : 'standard')
+                };
+            } else {
+                runtime.openCycle.stage = stageInfo.label;
+                runtime.openCycle.color = color;
+                runtime.openCycle.whiteBets = runtime.openCycle.whiteBets || [];
+            }
+            persistRuntime(true);
+            updateStatusUI();
+        }
+
+        function registerPlannedBet(stageInfo, amount, color) {
+            if (!runtime.openCycle) return;
+            runtime.openCycle.bets = runtime.openCycle.bets || [];
+            runtime.openCycle.bets.push({
+                stage: stageInfo.label,
+                amount,
+                color,
+                timestamp: Date.now()
+            });
+            persistRuntime(true);
+            updateStatusUI();
+            setColorBetPending(stageInfo.label, amount);
+        }
+
+        function getNextColorStageIndex(fallbackIndex = 0) {
+            if (!runtime.openCycle || !Array.isArray(runtime.openCycle.bets)) {
+                return fallbackIndex;
+            }
+            return runtime.openCycle.bets.length;
+        }
+
+        function getColorExposure() {
+            if (!runtime.openCycle || !Array.isArray(runtime.openCycle.bets)) return 0;
+            return runtime.openCycle.bets.reduce((sum, bet) => sum + Number(bet.amount || 0), 0);
+        }
+
+        function getWhiteExposure() {
+            if (!runtime.openCycle || !Array.isArray(runtime.openCycle.whiteBets)) return 0;
+            return runtime.openCycle.whiteBets.reduce((sum, bet) => sum + Number(bet.amount || 0), 0);
+        }
+
+        function calculateWhiteBetAmount() {
+            const payoutMultiplier = Math.max(2, Number(config.whitePayoutMultiplier) || AUTO_BET_DEFAULTS.whitePayoutMultiplier);
+            const gainMultiplier = payoutMultiplier - 1;
+            const exposuresBefore = getColorExposure() + getWhiteExposure();
+            const lastColorBet = runtime.openCycle && runtime.openCycle.bets && runtime.openCycle.bets.length
+                ? Number(runtime.openCycle.bets[runtime.openCycle.bets.length - 1].amount || 0)
+                : Math.max(0.01, Number(config.baseStake) || AUTO_BET_DEFAULTS.baseStake);
+            const targetProfit = Math.max(0.01, lastColorBet);
+            const required = gainMultiplier > 0
+                ? (exposuresBefore + targetProfit) / gainMultiplier
+                : exposuresBefore + targetProfit;
+            return Number(Math.max(0.01, required).toFixed(2));
+        }
+
+        function registerWhiteProtectionBet(stageInfo) {
+            if (!runtime.openCycle) return;
+            runtime.openCycle.whiteBets = runtime.openCycle.whiteBets || [];
+            const amount = calculateWhiteBetAmount();
+            runtime.openCycle.whiteBets.push({
+                stage: stageInfo.label,
+                amount,
+                timestamp: Date.now()
+            });
+            persistRuntime(true);
+            updateStatusUI();
+            setWhiteBetPending(stageInfo.label, amount);
+            scheduleExecution({ color: 'white', amount, stage: `${stageInfo.label}-WHITE`, isWhite: true }, 200);
+        }
+
+        function scheduleExecution(order, offsetMs = 0) {
+            const baseDelay = Math.max(0, Number(config.delayMs) || 0);
+            const totalDelay = Math.max(0, baseDelay + offsetMs);
+            const timeoutId = setTimeout(() => {
+                executeBet(order).finally(() => {
+                    pendingTimeouts = pendingTimeouts.filter(id => id !== timeoutId);
+                });
+            }, totalDelay);
+            pendingTimeouts.push(timeoutId);
+        }
+
+        async function executeBet(order) {
+            if (!order || isExecuting) return;
+            isExecuting = true;
+            try {
+                const amountString = Number(order.amount).toFixed(2);
+                if (config.simulationOnly) {
+                    uiLog(`[AutoBet] Simulação • ${order.stage} → ${order.color.toUpperCase()} • ${amountString}`);
+                    return;
+                }
+                const input = findBetInput(order.color);
+                const button = findBetButton(order.color);
+                if (!input || !button) {
+                    console.warn('[AutoBet] Controles da Blaze não encontrados para', order.color);
+                    runtime.lastError = 'missing_controls';
+                    persistRuntime(true);
+                    return;
+                }
+                setInputValue(input, amountString);
+                await waitFor(80);
+                button.click();
+                runtime.lastError = null;
+                persistRuntime(true);
+                uiLog(`[AutoBet] Aposta enviada • ${order.stage.toUpperCase()} • ${order.color.toUpperCase()} • ${amountString}`);
+            } catch (error) {
+                console.error('[AutoBet] Erro ao executar aposta:', error);
+                runtime.lastError = error.message;
+                persistRuntime(true);
+            } finally {
+                isExecuting = false;
+            }
+        }
+
+        function findBetInput(color) {
+            return findFirstElement(COLOR_INPUT_SELECTORS[color] || []);
+        }
+
+        function findBetButton(color) {
+            return findFirstElement(COLOR_BUTTON_SELECTORS[color] || []);
+        }
+
+        function findFirstElement(selectors) {
+            for (const selector of selectors) {
+                const el = document.querySelector(selector);
+                if (el) return el;
+            }
+            return null;
+        }
+
+        function setInputValue(target, value) {
+            if (!target) return;
+            if (nativeValueSetter) {
+                nativeValueSetter.call(target, value);
+            } else {
+                target.value = value;
+            }
+            target.dispatchEvent(new Event('input', { bubbles: true }));
+            target.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+
+        function waitFor(ms = 50) {
+            return new Promise(resolve => setTimeout(resolve, ms));
+        }
+
+        function normalizeColor(color) {
+            const lowered = String(color || '').toLowerCase();
+            if (lowered.startsWith('r')) return 'red';
+            if (lowered.startsWith('b') && lowered !== 'branco') return 'black';
+            if (lowered.startsWith('w') || lowered === 'branco') return 'white';
+            return null;
+        }
+
+        function normalizeStage(phase) {
+            if (!phase || phase === 'ENTRADA') return { label: 'G0', index: 0 };
+            const match = /g(\d+)/i.exec(phase);
+            if (match) {
+                const idx = parseInt(match[1], 10) || 0;
+                return { label: `G${idx}`, index: idx };
+            }
+            return { label: 'G0', index: 0 };
+        }
+
+        function calculateBetAmount(stageIndex = 0) {
+            const multiplier = Math.max(1, Number(config.galeMultiplier) || 1);
+            const base = Math.max(0.01, Number(config.baseStake) || AUTO_BET_DEFAULTS.baseStake);
+            const exponent = getNextColorStageIndex(stageIndex);
+            return Number((base * Math.pow(multiplier, exponent)).toFixed(2));
+        }
+
+        function hasContinuationFlag(entry) {
+            return Object.keys(entry || {}).some(key => key.startsWith('continuingToG'));
+        }
+
+        function finalizeCycle(outcome) {
+            if (!runtime.openCycle || !runtime.openCycle.bets || !runtime.openCycle.bets.length) {
+                runtime.openCycle = null;
+                updateSimulationSnapshots();
+                persistRuntime(true);
+                updateStatusUI();
+                resetActiveBetCards(config.whiteProtection);
+                return;
+            }
+            const bets = runtime.openCycle.bets;
+            const whiteBets = runtime.openCycle.whiteBets || [];
+            const totalColorInvested = bets.reduce((sum, bet) => sum + Number(bet.amount || 0), 0);
+            const totalWhiteInvested = whiteBets.reduce((sum, bet) => sum + Number(bet.amount || 0), 0);
+            const totalInvested = totalColorInvested + totalWhiteInvested;
+            let delta = 0;
+            if (outcome === 'WIN') {
+                const lastBet = bets[bets.length - 1];
+                const payoutMultiplier = runtime.openCycle.color === 'white'
+                    ? (config.whitePayoutMultiplier || 14)
+                    : 2;
+                delta = (lastBet.amount * payoutMultiplier) - totalInvested;
+                runtime.totalWins = (runtime.totalWins || 0) + 1;
+            } else {
+                delta = -totalInvested;
+                runtime.totalLosses = (runtime.totalLosses || 0) + 1;
+            }
+            if (delta >= 0) {
+                runtime.totalProfitEarned = Number((runtime.totalProfitEarned || 0) + delta);
+            } else {
+                runtime.totalLossSpent = Number((runtime.totalLossSpent || 0) + Math.abs(delta));
+            }
+            runtime.profit = Number((Number(runtime.profit || 0) + delta).toFixed(2));
+
+            const lastBet = bets[bets.length - 1] || null;
+            const lastStageLabel = lastBet?.stage || betCardState.color.stage || 'G0';
+            const displayAmount = Number(lastBet?.amount || totalColorInvested);
+            const payoutMultiplier = runtime.openCycle.color === 'white'
+                ? (config.whitePayoutMultiplier || 14)
+                : 2;
+            const colorNet = outcome === 'WIN'
+                ? Number(((displayAmount * payoutMultiplier) - totalColorInvested).toFixed(2))
+                : -totalColorInvested;
+            setColorBetResult(lastStageLabel, displayAmount, colorNet);
+
+            if (totalWhiteInvested > 0) {
+                const whiteStage = betCardState.white.stage !== '—' ? betCardState.white.stage : lastStageLabel;
+                const whiteNet = -totalWhiteInvested;
+                setWhiteBetResult(whiteStage, totalWhiteInvested, whiteNet);
+            } else if (!config.whiteProtection) {
+                setWhiteProtectionDisabled();
+            } else if (!betCardState.white.active) {
+                updateBetCard('white', {
+                    stage: '—',
+                    amountText: formatCurrency(0),
+                    status: 'Sem proteção ativa',
+                    variant: null
+                });
+            }
+
+            runtime.openCycle = null;
+            evaluateStops();
+            updateSimulationSnapshots();
+            persistRuntime();
+            updateStatusUI();
+        }
+
+        function evaluateStops() {
+            if (config.stopWin > 0 && runtime.profit >= config.stopWin) {
+                runtime.blockedReason = 'STOP_WIN';
+            } else if (config.stopLoss > 0 && runtime.profit <= -config.stopLoss) {
+                runtime.blockedReason = 'STOP_LOSS';
+            } else if (runtime.blockedReason && runtime.blockedReason.startsWith('STOP')) {
+                runtime.blockedReason = null;
+            }
+        }
+    })();
+
     // ═══════════════════════════════════════════════════════════════════════════════
     // 🔄 GERENCIAMENTO DE PREFERÊNCIAS DE SINCRONIZAÇÃO
     // ═══════════════════════════════════════════════════════════════════════════════
@@ -4137,7 +5589,63 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                 </div>
             </div>
             <div class="analyzer-content" id="analyzerContent">
-                <div class="entries-panel" id="entriesPanel">
+            <div class="auto-bet-summary" id="autoBetSummary">
+                <div class="auto-bet-summary-header">
+                    <span class="auto-bet-summary-title">Resumo da banca</span>
+                    <button type="button" class="auto-bet-hide-btn" id="autoBetHideBtn">Ocultar saldo</button>
+                </div>
+                <div class="auto-bet-summary-body">
+                    <div class="auto-bet-summary-metrics">
+                        <div class="auto-bet-summary-item">
+                            <span class="positive-label">Saldo inicial</span>
+                            <strong id="autoBetInitialBalance" class="positive-value">R$ 0,00</strong>
+                        </div>
+                        <div class="auto-bet-summary-item">
+                            <span class="positive-label">Lucro</span>
+                            <strong id="autoBetMetricProfit" class="positive-value">R$ 0,00</strong>
+                        </div>
+                        <div class="auto-bet-summary-item">
+                            <span class="negative-label">Perdas</span>
+                            <strong id="autoBetMetricLoss" class="negative-value">R$ 0,00</strong>
+                        </div>
+                        <div class="auto-bet-summary-item">
+                            <span class="positive-label">Saldo atual</span>
+                            <strong id="autoBetCurrentBalance" class="positive-value">R$ 0,00</strong>
+                        </div>
+                    </div>
+                    <div class="auto-bet-actions">
+                        <button class="auto-bet-config-launcher toggle-analyzer-btn" id="toggleAnalyzerBtn" title="Desativar análises">
+                            <span class="toggle-label">Ativar análise</span>
+                            <span class="toggle-indicator"></span>
+                        </button>
+                        <button class="auto-bet-config-launcher config-btn" id="autoBetConfigBtn" title="Configurar autoaposta">
+                            <span class="auto-bet-config-bars">
+                                <span></span><span></span><span></span>
+                            </span>
+                        </button>
+                    </div>
+                </div>
+                <div class="auto-bet-active-bets">
+                    <div class="active-bet-card color-entry-card" id="autoBetColorCard">
+                        <div class="active-bet-amount-row">
+                            <div class="active-bet-amount" id="autoBetColorAmount">R$ 0,00</div>
+                            <span class="active-bet-stage" id="autoBetColorStage">—</span>
+                        </div>
+                        <div class="active-bet-status" id="autoBetColorStatus">Aguardando sinal</div>
+                    </div>
+                    <div class="active-bet-card white-entry-card" id="autoBetWhiteCard">
+                        <div class="active-bet-amount-row">
+                            <div class="active-bet-amount" id="autoBetWhiteAmount">R$ 0,00</div>
+                            <span class="active-bet-stage" id="autoBetWhiteStage">—</span>
+                        </div>
+                        <div class="active-bet-status" id="autoBetWhiteStatus">Aguardando sinal</div>
+                    </div>
+                </div>
+            </div>
+            <div class="auto-bet-summary-collapsed" id="autoBetSummaryCollapsed">
+                <button type="button" id="autoBetShowBtn">Ver saldo</button>
+            </div>
+            <div class="entries-panel" id="entriesPanel">
                     <div class="entries-header">
                         <span>Entradas</span>
                         <span class="entries-hit" id="entriesHit">Acertos: 0/0 (0%)</span>
@@ -4390,7 +5898,7 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                     </div>
                     <button id="cfgSaveBtn" class="cfg-save-btn">Salvar</button>
                 </div>
-                
+
                 <div class="stats-section">
                     <h4>Histórico de Giros</h4>
                     <div class="stats-grid">
@@ -4402,6 +5910,79 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                             <span class="stat-label">Atualização:</span>
                             <span class="stat-value" id="lastUpdate">-</span>
                         </div>
+                    </div>
+                </div>
+            </div>
+            <div class="auto-bet-modal" id="autoBetModal" style="display:none;">
+                <div class="auto-bet-modal-overlay"></div>
+                <div class="auto-bet-modal-content">
+                    <div class="auto-bet-modal-header">
+                        <h3>Configurar Autoaposta</h3>
+                        <button type="button" class="auto-bet-modal-close" id="closeAutoBetModal">✕</button>
+                    </div>
+                    <div class="auto-bet-modal-body">
+                        <div class="auto-bet-mode-layout">
+                            <div class="auto-bet-mode-card real-mode">
+                                <div>
+                                    <div class="mode-card-title">Modo real</div>
+                                    <p class="mode-card-subtitle">Utiliza o saldo da sua conta Blaze</p>
+                                </div>
+                                <label class="mode-toggle">
+                                    <input type="checkbox" id="autoBetEnabled" />
+                                    <div class="mode-toggle-content">
+                                        <span class="mode-toggle-label">Ativar aposta real</span>
+                                        <span class="mode-toggle-switch"></span>
+                                    </div>
+                                </label>
+                            </div>
+                            <div class="auto-bet-divider"></div>
+                            <div class="auto-bet-mode-card simulation-mode">
+                                <div>
+                                    <div class="mode-card-title">Simulador</div>
+                                    <p class="mode-card-subtitle">Acompanhe resultados sem apostar</p>
+                                </div>
+                                <label class="mode-toggle">
+                                    <input type="checkbox" id="autoBetSimulationOnly" checked />
+                                    <div class="mode-toggle-content">
+                                        <span class="mode-toggle-label">Simular entradas</span>
+                                        <span class="mode-toggle-switch"></span>
+                                    </div>
+                                </label>
+                                <div class="auto-bet-field">
+                                    <span>Banca para simulação (R$)</span>
+                                    <input type="number" id="autoBetSimulationBank" min="0" step="1" value="5000" />
+                                </div>
+                            </div>
+                        </div>
+                        <div class="auto-bet-shared-grid">
+                            <div class="auto-bet-field">
+                                <span>Entrada base (R$)</span>
+                                <input type="number" id="autoBetBaseStake" min="0.01" step="0.01" value="2" />
+                            </div>
+                            <div class="auto-bet-field">
+                                <span>Multiplicador por Gale</span>
+                                <input type="number" id="autoBetGaleMultiplier" min="1" step="0.1" value="2" />
+                            </div>
+                            <div class="auto-bet-field">
+                                <span>Stop WIN (R$)</span>
+                                <input type="number" id="autoBetStopWin" min="0" step="1" value="0" />
+                            </div>
+                            <div class="auto-bet-field">
+                                <span>Stop LOSS (R$)</span>
+                                <input type="number" id="autoBetStopLoss" min="0" step="1" value="0" />
+                            </div>
+                        </div>
+                        <label class="mode-toggle" style="margin-top: 8px;">
+                            <input type="checkbox" id="autoBetWhiteProtection" />
+                            <div class="mode-toggle-content">
+                                <span class="mode-toggle-label">Proteção no branco</span>
+                                <span class="mode-toggle-switch"></span>
+                            </div>
+                        </label>
+                    </div>
+                    <div class="auto-bet-modal-footer">
+                        <button type="button" class="auto-bet-reset" id="autoBetResetRuntimeModal">Resetar ciclo</button>
+                        <button type="button" class="auto-bet-save-btn" id="autoBetSaveConfig">Salvar autoaposta</button>
                     </div>
                 </div>
             </div>
@@ -4526,6 +6107,90 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
             console.error('%c❌ ERRO ao adicionar sidebar ao DOM:', 'color: #FF0000; font-weight: bold;', error);
             return;
         }
+        if (autoBetManager && typeof autoBetManager.onSidebarReady === 'function') {
+            setTimeout(() => autoBetManager.onSidebarReady(), 0);
+        }
+
+        const autoBetConfigBtn = document.getElementById('autoBetConfigBtn');
+        const autoBetModal = document.getElementById('autoBetModal');
+        const autoBetModalOverlay = autoBetModal ? autoBetModal.querySelector('.auto-bet-modal-overlay') : null;
+        const autoBetModalContent = autoBetModal ? autoBetModal.querySelector('.auto-bet-modal-content') : null;
+        const closeAutoBetModalBtn = document.getElementById('closeAutoBetModal');
+        const autoBetSaveConfigBtn = document.getElementById('autoBetSaveConfig');
+        const autoBetResetRuntimeModalBtn = document.getElementById('autoBetResetRuntimeModal');
+        let autoBetModalEscHandler = null;
+        let autoBetModalResizeHandler = null;
+
+        const syncAutoBetModalWidth = () => {
+            if (!autoBetModalContent) return;
+            const sidebarEl = document.getElementById('blaze-double-analyzer');
+            const sidebarWidth = sidebarEl ? sidebarEl.getBoundingClientRect().width : window.innerWidth;
+            const viewportLimit = window.innerWidth - 32;
+            const target = Math.max(320, Math.min(sidebarWidth - 24, sidebarWidth, viewportLimit));
+            autoBetModalContent.style.width = `${target}px`;
+        };
+
+        const closeAutoBetModal = () => {
+            if (!autoBetModal) return;
+            autoBetModal.style.display = 'none';
+            document.body.classList.remove('auto-bet-modal-open');
+            if (autoBetModalEscHandler) {
+                document.removeEventListener('keydown', autoBetModalEscHandler);
+                autoBetModalEscHandler = null;
+            }
+            if (autoBetModalResizeHandler) {
+                window.removeEventListener('resize', autoBetModalResizeHandler);
+                autoBetModalResizeHandler = null;
+            }
+        };
+
+        const openAutoBetModal = () => {
+            if (!autoBetModal) return;
+            syncAutoBetModalWidth();
+            autoBetModal.style.display = 'flex';
+            document.body.classList.add('auto-bet-modal-open');
+            autoBetModalEscHandler = (event) => {
+                if (event.key === 'Escape') {
+                    closeAutoBetModal();
+                }
+            };
+            document.addEventListener('keydown', autoBetModalEscHandler);
+            if (!autoBetModalResizeHandler) {
+                autoBetModalResizeHandler = () => syncAutoBetModalWidth();
+                window.addEventListener('resize', autoBetModalResizeHandler);
+            }
+        };
+
+        if (autoBetConfigBtn) {
+            autoBetConfigBtn.addEventListener('click', openAutoBetModal);
+        }
+        if (autoBetModalOverlay) {
+            autoBetModalOverlay.addEventListener('click', closeAutoBetModal);
+        }
+        if (closeAutoBetModalBtn) {
+            closeAutoBetModalBtn.addEventListener('click', closeAutoBetModal);
+        }
+        if (autoBetSaveConfigBtn) {
+            autoBetSaveConfigBtn.addEventListener('click', async () => {
+                const shouldClose = await saveSettings();
+                if (shouldClose !== false) {
+                    closeAutoBetModal();
+                }
+            });
+        }
+        if (autoBetResetRuntimeModalBtn) {
+            autoBetResetRuntimeModalBtn.addEventListener('click', () => {
+                if (autoBetManager && typeof autoBetManager.resetRuntime === 'function') {
+                    autoBetManager.resetRuntime();
+                }
+            });
+        }
+        const toggleAnalyzerBtn = document.getElementById('toggleAnalyzerBtn');
+        if (toggleAnalyzerBtn) {
+            toggleAnalyzerBtn.addEventListener('click', handleAnalyzerToggle);
+        }
+        initAutoBetSummaryVisibilityControls();
+        syncAnalyzerToggleStatus();
         
         console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #00FF88; font-weight: bold;');
         console.log('%c✅ SIDEBAR CRIADA COM SUCESSO!', 'color: #00FF88; font-weight: bold; font-size: 14px;');
@@ -6768,6 +8433,9 @@ function logModeSnapshotUI(snapshot) {
                     last5Spins: request.data.last5Spins // ✅ PASSAR DIRETAMENTE
                 }
             });
+            if (autoBetManager && typeof autoBetManager.handleAnalysis === 'function') {
+                autoBetManager.handleAnalysis(request.data);
+            }
         } else if (request.type === 'NEW_SPIN') {
             console.log('%c⚡ NOVO GIRO!', 'color: #00ff88; font-weight: bold;');
             
@@ -6850,6 +8518,9 @@ function logModeSnapshotUI(snapshot) {
                 // Resetar para mensagem padrão
                 suggestionText.textContent = 'Aguardando análise...';
                 console.log('✅ Caixa de raciocínio limpa após resultado');
+            }
+            if (autoBetManager && typeof autoBetManager.handleEntriesUpdate === 'function') {
+                autoBetManager.handleEntriesUpdate(request.data);
             }
         } else if (request.type === 'OBSERVER_UPDATE') {
             // Atualizar Calibrador de porcentagens automaticamente
@@ -6969,9 +8640,16 @@ function logModeSnapshotUI(snapshot) {
                     if (result.entriesHistory && result.entriesHistory.length > 0) {
                         console.log('📋 Carregando histórico de entradas:', result.entriesHistory.length, 'entradas');
                         renderEntriesPanel(result.entriesHistory);
+                        if (autoBetManager && typeof autoBetManager.handleEntriesUpdate === 'function') {
+                            autoBetManager.handleEntriesUpdate(result.entriesHistory);
+                        }
                     } else {
                         console.log('📋 Nenhuma entrada no histórico ainda');
                         renderEntriesPanel([]);
+                    }
+                    
+                    if (result.analysis && autoBetManager && typeof autoBetManager.handleAnalysis === 'function') {
+                        autoBetManager.handleAnalysis(result.analysis);
                     }
                     
                     // ✅ CARREGAR CALIBRADOR DE PORCENTAGENS
@@ -7427,6 +9105,23 @@ function logModeSnapshotUI(snapshot) {
                 if (whiteProtection) whiteProtection.checked = !!cfg.whiteProtectionAsWin;
                 if (maxGales) maxGales.value = activeMartingaleProfile.maxGales;
                 if (tgChatId) tgChatId.value = cfg.telegramChatId || '';
+                const setAutoBetInput = (id, value, isCheckbox = false) => {
+                    const el = document.getElementById(id);
+                    if (!el) return;
+                    if (isCheckbox) {
+                        el.checked = !!value;
+                    } else if (value !== undefined && value !== null) {
+                        el.value = value;
+                    }
+                };
+                const autoBetConfig = sanitizeAutoBetConfig(cfg.autoBetConfig);
+                setAutoBetInput('autoBetEnabled', autoBetConfig.enabled, true);
+                setAutoBetInput('autoBetSimulationOnly', autoBetConfig.simulationOnly, true);
+                setAutoBetInput('autoBetBaseStake', autoBetConfig.baseStake);
+                setAutoBetInput('autoBetGaleMultiplier', autoBetConfig.galeMultiplier);
+                setAutoBetInput('autoBetStopWin', autoBetConfig.stopWin);
+                setAutoBetInput('autoBetStopLoss', autoBetConfig.stopLoss);
+                setAutoBetInput('autoBetSimulationBank', autoBetConfig.simulationBankRoll);
                 
                 // 🎚️ Carregar intensidade de sinais
                 const signalIntensitySelect = document.getElementById('signalIntensitySelect');
@@ -7447,7 +9142,7 @@ function logModeSnapshotUI(snapshot) {
             });
         } catch (e) { console.error('Erro ao carregar configurações:', e); }
     }
-    async function saveSettings() {
+    function saveSettings() {
         console.log('');
         console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #00D4FF; font-weight: bold;');
         console.log('%c║  💾 SALVANDO CONFIGURAÇÕES                                ║', 'color: #00D4FF; font-weight: bold;');
@@ -7462,6 +9157,7 @@ function logModeSnapshotUI(snapshot) {
         }
         
         // ✅ BUSCAR CONFIGURAÇÃO ATUAL PRIMEIRO (para preservar aiMode e outros estados)
+        return new Promise((resolve) => {
         chrome.storage.local.get(['analyzerConfig'], async function(result) {
             try {
                 const currentConfig = result.analyzerConfig || {};
@@ -7487,12 +9183,32 @@ function logModeSnapshotUI(snapshot) {
                 const winPct = Math.max(0, Math.min(100, parseInt(getElementValue('cfgWinPercentOthers', '25'), 10)));
                 const reqTrig = getElementValue('cfgRequireTrigger', false, true);
                 const consecutiveMartingaleSelected = getElementValue('cfgConsecutiveMartingale', false, true);
-                const whiteProtection = getElementValue('cfgWhiteProtection', false, true);
+                const whiteProtection = getElementValue('autoBetWhiteProtection', getElementValue('cfgWhiteProtection', false, true), true);
                 const tgChatId = String(getElementValue('cfgTgChatId', '')).trim();
                 
                 // 🎚️ Intensidade de sinais
                 const signalIntensitySelect = document.getElementById('signalIntensitySelect');
                 const signalIntensity = signalIntensitySelect ? signalIntensitySelect.value : 'moderate';
+                const autoBetRawConfig = {
+                    enabled: getElementValue('autoBetEnabled', false, true),
+                    simulationOnly: getElementValue('autoBetSimulationOnly', true, true),
+                    baseStake: getElementValue('autoBetBaseStake', AUTO_BET_DEFAULTS.baseStake),
+                    galeMultiplier: getElementValue('autoBetGaleMultiplier', AUTO_BET_DEFAULTS.galeMultiplier),
+                    stopWin: getElementValue('autoBetStopWin', AUTO_BET_DEFAULTS.stopWin),
+                    stopLoss: getElementValue('autoBetStopLoss', AUTO_BET_DEFAULTS.stopLoss),
+                    simulationBankRoll: getElementValue('autoBetSimulationBank', AUTO_BET_DEFAULTS.simulationBankRoll),
+                    whitePayoutMultiplier: AUTO_BET_DEFAULTS.whitePayoutMultiplier
+                };
+                const sanitizedAutoBetConfig = sanitizeAutoBetConfig(autoBetRawConfig);
+                const whiteProtectionSetting = whiteProtection;
+                sanitizedAutoBetConfig.whiteProtection = whiteProtectionSetting;
+                const whiteProtectionCheckbox = document.getElementById('cfgWhiteProtection');
+                if (whiteProtectionCheckbox) {
+                    whiteProtectionCheckbox.checked = whiteProtectionSetting;
+                }
+                if (autoBetManager && typeof autoBetManager.applyConfigOverride === 'function') {
+                    autoBetManager.applyConfigOverride(sanitizedAutoBetConfig);
+                }
                 
                 // ✅ RESETAR HISTÓRICO DE SINAIS (limpar penalidades de losses consecutivos)
                 console.log('%c🔄 Resetando histórico de sinais (limpar losses consecutivos)...', 'color: #00D4FF; font-weight: bold;');
@@ -7569,10 +9285,11 @@ function logModeSnapshotUI(snapshot) {
                     maxPatternSize: maxSize,
                     winPercentOthers: winPct,
                     requireTrigger: reqTrig,
-                    whiteProtectionAsWin: whiteProtection,
+                    whiteProtectionAsWin: whiteProtectionSetting,
                     telegramChatId: tgChatId,
                     signalIntensity: signalIntensity,
-                    martingaleProfiles: updatedProfiles
+                    martingaleProfiles: updatedProfiles,
+                    autoBetConfig: sanitizedAutoBetConfig
                 };
                 applyActiveMartingaleToLegacyFields(cfg, activeModeKey, updatedProfiles);
                 
@@ -7586,6 +9303,7 @@ function logModeSnapshotUI(snapshot) {
                         console.error('%c❌ ERRO ao salvar no storage!', 'color: #FF0000; font-weight: bold;');
                         console.error(chrome.runtime.lastError);
                         showConfigFeedback(false);
+                        resolve(false);
                         return;
                     }
                     
@@ -7632,20 +9350,24 @@ function logModeSnapshotUI(snapshot) {
                                 console.log('');
                                 showConfigFeedback(isSuccess);
                             }
+                            resolve(true);
                         });
                     } catch (e) {
                         console.error('%c❌ Exception ao enviar mensagem:', 'color: #FF0000; font-weight: bold;', e);
                         // ✅ MESMO COM ERRO, OS DADOS JÁ FORAM SALVOS!
                         console.log('%c⚠️ MAS: Configurações JÁ FORAM SALVAS no storage!', 'color: #FFA500; font-weight: bold;');
                         showConfigFeedback(true); // Mostrar sucesso porque salvou
+                        resolve(true);
                     }
                 });
             } catch (e) {
                 console.error('%c❌ ERRO CRÍTICO ao processar configurações:', 'color: #FF0000; font-weight: bold;', e);
                 console.error(e.stack);
                 showConfigFeedback(false);
+                resolve(false);
             }
         }); // Fecha chrome.storage.local.get
+        });
     }
 
     function showConfigFeedback(success) {
