@@ -1244,6 +1244,7 @@ const AUTO_BET_DEFAULTS = Object.freeze({
     simulationBankRoll: 5000,
     whitePayoutMultiplier: 14,
     whiteProtection: false,
+    inverseModeEnabled: false,
     whiteProtectionMode: WHITE_PROTECTION_MODE.PROFIT
 });
 
@@ -1257,7 +1258,9 @@ const AUTO_BET_RUNTIME_DEFAULTS = Object.freeze({
     lastProcessedEntryTimestamp: null,
     openCycle: null,
     simulationBalanceBase: AUTO_BET_DEFAULTS.simulationBankRoll,
-    simulationBalance: AUTO_BET_DEFAULTS.simulationBankRoll
+    simulationBalance: AUTO_BET_DEFAULTS.simulationBankRoll,
+    inverseNextBaseFactor: 1,
+    inverseCycleBaseFactor: 1
 });
 
 function sanitizeAutoBetConfig(raw) {
@@ -1282,6 +1285,7 @@ function sanitizeAutoBetConfig(raw) {
     sanitized.whiteProtection = !!base.whiteProtection;
     sanitized.whitePayoutMultiplier = Math.max(2, getNumber(base.whitePayoutMultiplier, AUTO_BET_DEFAULTS.whitePayoutMultiplier));
     sanitized.whiteProtectionMode = normalizeWhiteProtectionMode(base.whiteProtectionMode);
+    sanitized.inverseModeEnabled = !!base.inverseModeEnabled;
     return sanitized;
 }
 
@@ -1335,6 +1339,7 @@ let analyzerActive = true;
 let analyzerToggleBusy = false;
 let autoBetSummaryVisible = true;
 let analyzerAutoPausedReason = null;
+let analyzerConfigSnapshot = null;
 
 function applyAutoBetSummaryVisibility() {
     const summary = document.getElementById('autoBetSummary');
@@ -2124,10 +2129,10 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                 <div>
                     <span>Histórico analisado (giros)</span>
                     <input type="number" id="diamondN3Alternance" min="1" value="12" />
-                    <span class="diamond-level-subnote">
+                            <span class="diamond-level-subnote">
                         Recomendado: 50-80 giros (mín. 1)
-                    </span>
-                </div>
+                            </span>
+                        </div>
                 <div>
                     <span>Comprimento da janela L</span>
                     <input type="number" id="diamondN3PatternLength" min="3" max="8" value="4" />
@@ -3617,6 +3622,10 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                     variant: null
                 });
             }
+            if (!config.inverseModeEnabled) {
+                runtime.inverseNextBaseFactor = 1;
+                runtime.inverseCycleBaseFactor = 1;
+            }
         }
 
         function ensureStyles() {
@@ -4052,6 +4061,11 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                 .mode-toggle input:checked + .mode-toggle-content .mode-toggle-label {
                     color: #00e5ff;
                 }
+                .mode-toggle-hint {
+                    font-size: 11px;
+                    color: rgba(255, 255, 255, 0.6);
+                    margin: 4px 0 0 4px;
+                }
                 .auto-bet-field {
                     display: flex;
                     flex-direction: column;
@@ -4329,6 +4343,7 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                 ['autoBetEnabled', config.enabled, true],
                 ['autoBetSimulationOnly', config.simulationOnly, true],
                 ['autoBetWhiteProtection', config.whiteProtection, true],
+                ['autoBetInverseMode', config.inverseModeEnabled, true],
                 ['autoBetBaseStake', config.baseStake],
                 ['autoBetGaleMultiplier', config.galeMultiplier],
                 ['autoBetStopWin', config.stopWin],
@@ -4727,6 +4742,14 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                 runtime.openCycle.color = color;
                 runtime.openCycle.whiteBets = runtime.openCycle.whiteBets || [];
             }
+            if (config.inverseModeEnabled) {
+                if (stageInfo.index === 0) {
+                    runtime.inverseCycleBaseFactor = Math.max(1, Number(runtime.inverseNextBaseFactor || 1));
+                }
+            } else {
+                runtime.inverseCycleBaseFactor = 1;
+                runtime.inverseNextBaseFactor = 1;
+            }
             persistRuntime(true);
             updateStatusUI();
         }
@@ -4769,7 +4792,9 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
             const mode = normalizeWhiteProtectionMode(config.whiteProtectionMode);
             const lastColorBet = runtime.openCycle && runtime.openCycle.bets && runtime.openCycle.bets.length
                 ? Number(runtime.openCycle.bets[runtime.openCycle.bets.length - 1].amount || 0)
-                : Math.max(0.01, Number(config.baseStake) || AUTO_BET_DEFAULTS.baseStake);
+                : (config.inverseModeEnabled
+                    ? getInverseInitialAmount()
+                    : Math.max(0.01, Number(config.baseStake) || AUTO_BET_DEFAULTS.baseStake));
             const targetProfit = mode === WHITE_PROTECTION_MODE.NEUTRAL ? 0 : Math.max(0.01, lastColorBet);
             const numerator = exposuresBefore + targetProfit;
             const required = gainMultiplier > 0
@@ -4886,10 +4911,36 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
         }
 
         function calculateBetAmount(stageIndex = 0) {
+            if (config.inverseModeEnabled) {
+                return calculateInverseBetAmount();
+            }
             const multiplier = Math.max(1, Number(config.galeMultiplier) || 1);
             const base = Math.max(0.01, Number(config.baseStake) || AUTO_BET_DEFAULTS.baseStake);
             const exponent = getNextColorStageIndex(stageIndex);
             return Number((base * Math.pow(multiplier, exponent)).toFixed(2));
+        }
+
+        function getInverseInitialAmount() {
+            const base = Math.max(0.01, Number(config.baseStake) || AUTO_BET_DEFAULTS.baseStake);
+            const factor = Math.max(1, Number(runtime.inverseCycleBaseFactor || runtime.inverseNextBaseFactor || 1));
+            return Number((base * factor).toFixed(2));
+        }
+
+        function calculateInverseBetAmount() {
+            const initialAmount = getInverseInitialAmount();
+            const betsCount = runtime.openCycle && Array.isArray(runtime.openCycle.bets)
+                ? runtime.openCycle.bets.length
+                : 0;
+            if (betsCount === 0) {
+                return initialAmount;
+            }
+            if (betsCount === 1) {
+                return initialAmount;
+            }
+            const multiplier = Math.max(1, Number(config.galeMultiplier) || 1);
+            const lastBet = runtime.openCycle.bets[betsCount - 1];
+            const prevAmount = Number(lastBet.amount || initialAmount);
+            return Number((prevAmount * multiplier).toFixed(2));
         }
 
         function hasContinuationFlag(entry) {
@@ -4973,6 +5024,13 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
             runtime.openCycle = null;
             evaluateStops();
             updateSimulationSnapshots();
+            if (config.inverseModeEnabled) {
+                const multiplier = Math.max(1, Number(config.galeMultiplier) || 1);
+                runtime.inverseNextBaseFactor = adjustedOutcome === 'WIN' ? multiplier : 1;
+            } else {
+                runtime.inverseNextBaseFactor = 1;
+                runtime.inverseCycleBaseFactor = 1;
+            }
             persistRuntime();
             updateStatusUI();
         }
@@ -5004,7 +5062,7 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
             }
         }
     })();
-
+    
     // ═══════════════════════════════════════════════════════════════════════════════
     // 🔄 GERENCIAMENTO DE PREFERÊNCIAS DE SINCRONIZAÇÃO
     // ═══════════════════════════════════════════════════════════════════════════════
@@ -6037,7 +6095,7 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
             <div class="auto-bet-summary-collapsed" id="autoBetSummaryCollapsed">
                 <button type="button" id="autoBetShowBtn">Ver saldo</button>
             </div>
-            <div class="entries-panel" id="entriesPanel">
+                <div class="entries-panel" id="entriesPanel">
                     <div class="entries-header">
                         <span>Entradas</span>
                         <span class="entries-hit" id="entriesHit">Acertos: 0/0 (0%)</span>
@@ -6290,7 +6348,7 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                     </div>
                     <button id="cfgSaveBtn" class="cfg-save-btn">Salvar</button>
                 </div>
-
+                
                 <div class="stats-section">
                     <h4>Histórico de Giros</h4>
                     <div class="stats-grid">
@@ -6391,6 +6449,16 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                             </p>
                             <input type="hidden" id="autoBetWhiteMode" value="profit" />
                         </div>
+                        <label class="mode-toggle" style="margin-top: 12px;">
+                            <input type="checkbox" id="autoBetInverseMode" />
+                            <div class="mode-toggle-content">
+                                <span class="mode-toggle-label">Modo inverso (G1 plano)</span>
+                                <span class="mode-toggle-switch"></span>
+                            </div>
+                        </label>
+                        <p class="mode-toggle-hint">
+                            Mantém G1 com o mesmo valor da entrada base e dobra apenas no G2. Após cada WIN, o próximo sinal inicia dobrado.
+                        </p>
                     </div>
                     <div class="auto-bet-modal-footer">
                         <button type="button" class="auto-bet-reset" id="autoBetResetRuntimeModal"><span class="button-label">Resetar ciclo</span></button>
@@ -8757,6 +8825,12 @@ function logModeSnapshotUpdates(snapshot) {
 
 function logModeSnapshotUI(snapshot) {
     if (!snapshot) return;
+        const snapshotWhite =
+            snapshot.whiteProtectionAsWin ??
+            snapshot.standardConfig?.whiteProtectionAsWin ??
+            snapshot.diamondSettings?.whiteProtectionAsWin ??
+            false;
+        analyzerConfigSnapshot = { whiteProtectionAsWin: !!snapshotWhite };
     try {
         const prev = lastModeSnapshot;
         if (!prev || prev.modeLabel !== snapshot.modeLabel || prev.aiMode !== snapshot.aiMode) {
@@ -8857,7 +8931,7 @@ function logModeSnapshotUI(snapshot) {
             console.warn('⚠️ Erro ao solicitar MODE_SNAPSHOT:', error);
         }
     }
-
+    
     // Listen for messages from background script
     chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         if (request.type === 'NEW_ANALYSIS') {
@@ -9576,6 +9650,7 @@ function logModeSnapshotUI(snapshot) {
                 setAutoBetInput('autoBetSimulationBank', autoBetConfig.simulationBankRoll);
                 setWhiteProtectionModeUI(autoBetConfig.whiteProtectionMode);
                 setWhiteProtectionModeAvailability(!!autoBetConfig.whiteProtection);
+                setAutoBetInput('autoBetInverseMode', autoBetConfig.inverseModeEnabled, true);
                 
                 // 🎚️ Carregar intensidade de sinais
                 const signalIntensitySelect = document.getElementById('signalIntensitySelect');
@@ -9653,7 +9728,8 @@ function logModeSnapshotUI(snapshot) {
                     stopLoss: getElementValue('autoBetStopLoss', AUTO_BET_DEFAULTS.stopLoss),
                     simulationBankRoll: getElementValue('autoBetSimulationBank', AUTO_BET_DEFAULTS.simulationBankRoll),
                     whitePayoutMultiplier: AUTO_BET_DEFAULTS.whitePayoutMultiplier,
-                    whiteProtectionMode: normalizeWhiteProtectionMode(getElementValue('autoBetWhiteMode', AUTO_BET_DEFAULTS.whiteProtectionMode))
+                    whiteProtectionMode: normalizeWhiteProtectionMode(getElementValue('autoBetWhiteMode', AUTO_BET_DEFAULTS.whiteProtectionMode)),
+                    inverseModeEnabled: getElementValue('autoBetInverseMode', AUTO_BET_DEFAULTS.inverseModeEnabled, true)
                 };
                 const sanitizedAutoBetConfig = sanitizeAutoBetConfig(autoBetRawConfig);
                 const whiteProtectionSetting = analyzerWhiteProtection;
