@@ -16481,8 +16481,14 @@ async function verifyWithSavedPatterns(history) {
 	if (!db.patterns_found || db.patterns_found.length === 0) return null;
 
 	const headColors = history.map(s => s.color);
+	const maxTrackedStage = MAX_GALE_STAGE_TRACKED;
 	let best = null;
 	for (const pat of db.patterns_found) {
+		const galeStageTotals = Array(maxTrackedStage + 1).fill(0);
+		const galeStageWins = Array(maxTrackedStage + 1).fill(0);
+		const galeStageLosses = Array(maxTrackedStage + 1).fill(0);
+		const galeCoverageAvailable = Array(maxTrackedStage + 1).fill(0);
+		const galeSuccessCumulative = Array(maxTrackedStage + 1).fill(0);
 		if (!Array.isArray(pat.pattern) || pat.pattern.length === 0) continue;
 		const need = pat.pattern.length;
 		if (need < 3) continue; // ignorar padrões muito curtos
@@ -16567,6 +16573,7 @@ async function verifyWithSavedPatterns(history) {
 
 			const resultColor = history[i - 1] ? history[i - 1].color : null;
 			const occurrenceRecord = createOccurrenceRecord(pat.pattern, trigColorRaw, resultColor, seq, trigSpin, occCount + 1);
+			occurrenceRecord.gale_results = evaluateGaleStagesForOccurrence(history, i, suggested, maxTrackedStage);
 
 			if (occurrenceRecord.flag_invalid_disparo) {
 				continue;
@@ -16620,6 +16627,28 @@ async function verifyWithSavedPatterns(history) {
 		const resultColor = history[i - 1] ? history[i - 1].color : null;
 		if (resultColor) {
 			colorResults[resultColor]++;
+		}
+		const stageAvailable = Math.min(maxTrackedStage, i - 1);
+		for (let stage = 0; stage <= stageAvailable; stage++) {
+			galeCoverageAvailable[stage]++;
+		}
+		const galeResults = evaluateGaleStagesForOccurrence(history, i, suggested, maxTrackedStage);
+		let successStageValue = null;
+		galeResults.forEach(result => {
+			galeStageTotals[result.stage]++;
+			if (result.win) {
+				galeStageWins[result.stage]++;
+				if (successStageValue === null) {
+					successStageValue = result.stage;
+				}
+			} else {
+				galeStageLosses[result.stage]++;
+			}
+		});
+		if (successStageValue !== null) {
+			for (let stage = successStageValue; stage < galeSuccessCumulative.length; stage++) {
+				galeSuccessCumulative[stage]++;
+			}
 		}
 	}
 	
@@ -16827,6 +16856,26 @@ async function verifyWithSavedPatterns(history) {
                     const othersCount = Math.max((occ - sampleMin), 0);
                     const rigorWinPct = othersCount > 0 ? (othersWins / othersCount) * 100 : 100;
                     // CORREÇÃO: Retornar wins/losses TOTAIS, não apenas "others"
+                    const stageSummaries = galeStageTotals.map((total, stage) => {
+                        const wins = galeStageWins[stage];
+                        const losses = galeStageLosses[stage];
+                        return {
+                            stage: stage === 0 ? 'G0' : `G${stage}`,
+                            wins,
+                            losses,
+                            total,
+                            winPct: total > 0 ? (wins / total) * 100 : null
+                        };
+                    });
+                    const coverageSummaries = galeCoverageAvailable.map((attempts, stage) => {
+                        const wins = galeSuccessCumulative[stage];
+                        return {
+                            stage: stage === 0 ? 'G0' : `G${stage}`,
+                            wins,
+                            attempts,
+                            coveragePct: attempts > 0 ? (wins / attempts) * 100 : null
+                        };
+                    });
                     return {
                         occurrences: occ,
                         wins: w,  // Total de wins (inclui rigor + demais)
@@ -16839,7 +16888,12 @@ async function verifyWithSavedPatterns(history) {
                         rigorWinPct,  // Porcentagem apenas das "demais"
                         sampleMin,
                         sampleMinWins100: true,
-                        patternLength: Array.isArray(pat.pattern) ? pat.pattern.length : null
+                        patternLength: Array.isArray(pat.pattern) ? pat.pattern.length : null,
+                        galeStats: {
+                            maxStageTracked: MAX_GALE_STAGE_TRACKED,
+                            stages: stageSummaries,
+                            coverage: coverageSummaries
+                        }
                     };
                 })()
 			},
@@ -17787,6 +17841,33 @@ function validateDisparoColor(corInicial, corDisparo) {
 }
 
 // Criar objeto de ocorrência individual (append-only)
+const MAX_GALE_STAGE_TRACKED = 3;
+
+function evaluateGaleStagesForOccurrence(history, startIndex, suggestedColor, maxStage = MAX_GALE_STAGE_TRACKED) {
+	const normalizedTarget = normalizeColorName(suggestedColor);
+	if (!normalizedTarget || !history) return [];
+	const stages = [];
+	for (let stage = 0; stage <= maxStage; stage++) {
+		const resultIndex = startIndex - 1 - stage;
+		if (resultIndex < 0) break;
+		const spin = history[resultIndex];
+		if (!spin || !spin.color) break;
+		const normalizedColor = normalizeColorName(spin.color);
+		if (!normalizedColor) break;
+		const isWin = normalizedColor === normalizedTarget;
+		stages.push({
+			stage,
+			stageLabel: stage === 0 ? 'G0' : `G${stage}`,
+			color: normalizedColor,
+			win: isWin,
+			number: spin.number ?? null,
+			timestamp: spin.timestamp || spin.created_at || null
+		});
+		if (isWin) break;
+	}
+	return stages;
+}
+
 function createOccurrenceRecord(patternSequence, triggerColor, resultColor, sequenceSpins, triggerSpin, index) {
 	const corInicial = normalizeColorName(getInitialPatternColor(patternSequence));
     const triggerNormalized = normalizeColorName(triggerColor);
