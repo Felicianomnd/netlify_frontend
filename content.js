@@ -3732,44 +3732,27 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                     box-shadow: 0 0 0 2px rgba(0, 212, 255, 0.35);
                 }
                 .bet-entry-card.bet-result-win {
-                    box-shadow: 0 0 12px rgba(0, 230, 118, 0.55);
-                    animation: betWinGlow 1.2s ease-in-out;
-                    transform: scale(1);
+                    background: linear-gradient(135deg, #1caf6c, #0f9a57);
+                    color: #e3ffe8;
+                    box-shadow: 0 0 10px rgba(16, 185, 129, 0.4);
                 }
                 .bet-entry-card.bet-result-loss {
-                    box-shadow: 0 0 12px rgba(255, 82, 82, 0.55);
-                    animation: betLossShake 0.65s ease-in-out;
+                    background: linear-gradient(135deg, #b61b37, #8d142a);
+                    color: #ffe4e6;
+                    box-shadow: 0 0 10px rgba(244, 63, 94, 0.35);
                 }
-                .bet-entry-card.bet-result-win::before {
-                    background: rgba(0, 230, 118, 0.25);
-                    opacity: 1;
-                }
+                .bet-entry-card.bet-result-win::before,
                 .bet-entry-card.bet-result-loss::before {
-                    background: rgba(255, 82, 82, 0.25);
-                    opacity: 1;
+                    display: none;
                 }
-                .bet-entry-card.bet-entry-active-red::after {
-                    opacity: 1;
-                    background: rgba(0, 0, 0, 0.2);
+                .bet-entry-card.bet-entry-active-red {
+                    filter: saturate(0.8) brightness(0.9);
                 }
-                .bet-entry-card.bet-entry-active-black::after {
-                    opacity: 1;
-                    background: rgba(255, 255, 255, 0.08);
+                .bet-entry-card.bet-entry-active-black {
+                    filter: brightness(1.1);
                 }
-                .bet-entry-card.bet-entry-active-white::after {
-                    opacity: 1;
-                    background: rgba(0, 0, 0, 0.12);
-                }
-                @keyframes betWinGlow {
-                    0% { box-shadow: 0 0 0 rgba(0, 230, 118, 0.0); transform: scale(1); }
-                    40% { box-shadow: 0 0 18px rgba(0, 230, 118, 0.65); transform: scale(1.02); }
-                    100% { box-shadow: 0 0 12px rgba(0, 230, 118, 0.4); transform: scale(1); }
-                }
-                @keyframes betLossShake {
-                    0%, 100% { transform: translateX(0); }
-                    25% { transform: translateX(-3px); }
-                    50% { transform: translateX(3px); }
-                    75% { transform: translateX(-2px); }
+                .bet-entry-card.bet-entry-active-white {
+                    filter: brightness(0.9);
                 }
                 .auto-bet-summary-metrics {
                     flex: 1;
