@@ -1334,6 +1334,7 @@ let lastModeSnapshot = null;
 let analyzerActive = true;
 let analyzerToggleBusy = false;
 let autoBetSummaryVisible = true;
+let analyzerAutoPausedReason = null;
 
 function applyAutoBetSummaryVisibility() {
     const summary = document.getElementById('autoBetSummary');
@@ -1508,6 +1509,19 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
         });
     }
 
+    async function pauseAnalysisForAutoBet(reason = 'Auto stop') {
+        const normalizedReason = reason || 'Auto stop';
+        if (!analyzerActive && analyzerAutoPausedReason === normalizedReason) {
+            return;
+        }
+        const response = await sendRuntimeMessage({ action: 'SET_ANALYSIS_ENABLED', enabled: false, source: 'AUTO_BET_STOP' });
+        if (response && response.status === 'ok') {
+            analyzerAutoPausedReason = normalizedReason;
+            updateAnalyzerToggleUI(false, { log: true, source: normalizedReason });
+            showToast(`${normalizedReason}. Análises pausadas automaticamente.`, 2600);
+        }
+    }
+
     async function syncAnalyzerToggleStatus() {
         const response = await sendRuntimeMessage({ action: 'GET_ANALYSIS_STATUS' });
         if (response && typeof response.enabled === 'boolean') {
@@ -1551,6 +1565,9 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
             const success = response && response.status === 'ok';
             if (success) {
                 updateAnalyzerToggleUI(targetState, { log: true, source: 'Botão "Ativar análise"' });
+                if (targetState) {
+                    analyzerAutoPausedReason = null;
+                }
                 showToast(targetState ? 'Análises ativadas' : 'Análises pausadas', 1800);
             } else {
                 showToast(targetState ? 'Não foi possível ativar as análises' : 'Não foi possível pausar as análises', 2200);
@@ -4936,30 +4953,38 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
             const payoutMultiplier = runtime.openCycle.color === 'white'
                 ? (config.whitePayoutMultiplier || 14)
                 : 2;
-            const colorNet = outcome === 'WIN'
+            const shouldCountWhiteAsWin = !!analyzerConfigSnapshot?.whiteProtectionAsWin;
+            const whiteBetPlaced = totalWhiteInvested > 0;
+            const treatWhiteAsLoss = runtime.openCycle.color === 'white'
+                && (!whiteBetPlaced || !config.whiteProtection);
+
+            const adjustedOutcome = treatWhiteAsLoss
+                ? 'LOSS'
+                : (outcome === 'WIN' && runtime.openCycle.color === 'white' && !shouldCountWhiteAsWin
+                    ? 'LOSS'
+                    : outcome);
+            const colorNet = adjustedOutcome === 'WIN'
                 ? Number(((displayAmount * payoutMultiplier) - totalColorInvested).toFixed(2))
                 : -totalColorInvested;
-            if (outcome === 'LOSS') {
+            if (adjustedOutcome === 'LOSS') {
                 recordLoss(betColor, displayAmount);
             }
             setColorBetResult(betColor, lastStageLabel, displayAmount, colorNet);
 
-            if (totalWhiteInvested > 0) {
+            if (whiteBetPlaced) {
                 const whiteStage = betCardState.white.stage !== '—' ? betCardState.white.stage : lastStageLabel;
-                const whiteNet = -totalWhiteInvested;
+                const whiteNet = adjustedOutcome === 'WIN'
+                    ? totalWhiteInvested * (config.whitePayoutMultiplier || 14) - totalWhiteInvested
+                    : -totalWhiteInvested;
                 if (whiteNet < 0) {
                     recordLoss('white', totalWhiteInvested);
                 }
                 setWhiteBetResult(whiteStage, totalWhiteInvested, whiteNet);
-            } else if (!config.whiteProtection) {
-                setWhiteProtectionDisabled();
-            } else if (!betCardState.white.active) {
-                updateBetCard('white', {
-                    stage: '—',
-                    amountText: formatCurrency(0),
-                    status: 'Sem proteção ativa',
-                    variant: null
-                });
+            } else {
+                const whiteStatus = config.whiteProtection
+                    ? 'Proteção desativada (ciclo atual)'
+                    : 'Proteção desativada';
+                setWhiteCardIdle(whiteStatus);
             }
 
             runtime.openCycle = null;
@@ -4970,11 +4995,28 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
         }
 
         function evaluateStops() {
+            const previousReason = runtime.blockedReason;
+            let nextReason = null;
             if (config.stopWin > 0 && runtime.profit >= config.stopWin) {
-                runtime.blockedReason = 'STOP_WIN';
+                nextReason = 'STOP_WIN';
             } else if (config.stopLoss > 0 && runtime.profit <= -config.stopLoss) {
-                runtime.blockedReason = 'STOP_LOSS';
-            } else if (runtime.blockedReason && runtime.blockedReason.startsWith('STOP')) {
+                nextReason = 'STOP_LOSS';
+            }
+            const currentBank = getInitialBalanceValue() + Number(runtime.profit || 0);
+            if (currentBank <= 0) {
+                nextReason = nextReason || 'BANK_ZERO';
+            }
+            if (nextReason) {
+                runtime.blockedReason = nextReason;
+                if (nextReason !== previousReason) {
+                    const label = nextReason === 'STOP_WIN'
+                        ? 'Stop WIN atingido'
+                        : nextReason === 'STOP_LOSS'
+                            ? 'Stop LOSS atingido'
+                            : 'Banca esgotada';
+                    pauseAnalysisForAutoBet(label);
+                }
+            } else if (previousReason && (previousReason.startsWith('STOP') || previousReason === 'BANK_ZERO')) {
                 runtime.blockedReason = null;
             }
         }
