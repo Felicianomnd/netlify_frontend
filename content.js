@@ -3280,12 +3280,12 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
           // API de Giros (coleta, histórico, padrões de análise)
           giros: window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
               ? 'http://localhost:3001'
-              : 'https://blaze-giros-api-v2-1.onrender.com',
+              : 'https://blaze-giros-api-v2-sx14.onrender.com',
           
           // API de Autenticação (usuários, admin, padrões customizados)
           auth: window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
               ? 'http://localhost:3000'
-              : 'https://blaze-analyzer-api-v2.onrender.com'
+              : 'https://blaze-analyzer-api-v2-z8s3.onrender.com'
       };
       
       // Obter URL da API de Giros
@@ -10243,7 +10243,7 @@ function logModeSnapshotUI(snapshot) {
     // ATUALIZAÇÃO AUTOMÁTICA DO HISTÓRICO DE GIROS DO SERVIDOR
     // ═══════════════════════════════════════════════════════════════════════════════
     
-    const API_URL = 'https://blaze-giros-api-v2-1.onrender.com';
+    const API_URL = 'https://blaze-giros-api-v2-sx14.onrender.com';
     let isUpdatingHistory = false;
     let lastHistoryUpdate = null;
     let isWebSocketConnected = true; // Assume conectado inicialmente
