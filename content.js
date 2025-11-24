@@ -1340,6 +1340,7 @@ let analyzerToggleBusy = false;
 let autoBetSummaryVisible = true;
 let analyzerAutoPausedReason = null;
 let analyzerConfigSnapshot = null;
+let bankProgressTimeout = null;
 
 function applyAutoBetSummaryVisibility() {
     const summary = document.getElementById('autoBetSummary');
@@ -6260,6 +6261,9 @@ async function persistAnalyzerState(newState) {
                 
                 <div class="pattern-bank-section">
                     <h4>📂 Banco de Padrões</h4>
+                    <div class="bank-progress" id="bankProgress" aria-live="polite" style="display:none;">
+                        <span class="bank-progress-text" id="bankProgressText"></span>
+                    </div>
                     <div class="bank-stats" id="bankStats">
                         <div class="bank-loading">Carregando...</div>
                     </div>
@@ -9209,25 +9213,18 @@ function logModeSnapshotUI(snapshot) {
             const status = request.data && request.data.status ? request.data.status : request.status;
             updateAnalysisStatus(status);
         } else if (request.type === 'INITIAL_SEARCH_START') {
-            // ✅ BUSCA DE PADRÕES (MODO PADRÃO) - SEMPRE NA CAIXA EMBAIXO
+            // ✅ BUSCA DE PADRÕES (MODO PADRÃO) - EXIBIR APENAS NO BANCO DE PADRÕES
             console.log('🔍 Busca inicial de padrões iniciada (30s)');
-            const suggestionText = document.getElementById('suggestionText');
-            if (suggestionText) {
-                suggestionText.textContent = '🔍 Buscando padrões... 30s | 0/5000';
-            }
+            showBankProgressMessage('🔍 Buscando padrões... 30s restantes • 0/5000', { variant: 'info' });
         } else if (request.type === 'INITIAL_SEARCH_PROGRESS') {
-            // ✅ ATUALIZAR CRONÔMETRO DECRESCENTE (SEMPRE VISÍVEL, SEM INTERRUPÇÃO)
+            // ✅ ATUALIZAR CRONÔMETRO DECRESCENTE NO BANCO DE PADRÕES
             const total = request.data.total || 0;
             const remaining = request.data.remaining || 0;
             const minutes = Math.floor(remaining / 60000);
             const seconds = Math.floor((remaining % 60000) / 1000);
             console.log(`🔍 Busca inicial: ${total}/5000 padrões | ${minutes}m ${seconds}s restantes`);
             
-            // ✅ SEMPRE atualizar a caixa de sugestão (modo padrão)
-            const suggestionText = document.getElementById('suggestionText');
-            if (suggestionText) {
-                suggestionText.textContent = `🔍 Buscando... ${minutes}m ${seconds}s | ${total}/5000`;
-            }
+            showBankProgressMessage(`🔍 Buscando... ${minutes}m ${seconds}s • ${total}/5000`, { variant: 'info' });
             loadPatternBank(); // Atualizar UI do banco
         } else if (request.type === 'INITIAL_SEARCH_COMPLETE') {
             // ✅ BUSCA CONCLUÍDA
@@ -9235,9 +9232,14 @@ function logModeSnapshotUI(snapshot) {
             console.log(`✅ Busca inicial concluída: ${total} padrões únicos encontrados!`);
             
             const suggestionText = document.getElementById('suggestionText');
-            if (suggestionText) {
-                suggestionText.textContent = '✅ Pronto para jogar!';
+            if (suggestionText && suggestionText.textContent && suggestionText.textContent.startsWith('🔍')) {
+                suggestionText.textContent = 'Aguardando análise...';
             }
+            
+            showBankProgressMessage(`✅ Busca concluída! ${total} padrão(ões) encontrados.`, {
+                variant: 'success',
+                autoHide: 5000
+            });
             loadPatternBank(); // Atualizar UI do banco
             
             // Reabilitar botão de busca
@@ -10053,6 +10055,43 @@ function logModeSnapshotUI(snapshot) {
     }
 
     // ========== BANCO DE PADRÕES ==========
+    
+    function showBankProgressMessage(message, options = {}) {
+        const container = document.getElementById('bankProgress');
+        const textElement = document.getElementById('bankProgressText');
+        if (!container || !textElement) return;
+        
+        const variant = options.variant || 'info';
+        container.classList.remove('bank-progress--info', 'bank-progress--success', 'bank-progress--error');
+        container.classList.add(`bank-progress--${variant}`);
+        
+        textElement.textContent = message;
+        container.style.display = 'block';
+        
+        if (bankProgressTimeout) {
+            clearTimeout(bankProgressTimeout);
+            bankProgressTimeout = null;
+        }
+        
+        if (typeof options.autoHide === 'number' && options.autoHide > 0) {
+            bankProgressTimeout = setTimeout(() => {
+                hideBankProgressMessage();
+            }, options.autoHide);
+        }
+    }
+    
+    function hideBankProgressMessage() {
+        const container = document.getElementById('bankProgress');
+        const textElement = document.getElementById('bankProgressText');
+        if (!container || !textElement) return;
+        container.style.display = 'none';
+        textElement.textContent = '';
+        
+        if (bankProgressTimeout) {
+            clearTimeout(bankProgressTimeout);
+            bankProgressTimeout = null;
+        }
+    }
     
     // Função para atualizar a UI do banco de padrões
     function updatePatternBankUI(data) {

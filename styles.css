@@ -651,15 +651,15 @@
     flex: 1;
     display: flex;
     flex-direction: column;
-    gap: 12px;
-    padding: 12px;
+    gap: 8px;
+    padding: 8px 10px;
     border-radius: 10px;
     background: rgba(255, 255, 255, 0.1);
     box-shadow: 0 8px 16px rgba(0, 0, 0, 0.25);
 }
 
 .analysis-lastspin-row .analysis-section .confidence-meter {
-    margin-bottom: 10px;
+    margin-bottom: 6px;
 }
 
 .analysis-card .g1-status {
@@ -698,10 +698,10 @@
 
 .spin-display {
     display: flex;
-    gap: 12px;
+    gap: 8px;
     align-items: center;
     justify-content: flex-start;
-    padding: 12px;
+    padding: 8px 10px;
     background: rgba(255, 255, 255, 0.1);
     border-radius: 6px;
 }
@@ -766,16 +766,16 @@
 }
 
 .confidence-meter {
-    margin-bottom: 8px;
+    margin-bottom: 6px;
 }
 
 .confidence-bar {
     width: 100%;
-    height: 8px;
+    height: 6px;
     background: rgba(5, 10, 20, 0.45);
     border-radius: 4px;
     overflow: hidden;
-    margin-bottom: 8px;
+    margin-bottom: 6px;
 }
 
 .confidence-fill {
@@ -794,7 +794,7 @@
 }
 
 .suggestion-box {
-    padding: 10px;
+    padding: 8px;
     background: rgba(255, 255, 255, 0.1);
     border-radius: 6px;
     border-left: 3px solid #4CAF50;
@@ -811,11 +811,11 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 12px; /* Espaçamento entre o círculo e o indicador */
-    padding: 6px;
+    gap: 10px; /* Espaçamento entre o círculo e o indicador */
+    padding: 4px 6px;
     border-radius: 4px;
     background: rgba(255, 255, 255, 0.1);
-    min-height: 36px;
+    min-height: 32px;
 }
 
 .suggestion-color {
@@ -1254,6 +1254,42 @@
     font-weight: 600;
     color: #e4ecff;
     font-size: 13px;
+}
+
+.bank-progress {
+    display: none;
+    margin-bottom: 10px;
+    padding: 8px 10px;
+    border-radius: 8px;
+    border: 1px solid rgba(79, 195, 247, 0.45);
+    background: rgba(79, 195, 247, 0.12);
+    color: #dcede9;
+    font-size: 12px;
+    font-weight: 500;
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,0.02);
+    transition: opacity 0.3s ease;
+}
+
+.bank-progress-text {
+    display: block;
+}
+
+.bank-progress--info {
+    border-color: rgba(79, 195, 247, 0.45);
+    background: rgba(79, 195, 247, 0.12);
+    color: #cfe8ff;
+}
+
+.bank-progress--success {
+    border-color: rgba(76, 175, 80, 0.5);
+    background: rgba(76, 175, 80, 0.12);
+    color: #dffbe4;
+}
+
+.bank-progress--error {
+    border-color: rgba(244, 67, 54, 0.5);
+    background: rgba(244, 67, 54, 0.12);
+    color: #ffd7d4;
 }
 
 .bank-stats {
