@@ -6205,7 +6205,7 @@ async function persistAnalyzerState(newState) {
             
             <div class="analysis-lastspin-row">
                 <div class="analysis-section">
-                    <h4 id="analysisModeTitle">Aguardando Análise</h4>
+                    <h4 id="analysisModeTitle">Cor Indicada</h4>
                     <div class="analysis-card">
                         <div class="confidence-meter">
                             <div class="confidence-bar">
@@ -6215,13 +6215,10 @@ async function persistAnalyzerState(newState) {
                         </div>
                         
                         <div class="suggestion-box" id="suggestionBox">
-                            <div class="suggestion-text" id="suggestionText">Aguardando análise...</div>
-                            <div class="suggestion-color-wrapper">
-                                <div class="suggestion-color" id="suggestionColor"></div>
-                                <div class="gale-indicator-wrapper" id="galeIndicatorWrapper"></div>
-                            </div>
+                            <div class="suggestion-color" id="suggestionColor"></div>
+                            <div class="gale-indicator-wrapper" id="galeIndicatorWrapper"></div>
                         </div>
-                        
+
                         <div class="g1-status" id="g1Status" style="display:none;">
                             <div class="g1-indicator">G1: Sinal Ativo</div>
                             <div class="g1-accuracy" id="g1Accuracy">-</div>
@@ -8068,6 +8065,11 @@ async function persistAnalyzerState(newState) {
         const totalSpins = document.getElementById('totalSpins');
         const lastUpdate = document.getElementById('lastUpdate');
         
+        if (!lastSpinNumber || !lastSpinColor || !confidenceFill || !confidenceText || !suggestionText || !suggestionColor) {
+            console.warn('⚠️ updateSidebar(): elementos principais ainda não foram renderizados');
+            return;
+        }
+        
         if (data.lastSpin) {
             const spin = data.lastSpin;
             // Número com o mesmo estilo do histórico (quadrado com anel)
@@ -8203,11 +8205,7 @@ async function persistAnalyzerState(newState) {
                         // ✅ ATUALIZAR TÍTULO DO MODO DE ANÁLISE
                         const analysisModeTitle = document.getElementById('analysisModeTitle');
                         if (analysisModeTitle) {
-                            if (isAIAnalysis) {
-                                analysisModeTitle.textContent = 'Análise por Inteligência Artificial';
-                            } else {
-                                analysisModeTitle.textContent = 'Análise por Sistema Padrão';
-                            }
+                            analysisModeTitle.textContent = 'Cor Indicada';
                         }
                         console.log('✅ Padrão processado com sucesso!');
                         console.log('🔍 =====================================');
@@ -8285,7 +8283,7 @@ async function persistAnalyzerState(newState) {
                 // ✅ RESETAR TÍTULO DO MODO DE ANÁLISE
                 const analysisModeTitle = document.getElementById('analysisModeTitle');
                 if (analysisModeTitle) {
-                    analysisModeTitle.textContent = 'Aguardando Análise';
+                    analysisModeTitle.textContent = 'Cor Indicada';
                 }
                 
                 // ✅ LIMPAR INDICADOR DE GALE quando não há análise

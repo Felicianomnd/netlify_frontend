@@ -226,6 +226,64 @@ let memoriaAtiva = {
     totalAtualizacoes: 0
 };
 
+const PATTERN_DISCOVERY_CUTOFF_KEY = 'patternDiscoveryCutoff';
+let patternDiscoveryCutoff = null;
+
+async function loadPatternDiscoveryCutoffFlag() {
+    try {
+        const stored = await chrome.storage.local.get([PATTERN_DISCOVERY_CUTOFF_KEY]);
+        patternDiscoveryCutoff = stored[PATTERN_DISCOVERY_CUTOFF_KEY] || null;
+    } catch (error) {
+        console.warn('⚠️ Erro ao carregar patternDiscoveryCutoff:', error);
+        patternDiscoveryCutoff = null;
+    }
+}
+
+async function setPatternDiscoveryCutoffFlag(timestamp = Date.now()) {
+    patternDiscoveryCutoff = timestamp;
+    try {
+        await chrome.storage.local.set({ [PATTERN_DISCOVERY_CUTOFF_KEY]: timestamp });
+    } catch (error) {
+        console.warn('⚠️ Não foi possível salvar patternDiscoveryCutoff:', error);
+    }
+}
+
+async function clearPatternDiscoveryCutoffFlag() {
+    patternDiscoveryCutoff = null;
+    try {
+        await chrome.storage.local.remove(PATTERN_DISCOVERY_CUTOFF_KEY);
+    } catch (error) {
+        console.warn('⚠️ Não foi possível limpar patternDiscoveryCutoff:', error);
+    }
+}
+
+function getSpinTimestampMs(spin) {
+    if (!spin) return null;
+    const candidates = [spin.timestamp, spin.created_at, spin.createdAt];
+    for (const value of candidates) {
+        if (value) {
+            const parsed = Date.parse(value);
+            if (!Number.isNaN(parsed)) {
+                return parsed;
+            }
+        }
+    }
+    if (typeof spin.time === 'number') return spin.time;
+    return null;
+}
+
+function filterHistoryByResetCutoff(history) {
+    if (!patternDiscoveryCutoff || !Array.isArray(history)) {
+        return history;
+    }
+    return history.filter(spin => {
+        const ts = getSpinTimestampMs(spin);
+        return ts ? ts >= patternDiscoveryCutoff : false;
+    });
+}
+
+loadPatternDiscoveryCutoffFlag();
+
 let memoriaAtivaInicializando = false;  // Flag para evitar inicializações simultâneas
 
 // Runtime analyzer configuration (overridable via chrome.storage.local)
@@ -16302,6 +16360,7 @@ async function clearAllPatternsAndAnalysis() {
 	sendMessageToContent('PATTERN_BANK_UPDATE', { total: 0 });
 	sendMessageToContent('CLEAR_ANALYSIS');
 	sendAnalysisStatus('🔄 Reset completo - Aguardando nova análise...');
+	await setPatternDiscoveryCutoffFlag(Date.now());
 	
 	console.log('║  ✅ RESET COMPLETO - TUDO ZERADO                         ║');
 	console.log('║  📊 Padrões: Limpos                                       ║');
@@ -16999,6 +17058,9 @@ async function verifyWithSavedPatterns(history) {
 
 // Descoberta: executa 50+ análises em até 5s, evita repetir padrões já salvos
 async function discoverAndPersistPatterns(history, startTs, budgetMs) {
+	if (patternDiscoveryCutoff) {
+		history = filterHistoryByResetCutoff(history);
+	}
 	if (!history || history.length < 50) return; // respeita regra mínima existente
 	const db = await loadPatternDB();
 	const existingKeys = new Set(db.patterns_found.map(patternKeyOf));
@@ -22239,6 +22301,8 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                 
                 console.log(`%c✅ Iniciando busca de padrões com ${historyToAnalyze.length} giros`, 'color: #00FF88; font-weight: bold;');
                 console.log(`%c📊 Profundidade configurada: ${configuredDepth} giros`, 'color: #00D4FF; font-weight: bold; background: #002244; padding: 2px 6px;');
+                
+                await clearPatternDiscoveryCutoffFlag();
                 
                 // ✅ PASSO 1: LIMPAR O BANCO DE PADRÕES
                 await clearAllPatterns();
