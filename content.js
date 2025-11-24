@@ -5198,7 +5198,7 @@ async function persistAnalyzerState(newState) {
     } catch (error) {
         console.warn('⚠️ Não foi possível persistir estado da análise:', error);
     }
-}
+    }
     
     // ═══════════════════════════════════════════════════════════════════════════════
     // 🔥 MODO PADRÃO QUENTE
@@ -6140,17 +6140,17 @@ async function persistAnalyzerState(newState) {
                 <div class="auto-bet-summary-header">
                     <span class="auto-bet-summary-title">Saldo</span>
                     <button type="button" class="auto-bet-hide-btn" id="autoBetHideBtn">Ocultar</button>
-                </div>
+                    </div>
                 <div class="auto-bet-summary-body">
                     <div class="auto-bet-summary-metrics">
                         <div class="auto-bet-summary-item">
                             <span class="positive-label">Saldo inicial</span>
                             <strong id="autoBetInitialBalance" class="positive-value">R$ 0,00</strong>
-                        </div>
+                    </div>
                         <div class="auto-bet-summary-item">
                             <span class="positive-label">Lucro</span>
                             <strong id="autoBetMetricProfit" class="positive-value">R$ 0,00</strong>
-                        </div>
+                </div>
                         <div class="auto-bet-summary-item">
                             <span class="negative-label">Perdas</span>
                             <strong id="autoBetMetricLoss" class="negative-value">R$ 0,00</strong>
@@ -6158,7 +6158,7 @@ async function persistAnalyzerState(newState) {
                         <div class="auto-bet-summary-item">
                             <span class="positive-label">Saldo atual</span>
                             <strong id="autoBetCurrentBalance" class="positive-value">R$ 0,00</strong>
-                        </div>
+                    </div>
                     </div>
                     <div class="auto-bet-actions">
                         <button class="auto-bet-config-launcher toggle-analyzer-btn" id="toggleAnalyzerBtn" title="Desativar análises">
@@ -6201,29 +6201,29 @@ async function persistAnalyzerState(newState) {
             </div>
             <div class="auto-bet-summary-collapsed" id="autoBetSummaryCollapsed">
                 <button type="button" id="autoBetShowBtn">Ver saldo</button>
-            </div>
-            
+                </div>
+                
             <div class="analysis-lastspin-row">
-                <div class="analysis-section">
+                 <div class="analysis-section">
                     <h4 id="analysisModeTitle">Cor Indicada</h4>
                     <div class="analysis-card">
-                        <div class="confidence-meter">
-                            <div class="confidence-bar">
-                                <div class="confidence-fill" id="confidenceFill"></div>
-                            </div>
-                            <div class="confidence-text" id="confidenceText">0%</div>
+                     <div class="confidence-meter">
+                         <div class="confidence-bar">
+                             <div class="confidence-fill" id="confidenceFill"></div>
+                         </div>
+                         <div class="confidence-text" id="confidenceText">0%</div>
+                     </div>
+                     
+                     <div class="suggestion-box" id="suggestionBox">
+                             <div class="suggestion-color" id="suggestionColor"></div>
+                             <div class="gale-indicator-wrapper" id="galeIndicatorWrapper"></div>
+                     </div>
+                     
+                     <div class="g1-status" id="g1Status" style="display:none;">
+                         <div class="g1-indicator">G1: Sinal Ativo</div>
+                         <div class="g1-accuracy" id="g1Accuracy">-</div>
                         </div>
-                        
-                        <div class="suggestion-box" id="suggestionBox">
-                            <div class="suggestion-color" id="suggestionColor"></div>
-                            <div class="gale-indicator-wrapper" id="galeIndicatorWrapper"></div>
-                        </div>
-
-                        <div class="g1-status" id="g1Status" style="display:none;">
-                            <div class="g1-indicator">G1: Sinal Ativo</div>
-                            <div class="g1-accuracy" id="g1Accuracy">-</div>
-                        </div>
-                    </div>
+                     </div>
                 </div>
                 
                 <div class="last-spin-section">
@@ -6247,7 +6247,7 @@ async function persistAnalyzerState(newState) {
                     <span class="clear-entries-btn" id="clearEntriesBtn">Limpar histórico</span>
                 </div>
                 <div class="entries-list" id="entriesList"></div>
-            </div>
+                 </div>
                 
                 <div class="pattern-section">
                     <h4>Padrão</h4>
@@ -8019,8 +8019,8 @@ async function persistAnalyzerState(newState) {
         // ✅ Salvar histórico globalmente para poder re-renderizar com mais giros
         currentHistoryData = history;
         
-        const totalSpins = history.length;
-        const displayLimit = currentHistoryDisplayLimit; // Usar limite dinâmico
+        const displayLimit = Math.max(1, currentHistoryDisplayLimit); // garantir que sempre haja ao menos 1
+        const totalSpins = Math.max(1, history.length);
         const displayingCount = Math.min(totalSpins, displayLimit);
         const hasMore = totalSpins > displayLimit;
         const remainingSpins = totalSpins - displayLimit;
