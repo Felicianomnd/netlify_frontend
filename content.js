@@ -1365,17 +1365,40 @@ function setAutoBetSummaryVisibility(isVisible, source = 'user') {
     }
     applyAutoBetSummaryVisibility();
     console.log(`[AUTO-BET] Visibilidade do resumo alterada (${source}):`, autoBetSummaryVisible ? 'visível' : 'oculto');
+    
+    updateAnalyzerConfigPartial({ autoBetSummaryVisible: autoBetSummaryVisible })
+        .catch(error => console.warn('⚠️ Não foi possível persistir autoBetSummaryVisible:', error));
 }
 
-function initAutoBetSummaryVisibilityControls() {
+async function initAutoBetSummaryVisibilityControls() {
+    let initializedFromConfig = false;
     try {
-        const saved = localStorage.getItem('autoBetSummaryVisible');
-        if (saved === '0') {
-            autoBetSummaryVisible = false;
+        const stored = await storageCompat.get(['analyzerConfig']);
+        const config = stored?.analyzerConfig || {};
+        if (typeof config.autoBetSummaryVisible === 'boolean') {
+            autoBetSummaryVisible = config.autoBetSummaryVisible;
+            initializedFromConfig = true;
+            try {
+                localStorage.setItem('autoBetSummaryVisible', autoBetSummaryVisible ? '1' : '0');
+            } catch (e) {
+                // ignore
+            }
         }
-    } catch (e) {
-        // ignore
+    } catch (error) {
+        console.warn('⚠️ Erro ao carregar visibilidade do saldo sincronizada:', error);
     }
+    
+    if (!initializedFromConfig) {
+        try {
+            const saved = localStorage.getItem('autoBetSummaryVisible');
+            if (saved === '0') {
+                autoBetSummaryVisible = false;
+            }
+        } catch (e) {
+            // ignore
+        }
+    }
+    
     const hideBtn = document.getElementById('autoBetHideBtn');
     const showBtn = document.getElementById('autoBetShowBtn');
     if (hideBtn) {
@@ -1385,6 +1408,9 @@ function initAutoBetSummaryVisibilityControls() {
         showBtn.addEventListener('click', () => setAutoBetSummaryVisibility(true, 'show-btn'));
     }
     applyAutoBetSummaryVisibility();
+    
+    updateAnalyzerConfigPartial({ autoBetSummaryVisible: autoBetSummaryVisible })
+        .catch(error => console.warn('⚠️ Não foi possível sincronizar estado inicial do saldo:', error));
 }
 
 function logTrainingConnectionStatus(isConnected, force = false) {
@@ -1523,6 +1549,7 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
         if (response && response.status === 'ok') {
             analyzerAutoPausedReason = normalizedReason;
             updateAnalyzerToggleUI(false, { log: true, source: normalizedReason });
+            await persistAnalyzerState(false);
             showToast(`${normalizedReason}. Análises pausadas automaticamente.`, 2600);
         }
     }
@@ -1531,9 +1558,27 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
         const response = await sendRuntimeMessage({ action: 'GET_ANALYSIS_STATUS' });
         if (response && typeof response.enabled === 'boolean') {
             updateAnalyzerToggleUI(response.enabled);
+            persistAnalyzerState(response.enabled);
             return;
         }
         updateAnalyzerToggleUI(true);
+        persistAnalyzerState(true);
+    }
+    
+    async function initializeAnalyzerToggleState() {
+        try {
+            const stored = await storageCompat.get(['analyzerConfig']);
+            const config = stored?.analyzerConfig;
+            if (config && typeof config.analysisEnabled === 'boolean') {
+                const desiredState = config.analysisEnabled;
+                updateAnalyzerToggleUI(desiredState);
+                await sendRuntimeMessage({ action: 'SET_ANALYSIS_ENABLED', enabled: desiredState });
+                return;
+            }
+        } catch (error) {
+            console.warn('⚠️ Erro ao carregar estado da análise do storage:', error);
+        }
+        await syncAnalyzerToggleStatus();
     }
 
     function updateAnalyzerToggleUI(isActive, options = {}) {
@@ -1570,6 +1615,7 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
             const success = response && response.status === 'ok';
             if (success) {
                 updateAnalyzerToggleUI(targetState, { log: true, source: 'Botão "Ativar análise"' });
+                await persistAnalyzerState(targetState);
                 if (targetState) {
                     analyzerAutoPausedReason = null;
                 }
@@ -5092,6 +5138,66 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
         // Padrão: true (sempre sincronizar se não houver preferência salva)
         return pref === null ? true : pref === 'true';
     }
+
+function areValuesEqual(a, b) {
+    if (a === b) return true;
+    if (typeof a === 'object' && typeof b === 'object') {
+        try {
+            return JSON.stringify(a) === JSON.stringify(b);
+        } catch (error) {
+            return false;
+        }
+    }
+    return false;
+}
+
+async function updateAnalyzerConfigPartial(partial, options = {}) {
+    if (!partial || typeof partial !== 'object') return null;
+    const { respectSyncPreference = true } = options;
+    
+    try {
+        const stored = await storageCompat.get(['analyzerConfig']);
+        const currentConfig = stored?.analyzerConfig || {};
+        let hasChanges = false;
+        const updatedConfig = { ...currentConfig };
+        
+        Object.keys(partial).forEach((key) => {
+            const newValue = partial[key];
+            if (!areValuesEqual(updatedConfig[key], newValue)) {
+                updatedConfig[key] = newValue;
+                hasChanges = true;
+            }
+        });
+        
+        if (!hasChanges) {
+            return currentConfig;
+        }
+        
+        await storageCompat.set({ analyzerConfig: updatedConfig });
+        
+        const shouldSync = respectSyncPreference ? getSyncConfigPreference() : true;
+        if (shouldSync) {
+            try {
+                await syncConfigToServer(updatedConfig);
+            } catch (error) {
+                console.warn('⚠️ Não foi possível sincronizar configurações com o servidor:', error);
+            }
+        }
+        
+        return updatedConfig;
+    } catch (error) {
+        console.warn('⚠️ Erro ao atualizar configuração parcial:', error);
+        return null;
+    }
+}
+
+async function persistAnalyzerState(newState) {
+    try {
+        await updateAnalyzerConfigPartial({ analysisEnabled: !!newState });
+    } catch (error) {
+        console.warn('⚠️ Não foi possível persistir estado da análise:', error);
+    }
+}
     
     // ═══════════════════════════════════════════════════════════════════════════════
     // 🔥 MODO PADRÃO QUENTE
@@ -6095,15 +6201,31 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
             <div class="auto-bet-summary-collapsed" id="autoBetSummaryCollapsed">
                 <button type="button" id="autoBetShowBtn">Ver saldo</button>
             </div>
-                <div class="entries-panel" id="entriesPanel">
-                    <div class="entries-header">
-                        <span>Entradas</span>
-                        <span class="entries-hit" id="entriesHit">Acertos: 0/0 (0%)</span>
+            
+            <div class="analysis-lastspin-row">
+                <div class="analysis-section">
+                    <h4 id="analysisModeTitle">Aguardando Análise</h4>
+                    <div class="analysis-card">
+                        <div class="confidence-meter">
+                            <div class="confidence-bar">
+                                <div class="confidence-fill" id="confidenceFill"></div>
+                            </div>
+                            <div class="confidence-text" id="confidenceText">0%</div>
+                        </div>
+                        
+                        <div class="suggestion-box" id="suggestionBox">
+                            <div class="suggestion-text" id="suggestionText">Aguardando análise...</div>
+                            <div class="suggestion-color-wrapper">
+                                <div class="suggestion-color" id="suggestionColor"></div>
+                                <div class="gale-indicator-wrapper" id="galeIndicatorWrapper"></div>
+                            </div>
+                        </div>
+                        
+                        <div class="g1-status" id="g1Status" style="display:none;">
+                            <div class="g1-indicator">G1: Sinal Ativo</div>
+                            <div class="g1-accuracy" id="g1Accuracy">-</div>
+                        </div>
                     </div>
-                    <div class="clear-entries-section">
-                        <span class="clear-entries-btn" id="clearEntriesBtn">Limpar histórico</span>
-                    </div>
-                    <div class="entries-list" id="entriesList"></div>
                 </div>
                 
                 <div class="last-spin-section">
@@ -6116,29 +6238,18 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                         </div>
                     </div>
                 </div>
-                
-                 <div class="analysis-section">
-                     <h4 id="analysisModeTitle">Aguardando Análise</h4>
-                     <div class="confidence-meter">
-                         <div class="confidence-bar">
-                             <div class="confidence-fill" id="confidenceFill"></div>
-                         </div>
-                         <div class="confidence-text" id="confidenceText">0%</div>
-                     </div>
-                     
-                     <div class="suggestion-box" id="suggestionBox">
-                         <div class="suggestion-text" id="suggestionText">Aguardando análise...</div>
-                         <div class="suggestion-color-wrapper">
-                             <div class="suggestion-color" id="suggestionColor"></div>
-                             <div class="gale-indicator-wrapper" id="galeIndicatorWrapper"></div>
-                         </div>
-                     </div>
-                     
-                     <div class="g1-status" id="g1Status" style="display:none;">
-                         <div class="g1-indicator">G1: Sinal Ativo</div>
-                         <div class="g1-accuracy" id="g1Accuracy">-</div>
-                     </div>
-                 </div>
+            </div>
+            
+            <div class="entries-panel" id="entriesPanel">
+                <div class="entries-header">
+                    <span>Entradas</span>
+                    <span class="entries-hit" id="entriesHit">Acertos: 0/0 (0%)</span>
+                </div>
+                <div class="clear-entries-section">
+                    <span class="clear-entries-btn" id="clearEntriesBtn">Limpar histórico</span>
+                </div>
+                <div class="entries-list" id="entriesList"></div>
+            </div>
                 
                 <div class="pattern-section">
                     <h4>Padrão</h4>
@@ -6710,7 +6821,7 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
             toggleAnalyzerBtn.addEventListener('click', handleAnalyzerToggle);
         }
         initAutoBetSummaryVisibilityControls();
-        syncAnalyzerToggleStatus();
+        initializeAnalyzerToggleState();
         
         console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #00FF88; font-weight: bold;');
         console.log('%c✅ SIDEBAR CRIADA COM SUCESSO!', 'color: #00FF88; font-weight: bold; font-size: 14px;');
@@ -9607,6 +9718,17 @@ function logModeSnapshotUI(snapshot) {
                 const currentAIMode = getTabSpecificAIMode(cfg.aiMode || false);
                 const activeModeKey = currentAIMode ? 'diamond' : 'standard';
                 const activeMartingaleProfile = sanitizedProfiles[activeModeKey];
+                
+                if (typeof cfg.autoBetSummaryVisible === 'boolean') {
+                    autoBetSummaryVisible = cfg.autoBetSummaryVisible;
+                    applyAutoBetSummaryVisibility();
+                }
+                
+                if (typeof cfg.analysisEnabled === 'boolean') {
+                    updateAnalyzerToggleUI(cfg.analysisEnabled);
+                    sendRuntimeMessage({ action: 'SET_ANALYSIS_ENABLED', enabled: cfg.analysisEnabled }).catch(() => {});
+                }
+                
                 const histDepth = document.getElementById('cfgHistoryDepth');
                 const minOcc = document.getElementById('cfgMinOccurrences');
                 const maxOcc = document.getElementById('cfgMaxOccurrences');
@@ -9821,7 +9943,9 @@ function logModeSnapshotUI(snapshot) {
                     telegramChatId: tgChatId,
                     signalIntensity: signalIntensity,
                     martingaleProfiles: updatedProfiles,
-                    autoBetConfig: sanitizedAutoBetConfig
+                    autoBetConfig: sanitizedAutoBetConfig,
+                    analysisEnabled: analyzerActive,
+                    autoBetSummaryVisible: autoBetSummaryVisible
                 };
                 applyActiveMartingaleToLegacyFields(cfg, activeModeKey, updatedProfiles);
                 
