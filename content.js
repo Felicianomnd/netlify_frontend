@@ -4179,10 +4179,20 @@ autoBetHistoryStore.init().catch(error => console.warn('AutoBetHistory: iniciali
                 }
                 .auto-bet-modal-close {
                     background: transparent;
-                    border: none;
+                    border: 1px solid rgba(255, 255, 255, 0.3);
                     color: #fff;
-                    font-size: 20px;
+                    font-size: 13px;
                     cursor: pointer;
+                    padding: 6px 12px;
+                    border-radius: 8px;
+                    display: inline-flex;
+                    align-items: center;
+                    gap: 0;
+                    transition: background 0.2s ease, color 0.2s ease, border-color 0.2s ease;
+                }
+                .auto-bet-modal-close:hover {
+                    background: rgba(255, 255, 255, 0.1);
+                    border-color: rgba(255, 255, 255, 0.5);
                 }
                 .auto-bet-modal-body {
                     padding: 18px 20px;
@@ -4385,6 +4395,36 @@ autoBetHistoryStore.init().catch(error => console.warn('AutoBetHistory: iniciali
                     display: grid;
                     grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
                     gap: 16px;
+                }
+                .auto-bet-section-title {
+                    margin-top: 18px;
+                    font-size: 13px;
+                    font-weight: 600;
+                    letter-spacing: 0.4px;
+                    text-transform: uppercase;
+                    color: rgba(255, 255, 255, 0.7);
+                }
+                .auto-bet-martingale-grid {
+                    margin-top: 10px;
+                    display: flex;
+                    flex-wrap: wrap;
+                    gap: 14px;
+                    align-items: stretch;
+                }
+                .auto-bet-martingale-grid .mode-toggle {
+                    flex: 1 1 260px;
+                    border: 1px solid rgba(255, 255, 255, 0.08);
+                    border-radius: 10px;
+                    padding: 12px 16px;
+                    background: rgba(255, 255, 255, 0.03);
+                }
+                .auto-bet-martingale-grid .mode-toggle .mode-toggle-content {
+                    width: 100%;
+                    justify-content: space-between;
+                    gap: 12px;
+                }
+                .auto-bet-martingale-grid .auto-bet-field {
+                    flex: 1 1 220px;
                 }
                 .auto-bet-modal-footer {
                     display: flex;
@@ -6766,13 +6806,6 @@ async function persistAnalyzerState(newState) {
                             <label class="checkbox-label"><input type="checkbox" id="cfgRequireTrigger" checked /> Exigir cor de disparo</label>
                         </div>
                         <div class="setting-item setting-row">
-                            <label class="checkbox-label"><input type="checkbox" id="cfgConsecutiveMartingale" /> Martingale Consecutivo</label>
-                        </div>
-                        <div class="setting-item">
-                            <span class="setting-label">Quantidade de Gales (0-200):</span>
-                            <input type="number" id="cfgMaxGales" min="0" max="200" value="0" />
-                        </div>
-                        <div class="setting-item setting-row">
                             <span class="setting-label">Telegram Chat ID:</span>
                             <div style="display: flex; gap: 4px; flex: 1; align-items: stretch;">
                                 <input type="password" id="cfgTgChatId" placeholder="Digite seu Chat ID" style="flex: 1;" />
@@ -6865,9 +6898,11 @@ async function persistAnalyzerState(newState) {
             <div class="auto-bet-modal" id="autoBetModal" style="display:none;">
                 <div class="auto-bet-modal-overlay"></div>
                 <div class="auto-bet-modal-content">
-                    <div class="auto-bet-modal-header">
+                        <div class="auto-bet-modal-header">
                         <h3>Configurar Autoaposta</h3>
-                        <button type="button" class="auto-bet-modal-close" id="closeAutoBetModal">✕</button>
+                        <button type="button" class="auto-bet-modal-close" id="closeAutoBetModal">
+                            Fechar
+                        </button>
                     </div>
                     <div class="auto-bet-modal-body">
                         <div class="auto-bet-mode-layout">
@@ -6919,6 +6954,20 @@ async function persistAnalyzerState(newState) {
                             <div class="auto-bet-field">
                                 <span>Stop LOSS (R$)</span>
                                 <input type="number" id="autoBetStopLoss" min="0" step="1" value="0" />
+                            </div>
+                        </div>
+                        <div class="auto-bet-section-title">Estratégia de Martingale</div>
+                        <div class="auto-bet-martingale-grid">
+                            <label class="mode-toggle" style="margin:0;">
+                                <input type="checkbox" id="cfgConsecutiveMartingale" />
+                                <div class="mode-toggle-content">
+                                    <span class="mode-toggle-label">Martingale consecutivo</span>
+                                    <span class="mode-toggle-switch"></span>
+                                </div>
+                            </label>
+                            <div class="auto-bet-field">
+                                <span>Quantidade de Gales (0-200)</span>
+                                <input type="number" id="cfgMaxGales" min="0" max="200" value="0" />
                             </div>
                         </div>
                         <label class="mode-toggle" style="margin-top: 8px;">
