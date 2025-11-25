@@ -662,10 +662,6 @@
     margin-bottom: 6px;
 }
 
-.analysis-card .g1-status {
-    margin-top: auto;
-}
-
 .analysis-lastspin-row .last-spin-section .spin-display {
     flex: 1;
     display: flex;
@@ -706,8 +702,8 @@
     border-radius: 6px;
 }
 .spin-display.center { justify-content: center; }
-.spin-meta { display:flex; flex-direction:column; gap:4px; }
-.spin-time { font-size: 12px; color: #cdd6e8; }
+.spin-meta { display:flex; flex-direction:column; gap:4px; align-items:center; }
+.spin-time { font-size: 13px; color: #cdd6e8; font-weight:600; }
 
 .spin-number {
     display: flex;
@@ -743,26 +739,22 @@
 .spin-number.white { background: #fff; color: #F44336; border: none; }
 .spin-number.white::after { border-color: #F44336; opacity: 0.95; }
 
+.spin-meta {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    font-size: 13px;
+    color: #cdd6e8;
+}
+.spin-time {
+    font-size: 13px;
+    font-weight: 600;
+    color: #cdd6e8;
+}
+
 .spin-color {
-    font-size: 16px;
-    padding: 6px 10px;
-    border-radius: 4px;
-    background: rgba(255, 255, 255, 0.1);
-}
-
-.spin-color.red {
-    background: rgba(244, 67, 54, 0.3);
-    border: 1px solid #F44336;
-}
-
-.spin-color.black {
-    background: rgba(0, 0, 0, 0.3);
-    border: 1px solid #333;
-}
-
-.spin-color.white {
-    background: rgba(255, 255, 255, 0.3);
-    border: 1px solid #ccc;
+    display: none;
 }
 
 .confidence-meter {
@@ -793,35 +785,28 @@
     color: #e0e0e0;
 }
 
-.suggestion-box {
-    padding: 8px;
-    background: rgba(255, 255, 255, 0.1);
-    border-radius: 6px;
-    border-left: 3px solid #4CAF50;
-}
-
-.suggestion-text {
-    font-size: 12px;
-    margin-bottom: 6px;
-    line-height: 1.3;
-}
-
 /* ✅ WRAPPER PARA CÍRCULO + INDICADOR LADO A LADO */
+.suggestion-box {
+    padding: 0;
+    margin-top: 4px;
+    background: transparent;
+    border: none;
+}
+
 .suggestion-color-wrapper {
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 10px; /* Espaçamento entre o círculo e o indicador */
-    padding: 4px 6px;
-    border-radius: 4px;
-    background: rgba(255, 255, 255, 0.1);
-    min-height: 32px;
+    gap: 0;
+    min-height: 40px;
+}
+.suggestion-color-wrapper.has-stage {
+    gap: 10px;
 }
 
 .suggestion-color {
     font-size: 16px;
     text-align: center;
-    min-height: 36px;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -830,77 +815,46 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 36px;
-    height: 36px;
-    border-radius: 6px;
-    position: relative;
-    box-sizing: border-box;
-    border: none;
+    width: 42px;
+    height: 42px;
+    border-radius: 10px;
     font-weight: bold;
     background: #252736;
     color: #fff;
 }
-.suggestion-color-box::after {
-  content: '';
-  display: block;
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  transform: translate(-50%, -50%);
-  width: 28px;
-  height: 28px;
-  border-radius: 50%;
-  border: 2px solid #fff;
-  opacity: 0.90;
-  z-index: 1;
+.suggestion-color-box.red { background: #F44336; color: #fff; }
+.suggestion-color-box.black { background: #21222D; color: #fff; }
+.suggestion-color-box.white { background: #fff; color: #F44336; }
+.suggestion-color-box.neutral {
+    background: rgba(255, 255, 255, 0.08);
+    color: #ffffff;
 }
-.suggestion-color-box.red { background: #F44336; color: #fff; border-color: #fff; }
-.suggestion-color-box.black { background: #21222D; color: #fff; border-color: #fff; }
-.suggestion-color-box.white { background: #fff; color: #F44336; border: none; }
-.suggestion-color-box.white::after { border-color: #F44336; opacity: 0.95; }
+.suggestion-color-box.neutral.loading .spinner {
+    width: 18px;
+    height: 18px;
+}
+.suggestion-color-box.neutral.waiting .hourglass-icon {
+    font-size: 18px;
+    display: inline-block;
+}
+
+.suggestion-stage {
+    font-size: 16px;
+    font-weight: 700;
+    color: #ffffff;
+    opacity: 0;
+    transition: opacity 0.15s ease;
+    min-width: 0;
+    max-width: 0;
+    text-align: center;
+    overflow: hidden;
+}
+.suggestion-stage.visible {
+    opacity: 1;
+    max-width: 50px;
+}
 
 /* ✅ WRAPPER DO INDICADOR DE GALE */
-.gale-indicator-wrapper {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-}
-
-/* ✅ INDICADOR DE GALE AO LADO DO CÍRCULO */
-.gale-indicator {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    padding: 6px 14px;
-    background: linear-gradient(135deg, #FF9800 0%, #FF5722 100%);
-    color: #ffffff;
-    font-weight: 700;
-    font-size: 16px;
-    border-radius: 8px;
-    box-shadow: 
-        0 4px 12px rgba(255, 152, 0, 0.4),
-        inset 0 1px 0 rgba(255, 255, 255, 0.3);
-    border: 2px solid rgba(255, 255, 255, 0.3);
-    text-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
-    animation: gale-pulse 2s ease-in-out infinite;
-    letter-spacing: 1px;
-}
-
-@keyframes gale-pulse {
-    0%, 100% {
-        transform: scale(1);
-        box-shadow: 
-            0 4px 12px rgba(255, 152, 0, 0.4),
-            inset 0 1px 0 rgba(255, 255, 255, 0.3);
-    }
-    50% {
-        transform: scale(1.05);
-        box-shadow: 
-            0 6px 16px rgba(255, 152, 0, 0.6),
-            inset 0 1px 0 rgba(255, 255, 255, 0.4);
-    }
-}
-
 /* ═══════════════════════════════════════════════════════════════
    ✨ INDICADOR DE GALE ATIVO (BOLINHA PISCANDO)
    ═══════════════════════════════════════════════════════════════ */
@@ -2125,33 +2079,6 @@
 
 .load-more-history-btn:active {
     transform: scale(0.98);
-}
-
-/* G1 Status Styles */
-.g1-status {
-    margin-top: 8px;
-    padding: 6px 8px;
-    background: #1a1d29;
-    border-radius: 6px;
-    border: 1px solid #2a3750;
-}
-
-.g1-indicator {
-    font-size: 11px;
-    font-weight: 600;
-    color: #8da2bb;
-    margin-bottom: 2px;
-}
-
-.g1-indicator.active {
-    color: #4CAF50;
-    font-weight: 700;
-}
-
-.g1-accuracy {
-    font-size: 10px;
-    color: #4CAF50;
-    font-weight: 600;
 }
 
 .analysis-feedback {

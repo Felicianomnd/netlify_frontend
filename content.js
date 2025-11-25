@@ -5002,6 +5002,9 @@ autoBetHistoryStore.init().catch(error => console.warn('AutoBetHistory: iniciali
             linkCycle(stageInfo, normalizedColor, analysis);
             const amount = calculateBetAmount(stageInfo.index);
             if (!Number.isFinite(amount) || amount <= 0) return;
+            if (!ensureBankBeforePlacingBet(stageInfo, normalizedColor, amount)) {
+                return;
+            }
             registerPlannedBet(stageInfo, amount, normalizedColor);
             scheduleExecution({ color: normalizedColor, amount, stage: stageInfo.label });
             if (config.whiteProtection && normalizedColor !== 'white') {
@@ -5104,6 +5107,110 @@ autoBetHistoryStore.init().catch(error => console.warn('AutoBetHistory: iniciali
         function getWhiteExposure() {
             if (!runtime.openCycle || !Array.isArray(runtime.openCycle.whiteBets)) return 0;
             return runtime.openCycle.whiteBets.reduce((sum, bet) => sum + Number(bet.amount || 0), 0);
+        }
+
+        function getPendingExposureTotal() {
+            return getColorExposure() + getWhiteExposure();
+        }
+
+        function getAvailableBankCeiling() {
+            return getInitialBalanceValue() + Number(runtime.profit || 0);
+        }
+
+        function estimateWhiteProtectionPreview(exposureAfterColor, colorBetAmount) {
+            const payoutMultiplier = Math.max(2, Number(config.whitePayoutMultiplier) || AUTO_BET_DEFAULTS.whitePayoutMultiplier);
+            const gainMultiplier = payoutMultiplier - 1;
+            const mode = normalizeWhiteProtectionMode(config.whiteProtectionMode);
+            const targetProfit = mode === WHITE_PROTECTION_MODE.NEUTRAL ? 0 : Math.max(0.01, Number(colorBetAmount) || 0);
+            const numerator = exposureAfterColor + targetProfit;
+            const required = gainMultiplier > 0
+                ? numerator / gainMultiplier
+                : numerator;
+            return Number(Math.max(0.01, required).toFixed(2));
+        }
+
+        function projectNextExposureSnapshot(color, amount) {
+            const colorAmount = Number(amount || 0);
+            const pendingExposure = getPendingExposureTotal();
+            const exposureAfterColor = pendingExposure + colorAmount;
+            const shouldEstimateWhite = !!config.whiteProtection && color !== 'white';
+            const projectedWhite = shouldEstimateWhite
+                ? estimateWhiteProtectionPreview(exposureAfterColor, colorAmount)
+                : 0;
+            const totalAfter = exposureAfterColor + projectedWhite;
+            return {
+                pendingExposure,
+                exposureAfterColor,
+                projectedWhite,
+                totalAfter,
+                availableBank: getAvailableBankCeiling()
+            };
+        }
+
+        function ensureBankBeforePlacingBet(stageInfo, color, amount) {
+            const snapshot = projectNextExposureSnapshot(color, amount);
+            if (snapshot.totalAfter <= snapshot.availableBank + 0.0001) {
+                return true;
+            }
+            handleInsufficientBank(stageInfo, snapshot);
+            return false;
+        }
+
+        async function markLatestContinuingEntryAsRet(reasonTag = 'BANK_ZERO') {
+            try {
+                const stored = await storageCompat.get(['entriesHistory']);
+                const entries = Array.isArray(stored?.entriesHistory) ? [...stored.entriesHistory] : [];
+                if (!entries.length) return;
+                const targetIndex = entries.findIndex(entry =>
+                    entry &&
+                    entry.result === 'LOSS' &&
+                    !entry.finalResult &&
+                    hasContinuationFlag(entry)
+                );
+                if (targetIndex === -1) return;
+                const updatedEntry = { ...entries[targetIndex] };
+                Object.keys(updatedEntry).forEach((key) => {
+                    if (key.startsWith('continuingToG')) {
+                        delete updatedEntry[key];
+                    }
+                });
+                updatedEntry.finalResult = 'RET';
+                updatedEntry.stopReason = reasonTag;
+                entries[targetIndex] = updatedEntry;
+                await storageCompat.set({ entriesHistory: entries });
+                window.requestAnimationFrame(() => renderEntriesPanel(entries));
+            } catch (error) {
+                console.warn('AutoBet: erro ao finalizar entrada pendente por saldo insuficiente:', error);
+            }
+        }
+
+        function forfeitCycleDueToBalance(reasonTag = 'INSUFFICIENT_BANK') {
+            markLatestContinuingEntryAsRet(reasonTag);
+            if (!runtime.openCycle) {
+                cancelPendingHistoryRecord('insufficient_bank');
+                return;
+            }
+            const syntheticEntry = {
+                result: 'LOSS',
+                finalResult: reasonTag,
+                color: runtime.openCycle.color,
+                timestamp: Date.now(),
+                number: null
+            };
+            finalizeCycle('LOSS', syntheticEntry);
+        }
+
+        function handleInsufficientBank(stageInfo, snapshot) {
+            const readableStage = stageInfo?.label || 'próxima aposta';
+            const shortfall = Math.max(0, snapshot.totalAfter - snapshot.availableBank);
+            const shortfallText = formatCurrency(shortfall);
+            uiLog(`[AutoBet] Saldo insuficiente (${readableStage}). Faltam ${shortfallText} para continuar o ciclo.`);
+            forfeitCycleDueToBalance();
+            runtime.blockedReason = 'BANK_ZERO';
+            updateStatusUI('Banca insuficiente');
+            persistRuntime();
+            showToast(`Saldo insuficiente: faltam ${shortfallText} para continuar o ciclo.`, 4200);
+            pauseAnalysisForAutoBet('Saldo insuficiente para continuar');
         }
 
         function calculateWhiteBetAmount() {
@@ -6478,18 +6585,12 @@ async function persistAnalyzerState(newState) {
                          <div class="confidence-text" id="confidenceText">0%</div>
                      </div>
                      
-                     <div class="suggestion-box" id="suggestionBox">
-                         <div class="suggestion-text" id="suggestionText">Aguardando análise...</div>
-                         <div class="suggestion-color-wrapper">
-                             <div class="suggestion-color" id="suggestionColor"></div>
-                             <div class="gale-indicator-wrapper" id="galeIndicatorWrapper"></div>
-                         </div>
-                     </div>
-                     
-                     <div class="g1-status" id="g1Status" style="display:none;">
-                         <div class="g1-indicator">G1: Sinal Ativo</div>
-                         <div class="g1-accuracy" id="g1Accuracy">-</div>
+                    <div class="suggestion-box" id="suggestionBox">
+                        <div class="suggestion-color-wrapper">
+                            <div class="suggestion-color" id="suggestionColor"></div>
+                            <div class="suggestion-stage" id="suggestionStage"></div>
                         </div>
+                    </div>
                      </div>
                 </div>
                 
@@ -6498,7 +6599,6 @@ async function persistAnalyzerState(newState) {
                     <div class="spin-display center" id="lastSpinDisplay">
                         <div class="spin-number" id="lastSpinNumber">-</div>
                         <div class="spin-meta">
-                            <div class="spin-color" id="lastSpinColor">-</div>
                             <div class="spin-time" id="lastSpinTime">--:--</div>
                         </div>
                     </div>
@@ -8285,34 +8385,30 @@ async function persistAnalyzerState(newState) {
     // Update sidebar with new data
     function updateSidebar(data) {
         const lastSpinNumber = document.getElementById('lastSpinNumber');
-        const lastSpinColor = document.getElementById('lastSpinColor');
         const confidenceFill = document.getElementById('confidenceFill');
         const confidenceText = document.getElementById('confidenceText');
-        const suggestionText = document.getElementById('suggestionText');
         const suggestionColor = document.getElementById('suggestionColor');
         const patternInfo = document.getElementById('patternInfo');
         const totalSpins = document.getElementById('totalSpins');
         const lastUpdate = document.getElementById('lastUpdate');
+        // Não resetar o estágio imediatamente; somente quando realmente não houver Gale ativo
         
         if (data.lastSpin) {
             const spin = data.lastSpin;
             // Número com o mesmo estilo do histórico (quadrado com anel)
-            lastSpinNumber.className = `spin-number ${spin.color}`;
-            if (spin.color === 'white') {
-                lastSpinNumber.innerHTML = blazeWhiteSVG(20);
-            } else {
-                lastSpinNumber.textContent = `${spin.number}`;
-            }
-            // Rótulo textual da cor (mantido simples)
-            lastSpinColor.textContent = spin.color === 'red' ? 'Vermelho' : spin.color === 'black' ? 'Preto' : 'Branco';
-            lastSpinColor.className = `spin-color-badge ${spin.color}`;
-            const lastSpinTime = document.getElementById('lastSpinTime');
-            if (lastSpinTime) {
-                try {
-                    const t = new Date(spin.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-                    lastSpinTime.textContent = t;
-                } catch(_) { lastSpinTime.textContent = ''; }
-            }
+                lastSpinNumber.className = `spin-number ${spin.color}`;
+                if (spin.color === 'white') {
+                    lastSpinNumber.innerHTML = blazeWhiteSVG(20);
+                } else {
+                    lastSpinNumber.textContent = `${spin.number}`;
+                }
+                const lastSpinTime = document.getElementById('lastSpinTime');
+                if (lastSpinTime) {
+                    try {
+                        const t = new Date(spin.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                        lastSpinTime.textContent = t;
+                    } catch(_) { lastSpinTime.textContent = ''; }
+                }
         }
         
         if (Object.prototype.hasOwnProperty.call(data, 'analysis')) {
@@ -8332,21 +8428,16 @@ async function persistAnalyzerState(newState) {
                     confidenceText.textContent = `${confidence.toFixed(1)}%`;
                     
                     // Update suggestion
-                    // ✅ VERIFICAR SE É ANÁLISE DIAMANTE - Mostrar apenas "Análise por IA"
+                    // ✅ VERIFICAR SE É ANÁLISE DIAMANTE
                     const isDiamondMode = analysis.patternDescription && 
                                           (analysis.patternDescription.includes('NÍVEL DIAMANTE') || 
                                            analysis.patternDescription.includes('5 Níveis'));
-                    
-                    const suggestionLabel = isDiamondMode ? 'Análise por IA' : analysis.suggestion;
-                    suggestionText.textContent = suggestionLabel;
+                    const suggestionTitle = isDiamondMode ? 'Análise por IA' : analysis.suggestion;
+                    if (suggestionColor) {
+                        suggestionColor.setAttribute('title', suggestionTitle || '');
+                    }
                     // Cor sugerida com o mesmo estilo do histórico (quadrado com anel)
                     suggestionColor.className = `suggestion-color suggestion-color-box ${analysis.color}`;
-                    
-                    // ✅ LIMPAR INDICADOR DE GALE (usar o antigo que já existia)
-                    const galeIndicatorWrapper = document.getElementById('galeIndicatorWrapper');
-                    if (galeIndicatorWrapper) {
-                        galeIndicatorWrapper.innerHTML = '';
-                    }
                     
                     // Conteúdo do círculo de cor
                     if (analysis.color === 'white') {
@@ -8355,7 +8446,7 @@ async function persistAnalyzerState(newState) {
                         suggestionColor.innerHTML = ''; // Vazio para vermelho/preto (o círculo vem do CSS)
                     }
                     
-                    console.log('📊 HTML FINAL do galeIndicatorWrapper:', galeIndicatorWrapper.innerHTML);
+                    console.log('📊 Cor sugerida atualizada:', analysis.color);
                 }
                 
                 // Update pattern info - sempre usar renderização amigável
@@ -8450,12 +8541,8 @@ async function persistAnalyzerState(newState) {
                 }
                 
                 // ✅ Update G1 status - LÓGICA CORRETA baseada no Martingale
-                const g1Wrap = document.getElementById('g1Status');
-                const g1Indicator = document.querySelector('.g1-indicator');
-                const g1Accuracy = document.getElementById('g1Accuracy');
-                
                 // Verificar estado do Martingale para mostrar o indicador correto
-                chrome.storage.local.get(['martingaleState'], function(result) {
+                storageCompat.get(['martingaleState']).then((result = {}) => {
                     const martingaleState = result.martingaleState;
                     
                     if (martingaleState && martingaleState.active) {
@@ -8483,22 +8570,19 @@ async function persistAnalyzerState(newState) {
                             currentStage: martingaleState.stage
                         });
                         
-                        if (nextGale && g1Wrap && g1Indicator && g1Accuracy) {
-                            g1Wrap.style.display = 'block';
-                            g1Indicator.textContent = `${nextGale}: Sinal Ativo`;
-                            g1Indicator.className = 'g1-indicator active';
-                            
-                            // ✅ CALCULAR PORCENTAGEM ESPECÍFICA PARA GALE
-                            const galeConfidence = calculateGaleConfidence(martingaleState, analysis);
-                            g1Accuracy.textContent = `${galeConfidence.toFixed(1)}%`;
-                            
-                            console.log('✅ INDICADOR ATIVADO:', nextGale, 'para', lossCount, 'LOSSes', 'Confiança:', galeConfidence.toFixed(1) + '%');
+                        if (nextGale) {
+                            setSuggestionStage(nextGale);
+                            console.log('✅ INDICADOR ATIVADO:', nextGale, 'para', lossCount, 'LOSSes');
+                        } else {
+                            setSuggestionStage('');
                         }
                     } else {
-                        // Sem Martingale ativo, não mostrar indicador
-                        if (g1Wrap) g1Wrap.style.display = 'none';
+                        setSuggestionStage('');
                         console.log('⚠️ Indicador desativado - Martingale não ativo');
                     }
+                }).catch(error => {
+                    console.warn('⚠️ Não foi possível ler martingaleState:', error);
+                    setSuggestionStage('');
                 });
                 
                 // status indicator removed; entries panel shows progress
@@ -8514,49 +8598,12 @@ async function persistAnalyzerState(newState) {
                     analysisModeTitle.textContent = 'Aguardando Análise';
                 }
                 
-                // ✅ LIMPAR INDICADOR DE GALE quando não há análise
-                const galeIndicatorWrapper = document.getElementById('galeIndicatorWrapper');
-                if (galeIndicatorWrapper) {
-                    galeIndicatorWrapper.innerHTML = '';
-                }
-                
-                // Verificar se está coletando dados ou buscando padrões
-                if (currentAnalysisStatus && currentAnalysisStatus.includes('Coletando dados')) {
-                    suggestionText.textContent = currentAnalysisStatus;
-                    suggestionColor.className = 'suggestion-color data-collection';
-                    suggestionColor.innerHTML = `
-                        <div class="analysis-status">
-                            <div class="analysis-icon">📊</div>
-                            <div class="analysis-text">Coletando dados</div>
-                            <div class="analysis-dots">
-                                <span class="dot">.</span>
-                                <span class="dot">.</span>
-                                <span class="dot">.</span>
-                            </div>
-                        </div>
-                    `;
-                } else if (currentAnalysisStatus && currentAnalysisStatus.includes('Aguardando')) {
-                    // Status de aguardando novo giro
-                    suggestionText.textContent = currentAnalysisStatus;
-                    suggestionColor.className = 'suggestion-color';
-                    suggestionColor.innerHTML = `
-                        <div class="analysis-status">
-                            <div class="analysis-icon">⏳</div>
-                            <div class="analysis-text">Aguardando novo giro</div>
-                        </div>
-                    `;
-                } else {
-                    // Status padrão de busca
-                    suggestionText.textContent = currentAnalysisStatus || 'Aguardando análise...';
-                    suggestionColor.className = 'suggestion-color loading-spinner';
-                    suggestionColor.innerHTML = '<div class="spinner"></div>';
-                }
+                renderSuggestionStatus(currentAnalysisStatus);
                 
                 // ✅ LIMPAR INFORMAÇÕES DO PADRÃO (remove dados das 6 fases do Modo Diamante)
                 patternInfo.textContent = 'Nenhum padrão detectado';
                 patternInfo.title = '';
-                const g1Wrap = document.getElementById('g1Status');
-                if (g1Wrap) g1Wrap.style.display = 'none';
+                setSuggestionStage('');
                 // status indicator removed; entries panel shows progress
             }
         }
@@ -8590,6 +8637,39 @@ async function persistAnalyzerState(newState) {
                 historyContainer.style.display = 'block';
                 historyContainer.style.visibility = 'visible';
                 historyContainer.style.opacity = '1';
+        }
+    }
+    
+    function renderSuggestionStatus(statusText) {
+        const suggestionColor = document.getElementById('suggestionColor');
+        if (!suggestionColor) return;
+        const normalized = typeof statusText === 'string' ? statusText : '';
+        suggestionColor.removeAttribute('title');
+        
+        if (normalized && normalized.includes('Aguardando')) {
+            suggestionColor.className = 'suggestion-color suggestion-color-box neutral waiting';
+            suggestionColor.innerHTML = '<span class="hourglass-icon">⏳</span>';
+        } else if (normalized && normalized.includes('Coletando')) {
+            suggestionColor.className = 'suggestion-color suggestion-color-box neutral loading';
+            suggestionColor.innerHTML = '<div class="spinner"></div>';
+        } else {
+            suggestionColor.className = 'suggestion-color suggestion-color-box neutral loading';
+            suggestionColor.innerHTML = '<div class="spinner"></div>';
+        }
+    }
+
+    function setSuggestionStage(label) {
+        const suggestionStage = document.getElementById('suggestionStage');
+        const wrapper = suggestionStage?.closest('.suggestion-color-wrapper');
+        if (!suggestionStage) return;
+        if (label) {
+            suggestionStage.textContent = label;
+            suggestionStage.classList.add('visible');
+            if (wrapper) wrapper.classList.add('has-stage');
+        } else {
+            suggestionStage.textContent = '';
+            suggestionStage.classList.remove('visible');
+            if (wrapper) wrapper.classList.remove('has-stage');
         }
     }
     
@@ -8763,7 +8843,7 @@ async function persistAnalyzerState(newState) {
         // ═══════════════════════════════════════════════════════════════
         // ✅ INDICADOR DE GALE ATIVO (BOLINHA PISCANDO NO TOPO)
         // ═══════════════════════════════════════════════════════════════
-        chrome.storage.local.get(['martingaleState', 'analysis'], function(result) {
+        storageCompat.get(['martingaleState', 'analysis']).then((result = {}) => {
             const martingaleState = result.martingaleState;
             const analysis = result.analysis;
             
@@ -8801,6 +8881,9 @@ async function persistAnalyzerState(newState) {
                     }
                 });
             });
+        }).catch(error => {
+            console.warn('⚠️ Não foi possível ler martingaleState/analysis:', error);
+            list.innerHTML = items || '<div class="no-history">Sem entradas registradas</div>';
         });
         
         // ═══════════════════════════════════════════════════════════════
@@ -8852,11 +8935,15 @@ async function persistAnalyzerState(newState) {
         }
         const hitEl = document.getElementById('entriesHit');
         if (hitEl) {
-            hitEl.style.visibility = tab === 'entries' ? 'visible' : 'hidden';
+            hitEl.style.display = tab === 'entries' ? 'inline-flex' : 'none';
         }
         const clearBtn = document.getElementById('clearEntriesBtn');
         if (clearBtn) {
-            clearBtn.style.visibility = tab === 'entries' ? 'visible' : 'hidden';
+            clearBtn.style.display = tab === 'entries' ? 'inline-flex' : 'none';
+        }
+        const entriesHeader = document.querySelector('.entries-header');
+        if (entriesHeader) {
+            entriesHeader.style.display = tab === 'entries' ? 'flex' : 'none';
         }
         document.querySelectorAll('.entries-tab').forEach((button) => {
             button.classList.toggle('active', button.dataset.tab === tab);
@@ -9511,7 +9598,6 @@ function logModeSnapshotUI(snapshot) {
                 
                 // ✅ 1. ATUALIZAR ÚLTIMO GIRO (síncrono, super rápido!)
                 const lastSpinNumber = document.getElementById('lastSpinNumber');
-                const lastSpinColor = document.getElementById('lastSpinColor');
                 const lastSpinTime = document.getElementById('lastSpinTime');
                 
                 if (lastSpinNumber) {
@@ -9521,11 +9607,6 @@ function logModeSnapshotUI(snapshot) {
                     } else {
                         lastSpinNumber.textContent = newSpin.number;
                     }
-                }
-                
-                if (lastSpinColor) {
-                    lastSpinColor.textContent = newSpin.color === 'red' ? 'Vermelho' : newSpin.color === 'black' ? 'Preto' : 'Branco';
-                    lastSpinColor.className = `spin-color-badge ${newSpin.color}`;
                 }
                 
                 if (lastSpinTime) {
@@ -9577,13 +9658,6 @@ function logModeSnapshotUI(snapshot) {
             // Atualizar histórico de entradas (WIN/LOSS)
             updateSidebar({ entriesHistory: request.data });
             
-            // ✅ LIMPAR CAIXA DE RACIOCÍNIO (suggestionText) após resultado
-            const suggestionText = document.getElementById('suggestionText');
-            if (suggestionText && suggestionText.textContent === 'Análise por IA') {
-                // Resetar para mensagem padrão
-                suggestionText.textContent = 'Aguardando análise...';
-                console.log('✅ Caixa de raciocínio limpa após resultado');
-            }
             if (autoBetManager && typeof autoBetManager.handleEntriesUpdate === 'function') {
                 autoBetManager.handleEntriesUpdate(request.data);
             }
@@ -9654,11 +9728,6 @@ function logModeSnapshotUI(snapshot) {
             // ✅ BUSCA CONCLUÍDA
             const total = request.data.total || 0;
             console.log(`✅ Busca inicial concluída: ${total} padrões únicos encontrados!`);
-            
-            const suggestionText = document.getElementById('suggestionText');
-            if (suggestionText && suggestionText.textContent && suggestionText.textContent.startsWith('🔍')) {
-                suggestionText.textContent = 'Aguardando análise...';
-            }
             
             showBankProgressMessage(`✅ Busca concluída! ${total} padrão(ões) encontrados.`, {
                 variant: 'success',
@@ -9779,10 +9848,9 @@ function logModeSnapshotUI(snapshot) {
         // ✅ SE O MODO IA NÃO ESTIVER ATIVO, MOSTRAR NA CAIXA EMBAIXO (modo padrão)
         if (!isAIMode) {
             console.log('%c   📍 Modo PADRÃO - exibindo na caixa de sugestão', 'color: #FFD700; font-weight: bold;');
-            const suggestionText = document.getElementById('suggestionText');
-            if (suggestionText) {
-                suggestionText.textContent = status;
-            }
+            // Em modo padrão não há gale ativo controlado pela IA
+            setSuggestionStage('');
+            renderSuggestionStatus(status);
             return; // NÃO atualizar o cabeçalho
         }
         
@@ -9953,8 +10021,6 @@ function logModeSnapshotUI(snapshot) {
             uiLog('═══════════════════════════════════════════════════════════');
         }
         
-        // ✅ NÃO modificar o suggestionText (deixar como "Aguardando análise...")
-        // O suggestionText só será atualizado quando houver um resultado final (NEW_ANALYSIS)
     }
 
     // Carregar e aplicar configurações na UI
@@ -11163,140 +11229,6 @@ function logModeSnapshotUI(snapshot) {
     setTimeout(loadSettings, 1800);
     setTimeout(loadPatternBank, 2000);
     setTimeout(loadObserverStats, 2200);
-    
-    // ✅ FUNÇÃO PARA CALCULAR CONFIANÇA ESPECÍFICA DO GALE
-    function calculateGaleConfidence(martingaleState, analysis) {
-        if (!martingaleState || !analysis) return 0;
-        
-        const lossCount = martingaleState.lossCount || 0;
-        const baseConfidence = analysis.confidence || 0;
-        const targetColor = martingaleState.entryColor;
-        const lossColors = martingaleState.lossColors || [];
-        
-        console.log('🔍 CALCULANDO CONFIANÇA DO GALE:', {
-            lossCount: lossCount,
-            baseConfidence: baseConfidence,
-            targetColor: targetColor,
-            lossColors: lossColors
-        });
-        
-        // ✅ BASE 1: CONFIANÇA ORIGINAL DA ANÁLISE (PESO: 30%)
-        const baseWeight = 0.30;
-        let weightedConfidence = baseConfidence * baseWeight;
-        
-        // ✅ BASE 2: PROBABILIDADE ESTATÍSTICA POR LOSSES CONSECUTIVOS (PESO: 25%)
-        const consecutiveWeight = 0.25;
-        let consecutiveBonus = 0;
-        
-        if (lossCount === 1) {
-            // G1: Probabilidade aumenta 8-12% após 1 LOSS
-            consecutiveBonus = 10;
-        } else if (lossCount === 2) {
-            // G2: Probabilidade aumenta 12-18% após 2 LOSSes
-            consecutiveBonus = 15;
-        } else if (lossCount >= 3) {
-            // G3+: Probabilidade aumenta 15-25% após 3+ LOSSes
-            consecutiveBonus = 20;
-        }
-        
-        weightedConfidence += (consecutiveBonus * consecutiveWeight);
-        
-        // ✅ BASE 3: ANÁLISE DE CORES QUENTES/FRIAS (PESO: 25%)
-        const colorAnalysisWeight = 0.25;
-        let colorBonus = 0;
-        
-        // Verificar se a cor alvo está "devendo" sair
-        const recentColors = lossColors.slice(-5); // Últimas 5 cores
-        const targetColorCount = recentColors.filter(color => color === targetColor).length;
-        
-        if (targetColorCount === 0) {
-            // Cor não saiu nas últimas 5, bonus de 8-15%
-            colorBonus = 12;
-        } else if (targetColorCount === 1) {
-            // Cor saiu apenas 1 vez, bonus de 3-8%
-            colorBonus = 5;
-        } else {
-            // Cor saiu muito, pode estar "quente", bonus menor
-            colorBonus = 2;
-        }
-        
-        weightedConfidence += (colorBonus * colorAnalysisWeight);
-        
-        // ✅ BASE 4: ANÁLISE DE PADRÕES E TENDÊNCIAS (PESO: 20%)
-        const patternWeight = 0.20;
-        let patternBonus = 0;
-        
-        // Verificar padrões de alternância
-        if (lossColors.length >= 2) {
-            const lastTwoColors = lossColors.slice(-2);
-            const isAlternating = lastTwoColors[0] !== lastTwoColors[1];
-            
-            if (isAlternating) {
-                // Padrão de alternância detectado, bonus de 5-10%
-                patternBonus = 7;
-            } else {
-                // Mesma cor consecutiva, pode quebrar, bonus de 3-8%
-                patternBonus = 5;
-            }
-        }
-        
-        // Verificar se há padrão de números específicos
-        if (analysis.patternDescription) {
-            try {
-                let pattern;
-                const desc = analysis.patternDescription;
-                
-                // ✅ VERIFICAR SE É ANÁLISE DE IA
-                if (typeof desc === 'string' && desc.trim().startsWith('🤖')) {
-                    // É análise de IA - não tem campo "occurrences" no formato esperado
-                    // Pular este bonus
-                    pattern = null;
-                } else {
-                    // É análise padrão - fazer parse do JSON
-                    pattern = typeof desc === 'string' ? JSON.parse(desc) : desc;
-                }
-                
-                if (pattern && pattern.occurrences >= 3) {
-                    // Padrão com muitas ocorrências, bonus adicional
-                    patternBonus += 3;
-                }
-            } catch (e) {
-                // Ignorar erro de parsing
-            }
-        }
-        
-        weightedConfidence += (patternBonus * patternWeight);
-        
-        // ✅ APLICAR LIMITES E AJUSTES FINAIS
-        let finalConfidence = weightedConfidence;
-        
-        // Limite mínimo: 45%
-        if (finalConfidence < 45) {
-            finalConfidence = 45;
-        }
-        
-        // Limite máximo: 95%
-        if (finalConfidence > 95) {
-            finalConfidence = 95;
-        }
-        
-        // Ajuste baseado no número de Gales (Gales altos têm confiança reduzida)
-        if (lossCount >= 4) {
-            finalConfidence *= 0.85; // Reduzir 15% para G4+
-        } else if (lossCount >= 3) {
-            finalConfidence *= 0.90; // Reduzir 10% para G3
-        }
-        
-        console.log('📊 RESULTADO DO CÁLCULO:', {
-            baseConfidence: baseConfidence,
-            consecutiveBonus: consecutiveBonus,
-            colorBonus: colorBonus,
-            patternBonus: patternBonus,
-            finalConfidence: finalConfidence.toFixed(1)
-        });
-        
-        return Math.round(finalConfidence * 10) / 10; // Arredondar para 1 casa decimal
-    }
     
     // ⚠️ REMOVIDO: O histórico agora é carregado APÓS a sidebar ser criada
     // Ver createSidebar() para o novo local de inicialização
