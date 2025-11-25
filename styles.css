@@ -649,6 +649,8 @@
 .analysis-lastspin-row .analysis-section .analysis-card,
 .analysis-lastspin-row .last-spin-section .spin-display {
     flex: 1;
+  height: 100%;
+  box-sizing: border-box;
 }
 
 .analysis-card {
