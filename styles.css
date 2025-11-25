@@ -649,8 +649,6 @@
 .analysis-lastspin-row .analysis-section .analysis-card,
 .analysis-lastspin-row .last-spin-section .spin-display {
     flex: 1;
-    height: 100%;
-    box-sizing: border-box;
 }
 
 .analysis-card {
@@ -2642,23 +2640,18 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  flex-wrap: nowrap;
-  gap: 4px;
+  flex-wrap: wrap;
   font-size: 12px;
   color: var(--text-secondary);
   margin-bottom: 6px;
-  min-width: 0;
+  gap: 6px;
 }
 .entries-hit {
   display: flex;
   align-items: center;
-  flex: 1 1 auto;
-  gap: 4px;
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
+  gap: 6px;
   min-width: 0;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 .clear-entries-btn {
   border: none;
@@ -2670,8 +2663,7 @@
   text-transform: none;
   letter-spacing: 0;
   padding: 0;
-  margin-left: 6px;
-  white-space: nowrap;
+  flex-shrink: 0;
 }
 .clear-entries-btn:hover {
   color: #ffffff;
@@ -2710,14 +2702,6 @@
 .entries-tab[aria-disabled="true"] {
   cursor: not-allowed;
   opacity: 0.35;
-}
-.entries-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  font-size: 12px;
-  color: var(--text-secondary);
-  margin-bottom: 6px;
 }
 
 .entries-content {
@@ -3469,8 +3453,6 @@
     .analysis-lastspin-row .last-spin-section .spin-display {
         padding: 10px !important;
         min-height: 120px !important;
-        height: 100% !important;
-        box-sizing: border-box !important;
     }
     
     .section-title {
