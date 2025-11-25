@@ -713,12 +713,40 @@
     align-items: center;
     justify-content: flex-start;
     padding: 8px 10px;
-    background: rgba(255, 255, 255, 0.1);
-    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.08);
+    border-radius: 10px;
 }
 .spin-display.center { justify-content: center; }
 .spin-meta { display:flex; flex-direction:column; gap:4px; align-items:center; }
 .spin-time { font-size: 13px; color: #cdd6e8; font-weight:600; }
+
+.highlight-panel {
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 14px;
+    padding: 10px 12px 14px;
+    box-shadow: 0 12px 30px rgba(0, 0, 0, 0.4);
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    position: relative;
+}
+.highlight-panel::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    pointer-events: none;
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.03);
+}
+.highlight-panel h4 {
+    margin: 0;
+    font-size: 14px;
+    font-weight: 600;
+    color: #e0e0e0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+    padding-bottom: 6px;
+}
 
 .spin-number {
     display: flex;

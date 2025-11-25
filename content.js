@@ -6629,7 +6629,7 @@ async function persistAnalyzerState(newState) {
                 </div>
                 
             <div class="analysis-lastspin-row">
-                 <div class="analysis-section">
+                 <div class="analysis-section highlight-panel">
                      <h4 id="analysisModeTitle">Aguardando Análise</h4>
                     <div class="analysis-card">
                      <div class="confidence-meter">
@@ -6648,14 +6648,12 @@ async function persistAnalyzerState(newState) {
                      </div>
                 </div>
                 
-                <div class="last-spin-section">
+                <div class="last-spin-section highlight-panel">
                     <h4>Último Giro</h4>
-                    <div class="analysis-card last-spin-card">
-                        <div class="spin-display center" id="lastSpinDisplay">
-                            <div class="spin-number" id="lastSpinNumber">-</div>
-                            <div class="spin-meta">
-                                <div class="spin-time" id="lastSpinTime">--:--</div>
-                            </div>
+                    <div class="spin-display center" id="lastSpinDisplay">
+                        <div class="spin-number" id="lastSpinNumber">-</div>
+                        <div class="spin-meta">
+                            <div class="spin-time" id="lastSpinTime">--:--</div>
                         </div>
                     </div>
                 </div>
