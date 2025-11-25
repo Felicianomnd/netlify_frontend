@@ -2652,11 +2652,8 @@
   align-items: center;
   flex: 1 1 auto;
   gap: 4px;
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 .clear-entries-btn {
   border: none;
@@ -2669,7 +2666,6 @@
   letter-spacing: 0;
   padding: 0;
   margin-left: 6px;
-  white-space: nowrap;
 }
 .clear-entries-btn:hover {
   color: #ffffff;
@@ -3454,7 +3450,6 @@
     .analysis-lastspin-row {
         flex-wrap: wrap !important;
         gap: 10px !important;
-        align-items: stretch !important;
     }
     
     .analysis-lastspin-row .analysis-section,
@@ -3462,16 +3457,14 @@
         margin-bottom: 0 !important;
         flex: 1 1 calc(50% - 10px) !important;
         min-width: 0 !important;
-        display: flex !important;
-        flex-direction: column !important;
     }
     
     .analysis-lastspin-row .analysis-section .analysis-card,
     .analysis-lastspin-row .last-spin-section .spin-display {
         padding: 10px !important;
         min-height: 120px !important;
-        flex: 1 !important;
         height: 100% !important;
+        box-sizing: border-box !important;
     }
     
     .section-title {
