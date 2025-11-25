@@ -2641,6 +2641,11 @@
   justify-content: space-between;
   align-items: center;
   flex-wrap: wrap;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+}
 .entries-hit {
   display: flex;
   align-items: center;
@@ -2648,11 +2653,6 @@
   gap: 4px;
   flex-wrap: wrap;
   min-width: 0;
-}
-  font-size: 12px;
-  color: var(--text-secondary);
-  margin-bottom: 6px;
-  gap: 8px;
 }
 .clear-entries-btn {
   border: none;
@@ -2664,7 +2664,7 @@
   text-transform: none;
   letter-spacing: 0;
   padding: 0;
-  margin-left: auto;
+  margin-left: 6px;
 }
 .clear-entries-btn:hover {
   color: #ffffff;
