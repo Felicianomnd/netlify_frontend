@@ -3458,12 +3458,22 @@
         margin-bottom: 0 !important;
         flex: 1 1 calc(50% - 10px) !important;
         min-width: 0 !important;
+        display: flex !important;
+        flex-direction: column !important;
     }
     
     .analysis-lastspin-row .analysis-section .analysis-card,
     .analysis-lastspin-row .last-spin-section .spin-display {
         padding: 10px !important;
-        min-height: 120px !important;
+        min-height: 140px !important;
+        flex: 1 !important;
+    }
+    
+    .analysis-lastspin-row .last-spin-section .spin-display {
+        flex-direction: column !important;
+        align-items: center !important;
+        justify-content: center !important;
+        gap: 8px !important;
     }
     
     .section-title {
