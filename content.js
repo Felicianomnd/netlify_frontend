@@ -8960,7 +8960,7 @@ async function persistAnalyzerState(newState) {
         const totalEntries = entriesByMode.length;
         
         // Mostrar placar WIN/LOSS com porcentagem e total de entradas
-        hitEl.innerHTML = `<span class="win-score">W:${wins}</span><span class="loss-score">L:${losses}</span><span class="percentage">(${pct}%)</span><span class="total-entries">Entradas:${totalEntries}</span>`;
+        hitEl.innerHTML = `<span class="win-score">WIN: ${wins}</span> <span class="loss-score">LOSS: ${losses}</span> <span class="percentage">(${pct}%)</span> <span class="total-entries">• Entradas: ${totalEntries}</span>`;
     }
 
     function initEntriesTabs() {

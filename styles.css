@@ -649,6 +649,8 @@
 .analysis-lastspin-row .analysis-section .analysis-card,
 .analysis-lastspin-row .last-spin-section .spin-display {
     flex: 1;
+    height: 100%;
+    box-sizing: border-box;
 }
 
 .analysis-card {
@@ -2654,16 +2656,9 @@
   gap: 4px;
   flex-wrap: nowrap;
   min-width: 0;
+  white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.entries-hit span {
-  white-space: nowrap;
-  margin-right: 6px;
-}
-.entries-hit span:last-child {
-  margin-right: 0;
 }
 .clear-entries-btn {
   border: none;
@@ -2675,7 +2670,8 @@
   text-transform: none;
   letter-spacing: 0;
   padding: 0;
-  margin-left: auto;
+  margin-left: 6px;
+  white-space: nowrap;
 }
 .clear-entries-btn:hover {
   color: #ffffff;
