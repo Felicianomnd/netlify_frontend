@@ -3435,14 +3435,20 @@
     }
     
     .analysis-lastspin-row {
-        flex-direction: column !important;
-        gap: 12px !important;
+        flex-wrap: wrap !important;
+        gap: 10px !important;
     }
     
     .analysis-lastspin-row .analysis-section,
     .analysis-lastspin-row .last-spin-section {
         margin-bottom: 0 !important;
-        width: 100% !important;
+        flex: 1 1 calc(50% - 10px) !important;
+        min-width: 0 !important;
+    }
+    
+    .analysis-lastspin-row .analysis-section .analysis-card,
+    .analysis-lastspin-row .last-spin-section .spin-display {
+        padding: 10px !important;
     }
     
     .section-title {
