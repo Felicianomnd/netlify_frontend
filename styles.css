@@ -1,3 +1,17 @@
+/* minimal cards */
+.analysis-card,
+.analysis-lastspin-row .last-spin-section .spin-display {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 8px 10px;
+    border-radius: 8px;
+    background: rgba(15, 23, 42, 0.35);
+    min-height: 110px;
+    height: 100%;
+    box-shadow: none;
+}
 /* ═══════════════════════════════════════════════════════════════════════════════ */
 /* 🎨 PALETA DE CORES DA BLAZE                                                     */
 /* ═══════════════════════════════════════════════════════════════════════════════ */
@@ -636,7 +650,7 @@
 .analysis-lastspin-row {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 12px;
+    gap: 10px;
     align-items: stretch;
 }
 
@@ -653,34 +667,18 @@
   box-sizing: border-box;
 }
 
-.analysis-card {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    padding: 8px 10px;
-    border-radius: 10px;
-    background: rgba(255, 255, 255, 0.1);
-    box-shadow: 0 8px 16px rgba(0, 0, 0, 0.25);
-    min-height: 140px;
-    height: 100%;
-}
-.analysis-lastspin-row .last-spin-section .spin-display {
-    min-height: 140px;
-    height: 100%;
-}
+/* remove extra panel styling */
 
 .analysis-lastspin-row .analysis-section .confidence-meter {
     margin-bottom: 6px;
 }
 
 .analysis-lastspin-row .last-spin-section .spin-display {
-    flex: 1;
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 8px;
+    gap: 6px;
     text-align: center;
 }
 
@@ -721,31 +719,17 @@
 .spin-time { font-size: 13px; color: #cdd6e8; font-weight:600; }
 
 .highlight-panel {
-    background: rgba(255, 255, 255, 0.04);
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 14px;
-    padding: 10px 12px 14px;
-    box-shadow: 0 12px 30px rgba(0, 0, 0, 0.4);
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-    position: relative;
-}
-.highlight-panel::after {
-    content: '';
-    position: absolute;
-    inset: 0;
-    border-radius: inherit;
-    pointer-events: none;
-    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.03);
+    background: transparent;
+    border: none;
+    border-radius: 0;
+    padding: 0;
+    box-shadow: none;
 }
 .highlight-panel h4 {
-    margin: 0;
-    font-size: 14px;
+    margin: 0 0 6px 0;
+    font-size: 13px;
     font-weight: 600;
     color: #e0e0e0;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.12);
-    padding-bottom: 6px;
 }
 
 .spin-number {
@@ -3501,16 +3485,21 @@
     
     .analysis-lastspin-row .analysis-section .analysis-card,
     .analysis-lastspin-row .last-spin-section .spin-display {
-    padding: 8px !important;
-    min-height: 120px !important;
-    flex: 1 !important;
+        padding: 8px !important;
+        min-height: 105px !important;
+        flex: 1 !important;
     }
     
     .analysis-lastspin-row .last-spin-section .spin-display {
         flex-direction: column !important;
         align-items: center !important;
         justify-content: center !important;
-        gap: 8px !important;
+        gap: 6px !important;
+    }
+    
+    .highlight-panel {
+        padding: 10px !important;
+        border-radius: 10px !important;
     }
     
     .section-title {
