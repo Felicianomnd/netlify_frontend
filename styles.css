@@ -2650,23 +2650,32 @@
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 8px;
   min-width: 0;
+}
+.entries-hit .total-entries {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: nowrap;
+  white-space: nowrap;
 }
 .clear-entries-btn {
   border: none;
   background: transparent;
-  color: #ffffff;
+  color: #6ec8ff;
   font-size: 12px;
   font-weight: 600;
   cursor: pointer;
   text-transform: none;
   letter-spacing: 0;
   padding: 0;
-  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
 }
 .clear-entries-btn:hover {
-  color: #ffffff;
+  color: #9fe0ff;
 }
 
 .entries-tabs-bar {
@@ -3453,30 +3462,6 @@
     .analysis-lastspin-row .last-spin-section .spin-display {
         padding: 10px !important;
         min-height: 120px !important;
-    }
-    
-    /* ✅ FORÇAR ENTRIES-HIT A NÃO QUEBRAR LINHA NO MOBILE */
-    .entries-header {
-        flex-wrap: nowrap !important;
-        gap: 8px !important;
-        overflow-x: auto !important;
-    }
-    
-    .entries-hit {
-        flex-wrap: nowrap !important;
-        gap: 4px !important;
-        white-space: nowrap !important;
-        font-size: 11px !important;
-    }
-    
-    .entries-hit span {
-        flex-shrink: 0 !important;
-    }
-    
-    .clear-entries-btn {
-        flex-shrink: 0 !important;
-        font-size: 11px !important;
-        white-space: nowrap !important;
     }
     
     .section-title {

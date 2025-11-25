@@ -6667,7 +6667,6 @@ async function persistAnalyzerState(newState) {
                     </div>
                     <div class="entries-header">
                         <span class="entries-hit" id="entriesHit">Acertos: 0/0 (0%)</span>
-                        <button type="button" class="clear-entries-btn" id="clearEntriesBtn">Limpar</button>
                     </div>
                     <div class="entries-content">
                         <div class="entries-view" data-view="entries">
@@ -8960,7 +8959,16 @@ async function persistAnalyzerState(newState) {
         const totalEntries = entriesByMode.length;
         
         // Mostrar placar WIN/LOSS com porcentagem e total de entradas
-        hitEl.innerHTML = `<span class="win-score">WIN: ${wins}</span> <span class="loss-score">LOSS: ${losses}</span> <span class="percentage">(${pct}%)</span> <span class="total-entries">• Entradas: ${totalEntries}</span>`;
+        const clearButtonHTML = `<button type="button" class="clear-entries-btn" id="clearEntriesBtn" title="Limpar histórico">Limpar</button>`;
+        hitEl.innerHTML = `<span class="win-score">WIN: ${wins}</span> <span class="loss-score">LOSS: ${losses}</span> <span class="percentage">(${pct}%)</span> <span class="total-entries">• Entradas: ${totalEntries} ${clearButtonHTML}</span>`;
+        const inlineClearBtn = document.getElementById('clearEntriesBtn');
+        if (inlineClearBtn) {
+            inlineClearBtn.addEventListener('click', function(event) {
+                event.preventDefault();
+                event.stopPropagation();
+                clearEntriesHistory();
+            });
+        }
     }
 
     function initEntriesTabs() {
@@ -8999,10 +9007,6 @@ async function persistAnalyzerState(newState) {
         const hitEl = document.getElementById('entriesHit');
         if (hitEl) {
             hitEl.style.display = tab === 'entries' ? 'inline-flex' : 'none';
-        }
-        const clearBtn = document.getElementById('clearEntriesBtn');
-        if (clearBtn) {
-            clearBtn.style.display = tab === 'entries' ? 'inline-flex' : 'none';
         }
         const entriesHeader = document.querySelector('.entries-header');
         if (entriesHeader) {
