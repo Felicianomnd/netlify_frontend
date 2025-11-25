@@ -1272,6 +1272,44 @@ const AUTO_BET_RUNTIME_DEFAULTS = Object.freeze({
     inverseCycleBaseFactor: 1
 });
 
+const AUTO_BET_HISTORY_KEY = 'autoBetHistory';
+const AUTO_BET_HISTORY_LIMIT = 150;
+
+const uiCurrencyFormatter = new Intl.NumberFormat('pt-BR', {
+    style: 'currency',
+    currency: 'BRL'
+});
+
+let cachedAutoBetAvailability = { hasReal: false, hasSimulation: false };
+let entriesTabsReady = false;
+let entriesTabsBound = false;
+let activeEntriesTab = 'entries';
+let autoBetHistoryUnsubscribe = null;
+
+function formatCurrencyBRL(value) {
+    const numeric = Number(value);
+    return uiCurrencyFormatter.format(Number.isFinite(numeric) ? numeric : 0);
+}
+
+function formatCycleStageLabel(rawStage, index = 0) {
+    if (!rawStage) {
+        return index === 0 ? 'E1' : `G${index}`;
+    }
+    const normalized = String(rawStage).toUpperCase();
+    if (normalized === 'ENTRADA' || normalized === 'G0') {
+        return 'E1';
+    }
+    return normalized;
+}
+
+function setAutoBetAvailabilityState(state = {}) {
+    cachedAutoBetAvailability = {
+        hasReal: !!state.hasReal,
+        hasSimulation: !!state.hasSimulation
+    };
+    applyAutoBetAvailabilityToUI();
+}
+
 function sanitizeAutoBetConfig(raw) {
     const base = raw && typeof raw === 'object' ? raw : {};
     const getNumber = (value, fallback) => {
@@ -3488,6 +3526,120 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
         }
     };
 
+const autoBetHistoryStore = (() => {
+    let cache = [];
+    let initialized = false;
+    const listeners = new Set();
+
+    async function init() {
+        if (initialized) return cache;
+        try {
+            const stored = await storageCompat.get([AUTO_BET_HISTORY_KEY]);
+            const raw = stored[AUTO_BET_HISTORY_KEY];
+            cache = Array.isArray(raw) ? raw : [];
+        } catch (error) {
+            console.warn('AutoBetHistory: falha ao carregar histórico:', error);
+            cache = [];
+        }
+        initialized = true;
+        return cache;
+    }
+
+    function getSnapshot() {
+        return cache.map(item => ({
+            ...item,
+            stages: Array.isArray(item.stages)
+                ? item.stages.map(stage => ({ ...stage }))
+                : []
+        }));
+    }
+
+    function clamp() {
+        if (cache.length > AUTO_BET_HISTORY_LIMIT) {
+            cache = cache.slice(0, AUTO_BET_HISTORY_LIMIT);
+        }
+    }
+
+    function persist() {
+        storageCompat.set({ [AUTO_BET_HISTORY_KEY]: cache })
+            .catch(err => console.warn('AutoBetHistory: falha ao salvar histórico:', err));
+    }
+
+    function notify() {
+        const snapshot = getSnapshot();
+        listeners.forEach(listener => {
+            try {
+                listener(snapshot);
+            } catch (error) {
+                console.warn('AutoBetHistory: listener falhou:', error);
+            }
+        });
+    }
+
+    function upsert(record) {
+        if (!record || !record.id) return;
+        const nextRecord = {
+            status: 'pending',
+            stages: [],
+            createdAt: Date.now(),
+            totalColorInvested: 0,
+            totalWhiteInvested: 0,
+            ...record
+        };
+        const idx = cache.findIndex(item => item.id === nextRecord.id);
+        if (idx >= 0) {
+            cache[idx] = { ...cache[idx], ...nextRecord };
+        } else {
+            cache.unshift(nextRecord);
+        }
+        clamp();
+        persist();
+        notify();
+    }
+
+    function patch(id, updater) {
+        if (!id || typeof updater !== 'function') return;
+        const idx = cache.findIndex(item => item.id === id);
+        if (idx === -1) return;
+        const current = cache[idx];
+        const draft = {
+            ...current,
+            stages: Array.isArray(current.stages)
+                ? current.stages.map(stage => ({ ...stage }))
+                : []
+        };
+        const next = updater(draft);
+        if (!next) return;
+        cache[idx] = { ...current, ...next };
+        clamp();
+        persist();
+        notify();
+    }
+
+    function subscribe(listener) {
+        if (typeof listener !== 'function') return () => {};
+        listeners.add(listener);
+        return () => listeners.delete(listener);
+    }
+
+    function clear() {
+        cache = [];
+        persist();
+        notify();
+    }
+
+    return {
+        init,
+        getAll: () => getSnapshot(),
+        upsert,
+        patch,
+        subscribe,
+        clear
+    };
+})();
+
+autoBetHistoryStore.init().catch(error => console.warn('AutoBetHistory: inicialização antecipada falhou:', error));
+
     // ═══════════════════════════════════════════════════════════════════════════════
     // 🎯 AUTOAPOSTA - CONTROLADOR LOCAL
     // ═══════════════════════════════════════════════════════════════════════════════
@@ -3588,8 +3740,10 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
 
         async function init() {
             ensureStyles();
+            await autoBetHistoryStore.init();
             await reloadConfig();
             await reloadRuntime();
+            broadcastAutoBetAvailability();
             updateStatusUI();
             if (chrome?.storage?.onChanged && !storageListenerAttached) {
                 chrome.storage.onChanged.addListener(handleStorageChange);
@@ -3606,10 +3760,12 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                 const stored = await storageCompat.get(['analyzerConfig']);
                 config = sanitizeAutoBetConfig(stored?.analyzerConfig?.autoBetConfig);
                 updateSimulationSnapshots();
+                broadcastAutoBetAvailability();
             } catch (error) {
                 console.warn('AutoBet: erro ao carregar configuração:', error);
                 config = { ...AUTO_BET_DEFAULTS };
                 updateSimulationSnapshots();
+                broadcastAutoBetAvailability();
             }
         }
 
@@ -3637,6 +3793,7 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                 const newConfig = changes.analyzerConfig.newValue || {};
                 config = sanitizeAutoBetConfig(newConfig.autoBetConfig);
                 updateSimulationSnapshots();
+                broadcastAutoBetAvailability();
                 hydratePanel();
                 updateStatusUI();
             }
@@ -3666,6 +3823,7 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                 config.whiteProtection = !!newConfig.whiteProtection;
             }
             updateSimulationSnapshots();
+            broadcastAutoBetAvailability();
             hydratePanel();
             updateStatusUI();
             if (!config.whiteProtection) {
@@ -4469,6 +4627,106 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
             }
         }
 
+        function broadcastAutoBetAvailability() {
+            setAutoBetAvailabilityState({
+                hasReal: !!config.enabled,
+                hasSimulation: !!config.simulationOnly
+            });
+        }
+
+        function extractAnalysisConfidence(analysis) {
+            if (!analysis) return null;
+            if (typeof analysis.confidence === 'number') return analysis.confidence;
+            if (typeof analysis.score === 'number') return analysis.score;
+            if (typeof analysis.percentage === 'number') return analysis.percentage;
+            return null;
+        }
+
+        function recordCycleStart(analysis) {
+            if (!runtime.openCycle?.id) return;
+            autoBetHistoryStore.upsert({
+                id: runtime.openCycle.id,
+                createdAt: runtime.openCycle.createdAt,
+                color: runtime.openCycle.color,
+                confidence: extractAnalysisConfidence(analysis),
+                mode: runtime.openCycle.mode,
+                status: 'pending',
+                stages: [],
+                executionMode: config.enabled ? 'real' : 'simulation',
+                totalColorInvested: 0,
+                totalWhiteInvested: 0
+            });
+        }
+
+        function recordCycleStage(stageInfo, amount, color) {
+            if (!runtime.openCycle?.id || !Number.isFinite(amount)) return;
+            autoBetHistoryStore.patch(runtime.openCycle.id, (record) => {
+                const stages = Array.isArray(record.stages) ? [...record.stages] : [];
+                const rawStage = stageInfo?.label || 'G0';
+                stages.push({
+                    rawStage,
+                    stageLabel: formatCycleStageLabel(rawStage, stages.length),
+                    amount,
+                    color,
+                    timestamp: Date.now()
+                });
+                const totalColorInvested = Number((record.totalColorInvested || 0) + amount);
+                return {
+                    stages,
+                    lastAmount: amount,
+                    entryColor: color,
+                    totalColorInvested,
+                    status: 'pending'
+                };
+            });
+        }
+
+        function recordWhiteProtectionAmount(amount) {
+            if (!runtime.openCycle?.id || !Number.isFinite(amount)) return;
+            autoBetHistoryStore.patch(runtime.openCycle.id, (record) => ({
+                totalWhiteInvested: Number((record.totalWhiteInvested || 0) + amount)
+            }));
+        }
+
+        function finalizeHistoryRecord(outcome, delta, latestEntry, meta = {}) {
+            if (!runtime.openCycle?.id) return;
+            autoBetHistoryStore.patch(runtime.openCycle.id, (record) => {
+                const profitValue = Number.isFinite(delta) ? Number(delta.toFixed(2)) : null;
+                const status = outcome === 'WIN' ? 'win' : outcome === 'LOSS' ? 'loss' : outcome;
+                const resultNumber = typeof latestEntry?.number === 'number'
+                    ? latestEntry.number
+                    : (typeof meta.resultNumber === 'number' ? meta.resultNumber : record.resultNumber ?? null);
+                return {
+                    status,
+                    profit: profitValue,
+                    resultColor: latestEntry?.color ?? meta.resultColor ?? record.resultColor ?? null,
+                    resultNumber,
+                    resultTimestamp: latestEntry?.timestamp || meta.resultTimestamp || Date.now(),
+                    totalColorInvested: meta.totalColorInvested ?? record.totalColorInvested ?? 0,
+                    totalWhiteInvested: meta.totalWhiteInvested ?? record.totalWhiteInvested ?? 0,
+                    totalInvested: meta.totalInvested ?? record.totalInvested ?? 0,
+                    lastAmount: meta.lastAmount ?? record.lastAmount ?? null,
+                    confidence: record.confidence ?? (typeof latestEntry?.confidence === 'number' ? latestEntry.confidence : record.confidence ?? null)
+                };
+            });
+        }
+
+        function cancelPendingHistoryRecord(reason = 'cancelled') {
+            if (!runtime.openCycle?.id) return;
+            autoBetHistoryStore.patch(runtime.openCycle.id, (record) => {
+                if (record.status && record.status !== 'pending') {
+                    return null;
+                }
+                return {
+                    status: reason,
+                    profit: 0,
+                    resultColor: null,
+                    resultNumber: null,
+                    resultTimestamp: Date.now()
+                };
+            });
+        }
+
         function formatCurrency(value) {
             return currencyFormatter.format(Number.isFinite(value) ? value : 0);
         }
@@ -4761,9 +5019,9 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
             const isWin = latest.result === 'WIN';
             const isFinalLoss = latest.result === 'LOSS' && (latest.finalResult === 'RET' || !hasContinuationFlag(latest));
             if (isWin) {
-                finalizeCycle('WIN');
+                finalizeCycle('WIN', latest);
             } else if (isFinalLoss) {
-                finalizeCycle('LOSS');
+                finalizeCycle('LOSS', latest);
             } else {
                 markIntermediateLoss();
                 persistRuntime(true);
@@ -4773,6 +5031,9 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
         function resetRuntimeState(forceMessage) {
             pendingTimeouts.forEach(id => clearTimeout(id));
             pendingTimeouts = [];
+             if (runtime.openCycle) {
+                cancelPendingHistoryRecord('cancelled');
+            }
             runtime = { ...AUTO_BET_RUNTIME_DEFAULTS };
             lastHandledAnalysisSignature = null;
             updateSimulationSnapshots();
@@ -4808,6 +5069,9 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
             }
             persistRuntime(true);
             updateStatusUI();
+            if (stageInfo.index === 0) {
+                recordCycleStart(analysis);
+            }
         }
 
         function registerPlannedBet(stageInfo, amount, color) {
@@ -4819,6 +5083,7 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                 color,
                 timestamp: Date.now()
             });
+            recordCycleStage(stageInfo, amount, color);
             persistRuntime(true);
             updateStatusUI();
             setColorBetPending(color, stageInfo.label, amount);
@@ -4868,6 +5133,7 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                 amount,
                 timestamp: Date.now()
             });
+            recordWhiteProtectionAmount(amount);
             persistRuntime(true);
             updateStatusUI();
             setWhiteBetPending(stageInfo.label, amount);
@@ -5003,8 +5269,9 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
             return Object.keys(entry || {}).some(key => key.startsWith('continuingToG'));
         }
 
-        function finalizeCycle(outcome) {
+        function finalizeCycle(outcome, latestEntry = null) {
             if (!runtime.openCycle || !runtime.openCycle.bets || !runtime.openCycle.bets.length) {
+                cancelPendingHistoryRecord('cancelled');
                 runtime.openCycle = null;
                 updateSimulationSnapshots();
                 persistRuntime(true);
@@ -5076,6 +5343,13 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                     : 'Proteção desativada';
                 setWhiteCardIdle(whiteStatus);
             }
+
+            finalizeHistoryRecord(adjustedOutcome, delta, latestEntry, {
+                totalInvested,
+                totalColorInvested,
+                totalWhiteInvested,
+                lastAmount: displayAmount
+            });
 
             runtime.openCycle = null;
             evaluateStops();
@@ -6072,6 +6346,13 @@ async function persistAnalyzerState(newState) {
         } else {
             console.log('%c✅ Nenhuma sidebar existente encontrada', 'color: #00FF88;');
         }
+        if (autoBetHistoryUnsubscribe) {
+            autoBetHistoryUnsubscribe();
+            autoBetHistoryUnsubscribe = null;
+        }
+        entriesTabsReady = false;
+        entriesTabsBound = false;
+        activeEntriesTab = 'entries';
         
         console.log('%c🏗️ Criando elemento sidebar...', 'color: #00AAFF;');
         
@@ -6250,16 +6531,28 @@ async function persistAnalyzerState(newState) {
                 </div>
             </div>
             
-            <div class="entries-panel" id="entriesPanel">
-                <div class="entries-header">
-                    <span>Entradas</span>
-                    <span class="entries-hit" id="entriesHit">Acertos: 0/0 (0%)</span>
+            <div class="entries-section">
+                <div class="entries-panel" id="entriesPanel">
+                    <div class="entries-tabs-bar" id="entriesTabs">
+                        <button type="button" class="entries-tab active" data-tab="entries">Sinais</button>
+                        <button type="button" class="entries-tab" data-tab="bets" aria-disabled="true">Apostas</button>
+                    </div>
+                    <div class="entries-header">
+                        <span class="entries-hit" id="entriesHit">Acertos: 0/0 (0%)</span>
+                        <button type="button" class="clear-entries-btn" id="clearEntriesBtn">Limpar histórico</button>
+                    </div>
+                    <div class="entries-content">
+                        <div class="entries-view" data-view="entries">
+                            <div class="entries-list" id="entriesList"></div>
+                        </div>
+                        <div class="entries-view" data-view="bets" hidden>
+                            <div class="bets-container" id="betsContainer">
+                                <div class="bets-empty">Nenhuma aposta registrada ainda.</div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
-                <div class="clear-entries-section">
-                    <span class="clear-entries-btn" id="clearEntriesBtn">Limpar histórico</span>
-                </div>
-                <div class="entries-list" id="entriesList"></div>
-                 </div>
+            </div>
                 
                 <div class="pattern-section">
                     <h4>Padrão</h4>
@@ -6705,6 +6998,9 @@ async function persistAnalyzerState(newState) {
             console.error('%c❌ ERRO ao adicionar sidebar ao DOM:', 'color: #FF0000; font-weight: bold;', error);
             return;
         }
+        initEntriesTabs();
+        setEntriesTab(activeEntriesTab);
+        setupAutoBetHistoryUI();
         if (autoBetManager && typeof autoBetManager.onSidebarReady === 'function') {
             setTimeout(() => autoBetManager.onSidebarReady(), 0);
         }
@@ -6871,55 +7167,8 @@ async function persistAnalyzerState(newState) {
                 // Usar modal customizado em vez do confirm() nativo
                 showCustomConfirm('Limpar histórico de entradas?', clearEntriesBtn).then(confirmed => {
                     if (confirmed) {
-                    try {
-                        // ✅ NOVO: Limpar APENAS entradas do modo ativo
-                        chrome.storage.local.get(['entriesHistory'], function(result) {
-                            const allEntries = result.entriesHistory || [];
-                            
-                            // Detectar qual modo está ativo
-                            const aiModeToggle = document.querySelector('.ai-mode-toggle.active');
-                            const isDiamondMode = !!aiModeToggle;
-                            const currentMode = isDiamondMode ? 'diamond' : 'standard';
-                            
-                            console.log(`🗑️ Limpando entradas do modo: ${currentMode.toUpperCase()}`);
-                            console.log(`   Total de entradas antes: ${allEntries.length}`);
-                            
-                            // ✅ FILTRAR: Remover entradas do modo atual, manter de outros modos
-                            const filteredEntries = allEntries.filter(e => {
-                                // ✅ Entradas antigas sem analysisMode → tratar como MODO PADRÃO
-                                const entryMode = e.analysisMode || 'standard';
-                                
-                                // Manter apenas se for de OUTRO modo
-                                const shouldKeep = entryMode !== currentMode;
-                                
-                                console.log(`      Entrada: ${e.result} ${e.color || ''} | Modo: ${entryMode} | ${shouldKeep ? 'MANTER ✅' : 'REMOVER ❌'}`);
-                                
-                                return shouldKeep;
-                            });
-                            
-                            console.log(`   Total de entradas depois: ${filteredEntries.length}`);
-                            console.log(`   Entradas removidas: ${allEntries.length - filteredEntries.length}`);
-                            
-                            chrome.storage.local.set({ entriesHistory: filteredEntries }, function() {
-                                console.log(`✅ Histórico de entradas do modo ${currentMode} limpo`);
-                                renderEntriesPanel(filteredEntries);
-                                
-                                // ✅ Notificar background.js para limpar o calibrador também
-                                chrome.runtime.sendMessage({ 
-                                    action: 'clearEntriesAndObserver' 
-                                }, function(response) {
-                                    if (response && response.status === 'success') {
-                                        console.log('✅ Calibrador sincronizado após limpar entradas');
-                                        // Atualizar UI do calibrador
-                                        loadObserverStats();
-                                    }
-                                });
-                            });
-                        });
-                    } catch (e) {
-                        console.error('Falha ao limpar entradas:', e);
+                        clearEntriesHistory();
                     }
-                }
                 });
             });
         }
@@ -8593,6 +8842,198 @@ async function persistAnalyzerState(newState) {
         // Mostrar placar WIN/LOSS com porcentagem, total de ciclos e total de entradas
         hitEl.innerHTML = `<span class="win-score">WIN: ${wins}</span> <span class="loss-score">LOSS: ${losses}</span> <span class="percentage">(${pct}%)</span> <span class="total-entries">• Total: ${totalCycles} ciclos • ${totalEntries} entradas</span>`;
     }
+
+    function initEntriesTabs() {
+        const tabsContainer = document.getElementById('entriesTabs');
+        if (!tabsContainer) {
+            return;
+        }
+        entriesTabsReady = true;
+        if (!entriesTabsBound) {
+            tabsContainer.addEventListener('click', (event) => {
+                const button = event.target.closest('.entries-tab');
+                if (!button) return;
+                if (button.getAttribute('aria-disabled') === 'true') return;
+                const tab = button.dataset.tab;
+                if (!tab) return;
+                setEntriesTab(tab);
+            });
+            entriesTabsBound = true;
+        }
+        applyAutoBetAvailabilityToUI();
+    }
+
+    function setEntriesTab(tab) {
+        if (tab !== 'entries' && tab !== 'bets') {
+            tab = 'entries';
+        }
+        activeEntriesTab = tab;
+        const entriesView = document.querySelector('.entries-view[data-view="entries"]');
+        const betsView = document.querySelector('.entries-view[data-view="bets"]');
+        if (entriesView) {
+            entriesView.hidden = tab !== 'entries';
+        }
+        if (betsView) {
+            betsView.hidden = tab !== 'bets';
+        }
+        const hitEl = document.getElementById('entriesHit');
+        if (hitEl) {
+            hitEl.style.visibility = tab === 'entries' ? 'visible' : 'hidden';
+        }
+        const clearBtn = document.getElementById('clearEntriesBtn');
+        if (clearBtn) {
+            clearBtn.style.visibility = tab === 'entries' ? 'visible' : 'hidden';
+        }
+        document.querySelectorAll('.entries-tab').forEach((button) => {
+            button.classList.toggle('active', button.dataset.tab === tab);
+        });
+    }
+
+    function setupAutoBetHistoryUI() {
+        autoBetHistoryStore.init()
+            .then(() => {
+                if (autoBetHistoryUnsubscribe) {
+                    autoBetHistoryUnsubscribe();
+                    autoBetHistoryUnsubscribe = null;
+                }
+                renderAutoBetHistoryPanel(autoBetHistoryStore.getAll());
+                autoBetHistoryUnsubscribe = autoBetHistoryStore.subscribe(renderAutoBetHistoryPanel);
+            })
+            .catch(error => console.warn('AutoBetHistory: falha ao inicializar UI:', error));
+    }
+
+    function renderAutoBetHistoryPanel(history) {
+        const container = document.getElementById('betsContainer');
+        if (!container) return;
+        const shouldShow = cachedAutoBetAvailability.hasReal || cachedAutoBetAvailability.hasSimulation;
+        if (!shouldShow) {
+            container.innerHTML = `<div class="bets-empty">Disponível apenas quando Aposta real ou Simulação estiverem ativos.</div>`;
+            return;
+        }
+        const data = Array.isArray(history) ? history : autoBetHistoryStore.getAll();
+        if (!data.length) {
+            container.innerHTML = `<div class="bets-empty">Nenhuma aposta registrada ainda.</div>`;
+            return;
+        }
+        const rows = data.map(renderBetHistoryRow).join('');
+        container.innerHTML = `
+            <div class="bets-table-wrapper">
+                <table class="bets-table">
+                    <thead>
+                        <tr>
+                            <th>Horário</th>
+                            <th>Sequência</th>
+                            <th>Preço</th>
+                            <th>Entrada</th>
+                            <th>Resultado</th>
+                            <th>Lucro</th>
+                        </tr>
+                    </thead>
+                    <tbody>${rows}</tbody>
+                </table>
+            </div>
+        `;
+    }
+
+    function renderBetHistoryRow(record) {
+        const timeSource = record?.createdAt || record?.updatedAt || Date.now();
+        const time = formatBetTime(timeSource);
+        const sequence = formatBetSequence(record?.stages);
+        const price = record?.lastAmount != null ? formatCurrencyBRL(record.lastAmount) : '—';
+        const entryPill = renderBetColorPill(record?.entryColor);
+        const resultPill = renderBetResult(record);
+        const profit = formatBetProfit(record);
+        const statusClass = record?.status ? `bet-status-${record.status}` : 'bet-status-pending';
+        return `<tr class="${statusClass}">
+            <td>${time}</td>
+            <td>${sequence}</td>
+            <td>${price}</td>
+            <td>${entryPill}</td>
+            <td>${resultPill}</td>
+            <td>${profit}</td>
+        </tr>`;
+    }
+
+    function formatBetTime(timestamp) {
+        try {
+            return new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        } catch (_) {
+            return '--:--';
+        }
+    }
+
+    function formatBetSequence(stages) {
+        if (!Array.isArray(stages) || !stages.length) {
+            return '—';
+        }
+        return stages.map((stage, index) => stage?.stageLabel || formatCycleStageLabel(stage?.rawStage, index)).join(' ');
+    }
+
+    function renderBetColorPill(color) {
+        const normalized = normalizeBetColor(color);
+        const labelMap = {
+            red: 'Vermelho',
+            black: 'Preto',
+            white: 'Branco',
+            neutral: '—'
+        };
+        return `<span class="bet-color-pill ${normalized}" title="${labelMap[normalized] || '—'}" aria-label="${labelMap[normalized] || '—'}"></span>`;
+    }
+
+    function normalizeBetColor(color) {
+        const lowered = String(color || '').toLowerCase();
+        if (lowered.startsWith('r')) return 'red';
+        if (lowered.startsWith('b') && lowered !== 'branco') return 'black';
+        if (lowered === 'branco' || lowered.startsWith('w')) return 'white';
+        return 'neutral';
+    }
+
+    function renderBetResult(record) {
+        if (!record || record.status === 'pending') {
+            return `<span class="bet-result-pill pending"><span class="pending-indicator"></span></span>`;
+        }
+        if (record.status === 'cancelled') {
+            return `<span class="bet-result-pill neutral">—</span>`;
+        }
+        if (record.resultColor) {
+            const colorClass = normalizeBetColor(record.resultColor);
+            const numberLabel = record.resultNumber !== undefined && record.resultNumber !== null
+                ? record.resultNumber
+                : '—';
+            return `<span class="bet-result-pill ${colorClass}">${numberLabel}</span>`;
+        }
+        return `<span class="bet-result-pill neutral">—</span>`;
+    }
+
+    function formatBetProfit(record) {
+        if (!record || record.status === 'pending') {
+            return `<span class="bet-profit neutral">—</span>`;
+        }
+        const profitValue = Number(record.profit || 0);
+        const isPositive = profitValue > 0;
+        const isNegative = profitValue < 0;
+        const cssClass = isPositive ? 'positive' : isNegative ? 'negative' : 'neutral';
+        if (!isPositive && !isNegative) {
+            return `<span class="bet-profit ${cssClass}">${formatCurrencyBRL(0)}</span>`;
+        }
+        const formatted = `${isPositive ? '+' : '-'}${formatCurrencyBRL(Math.abs(profitValue))}`;
+        return `<span class="bet-profit ${cssClass}">${formatted}</span>`;
+    }
+
+    function applyAutoBetAvailabilityToUI() {
+        const betsTab = document.querySelector('.entries-tab[data-tab="bets"]');
+        const shouldShow = cachedAutoBetAvailability.hasReal || cachedAutoBetAvailability.hasSimulation;
+        if (betsTab) {
+            betsTab.style.display = shouldShow ? 'inline-flex' : 'none';
+            betsTab.setAttribute('aria-disabled', shouldShow ? 'false' : 'true');
+        }
+        if (!shouldShow && activeEntriesTab === 'bets') {
+            setEntriesTab('entries');
+        }
+        if (entriesTabsReady) {
+            renderAutoBetHistoryPanel();
+        }
+    }
     
     // Clear entries history function
     function clearEntriesHistory() {
@@ -8638,6 +9079,12 @@ async function persistAnalyzerState(newState) {
                         loadObserverStats();
                     }
                 });
+
+                // ✅ Novo: limpar também o histórico da aba de apostas
+                if (autoBetHistoryStore && typeof autoBetHistoryStore.clear === 'function') {
+                    autoBetHistoryStore.clear();
+                    renderAutoBetHistoryPanel([]);
+                }
             });
         });
     }
