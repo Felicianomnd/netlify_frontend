@@ -6650,10 +6650,12 @@ async function persistAnalyzerState(newState) {
                 
                 <div class="last-spin-section">
                     <h4>Último Giro</h4>
-                    <div class="spin-display center" id="lastSpinDisplay">
-                        <div class="spin-number" id="lastSpinNumber">-</div>
-                        <div class="spin-meta">
-                            <div class="spin-time" id="lastSpinTime">--:--</div>
+                    <div class="analysis-card last-spin-card">
+                        <div class="spin-display center" id="lastSpinDisplay">
+                            <div class="spin-number" id="lastSpinNumber">-</div>
+                            <div class="spin-meta">
+                                <div class="spin-time" id="lastSpinTime">--:--</div>
+                            </div>
                         </div>
                     </div>
                 </div>
