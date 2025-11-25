@@ -662,6 +662,10 @@
     border-radius: 10px;
     background: rgba(255, 255, 255, 0.1);
     box-shadow: 0 8px 16px rgba(0, 0, 0, 0.25);
+    min-height: 120px;
+}
+.analysis-lastspin-row .last-spin-section .spin-display {
+    min-height: 120px;
 }
 
 .analysis-lastspin-row .analysis-section .confidence-meter {
@@ -671,8 +675,11 @@
 .analysis-lastspin-row .last-spin-section .spin-display {
     flex: 1;
     display: flex;
+    flex-direction: column;
     align-items: center;
-    justify-content: space-between;
+    justify-content: center;
+    gap: 8px;
+    text-align: center;
 }
 
 .analysis-lastspin-row .last-spin-section .spin-display.center {
