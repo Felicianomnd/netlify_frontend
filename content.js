@@ -6462,32 +6462,6 @@ async function persistAnalyzerState(newState) {
                         </button>
                     </div>
                 </div>
-                <div class="auto-bet-active-bets">
-                    <div class="bet-entry-card bet-entry-red" id="autoBetRedCard">
-                        <div class="bet-entry-top">
-                            <div class="bet-entry-amount" id="autoBetRedAmount">R$ 0,00</div>
-                            <span class="bet-entry-stage" id="autoBetRedStage">—</span>
-                        </div>
-                        <div class="bet-entry-status" id="autoBetRedStatus">Aguardando sinal</div>
-                        <div class="bet-entry-details" id="autoBetRedEntries">—</div>
-                    </div>
-                    <div class="bet-entry-card bet-entry-white" id="autoBetWhiteCard">
-                        <div class="bet-entry-top">
-                            <div class="bet-entry-amount" id="autoBetWhiteAmount">R$ 0,00</div>
-                            <span class="bet-entry-stage" id="autoBetWhiteStage">—</span>
-                        </div>
-                        <div class="bet-entry-status" id="autoBetWhiteStatus">Proteção desativada</div>
-                        <div class="bet-entry-details" id="autoBetWhiteEntries">—</div>
-                    </div>
-                    <div class="bet-entry-card bet-entry-black" id="autoBetBlackCard">
-                        <div class="bet-entry-top">
-                            <div class="bet-entry-amount" id="autoBetBlackAmount">R$ 0,00</div>
-                            <span class="bet-entry-stage" id="autoBetBlackStage">—</span>
-                        </div>
-                        <div class="bet-entry-status" id="autoBetBlackStatus">Aguardando sinal</div>
-                        <div class="bet-entry-details" id="autoBetBlackEntries">—</div>
-                    </div>
-                </div>
             </div>
             <div class="auto-bet-summary-collapsed" id="autoBetSummaryCollapsed">
                 <button type="button" id="autoBetShowBtn">Ver saldo</button>
