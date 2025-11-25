@@ -2637,6 +2637,12 @@
   justify-content: space-between;
   align-items: center;
   flex-wrap: wrap;
+.entries-hit {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
   font-size: 12px;
   color: var(--text-secondary);
   margin-bottom: 6px;
@@ -3449,6 +3455,7 @@
     .analysis-lastspin-row .analysis-section .analysis-card,
     .analysis-lastspin-row .last-spin-section .spin-display {
         padding: 10px !important;
+        min-height: 120px !important;
     }
     
     .section-title {
