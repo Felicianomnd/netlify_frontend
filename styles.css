@@ -3455,6 +3455,30 @@
         min-height: 120px !important;
     }
     
+    /* ✅ FORÇAR ENTRIES-HIT A NÃO QUEBRAR LINHA NO MOBILE */
+    .entries-header {
+        flex-wrap: nowrap !important;
+        gap: 8px !important;
+        overflow-x: auto !important;
+    }
+    
+    .entries-hit {
+        flex-wrap: nowrap !important;
+        gap: 4px !important;
+        white-space: nowrap !important;
+        font-size: 11px !important;
+    }
+    
+    .entries-hit span {
+        flex-shrink: 0 !important;
+    }
+    
+    .clear-entries-btn {
+        flex-shrink: 0 !important;
+        font-size: 11px !important;
+        white-space: nowrap !important;
+    }
+    
     .section-title {
         font-size: 14px !important;
         margin-bottom: 10px !important;
