@@ -11,6 +11,15 @@
     console.log('');
     
     // ═══════════════════════════════════════════════════════════════════════════════
+    // 🧹 LIMPEZA AUTOMÁTICA DO CONSOLE A CADA 1 MINUTO
+    // ═══════════════════════════════════════════════════════════════════════════════
+    // Evita acúmulo de logs após horas de uso, prevenindo travamentos
+    setInterval(() => {
+        console.clear();
+        console.log('%c🧹 Console limpo automaticamente (executado a cada 1 minuto)', 'color: #00AAFF; font-weight: bold;');
+    }, 60000); // 60000ms = 1 minuto
+    
+    // ═══════════════════════════════════════════════════════════════════════════════
     // VARIÁVEL GLOBAL: Controle de exibição do histórico por camadas
     // ═══════════════════════════════════════════════════════════════════════════════
     let currentHistoryDisplayLimit = 500; // Começa exibindo 500, pode aumentar em camadas de 500
@@ -6205,7 +6214,7 @@ async function persistAnalyzerState(newState) {
                 
             <div class="analysis-lastspin-row">
                  <div class="analysis-section">
-                    <h4 id="analysisModeTitle">Cor Indicada</h4>
+                     <h4 id="analysisModeTitle">Aguardando Análise</h4>
                     <div class="analysis-card">
                      <div class="confidence-meter">
                          <div class="confidence-bar">
@@ -6215,8 +6224,11 @@ async function persistAnalyzerState(newState) {
                      </div>
                      
                      <div class="suggestion-box" id="suggestionBox">
+                         <div class="suggestion-text" id="suggestionText">Aguardando análise...</div>
+                         <div class="suggestion-color-wrapper">
                              <div class="suggestion-color" id="suggestionColor"></div>
                              <div class="gale-indicator-wrapper" id="galeIndicatorWrapper"></div>
+                         </div>
                      </div>
                      
                      <div class="g1-status" id="g1Status" style="display:none;">
@@ -8019,8 +8031,8 @@ async function persistAnalyzerState(newState) {
         // ✅ Salvar histórico globalmente para poder re-renderizar com mais giros
         currentHistoryData = history;
         
-        const displayLimit = Math.max(1, currentHistoryDisplayLimit); // garantir que sempre haja ao menos 1
-        const totalSpins = Math.max(1, history.length);
+        const totalSpins = history.length;
+        const displayLimit = currentHistoryDisplayLimit; // Usar limite dinâmico
         const displayingCount = Math.min(totalSpins, displayLimit);
         const hasMore = totalSpins > displayLimit;
         const remainingSpins = totalSpins - displayLimit;
@@ -8064,11 +8076,6 @@ async function persistAnalyzerState(newState) {
         const patternInfo = document.getElementById('patternInfo');
         const totalSpins = document.getElementById('totalSpins');
         const lastUpdate = document.getElementById('lastUpdate');
-        
-        if (!lastSpinNumber || !lastSpinColor || !confidenceFill || !confidenceText || !suggestionText || !suggestionColor) {
-            console.warn('⚠️ updateSidebar(): elementos principais ainda não foram renderizados');
-            return;
-        }
         
         if (data.lastSpin) {
             const spin = data.lastSpin;
@@ -8205,7 +8212,11 @@ async function persistAnalyzerState(newState) {
                         // ✅ ATUALIZAR TÍTULO DO MODO DE ANÁLISE
                         const analysisModeTitle = document.getElementById('analysisModeTitle');
                         if (analysisModeTitle) {
-                            analysisModeTitle.textContent = 'Cor Indicada';
+                            if (isAIAnalysis) {
+                                analysisModeTitle.textContent = 'Análise por Inteligência Artificial';
+                            } else {
+                                analysisModeTitle.textContent = 'Análise por Sistema Padrão';
+                            }
                         }
                         console.log('✅ Padrão processado com sucesso!');
                         console.log('🔍 =====================================');
@@ -8283,7 +8294,7 @@ async function persistAnalyzerState(newState) {
                 // ✅ RESETAR TÍTULO DO MODO DE ANÁLISE
                 const analysisModeTitle = document.getElementById('analysisModeTitle');
                 if (analysisModeTitle) {
-                    analysisModeTitle.textContent = 'Cor Indicada';
+                    analysisModeTitle.textContent = 'Aguardando Análise';
                 }
                 
                 // ✅ LIMPAR INDICADOR DE GALE quando não há análise
