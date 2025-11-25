@@ -3473,9 +3473,9 @@
     
     .analysis-lastspin-row .analysis-section .analysis-card,
     .analysis-lastspin-row .last-spin-section .spin-display {
-        padding: 10px !important;
-        min-height: 140px !important;
-        flex: 1 !important;
+    padding: 8px !important;
+    min-height: 120px !important;
+    flex: 1 !important;
     }
     
     .analysis-lastspin-row .last-spin-section .spin-display {
