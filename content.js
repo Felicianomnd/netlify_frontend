@@ -6387,12 +6387,6 @@ async function persistAnalyzerState(newState) {
                         <div class="setting-item setting-row">
                             <label class="checkbox-label"><input type="checkbox" id="cfgConsecutiveMartingale" /> Martingale Consecutivo</label>
                         </div>
-                        <div class="setting-item setting-row">
-                            <label class="checkbox-label" style="gap: 8px;">
-                                <input type="checkbox" id="cfgWhiteProtection" />
-                                Proteção no Branco
-                            </label>
-                        </div>
                         <div class="setting-item">
                             <span class="setting-label">Quantidade de Gales (0-200):</span>
                             <input type="number" id="cfgMaxGales" min="0" max="200" value="0" />
@@ -9749,7 +9743,6 @@ function logModeSnapshotUI(snapshot) {
                 const winPct = document.getElementById('cfgWinPercentOthers');
                 const reqTrig = document.getElementById('cfgRequireTrigger');
                 const consecutiveMartingale = document.getElementById('cfgConsecutiveMartingale');
-                const whiteProtection = document.getElementById('cfgWhiteProtection');
                 const maxGales = document.getElementById('cfgMaxGales');
                 const tgChatId = document.getElementById('cfgTgChatId');
                 if (histDepth) histDepth.value = cfg.historyDepth != null ? cfg.historyDepth : 2000;
@@ -9761,7 +9754,6 @@ function logModeSnapshotUI(snapshot) {
                 if (winPct) winPct.value = cfg.winPercentOthers != null ? cfg.winPercentOthers : 25;
                 if (reqTrig) reqTrig.checked = cfg.requireTrigger != null ? cfg.requireTrigger : true;
                 if (consecutiveMartingale) consecutiveMartingale.checked = activeMartingaleProfile.consecutiveMartingale;
-                if (whiteProtection) whiteProtection.checked = !!cfg.whiteProtectionAsWin;
                 if (maxGales) maxGales.value = activeMartingaleProfile.maxGales;
                 if (tgChatId) tgChatId.value = cfg.telegramChatId || '';
                 const setAutoBetInput = (id, value, isCheckbox = false) => {
@@ -9773,7 +9765,13 @@ function logModeSnapshotUI(snapshot) {
                         el.value = value;
                     }
                 };
-                const autoBetConfig = sanitizeAutoBetConfig(cfg.autoBetConfig);
+                const mergedAutoBetConfig = {
+                    ...(cfg.autoBetConfig || {})
+                };
+                if (mergedAutoBetConfig.whiteProtection === undefined && typeof cfg.whiteProtectionAsWin === 'boolean') {
+                    mergedAutoBetConfig.whiteProtection = !!cfg.whiteProtectionAsWin;
+                }
+                const autoBetConfig = sanitizeAutoBetConfig(mergedAutoBetConfig);
                 setAutoBetInput('autoBetEnabled', autoBetConfig.enabled, true);
                 setAutoBetInput('autoBetSimulationOnly', autoBetConfig.simulationOnly, true);
                 setAutoBetInput('autoBetBaseStake', autoBetConfig.baseStake);
@@ -9845,7 +9843,6 @@ function logModeSnapshotUI(snapshot) {
                 const winPct = Math.max(0, Math.min(100, parseInt(getElementValue('cfgWinPercentOthers', '25'), 10)));
                 const reqTrig = getElementValue('cfgRequireTrigger', false, true);
                 const consecutiveMartingaleSelected = getElementValue('cfgConsecutiveMartingale', false, true);
-                const analyzerWhiteProtection = getElementValue('cfgWhiteProtection', false, true);
                 const autoBetWhiteProtectionValue = getElementValue('autoBetWhiteProtection', AUTO_BET_DEFAULTS.whiteProtection, true);
                 const tgChatId = String(getElementValue('cfgTgChatId', '')).trim();
                 
@@ -9862,15 +9859,11 @@ function logModeSnapshotUI(snapshot) {
                     simulationBankRoll: getElementValue('autoBetSimulationBank', AUTO_BET_DEFAULTS.simulationBankRoll),
                     whitePayoutMultiplier: AUTO_BET_DEFAULTS.whitePayoutMultiplier,
                     whiteProtectionMode: normalizeWhiteProtectionMode(getElementValue('autoBetWhiteMode', AUTO_BET_DEFAULTS.whiteProtectionMode)),
-                    inverseModeEnabled: getElementValue('autoBetInverseMode', AUTO_BET_DEFAULTS.inverseModeEnabled, true)
+                    inverseModeEnabled: getElementValue('autoBetInverseMode', AUTO_BET_DEFAULTS.inverseModeEnabled, true),
+                    whiteProtection: autoBetWhiteProtectionValue
                 };
                 const sanitizedAutoBetConfig = sanitizeAutoBetConfig(autoBetRawConfig);
-                const whiteProtectionSetting = analyzerWhiteProtection;
-                sanitizedAutoBetConfig.whiteProtection = autoBetWhiteProtectionValue;
-                const whiteProtectionCheckbox = document.getElementById('cfgWhiteProtection');
-                if (whiteProtectionCheckbox) {
-                    whiteProtectionCheckbox.checked = whiteProtectionSetting;
-                }
+                const whiteProtectionSetting = sanitizedAutoBetConfig.whiteProtection;
                 if (autoBetManager && typeof autoBetManager.applyConfigOverride === 'function') {
                     autoBetManager.applyConfigOverride(sanitizedAutoBetConfig);
                 }
