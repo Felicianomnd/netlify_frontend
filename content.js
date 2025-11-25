@@ -4004,6 +4004,9 @@ autoBetHistoryStore.init().catch(error => console.warn('AutoBetHistory: iniciali
                 .auto-bet-summary-item span.negative-label {
                     color: #ef5350;
                 }
+                .auto-bet-summary-item span.neutral-label {
+                    color: #f5f7ff;
+                }
                 .auto-bet-summary-item strong {
                     font-size: 13px;
                     color: #fff;
@@ -4013,6 +4016,9 @@ autoBetHistoryStore.init().catch(error => console.warn('AutoBetHistory: iniciali
                 }
                 .auto-bet-summary-item strong.negative-value {
                     color: #ef5350;
+                }
+                .auto-bet-summary-item strong.neutral-value {
+                    color: #f5f7ff;
                 }
                 .auto-bet-hide-btn {
                     border: none;
@@ -4623,6 +4629,14 @@ autoBetHistoryStore.init().catch(error => console.warn('AutoBetHistory: iniciali
                 const currentBalanceValue = shouldDisplayBalances
                     ? initialBalance + realizedProfit - pendingExposure
                     : 0;
+                const balanceDelta = currentBalanceValue - initialBalance;
+                const balanceClass = balanceDelta > 0
+                    ? 'positive-value'
+                    : balanceDelta < 0
+                        ? 'negative-value'
+                        : 'neutral-value';
+                uiRefs.currentBalance.classList.remove('positive-value', 'negative-value', 'neutral-value');
+                uiRefs.currentBalance.classList.add(balanceClass);
                 uiRefs.currentBalance.textContent = formatCurrency(currentBalanceValue);
             }
         }
@@ -6541,20 +6555,20 @@ async function persistAnalyzerState(newState) {
                 <div class="auto-bet-summary-body">
                     <div class="auto-bet-summary-metrics">
                         <div class="auto-bet-summary-item">
-                            <span class="positive-label">Saldo inicial</span>
-                            <strong id="autoBetInitialBalance" class="positive-value">R$ 0,00</strong>
+                            <span class="neutral-label">Saldo inicial</span>
+                            <strong id="autoBetInitialBalance" class="neutral-value">R$ 0,00</strong>
                     </div>
                         <div class="auto-bet-summary-item">
-                            <span class="positive-label">Lucro</span>
+                            <span class="neutral-label">Lucro</span>
                             <strong id="autoBetMetricProfit" class="positive-value">R$ 0,00</strong>
                 </div>
                         <div class="auto-bet-summary-item">
-                            <span class="negative-label">Perdas</span>
+                            <span class="neutral-label">Perdas</span>
                             <strong id="autoBetMetricLoss" class="negative-value">R$ 0,00</strong>
                         </div>
                         <div class="auto-bet-summary-item">
-                            <span class="positive-label">Saldo atual</span>
-                            <strong id="autoBetCurrentBalance" class="positive-value">R$ 0,00</strong>
+                            <span class="neutral-label">Saldo atual</span>
+                            <strong id="autoBetCurrentBalance" class="neutral-value">R$ 0,00</strong>
                     </div>
                     </div>
                     <div class="auto-bet-actions">
@@ -6613,7 +6627,7 @@ async function persistAnalyzerState(newState) {
                     </div>
                     <div class="entries-header">
                         <span class="entries-hit" id="entriesHit">Acertos: 0/0 (0%)</span>
-                        <button type="button" class="clear-entries-btn" id="clearEntriesBtn">Limpar histórico</button>
+                        <button type="button" class="clear-entries-btn" id="clearEntriesBtn">Limpar</button>
                     </div>
                     <div class="entries-content">
                         <div class="entries-view" data-view="entries">
@@ -8896,8 +8910,8 @@ async function persistAnalyzerState(newState) {
         // ✅ Contar apenas entradas do modo ativo, não de todos os modos
         const totalEntries = entriesByMode.length;
         
-        // Mostrar placar WIN/LOSS com porcentagem, total de ciclos e total de entradas
-        hitEl.innerHTML = `<span class="win-score">WIN: ${wins}</span> <span class="loss-score">LOSS: ${losses}</span> <span class="percentage">(${pct}%)</span> <span class="total-entries">• Total: ${totalCycles} ciclos • ${totalEntries} entradas</span>`;
+        // Mostrar placar WIN/LOSS com porcentagem e total de entradas
+        hitEl.innerHTML = `<span class="win-score">WIN: ${wins}</span> <span class="loss-score">LOSS: ${losses}</span> <span class="percentage">(${pct}%)</span> <span class="total-entries">• Entradas: ${totalEntries}</span>`;
     }
 
     function initEntriesTabs() {

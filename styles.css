@@ -2636,21 +2636,23 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
+  flex-wrap: wrap;
   font-size: 12px;
   color: var(--text-secondary);
   margin-bottom: 6px;
-  gap: 12px;
+  gap: 8px;
 }
 .clear-entries-btn {
   border: none;
   background: transparent;
   color: #ffffff;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
   cursor: pointer;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
+  text-transform: none;
+  letter-spacing: 0;
   padding: 0;
+  margin-left: auto;
 }
 .clear-entries-btn:hover {
   color: #ffffff;
