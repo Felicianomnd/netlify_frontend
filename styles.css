@@ -2641,7 +2641,7 @@
   justify-content: space-between;
   align-items: center;
   flex-wrap: nowrap;
-  gap: 6px;
+  gap: 4px;
   font-size: 12px;
   color: var(--text-secondary);
   margin-bottom: 6px;
@@ -2652,8 +2652,18 @@
   align-items: center;
   flex: 1 1 auto;
   gap: 4px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.entries-hit span {
+  white-space: nowrap;
+  margin-right: 6px;
+}
+.entries-hit span:last-child {
+  margin-right: 0;
 }
 .clear-entries-btn {
   border: none;
@@ -2665,7 +2675,7 @@
   text-transform: none;
   letter-spacing: 0;
   padding: 0;
-  margin-left: 6px;
+  margin-left: auto;
 }
 .clear-entries-btn:hover {
   color: #ffffff;
