@@ -3788,16 +3788,29 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
         if (!refs || !refs.connectButton) return;
 
         blazeSessionStore.init().then((session) => {
-            if (refs.emailInput && session.email) {
-                refs.emailInput.value = session.email;
+            const emailInput = refs.emailInput || document.getElementById('autoBetBlazeEmail');
+            if (emailInput && session.email) {
+                emailInput.value = session.email;
+                refs.emailInput = emailInput;
             }
-            updateBlazeConnectionUI(refs, session);
+            updateBlazeConnectionUI({ ...refs, emailInput }, session);
         }).catch(error => {
             console.warn('BlazeSessionStore: falha ao preparar login card:', error);
         });
 
-        if (refs.toggleButton && refs.passwordInput) {
+        const ensureInputs = () => {
+            if (!refs.emailInput) {
+                refs.emailInput = document.getElementById('autoBetBlazeEmail');
+            }
+            if (!refs.passwordInput) {
+                refs.passwordInput = document.getElementById('autoBetBlazePassword');
+            }
+        };
+
+        if (refs.toggleButton) {
             refs.toggleButton.addEventListener('click', () => {
+                ensureInputs();
+                if (!refs.passwordInput) return;
                 const isHidden = refs.passwordInput.type === 'password';
                 refs.passwordInput.type = isHidden ? 'text' : 'password';
                 refs.toggleButton.textContent = isHidden ? 'Ocultar' : 'Mostrar';
@@ -3805,7 +3818,10 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
             });
         }
 
-        refs.connectButton.addEventListener('click', () => handleBlazeConnectClick(refs));
+        refs.connectButton.addEventListener('click', () => {
+            ensureInputs();
+            handleBlazeConnectClick(refs);
+        });
     }
 
 const autoBetHistoryStore = (() => {
