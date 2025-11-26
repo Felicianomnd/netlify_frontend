@@ -3640,6 +3640,7 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                     token: data.sessionToken || data.token || null,
                     cookies: data.cookies || [],
                     expiresAt: data.expiresAt ? new Date(data.expiresAt).getTime() : Date.now() + (9 * 60 * 1000),
+                    baseUrl: data.baseUrl || null,
                     raw: data
                 };
                 status = 'connected';
@@ -3668,7 +3669,8 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                     sessionToken: session.token,
                     cookies: session.cookies,
                     gameMode: order.stage,
-                    currency: order.currency || 'BRL'
+                    currency: order.currency || 'BRL',
+                    baseUrl: session.baseUrl
                 })
             });
             const rawBody = await response.text();
