@@ -8,6 +8,8 @@
 (function() {
     'use strict';
 
+    window.__BLAZE_WEB_SHIM__ = true;
+
     console.log('%c🌐 Chrome Shim carregado - Modo WEB ativado', 'color: #00FF00; font-weight: bold; font-size: 14px;');
 
     // ═══════════════════════════════════════════════════════════════════════════════
