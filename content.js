@@ -3669,7 +3669,7 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
     }
 
     function getCookieCaptureWarning() {
-        return 'Abra a versão extensão do analisador e mantenha uma aba da Blaze logada para detectar a sessão automaticamente.';
+        return 'O login será processado através do nosso servidor. Aguarde enquanto autenticamos na Blaze.';
     }
 
     function getCookiesFromBrowser(domains = BLAZE_COOKIE_CAPTURE_DOMAINS) {
@@ -3830,6 +3830,7 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
         setConnectButtonLoading(refs.connectButton, true);
 
         try {
+            // Tentar capturar cookies direto do navegador (se for extensão)
             if (supportsDirectCookieCapture()) {
                 try {
                     const captureResult = await captureBlazeSessionFromBrowser(refs.baseUrl || 'https://blaze.bet.br');
@@ -3843,13 +3844,9 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                     }
                     console.warn('Captura direta dos cookies falhou, tentando login via servidor...', captureError);
                 }
-            } else if (window.__BLAZE_WEB_SHIM__) {
-                const warning = getCookieCaptureWarning();
-                updateBlazeConnectionUI(refs, null, { variant: 'error', message: warning });
-                showToast(warning, 4200);
-                return;
             }
 
+            // Caso seja site (não-extensão), fazer login via backend Puppeteer
             const emailValueRaw = refs.emailInput?.value?.trim() || '';
             const passwordValue = refs.passwordInput?.value || '';
 
