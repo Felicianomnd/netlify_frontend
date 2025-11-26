@@ -4503,15 +4503,17 @@ autoBetHistoryStore.init().catch(error => console.warn('AutoBetHistory: iniciali
                     right: 6px;
                     top: 50%;
                     transform: translateY(-50%);
-                    border: none;
-                    background: transparent;
-                    color: rgba(255, 255, 255, 0.75);
+                    border: 1px solid rgba(255, 255, 255, 0.2);
+                    border-radius: 6px;
+                    background: rgba(255, 255, 255, 0.08);
+                    color: #fff;
                     cursor: pointer;
-                    font-size: 14px;
+                    font-size: 11px;
                     line-height: 1;
-                    padding: 2px;
+                    padding: 3px 8px;
                 }
                 .password-toggle-btn:hover {
+                    border-color: #00e5ff;
                     color: #00e5ff;
                 }
                 .auto-bet-divider {
@@ -7266,7 +7268,7 @@ async function persistAnalyzerState(newState) {
                                     <div class="password-input-wrapper">
                                         <input type="password" id="autoBetBlazePassword" placeholder="••••••••" autocomplete="current-password" />
                                         <button type="button" class="password-toggle-btn" id="autoBetBlazePwdToggle" aria-label="Mostrar senha">
-                                            👁
+                                            Mostrar
                                         </button>
                                     </div>
                                 </div>
@@ -7530,7 +7532,7 @@ async function persistAnalyzerState(newState) {
                 autoBetBlazePwdToggle.addEventListener('click', () => {
                     const isPassword = autoBetBlazePasswordInput.type === 'password';
                     autoBetBlazePasswordInput.type = isPassword ? 'text' : 'password';
-                    autoBetBlazePwdToggle.textContent = isPassword ? '🙈' : '👁';
+                    autoBetBlazePwdToggle.textContent = isPassword ? 'Ocultar' : 'Mostrar';
                     autoBetBlazePwdToggle.setAttribute('aria-label', isPassword ? 'Ocultar senha' : 'Mostrar senha');
                 });
             }
@@ -7554,7 +7556,7 @@ async function persistAnalyzerState(newState) {
                             autoBetBlazePasswordInput.type = 'password';
                         }
                         if (autoBetBlazePwdToggle) {
-                            autoBetBlazePwdToggle.textContent = '👁';
+                            autoBetBlazePwdToggle.textContent = 'Mostrar';
                             autoBetBlazePwdToggle.setAttribute('aria-label', 'Mostrar senha');
                         }
                         showToast('Conta Blaze conectada!', 2600);
