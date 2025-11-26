@@ -856,6 +856,21 @@
             }
         });
         
+        // ✅ Ajustar rótulo/placeholder do intervalo conforme o modo ativo
+        const minIntervalLabel = document.getElementById('cfgMinIntervalLabel');
+        const minIntervalInput = document.getElementById('cfgMinInterval');
+        if (minIntervalLabel && minIntervalInput) {
+            if (isAIMode) {
+                minIntervalLabel.textContent = 'Intervalo entre entradas (giros):';
+                minIntervalInput.placeholder = 'Ex: 2 giros entre uma entrada e outra';
+                minIntervalInput.title = 'Número mínimo de giros que a IA aguarda entre entradas consecutivas.';
+            } else {
+                minIntervalLabel.textContent = 'Intervalo entre padrões (giros):';
+                minIntervalInput.placeholder = 'Ex: 2 giros (0 = sem intervalo entre ocorrências do mesmo padrão)';
+                minIntervalInput.title = 'Quantidade mínima de giros entre ocorrências do MESMO padrão (0 = sem limite).';
+            }
+        }
+        
         // ✅ BANCO DE PADRÕES: Ocultar quando Nível Diamante está ativo
         // O Banco de Padrões só é usado no modo de análise padrão
         const patternBankSection = document.querySelector('.pattern-bank-section');
@@ -6780,7 +6795,7 @@ async function persistAnalyzerState(newState) {
                             <input type="number" id="cfgMaxOccurrences" min="0" value="0" placeholder="0 = sem limite" />
                         </div>
                         <div class="setting-item">
-                            <span class="setting-label">Intervalo entre padrões (giros):</span>
+                            <span class="setting-label" id="cfgMinIntervalLabel">Intervalo entre padrões (giros):</span>
                             <input
                                 type="number"
                                 id="cfgMinInterval"
