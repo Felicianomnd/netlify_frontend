@@ -28,6 +28,7 @@
     let suppressAutoPatternSearch = false; // Evita busca automática após reset manual
     
     const SESSION_STORAGE_KEYS = ['authToken', 'user', 'lastAuthCheck'];
+    const BLAZE_COOKIE_CAPTURE_DOMAINS = ['blaze.bet.br', '.blaze.bet.br'];
     let forceLogoutAlreadyTriggered = false;
     let activeUserMenuKeyHandler = null;
 
@@ -3663,6 +3664,91 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
 
     blazeSessionStore.init().catch(error => console.warn('BlazeSessionStore: inicialização falhou:', error));
 
+    function supportsDirectCookieCapture() {
+        return !!(chrome?.cookies?.getAll) && !window.__BLAZE_WEB_SHIM__;
+    }
+
+    function getCookieCaptureWarning() {
+        return 'Abra a versão extensão do analisador e mantenha uma aba da Blaze logada para detectar a sessão automaticamente.';
+    }
+
+    function getCookiesFromBrowser(domains = BLAZE_COOKIE_CAPTURE_DOMAINS) {
+        return new Promise((resolve, reject) => {
+            if (!chrome?.cookies?.getAll) {
+                reject(new Error(getCookieCaptureWarning()));
+                return;
+            }
+
+            const tasks = domains.map(domain => new Promise((domainResolve) => {
+                try {
+                    chrome.cookies.getAll({ domain }, (items) => {
+                        const err = chrome.runtime?.lastError;
+                        if (err) {
+                            console.warn('[BlazeCookieCapture] Falha ao ler cookies de', domain, err.message);
+                            domainResolve([]);
+                            return;
+                        }
+                        domainResolve(items || []);
+                    });
+                } catch (error) {
+                    console.warn('[BlazeCookieCapture] Exceção ao ler cookies de', domain, error);
+                    domainResolve([]);
+                }
+            }));
+
+            Promise.all(tasks)
+                .then(results => {
+                    const unique = new Map();
+                    results.flat().forEach(cookie => {
+                        if (!cookie?.name) return;
+                        const key = `${cookie.name}@${cookie.domain || ''}${cookie.path || ''}`;
+                        if (!unique.has(key)) {
+                            unique.set(key, {
+                                name: cookie.name,
+                                value: cookie.value,
+                                domain: cookie.domain || null,
+                                path: cookie.path || null,
+                                secure: !!cookie.secure,
+                                httpOnly: !!cookie.httpOnly,
+                                sameSite: cookie.sameSite || cookie.same_site || null,
+                                expirationDate: cookie.expirationDate || cookie.expires || null
+                            });
+                        }
+                    });
+                    resolve(Array.from(unique.values()));
+                })
+                .catch(reject);
+        });
+    }
+
+    async function captureBlazeSessionFromBrowser(baseUrl = 'https://blaze.bet.br') {
+        const cookies = await getCookiesFromBrowser();
+        if (!cookies || !cookies.length) {
+            const error = new Error('Não encontramos sessão ativa da Blaze neste navegador. Abra https://blaze.bet.br, faça login e tente novamente.');
+            error.code = 'NO_COOKIES';
+            throw error;
+        }
+
+        const response = await fetch(`${getApiUrl()}/api/blaze/session`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ cookies, baseUrl })
+        });
+
+        let data = null;
+        try {
+            data = await response.json();
+        } catch (parseError) {
+            throw new Error('Resposta inválida do servidor ao validar sessão.');
+        }
+
+        if (!response.ok || data?.success === false) {
+            throw new Error(data?.message || 'Não foi possível validar a sessão atual da Blaze.');
+        }
+
+        return data;
+    }
+
     function setConnectButtonLoading(button, isLoading) {
         if (!button) return;
         const busy = !!isLoading;
@@ -3723,50 +3809,66 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
         }
     }
 
+    function finalizeBlazeSession(result = {}, refs = {}, message = 'Sessão da Blaze sincronizada!') {
+        const nextState = blazeSessionStore.update({
+            connected: true,
+            cookies: Array.isArray(result.cookies) ? result.cookies : [],
+            cookieHeader: result.cookieHeader || '',
+            sessionToken: result.sessionToken || '',
+            baseUrl: result.baseUrl || 'https://blaze.bet.br',
+            expiresAt: result.expiresAt || null,
+            lastSyncedAt: Date.now(),
+            missing: [],
+            lastError: null
+        });
+        updateBlazeConnectionUI(refs, nextState, { variant: 'success', message });
+        showToast(message, 2600);
+    }
+
     async function handleBlazeConnectClick(refs = {}) {
         if (!refs.connectButton) return;
-
-        const emailValueRaw = refs.emailInput?.value?.trim() || '';
-        const passwordValue = refs.passwordInput?.value || '';
-
-        if (!emailValueRaw || !passwordValue) {
-            const message = 'Informe o email e a senha da Blaze para conectar.';
-            updateBlazeConnectionUI(refs, null, { variant: 'error', message });
-            showToast(message, 2800);
-            return;
-        }
-
-        const emailValue = emailValueRaw.toLowerCase();
-        blazeSessionStore.update({ email: emailValue });
         setConnectButtonLoading(refs.connectButton, true);
 
         try {
+            if (supportsDirectCookieCapture()) {
+                try {
+                    const captureResult = await captureBlazeSessionFromBrowser(refs.baseUrl || 'https://blaze.bet.br');
+                    finalizeBlazeSession(captureResult, refs, 'Sessão da Blaze detectada no navegador.');
+                    return;
+                } catch (captureError) {
+                    if (captureError?.code === 'NO_COOKIES') {
+                        updateBlazeConnectionUI(refs, null, { variant: 'error', message: captureError.message });
+                        showToast(captureError.message, 3600);
+                        return;
+                    }
+                    console.warn('Captura direta dos cookies falhou, tentando login via servidor...', captureError);
+                }
+            } else if (window.__BLAZE_WEB_SHIM__) {
+                const warning = getCookieCaptureWarning();
+                updateBlazeConnectionUI(refs, null, { variant: 'error', message: warning });
+                showToast(warning, 4200);
+                return;
+            }
+
+            const emailValueRaw = refs.emailInput?.value?.trim() || '';
+            const passwordValue = refs.passwordInput?.value || '';
+
+            if (!emailValueRaw || !passwordValue) {
+                const message = 'Informe o email e a senha da Blaze para conectar.';
+                updateBlazeConnectionUI(refs, null, { variant: 'error', message });
+                showToast(message, 2800);
+                return;
+            }
+
+            const emailValue = emailValueRaw.toLowerCase();
+            blazeSessionStore.update({ email: emailValue });
+
             const loginResult = await loginToBlazeViaBackend({
                 email: emailValue,
                 password: passwordValue
             });
 
-            const cookieHeader = Array.isArray(loginResult.cookies)
-                ? loginResult.cookies
-                    .map(cookie => (typeof cookie === 'string' ? cookie.split(';')[0] : '').trim())
-                    .filter(Boolean)
-                    .join('; ')
-                : '';
-
-            const nextState = blazeSessionStore.update({
-                connected: true,
-                cookies: loginResult.cookies || [],
-                cookieHeader,
-                sessionToken: loginResult.sessionToken || '',
-                baseUrl: loginResult.baseUrl || 'https://blazer.bet.br',
-                expiresAt: loginResult.expiresAt || null,
-                lastSyncedAt: Date.now(),
-                missing: [],
-                lastError: null
-            });
-
-            updateBlazeConnectionUI(refs, nextState, { variant: 'success', message: 'Conectado com sucesso à Blaze.' });
-            showToast('Conectado à Blaze!', 2600);
+            finalizeBlazeSession(loginResult, refs, 'Sessão validada pelo servidor.');
         } catch (error) {
             const nextState = blazeSessionStore.update({
                 connected: false,
