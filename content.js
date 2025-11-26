@@ -1,7 +1,6 @@
 // Content script for Blaze Double Analyzer
 (function() {
     'use strict';
-    const isWebStandalone = typeof window !== 'undefined' && window.__BLAZE_WEB_SHIM__ === true;
     
     const scriptStartTime = Date.now();
     console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #00AAFF; font-weight: bold;');
@@ -152,6 +151,27 @@
         }
     }
 
+    function sendBackgroundMessage(payload) {
+        return new Promise((resolve, reject) => {
+            if (!chrome?.runtime?.sendMessage) {
+                reject(new Error('Comunicação com a extensão indisponível neste ambiente.'));
+                return;
+            }
+            try {
+                chrome.runtime.sendMessage(payload, (response) => {
+                    const err = chrome.runtime?.lastError;
+                    if (err) {
+                        reject(new Error(err.message || 'Falha ao comunicar com o background.'));
+                        return;
+                    }
+                    resolve(response);
+                });
+            } catch (error) {
+                reject(error);
+            }
+        });
+    }
+
     function formatDate(date) {
         try {
             const d = new Date(date);
@@ -164,6 +184,25 @@
         } catch (error) {
             return 'Data indisponível';
         }
+    }
+
+    function formatRelativeTime(timestamp) {
+        if (!timestamp) return '';
+        const diff = Date.now() - Number(timestamp);
+        if (!Number.isFinite(diff) || diff < 0) return '';
+        if (diff < 60000) {
+            return 'menos de 1 min';
+        }
+        if (diff < 3600000) {
+            const minutes = Math.floor(diff / 60000);
+            return `${minutes} min`;
+        }
+        const hours = Math.floor(diff / 3600000);
+        if (hours < 24) {
+            return `${hours}h`;
+        }
+        const days = Math.floor(hours / 24);
+        return `${days}d`;
     }
 
     function getDaysRemainingInfo(expiresAt, status) {
@@ -857,21 +896,6 @@
             }
         });
         
-        // ✅ Ajustar rótulo/placeholder do intervalo conforme o modo ativo
-        const minIntervalLabel = document.getElementById('cfgMinIntervalLabel');
-        const minIntervalInput = document.getElementById('cfgMinInterval');
-        if (minIntervalLabel && minIntervalInput) {
-            if (isAIMode) {
-                minIntervalLabel.textContent = 'Intervalo entre entradas (giros):';
-                minIntervalInput.placeholder = 'Ex: 2 giros entre uma entrada e outra';
-                minIntervalInput.title = 'Número mínimo de giros que a IA aguarda entre entradas consecutivas.';
-            } else {
-                minIntervalLabel.textContent = 'Intervalo entre padrões (giros):';
-                minIntervalInput.placeholder = 'Ex: 2 giros (0 = sem intervalo entre ocorrências do mesmo padrão)';
-                minIntervalInput.title = 'Quantidade mínima de giros entre ocorrências do MESMO padrão (0 = sem limite).';
-            }
-        }
-        
         // ✅ BANCO DE PADRÕES: Ocultar quando Nível Diamante está ativo
         // O Banco de Padrões só é usado no modo de análise padrão
         const patternBankSection = document.querySelector('.pattern-bank-section');
@@ -1289,6 +1313,7 @@ const AUTO_BET_RUNTIME_DEFAULTS = Object.freeze({
 });
 
 const AUTO_BET_HISTORY_KEY = 'autoBetHistory';
+const BLAZE_SESSION_STORAGE_KEY = 'autoBetBlazeSession';
 const AUTO_BET_HISTORY_LIMIT = 150;
 
 const uiCurrencyFormatter = new Intl.NumberFormat('pt-BR', {
@@ -3542,176 +3567,209 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
         }
     };
 
-    async function saveBlazeLoginEmail(email) {
-        if (!email) return;
-        try {
-            await storageCompat.set({ autoBetBlazeEmail: email });
-        } catch (error) {
-            console.warn('Não foi possível salvar email da Blaze:', error);
-        }
-    }
+    const blazeSessionStore = (() => {
+        let state = {
+            connected: false,
+            cookies: null,
+            cookieHeader: '',
+            lastSyncedAt: null,
+            missing: [],
+            lastError: null,
+            baseUrl: 'https://blazer.bet.br',
+            email: ''
+        };
+        let initialized = false;
 
-    async function loadBlazeLoginEmail() {
-        try {
-            const stored = await storageCompat.get(['autoBetBlazeEmail']);
-            return stored?.autoBetBlazeEmail || '';
-        } catch (error) {
-            console.warn('Não foi possível carregar email da Blaze:', error);
-            return '';
-        }
-    }
-
-    const blazeRealBridge = (() => {
-        if (!isWebStandalone) {
-            return {
-                login: async () => { throw new Error('Modo web indisponível - utilize a extensão para apostar no site da Blaze.'); },
-                placeBet: async () => { throw new Error('Modo web indisponível - utilize a extensão para apostar no site da Blaze.'); },
-                disconnect: () => {},
-                isReady: () => false,
-                onChange: () => () => {},
-                getSnapshot: () => ({ connected: false, status: 'extension' })
-            };
-        }
-
-        let session = null;
-        let status = 'idle';
-        let lastErrorMessage = null;
-        const listeners = new Set();
-
-        function getSnapshot() {
-            return {
-                connected: !!session,
-                status,
-                email: session?.email || null,
-                expiresAt: session?.expiresAt || null,
-                errorMessage: lastErrorMessage
-            };
-        }
-
-        function notify() {
-            const snapshot = getSnapshot();
-            listeners.forEach((listener) => {
-                try {
-                    listener(snapshot);
-                } catch (error) {
-                    console.warn('blazeRealBridge listener error:', error);
-                }
-            });
-        }
-
-        function onChange(listener) {
-            if (typeof listener !== 'function') return () => {};
-            listeners.add(listener);
-            listener(getSnapshot());
-            return () => listeners.delete(listener);
-        }
-
-        async function login(credentials = {}) {
-            if (!credentials.email || !credentials.password) {
-                throw new Error('Informe email e senha da Blaze.');
-            }
-
-            status = 'connecting';
-            lastErrorMessage = null;
-            notify();
-
+        async function init() {
+            if (initialized) return state;
             try {
-                const response = await fetch(`${getApiUrl()}/api/blaze/login`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        email: String(credentials.email).trim(),
-                        password: credentials.password,
-                        twoFactorCode: credentials.otp || credentials.twoFactorCode || null
-                    })
-                });
-                const rawBody = await response.text();
-                let data = null;
-                try {
-                    data = rawBody ? JSON.parse(rawBody) : null;
-                } catch (parseError) {
-                    throw new Error(rawBody || 'Resposta inválida ao autenticar na Blaze.');
+                const stored = await storageCompat.get([BLAZE_SESSION_STORAGE_KEY]);
+                if (stored && stored[BLAZE_SESSION_STORAGE_KEY]) {
+                    state = {
+                        ...state,
+                        ...stored[BLAZE_SESSION_STORAGE_KEY]
+                    };
                 }
-                if (!response.ok || !data?.success) {
-                    throw new Error(data?.message || rawBody || `Falha ao autenticar (HTTP ${response.status})`);
-                }
-                session = {
-                    email: credentials.email,
-                    token: data.sessionToken || data.token || null,
-                    cookies: data.cookies || [],
-                    expiresAt: data.expiresAt ? new Date(data.expiresAt).getTime() : Date.now() + (9 * 60 * 1000),
-                    baseUrl: data.baseUrl || null,
-                    raw: data
-                };
-                status = 'connected';
-                lastErrorMessage = null;
-                notify();
-                return session;
             } catch (error) {
-                console.warn('blazeRealBridge.login error:', error);
-                status = 'error';
-                lastErrorMessage = error?.message || 'Erro desconhecido';
-                notify();
-                throw error;
+                console.warn('BlazeSessionStore: falha ao carregar estado:', error);
             }
+            initialized = true;
+            return state;
         }
 
-        async function placeBet(order = {}) {
-            if (!session) {
-                throw new Error('Conecte sua conta Blaze para usar o modo real.');
-            }
-            const response = await fetch(`${getApiUrl()}/api/blaze/bet`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    amount: order.amount,
-                    color: order.color,
-                    sessionToken: session.token,
-                    cookies: session.cookies,
-                    gameMode: order.stage,
-                    currency: order.currency || 'BRL',
-                    baseUrl: session.baseUrl
-                })
+        function getState() {
+            return { ...state };
+        }
+
+        function persist(nextState) {
+            storageCompat.set({ [BLAZE_SESSION_STORAGE_KEY]: nextState }).catch(error => {
+                console.warn('BlazeSessionStore: falha ao salvar estado:', error);
             });
-            const rawBody = await response.text();
-            let data = null;
-            try {
-                data = rawBody ? JSON.parse(rawBody) : null;
-            } catch (parseError) {
-                throw new Error(rawBody || 'Resposta inválida ao enviar aposta.');
-            }
-            if (!response.ok || !data?.success) {
-                if (response.status === 401 || response.status === 403) {
-                    session = null;
-                    status = 'expired';
-                    lastErrorMessage = 'Sessão expirada, conecte novamente.';
-                    notify();
-                }
-                throw new Error(data?.message || rawBody || `Falha ao enviar aposta (HTTP ${response.status})`);
-            }
-            return data;
         }
 
-        function disconnect() {
-            session = null;
-            status = 'idle';
-            lastErrorMessage = null;
-            notify();
+        function update(partial = {}) {
+            state = {
+                ...state,
+                ...partial
+            };
+            persist(state);
+            return state;
         }
 
-        function isReady() {
-            return !!session;
+        function clear(reason = null) {
+            state = {
+                ...state,
+                connected: false,
+                cookies: null,
+                cookieHeader: '',
+                lastSyncedAt: Date.now(),
+                missing: [],
+                lastError: reason || null
+            };
+            persist(state);
+            return state;
         }
 
         return {
-            login,
-            placeBet,
-            disconnect,
-            isReady,
-            onChange,
-            getSnapshot
+            init,
+            getState,
+            update,
+            clear
         };
     })();
+
+    blazeSessionStore.init().catch(error => console.warn('BlazeSessionStore: inicialização falhou:', error));
+
+    function setConnectButtonLoading(button, isLoading) {
+        if (!button) return;
+        const busy = !!isLoading;
+        button.classList.toggle('is-busy', busy);
+        const label = button.querySelector('.button-label');
+        if (label) {
+            if (!button.dataset.defaultLabel) {
+                button.dataset.defaultLabel = label.textContent || 'Conectar à Blaze';
+            }
+            label.textContent = busy ? 'Conectando...' : button.dataset.defaultLabel;
+        }
+    }
+
+    function updateBlazeConnectionUI(refs = {}, sessionOverride = null, options = {}) {
+        const session = sessionOverride || blazeSessionStore.getState();
+        if (refs.statusEl) {
+            refs.statusEl.textContent = session.connected ? 'Conectado' : 'Desconectado';
+            refs.statusEl.classList.toggle('connected', !!session.connected);
+            refs.statusEl.classList.toggle('disconnected', !session.connected);
+        }
+        if (refs.feedbackEl) {
+            refs.feedbackEl.classList.remove('error', 'success');
+            if (options.message) {
+                refs.feedbackEl.textContent = options.message;
+                if (options.variant === 'error') {
+                    refs.feedbackEl.classList.add('error');
+                } else if (options.variant === 'success') {
+                    refs.feedbackEl.classList.add('success');
+                }
+            } else if (session.connected) {
+                const relative = session.lastSyncedAt ? formatRelativeTime(session.lastSyncedAt) : '';
+                refs.feedbackEl.textContent = relative
+                    ? `Sessão sincronizada há ${relative}.`
+                    : 'Sessão sincronizada.';
+                refs.feedbackEl.classList.add('success');
+            } else if (session.lastError) {
+                refs.feedbackEl.textContent = session.lastError;
+                refs.feedbackEl.classList.add('error');
+            } else {
+                refs.feedbackEl.textContent = '';
+            }
+        }
+    }
+
+    async function handleBlazeConnectClick(refs = {}) {
+        if (!refs.connectButton) return;
+        const isExtensionEnv = !!(chrome?.runtime?.id) && !window.__BLAZE_WEB_SHIM__;
+        if (!isExtensionEnv) {
+            const msg = 'Conecte usando a extensão instalada no navegador para detectar a sessão da Blaze.';
+            updateBlazeConnectionUI(refs, null, { variant: 'error', message: msg });
+            showToast(msg, 3200);
+            return;
+        }
+
+        setConnectButtonLoading(refs.connectButton, true);
+
+        const emailValue = refs.emailInput?.value?.trim();
+        if (emailValue) {
+            blazeSessionStore.update({ email: emailValue });
+        }
+
+        try {
+            const response = await sendBackgroundMessage({ action: 'FETCH_BLAZE_SESSION' });
+            const session = response?.session;
+            if (session?.hasSession) {
+                const nextState = blazeSessionStore.update({
+                    connected: true,
+                    cookies: session.cookies || [],
+                    cookieHeader: session.cookieHeader || '',
+                    baseUrl: session.baseUrl || 'https://blazer.bet.br',
+                    lastSyncedAt: Date.now(),
+                    missing: session.missing || [],
+                    lastError: null
+                });
+                updateBlazeConnectionUI(refs, nextState, { variant: 'success', message: 'Sessão detectada com sucesso.' });
+                showToast('Sessão da Blaze sincronizada!', 2600);
+            } else {
+                const missing = session?.missing || [];
+                const baseMessage = response?.error
+                    || (missing.length
+                        ? `Não encontramos todos os cookies da Blaze (faltando: ${missing.join(', ')}).`
+                        : 'Não encontramos uma sessão ativa da Blaze neste navegador.');
+                const nextState = blazeSessionStore.update({
+                    connected: false,
+                    cookies: null,
+                    cookieHeader: '',
+                    lastSyncedAt: Date.now(),
+                    missing,
+                    lastError: baseMessage
+                });
+                updateBlazeConnectionUI(refs, nextState, { variant: 'error', message: baseMessage });
+            }
+        } catch (error) {
+            const nextState = blazeSessionStore.update({
+                connected: false,
+                cookies: null,
+                cookieHeader: '',
+                lastSyncedAt: Date.now(),
+                missing: [],
+                lastError: error.message
+            });
+            updateBlazeConnectionUI(refs, nextState, { variant: 'error', message: error.message });
+        } finally {
+            setConnectButtonLoading(refs.connectButton, false);
+        }
+    }
+
+    function setupAutoBetLoginCard(refs = {}) {
+        if (!refs || !refs.connectButton) return;
+
+        blazeSessionStore.init().then((session) => {
+            if (refs.emailInput && session.email) {
+                refs.emailInput.value = session.email;
+            }
+            updateBlazeConnectionUI(refs, session);
+        }).catch(error => {
+            console.warn('BlazeSessionStore: falha ao preparar login card:', error);
+        });
+
+        if (refs.toggleButton && refs.passwordInput) {
+            refs.toggleButton.addEventListener('click', () => {
+                const isHidden = refs.passwordInput.type === 'password';
+                refs.passwordInput.type = isHidden ? 'text' : 'password';
+                refs.toggleButton.textContent = isHidden ? 'Ocultar' : 'Mostrar';
+                refs.toggleButton.setAttribute('aria-label', isHidden ? 'Ocultar senha' : 'Mostrar senha');
+            });
+        }
+
+        refs.connectButton.addEventListener('click', () => handleBlazeConnectClick(refs));
+    }
 
 const autoBetHistoryStore = (() => {
     let cache = [];
@@ -4392,6 +4450,129 @@ autoBetHistoryStore.init().catch(error => console.warn('AutoBetHistory: iniciali
                     align-items: stretch;
                     margin-bottom: 18px;
                 }
+                .auto-bet-login-card {
+                    margin: 18px 0 22px;
+                    padding: 16px;
+                    border: 1px solid rgba(255, 255, 255, 0.08);
+                    border-radius: 12px;
+                    background: rgba(9, 18, 28, 0.9);
+                    display: flex;
+                    flex-direction: column;
+                    gap: 14px;
+                }
+                .auto-bet-login-header {
+                    display: flex;
+                    align-items: flex-start;
+                    justify-content: space-between;
+                    gap: 12px;
+                }
+                .login-card-title {
+                    font-size: 14px;
+                    font-weight: 700;
+                    color: #ffffff;
+                }
+                .login-card-subtitle {
+                    font-size: 12px;
+                    color: rgba(255, 255, 255, 0.65);
+                    margin: 4px 0 0;
+                }
+                .auto-bet-connection-status {
+                    font-size: 11px;
+                    font-weight: 700;
+                    letter-spacing: 0.6px;
+                    text-transform: uppercase;
+                    border-radius: 999px;
+                    padding: 4px 12px;
+                    background: rgba(255, 255, 255, 0.08);
+                }
+                .auto-bet-connection-status.connected {
+                    color: #22c55e;
+                    background: rgba(34, 197, 94, 0.16);
+                }
+                .auto-bet-connection-status.disconnected {
+                    color: #f87171;
+                    background: rgba(248, 113, 113, 0.18);
+                }
+                .auto-bet-login-fields {
+                    display: flex;
+                    flex-direction: column;
+                    gap: 12px;
+                }
+                .auto-bet-login-hint {
+                    font-size: 11px;
+                    color: rgba(255, 255, 255, 0.6);
+                    margin: 0;
+                }
+                .password-input-wrapper {
+                    display: flex;
+                    align-items: stretch;
+                    gap: 8px;
+                }
+                .password-input-wrapper input {
+                    flex: 1;
+                }
+                .password-toggle-btn {
+                    border: 1px solid rgba(255, 255, 255, 0.18);
+                    background: rgba(255, 255, 255, 0.08);
+                    color: #ffffff;
+                    font-size: 11px;
+                    font-weight: 600;
+                    border-radius: 10px;
+                    padding: 0 14px;
+                    min-width: 86px;
+                    cursor: pointer;
+                    transition: all 0.2s ease;
+                }
+                .password-toggle-btn:hover {
+                    border-color: rgba(255, 255, 255, 0.35);
+                    background: rgba(255, 255, 255, 0.15);
+                }
+                .auto-bet-connect-btn {
+                    border: 1px solid rgba(0, 212, 255, 0.4);
+                    background: linear-gradient(135deg, rgba(0, 212, 255, 0.25), rgba(0, 255, 163, 0.18));
+                    color: #ffffff;
+                    font-weight: 700;
+                    font-size: 12px;
+                    letter-spacing: 0.6px;
+                    text-transform: uppercase;
+                    border-radius: 12px;
+                    padding: 12px;
+                    display: inline-flex;
+                    align-items: center;
+                    justify-content: center;
+                    gap: 8px;
+                    cursor: pointer;
+                    transition: transform 0.2s ease, box-shadow 0.2s ease, opacity 0.2s ease;
+                }
+                .auto-bet-connect-btn:hover {
+                    box-shadow: 0 0 18px rgba(0, 212, 255, 0.35);
+                }
+                .auto-bet-connect-btn.is-busy {
+                    opacity: 0.6;
+                    pointer-events: none;
+                }
+                .auto-bet-login-feedback {
+                    min-height: 14px;
+                    font-size: 11px;
+                    color: rgba(255, 255, 255, 0.68);
+                }
+                .auto-bet-login-feedback.error {
+                    color: #f87171;
+                }
+                .auto-bet-login-feedback.success {
+                    color: #34d399;
+                }
+                @media (max-width: 768px) {
+                    .auto-bet-mode-layout {
+                        flex-direction: column;
+                    }
+                    .password-input-wrapper {
+                        flex-direction: column;
+                    }
+                    .password-toggle-btn {
+                        width: 100%;
+                    }
+                }
                 .auto-bet-mode-card {
                     flex: 1;
                     display: flex;
@@ -4415,108 +4596,6 @@ autoBetHistoryStore.init().catch(error => console.warn('AutoBetHistory: iniciali
                     margin: 0;
                     font-size: 11px;
                     color: rgba(255, 255, 255, 0.6);
-                }
-                .auto-bet-login-card {
-                    margin-bottom: 18px;
-                    border-radius: 12px;
-                    border: 1px solid rgba(255, 255, 255, 0.08);
-                    background: rgba(255, 255, 255, 0.02);
-                    padding: 14px;
-                    display: flex;
-                    flex-direction: column;
-                    gap: 10px;
-                }
-                .auto-bet-login-header {
-                    display: flex;
-                    justify-content: space-between;
-                    align-items: center;
-                    gap: 12px;
-                }
-                .login-card-title {
-                    font-size: 13px;
-                    font-weight: 700;
-                    color: #ffffff;
-                    text-transform: uppercase;
-                }
-                .login-card-subtitle {
-                    margin: 2px 0 0;
-                    font-size: 11px;
-                    color: rgba(255, 255, 255, 0.6);
-                }
-                .auto-bet-login-fields {
-                    margin-top: 6px;
-                    padding: 12px;
-                    border-radius: 10px;
-                    border: 1px dashed rgba(255, 255, 255, 0.12);
-                    background: rgba(10, 20, 32, 0.5);
-                    display: flex;
-                    flex-direction: column;
-                    gap: 8px;
-                }
-                .auto-bet-login-row {
-                    display: flex;
-                    gap: 10px;
-                    flex-wrap: wrap;
-                }
-                .auto-bet-login-row .auto-bet-field {
-                    flex: 1;
-                }
-                .auto-bet-connect-btn {
-                    align-self: flex-start;
-                    border: none;
-                    border-radius: 8px;
-                    padding: 10px 16px;
-                    font-size: 13px;
-                    font-weight: 600;
-                    cursor: pointer;
-                    background: linear-gradient(135deg, #00bcd4, #00ffa3);
-                    color: #071521;
-                    transition: transform 0.2s ease, filter 0.2s ease;
-                }
-                .auto-bet-connect-btn:hover {
-                    filter: brightness(1.05);
-                    transform: translateY(-1px);
-                }
-                .auto-bet-connect-btn.is-busy {
-                    opacity: 0.85;
-                }
-                .auto-bet-connection-status {
-                    font-size: 12px;
-                    color: rgba(255, 255, 255, 0.65);
-                }
-                .auto-bet-connection-status.connected {
-                    color: #00e676;
-                }
-                .auto-bet-connection-status.error {
-                    color: #ff8a65;
-                }
-                .password-input-wrapper {
-                    position: relative;
-                    display: flex;
-                    align-items: center;
-                    width: 100%;
-                }
-                .password-input-wrapper input {
-                    width: 100%;
-                    padding-right: 38px;
-                }
-                .password-toggle-btn {
-                    position: absolute;
-                    right: 6px;
-                    top: 50%;
-                    transform: translateY(-50%);
-                    border: 1px solid rgba(255, 255, 255, 0.2);
-                    border-radius: 6px;
-                    background: rgba(255, 255, 255, 0.08);
-                    color: #fff;
-                    cursor: pointer;
-                    font-size: 11px;
-                    line-height: 1;
-                    padding: 3px 8px;
-                }
-                .password-toggle-btn:hover {
-                    border-color: #00e5ff;
-                    color: #00e5ff;
                 }
                 .auto-bet-divider {
                     width: 1px;
@@ -5608,31 +5687,6 @@ autoBetHistoryStore.init().catch(error => console.warn('AutoBetHistory: iniciali
                 const amountString = Number(order.amount).toFixed(2);
                 if (config.simulationOnly) {
                     uiLog(`[AutoBet] Simulação • ${order.stage} → ${order.color.toUpperCase()} • ${amountString}`);
-                    return;
-                }
-                if (isWebStandalone) {
-                    if (!blazeRealBridge.isReady()) {
-                        runtime.lastError = 'blaze_not_connected';
-                        persistRuntime(true);
-                        showToast('Conecte sua conta Blaze para usar o modo real.', 3200);
-                        uiLog('[AutoBet] Sessão Blaze não conectada - aposta real ignorada.');
-                        return;
-                    }
-                    try {
-                        await blazeRealBridge.placeBet({
-                            amount: Number(order.amount),
-                            color: order.color,
-                            stage: order.stage
-                        });
-                        runtime.lastError = null;
-                        persistRuntime(true);
-                        uiLog(`[AutoBet] Aposta enviada (API) • ${order.stage.toUpperCase()} • ${order.color.toUpperCase()} • ${amountString}`);
-                    } catch (error) {
-                        runtime.lastError = error.message;
-                        persistRuntime(true);
-                        console.error('[AutoBet] Erro ao apostar via API:', error);
-                        showToast(error?.message || 'Erro ao enviar aposta real.', 3600);
-                    }
                     return;
                 }
                 const input = findBetInput(order.color);
@@ -6953,12 +7007,12 @@ async function persistAnalyzerState(newState) {
                          <div class="confidence-text" id="confidenceText">0%</div>
                      </div>
                      
-                    <div class="suggestion-box" id="suggestionBox">
-                        <div class="suggestion-color-wrapper">
-                            <div class="suggestion-color" id="suggestionColor"></div>
+                     <div class="suggestion-box" id="suggestionBox">
+                         <div class="suggestion-color-wrapper">
+                             <div class="suggestion-color" id="suggestionColor"></div>
                             <div class="suggestion-stage" id="suggestionStage"></div>
+                         </div>
                         </div>
-                    </div>
                      </div>
                 </div>
                 
@@ -6974,17 +7028,17 @@ async function persistAnalyzerState(newState) {
             </div>
             
             <div class="entries-section">
-                <div class="entries-panel" id="entriesPanel">
+            <div class="entries-panel" id="entriesPanel">
                     <div class="entries-tabs-bar" id="entriesTabs">
                         <button type="button" class="entries-tab active" data-tab="entries">Sinais</button>
                         <button type="button" class="entries-tab" data-tab="bets" aria-disabled="true">Apostas</button>
                     </div>
-                    <div class="entries-header">
-                        <span class="entries-hit" id="entriesHit">Acertos: 0/0 (0%)</span>
-                    </div>
+                <div class="entries-header">
+                    <span class="entries-hit" id="entriesHit">Acertos: 0/0 (0%)</span>
+                </div>
                     <div class="entries-content">
                         <div class="entries-view" data-view="entries">
-                            <div class="entries-list" id="entriesList"></div>
+                <div class="entries-list" id="entriesList"></div>
                         </div>
                         <div class="entries-view" data-view="bets" hidden>
                             <div class="bets-container" id="betsContainer">
@@ -6993,7 +7047,7 @@ async function persistAnalyzerState(newState) {
                         </div>
                     </div>
                 </div>
-            </div>
+                 </div>
                 
                 <div class="pattern-section">
                     <h4>Padrão</h4>
@@ -7094,7 +7148,7 @@ async function persistAnalyzerState(newState) {
                             <input type="number" id="cfgMaxOccurrences" min="0" value="0" placeholder="0 = sem limite" />
                         </div>
                         <div class="setting-item">
-                            <span class="setting-label" id="cfgMinIntervalLabel">Intervalo entre padrões (giros):</span>
+                            <span class="setting-label">Intervalo entre padrões (giros):</span>
                             <input
                                 type="number"
                                 id="cfgMinInterval"
@@ -7211,7 +7265,7 @@ async function persistAnalyzerState(newState) {
             <div class="auto-bet-modal" id="autoBetModal" style="display:none;">
                 <div class="auto-bet-modal-overlay"></div>
                 <div class="auto-bet-modal-content">
-                        <div class="auto-bet-modal-header">
+                    <div class="auto-bet-modal-header">
                         <h3>Configurar Autoaposta</h3>
                         <button type="button" class="auto-bet-modal-close" id="closeAutoBetModal">
                             Fechar
@@ -7251,33 +7305,31 @@ async function persistAnalyzerState(newState) {
                                 </div>
                             </div>
                         </div>
-                        <div class="auto-bet-login-card">
+                        <div class="auto-bet-login-card" id="autoBetLoginCard">
                             <div class="auto-bet-login-header">
                                 <div>
                                     <div class="login-card-title">Conta Blaze</div>
-                                    <p class="login-card-subtitle">Necessária para apostas reais</p>
+                                    <p class="login-card-subtitle">Reutiliza o login já ativo no navegador</p>
                                 </div>
-                                <div class="auto-bet-connection-status" id="autoBetBlazeStatus">Desconectado</div>
+                                <div class="auto-bet-connection-status disconnected" id="autoBetBlazeStatus">Desconectado</div>
                             </div>
                             <div class="auto-bet-login-fields">
                                 <div class="auto-bet-field">
                                     <span>Email da Blaze</span>
                                     <input type="email" id="autoBetBlazeEmail" placeholder="email@exemplo.com" autocomplete="username" />
                                 </div>
-                            <div class="auto-bet-login-row">
                                 <div class="auto-bet-field">
-                                    <span>Senha</span>
+                                    <span>Senha (opcional)</span>
                                     <div class="password-input-wrapper">
                                         <input type="password" id="autoBetBlazePassword" placeholder="••••••••" autocomplete="current-password" />
-                                        <button type="button" class="password-toggle-btn" id="autoBetBlazePwdToggle" aria-label="Mostrar senha">
-                                            Mostrar
-                                        </button>
+                                        <button type="button" class="password-toggle-btn" id="autoBetBlazePwdToggle" aria-label="Mostrar senha">Mostrar</button>
                                     </div>
                                 </div>
-                            </div>
+                                <p class="auto-bet-login-hint">Já fez login em blazer.bet.br nesta máquina? Clique em “Conectar à Blaze” para detectar a sessão automaticamente, sem abrir novas abas.</p>
                                 <button type="button" class="auto-bet-connect-btn" id="autoBetConnectBlaze">
                                     <span class="button-label">Conectar à Blaze</span>
                                 </button>
+                                <div class="auto-bet-login-feedback" id="autoBetBlazeFeedback"></div>
                             </div>
                         </div>
                         <div class="auto-bet-shared-grid">
@@ -7490,91 +7542,26 @@ async function persistAnalyzerState(newState) {
         const autoBetModalContent = autoBetModal ? autoBetModal.querySelector('.auto-bet-modal-content') : null;
         const closeAutoBetModalBtn = document.getElementById('closeAutoBetModal');
         const autoBetSaveConfigBtn = document.getElementById('autoBetSaveConfig');
-        const autoBetResetRuntimeModalBtn = document.getElementById('autoBetResetRuntimeModal');
-        const autoBetBlazeEmailInput = document.getElementById('autoBetBlazeEmail');
-        const autoBetBlazePasswordInput = document.getElementById('autoBetBlazePassword');
+        const autoBetBlazeEmail = document.getElementById('autoBetBlazeEmail');
+        const autoBetBlazePassword = document.getElementById('autoBetBlazePassword');
         const autoBetBlazePwdToggle = document.getElementById('autoBetBlazePwdToggle');
-        const autoBetConnectBlazeBtn = document.getElementById('autoBetConnectBlaze');
+        const autoBetConnectBlaze = document.getElementById('autoBetConnectBlaze');
         const autoBetBlazeStatus = document.getElementById('autoBetBlazeStatus');
-        const autoBetLoginFields = document.querySelector('.auto-bet-login-fields');
-        const autoBetLoginCard = document.querySelector('.auto-bet-login-card');
+        const autoBetBlazeFeedback = document.getElementById('autoBetBlazeFeedback');
+
+        if (autoBetConnectBlaze) {
+            setupAutoBetLoginCard({
+                emailInput: autoBetBlazeEmail,
+                passwordInput: autoBetBlazePassword,
+                toggleButton: autoBetBlazePwdToggle,
+                connectButton: autoBetConnectBlaze,
+                statusEl: autoBetBlazeStatus,
+                feedbackEl: autoBetBlazeFeedback
+            });
+        }
+        const autoBetResetRuntimeModalBtn = document.getElementById('autoBetResetRuntimeModal');
         let autoBetModalEscHandler = null;
         let autoBetModalResizeHandler = null;
-
-        if (isWebStandalone) {
-            if (autoBetBlazeEmailInput) {
-                loadBlazeLoginEmail().then((email) => {
-                    if (email && !autoBetBlazeEmailInput.value) {
-                        autoBetBlazeEmailInput.value = email;
-                    }
-                });
-            }
-
-            const updateBlazeConnectionStatus = (snapshot) => {
-                if (!autoBetBlazeStatus) return;
-                autoBetBlazeStatus.classList.remove('connected', 'error');
-                if (snapshot.status === 'connecting') {
-                    autoBetBlazeStatus.textContent = 'Conectando...';
-                } else if (snapshot.connected && snapshot.status === 'connected') {
-                    autoBetBlazeStatus.textContent = 'Conectado à Blaze';
-                    autoBetBlazeStatus.classList.add('connected');
-                } else if (snapshot.status === 'error') {
-                    autoBetBlazeStatus.textContent = snapshot.errorMessage || 'Erro ao conectar';
-                    autoBetBlazeStatus.classList.add('error');
-                } else if (snapshot.status === 'expired') {
-                    autoBetBlazeStatus.textContent = snapshot.errorMessage || 'Sessão expirada';
-                    autoBetBlazeStatus.classList.add('error');
-                } else {
-                    autoBetBlazeStatus.textContent = 'Desconectado';
-                }
-            };
-            blazeRealBridge.onChange(updateBlazeConnectionStatus);
-
-            if (autoBetBlazePwdToggle && autoBetBlazePasswordInput) {
-                autoBetBlazePwdToggle.addEventListener('click', () => {
-                    const isPassword = autoBetBlazePasswordInput.type === 'password';
-                    autoBetBlazePasswordInput.type = isPassword ? 'text' : 'password';
-                    autoBetBlazePwdToggle.textContent = isPassword ? 'Ocultar' : 'Mostrar';
-                    autoBetBlazePwdToggle.setAttribute('aria-label', isPassword ? 'Ocultar senha' : 'Mostrar senha');
-                });
-            }
-
-            if (autoBetConnectBlazeBtn) {
-                autoBetConnectBlazeBtn.addEventListener('click', async () => {
-                    triggerButtonFeedback(autoBetConnectBlazeBtn);
-                    setButtonBusyState(autoBetConnectBlazeBtn, true, 'Conectando...');
-                    try {
-                        const email = autoBetBlazeEmailInput?.value?.trim();
-                        const password = autoBetBlazePasswordInput?.value || '';
-                        await blazeRealBridge.login({
-                            email,
-                            password
-                        });
-                        if (email) {
-                            await saveBlazeLoginEmail(email);
-                        }
-                        if (autoBetBlazePasswordInput) {
-                            autoBetBlazePasswordInput.value = '';
-                            autoBetBlazePasswordInput.type = 'password';
-                        }
-                        if (autoBetBlazePwdToggle) {
-                            autoBetBlazePwdToggle.textContent = 'Mostrar';
-                            autoBetBlazePwdToggle.setAttribute('aria-label', 'Mostrar senha');
-                        }
-                        showToast('Conta Blaze conectada!', 2600);
-                    } catch (error) {
-                        const message = error?.message || 'Não foi possível conectar à Blaze.';
-                        console.warn('Falha ao conectar à Blaze:', error);
-                        showToast(message, 3200);
-                    } finally {
-                        setButtonBusyState(autoBetConnectBlazeBtn, false);
-                    }
-                });
-            }
-        } else {
-            if (autoBetLoginFields) autoBetLoginFields.style.display = 'none';
-            if (autoBetLoginCard) autoBetLoginCard.style.display = 'none';
-        }
 
         const triggerButtonFeedback = (button) => {
             if (!button) return;
@@ -7729,7 +7716,7 @@ async function persistAnalyzerState(newState) {
                 showCustomConfirm('Limpar histórico de entradas?', clearEntriesBtn).then(confirmed => {
                     if (confirmed) {
                         clearEntriesHistory();
-                    }
+                }
                 });
             });
         }
@@ -8883,19 +8870,19 @@ async function persistAnalyzerState(newState) {
         if (data.lastSpin) {
             const spin = data.lastSpin;
             // Número com o mesmo estilo do histórico (quadrado com anel)
-                lastSpinNumber.className = `spin-number ${spin.color}`;
-                if (spin.color === 'white') {
-                    lastSpinNumber.innerHTML = blazeWhiteSVG(20);
-                } else {
-                    lastSpinNumber.textContent = `${spin.number}`;
-                }
-                const lastSpinTime = document.getElementById('lastSpinTime');
-                if (lastSpinTime) {
-                    try {
-                        const t = new Date(spin.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-                        lastSpinTime.textContent = t;
-                    } catch(_) { lastSpinTime.textContent = ''; }
-                }
+            lastSpinNumber.className = `spin-number ${spin.color}`;
+            if (spin.color === 'white') {
+                lastSpinNumber.innerHTML = blazeWhiteSVG(20);
+            } else {
+                lastSpinNumber.textContent = `${spin.number}`;
+            }
+            const lastSpinTime = document.getElementById('lastSpinTime');
+            if (lastSpinTime) {
+                try {
+                    const t = new Date(spin.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                    lastSpinTime.textContent = t;
+                } catch(_) { lastSpinTime.textContent = ''; }
+            }
         }
         
         if (Object.prototype.hasOwnProperty.call(data, 'analysis')) {
