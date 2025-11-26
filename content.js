@@ -3575,6 +3575,7 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
 
         let session = null;
         let status = 'idle';
+        let lastErrorMessage = null;
         const listeners = new Set();
 
         function getSnapshot() {
@@ -3582,7 +3583,8 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                 connected: !!session,
                 status,
                 email: session?.email || null,
-                expiresAt: session?.expiresAt || null
+                expiresAt: session?.expiresAt || null,
+                errorMessage: lastErrorMessage
             };
         }
 
@@ -3610,6 +3612,7 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
             }
 
             status = 'connecting';
+            lastErrorMessage = null;
             notify();
 
             try {
@@ -3622,9 +3625,15 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                         twoFactorCode: credentials.otp || credentials.twoFactorCode || null
                     })
                 });
-                const data = await response.json();
-                if (!response.ok || !data.success) {
-                    throw new Error(data.message || 'Não foi possível autenticar na Blaze.');
+                const rawBody = await response.text();
+                let data = null;
+                try {
+                    data = rawBody ? JSON.parse(rawBody) : null;
+                } catch (parseError) {
+                    throw new Error(rawBody || 'Resposta inválida ao autenticar na Blaze.');
+                }
+                if (!response.ok || !data?.success) {
+                    throw new Error(data?.message || rawBody || `Falha ao autenticar (HTTP ${response.status})`);
                 }
                 session = {
                     email: credentials.email,
@@ -3634,11 +3643,13 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                     raw: data
                 };
                 status = 'connected';
+                lastErrorMessage = null;
                 notify();
                 return session;
             } catch (error) {
                 console.warn('blazeRealBridge.login error:', error);
                 status = 'error';
+                lastErrorMessage = error?.message || 'Erro desconhecido';
                 notify();
                 throw error;
             }
@@ -3660,14 +3671,21 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                     currency: order.currency || 'BRL'
                 })
             });
-            const data = await response.json();
-            if (!response.ok || !data.success) {
+            const rawBody = await response.text();
+            let data = null;
+            try {
+                data = rawBody ? JSON.parse(rawBody) : null;
+            } catch (parseError) {
+                throw new Error(rawBody || 'Resposta inválida ao enviar aposta.');
+            }
+            if (!response.ok || !data?.success) {
                 if (response.status === 401 || response.status === 403) {
                     session = null;
                     status = 'expired';
+                    lastErrorMessage = 'Sessão expirada, conecte novamente.';
                     notify();
                 }
-                throw new Error(data.message || 'Falha ao enviar aposta para a Blaze.');
+                throw new Error(data?.message || rawBody || `Falha ao enviar aposta (HTTP ${response.status})`);
             }
             return data;
         }
@@ -3675,6 +3693,7 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
         function disconnect() {
             session = null;
             status = 'idle';
+            lastErrorMessage = null;
             notify();
         }
 
@@ -4468,6 +4487,32 @@ autoBetHistoryStore.init().catch(error => console.warn('AutoBetHistory: iniciali
                 }
                 .auto-bet-connection-status.error {
                     color: #ff8a65;
+                }
+                .password-input-wrapper {
+                    position: relative;
+                    display: flex;
+                    align-items: center;
+                    width: 100%;
+                }
+                .password-input-wrapper input {
+                    width: 100%;
+                    padding-right: 38px;
+                }
+                .password-toggle-btn {
+                    position: absolute;
+                    right: 6px;
+                    top: 50%;
+                    transform: translateY(-50%);
+                    border: none;
+                    background: transparent;
+                    color: rgba(255, 255, 255, 0.75);
+                    cursor: pointer;
+                    font-size: 14px;
+                    line-height: 1;
+                    padding: 2px;
+                }
+                .password-toggle-btn:hover {
+                    color: #00e5ff;
                 }
                 .auto-bet-divider {
                     width: 1px;
@@ -7215,16 +7260,17 @@ async function persistAnalyzerState(newState) {
                                     <span>Email da Blaze</span>
                                     <input type="email" id="autoBetBlazeEmail" placeholder="email@exemplo.com" autocomplete="username" />
                                 </div>
-                                <div class="auto-bet-login-row">
-                                    <div class="auto-bet-field">
-                                        <span>Senha</span>
+                            <div class="auto-bet-login-row">
+                                <div class="auto-bet-field">
+                                    <span>Senha</span>
+                                    <div class="password-input-wrapper">
                                         <input type="password" id="autoBetBlazePassword" placeholder="••••••••" autocomplete="current-password" />
-                                    </div>
-                                    <div class="auto-bet-field">
-                                        <span>2FA (opcional)</span>
-                                        <input type="text" id="autoBetBlazeOtp" placeholder="000000" inputmode="numeric" />
+                                        <button type="button" class="password-toggle-btn" id="autoBetBlazePwdToggle" aria-label="Mostrar senha">
+                                            👁
+                                        </button>
                                     </div>
                                 </div>
+                            </div>
                                 <button type="button" class="auto-bet-connect-btn" id="autoBetConnectBlaze">
                                     <span class="button-label">Conectar à Blaze</span>
                                 </button>
@@ -7443,7 +7489,7 @@ async function persistAnalyzerState(newState) {
         const autoBetResetRuntimeModalBtn = document.getElementById('autoBetResetRuntimeModal');
         const autoBetBlazeEmailInput = document.getElementById('autoBetBlazeEmail');
         const autoBetBlazePasswordInput = document.getElementById('autoBetBlazePassword');
-        const autoBetBlazeOtpInput = document.getElementById('autoBetBlazeOtp');
+        const autoBetBlazePwdToggle = document.getElementById('autoBetBlazePwdToggle');
         const autoBetConnectBlazeBtn = document.getElementById('autoBetConnectBlaze');
         const autoBetBlazeStatus = document.getElementById('autoBetBlazeStatus');
         const autoBetLoginFields = document.querySelector('.auto-bet-login-fields');
@@ -7469,16 +7515,25 @@ async function persistAnalyzerState(newState) {
                     autoBetBlazeStatus.textContent = 'Conectado à Blaze';
                     autoBetBlazeStatus.classList.add('connected');
                 } else if (snapshot.status === 'error') {
-                    autoBetBlazeStatus.textContent = 'Erro ao conectar';
+                    autoBetBlazeStatus.textContent = snapshot.errorMessage || 'Erro ao conectar';
                     autoBetBlazeStatus.classList.add('error');
                 } else if (snapshot.status === 'expired') {
-                    autoBetBlazeStatus.textContent = 'Sessão expirada';
+                    autoBetBlazeStatus.textContent = snapshot.errorMessage || 'Sessão expirada';
                     autoBetBlazeStatus.classList.add('error');
                 } else {
                     autoBetBlazeStatus.textContent = 'Desconectado';
                 }
             };
             blazeRealBridge.onChange(updateBlazeConnectionStatus);
+
+            if (autoBetBlazePwdToggle && autoBetBlazePasswordInput) {
+                autoBetBlazePwdToggle.addEventListener('click', () => {
+                    const isPassword = autoBetBlazePasswordInput.type === 'password';
+                    autoBetBlazePasswordInput.type = isPassword ? 'text' : 'password';
+                    autoBetBlazePwdToggle.textContent = isPassword ? '🙈' : '👁';
+                    autoBetBlazePwdToggle.setAttribute('aria-label', isPassword ? 'Ocultar senha' : 'Mostrar senha');
+                });
+            }
 
             if (autoBetConnectBlazeBtn) {
                 autoBetConnectBlazeBtn.addEventListener('click', async () => {
@@ -7487,17 +7542,21 @@ async function persistAnalyzerState(newState) {
                     try {
                         const email = autoBetBlazeEmailInput?.value?.trim();
                         const password = autoBetBlazePasswordInput?.value || '';
-                        const otp = autoBetBlazeOtpInput?.value?.trim();
                         await blazeRealBridge.login({
                             email,
-                            password,
-                            otp
+                            password
                         });
                         if (email) {
                             await saveBlazeLoginEmail(email);
                         }
-                        if (autoBetBlazePasswordInput) autoBetBlazePasswordInput.value = '';
-                        if (autoBetBlazeOtpInput) autoBetBlazeOtpInput.value = '';
+                        if (autoBetBlazePasswordInput) {
+                            autoBetBlazePasswordInput.value = '';
+                            autoBetBlazePasswordInput.type = 'password';
+                        }
+                        if (autoBetBlazePwdToggle) {
+                            autoBetBlazePwdToggle.textContent = '👁';
+                            autoBetBlazePwdToggle.setAttribute('aria-label', 'Mostrar senha');
+                        }
                         showToast('Conta Blaze conectada!', 2600);
                     } catch (error) {
                         const message = error?.message || 'Não foi possível conectar à Blaze.';
