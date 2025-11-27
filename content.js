@@ -7507,6 +7507,20 @@ async function persistAnalyzerState(newState) {
             autoBetEnabled: document.getElementById('autoBetEnabled')
         };
         
+        console.log('%c🔍 [BLAZE LOGIN] Verificando elementos...', 'color: #fbbf24; font-weight: bold;');
+        console.log('📋 Elementos encontrados:', {
+            loginBtn: !!blazeLoginElements.loginBtn,
+            email: !!blazeLoginElements.email,
+            password: !!blazeLoginElements.password,
+            status: !!blazeLoginElements.status
+        });
+        
+        if (!blazeLoginElements.loginBtn) {
+            console.error('❌ ERRO CRÍTICO: Botão de login não encontrado! ID: blazeLoginBtn');
+        } else {
+            console.log('✅ Botão de login encontrado!');
+        }
+        
         const updateBlazeLoginUI = (state, message = '', data = null) => {
             if (!blazeLoginElements.status) return;
             
@@ -7621,9 +7635,19 @@ async function persistAnalyzerState(newState) {
         };
         
         // Event Listeners para Login Blaze
+        console.log('%c🎯 [BLAZE LOGIN] Adicionando event listeners...', 'color: #10b981; font-weight: bold;');
+        
         if (blazeLoginElements.loginBtn) {
-            blazeLoginElements.loginBtn.addEventListener('click', handleBlazeLogin);
+            console.log('✅ Adicionando listener ao botão de login...');
+            blazeLoginElements.loginBtn.addEventListener('click', () => {
+                console.log('%c🖱️ BOTÃO DE LOGIN CLICADO!', 'color: #ef4444; font-weight: bold; font-size: 16px;');
+                handleBlazeLogin();
+            });
+            console.log('✅ Listener adicionado com sucesso!');
+        } else {
+            console.error('❌ Não foi possível adicionar listener: botão não existe!');
         }
+        
         if (blazeLoginElements.logoutBtn) {
             blazeLoginElements.logoutBtn.addEventListener('click', handleBlazeLogout);
         }
@@ -7635,6 +7659,8 @@ async function persistAnalyzerState(newState) {
                 if (e.key === 'Enter') handleBlazeLogin();
             });
         }
+        
+        console.log('%c✅ [BLAZE LOGIN] Sistema de login inicializado!', 'color: #10b981; font-weight: bold;');
         
         // Restaurar sessão salva
         try {
