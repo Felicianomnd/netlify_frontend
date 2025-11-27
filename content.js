@@ -4493,6 +4493,104 @@ autoBetHistoryStore.init().catch(error => console.warn('AutoBetHistory: iniciali
                     line-height: 1.4;
                     text-align: center;
                 }
+                .blaze-token-modal {
+                    position: fixed;
+                    inset: 0;
+                    z-index: 1000000;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    padding: 20px;
+                }
+                .blaze-token-overlay {
+                    position: absolute;
+                    inset: 0;
+                    background: rgba(0, 0, 0, 0.85);
+                    backdrop-filter: blur(4px);
+                }
+                .blaze-token-content {
+                    position: relative;
+                    background: #1a2332;
+                    border-radius: 4px;
+                    padding: 24px;
+                    max-width: 500px;
+                    width: 100%;
+                    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.7);
+                }
+                .blaze-token-content h3 {
+                    margin: 0 0 12px 0;
+                    font-size: 18px;
+                    font-weight: 700;
+                    color: #ffffff;
+                }
+                .blaze-token-content p {
+                    margin: 0 0 16px 0;
+                    font-size: 14px;
+                    color: #7d8597;
+                    line-height: 1.4;
+                }
+                .blaze-token-content textarea {
+                    width: 100%;
+                    padding: 12px;
+                    border-radius: 3px;
+                    border: none;
+                    background: #0d1419;
+                    color: #e5e7eb;
+                    font-size: 13px;
+                    font-family: 'Courier New', monospace;
+                    resize: vertical;
+                    margin-bottom: 16px;
+                    box-sizing: border-box;
+                }
+                .blaze-token-content textarea:focus {
+                    outline: none;
+                    background: #0f1720;
+                }
+                .blaze-token-buttons {
+                    display: flex;
+                    gap: 12px;
+                    margin-bottom: 16px;
+                }
+                .blaze-token-buttons button {
+                    flex: 1;
+                    padding: 12px 20px;
+                    border-radius: 3px;
+                    font-size: 14px;
+                    font-weight: 600;
+                    cursor: pointer;
+                    border: none;
+                    transition: all 0.2s ease;
+                }
+                .blaze-token-cancel {
+                    background: #2d3748;
+                    color: #a0aec0;
+                }
+                .blaze-token-cancel:hover {
+                    background: #374151;
+                }
+                .blaze-token-submit {
+                    background: #ef4444;
+                    color: #ffffff;
+                }
+                .blaze-token-submit:hover {
+                    background: #dc2626;
+                }
+                .blaze-token-hint {
+                    font-size: 12px !important;
+                    color: #7d8597 !important;
+                    line-height: 1.5 !important;
+                    background: #0f1720;
+                    padding: 12px;
+                    border-radius: 3px;
+                }
+                .blaze-token-hint code {
+                    background: #0d1419;
+                    padding: 2px 6px;
+                    border-radius: 2px;
+                    font-family: 'Courier New', monospace;
+                    font-size: 11px;
+                    color: #ef4444;
+                }
                 .auto-bet-shared-grid {
                     margin-top: 16px;
                     display: grid;
@@ -7373,6 +7471,64 @@ async function persistAnalyzerState(newState) {
         const blazeConnectBtn = document.getElementById('blazeConnectBtn');
         const blazeConnectionStatus = document.getElementById('blazeConnectionStatus');
         
+        let blazePopupWindow = null;
+        let blazeTokenCaptured = false;
+        
+        // Listener para receber token do popup (postMessage)
+        window.addEventListener('message', async (event) => {
+            // Validar origem
+            if (!event.origin.includes('blaze.bet.br')) return;
+            
+            const { blazeToken, blazeSessionData } = event.data;
+            
+            if (blazeToken || blazeSessionData) {
+                console.log('[Blaze] Token recebido via postMessage');
+                blazeTokenCaptured = true;
+                
+                try {
+                    await saveBlazeToken(blazeToken || blazeSessionData);
+                } catch (error) {
+                    console.error('[Blaze] Erro ao salvar token:', error);
+                }
+            }
+        });
+        
+        async function saveBlazeToken(token) {
+            blazeConnectBtn.disabled = true;
+            blazeConnectBtn.querySelector('.blaze-connect-label').textContent = 'Salvando...';
+            
+            try {
+                const response = await fetch(`${API_BASE_URL}/api/blaze/save-token`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${localStorage.getItem('authToken')}`
+                    },
+                    body: JSON.stringify({ token })
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    updateBlazeConnectionUI(true, data.user);
+                    showToast('✓ Conta Blaze conectada com sucesso!');
+                    
+                    // Fechar popup se ainda estiver aberto
+                    if (blazePopupWindow && !blazePopupWindow.closed) {
+                        blazePopupWindow.close();
+                    }
+                } else {
+                    throw new Error(data.error || 'Falha ao salvar token');
+                }
+            } catch (error) {
+                console.error('Erro ao salvar token:', error);
+                showToast('✗ ' + error.message);
+            } finally {
+                blazeConnectBtn.disabled = false;
+                blazeConnectBtn.querySelector('.blaze-connect-label').textContent = 'Conectar minha conta Blaze';
+            }
+        }
+        
         async function handleBlazeConnection() {
             if (!blazeConnectBtn || !blazeConnectionStatus) return;
             
@@ -7408,63 +7564,53 @@ async function persistAnalyzerState(newState) {
             
             // Conectar via popup
             blazeConnectBtn.disabled = true;
-            blazeConnectBtn.querySelector('.blaze-connect-label').textContent = 'Aguardando login...';
+            blazeConnectBtn.querySelector('.blaze-connect-label').textContent = 'Abrindo Blaze...';
+            blazeTokenCaptured = false;
             
             try {
                 // Abrir popup da Blaze
-                const popup = window.open(
+                blazePopupWindow = window.open(
                     'https://blaze.bet.br/pt/games/double',
                     'BlazeLogin',
                     'width=500,height=700,left=100,top=100'
                 );
                 
-                if (!popup) {
+                if (!blazePopupWindow) {
                     throw new Error('Popup bloqueado. Permita popups para este site.');
                 }
                 
+                // Após 3 segundos, injetar script no popup para capturar token
+                setTimeout(() => {
+                    if (blazePopupWindow && !blazePopupWindow.closed) {
+                        try {
+                            // Tentar injetar script para captura automática
+                            blazePopupWindow.postMessage({ action: 'REQUEST_TOKEN' }, 'https://blaze.bet.br');
+                        } catch (e) {
+                            console.log('[Blaze] Não foi possível enviar mensagem para popup (CORS)');
+                        }
+                        
+                        // Atualizar status
+                        blazeConnectBtn.querySelector('.blaze-connect-label').textContent = 'Aguarde o login...';
+                    }
+                }, 3000);
+                
                 // Monitorar quando o popup fechar
                 const checkPopupClosed = setInterval(async () => {
-                    if (popup.closed) {
+                    if (blazePopupWindow.closed) {
                         clearInterval(checkPopupClosed);
                         
-                        // Tentar capturar cookies
-                        try {
-                            // Aguardar um pouco para garantir que o login foi concluído
-                            await new Promise(resolve => setTimeout(resolve, 1000));
-                            
-                            // Fazer requisição para backend capturar e validar sessão
-                            const response = await fetch(`${API_BASE_URL}/api/blaze/capture-session`, {
-                                method: 'POST',
-                                headers: {
-                                    'Content-Type': 'application/json',
-                                    'Authorization': `Bearer ${localStorage.getItem('authToken')}`
-                                },
-                                credentials: 'include'
-                            });
-                            
-                            const data = await response.json();
-                            
-                            if (data.success) {
-                                updateBlazeConnectionUI(true, data.user);
-                                showToast('✓ Conta Blaze conectada com sucesso!');
-                            } else {
-                                throw new Error(data.error || 'Falha ao capturar sessão');
-                            }
-                        } catch (error) {
-                            console.error('Erro ao capturar sessão:', error);
-                            showToast('✗ ' + error.message);
-                            blazeConnectBtn.querySelector('.blaze-connect-label').textContent = 'Conectar minha conta Blaze';
-                        } finally {
-                            blazeConnectBtn.disabled = false;
+                        // Se token não foi capturado automaticamente, mostrar opção manual
+                        if (!blazeTokenCaptured) {
+                            showManualTokenInput();
                         }
                     }
                 }, 500);
                 
                 // Timeout de 5 minutos
                 setTimeout(() => {
-                    if (!popup.closed) {
+                    if (blazePopupWindow && !blazePopupWindow.closed) {
                         clearInterval(checkPopupClosed);
-                        popup.close();
+                        blazePopupWindow.close();
                         blazeConnectBtn.disabled = false;
                         blazeConnectBtn.querySelector('.blaze-connect-label').textContent = 'Conectar minha conta Blaze';
                         showToast('⏱ Tempo esgotado. Tente novamente.');
@@ -7477,6 +7623,56 @@ async function persistAnalyzerState(newState) {
                 blazeConnectBtn.disabled = false;
                 blazeConnectBtn.querySelector('.blaze-connect-label').textContent = 'Conectar minha conta Blaze';
             }
+        }
+        
+        function showManualTokenInput() {
+            // Mostrar modal para entrada manual de token
+            const modal = document.createElement('div');
+            modal.className = 'blaze-token-modal';
+            modal.innerHTML = `
+                <div class="blaze-token-overlay"></div>
+                <div class="blaze-token-content">
+                    <h3>Conectar Conta Blaze</h3>
+                    <p>Cole seu token de sessão abaixo:</p>
+                    <textarea id="blazeTokenInput" placeholder="Cole o token aqui..." rows="3"></textarea>
+                    <div class="blaze-token-buttons">
+                        <button class="blaze-token-cancel">Cancelar</button>
+                        <button class="blaze-token-submit">Conectar</button>
+                    </div>
+                    <p class="blaze-token-hint">
+                        📱 <strong>No celular:</strong> Abra a Blaze em outra aba, pressione F12 (ou ferramentas), vá em "Console" e digite: <code>localStorage.getItem('session')</code>
+                    </p>
+                </div>
+            `;
+            
+            document.body.appendChild(modal);
+            
+            const overlay = modal.querySelector('.blaze-token-overlay');
+            const cancelBtn = modal.querySelector('.blaze-token-cancel');
+            const submitBtn = modal.querySelector('.blaze-token-submit');
+            const input = modal.querySelector('#blazeTokenInput');
+            
+            const closeModal = () => {
+                modal.remove();
+                blazeConnectBtn.disabled = false;
+                blazeConnectBtn.querySelector('.blaze-connect-label').textContent = 'Conectar minha conta Blaze';
+            };
+            
+            overlay.addEventListener('click', closeModal);
+            cancelBtn.addEventListener('click', closeModal);
+            
+            submitBtn.addEventListener('click', async () => {
+                const token = input.value.trim();
+                if (!token) {
+                    showToast('✗ Digite o token');
+                    return;
+                }
+                
+                modal.remove();
+                await saveBlazeToken(token);
+            });
+            
+            input.focus();
         }
         
         function updateBlazeConnectionUI(isConnected, user = null) {
