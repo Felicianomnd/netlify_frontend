@@ -4416,6 +4416,83 @@ autoBetHistoryStore.init().catch(error => console.warn('AutoBetHistory: iniciali
                     border: 1px dashed rgba(255, 255, 255, 0.2);
                     border-radius: 8px;
                 }
+                .blaze-account-section {
+                    margin-top: 16px;
+                    padding: 16px;
+                    border-radius: 4px;
+                    background: #0f1720;
+                    display: flex;
+                    flex-direction: column;
+                    gap: 12px;
+                }
+                .blaze-account-header {
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                }
+                .blaze-account-title {
+                    font-size: 14px;
+                    font-weight: 700;
+                    color: #ffffff;
+                }
+                .blaze-connection-status {
+                    font-size: 12px;
+                    font-weight: 600;
+                    padding: 4px 10px;
+                    border-radius: 3px;
+                    background: #2d3748;
+                    color: #7d8597;
+                }
+                .blaze-connection-status.connected {
+                    background: rgba(16, 185, 129, 0.15);
+                    color: #10b981;
+                }
+                .blaze-account-description {
+                    margin: 0;
+                    font-size: 13px;
+                    color: #7d8597;
+                    line-height: 1.4;
+                }
+                .blaze-connect-btn {
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    gap: 8px;
+                    padding: 12px 20px;
+                    border: none;
+                    border-radius: 3px;
+                    background: #ef4444;
+                    color: #ffffff;
+                    font-size: 14px;
+                    font-weight: 600;
+                    cursor: pointer;
+                    transition: all 0.2s ease;
+                }
+                .blaze-connect-btn:hover {
+                    background: #dc2626;
+                }
+                .blaze-connect-btn:disabled {
+                    opacity: 0.5;
+                    cursor: not-allowed;
+                }
+                .blaze-connect-btn.connected {
+                    background: #2d3748;
+                    color: #7d8597;
+                }
+                .blaze-connect-btn.connected:hover {
+                    background: #374151;
+                    color: #ffffff;
+                }
+                .blaze-connect-icon {
+                    font-size: 16px;
+                }
+                .blaze-account-hint {
+                    margin: 0;
+                    font-size: 11px;
+                    color: #7d8597;
+                    line-height: 1.4;
+                    text-align: center;
+                }
                 .auto-bet-shared-grid {
                     margin-top: 16px;
                     display: grid;
@@ -6970,6 +7047,20 @@ async function persistAnalyzerState(newState) {
                                 </div>
                             </div>
                         </div>
+                        
+                        <div class="blaze-account-section">
+                            <div class="blaze-account-header">
+                                <span class="blaze-account-title">Conta Blaze</span>
+                                <span class="blaze-connection-status" id="blazeConnectionStatus">Desconectado</span>
+                            </div>
+                            <p class="blaze-account-description">Conecte sua conta Blaze para habilitar apostas reais automatizadas</p>
+                            <button type="button" class="blaze-connect-btn" id="blazeConnectBtn">
+                                <span class="blaze-connect-icon">🔗</span>
+                                <span class="blaze-connect-label">Conectar minha conta Blaze</span>
+                            </button>
+                            <p class="blaze-account-hint">Ao clicar, você será redirecionado para fazer login na Blaze oficial. Seus dados são processados de forma segura.</p>
+                        </div>
+                        
                         <div class="auto-bet-shared-grid">
                             <div class="auto-bet-field">
                                 <span>Entrada base (R$)</span>
@@ -7275,6 +7366,161 @@ async function persistAnalyzerState(newState) {
                 }
             });
         }
+        
+        // ═══════════════════════════════════════════════════════════════════════════════
+        // BLAZE ACCOUNT CONNECTION
+        // ═══════════════════════════════════════════════════════════════════════════════
+        const blazeConnectBtn = document.getElementById('blazeConnectBtn');
+        const blazeConnectionStatus = document.getElementById('blazeConnectionStatus');
+        
+        async function handleBlazeConnection() {
+            if (!blazeConnectBtn || !blazeConnectionStatus) return;
+            
+            const isConnected = blazeConnectionStatus.classList.contains('connected');
+            
+            if (isConnected) {
+                // Desconectar
+                if (!confirm('Deseja desconectar sua conta Blaze?')) return;
+                
+                blazeConnectBtn.disabled = true;
+                blazeConnectBtn.querySelector('.blaze-connect-label').textContent = 'Desconectando...';
+                
+                try {
+                    await fetch(`${API_BASE_URL}/api/blaze/disconnect`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${localStorage.getItem('authToken')}`
+                        }
+                    });
+                    
+                    updateBlazeConnectionUI(false);
+                    showToast('✓ Conta Blaze desconectada');
+                } catch (error) {
+                    console.error('Erro ao desconectar:', error);
+                    showToast('✗ Erro ao desconectar');
+                } finally {
+                    blazeConnectBtn.disabled = false;
+                    blazeConnectBtn.querySelector('.blaze-connect-label').textContent = 'Conectar minha conta Blaze';
+                }
+                return;
+            }
+            
+            // Conectar via popup
+            blazeConnectBtn.disabled = true;
+            blazeConnectBtn.querySelector('.blaze-connect-label').textContent = 'Aguardando login...';
+            
+            try {
+                // Abrir popup da Blaze
+                const popup = window.open(
+                    'https://blaze.bet.br/pt/games/double',
+                    'BlazeLogin',
+                    'width=500,height=700,left=100,top=100'
+                );
+                
+                if (!popup) {
+                    throw new Error('Popup bloqueado. Permita popups para este site.');
+                }
+                
+                // Monitorar quando o popup fechar
+                const checkPopupClosed = setInterval(async () => {
+                    if (popup.closed) {
+                        clearInterval(checkPopupClosed);
+                        
+                        // Tentar capturar cookies
+                        try {
+                            // Aguardar um pouco para garantir que o login foi concluído
+                            await new Promise(resolve => setTimeout(resolve, 1000));
+                            
+                            // Fazer requisição para backend capturar e validar sessão
+                            const response = await fetch(`${API_BASE_URL}/api/blaze/capture-session`, {
+                                method: 'POST',
+                                headers: {
+                                    'Content-Type': 'application/json',
+                                    'Authorization': `Bearer ${localStorage.getItem('authToken')}`
+                                },
+                                credentials: 'include'
+                            });
+                            
+                            const data = await response.json();
+                            
+                            if (data.success) {
+                                updateBlazeConnectionUI(true, data.user);
+                                showToast('✓ Conta Blaze conectada com sucesso!');
+                            } else {
+                                throw new Error(data.error || 'Falha ao capturar sessão');
+                            }
+                        } catch (error) {
+                            console.error('Erro ao capturar sessão:', error);
+                            showToast('✗ ' + error.message);
+                            blazeConnectBtn.querySelector('.blaze-connect-label').textContent = 'Conectar minha conta Blaze';
+                        } finally {
+                            blazeConnectBtn.disabled = false;
+                        }
+                    }
+                }, 500);
+                
+                // Timeout de 5 minutos
+                setTimeout(() => {
+                    if (!popup.closed) {
+                        clearInterval(checkPopupClosed);
+                        popup.close();
+                        blazeConnectBtn.disabled = false;
+                        blazeConnectBtn.querySelector('.blaze-connect-label').textContent = 'Conectar minha conta Blaze';
+                        showToast('⏱ Tempo esgotado. Tente novamente.');
+                    }
+                }, 5 * 60 * 1000);
+                
+            } catch (error) {
+                console.error('Erro ao conectar:', error);
+                showToast('✗ ' + error.message);
+                blazeConnectBtn.disabled = false;
+                blazeConnectBtn.querySelector('.blaze-connect-label').textContent = 'Conectar minha conta Blaze';
+            }
+        }
+        
+        function updateBlazeConnectionUI(isConnected, user = null) {
+            if (!blazeConnectBtn || !blazeConnectionStatus) return;
+            
+            if (isConnected) {
+                blazeConnectionStatus.textContent = 'Conectado';
+                blazeConnectionStatus.classList.add('connected');
+                blazeConnectBtn.classList.add('connected');
+                blazeConnectBtn.querySelector('.blaze-connect-icon').textContent = '✓';
+                blazeConnectBtn.querySelector('.blaze-connect-label').textContent = user?.email || 'Desconectar conta';
+            } else {
+                blazeConnectionStatus.textContent = 'Desconectado';
+                blazeConnectionStatus.classList.remove('connected');
+                blazeConnectBtn.classList.remove('connected');
+                blazeConnectBtn.querySelector('.blaze-connect-icon').textContent = '🔗';
+                blazeConnectBtn.querySelector('.blaze-connect-label').textContent = 'Conectar minha conta Blaze';
+            }
+        }
+        
+        // Verificar status inicial
+        async function checkBlazeConnectionStatus() {
+            try {
+                const response = await fetch(`${API_BASE_URL}/api/blaze/status`, {
+                    headers: {
+                        'Authorization': `Bearer ${localStorage.getItem('authToken')}`
+                    }
+                });
+                
+                const data = await response.json();
+                
+                if (data.connected) {
+                    updateBlazeConnectionUI(true, data.user);
+                }
+            } catch (error) {
+                console.log('Nenhuma sessão Blaze ativa');
+            }
+        }
+        
+        if (blazeConnectBtn) {
+            blazeConnectBtn.addEventListener('click', handleBlazeConnection);
+            checkBlazeConnectionStatus();
+        }
+        
         if (autoBetResetRuntimeModalBtn) {
             autoBetResetRuntimeModalBtn.addEventListener('click', () => {
                 triggerButtonFeedback(autoBetResetRuntimeModalBtn);
