@@ -7444,10 +7444,10 @@ async function persistAnalyzerState(newState) {
         }
 
         // ═══════════════════════════════════════════════════════════════════════════════
-        // BLAZE LOGIN - Conexão com a API brasileira
+        // BLAZE LOGIN - Conexão via proxy HTTPS
         // ═══════════════════════════════════════════════════════════════════════════════
 
-        const BLAZE_AUTH_API_URL = 'http://137.131.203.130:3000';
+        const BLAZE_PROXY_URL = getApiUrl(); // Usa a API de auth que tem o proxy
         let blazeSessionData = null;
 
         const blazePasswordToggle = document.getElementById('blazePasswordToggle');
@@ -7501,7 +7501,7 @@ async function persistAnalyzerState(newState) {
             setButtonBusyState(blazeLoginBtn, true, 'Conectando...');
 
             try {
-                const response = await fetch(`${BLAZE_AUTH_API_URL}/api/blaze/login`, {
+                const response = await fetch(`${BLAZE_PROXY_URL}/api/blaze-proxy/login`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'
