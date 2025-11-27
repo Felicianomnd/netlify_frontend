@@ -7062,7 +7062,7 @@ async function persistAnalyzerState(newState) {
                             </div>
                             
                             <div id="blazeDisconnectedState">
-                                <p class="blaze-account-description">Cole seu token de acesso da Blaze para habilitar apostas reais</p>
+                                <p class="blaze-account-description">Cole seu token de acesso para habilitar apostas reais automatizadas</p>
                                 
                                 <div class="auto-bet-field" style="margin-top: 12px;">
                                     <span>Token de Acesso (ACCESS_TOKEN)</span>
