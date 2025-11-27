@@ -106,15 +106,6 @@ const DEFAULT_AUTOBET_CONFIG = Object.freeze({
     whitePayoutMultiplier: 14
 });
 
-const BLAZE_SESSION_COOKIE_DOMAINS = [
-    'blazer.bet.br',
-    '.blazer.bet.br',
-    'blaze.bet.br',
-    '.blaze.bet.br'
-];
-
-const BLAZE_REQUIRED_COOKIES = ['sid', 'csrf_token'];
-
 function buildDiamondLevelSummaries() {
     const list = getDiamondConfigSnapshot();
     return list.map(([label, detail]) => {
@@ -1446,87 +1437,6 @@ async function hasBlazeTabOpen() {
         console.error('Erro ao verificar abas da Blaze:', e);
         return false;
     }
-}
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// COOKIES DA BLAZE - REAPROVEITAR LOGIN EXISTENTE PARA AUTOAPOSTA
-// ═══════════════════════════════════════════════════════════════════════════════
-
-function getCookiesForDomain(domain) {
-    return new Promise((resolve) => {
-        if (!chrome.cookies?.getAll) {
-            resolve([]);
-            return;
-        }
-        try {
-            chrome.cookies.getAll({ domain }, (cookies = []) => {
-                const err = chrome.runtime?.lastError;
-                if (err) {
-                    console.warn(`[Cookies] Falha ao obter cookies para ${domain}:`, err.message);
-                    resolve([]);
-                    return;
-                }
-                resolve(cookies);
-            });
-        } catch (error) {
-            console.warn(`[Cookies] Exceção ao buscar cookies para ${domain}:`, error);
-            resolve([]);
-        }
-    });
-}
-
-function buildCookieHeaderFromMap(cookieMap) {
-    return Array.from(cookieMap.values())
-        .filter(cookie => cookie?.name && typeof cookie.value === 'string')
-        .map(cookie => `${cookie.name}=${cookie.value}`)
-        .join('; ');
-}
-
-async function collectBlazeSessionCookies() {
-    if (!chrome.cookies?.getAll) {
-        throw new Error('API de cookies não disponível neste ambiente.');
-    }
-
-    const cookieMap = new Map();
-    const collected = [];
-
-    for (const domain of BLAZE_SESSION_COOKIE_DOMAINS) {
-        const domainCookies = await getCookiesForDomain(domain);
-        domainCookies.forEach(cookie => {
-            if (!cookie?.name) return;
-            if (!cookieMap.has(cookie.name) || (cookie.domain || '').includes('blazer.bet.br')) {
-                cookieMap.set(cookie.name, cookie);
-            }
-            collected.push(cookie);
-        });
-    }
-
-    const missing = BLAZE_REQUIRED_COOKIES.filter(name => {
-        const stored = cookieMap.get(name);
-        return !stored || !stored.value;
-    });
-
-    const hasSession = missing.length === 0;
-
-    const serializedCookies = Array.from(cookieMap.values()).map(cookie => ({
-        name: cookie.name,
-        value: cookie.value,
-        domain: cookie.domain,
-        path: cookie.path,
-        secure: cookie.secure,
-        httpOnly: cookie.httpOnly,
-        sameSite: cookie.sameSite,
-        expirationDate: cookie.expirationDate
-    }));
-
-    return {
-        hasSession,
-        missing,
-        cookies: serializedCookies,
-        cookieHeader: buildCookieHeaderFromMap(cookieMap),
-        totalCollected: collected.length,
-        baseUrl: hasSession ? 'https://blazer.bet.br' : null
-    };
 }
 
 // Fazer requisição com timeout e retry
@@ -22150,17 +22060,6 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         // Enviar estatísticas do observador inteligente
         const stats = getObserverStats();
         sendResponse({ status: 'success', stats: stats });
-        return true;
-    } else if (request.action === 'FETCH_BLAZE_SESSION') {
-        (async () => {
-            try {
-                const session = await collectBlazeSessionCookies();
-                sendResponse({ success: session.hasSession, session });
-            } catch (error) {
-                console.error('❌ [AutoBet] Falha ao coletar sessão da Blaze:', error);
-                sendResponse({ success: false, error: error.message });
-            }
-        })();
         return true;
     } else if (request.action === 'recalibrateObserver') {
         // Recalibrar observador manualmente (botão "Atualizar")

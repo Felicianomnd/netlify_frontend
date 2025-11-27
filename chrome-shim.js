@@ -8,8 +8,6 @@
 (function() {
     'use strict';
 
-    window.__BLAZE_WEB_SHIM__ = true;
-
     console.log('%c🌐 Chrome Shim carregado - Modo WEB ativado', 'color: #00FF00; font-weight: bold; font-size: 14px;');
 
     // ═══════════════════════════════════════════════════════════════════════════════
@@ -328,18 +326,6 @@
     };
 
     // ═══════════════════════════════════════════════════════════════════════════════
-    // COOKIES API SIMULATION (somente logs no modo web)
-    // ═══════════════════════════════════════════════════════════════════════════════
-    const cookies = {
-        getAll: function(details = {}, callback) {
-            console.log('🍪 chrome.cookies.getAll (shim) solicitado para domínio:', details.domain || '(não informado)');
-            const result = [];
-            if (callback) callback(result);
-            return Promise.resolve(result);
-        }
-    };
-
-    // ═══════════════════════════════════════════════════════════════════════════════
     // BROWSER ACTION API SIMULATION
     // ═══════════════════════════════════════════════════════════════════════════════
     const browserAction = {
@@ -362,8 +348,7 @@
         tabs: tabs,
         alarms: alarms,
         notifications: notifications,
-        browserAction: browserAction,
-        cookies: cookies
+        browserAction: browserAction
     };
 
     // Also create browser object (for Firefox compatibility)
