@@ -3382,6 +3382,9 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
               : 'https://blaze-analyzer-api-v2-z8s3.onrender.com'
       };
       
+      // API_BASE_URL aponta para a API de autenticação (onde ficam as rotas da Blaze)
+      const API_BASE_URL = API_URLS.auth;
+      
       // Obter URL da API de Giros
       function getGirosApiUrl() {
           return API_URLS.giros;
