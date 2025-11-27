@@ -4493,103 +4493,9 @@ autoBetHistoryStore.init().catch(error => console.warn('AutoBetHistory: iniciali
                     line-height: 1.4;
                     text-align: center;
                 }
-                .blaze-token-modal {
-                    position: fixed;
-                    inset: 0;
-                    z-index: 1000000;
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
-                    padding: 20px;
-                }
-                .blaze-token-overlay {
-                    position: absolute;
-                    inset: 0;
-                    background: rgba(0, 0, 0, 0.85);
-                    backdrop-filter: blur(4px);
-                }
-                .blaze-token-content {
-                    position: relative;
-                    background: #1a2332;
-                    border-radius: 4px;
-                    padding: 24px;
-                    max-width: 500px;
-                    width: 100%;
-                    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.7);
-                }
-                .blaze-token-content h3 {
-                    margin: 0 0 12px 0;
-                    font-size: 18px;
-                    font-weight: 700;
-                    color: #ffffff;
-                }
-                .blaze-token-content p {
-                    margin: 0 0 16px 0;
-                    font-size: 14px;
-                    color: #7d8597;
-                    line-height: 1.4;
-                }
-                .blaze-token-content textarea {
-                    width: 100%;
-                    padding: 12px;
-                    border-radius: 3px;
-                    border: none;
-                    background: #0d1419;
-                    color: #e5e7eb;
-                    font-size: 13px;
-                    font-family: 'Courier New', monospace;
-                    resize: vertical;
-                    margin-bottom: 16px;
-                    box-sizing: border-box;
-                }
-                .blaze-token-content textarea:focus {
-                    outline: none;
-                    background: #0f1720;
-                }
-                .blaze-token-buttons {
-                    display: flex;
-                    gap: 12px;
-                    margin-bottom: 16px;
-                }
-                .blaze-token-buttons button {
-                    flex: 1;
-                    padding: 12px 20px;
-                    border-radius: 3px;
-                    font-size: 14px;
-                    font-weight: 600;
-                    cursor: pointer;
-                    border: none;
-                    transition: all 0.2s ease;
-                }
-                .blaze-token-cancel {
-                    background: #2d3748;
-                    color: #a0aec0;
-                }
-                .blaze-token-cancel:hover {
+                .blaze-disconnect-btn:hover {
                     background: #374151;
-                }
-                .blaze-token-submit {
-                    background: #ef4444;
                     color: #ffffff;
-                }
-                .blaze-token-submit:hover {
-                    background: #dc2626;
-                }
-                .blaze-token-hint {
-                    font-size: 12px !important;
-                    color: #7d8597 !important;
-                    line-height: 1.5 !important;
-                    background: #0f1720;
-                    padding: 12px;
-                    border-radius: 3px;
-                }
-                .blaze-token-hint code {
-                    background: #0d1419;
-                    padding: 2px 6px;
-                    border-radius: 2px;
-                    font-family: 'Courier New', monospace;
-                    font-size: 11px;
-                    color: #ef4444;
                 }
                 .auto-bet-shared-grid {
                     margin-top: 16px;
@@ -7151,12 +7057,91 @@ async function persistAnalyzerState(newState) {
                                 <span class="blaze-account-title">Conta Blaze</span>
                                 <span class="blaze-connection-status" id="blazeConnectionStatus">Desconectado</span>
                             </div>
-                            <p class="blaze-account-description">Conecte sua conta Blaze para habilitar apostas reais automatizadas</p>
-                            <button type="button" class="blaze-connect-btn" id="blazeConnectBtn">
-                                <span class="blaze-connect-icon">🔗</span>
-                                <span class="blaze-connect-label">Conectar minha conta Blaze</span>
-                            </button>
-                            <p class="blaze-account-hint">Ao clicar, você será redirecionado para fazer login na Blaze oficial. Seus dados são processados de forma segura.</p>
+                            
+                            <div id="blazeDisconnectedState">
+                                <p class="blaze-account-description">Cole seu token de acesso da Blaze para habilitar apostas reais</p>
+                                
+                                <div class="auto-bet-field" style="margin-top: 12px;">
+                                    <span>Token de Acesso (ACCESS_TOKEN)</span>
+                                    <textarea id="blazeAccessToken" placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6..." rows="3" style="
+                                        width: 100%;
+                                        padding: 12px;
+                                        border-radius: 3px;
+                                        border: none;
+                                        background: #0d1419;
+                                        color: #e5e7eb;
+                                        font-size: 13px;
+                                        font-family: 'Courier New', monospace;
+                                        resize: vertical;
+                                        box-sizing: border-box;
+                                        line-height: 1.4;
+                                    "></textarea>
+                                </div>
+                                
+                                <button type="button" class="blaze-connect-btn" id="blazeConnectBtn" style="margin-top: 12px;">
+                                    <span class="blaze-connect-icon">🔗</span>
+                                    <span class="blaze-connect-label">Conectar Conta</span>
+                                </button>
+                                
+                                <div class="blaze-instructions" style="
+                                    margin-top: 14px;
+                                    padding: 12px;
+                                    background: #0f1720;
+                                    border-radius: 3px;
+                                ">
+                                    <p style="margin: 0 0 8px 0; font-size: 12px; font-weight: 600; color: #fff;">
+                                        📋 Como pegar o token:
+                                    </p>
+                                    <ol style="margin: 0; padding-left: 20px; font-size: 12px; color: #7d8597; line-height: 1.6;">
+                                        <li>Abra <strong style="color: #e5e7eb;">blaze.bet.br</strong> e faça login</li>
+                                        <li>Pressione <strong style="color: #e5e7eb;">F12</strong> (ou ⋮ → Ferramentas → Console)</li>
+                                        <li>Vá na aba <strong style="color: #e5e7eb;">Application</strong> (Aplicativo)</li>
+                                        <li>Clique em <strong style="color: #e5e7eb;">Local Storage</strong> → <strong style="color: #e5e7eb;">https://blaze.bet.br</strong></li>
+                                        <li>Copie o valor de <strong style="color: #ef4444;">ACCESS_TOKEN</strong></li>
+                                        <li>Cole no campo acima</li>
+                                    </ol>
+                                </div>
+                            </div>
+                            
+                            <div id="blazeConnectedState" style="display: none;">
+                                <div style="
+                                    padding: 14px;
+                                    background: #0f1720;
+                                    border-radius: 3px;
+                                    display: flex;
+                                    align-items: center;
+                                    gap: 12px;
+                                ">
+                                    <div style="
+                                        width: 40px;
+                                        height: 40px;
+                                        border-radius: 50%;
+                                        background: linear-gradient(135deg, #10b981, #059669);
+                                        display: flex;
+                                        align-items: center;
+                                        justify-content: center;
+                                        font-size: 20px;
+                                    ">✓</div>
+                                    <div style="flex: 1;">
+                                        <div style="font-size: 13px; font-weight: 600; color: #fff;" id="blazeConnectedEmail">email@exemplo.com</div>
+                                        <div style="font-size: 12px; color: #7d8597; margin-top: 2px;">Sessão ativa • Renovação automática</div>
+                                    </div>
+                                </div>
+                                
+                                <button type="button" class="blaze-disconnect-btn" id="blazeDisconnectBtn" style="
+                                    width: 100%;
+                                    margin-top: 12px;
+                                    padding: 10px;
+                                    border-radius: 3px;
+                                    border: none;
+                                    background: #2d3748;
+                                    color: #a0aec0;
+                                    font-size: 13px;
+                                    font-weight: 600;
+                                    cursor: pointer;
+                                    transition: all 0.2s ease;
+                                ">Desconectar</button>
+                            </div>
                         </div>
                         
                         <div class="auto-bet-shared-grid">
@@ -7471,31 +7456,27 @@ async function persistAnalyzerState(newState) {
         const blazeConnectBtn = document.getElementById('blazeConnectBtn');
         const blazeConnectionStatus = document.getElementById('blazeConnectionStatus');
         
-        let blazePopupWindow = null;
-        let blazeTokenCaptured = false;
-        
-        // Listener para receber token do popup (postMessage)
-        window.addEventListener('message', async (event) => {
-            // Validar origem
-            if (!event.origin.includes('blaze.bet.br')) return;
+        async function handleBlazeConnection() {
+            const tokenInput = document.getElementById('blazeAccessToken');
+            const disconnectBtn = document.getElementById('blazeDisconnectBtn');
             
-            const { blazeToken, blazeSessionData } = event.data;
-            
-            if (blazeToken || blazeSessionData) {
-                console.log('[Blaze] Token recebido via postMessage');
-                blazeTokenCaptured = true;
-                
-                try {
-                    await saveBlazeToken(blazeToken || blazeSessionData);
-                } catch (error) {
-                    console.error('[Blaze] Erro ao salvar token:', error);
-                }
+            // Se for desconectar
+            if (disconnectBtn && blazeConnectionStatus.classList.contains('connected')) {
+                return handleBlazeDisconnect();
             }
-        });
-        
-        async function saveBlazeToken(token) {
+            
+            // Conectar com token
+            const token = tokenInput ? tokenInput.value.trim() : '';
+            
+            if (!token) {
+                showToast('✗ Cole o token de acesso da Blaze');
+                tokenInput?.focus();
+                return;
+            }
+            
             blazeConnectBtn.disabled = true;
-            blazeConnectBtn.querySelector('.blaze-connect-label').textContent = 'Salvando...';
+            const originalLabel = blazeConnectBtn.querySelector('.blaze-connect-label').textContent;
+            blazeConnectBtn.querySelector('.blaze-connect-label').textContent = 'Validando...';
             
             try {
                 const response = await fetch(`${API_BASE_URL}/api/blaze/save-token`, {
@@ -7511,240 +7492,85 @@ async function persistAnalyzerState(newState) {
                 
                 if (data.success) {
                     updateBlazeConnectionUI(true, data.user);
-                    showToast('✓ Conta Blaze conectada com sucesso!');
+                    showToast('✓ Conta Blaze conectada! Renovação automática ativada.');
                     
-                    // Fechar popup se ainda estiver aberto
-                    if (blazePopupWindow && !blazePopupWindow.closed) {
-                        blazePopupWindow.close();
-                    }
+                    // Limpar campo de token
+                    if (tokenInput) tokenInput.value = '';
                 } else {
-                    throw new Error(data.error || 'Falha ao salvar token');
+                    throw new Error(data.error || 'Token inválido');
                 }
-            } catch (error) {
-                console.error('Erro ao salvar token:', error);
-                showToast('✗ ' + error.message);
-            } finally {
-                blazeConnectBtn.disabled = false;
-                blazeConnectBtn.querySelector('.blaze-connect-label').textContent = 'Conectar minha conta Blaze';
-            }
-        }
-        
-        async function handleBlazeConnection() {
-            if (!blazeConnectBtn || !blazeConnectionStatus) return;
-            
-            const isConnected = blazeConnectionStatus.classList.contains('connected');
-            
-            if (isConnected) {
-                // Desconectar
-                if (!confirm('Deseja desconectar sua conta Blaze?')) return;
-                
-                blazeConnectBtn.disabled = true;
-                blazeConnectBtn.querySelector('.blaze-connect-label').textContent = 'Desconectando...';
-                
-                try {
-                    await fetch(`${API_BASE_URL}/api/blaze/disconnect`, {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'Authorization': `Bearer ${localStorage.getItem('authToken')}`
-                        }
-                    });
-                    
-                    updateBlazeConnectionUI(false);
-                    showToast('✓ Conta Blaze desconectada');
-                } catch (error) {
-                    console.error('Erro ao desconectar:', error);
-                    showToast('✗ Erro ao desconectar');
-                } finally {
-                    blazeConnectBtn.disabled = false;
-                    blazeConnectBtn.querySelector('.blaze-connect-label').textContent = 'Conectar minha conta Blaze';
-                }
-                return;
-            }
-            
-            // Conectar via popup
-            blazeConnectBtn.disabled = true;
-            blazeConnectBtn.querySelector('.blaze-connect-label').textContent = 'Abrindo Blaze...';
-            blazeTokenCaptured = false;
-            
-            try {
-                // Abrir popup da Blaze
-                blazePopupWindow = window.open(
-                    'https://blaze.bet.br/pt/games/double',
-                    'BlazeLogin',
-                    'width=500,height=700,left=100,top=100'
-                );
-                
-                if (!blazePopupWindow) {
-                    throw new Error('Popup bloqueado. Permita popups para este site.');
-                }
-                
-                // Após 3 segundos, injetar script no popup para capturar token
-                setTimeout(() => {
-                    if (blazePopupWindow && !blazePopupWindow.closed) {
-                        try {
-                            // Tentar injetar script para captura automática
-                            blazePopupWindow.postMessage({ action: 'REQUEST_TOKEN' }, 'https://blaze.bet.br');
-                        } catch (e) {
-                            console.log('[Blaze] Não foi possível enviar mensagem para popup (CORS)');
-                        }
-                        
-                        // Atualizar status
-                        blazeConnectBtn.querySelector('.blaze-connect-label').textContent = 'Aguarde o login...';
-                    }
-                }, 3000);
-                
-                // Monitorar quando o popup fechar
-                const checkPopupClosed = setInterval(async () => {
-                    if (blazePopupWindow.closed) {
-                        clearInterval(checkPopupClosed);
-                        
-                        // Se token não foi capturado automaticamente, mostrar opção manual
-                        if (!blazeTokenCaptured) {
-                            showManualTokenInput();
-                        }
-                    }
-                }, 500);
-                
-                // Timeout de 5 minutos
-                setTimeout(() => {
-                    if (blazePopupWindow && !blazePopupWindow.closed) {
-                        clearInterval(checkPopupClosed);
-                        blazePopupWindow.close();
-                        blazeConnectBtn.disabled = false;
-                        blazeConnectBtn.querySelector('.blaze-connect-label').textContent = 'Conectar minha conta Blaze';
-                        showToast('⏱ Tempo esgotado. Tente novamente.');
-                    }
-                }, 5 * 60 * 1000);
-                
             } catch (error) {
                 console.error('Erro ao conectar:', error);
                 showToast('✗ ' + error.message);
+                blazeConnectBtn.querySelector('.blaze-connect-label').textContent = originalLabel;
+            } finally {
                 blazeConnectBtn.disabled = false;
-                blazeConnectBtn.querySelector('.blaze-connect-label').textContent = 'Conectar minha conta Blaze';
             }
         }
         
-        async function showManualTokenInput() {
-            // Tentar capturar automaticamente primeiro
-            blazeConnectBtn.querySelector('.blaze-connect-label').textContent = 'Capturando sessão...';
+        async function handleBlazeDisconnect() {
+            if (!confirm('Deseja desconectar sua conta Blaze?')) return;
+            
+            const disconnectBtn = document.getElementById('blazeDisconnectBtn');
+            if (disconnectBtn) disconnectBtn.disabled = true;
             
             try {
-                // Fazer requisição para o backend capturar cookies via iframe
-                const response = await fetch(`${API_BASE_URL}/api/blaze/auto-capture`, {
+                await fetch(`${API_BASE_URL}/api/blaze/disconnect`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
                         'Authorization': `Bearer ${localStorage.getItem('authToken')}`
-                    },
-                    credentials: 'include'
+                    }
                 });
                 
-                const data = await response.json();
-                
-                if (data.success) {
-                    updateBlazeConnectionUI(true, data.user);
-                    showToast('✓ Conta Blaze conectada automaticamente!');
-                    blazeConnectBtn.disabled = false;
-                    return;
-                }
+                updateBlazeConnectionUI(false);
+                showToast('✓ Conta Blaze desconectada');
             } catch (error) {
-                console.log('[Blaze] Captura automática falhou, mostrando instruções...');
+                console.error('Erro ao desconectar:', error);
+                showToast('✗ Erro ao desconectar');
+            } finally {
+                if (disconnectBtn) disconnectBtn.disabled = false;
             }
-            
-            // Se falhar, mostrar instruções simples
-            const modal = document.createElement('div');
-            modal.className = 'blaze-token-modal';
-            modal.innerHTML = `
-                <div class="blaze-token-overlay"></div>
-                <div class="blaze-token-content">
-                    <h3>Quase lá! 🎉</h3>
-                    <p style="font-size: 15px; color: #fff; margin-bottom: 20px;">
-                        Você já está logado na Blaze! Agora só precisa autorizar a conexão.
-                    </p>
-                    
-                    <div style="background: #0f1720; padding: 16px; border-radius: 4px; margin-bottom: 20px;">
-                        <p style="margin: 0 0 12px 0; font-size: 14px; font-weight: 600; color: #fff;">
-                            📱 Instruções rápidas:
-                        </p>
-                        <ol style="margin: 0; padding-left: 20px; font-size: 13px; color: #e5e7eb; line-height: 1.8;">
-                            <li>Mantenha a <strong>aba da Blaze aberta</strong></li>
-                            <li>Clique no botão vermelho abaixo</li>
-                            <li>Aguarde 3 segundos</li>
-                            <li>Pronto! Conexão automática</li>
-                        </ol>
-                    </div>
-                    
-                    <div class="blaze-token-buttons">
-                        <button class="blaze-token-cancel">Cancelar</button>
-                        <button class="blaze-token-submit">✓ Conectar Automaticamente</button>
-                    </div>
-                </div>
-            `;
-            
-            document.body.appendChild(modal);
-            
-            const overlay = modal.querySelector('.blaze-token-overlay');
-            const cancelBtn = modal.querySelector('.blaze-token-cancel');
-            const submitBtn = modal.querySelector('.blaze-token-submit');
-            
-            const closeModal = () => {
-                modal.remove();
-                blazeConnectBtn.disabled = false;
-                blazeConnectBtn.querySelector('.blaze-connect-label').textContent = 'Conectar minha conta Blaze';
-            };
-            
-            overlay.addEventListener('click', closeModal);
-            cancelBtn.addEventListener('click', closeModal);
-            
-            submitBtn.addEventListener('click', async () => {
-                submitBtn.disabled = true;
-                submitBtn.textContent = 'Conectando...';
-                
-                // Tentar captura automática novamente
-                try {
-                    const response = await fetch(`${API_BASE_URL}/api/blaze/auto-capture`, {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'Authorization': `Bearer ${localStorage.getItem('authToken')}`
-                        },
-                        credentials: 'include'
-                    });
-                    
-                    const data = await response.json();
-                    
-                    if (data.success) {
-                        modal.remove();
-                        updateBlazeConnectionUI(true, data.user);
-                        showToast('✓ Conta Blaze conectada com sucesso!');
-                        blazeConnectBtn.disabled = false;
-                    } else {
-                        throw new Error(data.error || 'Não foi possível conectar');
-                    }
-                } catch (error) {
-                    showToast('✗ ' + error.message);
-                    submitBtn.disabled = false;
-                    submitBtn.innerHTML = '✓ Conectar Automaticamente';
-                }
-            });
         }
         
         function updateBlazeConnectionUI(isConnected, user = null) {
-            if (!blazeConnectBtn || !blazeConnectionStatus) return;
+            const disconnectedState = document.getElementById('blazeDisconnectedState');
+            const connectedState = document.getElementById('blazeConnectedState');
+            const connectedEmailEl = document.getElementById('blazeConnectedEmail');
+            const disconnectBtn = document.getElementById('blazeDisconnectBtn');
+            
+            if (!blazeConnectionStatus) return;
             
             if (isConnected) {
+                // Atualizar status
                 blazeConnectionStatus.textContent = 'Conectado';
                 blazeConnectionStatus.classList.add('connected');
-                blazeConnectBtn.classList.add('connected');
-                blazeConnectBtn.querySelector('.blaze-connect-icon').textContent = '✓';
-                blazeConnectBtn.querySelector('.blaze-connect-label').textContent = user?.email || 'Desconectar conta';
+                
+                // Mostrar estado conectado
+                if (disconnectedState) disconnectedState.style.display = 'none';
+                if (connectedState) connectedState.style.display = 'block';
+                
+                // Atualizar email
+                if (connectedEmailEl && user?.email) {
+                    connectedEmailEl.textContent = user.email;
+                }
+                
+                // Adicionar listener no botão desconectar
+                if (disconnectBtn) {
+                    disconnectBtn.onclick = handleBlazeDisconnect;
+                }
             } else {
+                // Atualizar status
                 blazeConnectionStatus.textContent = 'Desconectado';
                 blazeConnectionStatus.classList.remove('connected');
-                blazeConnectBtn.classList.remove('connected');
-                blazeConnectBtn.querySelector('.blaze-connect-icon').textContent = '🔗';
-                blazeConnectBtn.querySelector('.blaze-connect-label').textContent = 'Conectar minha conta Blaze';
+                
+                // Mostrar estado desconectado
+                if (disconnectedState) disconnectedState.style.display = 'block';
+                if (connectedState) connectedState.style.display = 'none';
+                
+                // Limpar campo de token
+                const tokenInput = document.getElementById('blazeAccessToken');
+                if (tokenInput) tokenInput.value = '';
             }
         }
         
