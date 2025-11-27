@@ -4156,9 +4156,9 @@ autoBetHistoryStore.init().catch(error => console.warn('AutoBetHistory: iniciali
                 }
                 .auto-bet-modal-content {
                     position: relative;
-                    background: #212838;
-                    border-radius: 12px;
-                    border: 1px solid #2d3748;
+                    background: #1a2332;
+                    border-radius: 4px;
+                    border: none;
                     width: calc(100% - 32px);
                     max-width: 100%;
                     box-shadow: 0 20px 60px rgba(0, 0, 0, 0.7);
@@ -4170,9 +4170,9 @@ autoBetHistoryStore.init().catch(error => console.warn('AutoBetHistory: iniciali
                     display: flex;
                     justify-content: space-between;
                     align-items: center;
-                    padding: 18px 24px;
-                    border-bottom: 1px solid #2d3748;
-                    background: #1a202c;
+                    padding: 18px 20px;
+                    border-bottom: none;
+                    background: #1a2332;
                 }
                 .auto-bet-modal-header h3 {
                     margin: 0;
@@ -4181,67 +4181,70 @@ autoBetHistoryStore.init().catch(error => console.warn('AutoBetHistory: iniciali
                     font-weight: 700;
                 }
                 .auto-bet-modal-close {
-                    background: #151b28;
-                    border: 1px solid #2d3748;
-                    color: #8b92a8;
-                    font-size: 13px;
-                    font-weight: 600;
+                    background: transparent;
+                    border: none;
+                    color: #5a6b84;
+                    font-size: 14px;
+                    font-weight: 500;
                     cursor: pointer;
-                    padding: 8px 16px;
-                    border-radius: 8px;
+                    padding: 4px 8px;
+                    border-radius: 3px;
                     display: inline-flex;
                     align-items: center;
                     gap: 0;
-                    transition: all 0.25s ease;
+                    transition: all 0.2s ease;
                 }
                 .auto-bet-modal-close:hover {
-                    background: #1a202c;
-                    border-color: #ef4444;
-                    color: #ef4444;
-                    transform: translateY(-1px);
+                    color: #8d95a5;
                 }
                 .auto-bet-modal-body {
-                    padding: 24px;
+                    padding: 20px;
                     max-height: 65vh;
                     overflow-y: auto;
-                    background: #151b28;
+                    background: #1a2332;
                 }
                 .auto-bet-mode-layout {
-                    display: flex;
+                    display: grid;
+                    grid-template-columns: 1fr auto 1fr;
                     gap: 12px;
                     align-items: stretch;
-                    margin-bottom: 18px;
+                    margin-bottom: 16px;
+                }
+                @media (max-width: 600px) {
+                    .auto-bet-mode-layout {
+                        grid-template-columns: 1fr;
+                        gap: 12px;
+                    }
+                    .auto-bet-divider {
+                        display: none;
+                    }
                 }
                 .auto-bet-mode-card {
                     flex: 1;
                     display: flex;
                     flex-direction: column;
-                    gap: 14px;
+                    gap: 12px;
                     padding: 16px;
-                    border-radius: 12px;
-                    border: 1px solid #2d3748;
-                    background: #1a202c;
-                    transition: all 0.3s ease;
-                }
-                .auto-bet-mode-card:hover {
-                    border-color: #3d4a5c;
-                    transform: translateY(-2px);
-                    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+                    border-radius: 4px;
+                    border: none;
+                    background: #0f1720;
+                    transition: all 0.2s ease;
                 }
                 .auto-bet-mode-card.simulation-mode {
-                    max-width: 250px;
+                    max-width: none;
                 }
                 .auto-bet-mode-card .mode-card-title {
-                    font-size: 14px;
+                    font-size: 15px;
                     font-weight: 700;
                     color: #ffffff;
-                    letter-spacing: 0.3px;
+                    letter-spacing: 0;
+                    margin-bottom: 4px;
                 }
                 .auto-bet-mode-card .mode-card-subtitle {
                     margin: 0;
-                    font-size: 12px;
-                    color: #8b92a8;
-                    line-height: 1.4;
+                    font-size: 13px;
+                    color: #9ca3af;
+                    line-height: 1.3;
                 }
                 .auto-bet-divider {
                     width: 1px;
@@ -4250,17 +4253,12 @@ autoBetHistoryStore.init().catch(error => console.warn('AutoBetHistory: iniciali
                 .mode-toggle {
                     position: relative;
                     display: block;
-                    border: 1px solid #2d3748;
-                    border-radius: 10px;
-                    padding: 12px 14px;
+                    border: none;
+                    border-radius: 3px;
+                    padding: 12px;
                     cursor: pointer;
-                    transition: all 0.25s ease;
-                    background: #151b28;
-                }
-                .mode-toggle:hover {
-                    border-color: #ef4444;
-                    box-shadow: 0 0 16px rgba(239, 68, 68, 0.2);
-                    background: #1a202c;
+                    transition: all 0.2s ease;
+                    background: transparent;
                 }
                 .mode-toggle input {
                     position: absolute;
@@ -4274,29 +4272,29 @@ autoBetHistoryStore.init().catch(error => console.warn('AutoBetHistory: iniciali
                     gap: 12px;
                 }
                 .mode-toggle-label {
-                    font-size: 13px;
+                    font-size: 14px;
                     font-weight: 600;
-                    color: #ffffff;
+                    color: #e5e7eb;
                 }
                 .mode-toggle-switch {
-                    width: 40px;
-                    height: 20px;
+                    width: 44px;
+                    height: 24px;
                     border-radius: 999px;
-                    background: #2d3748;
+                    background: #3d4859;
                     position: relative;
-                    transition: background 0.3s ease;
+                    transition: background 0.2s ease;
                     flex-shrink: 0;
                 }
                 .mode-toggle-switch::after {
                     content: '';
                     position: absolute;
-                    top: 2px;
-                    left: 2px;
-                    width: 16px;
-                    height: 16px;
+                    top: 3px;
+                    left: 3px;
+                    width: 18px;
+                    height: 18px;
                     border-radius: 50%;
-                    background: #8b92a8;
-                    transition: all 0.3s ease;
+                    background: #8d95a5;
+                    transition: all 0.2s ease;
                 }
                 .mode-toggle input:checked + .mode-toggle-content .mode-toggle-switch {
                     background: #ef4444;
@@ -4306,7 +4304,7 @@ autoBetHistoryStore.init().catch(error => console.warn('AutoBetHistory: iniciali
                     background: #ffffff;
                 }
                 .mode-toggle input:checked + .mode-toggle-content .mode-toggle-label {
-                    color: #ef4444;
+                    color: #ffffff;
                 }
                 .mode-toggle-hint {
                     font-size: 11px;
@@ -4316,52 +4314,51 @@ autoBetHistoryStore.init().catch(error => console.warn('AutoBetHistory: iniciali
                 .auto-bet-field {
                     display: flex;
                     flex-direction: column;
-                    gap: 6px;
+                    gap: 8px;
                 }
                 .auto-bet-field span {
-                    font-size: 12px;
-                    color: #8b92a8;
-                    font-weight: 500;
+                    font-size: 13px;
+                    color: #7d8597;
+                    font-weight: 400;
                 }
                 .auto-bet-field input {
                     width: 100%;
-                    padding: 10px 12px;
-                    border-radius: 8px;
-                    border: 1px solid #2d3748;
-                    background: #151b28;
-                    color: #ffffff;
-                    font-weight: 600;
-                    font-size: 14px;
-                    transition: all 0.25s ease;
+                    padding: 12px 14px;
+                    border-radius: 3px;
+                    border: none;
+                    background: #0d1419;
+                    color: #e5e7eb;
+                    font-weight: 500;
+                    font-size: 15px;
+                    transition: background 0.2s ease;
+                    box-sizing: border-box;
                 }
                 .auto-bet-field input:hover {
-                    border-color: #3d4a5c;
+                    background: #111921;
                 }
                 .auto-bet-field input:focus {
                     outline: none;
-                    border-color: #ef4444;
-                    box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.15);
-                    background: #1a202c;
+                    background: #0d1419;
                 }
                 .white-protection-mode {
-                    margin-top: 14px;
-                    padding: 16px;
-                    border-radius: 12px;
-                    border: 1px solid #2d3748;
-                    background: #1a202c;
+                    margin-top: 12px;
+                    padding: 14px;
+                    border-radius: 3px;
+                    border: none;
+                    background: #0f1720;
                     display: flex;
                     flex-direction: column;
-                    gap: 12px;
-                    transition: all 0.3s ease;
+                    gap: 10px;
+                    transition: all 0.2s ease;
                 }
                 .white-mode-header {
                     display: flex;
                     justify-content: space-between;
                     font-size: 12px;
-                    letter-spacing: 0.5px;
+                    letter-spacing: 0;
                     text-transform: uppercase;
-                    color: #8b92a8;
-                    font-weight: 600;
+                    color: #7d8597;
+                    font-weight: 500;
                 }
                 .white-mode-options {
                     display: grid;
@@ -4369,46 +4366,43 @@ autoBetHistoryStore.init().catch(error => console.warn('AutoBetHistory: iniciali
                     gap: 10px;
                 }
                 .white-mode-btn {
-                    border-radius: 10px;
-                    border: 1px solid #2d3748;
-                    background: #151b28;
-                    padding: 14px;
+                    border-radius: 3px;
+                    border: none;
+                    background: #0d1419;
+                    padding: 12px;
                     text-align: left;
                     color: #ffffff;
                     cursor: pointer;
-                    transition: all 0.25s ease;
+                    transition: all 0.2s ease;
                     display: flex;
                     flex-direction: column;
-                    gap: 6px;
+                    gap: 4px;
                 }
                 .white-mode-btn:hover {
-                    border-color: #3d4a5c;
-                    transform: translateY(-2px);
-                    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+                    background: #111921;
                 }
                 .white-mode-btn.active {
-                    border-color: #ef4444;
-                    background: rgba(239, 68, 68, 0.15);
-                    box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.1);
+                    background: rgba(102, 126, 234, 0.15);
+                    box-shadow: inset 0 0 0 2px #667eea;
                 }
                 .white-mode-btn:disabled {
                     opacity: 0.4;
                     cursor: not-allowed;
                 }
                 .white-mode-title {
-                    font-size: 13px;
-                    font-weight: 700;
+                    font-size: 14px;
+                    font-weight: 600;
                     color: #ffffff;
                 }
                 .white-mode-subtitle {
-                    font-size: 12px;
-                    color: #8b92a8;
-                    line-height: 1.4;
+                    font-size: 13px;
+                    color: #7d8597;
+                    line-height: 1.3;
                 }
                 .white-mode-description {
-                    font-size: 12px;
-                    color: #8b92a8;
-                    line-height: 1.5;
+                    font-size: 13px;
+                    color: #7d8597;
+                    line-height: 1.4;
                 }
                 .white-mode-disabled {
                     opacity: 0.5;
@@ -4423,18 +4417,24 @@ autoBetHistoryStore.init().catch(error => console.warn('AutoBetHistory: iniciali
                     border-radius: 8px;
                 }
                 .auto-bet-shared-grid {
-                    margin-top: 12px;
+                    margin-top: 16px;
                     display: grid;
-                    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
-                    gap: 16px;
+                    grid-template-columns: repeat(2, 1fr);
+                    gap: 12px;
+                }
+                @media (max-width: 600px) {
+                    .auto-bet-shared-grid {
+                        grid-template-columns: 1fr;
+                    }
                 }
                 .auto-bet-section-title {
-                    margin-top: 20px;
-                    font-size: 14px;
-                    font-weight: 700;
-                    letter-spacing: 0.3px;
-                    text-transform: uppercase;
-                    color: #ffffff;
+                    margin-top: 16px;
+                    margin-bottom: 8px;
+                    font-size: 13px;
+                    font-weight: 500;
+                    letter-spacing: 0;
+                    text-transform: none;
+                    color: #7d8597;
                 }
                 .auto-bet-martingale-grid {
                     margin-top: 10px;
@@ -4445,10 +4445,10 @@ autoBetHistoryStore.init().catch(error => console.warn('AutoBetHistory: iniciali
                 }
                 .auto-bet-martingale-grid .mode-toggle {
                     flex: 1 1 260px;
-                    border: 1px solid #2d3748;
-                    border-radius: 10px;
-                    padding: 12px 16px;
-                    background: #151b28;
+                    border: none;
+                    border-radius: 3px;
+                    padding: 12px;
+                    background: transparent;
                 }
                 .auto-bet-martingale-grid .mode-toggle .mode-toggle-content {
                     width: 100%;
@@ -4461,10 +4461,10 @@ autoBetHistoryStore.init().catch(error => console.warn('AutoBetHistory: iniciali
                 .auto-bet-modal-footer {
                     display: flex;
                     justify-content: space-between;
-                    gap: 14px;
-                    padding: 20px 24px;
-                    border-top: 1px solid #2d3748;
-                    background: #1a202c;
+                    gap: 12px;
+                    padding: 16px 20px;
+                    border-top: none;
+                    background: #1a2332;
                 }
                 .auto-bet-modal-footer button {
                     position: relative;
@@ -4514,25 +4514,21 @@ autoBetHistoryStore.init().catch(error => console.warn('AutoBetHistory: iniciali
                 .auto-bet-save-btn {
                     flex: 1;
                     padding: 14px 20px;
-                    border-radius: 10px;
-                    font-size: 14px;
-                    font-weight: 700;
+                    border-radius: 3px;
+                    font-size: 15px;
+                    font-weight: 600;
                     cursor: pointer;
                     border: none;
-                    transition: all 0.25s ease;
-                    letter-spacing: 0.3px;
+                    transition: all 0.2s ease;
+                    letter-spacing: 0;
                 }
                 .auto-bet-reset {
-                    background: #151b28;
-                    color: #8b92a8;
-                    border: 1px solid #2d3748;
+                    background: #2d3748;
+                    color: #a0aec0;
+                    border: none;
                 }
                 .auto-bet-reset:hover {
-                    border-color: #ef4444;
-                    color: #ef4444;
-                    background: #1a202c;
-                    transform: translateY(-1px);
-                    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+                    background: #374151;
                 }
                 .auto-bet-save-btn {
                     background: #ef4444;
@@ -4541,8 +4537,6 @@ autoBetHistoryStore.init().catch(error => console.warn('AutoBetHistory: iniciali
                 }
                 .auto-bet-save-btn:hover {
                     background: #dc2626;
-                    transform: translateY(-2px);
-                    box-shadow: 0 6px 16px rgba(239, 68, 68, 0.4);
                 }
                 @media (max-width: 520px) {
                     .auto-bet-summary-body {
