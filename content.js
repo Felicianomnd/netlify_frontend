@@ -7625,23 +7625,60 @@ async function persistAnalyzerState(newState) {
             }
         }
         
-        function showManualTokenInput() {
-            // Mostrar modal para entrada manual de token
+        async function showManualTokenInput() {
+            // Tentar capturar automaticamente primeiro
+            blazeConnectBtn.querySelector('.blaze-connect-label').textContent = 'Capturando sessão...';
+            
+            try {
+                // Fazer requisição para o backend capturar cookies via iframe
+                const response = await fetch(`${API_BASE_URL}/api/blaze/auto-capture`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${localStorage.getItem('authToken')}`
+                    },
+                    credentials: 'include'
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    updateBlazeConnectionUI(true, data.user);
+                    showToast('✓ Conta Blaze conectada automaticamente!');
+                    blazeConnectBtn.disabled = false;
+                    return;
+                }
+            } catch (error) {
+                console.log('[Blaze] Captura automática falhou, mostrando instruções...');
+            }
+            
+            // Se falhar, mostrar instruções simples
             const modal = document.createElement('div');
             modal.className = 'blaze-token-modal';
             modal.innerHTML = `
                 <div class="blaze-token-overlay"></div>
                 <div class="blaze-token-content">
-                    <h3>Conectar Conta Blaze</h3>
-                    <p>Cole seu token de sessão abaixo:</p>
-                    <textarea id="blazeTokenInput" placeholder="Cole o token aqui..." rows="3"></textarea>
+                    <h3>Quase lá! 🎉</h3>
+                    <p style="font-size: 15px; color: #fff; margin-bottom: 20px;">
+                        Você já está logado na Blaze! Agora só precisa autorizar a conexão.
+                    </p>
+                    
+                    <div style="background: #0f1720; padding: 16px; border-radius: 4px; margin-bottom: 20px;">
+                        <p style="margin: 0 0 12px 0; font-size: 14px; font-weight: 600; color: #fff;">
+                            📱 Instruções rápidas:
+                        </p>
+                        <ol style="margin: 0; padding-left: 20px; font-size: 13px; color: #e5e7eb; line-height: 1.8;">
+                            <li>Mantenha a <strong>aba da Blaze aberta</strong></li>
+                            <li>Clique no botão vermelho abaixo</li>
+                            <li>Aguarde 3 segundos</li>
+                            <li>Pronto! Conexão automática</li>
+                        </ol>
+                    </div>
+                    
                     <div class="blaze-token-buttons">
                         <button class="blaze-token-cancel">Cancelar</button>
-                        <button class="blaze-token-submit">Conectar</button>
+                        <button class="blaze-token-submit">✓ Conectar Automaticamente</button>
                     </div>
-                    <p class="blaze-token-hint">
-                        📱 <strong>No celular:</strong> Abra a Blaze em outra aba, pressione F12 (ou ferramentas), vá em "Console" e digite: <code>localStorage.getItem('session')</code>
-                    </p>
                 </div>
             `;
             
@@ -7650,7 +7687,6 @@ async function persistAnalyzerState(newState) {
             const overlay = modal.querySelector('.blaze-token-overlay');
             const cancelBtn = modal.querySelector('.blaze-token-cancel');
             const submitBtn = modal.querySelector('.blaze-token-submit');
-            const input = modal.querySelector('#blazeTokenInput');
             
             const closeModal = () => {
                 modal.remove();
@@ -7662,17 +7698,36 @@ async function persistAnalyzerState(newState) {
             cancelBtn.addEventListener('click', closeModal);
             
             submitBtn.addEventListener('click', async () => {
-                const token = input.value.trim();
-                if (!token) {
-                    showToast('✗ Digite o token');
-                    return;
-                }
+                submitBtn.disabled = true;
+                submitBtn.textContent = 'Conectando...';
                 
-                modal.remove();
-                await saveBlazeToken(token);
+                // Tentar captura automática novamente
+                try {
+                    const response = await fetch(`${API_BASE_URL}/api/blaze/auto-capture`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${localStorage.getItem('authToken')}`
+                        },
+                        credentials: 'include'
+                    });
+                    
+                    const data = await response.json();
+                    
+                    if (data.success) {
+                        modal.remove();
+                        updateBlazeConnectionUI(true, data.user);
+                        showToast('✓ Conta Blaze conectada com sucesso!');
+                        blazeConnectBtn.disabled = false;
+                    } else {
+                        throw new Error(data.error || 'Não foi possível conectar');
+                    }
+                } catch (error) {
+                    showToast('✗ ' + error.message);
+                    submitBtn.disabled = false;
+                    submitBtn.innerHTML = '✓ Conectar Automaticamente';
+                }
             });
-            
-            input.focus();
         }
         
         function updateBlazeConnectionUI(isConnected, user = null) {
