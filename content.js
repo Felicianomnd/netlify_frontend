@@ -4340,6 +4340,112 @@ autoBetHistoryStore.init().catch(error => console.warn('AutoBetHistory: iniciali
                     outline: none;
                     background: #0d1419;
                 }
+                
+                /* Blaze Login Card */
+                .auto-bet-blaze-login-card {
+                    margin: 16px 0;
+                    padding: 16px;
+                    border-radius: 4px;
+                    background: #0f1720;
+                    border: none;
+                }
+                .blaze-login-header {
+                    display: flex;
+                    flex-direction: column;
+                    gap: 4px;
+                    margin-bottom: 16px;
+                }
+                .blaze-login-title {
+                    font-size: 15px;
+                    font-weight: 700;
+                    color: #ffffff;
+                }
+                .blaze-login-subtitle {
+                    font-size: 13px;
+                    color: #9ca3af;
+                }
+                .blaze-login-form {
+                    display: flex;
+                    flex-direction: column;
+                    gap: 12px;
+                }
+                .blaze-toggle-password {
+                    position: absolute;
+                    right: 12px;
+                    top: 50%;
+                    transform: translateY(-50%);
+                    background: transparent;
+                    border: none;
+                    color: #7d8597;
+                    font-size: 12px;
+                    cursor: pointer;
+                    padding: 4px 8px;
+                    transition: color 0.2s ease;
+                }
+                .blaze-toggle-password:hover {
+                    color: #ffffff;
+                }
+                .blaze-login-actions {
+                    display: flex;
+                    gap: 8px;
+                    margin-top: 4px;
+                }
+                .blaze-login-btn,
+                .blaze-disconnect-btn {
+                    flex: 1;
+                    padding: 12px 16px;
+                    border: none;
+                    border-radius: 3px;
+                    font-size: 14px;
+                    font-weight: 600;
+                    cursor: pointer;
+                    transition: all 0.2s ease;
+                }
+                .blaze-login-btn {
+                    background: #ef4444;
+                    color: #ffffff;
+                }
+                .blaze-login-btn:hover {
+                    background: #dc2626;
+                }
+                .blaze-login-btn:disabled {
+                    opacity: 0.5;
+                    cursor: not-allowed;
+                }
+                .blaze-disconnect-btn {
+                    background: #3d4859;
+                    color: #e5e7eb;
+                }
+                .blaze-disconnect-btn:hover {
+                    background: #4a5568;
+                }
+                .blaze-login-status {
+                    margin-top: 8px;
+                    padding: 10px 12px;
+                    border-radius: 3px;
+                    font-size: 13px;
+                    font-weight: 500;
+                    display: none;
+                }
+                .blaze-login-status.success {
+                    display: block;
+                    background: rgba(16, 185, 129, 0.1);
+                    color: #10b981;
+                    border: 1px solid rgba(16, 185, 129, 0.3);
+                }
+                .blaze-login-status.error {
+                    display: block;
+                    background: rgba(239, 68, 68, 0.1);
+                    color: #ef4444;
+                    border: 1px solid rgba(239, 68, 68, 0.3);
+                }
+                .blaze-login-status.loading {
+                    display: block;
+                    background: rgba(59, 130, 246, 0.1);
+                    color: #3b82f6;
+                    border: 1px solid rgba(59, 130, 246, 0.3);
+                }
+                
                 .white-protection-mode {
                     margin-top: 12px;
                     padding: 14px;
@@ -6970,6 +7076,39 @@ async function persistAnalyzerState(newState) {
                                 </div>
                             </div>
                         </div>
+                        
+                        <!-- Card de Login na Blaze -->
+                        <div class="auto-bet-blaze-login-card" id="blazeLoginCard" style="display:none;">
+                            <div class="blaze-login-header">
+                                <span class="blaze-login-title">🔐 Conectar com a Blaze</span>
+                                <span class="blaze-login-subtitle">Necessário para apostas reais</span>
+                            </div>
+                            <div class="blaze-login-form">
+                                <div class="auto-bet-field">
+                                    <span>Email da Blaze</span>
+                                    <input type="email" id="blazeEmail" placeholder="seu@email.com" />
+                                </div>
+                                <div class="auto-bet-field">
+                                    <span>Senha da Blaze</span>
+                                    <div style="position: relative;">
+                                        <input type="password" id="blazePassword" placeholder="••••••••" />
+                                        <button type="button" class="blaze-toggle-password" id="blazeTogglePassword" title="Mostrar/Ocultar senha">
+                                            <span class="toggle-password-text">Mostrar</span>
+                                        </button>
+                                    </div>
+                                </div>
+                                <div class="blaze-login-actions">
+                                    <button type="button" class="blaze-login-btn" id="blazeLoginBtn">
+                                        <span class="button-label">Conectar na Blaze</span>
+                                    </button>
+                                    <button type="button" class="blaze-disconnect-btn" id="blazeDisconnectBtn" style="display:none;">
+                                        <span class="button-label">Desconectar</span>
+                                    </button>
+                                </div>
+                                <div class="blaze-login-status" id="blazeLoginStatus"></div>
+                            </div>
+                        </div>
+                        
                         <div class="auto-bet-shared-grid">
                             <div class="auto-bet-field">
                                 <span>Entrada base (R$)</span>
@@ -7288,6 +7427,136 @@ async function persistAnalyzerState(newState) {
                 }
             });
         }
+        // ═══════════════════════════════════════════════════════════════
+        // 🔐 BLAZE LOGIN - Event Listeners e Lógica
+        // ═══════════════════════════════════════════════════════════════
+        const autoBetEnabledCheckbox = document.getElementById('autoBetEnabled');
+        const blazeLoginCard = document.getElementById('blazeLoginCard');
+        const blazeLoginBtn = document.getElementById('blazeLoginBtn');
+        const blazeDisconnectBtn = document.getElementById('blazeDisconnectBtn');
+        const blazeTogglePasswordBtn = document.getElementById('blazeTogglePassword');
+        const blazePasswordInput = document.getElementById('blazePassword');
+        const blazeLoginStatus = document.getElementById('blazeLoginStatus');
+        
+        // Mostrar/ocultar card de login quando ativar modo real
+        if (autoBetEnabledCheckbox && blazeLoginCard) {
+            autoBetEnabledCheckbox.addEventListener('change', () => {
+                if (autoBetEnabledCheckbox.checked) {
+                    blazeLoginCard.style.display = 'block';
+                } else {
+                    blazeLoginCard.style.display = 'none';
+                }
+            });
+        }
+        
+        // Toggle mostrar/ocultar senha
+        if (blazeTogglePasswordBtn && blazePasswordInput) {
+            blazeTogglePasswordBtn.addEventListener('click', () => {
+                const isPassword = blazePasswordInput.type === 'password';
+                blazePasswordInput.type = isPassword ? 'text' : 'password';
+                blazeTogglePasswordBtn.querySelector('.toggle-password-text').textContent = isPassword ? 'Ocultar' : 'Mostrar';
+            });
+        }
+        
+        // Login na Blaze
+        if (blazeLoginBtn) {
+            blazeLoginBtn.addEventListener('click', async () => {
+                const email = document.getElementById('blazeEmail').value.trim();
+                const password = document.getElementById('blazePassword').value;
+                
+                if (!email || !password) {
+                    showBlazeLoginStatus('error', 'Preencha email e senha da Blaze');
+                    return;
+                }
+                
+                setButtonBusyState(blazeLoginBtn, true, 'Conectando...');
+                showBlazeLoginStatus('loading', 'Conectando na Blaze... Aguarde até 2 minutos.');
+                
+                try {
+                    const response = await fetch('http://137.131.203.130:3000/api/blaze/login', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ email, password })
+                    });
+                    
+                    const data = await response.json();
+                    
+                    if (data.success) {
+                        // Salvar sessão da Blaze
+                        await chrome.storage.local.set({
+                            blazeSession: {
+                                cookies: data.data.cookies,
+                                cookieHeader: data.data.cookieHeader,
+                                sessionToken: data.data.sessionToken,
+                                user: data.data.user,
+                                expiresAt: data.data.expiresAt,
+                                connectedAt: Date.now()
+                            }
+                        });
+                        
+                        showBlazeLoginStatus('success', `✅ Conectado como ${data.data.user.email}`);
+                        blazeLoginBtn.style.display = 'none';
+                        blazeDisconnectBtn.style.display = 'block';
+                        
+                        console.log('✅ Login na Blaze realizado com sucesso!', data.data);
+                    } else {
+                        showBlazeLoginStatus('error', data.error || 'Falha ao conectar na Blaze');
+                    }
+                } catch (error) {
+                    console.error('❌ Erro ao conectar na Blaze:', error);
+                    showBlazeLoginStatus('error', 'Erro ao conectar: ' + error.message);
+                } finally {
+                    setButtonBusyState(blazeLoginBtn, false);
+                }
+            });
+        }
+        
+        // Desconectar da Blaze
+        if (blazeDisconnectBtn) {
+            blazeDisconnectBtn.addEventListener('click', async () => {
+                await chrome.storage.local.remove('blazeSession');
+                showBlazeLoginStatus('', '');
+                blazeLoginBtn.style.display = 'block';
+                blazeDisconnectBtn.style.display = 'none';
+                document.getElementById('blazeEmail').value = '';
+                document.getElementById('blazePassword').value = '';
+                console.log('🔓 Desconectado da Blaze');
+            });
+        }
+        
+        // Função auxiliar para mostrar status de login
+        function showBlazeLoginStatus(type, message) {
+            if (!blazeLoginStatus) return;
+            blazeLoginStatus.className = 'blaze-login-status ' + type;
+            blazeLoginStatus.textContent = message;
+            if (!type) blazeLoginStatus.style.display = 'none';
+        }
+        
+        // Verificar se já está conectado ao abrir o modal
+        async function checkBlazeSession() {
+            const result = await chrome.storage.local.get('blazeSession');
+            if (result.blazeSession && result.blazeSession.user) {
+                const email = result.blazeSession.user.email;
+                showBlazeLoginStatus('success', `✅ Conectado como ${email}`);
+                blazeLoginBtn.style.display = 'none';
+                blazeDisconnectBtn.style.display = 'block';
+                
+                // Preencher email (mas não a senha por segurança)
+                if (document.getElementById('blazeEmail')) {
+                    document.getElementById('blazeEmail').value = email;
+                }
+            }
+        }
+        
+        // Verificar sessão ao abrir o modal
+        if (autoBetModal) {
+            const originalOpenModal = openAutoBetModal;
+            openAutoBetModal = () => {
+                originalOpenModal();
+                checkBlazeSession();
+            };
+        }
+        
         const toggleAnalyzerBtn = document.getElementById('toggleAnalyzerBtn');
         if (toggleAnalyzerBtn) {
             toggleAnalyzerBtn.addEventListener('click', handleAnalyzerToggle);
