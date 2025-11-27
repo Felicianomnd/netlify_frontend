@@ -7558,7 +7558,7 @@ async function persistAnalyzerState(newState) {
             setButtonBusyState(blazeLoginElements.loginBtn, true, 'Conectando...');
             
             try {
-                const response = await fetch(`${BLAZE_AUTH_API}/api/blaze/login`, {
+                const response = await fetch(`${BLAZE_AUTH_API}/login`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ email, password })
