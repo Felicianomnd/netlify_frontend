@@ -7536,6 +7536,26 @@ async function persistAnalyzerState(newState) {
             }
         }
         
+        async function fetchBlazeBalance() {
+            try {
+                const response = await fetch(`${API_BASE_URL}/api/blaze/balance`, {
+                    headers: {
+                        'Authorization': `Bearer ${localStorage.getItem('authToken')}`
+                    }
+                });
+                
+                const data = await response.json();
+                
+                if (data.success && data.balance !== undefined) {
+                    return data.balance;
+                }
+            } catch (error) {
+                console.error('[Blaze] Erro ao buscar saldo:', error);
+            }
+            
+            return null;
+        }
+        
         function updateBlazeConnectionUI(isConnected, user = null) {
             const disconnectedState = document.getElementById('blazeDisconnectedState');
             const connectedState = document.getElementById('blazeConnectedState');
@@ -7562,6 +7582,26 @@ async function persistAnalyzerState(newState) {
                 if (disconnectBtn) {
                     disconnectBtn.onclick = handleBlazeDisconnect;
                 }
+                
+                // Buscar e atualizar saldo real da Blaze
+                fetchBlazeBalance().then(balance => {
+                    if (balance !== null && window.autoBetManager) {
+                        // Atualizar saldo inicial com o saldo real da Blaze
+                        const initialBalanceEl = document.getElementById('autoBetInitialBalance');
+                        if (initialBalanceEl) {
+                            const formatted = new Intl.NumberFormat('pt-BR', {
+                                style: 'currency',
+                                currency: 'BRL'
+                            }).format(balance);
+                            initialBalanceEl.textContent = formatted;
+                        }
+                        
+                        // Salvar saldo no autoBetManager
+                        if (window.autoBetManager.config) {
+                            window.autoBetManager.config.realBalance = balance;
+                        }
+                    }
+                });
             } else {
                 // Atualizar status
                 blazeConnectionStatus.textContent = 'Desconectado';
@@ -7574,6 +7614,12 @@ async function persistAnalyzerState(newState) {
                 // Limpar campo de token
                 const tokenInput = document.getElementById('blazeAccessToken');
                 if (tokenInput) tokenInput.value = '';
+                
+                // Resetar saldo para R$ 0,00
+                const initialBalanceEl = document.getElementById('autoBetInitialBalance');
+                if (initialBalanceEl) {
+                    initialBalanceEl.textContent = 'R$ 0,00';
+                }
             }
         }
         
