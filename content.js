@@ -3853,10 +3853,10 @@ autoBetHistoryStore.init().catch(error => console.warn('AutoBetHistory: iniciali
                     gap: 12px;
                     margin-bottom: 8px;
                     padding: 12px;
-                    border: 1px solid var(--border-color, rgba(255, 255, 255, 0.08));
-                    border-radius: 12px;
-                    background: var(--bg-tertiary, #162134);
-                    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+                    border: none;
+                    border-radius: 4px;
+                    background: #1a2332;
+                    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
                 }
                 .auto-bet-summary.hidden {
                     display: none;
@@ -3984,9 +3984,9 @@ autoBetHistoryStore.init().catch(error => console.warn('AutoBetHistory: iniciali
                     gap: 10px;
                 }
                 .auto-bet-summary-item {
-                    background: rgba(255, 255, 255, 0.03);
-                    border: 1px solid rgba(255, 255, 255, 0.08);
-                    border-radius: 8px;
+                    background: #0f1720;
+                    border: none;
+                    border-radius: 3px;
                     padding: 8px 10px;
                     display: flex;
                     flex-direction: column;
@@ -3996,7 +3996,7 @@ autoBetHistoryStore.init().catch(error => console.warn('AutoBetHistory: iniciali
                     font-size: 10px;
                     text-transform: uppercase;
                     letter-spacing: 0.5px;
-                    color: rgba(255, 255, 255, 0.6);
+                    color: #7d8597;
                 }
                 .auto-bet-summary-item span.positive-label {
                     color: #4caf50;
@@ -4023,17 +4023,17 @@ autoBetHistoryStore.init().catch(error => console.warn('AutoBetHistory: iniciali
                 .auto-bet-hide-btn {
                     border: none;
                     background: none;
-                    color: rgba(255, 255, 255, 0.6);
+                    color: #7d8597;
                     font-size: 11px;
                     font-weight: 600;
-                    letter-spacing: 0.5px;
+                    letter-spacing: 0.3px;
                     text-transform: uppercase;
                     cursor: pointer;
                     transition: color 0.2s ease;
                     padding: 0;
                 }
                 .auto-bet-hide-btn:hover {
-                    color: #00e5ff;
+                    color: #ffffff;
                 }
                 .auto-bet-summary-collapsed {
                     display: none;
@@ -4044,21 +4044,21 @@ autoBetHistoryStore.init().catch(error => console.warn('AutoBetHistory: iniciali
                     display: flex;
                 }
                 .auto-bet-summary-collapsed button {
-                    border: 1px solid rgba(255, 255, 255, 0.2);
-                    background: rgba(255, 255, 255, 0.03);
-                    color: rgba(255, 255, 255, 0.85);
-                    font-size: 10px;
+                    border: none;
+                    background: #1a2332;
+                    color: #e5e7eb;
+                    font-size: 11px;
                     font-weight: 600;
-                    letter-spacing: 0.6px;
+                    letter-spacing: 0.3px;
                     text-transform: uppercase;
-                    border-radius: 999px;
-                    padding: 4px 18px;
+                    border-radius: 3px;
+                    padding: 8px 24px;
                     cursor: pointer;
                     transition: all 0.2s ease;
                 }
                 .auto-bet-summary-collapsed button:hover {
-                    border-color: #00d4ff;
-                    color: #00e5ff;
+                    background: #0f1720;
+                    color: #ffffff;
                 }
                 .auto-bet-actions {
                     display: flex;
@@ -4070,14 +4070,14 @@ autoBetHistoryStore.init().catch(error => console.warn('AutoBetHistory: iniciali
                 .auto-bet-config-launcher {
                     width: 100%;
                     min-width: 0;
-                    border-radius: 10px;
-                    border: 1px solid var(--border-color, rgba(255, 255, 255, 0.15));
-                    background: var(--bg-secondary, rgba(255, 255, 255, 0.03));
+                    border-radius: 3px;
+                    border: none;
+                    background: #0f1720;
                     display: flex;
                     align-items: center;
                     justify-content: center;
                     cursor: pointer;
-                    transition: all 0.25s ease;
+                    transition: all 0.2s ease;
                     min-height: 48px;
                 }
                 .auto-bet-config-launcher.loading {
@@ -4085,8 +4085,7 @@ autoBetHistoryStore.init().catch(error => console.warn('AutoBetHistory: iniciali
                     pointer-events: none;
                 }
                 .auto-bet-config-launcher:hover {
-                    border-color: #00d4ff;
-                    box-shadow: 0 0 10px rgba(0, 212, 255, 0.25);
+                    background: #111921;
                 }
                 .toggle-analyzer-btn {
                     flex-direction: column;
@@ -4096,34 +4095,35 @@ autoBetHistoryStore.init().catch(error => console.warn('AutoBetHistory: iniciali
                 .toggle-label {
                     font-size: 11px;
                     font-weight: 600;
-                    color: var(--text-secondary, rgba(255, 255, 255, 0.7));
+                    color: #7d8597;
                     text-transform: uppercase;
                     letter-spacing: .3px;
                 }
                 .toggle-indicator {
-                    width: 32px;
-                    height: 16px;
+                    width: 44px;
+                    height: 24px;
                     border-radius: 999px;
-                    background: rgba(255, 255, 255, 0.15);
+                    background: #3d4859;
                     position: relative;
-                    transition: background .25s;
+                    transition: background .2s;
                 }
                 .toggle-indicator::after {
                     content: '';
                     position: absolute;
-                    top: 2px;
-                    left: 2px;
-                    width: 12px;
-                    height: 12px;
+                    top: 3px;
+                    left: 3px;
+                    width: 18px;
+                    height: 18px;
                     border-radius: 50%;
-                    background: #fff;
-                    transition: transform .25s;
+                    background: #8d95a5;
+                    transition: all .2s;
                 }
                 .toggle-analyzer-btn.active .toggle-indicator {
-                    background: linear-gradient(135deg, #00d4ff, #00ffa3);
+                    background: #ef4444;
                 }
                 .toggle-analyzer-btn.active .toggle-indicator::after {
-                    transform: translateX(16px);
+                    transform: translateX(20px);
+                    background: #ffffff;
                 }
                 .auto-bet-config-bars {
                     display: flex;
