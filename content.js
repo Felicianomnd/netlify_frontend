@@ -14,10 +14,13 @@
     // 🧹 LIMPEZA AUTOMÁTICA DO CONSOLE A CADA 1 MINUTO
     // ═══════════════════════════════════════════════════════════════════════════════
     // Evita acúmulo de logs após horas de uso, prevenindo travamentos
+    // DESATIVADO TEMPORARIAMENTE PARA DEBUG
+    /*
     setInterval(() => {
         console.clear();
         console.log('%c🧹 Console limpo automaticamente (executado a cada 1 minuto)', 'color: #00AAFF; font-weight: bold;');
     }, 60000); // 60000ms = 1 minuto
+    */
     
     // ═══════════════════════════════════════════════════════════════════════════════
     // VARIÁVEL GLOBAL: Controle de exibição do histórico por camadas
@@ -7549,7 +7552,12 @@ async function persistAnalyzerState(newState) {
             const email = blazeLoginElements.email?.value.trim();
             const password = blazeLoginElements.password?.value;
             
+            console.log('%c🔐 [BLAZE LOGIN] Iniciando login...', 'color: #fbbf24; font-weight: bold;');
+            console.log(`📧 Email: ${email}`);
+            console.log(`🔗 API URL: ${BLAZE_AUTH_API}/login`);
+            
             if (!email || !password) {
+                console.warn('⚠️ Email ou senha vazios!');
                 alert('Por favor, preencha email e senha.');
                 return;
             }
@@ -7558,29 +7566,39 @@ async function persistAnalyzerState(newState) {
             setButtonBusyState(blazeLoginElements.loginBtn, true, 'Conectando...');
             
             try {
+                console.log('%c📤 Enviando requisição para o servidor...', 'color: #60a5fa; font-weight: bold;');
+                
                 const response = await fetch(`${BLAZE_AUTH_API}/login`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ email, password })
                 });
                 
+                console.log(`📥 Resposta recebida - Status: ${response.status} ${response.statusText}`);
+                console.log(`📋 Headers:`, response.headers);
+                
                 const result = await response.json();
+                console.log('📦 Dados da resposta:', result);
                 
                 if (result.success && result.data) {
                     blazeSessionData = result.data;
                     localStorage.setItem('blazeSession', JSON.stringify(blazeSessionData));
                     updateBlazeLoginUI('connected', 'Conectado', result.data);
-                    console.log('%c🔐 Login Blaze realizado com sucesso!', 'color: #10b981; font-weight: bold;');
+                    console.log('%c✅ Login Blaze realizado com sucesso!', 'color: #10b981; font-weight: bold;');
+                    console.log('🍪 Cookies salvos:', result.data.cookies?.length || 0);
                     alert('✅ Conectado com sucesso à sua conta Blaze!');
                 } else {
+                    console.error('❌ Login falhou:', result);
                     throw new Error(result.error || 'Falha ao conectar');
                 }
             } catch (error) {
-                console.error('❌ Erro ao fazer login na Blaze:', error);
+                console.error('%c❌ ERRO CRÍTICO no login:', 'color: #ef4444; font-weight: bold;', error);
+                console.error('Stack trace:', error.stack);
                 updateBlazeLoginUI('error', 'Erro ao conectar');
                 alert(`❌ Erro ao conectar: ${error.message}`);
             } finally {
                 setButtonBusyState(blazeLoginElements.loginBtn, false);
+                console.log('%c🏁 Processo de login finalizado', 'color: #6b7280; font-weight: bold;');
             }
         };
         
