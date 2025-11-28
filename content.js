@@ -7696,30 +7696,22 @@ async function persistAnalyzerState(newState) {
         };
         
         const showTokenHelp = () => {
-            const script = `(function(){const a=localStorage.getItem('ACCESS_TOKEN'),r=localStorage.getItem('REFRESH_TOKEN'),c=document.cookie,d=JSON.stringify({accessToken:a,refreshToken:r,cookies:c,timestamp:Date.now()});console.log('%c✅ DADOS COPIADOS!','color:#10b981;font-size:16px;font-weight:bold');console.log(d);navigator.clipboard.writeText(d).then(()=>console.log('%c📋 Cole na extensão Double Analyzer','color:#10b981;font-size:14px'))})();`;
+            alert(`📋 Como obter o token da Blaze:
 
-            // Copiar o script para a área de transferência
-            navigator.clipboard.writeText(script).then(() => {
-                console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #ef4444; font-weight: bold;');
-                console.log('%c📋 INSTRUÇÕES - Como obter token da Blaze', 'color: #ef4444; font-weight: bold; font-size: 16px;');
-                console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #ef4444; font-weight: bold;');
-                console.log('');
-                console.log('%c1️⃣ Abra a Blaze (blaze.bet.br) em OUTRA ABA', 'color: #fbbf24; font-size: 14px;');
-                console.log('%c2️⃣ Pressione F12 na aba da Blaze', 'color: #fbbf24; font-size: 14px;');
-                console.log('%c3️⃣ Vá na aba "Console"', 'color: #fbbf24; font-size: 14px;');
-                console.log('%c4️⃣ Cole o script (já está copiado!) e aperte Enter', 'color: #fbbf24; font-size: 14px;');
-                console.log('%c5️⃣ Volte aqui e cole os dados no campo de token', 'color: #fbbf24; font-size: 14px;');
-                console.log('');
-                console.log('%c✅ Script já copiado! Vá para a Blaze e cole no Console.', 'color: #10b981; font-size: 14px; font-weight: bold;');
-                console.log('');
-                console.log('%cSe precisar copiar novamente, clique aqui:', 'color: #6b7280; font-size: 12px;');
-                console.log('%c' + script, 'color: #3b82f6; font-size: 11px; font-family: monospace; background: #1e293b; padding: 8px; border-radius: 4px;');
-                console.log('');
-                
-                alert('✅ Script copiado!\n\n1. Abra a Blaze (blaze.bet.br) em outra aba\n2. Pressione F12\n3. Cole no Console e aperte Enter\n4. Volte aqui e cole os dados\n\n💡 Veja mais detalhes no Console desta página (F12)');
-            }).catch(() => {
-                alert('❌ Erro ao copiar. Abra o Console (F12) para ver o script.');
-            });
+1. Abra a Blaze (blaze.bet.br) em outra aba
+2. Faça login normalmente
+3. Pressione F12 para abrir o DevTools
+4. Vá na aba "Application" (ou "Aplicativo")
+5. No menu lateral, clique em "Cookies"
+6. Clique em "https://blaze.bet.br"
+7. Procure por cookies que contenham "session" ou "token"
+8. Copie o VALOR completo do cookie
+9. Cole aqui no campo "Token de Autenticação"
+
+⚠️ Importante:
+- O token expira após algum tempo
+- Não compartilhe seu token com ninguém
+- Se der erro, faça logout e login novamente na Blaze`);
         };
         
         // Event Listeners para Login Blaze
@@ -7750,18 +7742,8 @@ async function persistAnalyzerState(newState) {
         
         // Listener para atualizar saldo quando modo real for ativado/desativado
         if (blazeLoginElements.autoBetEnabled) {
-            blazeLoginElements.autoBetEnabled.addEventListener('change', (e) => {
-                const isRealMode = e.target.checked;
-                console.log('🔄 Modo real alterado:', isRealMode ? 'ATIVADO' : 'DESATIVADO');
-                
-                // Se ativou modo real, zerar lucro/prejuízo para começar do zero
-                if (isRealMode && blazeSessionData?.balance !== undefined) {
-                    console.log('💰 Resetando lucro/prejuízo para usar saldo real da Blaze');
-                    runtime.profit = 0;
-                    runtime.loss = 0;
-                    persistRuntime();
-                }
-                
+            blazeLoginElements.autoBetEnabled.addEventListener('change', () => {
+                console.log('🔄 Modo real alterado, atualizando saldo...');
                 updateSimulationSnapshots();
                 updateStatusUI();
             });
