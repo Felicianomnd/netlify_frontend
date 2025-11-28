@@ -7646,8 +7646,9 @@ async function persistAnalyzerState(newState) {
                     updateBlazeLoginUI('connected', 'Conectado', blazeSessionData);
                     console.log('%c✅ Token validado com sucesso!', 'color: #10b981; font-weight: bold;');
                     
-                    // Buscar saldo
+                    // Buscar saldo e iniciar atualização automática
                     fetchBlazeBalance(token);
+                    startBalanceAutoUpdate();
                     
                     alert('✅ Conectado com sucesso à sua conta Blaze!');
                 } else {
@@ -7670,7 +7671,7 @@ async function persistAnalyzerState(newState) {
             }
         };
         
-        const fetchBlazeBalance = async (token) => {
+        const fetchBlazeBalance = async (token, silent = false) => {
             try {
                 const response = await fetch(`${BLAZE_AUTH_API}/get-balance`, {
                     method: 'POST',
@@ -7694,10 +7695,19 @@ async function persistAnalyzerState(newState) {
                         localStorage.setItem('blazeSession', JSON.stringify(blazeSessionData));
                     }
                     
-                    console.log('💰 Saldo atualizado:', result.formatted);
+                    // Atualizar painel de autoaposta se modo real estiver ativo
+                    if (window.__autoBetManager?.updateBalance) {
+                        window.__autoBetManager.updateBalance();
+                    }
+                    
+                    if (!silent) {
+                        console.log('💰 Saldo atualizado:', result.formatted);
+                    }
                 }
             } catch (error) {
-                console.warn('⚠️ Não foi possível buscar saldo:', error.message);
+                if (!silent) {
+                    console.warn('⚠️ Não foi possível buscar saldo:', error.message);
+                }
             }
         };
         
@@ -7706,6 +7716,7 @@ async function persistAnalyzerState(newState) {
             localStorage.removeItem('blazeSession');
             updateBlazeLoginUI('disconnected', 'Desconectado');
             if (blazeLoginElements.token) blazeLoginElements.token.value = '';
+            stopBalanceAutoUpdate();
             console.log('%c🔐 Logout Blaze realizado', 'color: #6b7280; font-weight: bold;');
         };
         
@@ -7766,6 +7777,33 @@ async function persistAnalyzerState(newState) {
         
         console.log('%c✅ [BLAZE LOGIN] Sistema de login inicializado!', 'color: #10b981; font-weight: bold;');
         
+        // Intervalo para atualização automática do saldo
+        let balanceUpdateInterval = null;
+        
+        const startBalanceAutoUpdate = () => {
+            // Limpar intervalo anterior se existir
+            if (balanceUpdateInterval) {
+                clearInterval(balanceUpdateInterval);
+            }
+            
+            // Atualizar saldo a cada 5 segundos
+            balanceUpdateInterval = setInterval(() => {
+                if (blazeSessionData?.token) {
+                    fetchBlazeBalance(blazeSessionData.token, true); // silent = true
+                }
+            }, 5000); // 5 segundos
+            
+            console.log('🔄 Atualização automática de saldo ativada (a cada 5 segundos)');
+        };
+        
+        const stopBalanceAutoUpdate = () => {
+            if (balanceUpdateInterval) {
+                clearInterval(balanceUpdateInterval);
+                balanceUpdateInterval = null;
+                console.log('⏸️ Atualização automática de saldo desativada');
+            }
+        };
+        
         // Restaurar sessão salva
         try {
             const savedSession = localStorage.getItem('blazeSession');
@@ -7777,6 +7815,7 @@ async function persistAnalyzerState(newState) {
                 // Atualizar saldo se estiver conectado
                 if (blazeSessionData.token) {
                     fetchBlazeBalance(blazeSessionData.token);
+                    startBalanceAutoUpdate();
                 }
             }
         } catch (error) {
