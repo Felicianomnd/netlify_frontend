@@ -5556,10 +5556,18 @@ autoBetHistoryStore.init().catch(error => console.warn('AutoBetHistory: iniciali
             isExecuting = true;
             try {
                 const amountString = Number(order.amount).toFixed(2);
-                if (config.simulationOnly) {
+                
+                // Verificar se modo real está ativado
+                const realModeEnabled = document.getElementById('autoBetEnabled')?.checked;
+                const shouldSimulate = !realModeEnabled || config.simulationOnly;
+                
+                if (shouldSimulate) {
                     uiLog(`[AutoBet] Simulação • ${order.stage} → ${order.color.toUpperCase()} • ${amountString}`);
                     return;
                 }
+                
+                // MODO REAL: Fazer aposta na Blaze
+                console.log(`[AutoBet] 🎯 MODO REAL ATIVADO - Fazendo aposta real na Blaze!`);
                 const input = findBetInput(order.color);
                 const button = findBetButton(order.color);
                 if (!input || !button) {
@@ -5573,7 +5581,8 @@ autoBetHistoryStore.init().catch(error => console.warn('AutoBetHistory: iniciali
                 button.click();
                 runtime.lastError = null;
                 persistRuntime(true);
-                uiLog(`[AutoBet] Aposta enviada • ${order.stage.toUpperCase()} • ${order.color.toUpperCase()} • ${amountString}`);
+                uiLog(`[AutoBet] ✅ APOSTA REAL ENVIADA • ${order.stage.toUpperCase()} • ${order.color.toUpperCase()} • R$ ${amountString}`);
+                console.log(`[AutoBet] ✅ Aposta real enviada: ${order.color.toUpperCase()} - R$ ${amountString}`);
             } catch (error) {
                 console.error('[AutoBet] Erro ao executar aposta:', error);
                 runtime.lastError = error.message;
