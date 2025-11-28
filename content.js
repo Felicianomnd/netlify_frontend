@@ -7189,8 +7189,7 @@ async function persistAnalyzerState(newState) {
                         <div class="blaze-login-section">
                             <div class="blaze-login-card">
                                 <div class="blaze-login-header">
-                                    <div class="mode-card-title">🔐 Conectar conta Blaze</div>
-                                    <p class="mode-card-subtitle">Cole seu token de autenticação</p>
+                                    <div class="mode-card-title">Conta Blaze</div>
                                 </div>
                                 <div class="blaze-login-status" id="blazeLoginStatus">
                                     <span class="login-status-indicator disconnected"></span>
@@ -7198,8 +7197,7 @@ async function persistAnalyzerState(newState) {
                                 </div>
                                 <div class="blaze-login-form" id="blazeLoginForm">
                                     <div class="auto-bet-field">
-                                        <span>Token de Autenticação</span>
-                                        <textarea id="blazeToken" placeholder="Cole aqui o token da sua sessão Blaze..." rows="3" style="resize: vertical; font-family: monospace; font-size: 11px; line-height: 1.4;"></textarea>
+                                        <textarea id="blazeToken" placeholder="Cole o seu token aqui" rows="3" style="resize: vertical; font-family: monospace; font-size: 11px; line-height: 1.4;"></textarea>
                                     </div>
                                     <button type="button" class="blaze-help-btn" id="blazeHelpBtn" style="margin-bottom: 12px;">
                                         <span class="button-label">❓ Como obter o token?</span>
