@@ -7490,7 +7490,7 @@ async function persistAnalyzerState(newState) {
         // ═══════════════════════════════════════════════════════════════
         // 🔐 BLAZE LOGIN - Gerenciamento de conexão com conta Blaze
         // ═══════════════════════════════════════════════════════════════
-        const BLAZE_AUTH_API = 'https://blaze-analyzer-api-v2-z8s3.onrender.com/api/blaze-proxy';
+        const BLAZE_AUTH_API = 'https://blaze-analyzer-api-v2-z8s3.onrender.com/api/blaze';
         let blazeSessionData = null;
         
         const blazeLoginElements = {
