@@ -7497,22 +7497,13 @@ async function persistAnalyzerState(newState) {
         }
         if (autoBetSaveConfigBtn) {
             autoBetSaveConfigBtn.addEventListener('click', async () => {
-                console.log('🔘 Botão "Salvar autoaposta" clicado');
                 triggerButtonFeedback(autoBetSaveConfigBtn);
                 setButtonBusyState(autoBetSaveConfigBtn, true, 'Salvando...');
                 try {
-                    console.log('💾 Iniciando salvamento...');
                     const shouldClose = await saveSettings();
-                    console.log('✅ Salvamento concluído, shouldClose:', shouldClose);
-                    
-                    // Sempre fechar o modal após salvar
-                    closeAutoBetModal();
-                    
-                    // Feedback de sucesso
-                    alert('✅ Configurações salvas com sucesso!');
-                } catch (error) {
-                    console.error('❌ Erro ao salvar:', error);
-                    alert('❌ Erro ao salvar configurações: ' + error.message);
+                    if (shouldClose !== false) {
+                        closeAutoBetModal();
+                    }
                 } finally {
                     setButtonBusyState(autoBetSaveConfigBtn, false);
                 }
