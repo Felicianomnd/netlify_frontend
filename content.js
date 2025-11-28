@@ -7786,14 +7786,14 @@ async function persistAnalyzerState(newState) {
                 clearInterval(balanceUpdateInterval);
             }
             
-            // Atualizar saldo a cada 5 segundos
+            // Atualizar saldo a cada 15 segundos (evita rate limit)
             balanceUpdateInterval = setInterval(() => {
                 if (blazeSessionData?.token) {
                     fetchBlazeBalance(blazeSessionData.token, true); // silent = true
                 }
-            }, 5000); // 5 segundos
+            }, 15000); // 15 segundos
             
-            console.log('🔄 Atualização automática de saldo ativada (a cada 5 segundos)');
+            console.log('🔄 Atualização automática de saldo ativada (a cada 15 segundos)');
         };
         
         const stopBalanceAutoUpdate = () => {
