@@ -4313,6 +4313,41 @@ autoBetHistoryStore.init().catch(error => console.warn('AutoBetHistory: iniciali
                     transform: none;
                     box-shadow: none;
                 }
+                .blaze-help-btn {
+                    width: 100%;
+                    padding: 10px 16px;
+                    border-radius: 3px;
+                    border: 1px solid #3d4859;
+                    background: transparent;
+                    color: #7d8597;
+                    font-size: 13px;
+                    font-weight: 500;
+                    cursor: pointer;
+                    transition: all 0.2s ease;
+                }
+                .blaze-help-btn:hover {
+                    background: #1a2332;
+                    border-color: #4a5568;
+                    color: #9ca3af;
+                }
+                #blazeToken {
+                    background: #0d1419;
+                    border: none;
+                    border-radius: 3px;
+                    padding: 12px 14px;
+                    color: #e5e7eb;
+                    font-size: 13px;
+                    width: 100%;
+                    box-sizing: border-box;
+                    transition: all 0.2s ease;
+                }
+                #blazeToken:focus {
+                    outline: none;
+                    box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.2);
+                }
+                #blazeToken::placeholder {
+                    color: #4a5568;
+                }
                 .blaze-login-info {
                     display: flex;
                     flex-direction: column;
@@ -7093,7 +7128,7 @@ async function persistAnalyzerState(newState) {
                             <div class="blaze-login-card">
                                 <div class="blaze-login-header">
                                     <div class="mode-card-title">🔐 Conectar conta Blaze</div>
-                                    <p class="mode-card-subtitle">Faça login para usar o modo real</p>
+                                    <p class="mode-card-subtitle">Cole seu token de autenticação</p>
                                 </div>
                                 <div class="blaze-login-status" id="blazeLoginStatus">
                                     <span class="login-status-indicator disconnected"></span>
@@ -7101,26 +7136,20 @@ async function persistAnalyzerState(newState) {
                                 </div>
                                 <div class="blaze-login-form" id="blazeLoginForm">
                                     <div class="auto-bet-field">
-                                        <span>Email</span>
-                                        <input type="email" id="blazeEmail" placeholder="seu@email.com" />
+                                        <span>Token de Autenticação</span>
+                                        <textarea id="blazeToken" placeholder="Cole aqui o token da sua sessão Blaze..." rows="3" style="resize: vertical; font-family: monospace; font-size: 11px; line-height: 1.4;"></textarea>
                                     </div>
-                                    <div class="auto-bet-field">
-                                        <span>Senha</span>
-                                        <div style="position: relative;">
-                                            <input type="password" id="blazePassword" placeholder="••••••••" />
-                                            <button type="button" class="toggle-password-btn" id="toggleBlazePassword" aria-label="Mostrar senha">
-                                                <span class="eye-icon">👁️</span>
-                                            </button>
-                                        </div>
-                                    </div>
+                                    <button type="button" class="blaze-help-btn" id="blazeHelpBtn" style="margin-bottom: 12px;">
+                                        <span class="button-label">❓ Como obter o token?</span>
+                                    </button>
                                     <button type="button" class="blaze-login-btn" id="blazeLoginBtn">
                                         <span class="button-label">Conectar</span>
                                     </button>
                                 </div>
                                 <div class="blaze-login-info" id="blazeLoginInfo" style="display:none;">
                                     <div class="login-info-item">
-                                        <span class="login-info-label">Usuário:</span>
-                                        <span class="login-info-value" id="blazeUserEmail">-</span>
+                                        <span class="login-info-label">Status:</span>
+                                        <span class="login-info-value" id="blazeUserEmail">Conectado ✅</span>
                                     </div>
                                     <div class="login-info-item">
                                         <span class="login-info-label">Saldo:</span>
@@ -7497,11 +7526,10 @@ async function persistAnalyzerState(newState) {
             status: document.getElementById('blazeLoginStatus'),
             form: document.getElementById('blazeLoginForm'),
             info: document.getElementById('blazeLoginInfo'),
-            email: document.getElementById('blazeEmail'),
-            password: document.getElementById('blazePassword'),
+            token: document.getElementById('blazeToken'),
             loginBtn: document.getElementById('blazeLoginBtn'),
             logoutBtn: document.getElementById('blazeLogoutBtn'),
-            togglePasswordBtn: document.getElementById('toggleBlazePassword'),
+            helpBtn: document.getElementById('blazeHelpBtn'),
             userEmail: document.getElementById('blazeUserEmail'),
             userBalance: document.getElementById('blazeUserBalance'),
             autoBetEnabled: document.getElementById('autoBetEnabled')
@@ -7563,69 +7591,82 @@ async function persistAnalyzerState(newState) {
         };
         
         const handleBlazeLogin = async () => {
-            const email = blazeLoginElements.email?.value.trim();
-            const password = blazeLoginElements.password?.value;
+            const token = blazeLoginElements.token?.value.trim();
             
-            console.log('%c🔐 [BLAZE LOGIN] Iniciando login...', 'color: #fbbf24; font-weight: bold;');
-            console.log(`📧 Email: ${email}`);
-            console.log(`🔗 API URL: ${BLAZE_AUTH_API}/login`);
+            console.log('%c🔐 [BLAZE TOKEN] Validando token...', 'color: #fbbf24; font-weight: bold;');
+            console.log(`🔗 API URL: ${BLAZE_AUTH_API}/validate-token`);
             
-            if (!email || !password) {
-                console.warn('⚠️ Email ou senha vazios!');
-                alert('Por favor, preencha email e senha.');
+            if (!token) {
+                console.warn('⚠️ Token vazio!');
+                alert('Por favor, cole o token de autenticação.');
                 return;
             }
             
-            updateBlazeLoginUI('connecting', 'Conectando...');
-            setButtonBusyState(blazeLoginElements.loginBtn, true, 'Conectando...');
+            updateBlazeLoginUI('connecting', 'Validando...');
+            setButtonBusyState(blazeLoginElements.loginBtn, true, 'Validando...');
             
             try {
-                console.log('%c📤 Enviando requisição para o servidor...', 'color: #60a5fa; font-weight: bold;');
+                console.log('%c📤 Enviando token para validação...', 'color: #60a5fa; font-weight: bold;');
                 
-                // Criar AbortController para timeout de 20 minutos (1200000ms)
-                const controller = new AbortController();
-                const timeoutId = setTimeout(() => controller.abort(), 1200000);
-                
-                const response = await fetch(`${BLAZE_AUTH_API}/login`, {
+                const response = await fetch(`${BLAZE_AUTH_API}/validate-token`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ email, password }),
-                    signal: controller.signal
+                    body: JSON.stringify({ token }),
+                    signal: AbortSignal.timeout(10000)
                 });
                 
-                clearTimeout(timeoutId);
-                
-                console.log(`📥 Resposta recebida - Status: ${response.status} ${response.statusText}`);
-                console.log(`📋 Headers:`, response.headers);
+                console.log(`📥 Resposta recebida - Status: ${response.status}`);
                 
                 const result = await response.json();
                 console.log('📦 Dados da resposta:', result);
                 
-                if (result.success && result.data) {
-                    blazeSessionData = result.data;
+                if (result.success) {
+                    blazeSessionData = { token, user: result.user };
                     localStorage.setItem('blazeSession', JSON.stringify(blazeSessionData));
-                    updateBlazeLoginUI('connected', 'Conectado', result.data);
-                    console.log('%c✅ Login Blaze realizado com sucesso!', 'color: #10b981; font-weight: bold;');
-                    console.log('🍪 Cookies salvos:', result.data.cookies?.length || 0);
+                    updateBlazeLoginUI('connected', 'Conectado', blazeSessionData);
+                    console.log('%c✅ Token validado com sucesso!', 'color: #10b981; font-weight: bold;');
+                    
+                    // Buscar saldo
+                    fetchBlazeBalance(token);
+                    
                     alert('✅ Conectado com sucesso à sua conta Blaze!');
                 } else {
-                    console.error('❌ Login falhou:', result);
-                    throw new Error(result.error || 'Falha ao conectar');
+                    console.error('❌ Validação falhou:', result);
+                    throw new Error(result.error || 'Token inválido');
                 }
             } catch (error) {
-                console.error('%c❌ ERRO CRÍTICO no login:', 'color: #ef4444; font-weight: bold;', error);
-                console.error('Stack trace:', error.stack);
+                console.error('%c❌ ERRO ao validar token:', 'color: #ef4444; font-weight: bold;', error);
                 
                 let errorMessage = error.message;
-                if (error.name === 'AbortError') {
-                    errorMessage = 'Tempo limite excedido (20 minutos). O servidor pode estar offline.';
+                if (error.name === 'AbortError' || error.name === 'TimeoutError') {
+                    errorMessage = 'Tempo limite excedido. Tente novamente.';
                 }
                 
                 updateBlazeLoginUI('error', 'Erro ao conectar');
-                alert(`❌ Erro ao conectar: ${errorMessage}`);
+                alert(`❌ Erro: ${errorMessage}`);
             } finally {
                 setButtonBusyState(blazeLoginElements.loginBtn, false);
-                console.log('%c🏁 Processo de login finalizado', 'color: #6b7280; font-weight: bold;');
+                console.log('%c🏁 Validação finalizada', 'color: #6b7280; font-weight: bold;');
+            }
+        };
+        
+        const fetchBlazeBalance = async (token) => {
+            try {
+                const response = await fetch(`${BLAZE_AUTH_API}/get-balance`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ token }),
+                    signal: AbortSignal.timeout(10000)
+                });
+                
+                const result = await response.json();
+                
+                if (result.success && blazeLoginElements.userBalance) {
+                    blazeLoginElements.userBalance.textContent = result.formatted || 'R$ 0,00';
+                    console.log('💰 Saldo atualizado:', result.formatted);
+                }
+            } catch (error) {
+                console.warn('⚠️ Não foi possível buscar saldo:', error.message);
             }
         };
         
@@ -7633,18 +7674,27 @@ async function persistAnalyzerState(newState) {
             blazeSessionData = null;
             localStorage.removeItem('blazeSession');
             updateBlazeLoginUI('disconnected', 'Desconectado');
-            if (blazeLoginElements.password) blazeLoginElements.password.value = '';
+            if (blazeLoginElements.token) blazeLoginElements.token.value = '';
             console.log('%c🔐 Logout Blaze realizado', 'color: #6b7280; font-weight: bold;');
         };
         
-        const togglePasswordVisibility = () => {
-            if (!blazeLoginElements.password) return;
-            const type = blazeLoginElements.password.type === 'password' ? 'text' : 'password';
-            blazeLoginElements.password.type = type;
-            const eyeIcon = blazeLoginElements.togglePasswordBtn?.querySelector('.eye-icon');
-            if (eyeIcon) {
-                eyeIcon.textContent = type === 'password' ? '👁️' : '👁️‍🗨️';
-            }
+        const showTokenHelp = () => {
+            alert(`📋 Como obter o token da Blaze:
+
+1. Abra a Blaze (blaze.bet.br) em outra aba
+2. Faça login normalmente
+3. Pressione F12 para abrir o DevTools
+4. Vá na aba "Application" (ou "Aplicativo")
+5. No menu lateral, clique em "Cookies"
+6. Clique em "https://blaze.bet.br"
+7. Procure por cookies que contenham "session" ou "token"
+8. Copie o VALOR completo do cookie
+9. Cole aqui no campo "Token de Autenticação"
+
+⚠️ Importante:
+- O token expira após algum tempo
+- Não compartilhe seu token com ninguém
+- Se der erro, faça logout e login novamente na Blaze`);
         };
         
         // Event Listeners para Login Blaze
@@ -7664,12 +7714,12 @@ async function persistAnalyzerState(newState) {
         if (blazeLoginElements.logoutBtn) {
             blazeLoginElements.logoutBtn.addEventListener('click', handleBlazeLogout);
         }
-        if (blazeLoginElements.togglePasswordBtn) {
-            blazeLoginElements.togglePasswordBtn.addEventListener('click', togglePasswordVisibility);
+        if (blazeLoginElements.helpBtn) {
+            blazeLoginElements.helpBtn.addEventListener('click', showTokenHelp);
         }
-        if (blazeLoginElements.password) {
-            blazeLoginElements.password.addEventListener('keypress', (e) => {
-                if (e.key === 'Enter') handleBlazeLogin();
+        if (blazeLoginElements.token) {
+            blazeLoginElements.token.addEventListener('keypress', (e) => {
+                if (e.key === 'Enter' && e.ctrlKey) handleBlazeLogin();
             });
         }
         
