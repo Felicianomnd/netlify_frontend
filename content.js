@@ -7497,13 +7497,22 @@ async function persistAnalyzerState(newState) {
         }
         if (autoBetSaveConfigBtn) {
             autoBetSaveConfigBtn.addEventListener('click', async () => {
+                console.log('🔘 Botão "Salvar autoaposta" clicado');
                 triggerButtonFeedback(autoBetSaveConfigBtn);
                 setButtonBusyState(autoBetSaveConfigBtn, true, 'Salvando...');
                 try {
+                    console.log('💾 Iniciando salvamento...');
                     const shouldClose = await saveSettings();
-                    if (shouldClose !== false) {
-                        closeAutoBetModal();
-                    }
+                    console.log('✅ Salvamento concluído, shouldClose:', shouldClose);
+                    
+                    // Sempre fechar o modal após salvar
+                    closeAutoBetModal();
+                    
+                    // Feedback de sucesso
+                    alert('✅ Configurações salvas com sucesso!');
+                } catch (error) {
+                    console.error('❌ Erro ao salvar:', error);
+                    alert('❌ Erro ao salvar configurações: ' + error.message);
                 } finally {
                     setButtonBusyState(autoBetSaveConfigBtn, false);
                 }
@@ -7745,16 +7754,6 @@ async function persistAnalyzerState(newState) {
             blazeLoginElements.autoBetEnabled.addEventListener('change', (e) => {
                 const isRealMode = e.target.checked;
                 console.log('🔄 Modo real alterado:', isRealMode ? 'ATIVADO' : 'DESATIVADO');
-                
-                if (isRealMode) {
-                    // Avisar sobre resetar ciclo
-                    setTimeout(() => {
-                        alert('💡 MODO REAL ATIVADO!\n\n' +
-                              'O saldo inicial agora mostra seu saldo real da Blaze.\n\n' +
-                              '⚠️ Se houver lucros/perdas anteriores da simulação, ' +
-                              'clique em "Resetar ciclo" para começar do zero.');
-                    }, 100);
-                }
                 
                 // Atualizar saldo no painel
                 if (typeof updateSimulationSnapshots === 'function') {
