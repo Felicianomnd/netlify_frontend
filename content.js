@@ -3754,7 +3754,11 @@ autoBetHistoryStore.init().catch(error => console.warn('AutoBetHistory: iniciali
             }
             window.__autoBetManager = window.__autoBetManager || {
                 enable() { config.enabled = true; updateStatusUI('Ativado manualmente'); },
-                disable() { config.enabled = false; updateStatusUI('Desativado manualmente'); }
+                disable() { config.enabled = false; updateStatusUI('Desativado manualmente'); },
+                updateBalance() { 
+                    updateSimulationSnapshots(); 
+                    updateStatusUI(); 
+                }
             };
         }
 
@@ -7754,8 +7758,9 @@ async function persistAnalyzerState(newState) {
         if (blazeLoginElements.autoBetEnabled) {
             blazeLoginElements.autoBetEnabled.addEventListener('change', () => {
                 console.log('🔄 Modo real alterado, atualizando saldo...');
-                updateSimulationSnapshots();
-                updateStatusUI();
+                if (window.__autoBetManager?.updateBalance) {
+                    window.__autoBetManager.updateBalance();
+                }
             });
         }
         
