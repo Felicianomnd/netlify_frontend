@@ -7696,52 +7696,29 @@ async function persistAnalyzerState(newState) {
         };
         
         const showTokenHelp = () => {
-            const script = `// COPIE TODO ESTE BLOCO E COLE NO CONSOLE DA BLAZE
-(function() {
-    const accessToken = localStorage.getItem('ACCESS_TOKEN');
-    const refreshToken = localStorage.getItem('REFRESH_TOKEN');
-    const cookies = document.cookie;
-    
-    const authData = JSON.stringify({
-        accessToken: accessToken,
-        refreshToken: refreshToken,
-        cookies: cookies,
-        timestamp: Date.now()
-    });
-    
-    console.log('%c✅ COPIE O TEXTO ABAIXO:', 'color: #10b981; font-size: 16px; font-weight: bold;');
-    console.log(authData);
-    
-    // Copiar automaticamente
-    navigator.clipboard.writeText(authData).then(() => {
-        console.log('%c📋 Copiado automaticamente! Cole na extensão.', 'color: #10b981; font-size: 14px;');
-    });
-})();`;
-
-            const message = `📋 Como obter os dados de autenticação:
-
-1. Abra a Blaze (blaze.bet.br) em outra aba
-2. Faça login normalmente
-3. Pressione F12 para abrir o DevTools
-4. Vá na aba "Console"
-5. Cole este script e pressione Enter:
-
-${script}
-
-6. O script vai copiar automaticamente os dados
-7. Cole aqui no campo "Token de Autenticação"
-
-💡 Dica: Inclui tokens + cookies = dura muito mais!
-
-⚠️ Importante:
-- Execute o script na página da Blaze (não aqui)
-- Não compartilhe esses dados com ninguém`;
+            const script = `(function(){const a=localStorage.getItem('ACCESS_TOKEN'),r=localStorage.getItem('REFRESH_TOKEN'),c=document.cookie,d=JSON.stringify({accessToken:a,refreshToken:r,cookies:c,timestamp:Date.now()});console.log('%c✅ DADOS COPIADOS!','color:#10b981;font-size:16px;font-weight:bold');console.log(d);navigator.clipboard.writeText(d).then(()=>console.log('%c📋 Cole na extensão Double Analyzer','color:#10b981;font-size:14px'))})();`;
 
             // Copiar o script para a área de transferência
             navigator.clipboard.writeText(script).then(() => {
-                alert(message + '\n\n✅ Script copiado! Cole no Console da Blaze.');
+                console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #ef4444; font-weight: bold;');
+                console.log('%c📋 INSTRUÇÕES - Como obter token da Blaze', 'color: #ef4444; font-weight: bold; font-size: 16px;');
+                console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #ef4444; font-weight: bold;');
+                console.log('');
+                console.log('%c1️⃣ Abra a Blaze (blaze.bet.br) em OUTRA ABA', 'color: #fbbf24; font-size: 14px;');
+                console.log('%c2️⃣ Pressione F12 na aba da Blaze', 'color: #fbbf24; font-size: 14px;');
+                console.log('%c3️⃣ Vá na aba "Console"', 'color: #fbbf24; font-size: 14px;');
+                console.log('%c4️⃣ Cole o script (já está copiado!) e aperte Enter', 'color: #fbbf24; font-size: 14px;');
+                console.log('%c5️⃣ Volte aqui e cole os dados no campo de token', 'color: #fbbf24; font-size: 14px;');
+                console.log('');
+                console.log('%c✅ Script já copiado! Vá para a Blaze e cole no Console.', 'color: #10b981; font-size: 14px; font-weight: bold;');
+                console.log('');
+                console.log('%cSe precisar copiar novamente, clique aqui:', 'color: #6b7280; font-size: 12px;');
+                console.log('%c' + script, 'color: #3b82f6; font-size: 11px; font-family: monospace; background: #1e293b; padding: 8px; border-radius: 4px;');
+                console.log('');
+                
+                alert('✅ Script copiado!\n\n1. Abra a Blaze (blaze.bet.br) em outra aba\n2. Pressione F12\n3. Cole no Console e aperte Enter\n4. Volte aqui e cole os dados\n\n💡 Veja mais detalhes no Console desta página (F12)');
             }).catch(() => {
-                alert(message);
+                alert('❌ Erro ao copiar. Abra o Console (F12) para ver o script.');
             });
         };
         
