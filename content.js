@@ -7696,22 +7696,25 @@ async function persistAnalyzerState(newState) {
         };
         
         const showTokenHelp = () => {
-            alert(`📋 Como obter o token da Blaze:
+            alert(`📋 Como obter os cookies da Blaze:
 
 1. Abra a Blaze (blaze.bet.br) em outra aba
 2. Faça login normalmente
 3. Pressione F12 para abrir o DevTools
-4. Vá na aba "Application" (ou "Aplicativo")
-5. No menu lateral, clique em "Cookies"
-6. Clique em "https://blaze.bet.br"
-7. Procure por cookies que contenham "session" ou "token"
-8. Copie o VALOR completo do cookie
-9. Cole aqui no campo "Token de Autenticação"
+4. Vá na aba "Console"
+5. Cole este comando e pressione Enter:
+
+document.cookie
+
+6. Copie TODO o texto que aparecer (todos os cookies)
+7. Cole aqui no campo "Token de Autenticação"
+
+💡 Dica: Os cookies ficam válidos por mais tempo!
 
 ⚠️ Importante:
-- O token expira após algum tempo
-- Não compartilhe seu token com ninguém
-- Se der erro, faça logout e login novamente na Blaze`);
+- Copie TODOS os cookies (o texto completo)
+- Não compartilhe seus cookies com ninguém
+- Se der erro 401, repita o processo`);
         };
         
         // Event Listeners para Login Blaze
