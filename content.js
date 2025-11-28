@@ -7582,11 +7582,18 @@ async function persistAnalyzerState(newState) {
             try {
                 console.log('%c📤 Enviando requisição para o servidor...', 'color: #60a5fa; font-weight: bold;');
                 
+                // Criar AbortController para timeout de 20 minutos (1200000ms)
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 1200000);
+                
                 const response = await fetch(`${BLAZE_AUTH_API}/login`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ email, password })
+                    body: JSON.stringify({ email, password }),
+                    signal: controller.signal
                 });
+                
+                clearTimeout(timeoutId);
                 
                 console.log(`📥 Resposta recebida - Status: ${response.status} ${response.statusText}`);
                 console.log(`📋 Headers:`, response.headers);
@@ -7608,8 +7615,14 @@ async function persistAnalyzerState(newState) {
             } catch (error) {
                 console.error('%c❌ ERRO CRÍTICO no login:', 'color: #ef4444; font-weight: bold;', error);
                 console.error('Stack trace:', error.stack);
+                
+                let errorMessage = error.message;
+                if (error.name === 'AbortError') {
+                    errorMessage = 'Tempo limite excedido (20 minutos). O servidor pode estar offline.';
+                }
+                
                 updateBlazeLoginUI('error', 'Erro ao conectar');
-                alert(`❌ Erro ao conectar: ${error.message}`);
+                alert(`❌ Erro ao conectar: ${errorMessage}`);
             } finally {
                 setButtonBusyState(blazeLoginElements.loginBtn, false);
                 console.log('%c🏁 Processo de login finalizado', 'color: #6b7280; font-weight: bold;');
