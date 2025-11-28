@@ -5608,6 +5608,9 @@ autoBetHistoryStore.init().catch(error => console.warn('AutoBetHistory: iniciali
                     persistRuntime(true);
                     uiLog(`[AutoBet] ✅ APOSTA REAL ENVIADA • ${order.stage.toUpperCase()} • ${order.color.toUpperCase()} • R$ ${amountString}`);
                     console.log(`[AutoBet] ✅ Aposta real enviada com sucesso:`, result);
+                    
+                    // Atualizar saldo após aposta
+                    setTimeout(() => refreshBalance(), 1000);
                 } else {
                     throw new Error(result.error || 'Erro ao fazer aposta');
                 }
@@ -7685,9 +7688,8 @@ async function persistAnalyzerState(newState) {
                     updateBlazeLoginUI('connected', 'Conectado', blazeSessionData);
                     console.log('%c✅ Token validado com sucesso!', 'color: #10b981; font-weight: bold;');
                     
-                    // Buscar saldo e iniciar atualização automática
+                    // Buscar saldo inicial
                     fetchBlazeBalance(token);
-                    startBalanceAutoUpdate();
                     
                     alert('✅ Conectado com sucesso à sua conta Blaze!');
                 } else {
@@ -7755,7 +7757,6 @@ async function persistAnalyzerState(newState) {
             localStorage.removeItem('blazeSession');
             updateBlazeLoginUI('disconnected', 'Desconectado');
             if (blazeLoginElements.token) blazeLoginElements.token.value = '';
-            stopBalanceAutoUpdate();
             console.log('%c🔐 Logout Blaze realizado', 'color: #6b7280; font-weight: bold;');
         };
         
@@ -7816,30 +7817,15 @@ async function persistAnalyzerState(newState) {
         
         console.log('%c✅ [BLAZE LOGIN] Sistema de login inicializado!', 'color: #10b981; font-weight: bold;');
         
-        // Intervalo para atualização automática do saldo
-        let balanceUpdateInterval = null;
+        // Atualização de saldo via EVENTO (não mais por intervalo)
+        // O saldo será atualizado:
+        // 1. Após fazer uma aposta
+        // 2. Quando o usuário clicar em "Ver saldo" (se implementado)
+        // 3. Quando reconectar
         
-        const startBalanceAutoUpdate = () => {
-            // Limpar intervalo anterior se existir
-            if (balanceUpdateInterval) {
-                clearInterval(balanceUpdateInterval);
-            }
-            
-            // Atualizar saldo a cada 15 segundos (evita rate limit)
-            balanceUpdateInterval = setInterval(() => {
-                if (blazeSessionData?.token) {
-                    fetchBlazeBalance(blazeSessionData.token, true); // silent = true
-                }
-            }, 15000); // 15 segundos
-            
-            console.log('🔄 Atualização automática de saldo ativada (a cada 15 segundos)');
-        };
-        
-        const stopBalanceAutoUpdate = () => {
-            if (balanceUpdateInterval) {
-                clearInterval(balanceUpdateInterval);
-                balanceUpdateInterval = null;
-                console.log('⏸️ Atualização automática de saldo desativada');
+        const refreshBalance = async () => {
+            if (blazeSessionData?.token) {
+                await fetchBlazeBalance(blazeSessionData.token, true);
             }
         };
         
@@ -7854,7 +7840,6 @@ async function persistAnalyzerState(newState) {
                 // Atualizar saldo se estiver conectado
                 if (blazeSessionData.token) {
                     fetchBlazeBalance(blazeSessionData.token);
-                    startBalanceAutoUpdate();
                 }
             }
         } catch (error) {
