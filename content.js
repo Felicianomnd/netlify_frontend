@@ -5566,25 +5566,55 @@ autoBetHistoryStore.init().catch(error => console.warn('AutoBetHistory: iniciali
                     return;
                 }
                 
-                // MODO REAL: Fazer aposta na Blaze
-                console.log(`[AutoBet] 🎯 MODO REAL ATIVADO - Fazendo aposta real na Blaze!`);
-                const input = findBetInput(order.color);
-                const button = findBetButton(order.color);
-                if (!input || !button) {
-                    console.warn('[AutoBet] Controles da Blaze não encontrados para', order.color);
-                    runtime.lastError = 'missing_controls';
+                // MODO REAL: Fazer aposta na Blaze via API
+                console.log(`[AutoBet] 🎯 MODO REAL ATIVADO - Fazendo aposta real na Blaze via API!`);
+                
+                // Buscar token da sessão Blaze
+                let blazeToken = null;
+                try {
+                    const savedSession = localStorage.getItem('blazeSession');
+                    if (savedSession) {
+                        const session = JSON.parse(savedSession);
+                        blazeToken = session.token;
+                    }
+                } catch (error) {
+                    console.error('[AutoBet] Erro ao buscar token:', error);
+                }
+                
+                if (!blazeToken) {
+                    console.error('[AutoBet] ❌ Token da Blaze não encontrado! Faça login primeiro.');
+                    uiLog(`[AutoBet] ❌ ERRO: Token não encontrado. Conecte sua conta Blaze!`);
+                    runtime.lastError = 'no_token';
                     persistRuntime(true);
                     return;
                 }
-                setInputValue(input, amountString);
-                await waitFor(80);
-                button.click();
-                runtime.lastError = null;
-                persistRuntime(true);
-                uiLog(`[AutoBet] ✅ APOSTA REAL ENVIADA • ${order.stage.toUpperCase()} • ${order.color.toUpperCase()} • R$ ${amountString}`);
-                console.log(`[AutoBet] ✅ Aposta real enviada: ${order.color.toUpperCase()} - R$ ${amountString}`);
+                
+                // Fazer aposta via API
+                const response = await fetch('https://blaze-analyzer-api-v2-z8s3.onrender.com/api/blaze/place-bet', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        token: blazeToken,
+                        color: order.color,
+                        amount: Number(order.amount)
+                    }),
+                    signal: AbortSignal.timeout(15000)
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    runtime.lastError = null;
+                    persistRuntime(true);
+                    uiLog(`[AutoBet] ✅ APOSTA REAL ENVIADA • ${order.stage.toUpperCase()} • ${order.color.toUpperCase()} • R$ ${amountString}`);
+                    console.log(`[AutoBet] ✅ Aposta real enviada com sucesso:`, result);
+                } else {
+                    throw new Error(result.error || 'Erro ao fazer aposta');
+                }
+                
             } catch (error) {
-                console.error('[AutoBet] Erro ao executar aposta:', error);
+                console.error('[AutoBet] ❌ Erro ao executar aposta:', error);
+                uiLog(`[AutoBet] ❌ ERRO: ${error.message}`);
                 runtime.lastError = error.message;
                 persistRuntime(true);
             } finally {
