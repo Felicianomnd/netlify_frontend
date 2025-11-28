@@ -7742,8 +7742,18 @@ async function persistAnalyzerState(newState) {
         
         // Listener para atualizar saldo quando modo real for ativado/desativado
         if (blazeLoginElements.autoBetEnabled) {
-            blazeLoginElements.autoBetEnabled.addEventListener('change', () => {
-                console.log('🔄 Modo real alterado, atualizando saldo...');
+            blazeLoginElements.autoBetEnabled.addEventListener('change', (e) => {
+                const isRealMode = e.target.checked;
+                console.log('🔄 Modo real alterado:', isRealMode ? 'ATIVADO' : 'DESATIVADO');
+                
+                // Se ativou modo real, zerar lucro/prejuízo para começar do zero
+                if (isRealMode && blazeSessionData?.balance !== undefined) {
+                    console.log('💰 Resetando lucro/prejuízo para usar saldo real da Blaze');
+                    runtime.profit = 0;
+                    runtime.loss = 0;
+                    persistRuntime();
+                }
+                
                 updateSimulationSnapshots();
                 updateStatusUI();
             });
