@@ -7742,10 +7742,27 @@ async function persistAnalyzerState(newState) {
         
         // Listener para atualizar saldo quando modo real for ativado/desativado
         if (blazeLoginElements.autoBetEnabled) {
-            blazeLoginElements.autoBetEnabled.addEventListener('change', () => {
-                console.log('🔄 Modo real alterado, atualizando saldo...');
-                updateSimulationSnapshots();
-                updateStatusUI();
+            blazeLoginElements.autoBetEnabled.addEventListener('change', (e) => {
+                const isRealMode = e.target.checked;
+                console.log('🔄 Modo real alterado:', isRealMode ? 'ATIVADO' : 'DESATIVADO');
+                
+                if (isRealMode) {
+                    // Avisar sobre resetar ciclo
+                    setTimeout(() => {
+                        alert('💡 MODO REAL ATIVADO!\n\n' +
+                              'O saldo inicial agora mostra seu saldo real da Blaze.\n\n' +
+                              '⚠️ Se houver lucros/perdas anteriores da simulação, ' +
+                              'clique em "Resetar ciclo" para começar do zero.');
+                    }, 100);
+                }
+                
+                // Atualizar saldo no painel
+                if (typeof updateSimulationSnapshots === 'function') {
+                    updateSimulationSnapshots();
+                }
+                if (typeof updateStatusUI === 'function') {
+                    updateStatusUI();
+                }
             });
         }
         
