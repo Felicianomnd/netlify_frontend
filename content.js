@@ -7696,25 +7696,53 @@ async function persistAnalyzerState(newState) {
         };
         
         const showTokenHelp = () => {
-            alert(`📋 Como obter os cookies da Blaze:
+            const script = `// COPIE TODO ESTE BLOCO E COLE NO CONSOLE DA BLAZE
+(function() {
+    const accessToken = localStorage.getItem('ACCESS_TOKEN');
+    const refreshToken = localStorage.getItem('REFRESH_TOKEN');
+    const cookies = document.cookie;
+    
+    const authData = JSON.stringify({
+        accessToken: accessToken,
+        refreshToken: refreshToken,
+        cookies: cookies,
+        timestamp: Date.now()
+    });
+    
+    console.log('%c✅ COPIE O TEXTO ABAIXO:', 'color: #10b981; font-size: 16px; font-weight: bold;');
+    console.log(authData);
+    
+    // Copiar automaticamente
+    navigator.clipboard.writeText(authData).then(() => {
+        console.log('%c📋 Copiado automaticamente! Cole na extensão.', 'color: #10b981; font-size: 14px;');
+    });
+})();`;
+
+            const message = `📋 Como obter os dados de autenticação:
 
 1. Abra a Blaze (blaze.bet.br) em outra aba
 2. Faça login normalmente
 3. Pressione F12 para abrir o DevTools
 4. Vá na aba "Console"
-5. Cole este comando e pressione Enter:
+5. Cole este script e pressione Enter:
 
-document.cookie
+${script}
 
-6. Copie TODO o texto que aparecer (todos os cookies)
+6. O script vai copiar automaticamente os dados
 7. Cole aqui no campo "Token de Autenticação"
 
-💡 Dica: Os cookies ficam válidos por mais tempo!
+💡 Dica: Inclui tokens + cookies = dura muito mais!
 
 ⚠️ Importante:
-- Copie TODOS os cookies (o texto completo)
-- Não compartilhe seus cookies com ninguém
-- Se der erro 401, repita o processo`);
+- Execute o script na página da Blaze (não aqui)
+- Não compartilhe esses dados com ninguém`;
+
+            // Copiar o script para a área de transferência
+            navigator.clipboard.writeText(script).then(() => {
+                alert(message + '\n\n✅ Script copiado! Cole no Console da Blaze.');
+            }).catch(() => {
+                alert(message);
+            });
         };
         
         // Event Listeners para Login Blaze
