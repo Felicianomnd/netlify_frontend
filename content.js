@@ -5,7 +5,7 @@
     const scriptStartTime = Date.now();
     console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #00AAFF; font-weight: bold;');
     console.log('%c🚀 CONTENT.JS INICIANDO...', 'color: #00AAFF; font-weight: bold; font-size: 14px;');
-    console.log('%c   Versão WEB', 'color: #00AAFF;');
+    console.log('%c   Versão WEB v2.0', 'color: #00AAFF;');
     console.log('%c⏱️ [TIMING] Início do script:', new Date().toLocaleTimeString());
     console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #00AAFF; font-weight: bold;');
     console.log('');
