@@ -3808,6 +3808,12 @@ autoBetHistoryStore.init().catch(error => console.warn('AutoBetHistory: iniciali
         }
 
         function getInitialBalanceValue() {
+            // Se o modo real estiver ativado e houver saldo da Blaze, usar o saldo real
+            const realModeEnabled = document.getElementById('autoBetEnabled')?.checked;
+            if (realModeEnabled && blazeSessionData?.balance !== undefined) {
+                return Math.max(0, Number(blazeSessionData.balance) || 0);
+            }
+            // Caso contrário, usar banca simulada
             return Math.max(0, Number(config.simulationBankRoll) || AUTO_BET_DEFAULTS.simulationBankRoll);
         }
 
@@ -7661,8 +7667,19 @@ async function persistAnalyzerState(newState) {
                 
                 const result = await response.json();
                 
-                if (result.success && blazeLoginElements.userBalance) {
-                    blazeLoginElements.userBalance.textContent = result.formatted || 'R$ 0,00';
+                if (result.success) {
+                    // Atualizar saldo na UI de login
+                    if (blazeLoginElements.userBalance) {
+                        blazeLoginElements.userBalance.textContent = result.formatted || 'R$ 0,00';
+                    }
+                    
+                    // Armazenar saldo no blazeSessionData para usar no painel
+                    if (blazeSessionData) {
+                        blazeSessionData.balance = result.balanceInReais || 0;
+                        blazeSessionData.balanceFormatted = result.formatted || 'R$ 0,00';
+                        localStorage.setItem('blazeSession', JSON.stringify(blazeSessionData));
+                    }
+                    
                     console.log('💰 Saldo atualizado:', result.formatted);
                 }
             } catch (error) {
@@ -7723,6 +7740,15 @@ async function persistAnalyzerState(newState) {
             });
         }
         
+        // Listener para atualizar saldo quando modo real for ativado/desativado
+        if (blazeLoginElements.autoBetEnabled) {
+            blazeLoginElements.autoBetEnabled.addEventListener('change', () => {
+                console.log('🔄 Modo real alterado, atualizando saldo...');
+                updateSimulationSnapshots();
+                updateStatusUI();
+            });
+        }
+        
         console.log('%c✅ [BLAZE LOGIN] Sistema de login inicializado!', 'color: #10b981; font-weight: bold;');
         
         // Restaurar sessão salva
@@ -7732,6 +7758,11 @@ async function persistAnalyzerState(newState) {
                 blazeSessionData = JSON.parse(savedSession);
                 updateBlazeLoginUI('connected', 'Conectado', blazeSessionData);
                 console.log('%c🔐 Sessão Blaze restaurada do localStorage', 'color: #10b981; font-weight: bold;');
+                
+                // Atualizar saldo se estiver conectado
+                if (blazeSessionData.token) {
+                    fetchBlazeBalance(blazeSessionData.token);
+                }
             }
         } catch (error) {
             console.warn('⚠️ Não foi possível restaurar sessão Blaze:', error);
