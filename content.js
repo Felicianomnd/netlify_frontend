@@ -7742,17 +7742,10 @@ async function persistAnalyzerState(newState) {
         
         // Listener para atualizar saldo quando modo real for ativado/desativado
         if (blazeLoginElements.autoBetEnabled) {
-            blazeLoginElements.autoBetEnabled.addEventListener('change', (e) => {
-                const isRealMode = e.target.checked;
-                console.log('🔄 Modo real alterado:', isRealMode ? 'ATIVADO' : 'DESATIVADO');
-                
-                // Atualizar saldo no painel
-                if (typeof updateSimulationSnapshots === 'function') {
-                    updateSimulationSnapshots();
-                }
-                if (typeof updateStatusUI === 'function') {
-                    updateStatusUI();
-                }
+            blazeLoginElements.autoBetEnabled.addEventListener('change', () => {
+                console.log('🔄 Modo real alterado, atualizando saldo...');
+                updateSimulationSnapshots();
+                updateStatusUI();
             });
         }
         
