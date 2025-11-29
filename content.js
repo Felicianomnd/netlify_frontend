@@ -3808,6 +3808,12 @@ autoBetHistoryStore.init().catch(error => console.warn('AutoBetHistory: iniciali
         }
 
         function getInitialBalanceValue() {
+            // Se modo real estiver ativo e houver saldo da Blaze, usar o saldo real
+            if (config.enabled && blazeSessionData && blazeSessionData.user && blazeSessionData.user.balance) {
+                const blazeBalance = parseFloat(blazeSessionData.user.balance.replace(',', '.')) || 0;
+                return Math.max(0, blazeBalance);
+            }
+            // Caso contrário, usar saldo simulado
             return Math.max(0, Number(config.simulationBankRoll) || AUTO_BET_DEFAULTS.simulationBankRoll);
         }
 
@@ -7539,10 +7545,12 @@ async function persistAnalyzerState(newState) {
                 if (blazeLoginElements.info) {
                     blazeLoginElements.info.style.display = 'flex';
                     if (blazeLoginElements.userEmail) {
-                        blazeLoginElements.userEmail.textContent = data.user?.email || '-';
+                        const displayName = data.user?.username || data.user?.email || '-';
+                        blazeLoginElements.userEmail.textContent = displayName;
                     }
                     if (blazeLoginElements.userBalance) {
-                        blazeLoginElements.userBalance.textContent = 'R$ -';
+                        const balance = data.user?.balance || '0,00';
+                        blazeLoginElements.userBalance.textContent = `R$ ${balance}`;
                     }
                 }
                 if (blazeLoginElements.autoBetEnabled) {
@@ -7605,6 +7613,7 @@ async function persistAnalyzerState(newState) {
                     blazeSessionData = result.data;
                     localStorage.setItem('blazeSession', JSON.stringify(blazeSessionData));
                     updateBlazeLoginUI('connected', 'Conectado', result.data);
+                    startBalanceObserver(); // Iniciar observação automática
                     console.log('%c✅ Login Blaze realizado com sucesso!', 'color: #10b981; font-weight: bold;');
                     console.log('🍪 Cookies salvos:', result.data.cookies?.length || 0);
                     alert('✅ Conectado com sucesso à sua conta Blaze!');
@@ -7630,6 +7639,7 @@ async function persistAnalyzerState(newState) {
         };
         
         const handleBlazeLogout = () => {
+            stopBalanceObserver(); // Parar observação automática
             blazeSessionData = null;
             localStorage.removeItem('blazeSession');
             updateBlazeLoginUI('disconnected', 'Desconectado');
@@ -7675,12 +7685,103 @@ async function persistAnalyzerState(newState) {
         
         console.log('%c✅ [BLAZE LOGIN] Sistema de login inicializado!', 'color: #10b981; font-weight: bold;');
         
+        // ═══════════════════════════════════════════════════════════════
+        // 💰 DETECÇÃO AUTOMÁTICA DE SALDO (SEM REQUISIÇÕES)
+        // ═══════════════════════════════════════════════════════════════
+        let balanceObserver = null;
+        
+        const extractBalanceFromPage = () => {
+            // Tentar encontrar o saldo na página da Blaze
+            const balanceSelectors = [
+                '.wallet-amount',
+                '.balance-value',
+                '.user-balance',
+                '[class*="balance"]',
+                '[class*="wallet"]',
+                '[data-testid*="balance"]',
+                '[data-testid*="wallet"]'
+            ];
+            
+            for (const selector of balanceSelectors) {
+                const elements = document.querySelectorAll(selector);
+                for (const el of elements) {
+                    const text = el.textContent.trim();
+                    const match = text.match(/R?\$?\s*([\d.,]+)/);
+                    if (match && match[1]) {
+                        return match[1];
+                    }
+                }
+            }
+            
+            return null;
+        };
+        
+        const updateBalanceFromPage = () => {
+            if (!blazeSessionData) return;
+            
+            const balance = extractBalanceFromPage();
+            if (balance && balance !== blazeSessionData.user?.balance) {
+                console.log(`💰 [BLAZE] Saldo detectado na página: R$ ${balance}`);
+                
+                // Atualizar UI do login
+                if (blazeLoginElements.userBalance) {
+                    blazeLoginElements.userBalance.textContent = `R$ ${balance}`;
+                }
+                
+                // Atualizar sessão armazenada
+                if (blazeSessionData.user) {
+                    blazeSessionData.user.balance = balance;
+                    localStorage.setItem('blazeSession', JSON.stringify(blazeSessionData));
+                }
+                
+                // Forçar atualização dos saldos na UI principal (se modo real estiver ativo)
+                if (typeof updateStatusUI === 'function') {
+                    updateStatusUI();
+                }
+            }
+        };
+        
+        const startBalanceObserver = () => {
+            if (balanceObserver) {
+                balanceObserver.disconnect();
+            }
+            
+            console.log('%c👁️ [BLAZE] Iniciando observação automática de saldo...', 'color: #10b981; font-weight: bold;');
+            
+            // MutationObserver para detectar mudanças no DOM
+            balanceObserver = new MutationObserver(() => {
+                updateBalanceFromPage();
+            });
+            
+            // Observar mudanças no body inteiro
+            balanceObserver.observe(document.body, {
+                childList: true,
+                subtree: true,
+                characterData: true,
+                attributes: false
+            });
+            
+            // Primeira captura imediata
+            setTimeout(updateBalanceFromPage, 1000);
+            
+            console.log('%c✅ [BLAZE] Observação de saldo ativa (detecção automática)', 'color: #10b981; font-weight: bold;');
+        };
+        
+        const stopBalanceObserver = () => {
+            if (balanceObserver) {
+                balanceObserver.disconnect();
+                balanceObserver = null;
+                console.log('%c⏸️ [BLAZE] Observação de saldo pausada', 'color: #6b7280; font-weight: bold;');
+            }
+        };
+        
         // Restaurar sessão salva
         try {
             const savedSession = localStorage.getItem('blazeSession');
             if (savedSession) {
                 blazeSessionData = JSON.parse(savedSession);
                 updateBlazeLoginUI('connected', 'Conectado', blazeSessionData);
+                startBalanceObserver(); // Iniciar observação se já está conectado
                 console.log('%c🔐 Sessão Blaze restaurada do localStorage', 'color: #10b981; font-weight: bold;');
             }
         } catch (error) {
