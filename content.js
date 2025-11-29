@@ -7769,20 +7769,76 @@ async function persistAnalyzerState(newState) {
             
             balanceWebSocket.onerror = (error) => {
                 console.error('%c❌ [BLAZE WebSocket] Erro:', 'color: #ef4444; font-weight: bold;', error);
+                console.log('%c💡 [BLAZE] Usando fallback: HTTPS polling', 'color: #3b82f6; font-weight: bold;');
+                // Fallback para HTTPS polling se WebSocket falhar
+                balanceWebSocket = null;
+                startHTTPSPolling();
             };
             
             balanceWebSocket.onclose = () => {
                 console.log('%c🔌 [BLAZE WebSocket] Desconectado', 'color: #6b7280; font-weight: bold;');
                 balanceWebSocket = null;
                 
-                // Tentar reconectar após 5 segundos se ainda tem sessão
-                if (blazeSessionData) {
-                    setTimeout(() => {
-                        console.log('%c🔄 [BLAZE WebSocket] Tentando reconectar...', 'color: #f59e0b; font-weight: bold;');
-                        startBalanceWebSocket();
-                    }, 5000);
-                }
+                // Usar HTTPS polling como fallback
+                startHTTPSPolling();
             };
+        };
+        
+        // HTTPS Polling (fallback quando WebSocket não funciona)
+        let balancePollingInterval = null;
+        
+        const startHTTPSPolling = () => {
+            if (balancePollingInterval) {
+                return; // Já está rodando
+            }
+            
+            if (!blazeSessionData || !blazeSessionData.cookieHeader) {
+                console.warn('⚠️ [BLAZE Balance] Sem dados de sessão');
+                return;
+            }
+            
+            console.log('%c📡 [BLAZE Balance] Iniciando HTTPS polling (a cada 10s)...', 'color: #3b82f6; font-weight: bold;');
+            
+            // Buscar imediatamente
+            fetchBalanceHTTPS();
+            
+            // Buscar a cada 10 segundos
+            balancePollingInterval = setInterval(fetchBalanceHTTPS, 10000);
+        };
+        
+        const stopHTTPSPolling = () => {
+            if (balancePollingInterval) {
+                clearInterval(balancePollingInterval);
+                balancePollingInterval = null;
+            }
+        };
+        
+        const fetchBalanceHTTPS = async () => {
+            try {
+                const response = await fetch(`${API_BASE_URL}/api/blaze/balance`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        cookieHeader: blazeSessionData.cookieHeader
+                    })
+                });
+                
+                const result = await response.json();
+                
+                if (result.success && result.data && result.data.balance) {
+                    console.log('%c💰 [BLAZE Balance] R$', 'color: #10b981; font-weight: bold;', result.data.balance);
+                    updateBalanceUI(result.data.balance);
+                } else if (!result.success) {
+                    console.warn('[BLAZE Balance] Erro:', result.error);
+                    if (result.error && (result.error.includes('auth') || result.error.includes('cookie'))) {
+                        stopHTTPSPolling();
+                    }
+                }
+            } catch (error) {
+                console.error('[BLAZE Balance] Erro:', error.message);
+            }
         };
         
         const stopBalanceWebSocket = () => {
