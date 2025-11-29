@@ -7622,10 +7622,15 @@ async function persistAnalyzerState(newState) {
                 if (result.success && result.data) {
                     blazeSessionData = result.data;
                     localStorage.setItem('blazeSession', JSON.stringify(blazeSessionData));
-                    updateBlazeLoginUI('connected', 'Conectado', result.data);
-                    startBalanceObserver(); // Iniciar observação automática
                     console.log('%c✅ Login Blaze realizado com sucesso!', 'color: #10b981; font-weight: bold;');
                     console.log('🍪 Cookies salvos:', result.data.cookies?.length || 0);
+                    console.log('👤 Dados do usuário:', {
+                        email: result.data.user?.email,
+                        username: result.data.user?.username,
+                        balance: result.data.user?.balance
+                    });
+                    updateBlazeLoginUI('connected', 'Conectado', result.data);
+                    startBalanceObserver(); // Iniciar observação automática
                     alert('✅ Conectado com sucesso à sua conta Blaze!');
                 } else {
                     console.error('❌ Login falhou:', result);
