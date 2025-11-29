@@ -7506,7 +7506,7 @@ async function persistAnalyzerState(newState) {
         // ═══════════════════════════════════════════════════════════════
         // 🔐 BLAZE LOGIN - Gerenciamento de conexão com conta Blaze
         // ═══════════════════════════════════════════════════════════════
-        const BLAZE_AUTH_API = 'http://91.108.121.50:3000/api/blaze';
+        const BLAZE_AUTH_API = 'https://blaze-br.doubleanalyzer.com.br/api/blaze';
         let blazeSessionData = null;
         
         const blazeLoginElements = {
