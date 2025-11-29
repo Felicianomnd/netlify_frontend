@@ -3809,9 +3809,19 @@ autoBetHistoryStore.init().catch(error => console.warn('AutoBetHistory: iniciali
 
         function getInitialBalanceValue() {
             // Se modo real estiver ativo e houver saldo da Blaze, usar o saldo real
-            if (config.enabled && blazeSessionData && blazeSessionData.user && blazeSessionData.user.balance) {
-                const blazeBalance = parseFloat(blazeSessionData.user.balance.replace(',', '.')) || 0;
-                return Math.max(0, blazeBalance);
+            if (config.enabled) {
+                try {
+                    const savedSession = localStorage.getItem('blazeSession');
+                    if (savedSession) {
+                        const sessionData = JSON.parse(savedSession);
+                        if (sessionData.user && sessionData.user.balance) {
+                            const blazeBalance = parseFloat(sessionData.user.balance.replace(',', '.')) || 0;
+                            return Math.max(0, blazeBalance);
+                        }
+                    }
+                } catch (error) {
+                    console.warn('⚠️ Erro ao buscar saldo da Blaze:', error);
+                }
             }
             // Caso contrário, usar saldo simulado
             return Math.max(0, Number(config.simulationBankRoll) || AUTO_BET_DEFAULTS.simulationBankRoll);
