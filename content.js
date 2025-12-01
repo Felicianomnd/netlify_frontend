@@ -7597,7 +7597,16 @@ async function persistAnalyzerState(newState) {
             }
         };
         
+        // 🔒 Flag para evitar múltiplos logins simultâneos
+        let isLoginInProgress = false;
+        
         const handleBlazeLogin = async () => {
+            // TRAVA: Se já está fazendo login, não fazer outra requisição
+            if (isLoginInProgress) {
+                console.warn('⚠️ [BLAZE LOGIN] Login já em andamento, ignorando clique duplicado');
+                return;
+            }
+            
             const email = blazeLoginElements.email?.value.trim();
             const password = blazeLoginElements.password?.value;
             
@@ -7611,6 +7620,7 @@ async function persistAnalyzerState(newState) {
                 return;
             }
             
+            isLoginInProgress = true;
             updateBlazeLoginUI('connecting', 'Conectando...');
             setButtonBusyState(blazeLoginElements.loginBtn, true, 'Conectando...');
             
@@ -7687,6 +7697,7 @@ async function persistAnalyzerState(newState) {
                 updateBlazeLoginUI('error', 'Erro ao conectar');
                 alert(`❌ Erro ao conectar: ${errorMessage}`);
             } finally {
+                isLoginInProgress = false;
                 setButtonBusyState(blazeLoginElements.loginBtn, false);
                 console.log('%c🏁 Processo de login finalizado', 'color: #6b7280; font-weight: bold;');
             }
@@ -7971,8 +7982,19 @@ async function persistAnalyzerState(newState) {
             }
         };
         
+        // 🔒 Flag para evitar múltiplas requisições simultâneas
+        let isTokenFetchInProgress = false;
+        
         // 🔍 Buscar token de sessão existente (se usuário já está logado na Blaze)
         const tryFetchExistingToken = async (email = null) => {
+            // TRAVA: Se já está buscando, não fazer outra requisição
+            if (isTokenFetchInProgress) {
+                console.warn('⚠️ [BLAZE] Busca de token já em andamento, ignorando requisição duplicada');
+                return false;
+            }
+            
+            isTokenFetchInProgress = true;
+            
             try {
                 console.log('%c🔍 [BLAZE] Buscando token de sessão existente...', 'color: #fbbf24; font-weight: bold;');
                 
@@ -7992,6 +8014,8 @@ async function persistAnalyzerState(newState) {
             } catch (error) {
                 console.warn('⚠️ [BLAZE] Erro ao buscar token existente:', error.message);
                 return false;
+            } finally {
+                isTokenFetchInProgress = false;
             }
         };
         
