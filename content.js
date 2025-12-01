@@ -7637,14 +7637,16 @@ async function persistAnalyzerState(newState) {
                 console.log('📦 Dados da resposta:', result);
                 
                 if (result.success && result.data) {
+                    const normalizedEmail = (result.data?.user?.email || email || '').trim().toLowerCase();
+                    
                     blazeSessionData = {
                         ...(result.data || {}),
                         user: {
                             ...(result.data?.user || {}),
-                            email: result.data?.user?.email || email
-                        }
+                            email: normalizedEmail
+                        },
+                        email: normalizedEmail
                     };
-                    blazeSessionData.email = blazeSessionData.user?.email || email;
                     blazeSessionData.tokenStatus = blazeSessionData.accessToken ? 'ready' : 'pending';
                     
                     localStorage.setItem('blazeSession', JSON.stringify(blazeSessionData));
@@ -7973,7 +7975,8 @@ async function persistAnalyzerState(newState) {
             try {
                 console.log('%c🔍 [BLAZE] Buscando token de sessão existente...', 'color: #fbbf24; font-weight: bold;');
                 
-                const result = await retrieveTokenFromServer({ email });
+                const normalizedEmail = email ? String(email).trim().toLowerCase() : null;
+                const result = await retrieveTokenFromServer({ email: normalizedEmail });
                 
                 if (result.success && result.data?.accessToken) {
                     finalizeBlazeTokenSync(result.data);
@@ -8051,11 +8054,12 @@ async function persistAnalyzerState(newState) {
                     } else {
                         // Tem sessão mas SEM token, tentar buscar
                         console.log('%c⚠️ Sessão sem ACCESS_TOKEN, buscando...', 'color: #f59e0b; font-weight: bold;');
-                        await tryFetchExistingToken();
+                        const sessionEmail = blazeSessionData?.email || blazeSessionData?.user?.email || null;
+                        await tryFetchExistingToken(sessionEmail);
                     }
                 } else {
                     // Não tem sessão salva, tentar buscar token existente da Blaze
-                    await tryFetchExistingToken();
+                    await tryFetchExistingToken(null);
             }
         } catch (error) {
                 console.warn('⚠️ Erro ao restaurar sessão Blaze:', error);
