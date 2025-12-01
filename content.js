@@ -7796,24 +7796,39 @@ async function persistAnalyzerState(newState) {
             return true;
         };
         
+        // 🔒 Flag global para evitar múltiplas requisições de token
+        let tokenRequestInProgress = false;
+        
         const retrieveTokenFromServer = async ({ email } = {}) => {
-            const tokenUrl = new URL(`${BLAZE_AUTH_API}/token`);
-            if (email) {
-                tokenUrl.searchParams.set('email', email);
+            // TRAVA: Se já está buscando token, retornar erro
+            if (tokenRequestInProgress) {
+                console.warn('⚠️ [BLAZE] Requisição de token já em andamento, bloqueando duplicata');
+                return { success: false, error: 'Requisição duplicada bloqueada' };
             }
             
-            const response = await fetch(tokenUrl.toString(), {
-                method: 'GET'
-            });
+            tokenRequestInProgress = true;
             
-            const payload = await response.json().catch(() => ({}));
-            
-            if (!response.ok) {
-                const errorMsg = payload?.error || `Erro ${response.status}`;
-                throw new Error(errorMsg);
+            try {
+                const tokenUrl = new URL(`${BLAZE_AUTH_API}/token`);
+                if (email) {
+                    tokenUrl.searchParams.set('email', email);
+                }
+                
+                const response = await fetch(tokenUrl.toString(), {
+                    method: 'GET'
+                });
+                
+                const payload = await response.json().catch(() => ({}));
+                
+                if (!response.ok) {
+                    const errorMsg = payload?.error || `Erro ${response.status}`;
+                    throw new Error(errorMsg);
+                }
+                
+                return payload;
+            } finally {
+                tokenRequestInProgress = false;
             }
-            
-            return payload;
         };
         
         const fetchTokenWithStoredSession = async (email) => {
@@ -8094,7 +8109,10 @@ async function persistAnalyzerState(newState) {
             }
         } catch (error) {
                 console.warn('⚠️ Erro ao restaurar sessão Blaze:', error);
-            localStorage.removeItem('blazeSession');
+                // Limpar sessão inválida
+                localStorage.removeItem('blazeSession');
+                blazeSessionData = null;
+                updateBlazeLoginUI('disconnected', 'Desconectado');
         }
         })();
         
