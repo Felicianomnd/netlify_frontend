@@ -4285,21 +4285,30 @@ autoBetHistoryStore.init().catch(error => console.warn('AutoBetHistory: iniciali
                     right: 12px;
                     top: 50%;
                     transform: translateY(-50%);
-                    background: none;
+                    background: transparent;
                     border: none;
                     cursor: pointer;
-                    padding: 4px;
+                    padding: 6px;
                     display: flex;
                     align-items: center;
                     justify-content: center;
-                    transition: opacity 0.2s ease;
+                    transition: all 0.2s ease;
+                    border-radius: 4px;
+                    color: #9ca3af;
                 }
                 .toggle-password-btn:hover {
-                    opacity: 0.7;
+                    background: rgba(156, 163, 175, 0.1);
+                    color: #ffffff;
                 }
-                .eye-icon {
-                    font-size: 16px;
+                .toggle-password-btn:active {
+                    transform: translateY(-50%) scale(0.95);
+                }
+                .eye-icon,
+                .eye-off-icon {
+                    width: 20px;
+                    height: 20px;
                     user-select: none;
+                    pointer-events: none;
                 }
                 .blaze-login-btn {
                     width: 100%;
@@ -7108,8 +7117,8 @@ async function persistAnalyzerState(newState) {
                         <div class="blaze-login-section">
                             <div class="blaze-login-card">
                                 <div class="blaze-login-header">
-                                    <div class="mode-card-title">🔐 Conectar conta Blaze</div>
-                                    <p class="mode-card-subtitle">Faça login para usar o modo real</p>
+                                    <div class="mode-card-title" style="text-align: center;">Conta Blaze</div>
+                                    <p class="mode-card-subtitle" style="text-align: center;">Faça login para usar o modo real</p>
                                 </div>
                                 <div class="blaze-login-status" id="blazeLoginStatus">
                                     <span class="login-status-indicator disconnected"></span>
@@ -7123,9 +7132,16 @@ async function persistAnalyzerState(newState) {
                                     <div class="auto-bet-field">
                                         <span>Senha</span>
                                         <div style="position: relative;">
-                                            <input type="password" id="blazePassword" placeholder="••••••••" />
-                                            <button type="button" class="toggle-password-btn" id="toggleBlazePassword" aria-label="Mostrar senha">
-                                                <span class="eye-icon">👁️</span>
+                                            <input type="password" id="blazePassword" placeholder="••••••••" style="padding-right: 45px;" />
+                                            <button type="button" class="toggle-password-btn" id="toggleBlazePassword" aria-label="Mostrar senha" title="Mostrar senha">
+                                                <svg class="eye-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                                                    <circle cx="12" cy="12" r="3"></circle>
+                                                </svg>
+                                                <svg class="eye-off-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display: none;">
+                                                    <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path>
+                                                    <line x1="1" y1="1" x2="23" y2="23"></line>
+                                                </svg>
                                             </button>
                                         </div>
                                     </div>
@@ -7671,9 +7687,25 @@ async function persistAnalyzerState(newState) {
             if (!blazeLoginElements.password) return;
             const type = blazeLoginElements.password.type === 'password' ? 'text' : 'password';
             blazeLoginElements.password.type = type;
+            
+            // Alternar entre os ícones SVG (profissional)
             const eyeIcon = blazeLoginElements.togglePasswordBtn?.querySelector('.eye-icon');
-            if (eyeIcon) {
-                eyeIcon.textContent = type === 'password' ? '👁️' : '👁️‍🗨️';
+            const eyeOffIcon = blazeLoginElements.togglePasswordBtn?.querySelector('.eye-off-icon');
+            
+            if (eyeIcon && eyeOffIcon) {
+                if (type === 'text') {
+                    // Mostrando senha → mostrar ícone de "olho cortado"
+                    eyeIcon.style.display = 'none';
+                    eyeOffIcon.style.display = 'block';
+                    blazeLoginElements.togglePasswordBtn.setAttribute('aria-label', 'Ocultar senha');
+                    blazeLoginElements.togglePasswordBtn.setAttribute('title', 'Ocultar senha');
+                } else {
+                    // Ocultando senha → mostrar ícone de "olho"
+                    eyeIcon.style.display = 'block';
+                    eyeOffIcon.style.display = 'none';
+                    blazeLoginElements.togglePasswordBtn.setAttribute('aria-label', 'Mostrar senha');
+                    blazeLoginElements.togglePasswordBtn.setAttribute('title', 'Mostrar senha');
+                }
             }
         };
         
