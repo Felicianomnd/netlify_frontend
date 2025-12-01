@@ -7667,8 +7667,9 @@ async function persistAnalyzerState(newState) {
                         console.log('%c🔑 ACCESS_TOKEN já disponível no login. Iniciando fluxo completo.', 'color: #10b981; font-weight: bold;');
                         finalizeBlazeTokenSync(blazeSessionData);
                     } else {
-                        console.log('%c⏳ ACCESS_TOKEN pendente. Buscando token em evento separado...', 'color: #fbbf24; font-weight: bold;');
-                        scheduleTokenSyncAfterLogin(blazeSessionData.email);
+                        console.log('%c✅ Login realizado! ACCESS_TOKEN será capturado no próximo reload.', 'color: #10b981; font-weight: bold;');
+                        // NÃO chamar scheduleTokenSyncAfterLogin aqui!
+                        // O token será buscado automaticamente quando o usuário recarregar a página
                     }
                 } else {
                     console.error('❌ Login falhou:', result);
