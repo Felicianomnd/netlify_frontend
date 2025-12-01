@@ -7706,21 +7706,19 @@ async function persistAnalyzerState(newState) {
         let balancePollingInterval = null;
         
         const fetchBalance = async () => {
-            if (!blazeSessionData || (!blazeSessionData.accessToken && !blazeSessionData.cookies)) {
-                console.warn('⚠️ [BLAZE] Sem sessão ativa para buscar saldo');
+            if (!blazeSessionData || !blazeSessionData.accessToken) {
+                console.warn('⚠️ [BLAZE] Sem ACCESS_TOKEN para buscar saldo');
                 return;
             }
             
             try {
-                console.log('%c💰 [BLAZE] Buscando saldo com', blazeSessionData.accessToken ? 'ACCESS_TOKEN' : 'cookies', 'color: #fbbf24; font-weight: bold;');
+                console.log('%c💰 [BLAZE] Buscando saldo com ACCESS_TOKEN (método Blaze Machine)...', 'color: #fbbf24; font-weight: bold;');
                 
                 const response = await fetch(`${BLAZE_AUTH_API}/balance`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        accessToken: blazeSessionData.accessToken,
-                        cookies: blazeSessionData.cookies,
-                        cookieHeader: blazeSessionData.cookieHeader
+                        accessToken: blazeSessionData.accessToken
                     })
                 });
                 
