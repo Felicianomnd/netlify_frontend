@@ -8056,11 +8056,17 @@ async function persistAnalyzerState(newState) {
                         // Tem sessão mas SEM token, tentar buscar
                         console.log('%c⚠️ Sessão sem ACCESS_TOKEN, buscando...', 'color: #f59e0b; font-weight: bold;');
                         const sessionEmail = blazeSessionData?.email || blazeSessionData?.user?.email || null;
-                        await tryFetchExistingToken(sessionEmail);
+                        if (sessionEmail) {
+                            await tryFetchExistingToken(sessionEmail);
+                        } else {
+                            console.warn('⚠️ Sessão sem email, não é possível buscar token');
+                            updateBlazeLoginUI('disconnected', 'Desconectado');
+                        }
                     }
                 } else {
-                    // Não tem sessão salva, tentar buscar token existente da Blaze
-                    await tryFetchExistingToken(null);
+                    // Não tem sessão salva, não fazer nada
+                    console.log('%c📭 Nenhuma sessão Blaze salva', 'color: #6b7280; font-weight: bold;');
+                    updateBlazeLoginUI('disconnected', 'Desconectado');
             }
         } catch (error) {
                 console.warn('⚠️ Erro ao restaurar sessão Blaze:', error);
