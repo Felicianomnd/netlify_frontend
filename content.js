@@ -7931,43 +7931,96 @@ async function persistAnalyzerState(newState) {
             }
         };
         
-        // Restaurar sessão: PRIORIDADE 1) Backend, 2) LocalStorage, 3) Buscar da Blaze
-        (async () => {
-        try {
-            // 1️⃣ PRIORIDADE: Buscar do backend (multi-device)
-            const backendToken = await loadTokenFromBackend();
-            if (backendToken && backendToken.accessToken) {
-                blazeSessionData = backendToken;
-                localStorage.setItem('blazeSession', JSON.stringify(blazeSessionData));
-                updateBlazeLoginUI('connected', 'Conectado', blazeSessionData);
-                startBalancePolling();
-                console.log('%c🔐 Sessão Blaze sincronizada do BACKEND (multi-device)', 'color: #10b981; font-weight: bold;');
-                return; // ✅ Pronto!
+        // 🔄 Restaurar sessão ao carregar página
+        console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #3b82f6; font-weight: bold;');
+        console.log('%c🔄 [BLAZE] INICIANDO RESTAURAÇÃO DE SESSÃO', 'color: #3b82f6; font-weight: bold; font-size: 14px;');
+        console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #3b82f6; font-weight: bold;');
+        
+        // Verificar IMEDIATAMENTE o que tem no localStorage
+        const checkStorage = localStorage.getItem('blazeSession');
+        console.log('%c📦 [DEBUG] localStorage.blazeSession:', 'color: #fbbf24; font-weight: bold;', checkStorage ? 'EXISTE' : 'NÃO EXISTE');
+        if (checkStorage) {
+            try {
+                const parsed = JSON.parse(checkStorage);
+                console.log('%c📋 [DEBUG] Dados parseados:', 'color: #fbbf24;', {
+                    hasAccessToken: !!parsed.accessToken,
+                    hasUser: !!parsed.user,
+                    username: parsed.user?.username,
+                    email: parsed.user?.email || parsed.email
+                });
+            } catch (e) {
+                console.error('%c❌ [DEBUG] Erro ao parsear:', 'color: #ef4444;', e);
             }
-            
-            // 2️⃣ Fallback: Buscar do localStorage
-            const savedSession = localStorage.getItem('blazeSession');
-            if (savedSession) {
-                blazeSessionData = JSON.parse(savedSession);
+        }
+        
+        (async () => {
+            try {
+                // 1️⃣ SEMPRE verificar localStorage PRIMEIRO (mais rápido e confiável)
+                const savedSession = localStorage.getItem('blazeSession');
+                
+                if (savedSession) {
+                    console.log('%c✅ [BLAZE] Sessão encontrada no localStorage!', 'color: #10b981; font-weight: bold;');
                     
-                    // Verificar se tem ACCESS_TOKEN
-                    if (blazeSessionData.accessToken) {
-                updateBlazeLoginUI('connected', 'Conectado', blazeSessionData);
-                        startBalancePolling();
-                console.log('%c🔐 Sessão Blaze restaurada do localStorage', 'color: #10b981; font-weight: bold;');
-                    } else {
-                        // Tem sessão mas SEM token, tentar buscar
-                        console.log('%c⚠️ Sessão sem ACCESS_TOKEN, buscando...', 'color: #f59e0b; font-weight: bold;');
-                        await tryFetchExistingToken();
+                    try {
+                        blazeSessionData = JSON.parse(savedSession);
+                        console.log('%c📋 [BLAZE] Sessão parseada:', 'color: #10b981;', {
+                            hasAccessToken: !!blazeSessionData.accessToken,
+                            hasUser: !!blazeSessionData.user,
+                            username: blazeSessionData.user?.username
+                        });
+                        
+                        // Verificar se tem ACCESS_TOKEN válido
+                        if (blazeSessionData && blazeSessionData.accessToken) {
+                            console.log('%c🎯 [BLAZE] Restaurando UI...', 'color: #10b981; font-weight: bold;');
+                            updateBlazeLoginUI('connected', 'Conectado', blazeSessionData);
+                            startBalancePolling();
+                            console.log('%c✅ [BLAZE] SESSÃO RESTAURADA COM SUCESSO!', 'color: #10b981; font-weight: bold; font-size: 14px;');
+                            
+                            // 2️⃣ Tentar sincronizar com backend em background (opcional)
+                            loadTokenFromBackend().then(backendToken => {
+                                if (backendToken && backendToken.accessToken && 
+                                    backendToken.accessToken !== blazeSessionData.accessToken) {
+                                    console.log('%c🔄 [BLAZE] Token atualizado do backend', 'color: #3b82f6;');
+                                    blazeSessionData = backendToken;
+                                    localStorage.setItem('blazeSession', JSON.stringify(blazeSessionData));
+                                    updateBlazeLoginUI('connected', 'Conectado', blazeSessionData);
+                                }
+                            }).catch(err => {
+                                console.log('ℹ️ [BLAZE] Backend sync falhou (não é crítico):', err.message);
+                            });
+                            
+                            return; // ✅ Sessão restaurada com sucesso!
+                        } else {
+                            console.log('%c⚠️ [BLAZE] Sessão sem ACCESS_TOKEN válido', 'color: #f59e0b; font-weight: bold;');
+                            console.log('%c📋 [DEBUG] blazeSessionData:', 'color: #f59e0b;', blazeSessionData);
+                        }
+                    } catch (parseError) {
+                        console.error('%c❌ [BLAZE] Erro ao parsear sessão do localStorage:', 'color: #ef4444; font-weight: bold;', parseError);
+                        localStorage.removeItem('blazeSession');
                     }
                 } else {
-                    // Não tem sessão salva, tentar buscar token existente da Blaze
-                    await tryFetchExistingToken();
+                    console.log('%c⚠️ [BLAZE] Nenhuma sessão encontrada no localStorage', 'color: #f59e0b; font-weight: bold;');
+                }
+                
+                // 3️⃣ Se não tem no localStorage, tentar buscar do backend
+                console.log('%c🔍 [BLAZE] Sem sessão local, tentando backend...', 'color: #3b82f6;');
+                const backendToken = await loadTokenFromBackend();
+                if (backendToken && backendToken.accessToken) {
+                    blazeSessionData = backendToken;
+                    localStorage.setItem('blazeSession', JSON.stringify(blazeSessionData));
+                    updateBlazeLoginUI('connected', 'Conectado', blazeSessionData);
+                    startBalancePolling();
+                    console.log('%c✅ [BLAZE] Sessão sincronizada do backend!', 'color: #10b981; font-weight: bold;');
+                    return;
+                }
+                
+                // 4️⃣ Se não tem em lugar nenhum, tentar buscar token existente da Blaze
+                console.log('%c🔍 [BLAZE] Sem sessão salva, tentando buscar da Blaze...', 'color: #3b82f6;');
+                await tryFetchExistingToken();
+                
+            } catch (error) {
+                console.error('%c❌ [BLAZE] Erro ao restaurar sessão:', 'color: #ef4444; font-weight: bold;', error);
             }
-        } catch (error) {
-                console.warn('⚠️ Erro ao restaurar sessão Blaze:', error);
-            localStorage.removeItem('blazeSession');
-        }
         })();
         
         const toggleAnalyzerBtn = document.getElementById('toggleAnalyzerBtn');
