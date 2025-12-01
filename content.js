@@ -12068,4 +12068,76 @@ function logModeSnapshotUI(snapshot) {
     // ⚠️ REMOVIDO: O histórico agora é carregado APÓS a sidebar ser criada
     // Ver createSidebar() para o novo local de inicialização
     
+    // ═══════════════════════════════════════════════════════════════
+    // 🔄 RESTAURAR SESSÃO DA BLAZE (EXECUTAR SEMPRE AO CARREGAR)
+    // ═══════════════════════════════════════════════════════════════
+    setTimeout(() => {
+        console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #3b82f6; font-weight: bold;');
+        console.log('%c🔄 [BLAZE] RESTAURANDO SESSÃO AO CARREGAR PÁGINA', 'color: #3b82f6; font-weight: bold; font-size: 14px;');
+        console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #3b82f6; font-weight: bold;');
+        
+        const savedSession = localStorage.getItem('blazeSession');
+        console.log('%c📦 localStorage.blazeSession:', 'color: #fbbf24; font-weight: bold;', savedSession ? 'EXISTE ✅' : 'NÃO EXISTE ❌');
+        
+        if (savedSession) {
+            try {
+                const sessionData = JSON.parse(savedSession);
+                console.log('%c📋 Dados da sessão:', 'color: #10b981;', {
+                    hasAccessToken: !!sessionData.accessToken,
+                    hasUser: !!sessionData.user,
+                    username: sessionData.user?.username,
+                    email: sessionData.user?.email || sessionData.email
+                });
+                
+                if (sessionData && sessionData.accessToken) {
+                    // Encontrar elementos da UI
+                    const statusEl = document.getElementById('blazeLoginStatus');
+                    const formEl = document.getElementById('blazeLoginForm');
+                    const infoEl = document.getElementById('blazeLoginInfo');
+                    const userEmailEl = document.getElementById('blazeUserEmail');
+                    const userBalanceEl = document.getElementById('blazeUserBalance');
+                    
+                    if (statusEl && formEl && infoEl) {
+                        // Atualizar UI
+                        const statusIndicator = statusEl.querySelector('.login-status-indicator');
+                        const statusText = statusEl.querySelector('.login-status-text');
+                        
+                        if (statusIndicator) statusIndicator.className = 'login-status-indicator connected';
+                        if (statusText) statusText.textContent = 'Conectado';
+                        
+                        formEl.style.display = 'none';
+                        infoEl.style.display = 'flex';
+                        
+                        if (userEmailEl) {
+                            const displayName = sessionData.user?.username || sessionData.user?.email || sessionData.email || '-';
+                            userEmailEl.textContent = displayName;
+                        }
+                        if (userBalanceEl) {
+                            const balance = sessionData.user?.balance || '0,00';
+                            userBalanceEl.textContent = `R$ ${balance}`;
+                        }
+                        
+                        // Habilitar modo real
+                        const autoBetEnabledEl = document.getElementById('autoBetEnabled');
+                        if (autoBetEnabledEl) {
+                            autoBetEnabledEl.disabled = false;
+                            const modeHint = document.querySelector('.real-mode .mode-toggle-hint');
+                            if (modeHint) modeHint.style.display = 'none';
+                        }
+                        
+                        console.log('%c✅ [BLAZE] SESSÃO RESTAURADA COM SUCESSO!', 'color: #10b981; font-weight: bold; font-size: 14px;');
+                    } else {
+                        console.warn('%c⚠️ [BLAZE] Elementos da UI não encontrados ainda', 'color: #f59e0b; font-weight: bold;');
+                    }
+                } else {
+                    console.log('%c⚠️ [BLAZE] Sessão sem ACCESS_TOKEN válido', 'color: #f59e0b;');
+                }
+            } catch (error) {
+                console.error('%c❌ [BLAZE] Erro ao restaurar sessão:', 'color: #ef4444; font-weight: bold;', error);
+            }
+        } else {
+            console.log('%c⚠️ [BLAZE] Nenhuma sessão salva', 'color: #f59e0b;');
+        }
+    }, 2000); // Aguardar 2s para garantir que a sidebar foi criada
+    
 })();
