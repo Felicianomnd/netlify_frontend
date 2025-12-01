@@ -7789,19 +7789,64 @@ async function persistAnalyzerState(newState) {
             }
         };
         
-        // Restaurar sessão salva
-        try {
-            const savedSession = localStorage.getItem('blazeSession');
-            if (savedSession) {
-                blazeSessionData = JSON.parse(savedSession);
-                updateBlazeLoginUI('connected', 'Conectado', blazeSessionData);
-                startBalancePolling(); // Iniciar polling se já está conectado
-                console.log('%c🔐 Sessão Blaze restaurada do localStorage', 'color: #10b981; font-weight: bold;');
+        // 🔍 Buscar token de sessão existente (se usuário já está logado na Blaze)
+        const tryFetchExistingToken = async () => {
+            try {
+                console.log('%c🔍 [BLAZE] Buscando token de sessão existente...', 'color: #fbbf24; font-weight: bold;');
+                
+                const response = await fetch(`${BLAZE_AUTH_API}/token`, {
+                    method: 'GET'
+                });
+                
+                if (response.ok) {
+                    const result = await response.json();
+                    
+                    if (result.success && result.data) {
+                        blazeSessionData = result.data;
+                        localStorage.setItem('blazeSession', JSON.stringify(blazeSessionData));
+                        updateBlazeLoginUI('connected', 'Conectado', result.data);
+                        startBalancePolling();
+                        console.log('%c✅ [BLAZE] Token encontrado! Sessão restaurada automaticamente', 'color: #10b981; font-weight: bold;');
+                        console.log('🔑 AccessToken:', result.data.accessToken ? 'SIM' : 'NÃO');
+                        console.log('👤 Username:', result.data.user?.username || 'N/A');
+                        return true;
+                    }
+                }
+                
+                console.log('%c⚠️ [BLAZE] Nenhuma sessão ativa encontrada na Blaze', 'color: #f59e0b; font-weight: bold;');
+                return false;
+            } catch (error) {
+                console.warn('⚠️ [BLAZE] Erro ao buscar token existente:', error.message);
+                return false;
             }
-        } catch (error) {
-            console.warn('⚠️ Não foi possível restaurar sessão Blaze:', error);
-            localStorage.removeItem('blazeSession');
-        }
+        };
+        
+        // Restaurar sessão salva OU buscar token existente
+        (async () => {
+            try {
+                const savedSession = localStorage.getItem('blazeSession');
+                if (savedSession) {
+                    blazeSessionData = JSON.parse(savedSession);
+                    
+                    // Verificar se tem ACCESS_TOKEN
+                    if (blazeSessionData.accessToken) {
+                        updateBlazeLoginUI('connected', 'Conectado', blazeSessionData);
+                        startBalancePolling();
+                        console.log('%c🔐 Sessão Blaze restaurada do localStorage', 'color: #10b981; font-weight: bold;');
+                    } else {
+                        // Tem sessão mas SEM token, tentar buscar
+                        console.log('%c⚠️ Sessão sem ACCESS_TOKEN, buscando...', 'color: #f59e0b; font-weight: bold;');
+                        await tryFetchExistingToken();
+                    }
+                } else {
+                    // Não tem sessão salva, tentar buscar token existente da Blaze
+                    await tryFetchExistingToken();
+                }
+            } catch (error) {
+                console.warn('⚠️ Erro ao restaurar sessão Blaze:', error);
+                localStorage.removeItem('blazeSession');
+            }
+        })();
         
         const toggleAnalyzerBtn = document.getElementById('toggleAnalyzerBtn');
         if (toggleAnalyzerBtn) {
