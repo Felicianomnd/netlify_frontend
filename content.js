@@ -7642,7 +7642,10 @@ async function persistAnalyzerState(newState) {
                 console.log(`%c🚀 [${callId}] EXECUTANDO FETCH AGORA...`, 'background: #0000FF; color: #FFFFFF; font-weight: bold; padding: 5px;');
                 const response = await fetch(`${BLAZE_AUTH_API}/login`, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: { 
+                        'Content-Type': 'application/json',
+                        'X-Request-ID': callId // Header único para rastrear
+                    },
                     body: JSON.stringify({ email, password }),
                     signal: controller.signal
                 });
