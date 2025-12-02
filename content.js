@@ -7761,6 +7761,81 @@ async function persistAnalyzerState(newState) {
                     return;
                 }
                 
+                // Popup enviou credenciais - fazer login aqui no site
+                if (event.data.type === 'BLAZE_POPUP_CREDENTIALS') {
+                    console.log('%c📥 Credenciais recebidas do popup!', 'color: #8b5cf6; font-weight: bold;');
+                    
+                    const { email, password } = event.data;
+                    
+                    // Preencher campos (invisível para o usuário)
+                    if (blazeLoginElements.email) blazeLoginElements.email.value = email;
+                    if (blazeLoginElements.password) blazeLoginElements.password.value = password;
+                    
+                    updateBlazeLoginUI('connecting', 'Fazendo login...');
+                    
+                    // Fazer login usando a função normal do site
+                    try {
+                        const callId = `POPUP_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+                        console.log(`%c🚀 [${callId}] Iniciando login com credenciais do popup...`, 'color: #8b5cf6; font-weight: bold;');
+                        
+                        const response = await fetch(`${BLAZE_AUTH_API}/login`, {
+                            method: 'POST',
+                            headers: { 
+                                'Content-Type': 'application/json',
+                                'X-Request-ID': callId
+                            },
+                            body: JSON.stringify({ email, password }),
+                            signal: AbortSignal.timeout(1200000) // 20 min timeout
+                        });
+                        
+                        const result = await response.json();
+                        
+                        if (result.success && result.data) {
+                            console.log('%c✅ Login bem-sucedido!', 'color: #10b981; font-weight: bold;');
+                            
+                            const normalizedEmail = (result.data?.user?.email || email || '').trim().toLowerCase();
+                            blazeSessionData = {
+                                ...result.data,
+                                user: {
+                                    ...(result.data?.user || {}),
+                                    email: normalizedEmail
+                                }
+                            };
+                            
+                            localStorage.setItem('blazeSession', JSON.stringify(blazeSessionData));
+                            updateBlazeLoginUI('connected', `Conectado como ${normalizedEmail}`, blazeSessionData);
+                            
+                            // Notificar popup do sucesso
+                            if (popup && !popup.closed) {
+                                popup.postMessage({
+                                    type: 'BLAZE_LOGIN_RESULT',
+                                    success: true
+                                }, '*');
+                            }
+                            
+                            // Limpar senha (segurança)
+                            if (blazeLoginElements.password) blazeLoginElements.password.value = '';
+                            
+                        } else {
+                            throw new Error(result.error || 'Login falhou');
+                        }
+                        
+                    } catch (error) {
+                        console.error('%c❌ Erro no login:', 'color: #ef4444; font-weight: bold;', error);
+                        updateBlazeLoginUI('error', 'Erro ao conectar');
+                        
+                        // Notificar popup do erro
+                        if (popup && !popup.closed) {
+                            popup.postMessage({
+                                type: 'BLAZE_LOGIN_RESULT',
+                                success: false,
+                                error: error.message || 'Erro ao conectar'
+                            }, '*');
+                        }
+                    }
+                }
+                
+                // Mensagem de sucesso direto do popup (mantido para compatibilidade)
                 if (event.data.type === 'BLAZE_LOGIN_SUCCESS') {
                     console.log('%c✅ Login via popup bem-sucedido!', 'color: #10b981; font-weight: bold;');
                     console.log('📦 Dados recebidos:', event.data.data);
