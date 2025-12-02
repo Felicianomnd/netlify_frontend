@@ -7601,11 +7601,17 @@ async function persistAnalyzerState(newState) {
         let isLoginInProgress = false;
         
         const handleBlazeLogin = async () => {
+            // 🔍 DEBUG: Gerar ID único para esta chamada
+            const callId = `CALL_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+            console.log(`%c🎯 [${callId}] handleBlazeLogin CHAMADO!`, 'background: #FF0000; color: #FFFFFF; font-weight: bold; padding: 5px;');
+            
             // TRAVA: Se já está fazendo login, não fazer outra requisição
             if (isLoginInProgress) {
-                console.warn('⚠️ [BLAZE LOGIN] Login já em andamento, ignorando clique duplicado');
+                console.warn(`%c⚠️ [${callId}] Login já em andamento, BLOQUEADO!`, 'background: #FFA500; color: #000; font-weight: bold; padding: 5px;');
                 return;
             }
+            
+            console.log(`%c✅ [${callId}] Trava liberada, prosseguindo com login...`, 'background: #00FF00; color: #000; font-weight: bold; padding: 5px;');
             
             const email = blazeLoginElements.email?.value.trim();
             const password = blazeLoginElements.password?.value;
@@ -7625,18 +7631,22 @@ async function persistAnalyzerState(newState) {
             setButtonBusyState(blazeLoginElements.loginBtn, true, 'Conectando...');
             
             try {
-                console.log('%c📤 Enviando requisição para o servidor...', 'color: #60a5fa; font-weight: bold;');
+                console.log(`%c📤 [${callId}] Enviando requisição para o servidor...`, 'color: #60a5fa; font-weight: bold;');
+                console.log(`%c🌐 [${callId}] URL: ${BLAZE_AUTH_API}/login`, 'color: #60a5fa;');
+                console.log(`%c📧 [${callId}] Email: ${email}`, 'color: #60a5fa;');
                 
                 // Criar AbortController para timeout de 20 minutos (1200000ms)
                 const controller = new AbortController();
                 const timeoutId = setTimeout(() => controller.abort(), 1200000);
                 
+                console.log(`%c🚀 [${callId}] EXECUTANDO FETCH AGORA...`, 'background: #0000FF; color: #FFFFFF; font-weight: bold; padding: 5px;');
                 const response = await fetch(`${BLAZE_AUTH_API}/login`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ email, password }),
                     signal: controller.signal
                 });
+                console.log(`%c📥 [${callId}] Resposta recebida do servidor!`, 'background: #00FF00; color: #000; font-weight: bold; padding: 5px;');
                 
                 clearTimeout(timeoutId);
                 
