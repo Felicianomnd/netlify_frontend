@@ -7743,22 +7743,49 @@ async function persistAnalyzerState(newState) {
         
         if (blazeLoginElements.loginBtn) {
             console.log('✅ Adicionando listener ao botão de login...');
+            
+            // IMPORTANTE: Clonar o botão para remover TODOS os listeners antigos
+            const oldBtn = blazeLoginElements.loginBtn;
+            const newBtn = oldBtn.cloneNode(true);
+            oldBtn.parentNode.replaceChild(newBtn, oldBtn);
+            blazeLoginElements.loginBtn = newBtn;
+            
+            // Adicionar listener UMA ÚNICA VEZ
             blazeLoginElements.loginBtn.addEventListener('click', () => {
                 console.log('%c🖱️ BOTÃO DE LOGIN CLICADO!', 'color: #ef4444; font-weight: bold; font-size: 16px;');
                 handleBlazeLogin();
-            });
+            }, { once: false }); // once: false para permitir múltiplos cliques, mas com a trava isLoginInProgress
+            
             console.log('✅ Listener adicionado com sucesso!');
         } else {
             console.error('❌ Não foi possível adicionar listener: botão não existe!');
         }
         
         if (blazeLoginElements.logoutBtn) {
+            // Clonar para remover listeners antigos
+            const oldLogoutBtn = blazeLoginElements.logoutBtn;
+            const newLogoutBtn = oldLogoutBtn.cloneNode(true);
+            oldLogoutBtn.parentNode.replaceChild(newLogoutBtn, oldLogoutBtn);
+            blazeLoginElements.logoutBtn = newLogoutBtn;
+            
             blazeLoginElements.logoutBtn.addEventListener('click', handleBlazeLogout);
         }
         if (blazeLoginElements.togglePasswordBtn) {
+            // Clonar para remover listeners antigos
+            const oldToggleBtn = blazeLoginElements.togglePasswordBtn;
+            const newToggleBtn = oldToggleBtn.cloneNode(true);
+            oldToggleBtn.parentNode.replaceChild(newToggleBtn, oldToggleBtn);
+            blazeLoginElements.togglePasswordBtn = newToggleBtn;
+            
             blazeLoginElements.togglePasswordBtn.addEventListener('click', togglePasswordVisibility);
         }
         if (blazeLoginElements.password) {
+            // Clonar para remover listeners antigos
+            const oldPasswordField = blazeLoginElements.password;
+            const newPasswordField = oldPasswordField.cloneNode(true);
+            oldPasswordField.parentNode.replaceChild(newPasswordField, oldPasswordField);
+            blazeLoginElements.password = newPasswordField;
+            
             blazeLoginElements.password.addEventListener('keypress', (e) => {
                 if (e.key === 'Enter') handleBlazeLogin();
             });
