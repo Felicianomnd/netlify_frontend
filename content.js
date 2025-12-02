@@ -7727,16 +7727,29 @@ async function persistAnalyzerState(newState) {
         const handlePopupLogin = () => {
             console.log('%c🪟 Abrindo popup de login...', 'color: #8b5cf6; font-weight: bold;');
             
-            // Abrir popup pequeno
+            // Calcular posição centralizada
+            const width = 500;
+            const height = 680;
+            const left = (screen.width - width) / 2;
+            const top = (screen.height - height) / 2;
+            
+            // Abrir popup pequeno com mais parâmetros para forçar janela popup
             const popup = window.open(
                 `${BLAZE_AUTH_BR_URL}/proxy-login`,
                 'BlazeLogin',
-                'width=550,height=750,menubar=no,toolbar=no,location=no,status=no'
+                `popup=yes,width=${width},height=${height},left=${left},top=${top},menubar=no,toolbar=no,location=no,status=no,resizable=yes,scrollbars=yes`
             );
             
             if (!popup) {
-                alert('⚠️ Popup bloqueado! Por favor, permita popups para este site.');
+                alert('⚠️ Popup bloqueado!\n\nPor favor:\n1. Permita popups para este site\n2. Clique no ícone de popup bloqueado na barra de endereços\n3. Tente novamente');
                 return;
+            }
+            
+            // Tentar focar o popup
+            try {
+                popup.focus();
+            } catch (e) {
+                console.warn('Não foi possível focar popup:', e);
             }
             
             updateBlazeLoginUI('connecting', 'Aguardando login no popup...');
