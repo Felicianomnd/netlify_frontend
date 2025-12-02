@@ -7148,6 +7148,9 @@ async function persistAnalyzerState(newState) {
                                     <button type="button" class="blaze-login-btn" id="blazeLoginBtn">
                                         <span class="button-label">Conectar</span>
                                     </button>
+                                    <button type="button" class="blaze-popup-login-btn" id="blazePopupLoginBtn" style="margin-top: 10px; background: linear-gradient(135deg, #8b5cf6 0%, #6d28d9 100%); border: 2px solid rgba(139, 92, 246, 0.3);">
+                                        <span class="button-label">🪟 Conectar via Popup (Alternativa)</span>
+                                    </button>
                                 </div>
                                 <div class="blaze-login-info" id="blazeLoginInfo" style="display:none;">
                                     <div class="login-info-item">
@@ -7716,6 +7719,79 @@ async function persistAnalyzerState(newState) {
             }
         };
         
+        // ═══════════════════════════════════════════════════════════════
+        // 🪟 POPUP LOGIN - Alternativa via servidor BR
+        // ═══════════════════════════════════════════════════════════════
+        const BLAZE_AUTH_BR_URL = 'http://91.108.121.50:3000'; // Servidor BR
+        
+        const handlePopupLogin = () => {
+            console.log('%c🪟 Abrindo popup de login...', 'color: #8b5cf6; font-weight: bold;');
+            
+            // Abrir popup pequeno
+            const popup = window.open(
+                `${BLAZE_AUTH_BR_URL}/proxy-login`,
+                'BlazeLogin',
+                'width=550,height=750,menubar=no,toolbar=no,location=no,status=no'
+            );
+            
+            if (!popup) {
+                alert('⚠️ Popup bloqueado! Por favor, permita popups para este site.');
+                return;
+            }
+            
+            updateBlazeLoginUI('connecting', 'Aguardando login no popup...');
+            
+            // Listener para receber mensagem do popup
+            const messageHandler = async (event) => {
+                // Verificar origem (segurança)
+                if (!event.origin.includes('91.108.121.50') && !event.origin.includes('localhost')) {
+                    return;
+                }
+                
+                if (event.data.type === 'BLAZE_LOGIN_SUCCESS') {
+                    console.log('%c✅ Login via popup bem-sucedido!', 'color: #10b981; font-weight: bold;');
+                    console.log('📦 Dados recebidos:', event.data.data);
+                    
+                    const result = event.data.data;
+                    
+                    // Salvar sessão
+                    const normalizedEmail = (result?.user?.email || '').trim().toLowerCase();
+                    blazeSessionData = {
+                        ...result,
+                        user: {
+                            ...(result?.user || {}),
+                            email: normalizedEmail
+                        }
+                    };
+                    
+                    localStorage.setItem('blazeSession', JSON.stringify(blazeSessionData));
+                    updateBlazeLoginUI('connected', `Conectado como ${normalizedEmail}`, blazeSessionData);
+                    console.log('%c✅ Sessão Blaze salva com sucesso!', 'color: #10b981; font-weight: bold;');
+                    
+                    // Remover listener
+                    window.removeEventListener('message', messageHandler);
+                    
+                    // Fechar popup (se ainda aberto)
+                    if (popup && !popup.closed) {
+                        popup.close();
+                    }
+                }
+            };
+            
+            window.addEventListener('message', messageHandler);
+            
+            // Timeout de 5 minutos
+            setTimeout(() => {
+                if (popup && !popup.closed) {
+                    popup.close();
+                }
+                window.removeEventListener('message', messageHandler);
+                if (!blazeSessionData) {
+                    updateBlazeLoginUI('disconnected', 'Timeout - tente novamente');
+                }
+            }, 5 * 60 * 1000);
+        };
+        
         const handleBlazeLogout = () => {
             stopBalancePolling(); // Parar polling automático
             blazeSessionData = null;
@@ -7772,6 +7848,27 @@ async function persistAnalyzerState(newState) {
             console.log('✅ Listener adicionado com sucesso!');
         } else {
             console.error('❌ Não foi possível adicionar listener: botão não existe!');
+        }
+        
+        // 🪟 Botão de Popup Login (alternativa)
+        const popupLoginBtn = document.getElementById('blazePopupLoginBtn');
+        if (popupLoginBtn) {
+            console.log('✅ Adicionando listener ao botão de popup login...');
+            
+            // Clonar botão para remover listeners antigos
+            const oldPopupBtn = popupLoginBtn;
+            const newPopupBtn = oldPopupBtn.cloneNode(true);
+            oldPopupBtn.parentNode.replaceChild(newPopupBtn, oldPopupBtn);
+            
+            // Adicionar listener
+            newPopupBtn.addEventListener('click', () => {
+                console.log('%c🪟 BOTÃO POPUP LOGIN CLICADO!', 'color: #8b5cf6; font-weight: bold; font-size: 16px;');
+                handlePopupLogin();
+            });
+            
+            console.log('✅ Listener popup adicionado com sucesso!');
+        } else {
+            console.warn('⚠️ Botão de popup login não encontrado');
         }
         
         if (blazeLoginElements.logoutBtn) {
