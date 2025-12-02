@@ -8135,7 +8135,7 @@ async function persistAnalyzerState(newState) {
         } catch (error) {
                 console.warn('⚠️ Erro ao restaurar sessão Blaze:', error);
                 // Limpar sessão inválida
-                localStorage.removeItem('blazeSession');
+            localStorage.removeItem('blazeSession');
                 blazeSessionData = null;
                 updateBlazeLoginUI('disconnected', 'Desconectado');
         }
