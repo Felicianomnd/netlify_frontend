@@ -8067,21 +8067,10 @@ async function persistAnalyzerState(newState) {
             }
         };
         
-        // Restaurar sessão: PRIORIDADE 1) Backend, 2) LocalStorage, 3) Buscar da Blaze
+        // Restaurar sessão: Apenas do localStorage (sincronização multi-device desabilitada temporariamente)
         (async () => {
         try {
-            // 1️⃣ PRIORIDADE: Buscar do backend (multi-device)
-            const backendToken = await loadTokenFromBackend();
-            if (backendToken && backendToken.accessToken) {
-                blazeSessionData = backendToken;
-                localStorage.setItem('blazeSession', JSON.stringify(blazeSessionData));
-                updateBlazeLoginUI('connected', 'Conectado', blazeSessionData);
-                startBalancePolling();
-                console.log('%c🔐 Sessão Blaze sincronizada do BACKEND (multi-device)', 'color: #10b981; font-weight: bold;');
-                return; // ✅ Pronto!
-            }
-            
-            // 2️⃣ Fallback: Buscar do localStorage
+            // Buscar APENAS do localStorage (sem chamar backend automaticamente)
             const savedSession = localStorage.getItem('blazeSession');
             if (savedSession) {
                 blazeSessionData = JSON.parse(savedSession);
@@ -8092,15 +8081,11 @@ async function persistAnalyzerState(newState) {
                         startBalancePolling();
                 console.log('%c🔐 Sessão Blaze restaurada do localStorage', 'color: #10b981; font-weight: bold;');
                     } else {
-                        // Tem sessão mas SEM token, tentar buscar
-                        console.log('%c⚠️ Sessão sem ACCESS_TOKEN, buscando...', 'color: #f59e0b; font-weight: bold;');
-                        const sessionEmail = blazeSessionData?.email || blazeSessionData?.user?.email || null;
-                        if (sessionEmail) {
-                            await tryFetchExistingToken(sessionEmail);
-                        } else {
-                            console.warn('⚠️ Sessão sem email, não é possível buscar token');
-                            updateBlazeLoginUI('disconnected', 'Desconectado');
-                        }
+                        // Tem sessão mas SEM token = sessão inválida, limpar
+                        console.log('%c⚠️ Sessão sem ACCESS_TOKEN, limpando...', 'color: #f59e0b; font-weight: bold;');
+                        localStorage.removeItem('blazeSession');
+                        blazeSessionData = null;
+                        updateBlazeLoginUI('disconnected', 'Desconectado');
                     }
                 } else {
                     // Não tem sessão salva, não fazer nada
