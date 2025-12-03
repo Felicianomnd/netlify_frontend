@@ -312,14 +312,21 @@
         document.currentScript.parentNode.insertBefore(script4, document.currentScript.nextSibling);
     </script>
 
-    <!-- 5️⃣ CONTENT.JS - Sidebar completa -->
+    <!-- 5️⃣ REMOTE BROWSER UI - Controle remoto do navegador -->
     <script>
         const script5 = document.createElement('script');
-        script5.src = 'content.js?v=' + Date.now();
+        script5.src = 'remote-browser-ui.js?v=' + Date.now();
         document.currentScript.parentNode.insertBefore(script5, document.currentScript.nextSibling);
     </script>
 
-    <!-- 6️⃣ Inicialização -->
+    <!-- 6️⃣ CONTENT.JS - Sidebar completa -->
+    <script>
+        const script6 = document.createElement('script');
+        script6.src = 'content.js?v=' + Date.now();
+        document.currentScript.parentNode.insertBefore(script6, document.currentScript.nextSibling);
+    </script>
+
+    <!-- 7️⃣ Inicialização -->
     <script>
         // Capturar erros globais
         window.addEventListener('error', function(event) {

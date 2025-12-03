@@ -7601,24 +7601,12 @@ async function persistAnalyzerState(newState) {
         let isLoginInProgress = false;
         
         const handleBlazeLogin = async () => {
-            // 🔍 DEBUG: Gerar ID único para esta chamada
-            const callId = `CALL_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-            console.log(`%c🎯 [${callId}] handleBlazeLogin CHAMADO!`, 'background: #FF0000; color: #FFFFFF; font-weight: bold; padding: 5px;');
-            
-            // TRAVA: Se já está fazendo login, não fazer outra requisição
-            if (isLoginInProgress) {
-                console.warn(`%c⚠️ [${callId}] Login já em andamento, BLOQUEADO!`, 'background: #FFA500; color: #000; font-weight: bold; padding: 5px;');
-                return;
-            }
-            
-            console.log(`%c✅ [${callId}] Trava liberada, prosseguindo com login...`, 'background: #00FF00; color: #000; font-weight: bold; padding: 5px;');
-            
+            // 🖥️ NOVO: Usar Remote Browser para controle visual
             const email = blazeLoginElements.email?.value.trim();
             const password = blazeLoginElements.password?.value;
             
-            console.log('%c🔐 [BLAZE LOGIN] Iniciando login...', 'color: #fbbf24; font-weight: bold;');
+            console.log('%c🖥️ [REMOTE BROWSER] Iniciando navegador remoto...', 'color: #fbbf24; font-weight: bold;');
             console.log(`📧 Email: ${email}`);
-            console.log(`🔗 API URL: ${BLAZE_AUTH_API}/login`);
             
             if (!email || !password) {
                 console.warn('⚠️ Email ou senha vazios!');
@@ -7626,93 +7614,38 @@ async function persistAnalyzerState(newState) {
                 return;
             }
             
+            // TRAVA: Se já está fazendo login, não fazer outra requisição
+            if (isLoginInProgress) {
+                console.warn('⚠️ Remote Browser já em andamento!');
+                return;
+            }
+            
             isLoginInProgress = true;
-            updateBlazeLoginUI('connecting', 'Conectando...');
-            setButtonBusyState(blazeLoginElements.loginBtn, true, 'Conectando...');
             
             try {
-                console.log(`%c📤 [${callId}] Enviando requisição para o servidor...`, 'color: #60a5fa; font-weight: bold;');
-                console.log(`%c🌐 [${callId}] URL: ${BLAZE_AUTH_API}/login`, 'color: #60a5fa;');
-                console.log(`%c📧 [${callId}] Email: ${email}`, 'color: #60a5fa;');
+                // Criar instância do Remote Browser
+                const wsUrl = 'ws://91.108.121.50:3000';
+                const remoteBrowser = new window.RemoteBrowser(wsUrl);
                 
-                // Criar AbortController para timeout de 20 minutos (1200000ms)
-                const controller = new AbortController();
-                const timeoutId = setTimeout(() => controller.abort(), 1200000);
-                
-                console.log(`%c🚀 [${callId}] EXECUTANDO FETCH AGORA...`, 'background: #0000FF; color: #FFFFFF; font-weight: bold; padding: 5px;');
-                const response = await fetch(`${BLAZE_AUTH_API}/login`, {
-                    method: 'POST',
-                    headers: { 
-                        'Content-Type': 'application/json',
-                        'X-Request-ID': callId // Header único para rastrear
-                    },
-                    body: JSON.stringify({ email, password }),
-                    signal: controller.signal
-                });
-                console.log(`%c📥 [${callId}] Resposta recebida do servidor!`, 'background: #00FF00; color: #000; font-weight: bold; padding: 5px;');
-                
-                clearTimeout(timeoutId);
-                
-                console.log(`📥 Resposta recebida - Status: ${response.status} ${response.statusText}`);
-                console.log(`📋 Headers:`, response.headers);
-                
-                const result = await response.json();
-                console.log('📦 Dados da resposta:', result);
-                
-                if (result.success && result.data) {
-                    const normalizedEmail = (result.data?.user?.email || email || '').trim().toLowerCase();
-                    
-                    blazeSessionData = {
-                        ...(result.data || {}),
-                        user: {
-                            ...(result.data?.user || {}),
-                            email: normalizedEmail
-                        },
-                        email: normalizedEmail
-                    };
-                    blazeSessionData.tokenStatus = blazeSessionData.accessToken ? 'ready' : 'pending';
-                    
-                    localStorage.setItem('blazeSession', JSON.stringify(blazeSessionData));
-                    console.log('%c✅ Login Blaze realizado com sucesso!', 'color: #10b981; font-weight: bold;');
-                    console.log('🍪 Cookies salvos:', result.data.cookies?.length || 0);
-                    console.log('👤 Dados do usuário:', {
-                        email: blazeSessionData.user?.email,
-                        username: blazeSessionData.user?.username,
-                        balance: blazeSessionData.user?.balance
-                    });
-                    
-                    const loginMessage = blazeSessionData.accessToken ? 'Conectado' : 'Conectado (sincronizando token...)';
-                    updateBlazeLoginUI('connected', loginMessage, blazeSessionData);
-                    
-                    alert('✅ Conectado com sucesso à sua conta Blaze!');
-                    
-                    if (blazeSessionData.accessToken) {
-                        console.log('%c🔑 ACCESS_TOKEN já disponível no login. Iniciando fluxo completo.', 'color: #10b981; font-weight: bold;');
-                        finalizeBlazeTokenSync(blazeSessionData);
-                    } else {
-                        console.log('%c✅ Login realizado! ACCESS_TOKEN será capturado no próximo reload.', 'color: #10b981; font-weight: bold;');
-                        // NÃO chamar scheduleTokenSyncAfterLogin aqui!
-                        // O token será buscado automaticamente quando o usuário recarregar a página
-                    }
-                } else {
-                    console.error('❌ Login falhou:', result);
-                    throw new Error(result.error || 'Falha ao conectar');
+                // Criar UI
+                if (!remoteBrowser.createUI()) {
+                    throw new Error('Não foi possível criar interface do Remote Browser');
                 }
+                
+                // Conectar e iniciar navegador remoto
+                await remoteBrowser.connect(email, password);
+                
+                console.log('%c✅ Remote Browser iniciado! O usuário pode interagir agora.', 'color: #10b981; font-weight: bold;');
+                
+                // NOTA: O login será feito manualmente pelo usuário através do Remote Browser
+                // Quando terminar, ele clica em "Fechar" e o processo é encerrado
+                
             } catch (error) {
-                console.error('%c❌ ERRO CRÍTICO no login:', 'color: #ef4444; font-weight: bold;', error);
-                console.error('Stack trace:', error.stack);
-                
-                let errorMessage = error.message;
-                if (error.name === 'AbortError') {
-                    errorMessage = 'Tempo limite excedido (20 minutos). O servidor pode estar offline.';
-                }
-                
-                updateBlazeLoginUI('error', 'Erro ao conectar');
-                alert(`❌ Erro ao conectar: ${errorMessage}`);
+                console.error('%c❌ ERRO no Remote Browser:', 'color: #ef4444; font-weight: bold;', error);
+                alert(`❌ Erro ao iniciar navegador remoto: ${error.message}`);
+                location.reload();  // Recarregar para restaurar interface
             } finally {
                 isLoginInProgress = false;
-                setButtonBusyState(blazeLoginElements.loginBtn, false);
-                console.log('%c🏁 Processo de login finalizado', 'color: #6b7280; font-weight: bold;');
             }
         };
         
