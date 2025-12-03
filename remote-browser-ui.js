@@ -128,21 +128,8 @@ class RemoteBrowser {
             this.sendMouseClick(x, y);
         });
         
-        // Movimento do mouse (hover) - enviar apenas a cada 100ms
-        let lastMouseMove = 0;
-        this.canvas.addEventListener('mousemove', (e) => {
-            const now = Date.now();
-            if (now - lastMouseMove < 100) return;  // Throttle
-            lastMouseMove = now;
-            
-            const rect = this.canvas.getBoundingClientRect();
-            const scaleX = this.canvas.width / rect.width;
-            const scaleY = this.canvas.height / rect.height;
-            const x = (e.clientX - rect.left) * scaleX;
-            const y = (e.clientY - rect.top) * scaleY;
-            
-            this.sendMouseMove(x, y);
-        });
+        // Movimento do mouse (DESABILITADO - desempenho)
+        // Não enviar mouse-move para não causar spam
         
         // Focus no canvas para capturar teclado
         this.canvas.addEventListener('click', () => {
@@ -190,10 +177,16 @@ class RemoteBrowser {
                 this.log('✅ WebSocket conectado!');
                 this.updateStatus('Iniciando navegador...');
                 
-                // Enviar comando para iniciar navegador remoto (SEM credenciais)
-                this.ws.send(JSON.stringify({
-                    type: 'start-remote-browser-manual'
-                }));
+                console.log('[RemoteBrowser] 🚀 Enviando comando start-remote-browser-manual...');
+                
+                // Aguardar um pouco antes de enviar (garantir que conexão estabilize)
+                setTimeout(() => {
+                    const cmd = JSON.stringify({
+                        type: 'start-remote-browser-manual'
+                    });
+                    console.log('[RemoteBrowser] 📤 Enviando:', cmd);
+                    this.ws.send(cmd);
+                }, 100);
             };
             
             this.ws.onmessage = (event) => {
@@ -225,12 +218,12 @@ class RemoteBrowser {
                 this.isConnected = false;
             };
             
-            // Timeout de 60s (mais tempo para carregar)
+            // Timeout de 15s
             setTimeout(() => {
                 if (!this.isConnected) {
-                    reject(new Error('Timeout ao conectar (60s)'));
+                    reject(new Error('Timeout ao conectar (15s). Tente novamente.'));
                 }
-            }, 60000);
+            }, 15000);
         });
     }
     
@@ -329,15 +322,10 @@ class RemoteBrowser {
         this.log(`🖱️ Clique em (${Math.round(x)}, ${Math.round(y)})`);
     }
     
-    // Enviar movimento do mouse
+    // Enviar movimento do mouse (DESABILITADO - muito spam)
     sendMouseMove(x, y) {
-        if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
-        
-        this.ws.send(JSON.stringify({
-            type: 'mouse-move',
-            x: Math.round(x),
-            y: Math.round(y)
-        }));
+        // Desabilitado para reduzir tráfego
+        return;
     }
     
     // Enviar digitação
