@@ -203,9 +203,17 @@ class RemoteBrowser {
                 }, 100);
             };
             
-            this.ws.onmessage = (event) => {
+            this.ws.onmessage = async (event) => {
                 try {
-                    const data = JSON.parse(event.data);
+                    // IMPORTANTE: Converter Blob para texto se necessário
+                    let textData = event.data;
+                    
+                    if (event.data instanceof Blob) {
+                        console.log('[RemoteBrowser] 📦 Recebido Blob, convertendo para texto...');
+                        textData = await event.data.text();
+                    }
+                    
+                    const data = JSON.parse(textData);
                     
                     // LOG: Ver o tipo de mensagem
                     if (data.type === 'frame') {
@@ -224,7 +232,7 @@ class RemoteBrowser {
                     }
                 } catch (error) {
                     console.error('[RemoteBrowser] ❌ Erro ao processar mensagem:', error);
-                    console.error('[RemoteBrowser] ❌ Mensagem raw:', event.data.substring(0, 200));
+                    console.error('[RemoteBrowser] ❌ Tipo de data:', typeof event.data, event.data instanceof Blob ? 'É um Blob!' : 'Não é Blob');
                 }
             };
             
