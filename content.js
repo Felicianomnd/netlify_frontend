@@ -7633,8 +7633,8 @@ async function persistAnalyzerState(newState) {
                     throw new Error('Não foi possível criar interface do Remote Browser');
                 }
                 
-                // Conectar e iniciar navegador remoto
-                await remoteBrowser.connect(email, password);
+                // Conectar e iniciar navegador remoto (SEM credenciais - usuário digita manualmente)
+                await remoteBrowser.connect();
                 
                 console.log('%c✅ Remote Browser iniciado! O usuário pode interagir agora.', 'color: #10b981; font-weight: bold;');
                 

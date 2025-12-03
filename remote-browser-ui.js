@@ -19,7 +19,7 @@ class RemoteBrowser {
         this.fps = 0;
     }
     
-    // Criar interface visual
+    // Criar interface visual (SIMPLIFICADA - só canvas)
     createUI() {
         // Substituir o formulário de login pelo canvas
         const loginCard = document.querySelector('.blaze-login-card');
@@ -35,90 +35,76 @@ class RemoteBrowser {
             width: 100%;
             display: flex;
             flex-direction: column;
-            gap: 12px;
+            gap: 8px;
+            position: relative;
         `;
         
-        // Header com título e status
-        const header = document.createElement('div');
-        header.style.cssText = `
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 12px;
-            background: rgba(255,255,255,0.05);
-            border-radius: 8px;
-        `;
-        header.innerHTML = `
-            <div>
-                <div style="font-size: 16px; font-weight: bold; color: #fff; margin-bottom: 4px;">
-                    🖥️ Navegador Remoto Blaze
-                </div>
-                <div id="remoteBrowserStatus" style="font-size: 12px; color: #888;">
-                    Desconectado
-                </div>
-            </div>
-            <button id="remoteBrowserClose" style="
-                padding: 8px 16px;
-                background: #ef4444;
-                color: white;
-                border: none;
-                border-radius: 6px;
-                cursor: pointer;
-                font-size: 14px;
-                font-weight: bold;
-            ">✖ Fechar</button>
-        `;
-        
-        // Canvas para exibir frames
+        // Canvas para exibir frames (MODO MOBILE 412x915)
         this.canvas = document.createElement('canvas');
         this.canvas.id = 'remoteBrowserCanvas';
-        this.canvas.width = 1024;
-        this.canvas.height = 768;
+        this.canvas.width = 412;  // Largura mobile
+        this.canvas.height = 915; // Altura mobile
         this.canvas.style.cssText = `
             width: 100%;
-            max-height: 600px;
+            max-width: 412px;
+            margin: 0 auto;
             border-radius: 8px;
             background: #000;
-            cursor: crosshair;
-            object-fit: contain;
-            border: 2px solid #333;
+            cursor: pointer;
+            display: block;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.5);
         `;
         
         this.ctx = this.canvas.getContext('2d');
         
-        // Dica de uso
-        const hint = document.createElement('div');
-        hint.style.cssText = `
-            padding: 8px 12px;
-            background: rgba(59, 130, 246, 0.1);
-            border: 1px solid rgba(59, 130, 246, 0.3);
-            border-radius: 6px;
-            font-size: 12px;
-            color: #60a5fa;
-            text-align: center;
-        `;
-        hint.innerHTML = '💡 <strong>Dica:</strong> Clique na tela para interagir. Você pode clicar em botões, digitar em campos, etc.';
-        
-        // Logs
-        const logsContainer = document.createElement('div');
-        logsContainer.id = 'remoteBrowserLogs';
-        logsContainer.style.cssText = `
-            padding: 12px;
-            background: rgba(0,0,0,0.7);
+        // Botão "Logado" (inicialmente oculto)
+        const confirmBtn = document.createElement('button');
+        confirmBtn.id = 'remoteBrowserConfirm';
+        confirmBtn.style.cssText = `
+            padding: 12px 24px;
+            background: #10b981;
+            color: white;
+            border: none;
             border-radius: 8px;
-            font-family: 'Courier New', monospace;
-            font-size: 11px;
-            color: #0f0;
-            max-height: 120px;
-            overflow-y: auto;
-            border: 1px solid #333;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: bold;
+            display: none;
+            margin: 0 auto;
         `;
-        logsContainer.innerHTML = '<div>🔄 Aguardando conexão...</div>';
+        confirmBtn.textContent = '✓ Logado';
         
-        this.container.appendChild(header);
+        // Botão Fechar
+        const closeBtn = document.createElement('button');
+        closeBtn.id = 'remoteBrowserClose';
+        closeBtn.style.cssText = `
+            padding: 8px 16px;
+            background: #ef4444;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            margin: 0 auto;
+            display: block;
+        `;
+        closeBtn.textContent = '✖ Fechar';
+        
+        // Status (pequeno, discreto)
+        const statusDiv = document.createElement('div');
+        statusDiv.id = 'remoteBrowserStatus';
+        statusDiv.style.cssText = `
+            text-align: center;
+            font-size: 11px;
+            color: #888;
+            padding: 4px;
+        `;
+        statusDiv.textContent = 'Conectando...';
+        
         this.container.appendChild(this.canvas);
-        this.container.appendChild(hint);
-        this.container.appendChild(logsContainer);
+        this.container.appendChild(statusDiv);
+        this.container.appendChild(confirmBtn);
+        this.container.appendChild(closeBtn);
         
         // Substituir o conteúdo do login card
         loginCard.innerHTML = '';
@@ -192,23 +178,21 @@ class RemoteBrowser {
         }
     }
     
-    // Conectar ao WebSocket
-    async connect(email, password) {
+    // Conectar ao WebSocket (SEM email/senha - usuário digita manualmente)
+    async connect() {
         return new Promise((resolve, reject) => {
-            this.log('🔗 Conectando ao servidor BR...');
+            this.log('🔗 Conectando ao servidor...');
             this.updateStatus('Conectando...');
             
             this.ws = new WebSocket(this.wsUrl);
             
             this.ws.onopen = () => {
                 this.log('✅ WebSocket conectado!');
-                this.updateStatus('Conectado - Iniciando navegador...');
+                this.updateStatus('Iniciando navegador...');
                 
-                // Enviar comando para iniciar navegador remoto
+                // Enviar comando para iniciar navegador remoto (SEM credenciais)
                 this.ws.send(JSON.stringify({
-                    type: 'start-remote-browser',
-                    email,
-                    password
+                    type: 'start-remote-browser-manual'
                 }));
             };
             
@@ -241,12 +225,12 @@ class RemoteBrowser {
                 this.isConnected = false;
             };
             
-            // Timeout de 30s
+            // Timeout de 60s (mais tempo para carregar)
             setTimeout(() => {
                 if (!this.isConnected) {
-                    reject(new Error('Timeout ao conectar (30s)'));
+                    reject(new Error('Timeout ao conectar (60s)'));
                 }
-            }, 30000);
+            }, 60000);
         });
     }
     
@@ -267,10 +251,16 @@ class RemoteBrowser {
                 break;
                 
             case 'browser-started':
-                this.log('✅ Navegador iniciado! Você pode interagir agora.');
-                this.updateStatus('🟢 Online - Clique para interagir');
+                this.log('✅ Navegador iniciado! Faça login na Blaze.');
+                this.updateStatus('🟢 Online - Faça login e clique em "Logado"');
                 // Focar no canvas
                 this.canvas.focus();
+                // Mostrar botão "Logado"
+                const confirmBtn = document.getElementById('remoteBrowserConfirm');
+                if (confirmBtn) {
+                    confirmBtn.style.display = 'block';
+                    confirmBtn.onclick = () => this.confirmLogin();
+                }
                 break;
                 
             case 'browser-stopped':
@@ -405,6 +395,24 @@ class RemoteBrowser {
                 logsEl.removeChild(logsEl.firstChild);
             }
         }
+    }
+    
+    // Confirmar login (botão "Logado")
+    async confirmLogin() {
+        this.log('✅ Confirmando login...');
+        this.updateStatus('Salvando sessão...');
+        
+        // Solicitar cookies/token do servidor
+        if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+            this.ws.send(JSON.stringify({ 
+                type: 'get-session-data'
+            }));
+        }
+        
+        // Aguardar resposta e fechar
+        setTimeout(() => {
+            this.stop();
+        }, 2000);
     }
     
     // Parar e fechar
