@@ -18,6 +18,10 @@ class RemoteBrowser {
         this.lastFrameTime = 0;
         this.lastMouseMoveTime = 0;  // Para throttle do mouse
         this.fps = 0;
+        // Posição do cursor remoto (para desenhar)
+        this.remoteCursorX = 0;
+        this.remoteCursorY = 0;
+        this.lastFrameImage = null;  // Guardar último frame
     }
     
     // Criar interface visual (SIMPLIFICADA - só canvas)
@@ -55,7 +59,7 @@ class RemoteBrowser {
             margin: 0 auto;
             border-radius: 8px;
             background: #000;
-            cursor: pointer;
+            cursor: none;
             display: block;
             box-shadow: 0 4px 20px rgba(0,0,0,0.5);
         `;
@@ -152,6 +156,13 @@ class RemoteBrowser {
             const scaleY = this.canvas.height / rect.height;
             const x = (e.clientX - rect.left) * scaleX;
             const y = (e.clientY - rect.top) * scaleY;
+            
+            // Atualizar posição do cursor remoto
+            this.remoteCursorX = x;
+            this.remoteCursorY = y;
+            
+            // Redesenhar o frame com o cursor
+            this.redrawWithCursor();
             
             this.sendMouseMove(x, y);
         });
@@ -338,11 +349,17 @@ class RemoteBrowser {
         img.onload = () => {
             console.log('[RemoteBrowser] ✅ Imagem carregada! Desenhando no canvas...');
             
+            // Guardar imagem para redesenhar com cursor
+            this.lastFrameImage = img;
+            
             // Limpar canvas
             this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
             
             // Desenhar imagem ajustada ao canvas
             this.ctx.drawImage(img, 0, 0, this.canvas.width, this.canvas.height);
+            
+            // Desenhar cursor por cima
+            this.drawCursor();
             
             // Calcular FPS
             const now = Date.now();
@@ -362,6 +379,50 @@ class RemoteBrowser {
         // Construir data URL
         const dataUrl = 'data:image/jpeg;base64,' + imageData;
         img.src = dataUrl;
+    }
+    
+    // Redesenhar frame com cursor
+    redrawWithCursor() {
+        if (!this.lastFrameImage) return;
+        
+        // Redesenhar imagem
+        this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+        this.ctx.drawImage(this.lastFrameImage, 0, 0, this.canvas.width, this.canvas.height);
+        
+        // Desenhar cursor
+        this.drawCursor();
+    }
+    
+    // Desenhar cursor no canvas (seta preta igual mouse normal)
+    drawCursor() {
+        if (this.remoteCursorX === 0 && this.remoteCursorY === 0) return;
+        
+        const x = this.remoteCursorX;
+        const y = this.remoteCursorY;
+        
+        // Desenhar seta do cursor (branca com borda preta)
+        this.ctx.save();
+        
+        // Sombra/borda preta
+        this.ctx.strokeStyle = '#000';
+        this.ctx.lineWidth = 2;
+        this.ctx.fillStyle = '#fff';
+        
+        // Desenhar seta (triângulo + cauda)
+        this.ctx.beginPath();
+        this.ctx.moveTo(x, y);
+        this.ctx.lineTo(x, y + 16);
+        this.ctx.lineTo(x + 5, y + 12);
+        this.ctx.lineTo(x + 8, y + 20);
+        this.ctx.lineTo(x + 10, y + 19);
+        this.ctx.lineTo(x + 7, y + 11);
+        this.ctx.lineTo(x + 12, y + 11);
+        this.ctx.closePath();
+        
+        this.ctx.fill();
+        this.ctx.stroke();
+        
+        this.ctx.restore();
     }
     
     // Enviar clique
