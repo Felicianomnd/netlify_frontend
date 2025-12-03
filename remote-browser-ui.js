@@ -21,12 +21,16 @@ class RemoteBrowser {
     
     // Criar interface visual (SIMPLIFICADA - só canvas)
     createUI() {
+        console.log('[RemoteBrowser] 🎨 Criando interface...');
+        
         // Substituir o formulário de login pelo canvas
         const loginCard = document.querySelector('.blaze-login-card');
         if (!loginCard) {
             console.error('[RemoteBrowser] ❌ Login card não encontrado');
             return false;
         }
+        
+        console.log('[RemoteBrowser] ✅ Login card encontrado:', loginCard);
         
         // Criar container do Remote Browser
         this.container = document.createElement('div');
@@ -56,6 +60,16 @@ class RemoteBrowser {
         `;
         
         this.ctx = this.canvas.getContext('2d');
+        
+        // Desenhar fundo inicial (preto com texto "Carregando...")
+        this.ctx.fillStyle = '#000';
+        this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+        this.ctx.fillStyle = '#fff';
+        this.ctx.font = '20px Arial';
+        this.ctx.textAlign = 'center';
+        this.ctx.fillText('Carregando...', this.canvas.width / 2, this.canvas.height / 2);
+        
+        console.log('[RemoteBrowser] ✅ Canvas criado:', this.canvas.width, 'x', this.canvas.height);
         
         // Botão "Logado" (inicialmente oculto)
         const confirmBtn = document.createElement('button');
@@ -192,6 +206,14 @@ class RemoteBrowser {
             this.ws.onmessage = (event) => {
                 try {
                     const data = JSON.parse(event.data);
+                    
+                    // LOG: Ver o tipo de mensagem
+                    if (data.type === 'frame') {
+                        console.log('[RemoteBrowser] 📥 Frame recebido do servidor');
+                    } else {
+                        console.log('[RemoteBrowser] 📥 Mensagem recebida:', data.type);
+                    }
+                    
                     this.handleMessage(data);
                     
                     if (data.type === 'browser-started') {
@@ -202,6 +224,7 @@ class RemoteBrowser {
                     }
                 } catch (error) {
                     console.error('[RemoteBrowser] ❌ Erro ao processar mensagem:', error);
+                    console.error('[RemoteBrowser] ❌ Mensagem raw:', event.data.substring(0, 200));
                 }
             };
             
@@ -282,8 +305,20 @@ class RemoteBrowser {
     
     // Renderizar frame no canvas
     renderFrame(frameData) {
+        // LOG: Verificar se o frame chegou
+        if (!frameData || !frameData.image) {
+            console.error('[RemoteBrowser] ❌ Frame inválido:', frameData);
+            return;
+        }
+        
+        const imageData = frameData.image;
+        console.log(`[RemoteBrowser] 🖼️ Frame recebido (${imageData.length} chars)`);
+        
         const img = new Image();
+        
         img.onload = () => {
+            console.log('[RemoteBrowser] ✅ Imagem carregada! Desenhando no canvas...');
+            
             // Limpar canvas
             this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
             
@@ -299,10 +334,15 @@ class RemoteBrowser {
             }
             this.lastFrameTime = now;
         };
-        img.onerror = () => {
-            console.error('[RemoteBrowser] ❌ Erro ao carregar frame');
+        
+        img.onerror = (error) => {
+            console.error('[RemoteBrowser] ❌ Erro ao carregar imagem:', error);
+            console.error('[RemoteBrowser] ❌ Primeiros 100 chars:', imageData.substring(0, 100));
         };
-        img.src = 'data:image/jpeg;base64,' + frameData.image;
+        
+        // Construir data URL
+        const dataUrl = 'data:image/jpeg;base64,' + imageData;
+        img.src = dataUrl;
     }
     
     // Enviar clique
