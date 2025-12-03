@@ -16,6 +16,7 @@ class RemoteBrowser {
         this.container = null;
         this.isConnected = false;
         this.lastFrameTime = 0;
+        this.lastMouseMoveTime = 0;  // Para throttle do mouse
         this.fps = 0;
     }
     
@@ -142,8 +143,18 @@ class RemoteBrowser {
             this.sendMouseClick(x, y);
         });
         
-        // Movimento do mouse (DESABILITADO - desempenho)
-        // Não enviar mouse-move para não causar spam
+        // ═══════════════════════════════════════════════════════════════
+        // 🖱️ MOVIMENTO DO MOUSE - Para cursor visual remoto (AnyDesk style)
+        // ═══════════════════════════════════════════════════════════════
+        this.canvas.addEventListener('mousemove', (e) => {
+            const rect = this.canvas.getBoundingClientRect();
+            const scaleX = this.canvas.width / rect.width;
+            const scaleY = this.canvas.height / rect.height;
+            const x = (e.clientX - rect.left) * scaleX;
+            const y = (e.clientY - rect.top) * scaleY;
+            
+            this.sendMouseMove(x, y);
+        });
         
         // Focus no canvas para capturar teclado
         this.canvas.addEventListener('click', () => {
@@ -370,10 +381,24 @@ class RemoteBrowser {
         this.log(`🖱️ Clique em (${Math.round(x)}, ${Math.round(y)})`);
     }
     
-    // Enviar movimento do mouse (DESABILITADO - muito spam)
+    // Enviar movimento do mouse (THROTTLED - não spammar)
     sendMouseMove(x, y) {
-        // Desabilitado para reduzir tráfego
-        return;
+        if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+            return;
+        }
+        
+        // Throttle: Enviar apenas 1 a cada 50ms (20 FPS)
+        const now = Date.now();
+        if (now - this.lastMouseMoveTime < 50) {
+            return;
+        }
+        this.lastMouseMoveTime = now;
+        
+        this.ws.send(JSON.stringify({
+            type: 'mouse-move',
+            x: Math.round(x),
+            y: Math.round(y)
+        }));
     }
     
     // Enviar digitação
