@@ -7624,7 +7624,8 @@ async function persistAnalyzerState(newState) {
             
             try {
                 // Criar instância do Remote Browser
-                const wsUrl = 'ws://91.108.121.50:3000';
+                // Usar proxy WSS no Render (que redireciona para o servidor BR)
+                const wsUrl = 'wss://blaze-analyzer-api-v2-z8s3.onrender.com/api/remote-browser';
                 const remoteBrowser = new window.RemoteBrowser(wsUrl);
                 
                 // Criar UI

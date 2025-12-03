@@ -5,6 +5,10 @@
 
 class RemoteBrowser {
     constructor(wsUrl) {
+        // Forçar WSS se estiver em HTTPS
+        if (window.location.protocol === 'https:' && wsUrl.startsWith('ws:')) {
+            wsUrl = wsUrl.replace('ws:', 'wss:');
+        }
         this.wsUrl = wsUrl;
         this.ws = null;
         this.canvas = null;
