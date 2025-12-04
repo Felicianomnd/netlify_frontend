@@ -116,7 +116,7 @@
                 <div class="spinner"></div>
                 <p>Conectando no servidor VNC...</p>
                 <p style="font-size: 12px; margin-top: 10px; opacity: 0.7;">
-                    ws://91.108.121.50:6080
+                    Conectando via proxy seguro (WSS)
                 </p>
             </div>
         </div>
@@ -144,10 +144,11 @@
             const loadingMessage = document.getElementById('loadingMessage');
             
             try {
-                // Conectar no WebSocket VNC (via websockify no servidor)
-                const url = 'ws://91.108.121.50:6080';
+                // Conectar no WebSocket VNC via PROXY WSS no Render
+                // (Render WSS → Servidor BR WS)
+                const url = 'wss://blaze-analyzer-api-v2-z8s3.onrender.com/api/vnc';
                 
-                updateStatus('Conectando...', false);
+                updateStatus('Conectando via proxy...', false);
                 
                 rfb = new RFB(vncScreen, url, {
                     credentials: {
