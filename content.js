@@ -7613,8 +7613,8 @@ async function persistAnalyzerState(newState) {
             isLoginInProgress = true;
             
             try {
-                // Abrir página VNC em uma nova janela/aba
-                const vncUrl = chrome.runtime.getURL('vnc-viewer.html');
+                // Abrir página VNC em uma nova janela/aba (URL do site hospedado)
+                const vncUrl = 'https://blaze-analyzer-api-v2-z8s3.onrender.com/vnc-viewer.html';
                 
                 console.log('📺 Abrindo VNC Viewer:', vncUrl);
                 
@@ -7622,7 +7622,7 @@ async function persistAnalyzerState(newState) {
                 const vncWindow = window.open(
                     vncUrl,
                     'VNC_Viewer_Blaze',
-                    'width=450,height=950,toolbar=no,menubar=no,location=no'
+                    'width=450,height=950,toolbar=no,menubar=no,location=no,status=no'
                 );
                 
                 if (!vncWindow) {
@@ -7639,7 +7639,10 @@ async function persistAnalyzerState(newState) {
                 console.error('%c❌ ERRO ao abrir VNC Viewer:', 'color: #ef4444; font-weight: bold;', error);
                 alert(`❌ Erro ao abrir controle remoto: ${error.message}`);
             } finally {
-                isLoginInProgress = false;
+                // Limpar flag após 2 segundos (permitir reabrir se necessário)
+                setTimeout(() => {
+                    isLoginInProgress = false;
+                }, 2000);
             }
         };
         
