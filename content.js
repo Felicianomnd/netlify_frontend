@@ -7601,48 +7601,52 @@ async function persistAnalyzerState(newState) {
         let isLoginInProgress = false;
         
         const handleBlazeLogin = async () => {
-            //🖥️ NOVO: Abrir VNC Viewer (Controle REAL do desktop)
-            console.log('%c🖥️ [VNC] Abrindo controle remoto VNC...', 'color: #fbbf24; font-weight: bold;');
+            // 🖥️ NOVO: Usar Remote Browser para controle visual
+            const email = blazeLoginElements.email?.value.trim();
+            const password = blazeLoginElements.password?.value;
+            
+            console.log('%c🖥️ [REMOTE BROWSER] Iniciando navegador remoto...', 'color: #fbbf24; font-weight: bold;');
+            console.log(`📧 Email: ${email}`);
+            
+            if (!email || !password) {
+                console.warn('⚠️ Email ou senha vazios!');
+                alert('Por favor, preencha email e senha.');
+                return;
+            }
             
             // TRAVA: Se já está fazendo login, não fazer outra requisição
             if (isLoginInProgress) {
-                console.warn('⚠️ VNC Viewer já aberto!');
+                console.warn('⚠️ Remote Browser já em andamento!');
                 return;
             }
             
             isLoginInProgress = true;
             
             try {
-                // Abrir página VNC em uma nova janela/aba (URL do site hospedado)
-                const vncUrl = 'https://blaze-analyzer-api-v2-z8s3.onrender.com/vnc-viewer.html';
+                // Criar instância do Remote Browser
+                // Usar proxy WSS no Render (que redireciona para o servidor BR)
+                const wsUrl = 'wss://blaze-analyzer-api-v2-z8s3.onrender.com/api/remote-browser';
+                const remoteBrowser = new window.RemoteBrowser(wsUrl);
                 
-                console.log('📺 Abrindo VNC Viewer:', vncUrl);
-                
-                // Tentar abrir em popup (melhor experiência)
-                const vncWindow = window.open(
-                    vncUrl,
-                    'VNC_Viewer_Blaze',
-                    'width=450,height=950,toolbar=no,menubar=no,location=no,status=no'
-                );
-                
-                if (!vncWindow) {
-                    // Se bloqueado, abrir em nova aba
-                    console.warn('⚠️ Popup bloqueado, abrindo em nova aba...');
-                    window.open(vncUrl, '_blank');
+                // Criar UI
+                if (!remoteBrowser.createUI()) {
+                    throw new Error('Não foi possível criar interface do Remote Browser');
                 }
                 
-                console.log('%c✅ VNC Viewer aberto! Controle o desktop REAL do servidor!', 'color: #10b981; font-weight: bold;');
-                console.log('%c📋 Você vai ver o Chrome rodando no servidor brasileiro!', 'color: #10b981;');
-                console.log('%c🖱️ Use seu mouse/teclado NORMALMENTE - é controle remoto REAL!', 'color: #10b981;');
+                // Conectar e iniciar navegador remoto (SEM credenciais - usuário digita manualmente)
+                await remoteBrowser.connect();
+                
+                console.log('%c✅ Remote Browser iniciado! O usuário pode interagir agora.', 'color: #10b981; font-weight: bold;');
+                
+                // NOTA: O login será feito manualmente pelo usuário através do Remote Browser
+                // Quando terminar, ele clica em "Fechar" e o processo é encerrado
                 
             } catch (error) {
-                console.error('%c❌ ERRO ao abrir VNC Viewer:', 'color: #ef4444; font-weight: bold;', error);
-                alert(`❌ Erro ao abrir controle remoto: ${error.message}`);
+                console.error('%c❌ ERRO no Remote Browser:', 'color: #ef4444; font-weight: bold;', error);
+                alert(`❌ Erro ao iniciar navegador remoto: ${error.message}`);
+                location.reload();  // Recarregar para restaurar interface
             } finally {
-                // Limpar flag após 2 segundos (permitir reabrir se necessário)
-                setTimeout(() => {
-                    isLoginInProgress = false;
-                }, 2000);
+                isLoginInProgress = false;
             }
         };
         
