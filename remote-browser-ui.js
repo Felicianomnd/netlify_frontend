@@ -167,30 +167,34 @@ class RemoteBrowser {
             this.sendMouseMove(x, y);
         });
         
-        // Focus no canvas para capturar teclado
-        this.canvas.addEventListener('click', () => {
-            this.canvas.focus();
-        });
+        // ═══════════════════════════════════════════════════════════════
+        // ⌨️ TECLADO - Capturar TODAS as teclas (document, não canvas)
+        // ═══════════════════════════════════════════════════════════════
         
-        // Digitação (quando o canvas está em foco)
-        this.canvas.addEventListener('keypress', (e) => {
-            e.preventDefault();
-            if (e.key.length === 1) {
-                this.sendKeyboardType(e.key);
+        // Capturar keypress no DOCUMENT (sempre funciona)
+        document.addEventListener('keypress', (e) => {
+            // Se canvas está visível, capturar teclado
+            if (this.container && this.container.offsetParent !== null) {
+                if (e.key.length === 1) {
+                    console.log('[RemoteBrowser] ⌨️ Tecla pressionada:', e.key);
+                    this.sendKeyboardType(e.key);
+                    e.preventDefault();
+                }
             }
         });
         
-        this.canvas.addEventListener('keydown', (e) => {
-            // Teclas especiais (Enter, Backspace, Tab, etc)
-            const specialKeys = ['Enter', 'Backspace', 'Tab', 'Escape', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'];
-            if (specialKeys.includes(e.key)) {
-                e.preventDefault();
-                this.sendKeyboardPress(e.key);
+        // Capturar keydown para teclas especiais
+        document.addEventListener('keydown', (e) => {
+            // Se canvas está visível, capturar teclado
+            if (this.container && this.container.offsetParent !== null) {
+                const specialKeys = ['Enter', 'Backspace', 'Tab', 'Escape', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'];
+                if (specialKeys.includes(e.key)) {
+                    console.log('[RemoteBrowser] ⌨️ Tecla especial:', e.key);
+                    this.sendKeyboardPress(e.key);
+                    e.preventDefault();
+                }
             }
         });
-        
-        // Tornar canvas focável
-        this.canvas.tabIndex = 1;
         
         // Botão de fechar
         const closeBtn = document.getElementById('remoteBrowserClose');
