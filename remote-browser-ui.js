@@ -275,12 +275,12 @@ class RemoteBrowser {
                 this.isConnected = false;
             };
             
-            // Timeout de 15s
+            // Timeout de 60s (navegador pode demorar ~20-30s para iniciar completamente)
             setTimeout(() => {
                 if (!this.isConnected) {
-                    reject(new Error('Timeout ao conectar (15s). Tente novamente.'));
+                    reject(new Error('Timeout ao conectar (60s). Verifique sua conexão e tente novamente.'));
                 }
-            }, 15000);
+            }, 60000);
         });
     }
     
