@@ -22,6 +22,7 @@ class RemoteBrowser {
         this.remoteCursorX = 0;
         this.remoteCursorY = 0;
         this.lastFrameImage = null;  // Guardar último frame
+        this.keepaliveInterval = null;  // 🔥 NOVO: Intervalo para keepalive
     }
     
     // Criar interface visual (SIMPLIFICADA - só canvas)
@@ -214,10 +215,15 @@ class RemoteBrowser {
             this.ws = new WebSocket(this.wsUrl);
             
             this.ws.onopen = () => {
+                this.connectedAt = Date.now(); // 🔥 NOVO: Timestamp de conexão
+                console.log('[RemoteBrowser] ✅ WebSocket conectado em:', new Date().toISOString());
                 this.log('✅ WebSocket conectado!');
                 this.updateStatus('Iniciando navegador...');
                 
                 console.log('[RemoteBrowser] 🚀 Enviando comando start-remote-browser-manual...');
+                
+                // 🔥 NOVO: Iniciar keepalive (enviar ping a cada 10s para manter conexão através do proxy Render)
+                this.startKeepalive();
                 
                 // Aguardar um pouco antes de enviar (garantir que conexão estabilize)
                 setTimeout(() => {
@@ -269,10 +275,16 @@ class RemoteBrowser {
                 reject(new Error(msg));
             };
             
-            this.ws.onclose = () => {
-                this.log('🔌 Conexão fechada');
+            this.ws.onclose = (event) => {
+                const uptime = this.connectedAt ? Math.round((Date.now() - this.connectedAt) / 1000) : 0;
+                console.log(`[RemoteBrowser] 🔌 Conexão fechada após ${uptime}s`);
+                console.log(`[RemoteBrowser] 📋 Código: ${event.code}, Razão: ${event.reason || 'N/A'}`);
+                console.log(`[RemoteBrowser] 🔍 wasClean: ${event.wasClean}`);
+                
+                this.log(`🔌 Conexão fechada (código: ${event.code}, razão: ${event.reason || 'N/A'})`);
                 this.updateStatus('Desconectado');
                 this.isConnected = false;
+                this.stopKeepalive(); // 🔥 NOVO: Parar keepalive
             };
             
             // Timeout de 60s (navegador pode demorar ~20-30s para iniciar completamente)
@@ -541,9 +553,40 @@ class RemoteBrowser {
         }, 2000);
     }
     
+    // 🔥 NOVO: Iniciar keepalive para manter conexão através do proxy
+    startKeepalive() {
+        console.log('[RemoteBrowser] 💓 Iniciando keepalive (10s)...');
+        this.stopKeepalive(); // Limpar qualquer intervalo anterior
+        
+        this.keepaliveInterval = setInterval(() => {
+            if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+                try {
+                    this.ws.send(JSON.stringify({ type: 'keepalive' }));
+                    console.log('[RemoteBrowser] 💓 Keepalive enviado');
+                } catch (error) {
+                    console.error('[RemoteBrowser] ❌ Erro ao enviar keepalive:', error);
+                }
+            } else {
+                console.warn('[RemoteBrowser] ⚠️ WebSocket não está OPEN, parando keepalive');
+                this.stopKeepalive();
+            }
+        }, 10000); // A cada 10 segundos
+    }
+    
+    // 🔥 NOVO: Parar keepalive
+    stopKeepalive() {
+        if (this.keepaliveInterval) {
+            console.log('[RemoteBrowser] 💤 Parando keepalive');
+            clearInterval(this.keepaliveInterval);
+            this.keepaliveInterval = null;
+        }
+    }
+    
     // Parar e fechar
     async stop() {
         this.log('🛑 Encerrando Remote Browser...');
+        
+        this.stopKeepalive(); // 🔥 NOVO: Parar keepalive
         
         if (this.ws && this.ws.readyState === WebSocket.OPEN) {
             this.ws.send(JSON.stringify({ type: 'stop-remote-browser' }));
