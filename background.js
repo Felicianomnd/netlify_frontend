@@ -1,13 +1,9 @@
 // Background service worker for Blaze Double Analyzer
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// 🧹 LIMPEZA AUTOMÁTICA DO CONSOLE A CADA 1 MINUTO
+// 🧹 LIMPEZA AUTOMÁTICA DO CONSOLE - REMOVIDA
 // ═══════════════════════════════════════════════════════════════════════════════
-// Evita acúmulo de logs após horas de uso, prevenindo travamentos no background
-setInterval(() => {
-    console.clear();
-    console.log('%c🧹 Console limpo automaticamente (executado a cada 1 minuto)', 'color: #00AAFF; font-weight: bold;');
-}, 60000); // 60000ms = 1 minuto
+// Removido a pedido do usuário - logs não serão mais limpos automaticamente
 
 const originalBackgroundConsoleLog = console.log.bind(console);
 
