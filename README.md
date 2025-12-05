@@ -1,4 +1,4 @@
-# Blaze Double Analyzer
+# Blaze Double Analyzer (Atualizado p/ servidor BR 45.231.133.221:3000)
 
 Extensão de navegador para análise de padrões e sugestões de apostas no jogo Double da Blaze.
 
