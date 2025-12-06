@@ -7786,6 +7786,32 @@ async function persistAnalyzerState(newState) {
         
         console.log('%c✅ [BLAZE LOGIN] Sistema de login inicializado!', 'color: #10b981; font-weight: bold;');
         
+        // 🔄 Verificar automaticamente se a extensão já conectou
+        (async () => {
+            // Esperar 1 segundo para a UI carregar
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            
+            console.log('%c🔍 [EXTENSÃO] Verificando se já existe sessão ativa...', 'color: #fbbf24; font-weight: bold;');
+            const connected = await checkExtensionLogin();
+            
+            if (!connected) {
+                // Se não está conectado, iniciar polling automático
+                console.log('%c🔄 [EXTENSÃO] Iniciando polling automático...', 'color: #fbbf24; font-weight: bold;');
+                
+                if (!extensionPollingInterval) {
+                    extensionPollingInterval = setInterval(async () => {
+                        const nowConnected = await checkExtensionLogin();
+                        if (nowConnected) {
+                            // Parar polling quando conectar
+                            clearInterval(extensionPollingInterval);
+                            extensionPollingInterval = null;
+                            console.log('%c✅ [EXTENSÃO] Polling interrompido (conectado)', 'color: #10b981; font-weight: bold;');
+                        }
+                    }, 5000); // Verificar a cada 5 segundos
+                }
+            }
+        })();
+        
         const finalizeBlazeTokenSync = (sessionUpdate = {}) => {
             if (!sessionUpdate || !sessionUpdate.accessToken) {
                 console.warn('⚠️ finalizeBlazeTokenSync chamado sem ACCESS_TOKEN válido.');
