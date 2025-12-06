@@ -21,17 +21,7 @@
   <div class="label">Cookies:</div>
   <div id="cookies" class="mono">-</div>
 
-  <script>
-    const statusEl = document.getElementById('status');
-    const tokenEl = document.getElementById('token');
-    const cookiesEl = document.getElementById('cookies');
-
-    chrome.storage.local.get(['status', 'token', 'cookies'], (data) => {
-      statusEl.textContent = data.status || 'Aguardando...';
-      tokenEl.textContent = data.token || '(token não encontrado)';
-      cookiesEl.textContent = data.cookies || '(sem cookies)';
-    });
-  </script>
+  <script src="popup.js"></script>
 </body>
 </html>
 
