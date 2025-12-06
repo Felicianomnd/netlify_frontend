@@ -272,9 +272,9 @@ class RemoteBrowser {
             // Timeout reduzido: se não vier frame em 25s, avisar
             setTimeout(() => {
                 if (!this.isConnected) {
-                    reject(new Error('Timeout ao conectar (25s). Verifique sua conexão e tente novamente.'));
+                    reject(new Error('Timeout ao conectar (90s). Verifique sua conexão e tente novamente.'));
                 }
-            }, 25000);
+            }, 90000);
         });
     }
     
