@@ -59,19 +59,20 @@ class RemoteBrowser {
             max-height: 100%;
         `;
         
-        // Canvas para exibir frames (MODO MOBILE 412x915) - SEM BORDAS
+        // Canvas para exibir frames (PROPORÇÃO IPHONE 12: 390x844)
         this.canvas = document.createElement('canvas');
         this.canvas.id = 'remoteBrowserCanvas';
-        this.canvas.width = 412;  // Largura mobile
-        this.canvas.height = 915; // Altura mobile
+        this.canvas.width = 390;  // iPhone 12 width
+        this.canvas.height = 844; // iPhone 12 height
         this.canvas.style.cssText = `
-            width: auto;
-            height: calc(100vh - 120px);
-            max-height: 915px;
+            width: 390px;
+            height: 844px;
             background: #000;
             cursor: crosshair;
             display: block;
             border: none;
+            border-radius: 20px;
+            box-shadow: 0 0 50px rgba(0, 0, 0, 0.5);
         `;
         
         this.ctx = this.canvas.getContext('2d');
