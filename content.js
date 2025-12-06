@@ -7656,12 +7656,19 @@ async function persistAnalyzerState(newState) {
                 if (blazeLoginElements.info) {
                     blazeLoginElements.info.style.display = 'flex';
                     if (blazeLoginElements.userEmail) {
-                        const displayName = data.user?.username || data.user?.email || '-';
+                        const displayName = data.user?.username || data.user?.email || data.user?.name || '-';
                         blazeLoginElements.userEmail.textContent = displayName;
                     }
                     if (blazeLoginElements.userBalance) {
-                        const balance = data.user?.balance || '0,00';
+                        // O saldo vem em data.balance[0].balance (é um array!)
+                        let balance = '0,00';
+                        if (data.balance && Array.isArray(data.balance) && data.balance.length > 0) {
+                            balance = parseFloat(data.balance[0].balance || 0).toFixed(2).replace('.', ',');
+                        } else if (data.user?.balance) {
+                            balance = parseFloat(data.user.balance || 0).toFixed(2).replace('.', ',');
+                        }
                         blazeLoginElements.userBalance.textContent = `R$ ${balance}`;
+                        console.log('%c💰 [FRONTEND] Saldo atualizado:', 'color: #10b981; font-weight: bold;', `R$ ${balance}`);
                     }
                 }
                 if (blazeLoginElements.autoBetEnabled) {
