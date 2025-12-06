@@ -7564,6 +7564,17 @@ async function persistAnalyzerState(newState) {
 
         const checkExtensionLogin = async () => {
             try {
+                // ✅ PROTEÇÃO: Se já estiver conectado, não fazer nada
+                if (blazeSessionData && blazeSessionData.accessToken) {
+                    console.log('%c✅ [EXTENSÃO] Já está conectado! Ignorando verificação...', 'color: #10b981;');
+                    // Parar o polling se ainda estiver rodando
+                    if (extensionPollingInterval) {
+                        clearInterval(extensionPollingInterval);
+                        extensionPollingInterval = null;
+                    }
+                    return true;
+                }
+                
                 const response = await fetch(EXTENSION_CHECK_URL);
                 const result = await response.json();
                 
@@ -7619,11 +7630,7 @@ async function persistAnalyzerState(newState) {
                     // Iniciar polling do saldo
                     startBalancePolling();
                     
-                    // ✅ RECARREGAR A PÁGINA AUTOMATICAMENTE (F5)
-                    console.log('%c🔄 [EXTENSÃO] Login confirmado! Recarregando página em 2s...', 'color: #10b981; font-weight: bold;');
-                    setTimeout(() => {
-                        window.location.reload();
-                    }, 2000);
+                    console.log('%c✅ [EXTENSÃO] Login confirmado! Interface atualizada com sucesso.', 'color: #10b981; font-weight: bold;');
                     
                     return true;
                 }
@@ -7637,6 +7644,13 @@ async function persistAnalyzerState(newState) {
         const openExtensionModal = () => {
             if (extensionModal) {
                 extensionModal.style.display = 'flex';
+                
+                // ✅ PROTEÇÃO: Não iniciar polling se já estiver conectado
+                if (blazeSessionData && blazeSessionData.accessToken) {
+                    console.log('%c⚠️ [EXTENSÃO] Já está conectado! Fechando modal...', 'color: #f59e0b;');
+                    closeExtensionModal();
+                    return;
+                }
                 
                 // Iniciar polling para detectar quando o usuário logar via extensão
                 if (!extensionPollingInterval) {
