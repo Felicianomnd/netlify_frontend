@@ -7280,13 +7280,41 @@ async function persistAnalyzerState(newState) {
                             Fechar
                         </button>
                     </div>
-                    <div class="auto-bet-modal-body">
+                    
+                    <!-- Abas -->
+                    <div style="display: flex; border-bottom: 1px solid rgba(255,255,255,0.1); margin-bottom: 20px;">
+                        <button type="button" class="blaze-login-tab active" data-tab="extension" style="flex: 1; padding: 12px; background: transparent; border: none; color: #fff; cursor: pointer; border-bottom: 2px solid #00AAFF; font-weight: bold;">
+                            Extensão
+                        </button>
+                        <button type="button" class="blaze-login-tab" data-tab="manual" style="flex: 1; padding: 12px; background: transparent; border: none; color: rgba(255,255,255,0.5); cursor: pointer; border-bottom: 2px solid transparent;">
+                            Token Manual
+                        </button>
+                    </div>
+                    
+                    <!-- Conteúdo Extensão -->
+                    <div class="auto-bet-modal-body blaze-login-content" data-content="extension">
                         <p style="margin-bottom: 16px; font-size: 15px;">
                             Baixe a extensão para logar na conta Blaze
                         </p>
                         <button type="button" class="blaze-login-btn" id="downloadExtensionBtn" style="width: 100%;">
                             <span class="button-label">Baixar Extensão</span>
                         </button>
+                    </div>
+                    
+                    <!-- Conteúdo Token Manual -->
+                    <div class="auto-bet-modal-body blaze-login-content" data-content="manual" style="display: none;">
+                        <div style="margin-bottom: 16px;">
+                            <label style="display: block; margin-bottom: 6px; font-size: 13px; color: rgba(255,255,255,0.7);">ACCESS_TOKEN</label>
+                            <input type="text" id="manualAccessToken" placeholder="eyJ..." style="width: 100%; padding: 10px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.2); border-radius: 4px; color: #fff; font-size: 13px; font-family: monospace;">
+                        </div>
+                        <div style="margin-bottom: 20px;">
+                            <label style="display: block; margin-bottom: 6px; font-size: 13px; color: rgba(255,255,255,0.7);">REFRESH_TOKEN</label>
+                            <input type="text" id="manualRefreshToken" placeholder="eyJ..." style="width: 100%; padding: 10px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.2); border-radius: 4px; color: #fff; font-size: 13px; font-family: monospace;">
+                        </div>
+                        <button type="button" class="blaze-login-btn" id="manualTokenConnectBtn" style="width: 100%;">
+                            <span class="button-label">Conectar</span>
+                        </button>
+                        <div id="manualTokenError" style="display: none; margin-top: 12px; padding: 10px; background: rgba(255,0,0,0.1); border: 1px solid rgba(255,0,0,0.3); border-radius: 4px; color: #ff6b6b; font-size: 13px;"></div>
                     </div>
                 </div>
             </div>
@@ -7688,6 +7716,106 @@ async function persistAnalyzerState(newState) {
                 window.open(EXTENSION_DOWNLOAD_URL, '_blank');
             });
         }
+        
+        // ═══════════════════════════════════════════════════════════════
+        // 🔄 LOGIN MANUAL POR TOKEN
+        // ═══════════════════════════════════════════════════════════════
+        
+        // Alternar entre abas
+        const loginTabs = document.querySelectorAll('.blaze-login-tab');
+        const loginContents = document.querySelectorAll('.blaze-login-content');
+        
+        loginTabs.forEach(tab => {
+            tab.addEventListener('click', () => {
+                const targetTab = tab.dataset.tab;
+                
+                // Atualizar abas
+                loginTabs.forEach(t => {
+                    const isActive = t.dataset.tab === targetTab;
+                    t.classList.toggle('active', isActive);
+                    t.style.color = isActive ? '#fff' : 'rgba(255,255,255,0.5)';
+                    t.style.borderBottomColor = isActive ? '#00AAFF' : 'transparent';
+                    t.style.fontWeight = isActive ? 'bold' : 'normal';
+                });
+                
+                // Atualizar conteúdo
+                loginContents.forEach(content => {
+                    content.style.display = content.dataset.content === targetTab ? 'block' : 'none';
+                });
+            });
+        });
+        
+        // Login manual com tokens
+        const manualAccessTokenInput = document.getElementById('manualAccessToken');
+        const manualRefreshTokenInput = document.getElementById('manualRefreshToken');
+        const manualTokenConnectBtn = document.getElementById('manualTokenConnectBtn');
+        const manualTokenError = document.getElementById('manualTokenError');
+        
+        if (manualTokenConnectBtn) {
+            manualTokenConnectBtn.addEventListener('click', async () => {
+                const accessToken = manualAccessTokenInput?.value.trim() || '';
+                const refreshToken = manualRefreshTokenInput?.value.trim() || '';
+                
+                // Validar
+                if (!accessToken || !refreshToken) {
+                    showManualTokenError('Preencha ambos os tokens');
+                    return;
+                }
+                
+                if (!accessToken.startsWith('eyJ') || !refreshToken.startsWith('eyJ')) {
+                    showManualTokenError('Tokens inválidos (devem começar com "eyJ")');
+                    return;
+                }
+                
+                // Enviar para servidor
+                try {
+                    setButtonBusyState(manualTokenConnectBtn, true);
+                    hideManualTokenError();
+                    
+                    const response = await fetch(`${BLAZE_AUTH_API}/manual-token-login`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ accessToken, refreshToken })
+                    });
+                    
+                    const result = await response.json();
+                    
+                    if (result.success) {
+                        console.log('%c✅ [TOKEN MANUAL] Login bem-sucedido!', 'color: #10b981; font-weight: bold;');
+                        
+                        // Limpar campos
+                        if (manualAccessTokenInput) manualAccessTokenInput.value = '';
+                        if (manualRefreshTokenInput) manualRefreshTokenInput.value = '';
+                        
+                        // Fechar modal
+                        closeExtensionModal();
+                        
+                        // Verificar sessão (vai atualizar a UI)
+                        await checkExtensionLogin();
+                    } else {
+                        showManualTokenError(result.message || 'Erro ao conectar');
+                    }
+                } catch (error) {
+                    console.error('[TOKEN MANUAL] Erro:', error);
+                    showManualTokenError('Erro de conexão com servidor');
+                } finally {
+                    setButtonBusyState(manualTokenConnectBtn, false);
+                }
+            });
+        }
+        
+        const showManualTokenError = (message) => {
+            if (manualTokenError) {
+                manualTokenError.textContent = message;
+                manualTokenError.style.display = 'block';
+            }
+        };
+        
+        const hideManualTokenError = () => {
+            if (manualTokenError) {
+                manualTokenError.style.display = 'none';
+            }
+        };
         
         console.log('%c🔍 [BLAZE LOGIN] Verificando elementos...', 'color: #fbbf24; font-weight: bold;');
         console.log('📋 Elementos encontrados:', {
