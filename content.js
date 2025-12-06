@@ -7630,7 +7630,7 @@ async function persistAnalyzerState(newState) {
                     }
                     const balanceFormatted = balanceValue.toFixed(2).replace('.', ',');
                     
-                    // Salvar sessão COM FORMATO CORRETO
+                    // Sessão em memória (não persistir tokens no localStorage)
                     blazeSessionData = {
                         ...result.data,
                         user: {
@@ -7638,11 +7638,13 @@ async function persistAnalyzerState(newState) {
                             balance: balanceFormatted  // String formatada: "40,01"
                         }
                     };
-                    localStorage.setItem('blazeSession', JSON.stringify(blazeSessionData));
-                    console.log('💾 [checkExtensionLogin] Sessão salva:', blazeSessionData);
+                    console.log('💾 [checkExtensionLogin] Sessão em memória (tokens só no servidor):', blazeSessionData);
                     
-                    // Atualizar UI com status conectado
-                    updateBlazeLoginUI('connected', 'Conectado via Extensão', blazeSessionData);
+                    // Atualizar UI com status conectado (servidor)
+                    updateBlazeLoginUI('connected', 'Conectado (Servidor)', blazeSessionData);
+                    
+                    // Garantir que o backend receba/salve os tokens para multi-device
+                    await saveTokenToBackend(blazeSessionData);
                     
                     // Forçar atualização do painel de saldo
                     console.log('%c🔄 [checkExtensionLogin] Forçando atualização do painel de saldo...', 'color: #fbbf24; font-weight: bold;');
@@ -8366,32 +8368,13 @@ async function persistAnalyzerState(newState) {
                 }
             }
             
-            // Se não tem no servidor, tentar do localStorage (modo offline ou usuário não autenticado)
-            const savedSession = localStorage.getItem('blazeSession');
-            if (savedSession) {
-                blazeSessionData = JSON.parse(savedSession);
-                    
-                    // Verificar se tem ACCESS_TOKEN
-                    if (blazeSessionData.accessToken) {
-                updateBlazeLoginUI('connected', 'Conectado (Local)', blazeSessionData);
-                        startBalancePolling();
-                console.log('%c🔐 Sessão Blaze restaurada do localStorage (não sincronizada)', 'color: #f59e0b; font-weight: bold;');
-                    } else {
-                        // Tem sessão mas SEM token = sessão inválida, limpar
-                        console.log('%c⚠️ Sessão sem ACCESS_TOKEN, limpando...', 'color: #f59e0b; font-weight: bold;');
-                        localStorage.removeItem('blazeSession');
-                        blazeSessionData = null;
-                        updateBlazeLoginUI('disconnected', 'Desconectado');
-                    }
-                } else {
-                    // Não tem sessão salva em nenhum lugar
-                    console.log('%c📭 Nenhuma sessão Blaze salva (nem servidor nem local)', 'color: #6b7280; font-weight: bold;');
-                    updateBlazeLoginUI('disconnected', 'Desconectado');
-            }
+            // 🚫 Não usar fallback local: exigir sessão vinda do servidor
+            console.log('%c📭 Nenhuma sessão Blaze disponível no servidor. Aguardando extensão/refresh.', 'color: #6b7280; font-weight: bold;');
+            blazeSessionData = null;
+            updateBlazeLoginUI('disconnected', 'Desconectado');
         } catch (error) {
                 console.warn('⚠️ Erro ao restaurar sessão Blaze:', error);
                 // Limpar sessão inválida
-                localStorage.removeItem('blazeSession');
                 blazeSessionData = null;
                 updateBlazeLoginUI('disconnected', 'Desconectado');
         }
