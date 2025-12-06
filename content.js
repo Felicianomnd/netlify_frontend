@@ -8039,19 +8039,29 @@ async function persistAnalyzerState(newState) {
         };
         
         const startBalancePolling = () => {
+            console.log('%c🚀 [WEBSOCKET] startBalancePolling INICIADO!', 'color: #ff0000; font-weight: bold; font-size: 16px;');
+            console.log('📊 blazeSessionData:', blazeSessionData);
+            console.log('🔑 accessToken:', blazeSessionData?.accessToken ? 'PRESENTE' : 'AUSENTE');
+            console.log('🌐 BLAZE_AUTH_API:', BLAZE_AUTH_API);
+            
             if (!blazeSessionData?.accessToken) {
-                console.warn('⚠️ [BLAZE] Sem ACCESS_TOKEN para WebSocket de saldo');
+                console.error('❌ [BLAZE] Sem ACCESS_TOKEN para WebSocket de saldo');
                 return;
             }
             
             if (balanceSocket) {
+                console.log('🔄 [BLAZE] Fechando WebSocket anterior...');
                 balanceSocket.close();
             }
             
             console.log('%c🔄 [BLAZE] Conectando ao WebSocket de saldo...', 'color: #10b981; font-weight: bold;');
             
             // Conectar ao servidor BR (proxy via Render)
-            const wsUrl = `${BLAZE_AUTH_API.replace('https', 'wss')}/ws/balance?token=${encodeURIComponent(blazeSessionData.accessToken)}`;
+            // Remover /api/blaze e adicionar /ws/balance
+            const baseUrl = BLAZE_AUTH_API.replace('/api/blaze', '').replace('https', 'wss');
+            const wsUrl = `${baseUrl}/ws/balance?token=${encodeURIComponent(blazeSessionData.accessToken)}`;
+            
+            console.log('🌐 URL WebSocket:', wsUrl.substring(0, 80) + '...');
             
             balanceSocket = new WebSocket(wsUrl);
             
