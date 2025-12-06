@@ -3800,14 +3800,27 @@ autoBetHistoryStore.init().catch(error => console.warn('AutoBetHistory: iniciali
         }
 
         function getInitialBalanceValue() {
-            // Se modo real estiver ativo e houver saldo da Blaze, usar o saldo real
+            // Se modo real estiver ativo, SEMPRE usar o saldo da Blaze
             if (config.enabled) {
                 try {
                     const savedSession = localStorage.getItem('blazeSession');
                     if (savedSession) {
                         const sessionData = JSON.parse(savedSession);
-                        if (sessionData.user && sessionData.user.balance) {
-                            const blazeBalance = parseFloat(sessionData.user.balance.replace(',', '.')) || 0;
+                        
+                        // Verificar múltiplos formatos possíveis do saldo
+                        let blazeBalance = 0;
+                        
+                        // Formato 1: user.balance como string formatada "43,01"
+                        if (sessionData.user?.balance) {
+                            blazeBalance = parseFloat(String(sessionData.user.balance).replace(',', '.')) || 0;
+                        }
+                        // Formato 2: balance array (da API)
+                        else if (sessionData.balance && Array.isArray(sessionData.balance) && sessionData.balance.length > 0) {
+                            blazeBalance = parseFloat(sessionData.balance[0].balance) || 0;
+                        }
+                        
+                        if (blazeBalance > 0) {
+                            console.log(`💰 [getInitialBalanceValue] Usando saldo REAL da Blaze: R$ ${blazeBalance.toFixed(2)}`);
                             return Math.max(0, blazeBalance);
                         }
                     }
@@ -3816,6 +3829,7 @@ autoBetHistoryStore.init().catch(error => console.warn('AutoBetHistory: iniciali
                 }
             }
             // Caso contrário, usar saldo simulado
+            console.log(`🎮 [getInitialBalanceValue] Usando saldo SIMULADO: R$ ${Number(config.simulationBankRoll) || AUTO_BET_DEFAULTS.simulationBankRoll}`);
             return Math.max(0, Number(config.simulationBankRoll) || AUTO_BET_DEFAULTS.simulationBankRoll);
         }
 
