@@ -8000,14 +8000,24 @@ async function persistAnalyzerState(newState) {
                 if (response.ok) {
                     const result = await response.json();
                     
+                    console.log('%c📊 [DEBUG fetchBalance] Resposta:', 'color: #fbbf24; font-weight: bold;', result);
+                    
                     if (result.success && result.balance) {
                         // Extrair saldo total (real + bonus)
                         let totalBalance = 0;
                         
-                        if (result.balance.balance !== undefined) {
+                        // O saldo vem como array: [{ balance: "40.0055" }]
+                        if (Array.isArray(result.balance) && result.balance.length > 0) {
+                            totalBalance = parseFloat(result.balance[0].balance) || 0;
+                            console.log('✅ Saldo do array:', totalBalance);
+                        } else if (result.balance.balance !== undefined) {
                             totalBalance = parseFloat(result.balance.balance) || 0;
+                            console.log('✅ Saldo do objeto:', totalBalance);
                         } else if (result.balance.real !== undefined && result.balance.bonus !== undefined) {
                             totalBalance = (parseFloat(result.balance.real) || 0) + (parseFloat(result.balance.bonus) || 0);
+                            console.log('✅ Saldo real+bonus:', totalBalance);
+                        } else {
+                            console.error('❌ Formato de saldo não reconhecido:', result.balance);
                         }
                         
                         const balanceFormatted = totalBalance.toFixed(2).replace('.', ',');
