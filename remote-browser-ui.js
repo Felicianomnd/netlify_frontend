@@ -88,31 +88,7 @@ class RemoteBrowser {
         
         console.log('[RemoteBrowser] ✅ Canvas criado:', this.canvas.width, 'x', this.canvas.height);
         
-        // Status bar (conexão e FPS)
-        const statusBar = document.createElement('div');
-        statusBar.id = 'remoteBrowserStatus';
-        statusBar.style.cssText = `
-            display: flex;
-            gap: 16px;
-            align-items: center;
-            padding: 8px 16px;
-            background: rgba(0, 0, 0, 0.8);
-            border-radius: 8px;
-            color: white;
-            font-size: 12px;
-            font-family: monospace;
-        `;
-        statusBar.innerHTML = `
-            <div style="display: flex; align-items: center; gap: 6px;">
-                <span style="width: 8px; height: 8px; background: #10b981; border-radius: 50%; display: inline-block;" id="connectionIndicator"></span>
-                <span id="connectionText">Online</span>
-            </div>
-            <div>
-                <span id="remoteBrowserFPS">0 FPS</span>
-            </div>
-        `;
-        
-        // Botão Fechar
+        // Botão Fechar (SEM status bar - não precisa)
         const closeBtn = document.createElement('button');
         closeBtn.id = 'remoteBrowserClose';
         closeBtn.style.cssText = `
@@ -130,7 +106,6 @@ class RemoteBrowser {
         closeBtn.onmouseenter = () => closeBtn.style.background = '#dc2626';
         closeBtn.onmouseleave = () => closeBtn.style.background = '#ef4444';
         
-        this.container.appendChild(statusBar);
         this.container.appendChild(this.canvas);
         this.container.appendChild(closeBtn);
         
@@ -218,15 +193,13 @@ class RemoteBrowser {
     async connect() {
         return new Promise((resolve, reject) => {
             this.log('🔗 Conectando ao servidor...');
-            this.updateStatus('Conectando...');
             
             this.ws = new WebSocket(this.wsUrl);
             
             this.ws.onopen = () => {
-                this.connectedAt = Date.now(); // 🔥 NOVO: Timestamp de conexão
+                this.connectedAt = Date.now();
                 console.log('[RemoteBrowser] ✅ WebSocket conectado em:', new Date().toISOString());
                 this.log('✅ WebSocket conectado!');
-                this.updateStatus('Iniciando navegador...');
                 
                 console.log('[RemoteBrowser] 🚀 Enviando comando start-remote-browser-manual...');
                 
@@ -279,7 +252,6 @@ class RemoteBrowser {
             this.ws.onerror = (error) => {
                 const msg = 'Erro de conexão com o servidor';
                 this.log('❌ ' + msg);
-                this.updateStatus('Erro');
                 reject(new Error(msg));
             };
             
@@ -290,9 +262,8 @@ class RemoteBrowser {
                 console.log(`[RemoteBrowser] 🔍 wasClean: ${event.wasClean}`);
                 
                 this.log(`🔌 Conexão fechada (código: ${event.code}, razão: ${event.reason || 'N/A'})`);
-                this.updateStatus('Desconectado');
                 this.isConnected = false;
-                this.stopKeepalive(); // 🔥 NOVO: Parar keepalive
+                this.stopKeepalive();
             };
             
             // Timeout de 60s (navegador pode demorar ~20-30s para iniciar completamente)
@@ -322,14 +293,11 @@ class RemoteBrowser {
                 
             case 'browser-started':
                 this.log('✅ Navegador iniciado! Faça login na Blaze.');
-                this.updateStatus('Online');
-                // Focar no canvas
                 this.canvas.focus();
                 break;
                 
             case 'browser-stopped':
                 this.log('🛑 Navegador encerrado');
-                this.updateStatus('Encerrado');
                 break;
                 
             case 'click-success':
@@ -342,7 +310,6 @@ class RemoteBrowser {
                 
             case 'error':
                 this.log('❌ Erro: ' + data.message);
-                this.updateStatus('Erro');
                 alert('Erro no Remote Browser: ' + data.message);
                 break;
                 
@@ -380,13 +347,7 @@ class RemoteBrowser {
             this.drawCursor();
             
             // Calcular FPS
-            const now = Date.now();
-            if (this.lastFrameTime > 0) {
-                const delta = now - this.lastFrameTime;
-                this.fps = Math.round(1000 / delta);
-                this.updateFPS(this.fps); // Atualizar FPS separadamente
-            }
-            this.lastFrameTime = now;
+            this.lastFrameTime = Date.now();
         };
         
         img.onerror = (error) => {
@@ -510,23 +471,7 @@ class RemoteBrowser {
         this.log(`⌨️ Pressionou: ${key}`);
     }
     
-    // Atualizar status (novo formato com indicador e FPS)
-    updateStatus(text) {
-        const connectionText = document.getElementById('connectionText');
-        if (connectionText) {
-            connectionText.textContent = text;
-        }
-    }
-    
-    // Atualizar FPS no status bar
-    updateFPS(fps) {
-        const fpsEl = document.getElementById('remoteBrowserFPS');
-        if (fpsEl) {
-            const color = fps >= 20 ? '#10b981' : fps >= 10 ? '#fbbf24' : '#ef4444';
-            fpsEl.textContent = `${fps} FPS`;
-            fpsEl.style.color = color;
-        }
-    }
+    // Métodos de log simplificados (sem UI)
     
     // Adicionar log
     log(message) {
@@ -550,7 +495,6 @@ class RemoteBrowser {
     // Confirmar login (botão "Logado")
     async confirmLogin() {
         this.log('✅ Confirmando login...');
-        this.updateStatus('Salvando sessão...');
         
         // Solicitar cookies/token do servidor
         if (this.ws && this.ws.readyState === WebSocket.OPEN) {
