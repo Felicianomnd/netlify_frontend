@@ -69,7 +69,7 @@ class RemoteBrowser {
             height: 80vh;
             max-height: 700px;
             background: #000;
-            cursor: crosshair;
+            cursor: default;
             display: block;
             border: none;
             border-radius: 15px;
