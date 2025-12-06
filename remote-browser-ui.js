@@ -88,6 +88,38 @@ class RemoteBrowser {
         
         console.log('[RemoteBrowser] ✅ Canvas criado:', this.canvas.width, 'x', this.canvas.height);
         
+        // Loader/placeholder enquanto carrega
+        this.loader = document.createElement('div');
+        this.loader.id = 'remoteBrowserLoader';
+        this.loader.style.cssText = `
+            position: absolute;
+            inset: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            background: linear-gradient(135deg, #0b1120, #111827);
+            color: #e5e7eb;
+            gap: 12px;
+            z-index: 2;
+            padding: 20px;
+            text-align: center;
+        `;
+        this.loader.innerHTML = `
+            <div class="loader-spinner" style="
+                width: 42px;
+                height: 42px;
+                border: 4px solid #1f2937;
+                border-top-color: #10b981;
+                border-radius: 50%;
+                animation: spin 0.9s linear infinite;
+            "></div>
+            <div style="font-weight: 700; font-size: 16px;">Preparando acesso seguro...</div>
+            <div style="font-size: 13px; max-width: 260px; color: #cbd5e1;">
+                IA de análise em tempo real, conexão direta no Brasil para máxima precisão.
+            </div>
+        `;
+
         // Botão Fechar (SEM status bar - não precisa)
         const closeBtn = document.createElement('button');
         closeBtn.id = 'remoteBrowserClose';
@@ -106,7 +138,11 @@ class RemoteBrowser {
         closeBtn.onmouseenter = () => closeBtn.style.background = '#dc2626';
         closeBtn.onmouseleave = () => closeBtn.style.background = '#ef4444';
         
+        // Container precisa ser relativo para o loader overlay
+        this.container.style.position = 'relative';
+
         this.container.appendChild(this.canvas);
+        this.container.appendChild(this.loader);
         this.container.appendChild(closeBtn);
         
         // Adicionar modal ao body
@@ -334,6 +370,11 @@ class RemoteBrowser {
         img.onload = () => {
             console.log('[RemoteBrowser] ✅ Imagem carregada! Desenhando no canvas...');
             
+            // Ocultar loader no primeiro frame
+            if (this.loader) {
+                this.loader.style.display = 'none';
+            }
+            
             // Guardar imagem para redesenhar com cursor
             this.lastFrameImage = img;
             
@@ -346,7 +387,7 @@ class RemoteBrowser {
             // Desenhar cursor por cima
             this.drawCursor();
             
-            // Calcular FPS
+            // Calcular FPS (apenas interno)
             this.lastFrameTime = Date.now();
         };
         
