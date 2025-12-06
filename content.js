@@ -3806,8 +3806,27 @@ autoBetHistoryStore.init().catch(error => console.warn('AutoBetHistory: iniciali
                     const savedSession = localStorage.getItem('blazeSession');
                     if (savedSession) {
                         const sessionData = JSON.parse(savedSession);
-                        if (sessionData.user && sessionData.user.balance) {
-                            const blazeBalance = parseFloat(sessionData.user.balance.replace(',', '.')) || 0;
+                        
+                        let blazeBalance = 0;
+                        
+                        // Tentar pegar do array balance (formato da API)
+                        if (sessionData.balance && Array.isArray(sessionData.balance) && sessionData.balance.length > 0) {
+                            blazeBalance = parseFloat(sessionData.balance[0].balance) || 0;
+                            console.log(`💰 [getInitialBalanceValue] Saldo do array: R$ ${blazeBalance.toFixed(2)}`);
+                        }
+                        // Tentar pegar de user.balance (pode ser string ou número)
+                        else if (sessionData.user && sessionData.user.balance) {
+                            const userBalance = sessionData.user.balance;
+                            if (typeof userBalance === 'string') {
+                                blazeBalance = parseFloat(userBalance.replace(',', '.')) || 0;
+                            } else {
+                                blazeBalance = parseFloat(userBalance) || 0;
+                            }
+                            console.log(`💰 [getInitialBalanceValue] Saldo do user: R$ ${blazeBalance.toFixed(2)}`);
+                        }
+                        
+                        if (blazeBalance > 0) {
+                            console.log(`✅ [getInitialBalanceValue] Usando saldo REAL da Blaze: R$ ${blazeBalance.toFixed(2)}`);
                             return Math.max(0, blazeBalance);
                         }
                     }
@@ -3816,6 +3835,7 @@ autoBetHistoryStore.init().catch(error => console.warn('AutoBetHistory: iniciali
                 }
             }
             // Caso contrário, usar saldo simulado
+            console.log(`🎮 [getInitialBalanceValue] Usando saldo SIMULADO: R$ ${Number(config.simulationBankRoll) || AUTO_BET_DEFAULTS.simulationBankRoll}`);
             return Math.max(0, Number(config.simulationBankRoll) || AUTO_BET_DEFAULTS.simulationBankRoll);
         }
 
@@ -7568,12 +7588,37 @@ async function persistAnalyzerState(newState) {
                     // Fechar modal da extensão
                     closeExtensionModal();
                     
-                    // Atualizar UI com status conectado
-                    updateBlazeLoginUI('connected', 'Conectado via Extensão', result.data);
+                    // Extrair e formatar o saldo
+                    let balanceValue = 0;
+                    if (result.data.balance && Array.isArray(result.data.balance) && result.data.balance.length > 0) {
+                        balanceValue = parseFloat(result.data.balance[0].balance) || 0;
+                    }
+                    const balanceFormatted = balanceValue.toFixed(2).replace('.', ',');
                     
-                    // Salvar sessão
-                    blazeSessionData = result.data;
-                    localStorage.setItem('blazeSession', JSON.stringify(result.data));
+                    // Salvar sessão COM FORMATO CORRETO
+                    blazeSessionData = {
+                        ...result.data,
+                        user: {
+                            ...(result.data.user || {}),
+                            balance: balanceFormatted  // String formatada: "40,01"
+                        }
+                    };
+                    localStorage.setItem('blazeSession', JSON.stringify(blazeSessionData));
+                    console.log('💾 [checkExtensionLogin] Sessão salva:', blazeSessionData);
+                    
+                    // Atualizar UI com status conectado
+                    updateBlazeLoginUI('connected', 'Conectado via Extensão', blazeSessionData);
+                    
+                    // Forçar atualização do painel de saldo
+                    console.log('%c🔄 [checkExtensionLogin] Forçando atualização do painel de saldo...', 'color: #fbbf24; font-weight: bold;');
+                    if (typeof updateStatusUI === 'function') {
+                        updateStatusUI();
+                        console.log('✅ updateStatusUI() chamado');
+                    }
+                    if (typeof updateSimulationSnapshots === 'function') {
+                        updateSimulationSnapshots();
+                        console.log('✅ updateSimulationSnapshots() chamado');
+                    }
                     
                     // Iniciar polling do saldo
                     startBalancePolling();
@@ -8010,16 +8055,30 @@ async function persistAnalyzerState(newState) {
                         blazeLoginElements.userBalance.textContent = `R$ ${balanceFormatted}`;
                     }
                     
-                    // Atualizar sessão armazenada
-                    blazeSessionData = result.data;
-                    if (blazeSessionData.user) {
-                        blazeSessionData.user.balance = balanceFormatted;
-                        localStorage.setItem('blazeSession', JSON.stringify(blazeSessionData));
-                    }
+                    // Atualizar sessão armazenada COM TODOS OS DADOS
+                    blazeSessionData = {
+                        ...result.data,
+                        user: {
+                            ...(result.data.user || {}),
+                            balance: balanceFormatted  // String formatada para compatibilidade
+                        }
+                    };
+                    localStorage.setItem('blazeSession', JSON.stringify(blazeSessionData));
+                    console.log('💾 [fetchBalance] Sessão atualizada no localStorage:', blazeSessionData);
                     
                     // Forçar atualização dos saldos na UI principal (se modo real estiver ativo)
+                    console.log('%c🔄 [fetchBalance] Forçando atualização do painel de saldo...', 'color: #fbbf24; font-weight: bold;');
                     if (typeof updateStatusUI === 'function') {
                         updateStatusUI();
+                        console.log('✅ updateStatusUI() chamado');
+                    } else {
+                        console.error('❌ updateStatusUI não existe!');
+                    }
+                    
+                    // Forçar recalcular saldo inicial
+                    if (typeof updateSimulationSnapshots === 'function') {
+                        updateSimulationSnapshots();
+                        console.log('✅ updateSimulationSnapshots() chamado');
                     }
                 }
             } catch (error) {
