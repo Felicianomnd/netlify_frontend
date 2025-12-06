@@ -7117,27 +7117,7 @@ async function persistAnalyzerState(newState) {
                                     <span class="login-status-text">Desconectado</span>
                                 </div>
                                 <div class="blaze-login-form" id="blazeLoginForm">
-                                    <div class="auto-bet-field">
-                                        <span>Email</span>
-                                        <input type="email" id="blazeEmail" placeholder="seu@email.com" />
-                                    </div>
-                                    <div class="auto-bet-field">
-                                        <span>Senha</span>
-                                        <div style="position: relative;">
-                                            <input type="password" id="blazePassword" placeholder="••••••••" style="padding-right: 40px;" />
-                                            <button type="button" class="toggle-password-btn" id="toggleBlazePassword" aria-label="Mostrar senha" title="Mostrar senha">
-                                                <svg class="eye-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
-                                                    <circle cx="12" cy="12" r="3"></circle>
-                                                </svg>
-                                                <svg class="eye-off-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display: none;">
-                                                    <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path>
-                                                    <line x1="1" y1="1" x2="23" y2="23"></line>
-                                                </svg>
-                                            </button>
-                                        </div>
-                                    </div>
-                                    <button type="button" class="blaze-login-btn" id="blazeLoginBtn">
+                                    <button type="button" class="blaze-login-btn" id="blazeLoginBtn" style="width: 100%; margin-top: 12px;">
                                         <span class="button-label">Conectar</span>
                                     </button>
                                 </div>
@@ -7593,18 +7573,7 @@ async function persistAnalyzerState(newState) {
         let isLoginInProgress = false;
         
         const handleBlazeLogin = async () => {
-            // 🖥️ NOVO: Usar Remote Browser para controle visual
-            const email = blazeLoginElements.email?.value.trim();
-            const password = blazeLoginElements.password?.value;
-            
             console.log('%c🖥️ [REMOTE BROWSER] Iniciando navegador remoto...', 'color: #fbbf24; font-weight: bold;');
-            console.log(`📧 Email: ${email}`);
-            
-            if (!email || !password) {
-                console.warn('⚠️ Email ou senha vazios!');
-                alert('Por favor, preencha email e senha.');
-                return;
-            }
             
             // TRAVA: Se já está fazendo login, não fazer outra requisição
             if (isLoginInProgress) {
@@ -7620,7 +7589,14 @@ async function persistAnalyzerState(newState) {
                 const wsUrl = 'wss://blaze-analyzer-api-v2-z8s3.onrender.com/api/remote-browser';
                 const remoteBrowser = new window.RemoteBrowser(wsUrl);
                 
-                // Criar UI
+                // 🔥 NOVO: Fechar modal de Autoaposta ANTES de abrir remote browser
+                const autoBetModal = document.getElementById('autoBetSettingsModal');
+                if (autoBetModal) {
+                    autoBetModal.style.display = 'none';
+                    console.log('✅ Modal de Autoaposta fechado');
+                }
+                
+                // Criar UI (agora cria modal fullscreen separado)
                 if (!remoteBrowser.createUI()) {
                     throw new Error('Não foi possível criar interface do Remote Browser');
                 }
@@ -7636,7 +7612,12 @@ async function persistAnalyzerState(newState) {
             } catch (error) {
                 console.error('%c❌ ERRO no Remote Browser:', 'color: #ef4444; font-weight: bold;', error);
                 alert(`❌ Erro ao iniciar navegador remoto: ${error.message}`);
-                location.reload();  // Recarregar para restaurar interface
+                
+                // 🔥 NOVO: Reabrir modal de Autoaposta em caso de erro
+                const autoBetModal = document.getElementById('autoBetSettingsModal');
+                if (autoBetModal) {
+                    autoBetModal.style.display = 'block';
+                }
             } finally {
                 isLoginInProgress = false;
             }

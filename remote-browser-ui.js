@@ -25,44 +25,53 @@ class RemoteBrowser {
         this.keepaliveInterval = null;  // 🔥 NOVO: Intervalo para keepalive
     }
     
-    // Criar interface visual (SIMPLIFICADA - só canvas)
+    // 🔥 NOVO: Criar interface em MODAL FULLSCREEN SEPARADO
     createUI() {
-        console.log('[RemoteBrowser] 🎨 Criando interface...');
+        console.log('[RemoteBrowser] 🎨 Criando interface fullscreen...');
         
-        // Substituir o formulário de login pelo canvas
-        const loginCard = document.querySelector('.blaze-login-card');
-        if (!loginCard) {
-            console.error('[RemoteBrowser] ❌ Login card não encontrado');
-            return false;
-        }
-        
-        console.log('[RemoteBrowser] ✅ Login card encontrado:', loginCard);
+        // Criar modal fullscreen
+        this.modalOverlay = document.createElement('div');
+        this.modalOverlay.id = 'remoteBrowserModal';
+        this.modalOverlay.style.cssText = `
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background: rgba(0, 0, 0, 0.95);
+            z-index: 999999;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        `;
         
         // Criar container do Remote Browser
         this.container = document.createElement('div');
         this.container.id = 'remoteBrowserContainer';
         this.container.style.cssText = `
-            width: 100%;
             display: flex;
             flex-direction: column;
-            gap: 8px;
-            position: relative;
+            gap: 12px;
+            align-items: center;
+            max-width: 100%;
+            max-height: 100%;
         `;
         
-        // Canvas para exibir frames (MODO MOBILE 412x915)
+        // Canvas para exibir frames (MODO MOBILE 412x915) - SEM BORDAS
         this.canvas = document.createElement('canvas');
         this.canvas.id = 'remoteBrowserCanvas';
         this.canvas.width = 412;  // Largura mobile
         this.canvas.height = 915; // Altura mobile
         this.canvas.style.cssText = `
-            width: 100%;
-            max-width: 412px;
-            margin: 0 auto;
-            border-radius: 8px;
+            width: auto;
+            height: calc(100vh - 120px);
+            max-height: 915px;
             background: #000;
-            cursor: none;
+            cursor: crosshair;
             display: block;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+            border: none;
         `;
         
         this.ctx = this.canvas.getContext('2d');
@@ -77,58 +86,55 @@ class RemoteBrowser {
         
         console.log('[RemoteBrowser] ✅ Canvas criado:', this.canvas.width, 'x', this.canvas.height);
         
-        // Botão "Logado" (inicialmente oculto)
-        const confirmBtn = document.createElement('button');
-        confirmBtn.id = 'remoteBrowserConfirm';
-        confirmBtn.style.cssText = `
-            padding: 12px 24px;
-            background: #10b981;
-            color: white;
-            border: none;
+        // Status bar (conexão e FPS)
+        const statusBar = document.createElement('div');
+        statusBar.id = 'remoteBrowserStatus';
+        statusBar.style.cssText = `
+            display: flex;
+            gap: 16px;
+            align-items: center;
+            padding: 8px 16px;
+            background: rgba(0, 0, 0, 0.8);
             border-radius: 8px;
-            cursor: pointer;
-            font-size: 16px;
-            font-weight: bold;
-            display: none;
-            margin: 0 auto;
+            color: white;
+            font-size: 12px;
+            font-family: monospace;
         `;
-        confirmBtn.textContent = '✓ Logado';
+        statusBar.innerHTML = `
+            <div style="display: flex; align-items: center; gap: 6px;">
+                <span style="width: 8px; height: 8px; background: #10b981; border-radius: 50%; display: inline-block;" id="connectionIndicator"></span>
+                <span id="connectionText">Online</span>
+            </div>
+            <div>
+                <span id="remoteBrowserFPS">0 FPS</span>
+            </div>
+        `;
         
         // Botão Fechar
         const closeBtn = document.createElement('button');
         closeBtn.id = 'remoteBrowserClose';
         closeBtn.style.cssText = `
-            padding: 8px 16px;
+            padding: 12px 32px;
             background: #ef4444;
             color: white;
             border: none;
-            border-radius: 6px;
+            border-radius: 8px;
             cursor: pointer;
             font-size: 14px;
-            margin: 0 auto;
-            display: block;
+            font-weight: bold;
+            transition: all 0.2s;
         `;
-        closeBtn.textContent = '✖ Fechar';
+        closeBtn.textContent = '✕ Fechar';
+        closeBtn.onmouseenter = () => closeBtn.style.background = '#dc2626';
+        closeBtn.onmouseleave = () => closeBtn.style.background = '#ef4444';
         
-        // Status (pequeno, discreto)
-        const statusDiv = document.createElement('div');
-        statusDiv.id = 'remoteBrowserStatus';
-        statusDiv.style.cssText = `
-            text-align: center;
-            font-size: 11px;
-            color: #888;
-            padding: 4px;
-        `;
-        statusDiv.textContent = 'Conectando...';
-        
+        this.container.appendChild(statusBar);
         this.container.appendChild(this.canvas);
-        this.container.appendChild(statusDiv);
-        this.container.appendChild(confirmBtn);
         this.container.appendChild(closeBtn);
         
-        // Substituir o conteúdo do login card
-        loginCard.innerHTML = '';
-        loginCard.appendChild(this.container);
+        // Adicionar modal ao body
+        this.modalOverlay.appendChild(this.container);
+        document.body.appendChild(this.modalOverlay);
         
         // Event listeners
         this.setupEventListeners();
@@ -314,15 +320,9 @@ class RemoteBrowser {
                 
             case 'browser-started':
                 this.log('✅ Navegador iniciado! Faça login na Blaze.');
-                this.updateStatus('🟢 Online - Faça login e clique em "Logado"');
+                this.updateStatus('Online');
                 // Focar no canvas
                 this.canvas.focus();
-                // Mostrar botão "Logado"
-                const confirmBtn = document.getElementById('remoteBrowserConfirm');
-                if (confirmBtn) {
-                    confirmBtn.style.display = 'block';
-                    confirmBtn.onclick = () => this.confirmLogin();
-                }
                 break;
                 
             case 'browser-stopped':
@@ -382,7 +382,7 @@ class RemoteBrowser {
             if (this.lastFrameTime > 0) {
                 const delta = now - this.lastFrameTime;
                 this.fps = Math.round(1000 / delta);
-                this.updateStatus(`🟢 Online - ${this.fps} FPS`);
+                this.updateFPS(this.fps); // Atualizar FPS separadamente
             }
             this.lastFrameTime = now;
         };
@@ -508,11 +508,21 @@ class RemoteBrowser {
         this.log(`⌨️ Pressionou: ${key}`);
     }
     
-    // Atualizar status
+    // Atualizar status (novo formato com indicador e FPS)
     updateStatus(text) {
-        const statusEl = document.getElementById('remoteBrowserStatus');
-        if (statusEl) {
-            statusEl.textContent = text;
+        const connectionText = document.getElementById('connectionText');
+        if (connectionText) {
+            connectionText.textContent = text;
+        }
+    }
+    
+    // Atualizar FPS no status bar
+    updateFPS(fps) {
+        const fpsEl = document.getElementById('remoteBrowserFPS');
+        if (fpsEl) {
+            const color = fps >= 20 ? '#10b981' : fps >= 10 ? '#fbbf24' : '#ef4444';
+            fpsEl.textContent = `${fps} FPS`;
+            fpsEl.style.color = color;
         }
     }
     
@@ -586,17 +596,24 @@ class RemoteBrowser {
     async stop() {
         this.log('🛑 Encerrando Remote Browser...');
         
-        this.stopKeepalive(); // 🔥 NOVO: Parar keepalive
+        this.stopKeepalive(); // Parar keepalive
         
         if (this.ws && this.ws.readyState === WebSocket.OPEN) {
             this.ws.send(JSON.stringify({ type: 'stop-remote-browser' }));
             this.ws.close();
         }
         
-        // Aguardar um pouco e recarregar
-        setTimeout(() => {
-            location.reload();
-        }, 1000);
+        // 🔥 NOVO: Remover modal e reabrir Autoaposta
+        if (this.modalOverlay && this.modalOverlay.parentNode) {
+            this.modalOverlay.remove();
+        }
+        
+        // Reabrir modal de Autoaposta
+        const autoBetModal = document.getElementById('autoBetSettingsModal');
+        if (autoBetModal) {
+            autoBetModal.style.display = 'block';
+            console.log('✅ Modal de Autoaposta reaberto');
+        }
     }
 }
 
