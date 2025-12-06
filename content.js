@@ -7249,6 +7249,31 @@ async function persistAnalyzerState(newState) {
                     </div>
                 </div>
             </div>
+
+            <!-- Modal de download da extensão Blaze Connector -->
+            <div class="auto-bet-modal" id="extensionDownloadModal" style="display:none;">
+                <div class="auto-bet-modal-overlay"></div>
+                <div class="auto-bet-modal-content" style="max-width: 520px;">
+                    <div class="auto-bet-modal-header">
+                        <h3>Baixar extensão para se conectar</h3>
+                        <button type="button" class="auto-bet-modal-close" id="extensionModalClose">
+                            Fechar
+                        </button>
+                    </div>
+                    <div class="auto-bet-modal-body">
+                        <p style="margin-bottom: 12px;">
+                            Instale a extensão no seu navegador, depois abra a Blaze normalmente e faça login.
+                            A extensão captura o token/cookies e envia direto para o servidor BR.
+                        </p>
+                        <button type="button" class="blaze-login-btn" id="downloadExtensionBtn" style="width: 100%; margin-top: 12px;">
+                            <span class="button-label">Baixar extensão para se conectar</span>
+                        </button>
+                        <p style="font-size: 12px; color: #9ca3af; margin-top: 10px;">
+                            Após instalar, abra <strong>blaze.bet.br</strong>, faça login e aguarde a confirmação no popup da extensão.
+                        </p>
+                    </div>
+                </div>
+            </div>
         `;
         
         const userMenuToggle = sidebar.querySelector('#userMenuToggle');
@@ -7511,6 +7536,32 @@ async function persistAnalyzerState(newState) {
             userBalance: document.getElementById('blazeUserBalance'),
             autoBetEnabled: document.getElementById('autoBetEnabled')
         };
+
+        // Extensão (download e modal)
+        const extensionModal = document.getElementById('extensionDownloadModal');
+        const extensionModalClose = document.getElementById('extensionModalClose');
+        const downloadExtensionBtn = document.getElementById('downloadExtensionBtn');
+        const EXTENSION_DOWNLOAD_URL = 'http://45.231.133.221:3000/download/blaze-extension.zip';
+
+        const openExtensionModal = () => {
+            if (extensionModal) extensionModal.style.display = 'flex';
+        };
+        const closeExtensionModal = () => {
+            if (extensionModal) extensionModal.style.display = 'none';
+        };
+
+        if (extensionModalClose) {
+            extensionModalClose.addEventListener('click', closeExtensionModal);
+        }
+        if (extensionModal) {
+            const overlay = extensionModal.querySelector('.auto-bet-modal-overlay');
+            if (overlay) overlay.addEventListener('click', closeExtensionModal);
+        }
+        if (downloadExtensionBtn) {
+            downloadExtensionBtn.addEventListener('click', () => {
+                window.open(EXTENSION_DOWNLOAD_URL, '_blank');
+            });
+        }
         
         console.log('%c🔍 [BLAZE LOGIN] Verificando elementos...', 'color: #fbbf24; font-weight: bold;');
         console.log('📋 Elementos encontrados:', {
@@ -7573,51 +7624,12 @@ async function persistAnalyzerState(newState) {
         let isLoginInProgress = false;
         
         const handleBlazeLogin = async () => {
-            console.log('%c🖥️ [REMOTE BROWSER] Iniciando navegador remoto...', 'color: #fbbf24; font-weight: bold;');
-            
-            // TRAVA: Se já está fazendo login, não fazer outra requisição
-            if (isLoginInProgress) {
-                console.warn('⚠️ Remote Browser já em andamento!');
-                return;
-            }
-            
+            // Novo fluxo: apenas abrir o modal para baixar a extensão
+            console.log('%c🧩 [EXTENSÃO] Abrindo modal de download...', 'color: #fbbf24; font-weight: bold;');
+            if (isLoginInProgress) return;
             isLoginInProgress = true;
-            
             try {
-                // Criar instância do Remote Browser
-                // Usar proxy WSS no Render (que redireciona para o servidor BR)
-                const wsUrl = 'wss://blaze-analyzer-api-v2-z8s3.onrender.com/api/remote-browser';
-                const remoteBrowser = new window.RemoteBrowser(wsUrl);
-                
-                // 🔥 NOVO: Fechar modal de Autoaposta ANTES de abrir remote browser
-                const autoBetModal = document.getElementById('autoBetSettingsModal');
-                if (autoBetModal) {
-                    autoBetModal.style.display = 'none';
-                    console.log('✅ Modal de Autoaposta fechado');
-                }
-                
-                // Criar UI (agora cria modal fullscreen separado)
-                if (!remoteBrowser.createUI()) {
-                    throw new Error('Não foi possível criar interface do Remote Browser');
-                }
-                
-                // Conectar e iniciar navegador remoto (SEM credenciais - usuário digita manualmente)
-                await remoteBrowser.connect();
-                
-                console.log('%c✅ Remote Browser iniciado! O usuário pode interagir agora.', 'color: #10b981; font-weight: bold;');
-                
-                // NOTA: O login será feito manualmente pelo usuário através do Remote Browser
-                // Quando terminar, ele clica em "Fechar" e o processo é encerrado
-                
-            } catch (error) {
-                console.error('%c❌ ERRO no Remote Browser:', 'color: #ef4444; font-weight: bold;', error);
-                alert(`❌ Erro ao iniciar navegador remoto: ${error.message}`);
-                
-                // 🔥 NOVO: Reabrir modal de Autoaposta em caso de erro
-                const autoBetModal = document.getElementById('autoBetSettingsModal');
-                if (autoBetModal) {
-                    autoBetModal.style.display = 'block';
-                }
+                openExtensionModal();
             } finally {
                 isLoginInProgress = false;
             }

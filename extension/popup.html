@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <title>Blaze Connector</title>
+  <style>
+    body { margin: 12px; font-family: Arial, sans-serif; width: 320px; }
+    .title { font-weight: bold; margin-bottom: 8px; }
+    .status { padding: 8px; border-radius: 6px; margin-bottom: 8px; background: #0b1220; color: #00d084; }
+    .label { font-size: 12px; color: #888; margin-top: 8px; }
+    .mono { font-family: 'Courier New', monospace; font-size: 12px; word-break: break-all; }
+  </style>
+</head>
+<body>
+  <div class="title">🔥 Blaze Connector</div>
+  <div id="status" class="status">Carregando...</div>
+
+  <div class="label">Token:</div>
+  <div id="token" class="mono">-</div>
+
+  <div class="label">Cookies:</div>
+  <div id="cookies" class="mono">-</div>
+
+  <script>
+    const statusEl = document.getElementById('status');
+    const tokenEl = document.getElementById('token');
+    const cookiesEl = document.getElementById('cookies');
+
+    chrome.storage.local.get(['status', 'token', 'cookies'], (data) => {
+      statusEl.textContent = data.status || 'Aguardando...';
+      tokenEl.textContent = data.token || '(token não encontrado)';
+      cookiesEl.textContent = data.cookies || '(sem cookies)';
+    });
+  </script>
+</body>
+</html>
+

