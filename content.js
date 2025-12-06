@@ -8066,19 +8066,23 @@ async function persistAnalyzerState(newState) {
                     localStorage.setItem('blazeSession', JSON.stringify(blazeSessionData));
                     console.log('💾 [fetchBalance] Sessão atualizada no localStorage:', blazeSessionData);
                     
-                    // Forçar atualização dos saldos na UI principal (se modo real estiver ativo)
+                    // ✅ FORÇAR ATUALIZAÇÃO DO SALDO NA UI PRINCIPAL
                     console.log('%c🔄 [fetchBalance] Forçando atualização do painel de saldo...', 'color: #fbbf24; font-weight: bold;');
-                    if (typeof updateStatusUI === 'function') {
-                        updateStatusUI();
-                        console.log('✅ updateStatusUI() chamado');
-                    } else {
-                        console.error('❌ updateStatusUI não existe!');
-                    }
                     
-                    // Forçar recalcular saldo inicial
-                    if (typeof updateSimulationSnapshots === 'function') {
-                        updateSimulationSnapshots();
-                        console.log('✅ updateSimulationSnapshots() chamado');
+                    // Atualizar diretamente os elementos do DOM
+                    const initialBalanceEl = document.getElementById('autoBetInitialBalance');
+                    const currentBalanceEl = document.getElementById('autoBetCurrentBalance');
+                    
+                    if (initialBalanceEl && currentBalanceEl) {
+                        const balanceValue = totalBalance;
+                        const formattedBalance = `R$ ${balanceValue.toFixed(2).replace('.', ',')}`;
+                        
+                        initialBalanceEl.textContent = formattedBalance;
+                        currentBalanceEl.textContent = formattedBalance;
+                        
+                        console.log(`✅ Saldo atualizado no painel principal: ${formattedBalance}`);
+                    } else {
+                        console.warn('⚠️ Elementos de saldo não encontrados no DOM');
                     }
                 }
             } catch (error) {
