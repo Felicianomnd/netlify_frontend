@@ -8354,6 +8354,15 @@ async function persistAnalyzerState(newState) {
                     return; // ✅ Sucesso! Não precisa verificar localStorage
                 } else {
                     console.log('%cℹ️ Nenhum login da Blaze salvo no servidor', 'color: #6b7280;');
+                    
+                    // 🔄 NOVO: tentar sincronizar diretamente do serviço de tokens (BLAZE_AUTH_API)
+                    // para evitar cair no modo "Conectado (Local)" e ficar desatualizado.
+                    const fetched = await tryFetchExistingToken();
+                    if (fetched) {
+                        console.log('%c✅ Sessão recuperada via serviço de tokens (servidor)', 'color: #10b981; font-weight: bold;');
+                        updateBlazeLoginUI('connected', 'Conectado (Servidor)', blazeSessionData);
+                        return;
+                    }
                 }
             }
             
