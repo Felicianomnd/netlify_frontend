@@ -62,17 +62,18 @@ class RemoteBrowser {
         // Canvas para exibir frames (PROPORÇÃO IPHONE 12: 390x844)
         this.canvas = document.createElement('canvas');
         this.canvas.id = 'remoteBrowserCanvas';
-        this.canvas.width = 390;  // iPhone 12 width
-        this.canvas.height = 844; // iPhone 12 height
+        this.canvas.width = 390;  // iPhone 12 width (resolução interna)
+        this.canvas.height = 844; // iPhone 12 height (resolução interna)
         this.canvas.style.cssText = `
-            width: 390px;
-            height: 844px;
+            width: auto;
+            height: 80vh;
+            max-height: 700px;
             background: #000;
             cursor: crosshair;
             display: block;
             border: none;
-            border-radius: 20px;
-            box-shadow: 0 0 50px rgba(0, 0, 0, 0.5);
+            border-radius: 15px;
+            box-shadow: 0 0 30px rgba(0, 0, 0, 0.5);
         `;
         
         this.ctx = this.canvas.getContext('2d');
