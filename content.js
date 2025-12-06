@@ -8010,23 +8010,32 @@ async function persistAnalyzerState(newState) {
             
             const balanceFormatted = totalBalance.toFixed(2).replace('.', ',');
             
+            console.log(`💰 [BLAZE WebSocket] Saldo atualizado: R$ ${balanceFormatted}`);
+            
             // Atualizar UI do login
             if (blazeLoginElements.userBalance) {
                 blazeLoginElements.userBalance.textContent = `R$ ${balanceFormatted}`;
             }
             
-            // Atualizar sessão armazenada
-            if (blazeSessionData?.user) {
+            // Atualizar sessão armazenada COM O SALDO CORRETO
+            if (blazeSessionData) {
+                // Atualizar tanto balance (array) quanto user.balance (string formatada)
+                blazeSessionData.balance = balance; // Array original para compatibilidade
+                
+                if (!blazeSessionData.user) {
+                    blazeSessionData.user = {};
+                }
                 blazeSessionData.user.balance = balanceFormatted;
+                
                 localStorage.setItem('blazeSession', JSON.stringify(blazeSessionData));
+                console.log(`💾 [localStorage] Sessão atualizada com novo saldo: R$ ${balanceFormatted}`);
             }
             
             // Forçar atualização dos saldos na UI principal (se modo real estiver ativo)
             if (typeof updateStatusUI === 'function') {
                 updateStatusUI();
+                console.log(`🔄 [UI] updateStatusUI() chamado para atualizar painel principal`);
             }
-            
-            console.log(`💰 [BLAZE WebSocket] Saldo atualizado: R$ ${balanceFormatted}`);
         };
         
         const startBalancePolling = () => {
