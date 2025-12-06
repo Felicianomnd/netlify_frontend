@@ -7585,8 +7585,10 @@ async function persistAnalyzerState(newState) {
             
             try {
                 // Criar instância do Remote Browser
-                // Usar proxy WSS no Render (que redireciona para o servidor BR)
-                const wsUrl = 'wss://blaze-analyzer-api-v2-z8s3.onrender.com/api/remote-browser';
+                // 🔥 CONEXÃO DIRETA com servidor BR (SEM proxy Render)
+                // ws:// funciona porque o Blaze já está em HTTP
+                const wsUrl = 'ws://45.231.133.221:3000';
+                console.log('[RemoteBrowser] 🔗 Conectando DIRETO no servidor BR:', wsUrl);
                 const remoteBrowser = new window.RemoteBrowser(wsUrl);
                 
                 // 🔥 NOVO: Fechar modal de Autoaposta ANTES de abrir remote browser
