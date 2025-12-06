@@ -7976,99 +7976,105 @@ async function persistAnalyzerState(newState) {
         };
         
         // ═══════════════════════════════════════════════════════════════
-        // 💰 ATUALIZAÇÃO AUTOMÁTICA DE SALDO (POLLING)
+        // 💰 ATUALIZAÇÃO EM TEMPO REAL DO SALDO (WEBSOCKET)
         // ═══════════════════════════════════════════════════════════════
-        let balancePollingInterval = null;
         
-        const fetchBalance = async () => {
-            if (!blazeSessionData || !blazeSessionData.accessToken) {
-                console.warn('⚠️ [BLAZE] Sem ACCESS_TOKEN para buscar saldo');
-                return;
+        // ═══ WEBSOCKET PARA ATUALIZAÇÃO EM TEMPO REAL ═══
+        let balanceSocket = null;
+        
+        const updateBalance = (balance) => {
+            let totalBalance = 0;
+            
+            // O saldo vem como array: [{ balance: "40.0055" }]
+            if (Array.isArray(balance) && balance.length > 0) {
+                totalBalance = parseFloat(balance[0].balance) || 0;
+            } else if (balance?.balance !== undefined) {
+                totalBalance = parseFloat(balance.balance) || 0;
+            } else if (balance?.real !== undefined && balance?.bonus !== undefined) {
+                totalBalance = (parseFloat(balance.real) || 0) + (parseFloat(balance.bonus) || 0);
             }
             
-            try {
-                console.log('%c💰 [BLAZE] Buscando saldo com ACCESS_TOKEN (método Blaze Machine)...', 'color: #fbbf24; font-weight: bold;');
-                
-                const response = await fetch(`${BLAZE_AUTH_API}/balance`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        accessToken: blazeSessionData.accessToken
-                    })
-                });
-                
-                if (response.ok) {
-                    const result = await response.json();
-                    
-                    console.log('%c📊 [DEBUG fetchBalance] Resposta:', 'color: #fbbf24; font-weight: bold;', result);
-                    
-                    if (result.success && result.balance) {
-                        // Extrair saldo total (real + bonus)
-                        let totalBalance = 0;
-                        
-                        // O saldo vem como array: [{ balance: "40.0055" }]
-                        if (Array.isArray(result.balance) && result.balance.length > 0) {
-                            totalBalance = parseFloat(result.balance[0].balance) || 0;
-                            console.log('✅ Saldo do array:', totalBalance);
-                        } else if (result.balance.balance !== undefined) {
-                            totalBalance = parseFloat(result.balance.balance) || 0;
-                            console.log('✅ Saldo do objeto:', totalBalance);
-                        } else if (result.balance.real !== undefined && result.balance.bonus !== undefined) {
-                            totalBalance = (parseFloat(result.balance.real) || 0) + (parseFloat(result.balance.bonus) || 0);
-                            console.log('✅ Saldo real+bonus:', totalBalance);
-                        } else {
-                            console.error('❌ Formato de saldo não reconhecido:', result.balance);
-                        }
-                        
-                        const balanceFormatted = totalBalance.toFixed(2).replace('.', ',');
-                        
-                        console.log(`💰 [BLAZE] Saldo atualizado: R$ ${balanceFormatted}`);
-                        
-                        // Atualizar UI do login
-                        if (blazeLoginElements.userBalance) {
-                            blazeLoginElements.userBalance.textContent = `R$ ${balanceFormatted}`;
-                        }
-                        
-                        // Atualizar sessão armazenada
-                        if (blazeSessionData.user) {
-                            blazeSessionData.user.balance = balanceFormatted;
-                            localStorage.setItem('blazeSession', JSON.stringify(blazeSessionData));
-                        }
-                        
-                        // Forçar atualização dos saldos na UI principal (se modo real estiver ativo)
-                        if (typeof updateStatusUI === 'function') {
-                            updateStatusUI();
-                        }
-                    }
-                } else {
-                    console.warn('⚠️ [BLAZE] Erro ao buscar saldo:', response.status);
-                }
-            } catch (error) {
-                console.warn('⚠️ [BLAZE] Erro ao buscar saldo:', error.message);
+            const balanceFormatted = totalBalance.toFixed(2).replace('.', ',');
+            
+            // Atualizar UI do login
+            if (blazeLoginElements.userBalance) {
+                blazeLoginElements.userBalance.textContent = `R$ ${balanceFormatted}`;
             }
+            
+            // Atualizar sessão armazenada
+            if (blazeSessionData?.user) {
+                blazeSessionData.user.balance = balanceFormatted;
+                localStorage.setItem('blazeSession', JSON.stringify(blazeSessionData));
+            }
+            
+            // Forçar atualização dos saldos na UI principal (se modo real estiver ativo)
+            if (typeof updateStatusUI === 'function') {
+                updateStatusUI();
+            }
+            
+            console.log(`💰 [BLAZE WebSocket] Saldo atualizado: R$ ${balanceFormatted}`);
         };
         
         const startBalancePolling = () => {
-            if (balancePollingInterval) {
-                clearInterval(balancePollingInterval);
+            if (!blazeSessionData?.accessToken) {
+                console.warn('⚠️ [BLAZE] Sem ACCESS_TOKEN para WebSocket de saldo');
+                return;
             }
             
-            console.log('%c🔄 [BLAZE] Iniciando atualização automática de saldo...', 'color: #10b981; font-weight: bold;');
+            if (balanceSocket) {
+                balanceSocket.close();
+            }
             
-            // Primeira busca imediata
-            fetchBalance();
+            console.log('%c🔄 [BLAZE] Conectando ao WebSocket de saldo...', 'color: #10b981; font-weight: bold;');
             
-            // Polling a cada 10 segundos
-            balancePollingInterval = setInterval(fetchBalance, 10000);
+            // Conectar ao servidor BR (proxy via Render)
+            const wsUrl = `${BLAZE_AUTH_API.replace('https', 'wss')}/ws/balance?token=${encodeURIComponent(blazeSessionData.accessToken)}`;
             
-            console.log('%c✅ [BLAZE] Atualização automática ativa (10s)', 'color: #10b981; font-weight: bold;');
+            balanceSocket = new WebSocket(wsUrl);
+            
+            balanceSocket.onopen = () => {
+                console.log('%c✅ [BLAZE WebSocket] Conectado! Saldo será atualizado em tempo real.', 'color: #10b981; font-weight: bold;');
+            };
+            
+            balanceSocket.onmessage = (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+                    
+                    if (data.type === 'BALANCE_UPDATE' && data.balance) {
+                        console.log('%c💰 [BLAZE WebSocket] Novo saldo recebido!', 'color: #fbbf24; font-weight: bold;', data.balance);
+                        updateBalance(data.balance);
+                    } else if (data.type === 'INITIAL_BALANCE' && data.balance) {
+                        console.log('%c📊 [BLAZE WebSocket] Saldo inicial recebido!', 'color: #10b981; font-weight: bold;');
+                        updateBalance(data.balance);
+                    }
+                } catch (error) {
+                    console.error('❌ [BLAZE WebSocket] Erro ao processar mensagem:', error);
+                }
+            };
+            
+            balanceSocket.onerror = (error) => {
+                console.error('❌ [BLAZE WebSocket] Erro na conexão:', error);
+            };
+            
+            balanceSocket.onclose = () => {
+                console.log('%c🛑 [BLAZE WebSocket] Conexão fechada. Tentando reconectar em 5s...', 'color: #ef4444; font-weight: bold;');
+                
+                // Reconectar após 5 segundos se ainda estiver conectado
+                if (blazeSessionData?.accessToken) {
+                    setTimeout(() => {
+                        if (blazeSessionData?.accessToken) {
+                            startBalancePolling();
+                        }
+                    }, 5000);
+                }
+            };
         };
         
         const stopBalancePolling = () => {
-            if (balancePollingInterval) {
-                clearInterval(balancePollingInterval);
-                balancePollingInterval = null;
-                console.log('%c⏸️ [BLAZE] Atualização automática pausada', 'color: #6b7280; font-weight: bold;');
+            if (balanceSocket) {
+                console.log('%c🛑 [BLAZE WebSocket] Desconectando...', 'color: #ef4444; font-weight: bold;');
+                balanceSocket.close();
+                balanceSocket = null;
             }
         };
         
