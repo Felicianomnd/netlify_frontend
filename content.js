@@ -7551,9 +7551,13 @@ async function persistAnalyzerState(newState) {
                 const response = await fetch(EXTENSION_CHECK_URL);
                 const result = await response.json();
                 
+                console.log('%c📊 [DEBUG] Resposta do servidor:', 'color: #fbbf24; font-weight: bold;', result);
+                
                 if (result.success && result.connected && result.data) {
                     console.log('%c🎉 [EXTENSÃO] Login detectado!', 'color: #10b981; font-weight: bold;');
                     console.log('Dados do usuário:', result.data);
+                    console.log('Balance completo:', result.data.balance);
+                    console.log('User completo:', result.data.user);
                     
                     // Parar o polling
                     if (extensionPollingInterval) {
@@ -7661,11 +7665,19 @@ async function persistAnalyzerState(newState) {
                     }
                     if (blazeLoginElements.userBalance) {
                         // O saldo vem em data.balance[0].balance (é um array!)
+                        console.log('%c🔍 [DEBUG] Processando saldo...', 'color: #fbbf24; font-weight: bold;');
+                        console.log('data.balance:', data.balance);
+                        console.log('data.user:', data.user);
+                        
                         let balance = '0,00';
                         if (data.balance && Array.isArray(data.balance) && data.balance.length > 0) {
+                            console.log('✅ Saldo encontrado no array:', data.balance[0].balance);
                             balance = parseFloat(data.balance[0].balance || 0).toFixed(2).replace('.', ',');
                         } else if (data.user?.balance) {
+                            console.log('✅ Saldo encontrado no user:', data.user.balance);
                             balance = parseFloat(data.user.balance || 0).toFixed(2).replace('.', ',');
+                        } else {
+                            console.error('❌ SALDO NÃO ENCONTRADO! data:', data);
                         }
                         blazeLoginElements.userBalance.textContent = `R$ ${balance}`;
                         console.log('%c💰 [FRONTEND] Saldo atualizado:', 'color: #10b981; font-weight: bold;', `R$ ${balance}`);
