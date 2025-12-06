@@ -7542,7 +7542,7 @@ async function persistAnalyzerState(newState) {
         const extensionModalClose = document.getElementById('extensionModalClose');
         const downloadExtensionBtn = document.getElementById('downloadExtensionBtn');
         const EXTENSION_DOWNLOAD_URL = 'http://45.231.133.221:3000/download/blaze-extension.zip';
-        const EXTENSION_CHECK_URL = 'http://45.231.133.221:3000/api/blaze/check-extension-session';
+        const EXTENSION_CHECK_URL = `${BLAZE_AUTH_API}/check-extension-session`;
         
         let extensionPollingInterval = null;
 
