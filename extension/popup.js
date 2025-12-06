@@ -1,40 +1,27 @@
 // popup.js
-document.addEventListener('DOMContentLoaded', () => {
-    const statusIndicator = document.getElementById('statusIndicator');
-    const statusText = document.getElementById('statusText');
-    const tokenDisplay = document.getElementById('tokenDisplay');
-    const cookiesDisplay = document.getElementById('cookiesDisplay');
+const statusEl = document.getElementById('status');
+const tokenEl = document.getElementById('token');
+const cookiesEl = document.getElementById('cookies');
 
-    function updatePopupUI(status, token, cookies) {
-        statusText.textContent = status;
-        statusIndicator.className = `status-indicator ${status === 'Conectado' ? 'connected' : 'pending'}`;
-        tokenDisplay.textContent = token || 'N/A';
-        cookiesDisplay.textContent = cookies || 'N/A';
-    }
+function formatTokenDisplay(token) {
+  if (!token || token === '(token não encontrado)') return 'Não obtido';
+  return 'Obtido ✓';
+}
 
-    // Solicita os dados do background script ao abrir o popup
-    chrome.runtime.sendMessage({ type: "GET_POPUP_DATA" }, (response) => {
-        if (response) {
-            updatePopupUI(response.status, response.token, response.cookies);
-        }
-    });
+function formatCookiesDisplay(cookies) {
+  if (!cookies || cookies === '(sem cookies)') return 'Não extraídos';
+  return 'Extraídos ✓';
+}
 
-    // Ouve por atualizações do background script (ex: após o login ser enviado ao servidor)
-    chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-        if (request.type === "SERVER_RESPONSE") {
-            if (request.payload.success) {
-                // Se o servidor confirmou o login, atualiza o status
-                updatePopupUI('Conectado', request.payload.data.accessToken, request.payload.data.cookieHeader);
-            } else {
-                // Se houve erro no servidor
-                updatePopupUI('Erro', 'N/A', 'N/A');
-                console.error("Erro do servidor:", request.payload.error);
-            }
-        }
-        if (request.type === "BLAZE_LOGIN_DATA") {
-            // Atualiza o popup com os dados capturados localmente
-            updatePopupUI('Conectado', request.payload.token, request.payload.cookies);
-        }
-    });
+chrome.storage.local.get(['status', 'token', 'cookies'], (data) => {
+  const status = data.status || 'Aguardando Login...';
+  statusEl.textContent = status;
+  statusEl.className = 'item-value ' + (status === 'Conectado' ? '' : 'pending');
+  
+  tokenEl.textContent = formatTokenDisplay(data.token);
+  tokenEl.className = 'item-value ' + (data.token && data.token !== '(token não encontrado)' ? '' : 'pending');
+  
+  cookiesEl.textContent = formatCookiesDisplay(data.cookies);
+  cookiesEl.className = 'item-value ' + (data.cookies && data.cookies !== '(sem cookies)' ? '' : 'pending');
 });
 

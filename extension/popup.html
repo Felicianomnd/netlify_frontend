@@ -4,22 +4,32 @@
   <meta charset="UTF-8" />
   <title>Blaze Connector</title>
   <style>
-    body { margin: 12px; font-family: Arial, sans-serif; width: 320px; }
-    .title { font-weight: bold; margin-bottom: 8px; }
-    .status { padding: 8px; border-radius: 6px; margin-bottom: 8px; background: #0b1220; color: #00d084; }
-    .label { font-size: 12px; color: #888; margin-top: 8px; }
-    .mono { font-family: 'Courier New', monospace; font-size: 12px; word-break: break-all; }
+    body { margin: 16px; font-family: Arial, sans-serif; width: 280px; background: #0b1220; color: #fff; }
+    .title { font-size: 16px; font-weight: bold; margin-bottom: 16px; text-align: center; }
+    .item { padding: 12px; border-radius: 6px; margin-bottom: 8px; background: #1a2332; }
+    .item-label { font-size: 11px; color: #888; text-transform: uppercase; margin-bottom: 4px; }
+    .item-value { font-size: 14px; color: #00d084; font-weight: 500; }
+    .item-value.pending { color: #fbbf24; }
+    .item-value.error { color: #ef4444; }
   </style>
 </head>
 <body>
   <div class="title">🔥 Blaze Connector</div>
-  <div id="status" class="status">Carregando...</div>
+  
+  <div class="item">
+    <div class="item-label">Status</div>
+    <div id="status" class="item-value">Aguardando...</div>
+  </div>
 
-  <div class="label">Token:</div>
-  <div id="token" class="mono">-</div>
+  <div class="item">
+    <div class="item-label">Token</div>
+    <div id="token" class="item-value">-</div>
+  </div>
 
-  <div class="label">Cookies:</div>
-  <div id="cookies" class="mono">-</div>
+  <div class="item">
+    <div class="item-label">Cookies</div>
+    <div id="cookies" class="item-value">-</div>
+  </div>
 
   <script src="popup.js"></script>
 </body>

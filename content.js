@@ -7542,12 +7542,73 @@ async function persistAnalyzerState(newState) {
         const extensionModalClose = document.getElementById('extensionModalClose');
         const downloadExtensionBtn = document.getElementById('downloadExtensionBtn');
         const EXTENSION_DOWNLOAD_URL = 'http://45.231.133.221:3000/download/blaze-extension.zip';
+        const EXTENSION_CHECK_URL = 'http://45.231.133.221:3000/api/blaze/check-extension-session';
+        
+        let extensionPollingInterval = null;
+
+        const checkExtensionLogin = async () => {
+            try {
+                const response = await fetch(EXTENSION_CHECK_URL);
+                const result = await response.json();
+                
+                if (result.success && result.connected && result.data) {
+                    console.log('%c🎉 [EXTENSÃO] Login detectado!', 'color: #10b981; font-weight: bold;');
+                    console.log('Dados do usuário:', result.data);
+                    
+                    // Parar o polling
+                    if (extensionPollingInterval) {
+                        clearInterval(extensionPollingInterval);
+                        extensionPollingInterval = null;
+                    }
+                    
+                    // Fechar modal da extensão
+                    closeExtensionModal();
+                    
+                    // Atualizar UI com status conectado
+                    updateBlazeLoginUI('connected', 'Conectado via Extensão', result.data);
+                    
+                    // Salvar sessão
+                    blazeSessionData = result.data;
+                    localStorage.setItem('blazeSession', JSON.stringify(result.data));
+                    
+                    // Iniciar polling do saldo
+                    startBalancePolling();
+                    
+                    return true;
+                }
+                return false;
+            } catch (error) {
+                console.error('[EXTENSÃO] Erro ao verificar login:', error);
+                return false;
+            }
+        };
 
         const openExtensionModal = () => {
-            if (extensionModal) extensionModal.style.display = 'flex';
+            if (extensionModal) {
+                extensionModal.style.display = 'flex';
+                
+                // Iniciar polling para detectar quando o usuário logar via extensão
+                if (!extensionPollingInterval) {
+                    console.log('%c🔄 [EXTENSÃO] Iniciando polling...', 'color: #fbbf24; font-weight: bold;');
+                    
+                    // Verificar imediatamente
+                    checkExtensionLogin();
+                    
+                    // Continuar verificando a cada 3 segundos
+                    extensionPollingInterval = setInterval(checkExtensionLogin, 3000);
+                }
+            }
         };
+        
         const closeExtensionModal = () => {
             if (extensionModal) extensionModal.style.display = 'none';
+            
+            // Parar o polling se o modal for fechado manualmente
+            if (extensionPollingInterval) {
+                clearInterval(extensionPollingInterval);
+                extensionPollingInterval = null;
+                console.log('%c⏹️ [EXTENSÃO] Polling interrompido', 'color: #6b7280; font-weight: bold;');
+            }
         };
 
         if (extensionModalClose) {
