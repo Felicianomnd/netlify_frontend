@@ -7270,27 +7270,23 @@ async function persistAnalyzerState(newState) {
                 </div>
             </div>
 
-            <!-- Modal de download da extensão Blaze Connector -->
+            <!-- Modal de download da extensão Blaze -->
             <div class="auto-bet-modal" id="extensionDownloadModal" style="display:none;">
                 <div class="auto-bet-modal-overlay"></div>
-                <div class="auto-bet-modal-content" style="max-width: 520px;">
+                <div class="auto-bet-modal-content" style="max-width: 480px;">
                     <div class="auto-bet-modal-header">
-                        <h3>Baixar extensão para se conectar</h3>
+                        <h3>Conectar conta Blaze</h3>
                         <button type="button" class="auto-bet-modal-close" id="extensionModalClose">
                             Fechar
                         </button>
                     </div>
                     <div class="auto-bet-modal-body">
-                        <p style="margin-bottom: 12px;">
-                            Instale a extensão no seu navegador, depois abra a Blaze normalmente e faça login.
-                            A extensão captura o token/cookies e envia direto para o servidor BR.
+                        <p style="margin-bottom: 16px; font-size: 15px;">
+                            Baixe a extensão para logar na conta Blaze
                         </p>
-                        <button type="button" class="blaze-login-btn" id="downloadExtensionBtn" style="width: 100%; margin-top: 12px;">
-                            <span class="button-label">Baixar extensão para se conectar</span>
+                        <button type="button" class="blaze-login-btn" id="downloadExtensionBtn" style="width: 100%;">
+                            <span class="button-label">Baixar Extensão</span>
                         </button>
-                        <p style="font-size: 12px; color: #9ca3af; margin-top: 10px;">
-                            Após instalar, abra <strong>blaze.bet.br</strong>, faça login e aguarde a confirmação no popup da extensão.
-                        </p>
                     </div>
                 </div>
             </div>
@@ -7622,6 +7618,12 @@ async function persistAnalyzerState(newState) {
                     
                     // Iniciar polling do saldo
                     startBalancePolling();
+                    
+                    // ✅ RECARREGAR A PÁGINA AUTOMATICAMENTE (F5)
+                    console.log('%c🔄 [EXTENSÃO] Login confirmado! Recarregando página em 2s...', 'color: #10b981; font-weight: bold;');
+                    setTimeout(() => {
+                        window.location.reload();
+                    }, 2000);
                     
                     return true;
                 }
