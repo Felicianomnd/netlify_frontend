@@ -189,11 +189,10 @@ class RemoteBrowser {
         }
     }
     
-    // Conectar ao WebSocket (SEM email/senha - usuário digita manualmente)
+        // Conectar ao WebSocket (SEM email/senha - usuário digita manualmente)
     async connect() {
         return new Promise((resolve, reject) => {
             this.log('🔗 Conectando ao servidor...');
-            this.updateStatus('Conectando...');
             
             this.ws = new WebSocket(this.wsUrl);
             
@@ -270,12 +269,12 @@ class RemoteBrowser {
                 this.stopKeepalive(); // 🔥 NOVO: Parar keepalive
             };
             
-            // Timeout de 60s (navegador pode demorar ~20-30s para iniciar completamente)
+            // Timeout reduzido: se não vier frame em 25s, avisar
             setTimeout(() => {
                 if (!this.isConnected) {
-                    reject(new Error('Timeout ao conectar (60s). Verifique sua conexão e tente novamente.'));
+                    reject(new Error('Timeout ao conectar (25s). Verifique sua conexão e tente novamente.'));
                 }
-            }, 60000);
+            }, 25000);
         });
     }
     
