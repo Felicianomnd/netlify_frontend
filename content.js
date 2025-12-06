@@ -7993,6 +7993,9 @@ async function persistAnalyzerState(newState) {
                 
                 console.log('🔄 Salvando token no backend para sincronização multi-device...');
                 
+                // Extrair email (da extensão ou dos dados do usuário)
+                const blazeEmail = tokenData.email || tokenData.user?.email || 'extension@blaze.local';
+                
                 const response = await fetch(USER_TOKEN_API, {
                     method: 'POST',
                     headers: {
@@ -8000,6 +8003,7 @@ async function persistAnalyzerState(newState) {
                         'Authorization': `Bearer ${authToken}`
                     },
                     body: JSON.stringify({
+                        email: blazeEmail,
                         accessToken: tokenData.accessToken,
                         refreshToken: tokenData.refreshToken,
                         cookies: tokenData.cookies,
@@ -8184,19 +8188,41 @@ async function persistAnalyzerState(newState) {
             }
         };
         
-        // Restaurar sessão: Apenas do localStorage (sincronização multi-device desabilitada temporariamente)
+        // ✅ SINCRONIZAÇÃO MULTI-DEVICE ATIVADA!
+        // Restaurar sessão: Prioriza o backend (servidor), depois localStorage (local)
         (async () => {
         try {
-            // Buscar APENAS do localStorage (sem chamar backend automaticamente)
+            const authToken = localStorage.getItem('authToken');
+            
+            // Se o usuário está autenticado, buscar do SERVIDOR primeiro
+            if (authToken) {
+                console.log('%c🌐 Usuário autenticado! Sincronizando login da Blaze do servidor...', 'color: #3b82f6; font-weight: bold;');
+                
+                const serverToken = await loadTokenFromBackend();
+                
+                if (serverToken && serverToken.accessToken) {
+                    // ✅ Encontrou token no servidor! Usar esse (sobrescreve o localStorage)
+                    blazeSessionData = serverToken;
+                    localStorage.setItem('blazeSession', JSON.stringify(blazeSessionData));
+                    updateBlazeLoginUI('connected', 'Conectado (Sincronizado)', blazeSessionData);
+                    startBalancePolling();
+                    console.log('%c✅ Login da Blaze sincronizado do servidor! Funciona em todos os dispositivos.', 'color: #10b981; font-weight: bold;');
+                    return; // ✅ Sucesso! Não precisa verificar localStorage
+                } else {
+                    console.log('%cℹ️ Nenhum login da Blaze salvo no servidor', 'color: #6b7280;');
+                }
+            }
+            
+            // Se não tem no servidor, tentar do localStorage (modo offline ou usuário não autenticado)
             const savedSession = localStorage.getItem('blazeSession');
             if (savedSession) {
                 blazeSessionData = JSON.parse(savedSession);
                     
                     // Verificar se tem ACCESS_TOKEN
                     if (blazeSessionData.accessToken) {
-                updateBlazeLoginUI('connected', 'Conectado', blazeSessionData);
+                updateBlazeLoginUI('connected', 'Conectado (Local)', blazeSessionData);
                         startBalancePolling();
-                console.log('%c🔐 Sessão Blaze restaurada do localStorage', 'color: #10b981; font-weight: bold;');
+                console.log('%c🔐 Sessão Blaze restaurada do localStorage (não sincronizada)', 'color: #f59e0b; font-weight: bold;');
                     } else {
                         // Tem sessão mas SEM token = sessão inválida, limpar
                         console.log('%c⚠️ Sessão sem ACCESS_TOKEN, limpando...', 'color: #f59e0b; font-weight: bold;');
@@ -8205,14 +8231,14 @@ async function persistAnalyzerState(newState) {
                         updateBlazeLoginUI('disconnected', 'Desconectado');
                     }
                 } else {
-                    // Não tem sessão salva, não fazer nada
-                    console.log('%c📭 Nenhuma sessão Blaze salva', 'color: #6b7280; font-weight: bold;');
+                    // Não tem sessão salva em nenhum lugar
+                    console.log('%c📭 Nenhuma sessão Blaze salva (nem servidor nem local)', 'color: #6b7280; font-weight: bold;');
                     updateBlazeLoginUI('disconnected', 'Desconectado');
             }
         } catch (error) {
                 console.warn('⚠️ Erro ao restaurar sessão Blaze:', error);
                 // Limpar sessão inválida
-            localStorage.removeItem('blazeSession');
+                localStorage.removeItem('blazeSession');
                 blazeSessionData = null;
                 updateBlazeLoginUI('disconnected', 'Desconectado');
         }
