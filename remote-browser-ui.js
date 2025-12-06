@@ -88,39 +88,7 @@ class RemoteBrowser {
         
         console.log('[RemoteBrowser] ✅ Canvas criado:', this.canvas.width, 'x', this.canvas.height);
         
-        // Loader/placeholder enquanto carrega
-        this.loader = document.createElement('div');
-        this.loader.id = 'remoteBrowserLoader';
-        this.loader.style.cssText = `
-            position: absolute;
-            inset: 0;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            background: linear-gradient(135deg, #0b1120, #111827);
-            color: #e5e7eb;
-            gap: 12px;
-            z-index: 2;
-            padding: 20px;
-            text-align: center;
-        `;
-        this.loader.innerHTML = `
-            <div class="loader-spinner" style="
-                width: 42px;
-                height: 42px;
-                border: 4px solid #1f2937;
-                border-top-color: #10b981;
-                border-radius: 50%;
-                animation: spin 0.9s linear infinite;
-            "></div>
-            <div style="font-weight: 700; font-size: 16px;">Preparando acesso seguro...</div>
-            <div style="font-size: 13px; max-width: 260px; color: #cbd5e1;">
-                IA de análise em tempo real, conexão direta no Brasil para máxima precisão.
-            </div>
-        `;
-
-        // Botão Fechar (SEM status bar - não precisa)
+        // Botão Fechar
         const closeBtn = document.createElement('button');
         closeBtn.id = 'remoteBrowserClose';
         closeBtn.style.cssText = `
@@ -138,11 +106,7 @@ class RemoteBrowser {
         closeBtn.onmouseenter = () => closeBtn.style.background = '#dc2626';
         closeBtn.onmouseleave = () => closeBtn.style.background = '#ef4444';
         
-        // Container precisa ser relativo para o loader overlay
-        this.container.style.position = 'relative';
-
         this.container.appendChild(this.canvas);
-        this.container.appendChild(this.loader);
         this.container.appendChild(closeBtn);
         
         // Adicionar modal ao body
@@ -229,13 +193,15 @@ class RemoteBrowser {
     async connect() {
         return new Promise((resolve, reject) => {
             this.log('🔗 Conectando ao servidor...');
+            this.updateStatus('Conectando...');
             
             this.ws = new WebSocket(this.wsUrl);
             
             this.ws.onopen = () => {
-                this.connectedAt = Date.now();
+                this.connectedAt = Date.now(); // 🔥 NOVO: Timestamp de conexão
                 console.log('[RemoteBrowser] ✅ WebSocket conectado em:', new Date().toISOString());
                 this.log('✅ WebSocket conectado!');
+                this.updateStatus('Iniciando navegador...');
                 
                 console.log('[RemoteBrowser] 🚀 Enviando comando start-remote-browser-manual...');
                 
@@ -288,6 +254,7 @@ class RemoteBrowser {
             this.ws.onerror = (error) => {
                 const msg = 'Erro de conexão com o servidor';
                 this.log('❌ ' + msg);
+                this.updateStatus('Erro');
                 reject(new Error(msg));
             };
             
@@ -298,8 +265,9 @@ class RemoteBrowser {
                 console.log(`[RemoteBrowser] 🔍 wasClean: ${event.wasClean}`);
                 
                 this.log(`🔌 Conexão fechada (código: ${event.code}, razão: ${event.reason || 'N/A'})`);
+                this.updateStatus('Desconectado');
                 this.isConnected = false;
-                this.stopKeepalive();
+                this.stopKeepalive(); // 🔥 NOVO: Parar keepalive
             };
             
             // Timeout de 60s (navegador pode demorar ~20-30s para iniciar completamente)
@@ -329,11 +297,14 @@ class RemoteBrowser {
                 
             case 'browser-started':
                 this.log('✅ Navegador iniciado! Faça login na Blaze.');
+                this.updateStatus('Online');
+                // Focar no canvas
                 this.canvas.focus();
                 break;
                 
             case 'browser-stopped':
                 this.log('🛑 Navegador encerrado');
+                this.updateStatus('Encerrado');
                 break;
                 
             case 'click-success':
@@ -346,6 +317,7 @@ class RemoteBrowser {
                 
             case 'error':
                 this.log('❌ Erro: ' + data.message);
+                this.updateStatus('Erro');
                 alert('Erro no Remote Browser: ' + data.message);
                 break;
                 
@@ -370,11 +342,6 @@ class RemoteBrowser {
         img.onload = () => {
             console.log('[RemoteBrowser] ✅ Imagem carregada! Desenhando no canvas...');
             
-            // Ocultar loader no primeiro frame
-            if (this.loader) {
-                this.loader.style.display = 'none';
-            }
-            
             // Guardar imagem para redesenhar com cursor
             this.lastFrameImage = img;
             
@@ -387,8 +354,14 @@ class RemoteBrowser {
             // Desenhar cursor por cima
             this.drawCursor();
             
-            // Calcular FPS (apenas interno)
-            this.lastFrameTime = Date.now();
+            // Calcular FPS
+            const now = Date.now();
+            if (this.lastFrameTime > 0) {
+                const delta = now - this.lastFrameTime;
+                this.fps = Math.round(1000 / delta);
+                this.updateFPS(this.fps); // Atualizar FPS separadamente
+            }
+            this.lastFrameTime = now;
         };
         
         img.onerror = (error) => {
@@ -512,7 +485,11 @@ class RemoteBrowser {
         this.log(`⌨️ Pressionou: ${key}`);
     }
     
-    // Métodos de log simplificados (sem UI)
+    // Atualizar status (removido da UI)
+    updateStatus(_text) {}
+    
+    // Atualizar FPS (removido da UI)
+    updateFPS(_fps) {}
     
     // Adicionar log
     log(message) {
@@ -536,6 +513,7 @@ class RemoteBrowser {
     // Confirmar login (botão "Logado")
     async confirmLogin() {
         this.log('✅ Confirmando login...');
+        this.updateStatus('Salvando sessão...');
         
         // Solicitar cookies/token do servidor
         if (this.ws && this.ws.readyState === WebSocket.OPEN) {
