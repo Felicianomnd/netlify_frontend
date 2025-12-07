@@ -4332,8 +4332,8 @@ autoBetHistoryStore.init().catch(error => console.warn('AutoBetHistory: iniciali
                     background: #1a2332;
                 }
                 .auto-bet-mode-layout {
-                    display: grid;
-                    grid-template-columns: 1fr auto 1fr;
+                    display: flex;
+                    flex-direction: column;
                     gap: 12px;
                     align-items: stretch;
                     margin-bottom: 16px;
@@ -7065,7 +7065,7 @@ async function persistAnalyzerState(newState) {
                 <div class="auto-bet-modal-overlay"></div>
                 <div class="auto-bet-modal-content">
                     <div class="auto-bet-modal-header">
-                        <h3>Configurar Autoaposta</h3>
+                        <h3>Configurar Simulador</h3>
                         <button type="button" class="auto-bet-modal-close" id="closeAutoBetModal">
                             Fechar
                         </button>
