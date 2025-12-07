@@ -2067,9 +2067,9 @@ chrome.storage.onChanged.addListener((changes, area) => {
             console.error('║  💡 Ajuste: maxOccurrences >= minOccurrences             ║');
         }
 
-        // ✅ Notificar todas as abas do Blaze para atualizar UI imediatamente (sem refresh)
+        // ✅ Notificar todas as abas para atualizar UI imediatamente (sem refresh)
         try {
-            chrome.tabs.query({ url: '*://blaze.com/*' }, function(tabs) {
+            chrome.tabs.query({}, function(tabs) {
                 tabs.forEach(tab => {
                     chrome.tabs.sendMessage(tab.id, {
                         type: 'ANALYZER_CONFIG_UPDATED',
