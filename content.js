@@ -6682,6 +6682,12 @@ async function persistAnalyzerState(newState) {
                         <span class="user-info-label">Dias restantes</span>
                         <span class="user-info-value" id="userMenuDays">—</span>
                     </div>
+                    <div class="user-info-item" style="border-top: 1px solid rgba(255,255,255,0.1); margin-top: 12px; padding-top: 12px;">
+                        <span class="user-info-label">Visualização</span>
+                        <button type="button" class="view-mode-toggle-btn" id="viewModeToggleBtn" title="Alternar entre Tela Cheia e Modo Compacto">
+                            <span id="viewModeLabel">Modo Compacto</span>
+                        </button>
+                    </div>
                 </div>
                 <div class="user-menu-footer">
                     <button type="button" class="user-menu-logout" id="userMenuLogout">Sair da conta</button>
@@ -7190,6 +7196,17 @@ async function persistAnalyzerState(newState) {
             userMenuLogout.addEventListener('click', () => {
                 setUserMenuState(false);
                 forceLogout('Logout manual');
+            });
+        }
+
+        // ✅ BOTÃO DE TOGGLE: MODO TELA CHEIA ↔ MODO COMPACTO
+        const viewModeToggleBtn = document.getElementById('viewModeToggleBtn');
+        const viewModeLabel = document.getElementById('viewModeLabel');
+        
+        if (viewModeToggleBtn) {
+            viewModeToggleBtn.addEventListener('click', () => {
+                toggleViewMode(sidebar, viewModeLabel);
+                setUserMenuState(false); // Fechar menu após clicar
             });
         }
 
@@ -9349,7 +9366,141 @@ async function persistAnalyzerState(newState) {
         }
     }
     
+    // ═══════════════════════════════════════════════════════════════════════════════
+    // 🖥️ MODO TELA CHEIA vs MODO COMPACTO (Desktop apenas)
+    // ═══════════════════════════════════════════════════════════════════════════════
+    
+    function isDesktop() {
+        return window.innerWidth > 768;
+    }
+    
+    function getViewMode() {
+        try {
+            const saved = localStorage.getItem('sidebarViewMode');
+            return saved || 'fullscreen'; // Padrão: tela cheia
+        } catch (e) {
+            return 'fullscreen';
+        }
+    }
+    
+    function setViewMode(mode) {
+        try {
+            localStorage.setItem('sidebarViewMode', mode);
+        } catch (e) {
+            console.error('Erro ao salvar modo de visualização:', e);
+        }
+    }
+    
+    function applyFullscreenMode(sidebar) {
+        if (!sidebar || !isDesktop()) return;
+        
+        sidebar.classList.add('fullscreen-mode');
+        sidebar.classList.remove('compact-mode');
+        
+        // Tela cheia: ocupar 100% da tela (menos uma pequena margem)
+        sidebar.style.left = '10px';
+        sidebar.style.top = '10px';
+        sidebar.style.width = 'calc(100vw - 20px)';
+        sidebar.style.height = 'calc(100vh - 20px)';
+        
+        console.log('✅ Modo Tela Cheia ativado');
+    }
+    
+    function applyCompactMode(sidebar) {
+        if (!sidebar || !isDesktop()) return;
+        
+        sidebar.classList.add('compact-mode');
+        sidebar.classList.remove('fullscreen-mode');
+        
+        // Modo compacto: restaurar tamanho/posição salva ou padrão
+        const saved = localStorage.getItem('blazeSidebarState');
+        let width = 300;
+        let height = 600;
+        
+        if (saved) {
+            const state = JSON.parse(saved);
+            width = state.width || 300;
+            height = state.height || 600;
+        }
+        
+        // Centralizar
+        const windowWidth = window.innerWidth;
+        const windowHeight = window.innerHeight;
+        const left = (windowWidth - width) / 2;
+        const top = (windowHeight - height) / 2;
+        
+        sidebar.style.left = Math.max(0, left) + 'px';
+        sidebar.style.top = Math.max(0, top) + 'px';
+        sidebar.style.width = width + 'px';
+        sidebar.style.height = height + 'px';
+        
+        console.log('✅ Modo Compacto ativado');
+    }
+    
+    function toggleViewMode(sidebar, labelElement) {
+        if (!sidebar || !isDesktop()) return;
+        
+        const currentMode = getViewMode();
+        const newMode = currentMode === 'fullscreen' ? 'compact' : 'fullscreen';
+        
+        setViewMode(newMode);
+        
+        if (newMode === 'fullscreen') {
+            applyFullscreenMode(sidebar);
+            if (labelElement) labelElement.textContent = 'Modo Compacto';
+        } else {
+            applyCompactMode(sidebar);
+            if (labelElement) labelElement.textContent = 'Tela Cheia';
+        }
+    }
+    
     // Load saved sidebar state
+    function loadSidebarState(sidebar) {
+        try {
+            // ✅ VERIFICAR SE É DESKTOP
+            if (!isDesktop()) {
+                // Mobile: ignorar modos, usar fullscreen nativo
+                return;
+            }
+            
+            // ✅ DESKTOP: Aplicar modo salvo (padrão: tela cheia)
+            const viewMode = getViewMode();
+            const viewModeLabel = document.getElementById('viewModeLabel');
+            
+            if (viewMode === 'fullscreen') {
+                applyFullscreenMode(sidebar);
+                if (viewModeLabel) viewModeLabel.textContent = 'Modo Compacto';
+            } else {
+                applyCompactMode(sidebar);
+                if (viewModeLabel) viewModeLabel.textContent = 'Tela Cheia';
+            }
+            
+            console.log('📍 Sidebar carregada em modo:', viewMode);
+        } catch (e) {
+            console.error('Erro ao carregar estado da sidebar:', e);
+        }
+    }
+    
+    // Save sidebar state (apenas para modo compacto)
+    function saveSidebarState(sidebar) {
+        try {
+            // Só salvar se estiver em modo compacto
+            if (sidebar.classList.contains('compact-mode')) {
+                const state = {
+                    left: parseInt(sidebar.style.left) || 0,
+                    top: parseInt(sidebar.style.top) || 0,
+                    width: parseInt(sidebar.style.width) || 300,
+                    height: parseInt(sidebar.style.height) || 600
+                };
+                localStorage.setItem('blazeSidebarState', JSON.stringify(state));
+            }
+        } catch (e) {
+            console.error('Erro ao salvar estado da sidebar:', e);
+        }
+    }
+    
+    // REMOVER função antiga loadSidebarState (já substituída acima)
+    /*
     function loadSidebarState(sidebar) {
         try {
             // ✅ SEMPRE CENTRALIZAR NO MEIO DA TELA (ignorar posição salva)
@@ -9397,6 +9548,7 @@ async function persistAnalyzerState(newState) {
             console.error('Erro ao salvar estado da sidebar:', e);
         }
     }
+    */
     
     // Make sidebar draggable
     function makeDraggable(element) {
