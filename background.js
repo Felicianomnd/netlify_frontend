@@ -2060,12 +2060,26 @@ chrome.storage.onChanged.addListener((changes, area) => {
                 console.error('║  💡 Ajuste: maxPatternSize >= minPatternSize             ║');
             }
             
-            if (maxOcc > 0 && maxOcc < minOcc) {
-                console.error('║  ⚠️ CONFIGURAÇÃO INVÁLIDA DETECTADA!                     ║');
-                console.error(`║  ❌ Ocorrências MÁXIMAS (${maxOcc}) < MÍNIMAS (${minOcc})!`);
-                console.error('║  🚫 NENHUM PADRÃO SERÁ ENCONTRADO!                        ║');
-                console.error('║  💡 Ajuste: maxOccurrences >= minOccurrences             ║');
-            }
+        if (maxOcc > 0 && maxOcc < minOcc) {
+            console.error('║  ⚠️ CONFIGURAÇÃO INVÁLIDA DETECTADA!                     ║');
+            console.error(`║  ❌ Ocorrências MÁXIMAS (${maxOcc}) < MÍNIMAS (${minOcc})!`);
+            console.error('║  🚫 NENHUM PADRÃO SERÁ ENCONTRADO!                        ║');
+            console.error('║  💡 Ajuste: maxOccurrences >= minOccurrences             ║');
+        }
+
+        // ✅ Notificar todas as abas do Blaze para atualizar UI imediatamente (sem refresh)
+        try {
+            chrome.tabs.query({ url: '*://blaze.com/*' }, function(tabs) {
+                tabs.forEach(tab => {
+                    chrome.tabs.sendMessage(tab.id, {
+                        type: 'ANALYZER_CONFIG_UPDATED',
+                        analyzerConfig
+                    }).catch(() => {});
+                });
+            });
+        } catch (err) {
+            console.warn('⚠️ Falha ao notificar abas sobre atualização de config:', err);
+        }
         } catch (e) {
             console.warn('Falha ao aplicar analyzerConfig:', e);
         }

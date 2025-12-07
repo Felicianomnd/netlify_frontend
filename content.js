@@ -9775,6 +9775,15 @@ function logModeSnapshotUI(snapshot) {
             } else {
                 console.error('❌ ERRO: Dados do giro inválidos!', request.data);
             }
+        } else if (request.type === 'ANALYZER_CONFIG_UPDATED') {
+            try {
+                const cfg = request.analyzerConfig || {};
+                populateDiamondLevelsForm(cfg);
+                refreshDiamondLevelToggleStates();
+                showSyncSpinner();
+            } catch (err) {
+                console.warn('⚠️ Erro ao aplicar config sincronizada (ANALYZER_CONFIG_UPDATED):', err);
+            }
         } else if (request.type === 'CLEAR_ANALYSIS') {
             // ✅ LIMPAR STATUS DE ANÁLISE E FORÇAR RESET COMPLETO DA UI
             currentAnalysisStatus = 'Aguardando análise...';
