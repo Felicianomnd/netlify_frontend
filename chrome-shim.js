@@ -314,7 +314,7 @@
             
             // Use browser's Notification API if available
             if ('Notification' in window && Notification.permission === 'granted') {
-                new Notification(options.title || 'Blaze Analyzer', {
+                new Notification(options.title || 'Double Analyzer', {
                     body: options.message,
                     icon: options.iconUrl
                 });
