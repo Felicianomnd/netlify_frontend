@@ -23,8 +23,41 @@
     let suppressAutoPatternSearch = false; // Evita busca automática após reset manual
     
     const SESSION_STORAGE_KEYS = ['authToken', 'user', 'lastAuthCheck'];
-    const configBroadcast = new BroadcastChannel('analyzer-config');
+    const configBroadcast = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel('analyzer-config') : null;
     let lastDiamondConfigHash = '';
+
+    // Helpers de hash e polling de config (escopo global)
+    function computeConfigHash(cfg = {}) {
+        try {
+            const payload = {
+                diamondLevelWindows: cfg.diamondLevelWindows || {},
+                diamondLevelEnabled: cfg.diamondLevelEnabled || {},
+                n0AllowBlockAll: cfg.n0AllowBlockAll,
+                minuteSpinWindow: cfg.minuteSpinWindow,
+                minOccurrences: cfg.minOccurrences,
+                maxOccurrences: cfg.maxOccurrences
+            };
+            return JSON.stringify(payload);
+        } catch {
+            return '';
+        }
+    }
+
+    async function pollAnalyzerConfigAndApply() {
+        try {
+            const stored = await storageCompat.get(['analyzerConfig']);
+            const cfg = stored?.analyzerConfig || {};
+            const hash = computeConfigHash(cfg);
+            if (hash && hash !== lastDiamondConfigHash) {
+                lastDiamondConfigHash = hash;
+                populateDiamondLevelsForm(cfg);
+                refreshDiamondLevelToggleStates();
+                showSyncSpinner();
+            }
+        } catch (err) {
+            console.warn('⚠️ Poll: erro ao ler analyzerConfig:', err);
+        }
+    }
     let forceLogoutAlreadyTriggered = false;
     let activeUserMenuKeyHandler = null;
 
@@ -2667,7 +2700,7 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
 
             await storageCompat.set({ analyzerConfig: updatedConfig });
             // ✅ Broadcast local imediato (antes mesmo do onChanged)
-            configBroadcast.postMessage(updatedConfig);
+            if (configBroadcast) configBroadcast.postMessage(updatedConfig);
             lastDiamondConfigHash = computeConfigHash(updatedConfig);
             try {
                 chrome.runtime.sendMessage({ action: 'applyConfig' });
@@ -3721,7 +3754,7 @@ autoBetHistoryStore.init().catch(error => console.warn('AutoBetHistory: iniciali
             }
 
             // ✅ Listener de BroadcastChannel para sincronizar configs entre abas/dispositivos
-            configBroadcast.onmessage = (event) => {
+            if (configBroadcast) configBroadcast.onmessage = (event) => {
                 const cfg = event?.data || {};
                 try {
                     populateDiamondLevelsForm(cfg);
@@ -3787,10 +3820,10 @@ autoBetHistoryStore.init().catch(error => console.warn('AutoBetHistory: iniciali
                     populateDiamondLevelsForm(newConfig || {});
                     refreshDiamondLevelToggleStates();
                     showSyncSpinner();
-                // Broadcast para outras abas do site
-                configBroadcast.postMessage(newConfig || {});
-                // Guardar hash para detectar mudanças no polling
-                lastDiamondConfigHash = computeConfigHash(newConfig);
+                    // Broadcast para outras abas do site
+                    if (configBroadcast) configBroadcast.postMessage(newConfig || {});
+                    // Guardar hash para detectar mudanças no polling
+                    lastDiamondConfigHash = computeConfigHash(newConfig);
                 } catch (err) {
                     console.warn('⚠️ Erro ao atualizar UI dos Níveis Diamante após sync:', err);
                 }
@@ -3799,37 +3832,6 @@ autoBetHistoryStore.init().catch(error => console.warn('AutoBetHistory: iniciali
                 runtime = { ...AUTO_BET_RUNTIME_DEFAULTS, ...(changes.autoBetRuntime.newValue || {}) };
                 updateSimulationSnapshots();
                 updateStatusUI();
-            }
-
-        function computeConfigHash(cfg = {}) {
-            try {
-                const payload = {
-                    diamondLevelWindows: cfg.diamondLevelWindows || {},
-                    diamondLevelEnabled: cfg.diamondLevelEnabled || {},
-                    n0AllowBlockAll: cfg.n0AllowBlockAll,
-                    minuteSpinWindow: cfg.minuteSpinWindow,
-                    minOccurrences: cfg.minOccurrences,
-                    maxOccurrences: cfg.maxOccurrences
-                };
-                return JSON.stringify(payload);
-            } catch {
-                return '';
-            }
-        }
-
-        async function pollAnalyzerConfigAndApply() {
-            try {
-                const stored = await storageCompat.get(['analyzerConfig']);
-                const cfg = stored?.analyzerConfig || {};
-                const hash = computeConfigHash(cfg);
-                if (hash && hash !== lastDiamondConfigHash) {
-                    lastDiamondConfigHash = hash;
-                    populateDiamondLevelsForm(cfg);
-                    refreshDiamondLevelToggleStates();
-                    showSyncSpinner();
-                }
-            } catch (err) {
-                console.warn('⚠️ Poll: erro ao ler analyzerConfig:', err);
             }
         }
         }
@@ -9847,7 +9849,7 @@ function logModeSnapshotUI(snapshot) {
                 refreshDiamondLevelToggleStates();
                 showSyncSpinner();
                 // Broadcast para outras abas do site
-                configBroadcast.postMessage(cfg);
+                if (configBroadcast) configBroadcast.postMessage(cfg);
                 lastDiamondConfigHash = computeConfigHash(cfg);
             } catch (err) {
                 console.warn('⚠️ Erro ao aplicar config sincronizada (ANALYZER_CONFIG_UPDATED):', err);
