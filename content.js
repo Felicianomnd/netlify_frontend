@@ -97,6 +97,68 @@
         return 'auth.html';
     }
 
+    // ═══════════════════════════════════════════════════════════════════════════════
+    // VERIFICAR CONFIGURAÇÕES PÚBLICAS (Conexão Blaze)
+    // ═══════════════════════════════════════════════════════════════════════════════
+    
+    let blazeConnectionEnabled = false; // Padrão: desativado
+    
+    async function checkBlazeConnectionEnabled() {
+        try {
+            const API_URL = 'https://blaze-analyzer-api-v2-z8s3.onrender.com/api';
+            const response = await fetch(`${API_URL}/public/settings`, {
+                method: 'GET',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            });
+            
+            if (response.ok) {
+                const data = await response.json();
+                blazeConnectionEnabled = data.settings?.blazeConnectionEnabled || false;
+                console.log(`🔧 Configuração carregada: Conexão Blaze = ${blazeConnectionEnabled ? 'ATIVADA ✅' : 'DESATIVADA ❌'}`);
+                
+                // Aplicar visibilidade das seções
+                applyBlazeConnectionVisibility();
+                return blazeConnectionEnabled;
+            } else {
+                console.warn('⚠️ Não foi possível carregar configurações públicas. Mantendo Blaze desativado.');
+                blazeConnectionEnabled = false;
+                applyBlazeConnectionVisibility();
+                return false;
+            }
+        } catch (error) {
+            console.error('❌ Erro ao verificar configurações públicas:', error);
+            blazeConnectionEnabled = false; // Em caso de erro, manter desativado
+            applyBlazeConnectionVisibility();
+            return false;
+        }
+    }
+    
+    function applyBlazeConnectionVisibility() {
+        // Aplicar visibilidade nas seções do modal de autoaposta
+        const blazeLoginSection = document.querySelector('.blaze-login-section');
+        const realModeCard = document.querySelector('.auto-bet-mode-card.real-mode');
+        const autoBetDivider = document.querySelector('.auto-bet-divider');
+        
+        if (blazeConnectionEnabled) {
+            // MOSTRAR: Conta Blaze e Modo Real
+            if (blazeLoginSection) blazeLoginSection.style.display = '';
+            if (realModeCard) realModeCard.style.display = '';
+            if (autoBetDivider) autoBetDivider.style.display = '';
+            console.log('✅ Seções da Blaze VISÍVEIS (admin habilitou a funcionalidade)');
+        } else {
+            // OCULTAR: Conta Blaze e Modo Real
+            if (blazeLoginSection) blazeLoginSection.style.display = 'none';
+            if (realModeCard) realModeCard.style.display = 'none';
+            if (autoBetDivider) autoBetDivider.style.display = 'none';
+            console.log('⚠️ Seções da Blaze OCULTAS (admin desabilitou a funcionalidade)');
+        }
+    }
+    
+    // Verificar configurações ao carregar a página
+    checkBlazeConnectionEnabled();
+    
     function getStoredUserData() {
         try {
             const raw = localStorage.getItem('user');
@@ -7509,6 +7571,10 @@ async function persistAnalyzerState(newState) {
 
         const openAutoBetModal = () => {
             if (!autoBetModal) return;
+            
+            // Verificar configurações e aplicar visibilidade antes de abrir
+            applyBlazeConnectionVisibility();
+            
             syncAutoBetModalWidth();
             autoBetModal.style.display = 'flex';
             document.body.classList.add('auto-bet-modal-open');
