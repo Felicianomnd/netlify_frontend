@@ -1418,7 +1418,7 @@ async function hasBlazeTabOpen() {
             
             // ✅ Aceitar múltiplos domínios da Blaze
             const blazeDomains = [
-                // removed blaze.com (legacy)
+                'blaze.com',
                 'blaze1.space',
                 'blaze-1.com',
                 'blaze-bet.com',
@@ -2060,16 +2060,16 @@ chrome.storage.onChanged.addListener((changes, area) => {
                 console.error('║  💡 Ajuste: maxPatternSize >= minPatternSize             ║');
             }
             
-        if (maxOcc > 0 && maxOcc < minOcc) {
-            console.error('║  ⚠️ CONFIGURAÇÃO INVÁLIDA DETECTADA!                     ║');
-            console.error(`║  ❌ Ocorrências MÁXIMAS (${maxOcc}) < MÍNIMAS (${minOcc})!`);
-            console.error('║  🚫 NENHUM PADRÃO SERÁ ENCONTRADO!                        ║');
-            console.error('║  💡 Ajuste: maxOccurrences >= minOccurrences             ║');
-        }
+            if (maxOcc > 0 && maxOcc < minOcc) {
+                console.error('║  ⚠️ CONFIGURAÇÃO INVÁLIDA DETECTADA!                     ║');
+                console.error(`║  ❌ Ocorrências MÁXIMAS (${maxOcc}) < MÍNIMAS (${minOcc})!`);
+                console.error('║  🚫 NENHUM PADRÃO SERÁ ENCONTRADO!                        ║');
+                console.error('║  💡 Ajuste: maxOccurrences >= minOccurrences             ║');
+            }
 
-        // ✅ Notificar todas as abas para atualizar UI imediatamente (sem refresh)
+        // ✅ Notificar todas as abas do Blaze para atualizar UI imediatamente (sem refresh)
         try {
-            chrome.tabs.query({}, function(tabs) {
+            chrome.tabs.query({ url: '*://blaze.com/*' }, function(tabs) {
                 tabs.forEach(tab => {
                     chrome.tabs.sendMessage(tab.id, {
                         type: 'ANALYZER_CONFIG_UPDATED',
@@ -2523,7 +2523,7 @@ async function startDataCollection() {
     const hasBlaze = await hasBlazeTabOpen();
     if (!hasBlaze) {
         console.log('║  ⛔ IMPOSSÍVEL INICIAR: NENHUMA ABA DA BLAZE ABERTA      ║');
-        // removed blaze.com legacy hint
+        console.log('║  💡 Abra blaze.com para usar a extensão                  ║');
         return;
     }
     
@@ -2794,7 +2794,7 @@ async function processNewSpinFromServer(spinData) {
             };
             
             // ✅ ENVIAR PARA O UI IMEDIATAMENTE
-            chrome.tabs.query({}, (tabs) => {
+            chrome.tabs.query({ url: '*://blaze.com/*' }, (tabs) => {
                 if (tabs && tabs.length > 0) {
                     tabs.forEach(tab => {
                         chrome.tabs.sendMessage(tab.id, spinMessage).catch(() => {
@@ -6242,7 +6242,7 @@ async function checkPreviousSignalAccuracy(newSpin) {
                 
                 // Notificar content.js para mostrar "Buscando..."
         if (!analyzerConfig.aiMode) {
-                chrome.tabs.query({}, function(tabs) {
+                chrome.tabs.query({url: '*://blaze.com/*'}, function(tabs) {
                     tabs.forEach(tab => {
                         chrome.tabs.sendMessage(tab.id, {
                             type: 'HOT_PATTERN_SEARCHING'
@@ -13182,7 +13182,7 @@ async function analyzeWithPatternSystem(history) {
                     }
                     
                     // ✅ CORREÇÃO: Notificar TODAS as tabs do Blaze (Modo Diamante também precisa receber)
-                    chrome.tabs.query({}, function(tabs) {
+                    chrome.tabs.query({url: '*://blaze.com/*'}, function(tabs) {
                         tabs.forEach(tab => {
                             chrome.tabs.sendMessage(tab.id, {
                                 type: 'HOT_PATTERN_FOUND',
@@ -13201,7 +13201,7 @@ async function analyzeWithPatternSystem(history) {
                     console.log('⚠️⚠️⚠️ Nenhum padrão quente disponível no momento!');
                     
                     // ✅ CORREÇÃO: Notificar TODAS as tabs do Blaze (Modo Diamante também precisa receber)
-                    chrome.tabs.query({}, function(tabs) {
+                    chrome.tabs.query({url: '*://blaze.com/*'}, function(tabs) {
                         tabs.forEach(tab => {
                             chrome.tabs.sendMessage(tab.id, {
                                 type: 'HOT_PATTERN_NOT_FOUND'
@@ -15492,7 +15492,7 @@ async function callOpenRouterAPI(apiKey, prompt, timeout) {
             headers: {
                 'Content-Type': 'application/json',
                 'Authorization': `Bearer ${apiKey}`,
-                // removed blaze referer
+                'HTTP-Referer': 'https://blaze.com',
                 'X-Title': 'Blaze Double Analyzer'
             },
             body: JSON.stringify({
@@ -21380,7 +21380,7 @@ async function sendMessageToContent(type, data = null) {
             const blazeTabs = tabs.filter(tab => {
                 if (!tab.url) return false;
                 return tab.url.includes('blaze.bet.br') || 
-                       false ||
+                       tab.url.includes('blaze.com') || 
                        tab.url.includes('blaze1.space') ||
                        tab.url.includes('blaze-1.com');
             });
@@ -21956,7 +21956,7 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
     if (changeInfo.status === 'complete') {
         // ✅ Verificar múltiplos domínios da Blaze
         const blazeDomains = [
-            // removed blaze.com
+            'blaze.com',
             'blaze1.space',
             'blaze-1.com',
             'blaze-bet.com',
@@ -22416,7 +22416,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 startDataCollection();
     } else {
         console.log('║  ⚠️ NENHUMA ABA DA BLAZE ABERTA                          ║');
-        // removed blaze.com legacy hint
+        console.log('║  💡 Abra blaze.com para ativar a extensão                ║');
     }
 })();
 
@@ -22452,7 +22452,7 @@ chrome.tabs.onActivated.addListener(async (activeInfo) => {
     try {
         const tab = await chrome.tabs.get(activeInfo.tabId);
         
-        if (tab.url) {
+        if (tab.url && (tab.url.includes('blaze.com') || tab.url.includes('blaze.bet.br'))) {
             console.log('%c║  📱 USUÁRIO VOLTOU PARA ABA DA BLAZE                     ║', 'color: #00FFFF; font-weight: bold;');
             
             // ✅ Verificar se WebSocket está conectado
@@ -22477,7 +22477,7 @@ chrome.tabs.onActivated.addListener(async (activeInfo) => {
 chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
     try {
         // Só processar quando a página terminou de carregar
-        if (changeInfo.status === 'complete' && tab.url) {
+        if (changeInfo.status === 'complete' && tab.url && (tab.url.includes('blaze.com') || tab.url.includes('blaze.bet.br'))) {
             console.log('%c║  🔄 ABA DA BLAZE RECARREGADA                             ║', 'color: #00FFFF; font-weight: bold;');
             console.log('%c║  Reconectando sistemas...                               ║', 'color: #00FFFF;');
             

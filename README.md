@@ -16,7 +16,7 @@ Extensão de navegador para análise de padrões e sugestões de apostas no jogo
 2. Abra o Chrome/Edge e vá para `chrome://extensions/` ou `edge://extensions/`
 3. Ative o "Modo do desenvolvedor"
 4. Clique em "Carregar sem compactação" e selecione a pasta da extensão
-5. Acesse o painel web hospedado (endereço atual do projeto)
+5. Acesse o site da Blaze (blaze.bet.br ou blaze.com)
 6. A sidebar aparecerá automaticamente no lado esquerdo
 
 ## Como Usar
@@ -57,7 +57,7 @@ A extensão utiliza múltiplos algoritmos para identificar padrões:
 
 - ✅ Google Chrome (Manifest V3)
 - ✅ Microsoft Edge (Manifest V3)
-- ✅ Sites: (endereço atual do projeto)
+- ✅ Sites: blaze.bet.br, blaze.com
 
 ## Estrutura dos Arquivos
 

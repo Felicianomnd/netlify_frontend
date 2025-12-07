@@ -215,7 +215,7 @@
         query: function(queryInfo, callback) {
             const currentTab = {
                 id: 1,
-                url: '',
+                url: 'https://blaze.com/pt/games/double',
                 active: true,
                 windowId: 1
             };
