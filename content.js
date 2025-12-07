@@ -2124,7 +2124,6 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                                 <label class="diamond-level-switch">
                                     <input type="checkbox" class="diamond-level-toggle-input" id="diamondLevelToggleN0" checked />
                                     <span class="switch-track"><span class="switch-thumb"></span></span>
-                                    <span class="switch-label">ATIVO</span>
                                 </label>
                             </div>
                             <div class="diamond-level-note">
@@ -2157,7 +2156,6 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                                 <label class="diamond-level-switch">
                                     <input type="checkbox" class="diamond-level-toggle-input" id="diamondLevelToggleN1" checked />
                                     <span class="switch-track"><span class="switch-thumb"></span></span>
-                                    <span class="switch-label">ATIVO</span>
                                 </label>
                             </div>
                             <div class="diamond-level-note">
@@ -2174,7 +2172,6 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                                 <label class="diamond-level-switch">
                                     <input type="checkbox" class="diamond-level-toggle-input" id="diamondLevelToggleN2" checked />
                                     <span class="switch-track"><span class="switch-thumb"></span></span>
-                                    <span class="switch-label">ATIVO</span>
                                 </label>
                             </div>
                             <div class="diamond-level-note">
@@ -2203,7 +2200,6 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                                 <label class="diamond-level-switch">
                                     <input type="checkbox" class="diamond-level-toggle-input" id="diamondLevelToggleN3" checked />
                                     <span class="switch-track"><span class="switch-thumb"></span></span>
-                                    <span class="switch-label">ATIVO</span>
                                 </label>
                             </div>
                             <div class="diamond-level-note">
@@ -2256,7 +2252,6 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                                 <label class="diamond-level-switch">
                                     <input type="checkbox" class="diamond-level-toggle-input" id="diamondLevelToggleN4" checked />
                                     <span class="switch-track"><span class="switch-thumb"></span></span>
-                                    <span class="switch-label">ATIVO</span>
                                 </label>
                             </div>
                             <div class="diamond-level-note">
@@ -2273,7 +2268,6 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                                 <label class="diamond-level-switch">
                                     <input type="checkbox" class="diamond-level-toggle-input" id="diamondLevelToggleN5" checked />
                                     <span class="switch-track"><span class="switch-thumb"></span></span>
-                                    <span class="switch-label">ATIVO</span>
                                 </label>
                             </div>
                             <div class="diamond-level-note">
@@ -2290,7 +2284,6 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                                 <label class="diamond-level-switch">
                                     <input type="checkbox" class="diamond-level-toggle-input" id="diamondLevelToggleN6" checked />
                                     <span class="switch-track"><span class="switch-thumb"></span></span>
-                                    <span class="switch-label">ATIVO</span>
                                 </label>
                             </div>
                             <div class="diamond-level-note">
@@ -2307,7 +2300,6 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                                 <label class="diamond-level-switch">
                                     <input type="checkbox" class="diamond-level-toggle-input" id="diamondLevelToggleN7" checked />
                                     <span class="switch-track"><span class="switch-thumb"></span></span>
-                                    <span class="switch-label">ATIVO</span>
                                 </label>
                             </div>
                             <div class="diamond-level-note">
@@ -2336,7 +2328,6 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                                 <label class="diamond-level-switch">
                                     <input type="checkbox" class="diamond-level-toggle-input" id="diamondLevelToggleN8" checked />
                                     <span class="switch-track"><span class="switch-thumb"></span></span>
-                                    <span class="switch-label">ATIVO</span>
                                 </label>
                             </div>
                             <div class="diamond-level-note">
@@ -2365,7 +2356,6 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                                 <label class="diamond-level-switch">
                                     <input type="checkbox" class="diamond-level-toggle-input" id="diamondLevelToggleN9" checked />
                                     <span class="switch-track"><span class="switch-thumb"></span></span>
-                                    <span class="switch-label">ATIVO</span>
                                 </label>
                             </div>
                             <div class="diamond-level-note">
@@ -2382,7 +2372,6 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                                 <label class="diamond-level-switch">
                                     <input type="checkbox" class="diamond-level-toggle-input" id="diamondLevelToggleN10" checked />
                                     <span class="switch-track"><span class="switch-thumb"></span></span>
-                                    <span class="switch-label">ATIVO</span>
                                 </label>
                             </div>
                             <div class="diamond-level-note">
@@ -2420,7 +2409,6 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                         </div>
                     </div>
                     <div class="custom-pattern-modal-footer">
-                        <button class="btn-secondary" id="diamondLevelsCancelBtn">Cancelar</button>
                         <button class="btn-hot-pattern" id="diamondLevelsSaveBtn">Salvar</button>
                     </div>
                 </div>
@@ -2429,11 +2417,9 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
         document.body.insertAdjacentHTML('beforeend', modalHTML);
         const modal = document.getElementById('diamondLevelsModal');
         const closeBtn = document.getElementById('closeDiamondLevelsModal');
-        const cancelBtn = document.getElementById('diamondLevelsCancelBtn');
         const overlay = modal.querySelector('.custom-pattern-modal-overlay');
         const closeModal = () => { modal.style.display = 'none'; };
         closeBtn.addEventListener('click', closeModal);
-        cancelBtn.addEventListener('click', closeModal);
         overlay.addEventListener('click', closeModal);
         initializeDiamondLevelToggles();
     }
