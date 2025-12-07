@@ -7342,6 +7342,14 @@ async function persistAnalyzerState(newState) {
             });
         }
         
+        // ✅ Botão de ativar/desativar análise
+        const toggleAnalyzerBtn = document.getElementById('toggleAnalyzerBtn');
+        if (toggleAnalyzerBtn) {
+            toggleAnalyzerBtn.addEventListener('click', handleAnalyzerToggle);
+        }
+        initAutoBetSummaryVisibilityControls();
+        initializeAnalyzerToggleState();
+        
         // ✅ Toggle de modo IA
         const aiModeToggle = document.getElementById('aiModeToggle');
         if (aiModeToggle) {
