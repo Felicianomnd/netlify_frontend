@@ -384,34 +384,33 @@
 
         .payment-card h3 {
             color: #ffffff;
-            font-size: 20px;
-            font-weight: 700;
-            margin-bottom: 18px;
+            font-size: 18px;
+            font-weight: 600;
+            margin-bottom: 16px;
         }
 
 
-        .pix-box {
+        .pix-compact {
+            display: inline-flex;
+            align-items: center;
+            gap: 12px;
             background: rgba(0, 0, 0, 0.3);
             border: none;
-            border-radius: 4px;
-            padding: 16px;
+            border-radius: 6px;
+            padding: 10px 16px;
             margin-bottom: 20px;
         }
 
-        .pix-box-header {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            margin-bottom: 12px;
-        }
-
-        .pix-box-header span {
+        .pix-label {
             color: #9ca3af;
             font-size: 13px;
             font-weight: 500;
         }
 
-        .copy-pix-btn {
+        .pix-copy-btn {
+            display: flex;
+            align-items: center;
+            gap: 6px;
             background: transparent;
             border: none;
             color: #ef4444;
@@ -419,20 +418,17 @@
             font-weight: 600;
             cursor: pointer;
             padding: 4px 8px;
-            border-radius: 3px;
+            border-radius: 4px;
             transition: all 0.2s;
         }
 
-        .copy-pix-btn:hover {
+        .pix-copy-btn:hover {
             background: rgba(239, 68, 68, 0.1);
         }
 
-        .pix-value {
-            color: #ffffff;
-            font-size: 15px;
-            font-weight: 500;
-            line-height: 1.5;
-            word-break: break-all;
+        .pix-copy-btn svg {
+            width: 14px;
+            height: 14px;
         }
 
         .support-card {
@@ -450,8 +446,8 @@
 
         .support-card h4 {
             color: #ffffff;
-            font-size: 16px;
-            font-weight: 700;
+            font-size: 15px;
+            font-weight: 600;
         }
 
         .support-actions {
@@ -830,13 +826,17 @@
                 <div class="payment-card">
                     <h3>Finalize o pagamento via PIX</h3>
 
-                    <div class="pix-box">
-                        <div class="pix-box-header">
-                            <span>Chave PIX</span>
-                            <button type="button" onclick="copyPixKey()" class="copy-pix-btn">Copiar</button>
-                        </div>
-                        <div class="pix-value" id="pixKeyValue">-</div>
+                    <div class="pix-compact">
+                        <span class="pix-label">Chave PIX</span>
+                        <button type="button" onclick="copyPixKey()" class="pix-copy-btn">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                            </svg>
+                            Copiar
+                        </button>
                     </div>
+                    <input type="hidden" id="pixKeyValue" value="-">
                 </div>
 
                 <div class="support-card">
@@ -1634,7 +1634,7 @@
 
                     const pixKeyElement = document.getElementById('pixKeyValue');
                     if (pixKeyElement) {
-                        pixKeyElement.textContent = paymentSettings.pixKey || 'Não configurado';
+                        pixKeyElement.value = paymentSettings.pixKey || 'Não configurado';
                     }
 
                     const pixTypeElement = document.getElementById('pixKeyType');
@@ -1675,7 +1675,7 @@
         }
 
         function copyPixKey() {
-            const pixKey = document.getElementById('pixKeyValue').textContent;
+            const pixKey = document.getElementById('pixKeyValue').value;
 
             if (!pixKey || pixKey === '-' || pixKey.toLowerCase() === 'não configurado') {
                 showMessage('Nenhuma chave PIX configurada no momento.', 'error');
@@ -1683,7 +1683,7 @@
             }
 
             navigator.clipboard.writeText(pixKey).then(() => {
-                showMessage('Chave PIX copiada!', 'success');
+                showMessage('✓ Chave PIX copiada', 'success');
             });
         }
 
