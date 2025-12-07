@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Blaze Analyzer - Autenticação</title>
+    <title>Double Analyzer - Autenticação</title>
     <style>
         * {
             margin: 0;
@@ -24,11 +24,11 @@
         .auth-container {
             width: 100%;
             max-width: 450px;
-            background: #252a3b;
-            border-radius: 16px;
+            background: #1a2332;
+            border-radius: 8px;
             padding: 40px 32px;
-            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5), 0 0 20px rgba(255, 0, 63, 0.2);
-            border: 1px solid #2f3546;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+            border: none;
         }
 
         .logo {
@@ -152,9 +152,9 @@
         .form-input {
             width: 100%;
             padding: 14px 16px;
-            background: #151924;
-            border: 2px solid #2f3546;
-            border-radius: 8px;
+            background: rgba(0, 0, 0, 0.3);
+            border: none;
+            border-radius: 4px;
             color: white;
             font-size: 15px;
             transition: all 0.3s;
@@ -162,8 +162,7 @@
 
         .form-input:focus {
             outline: none;
-            border-color: #ff003f;
-            box-shadow: 0 0 0 3px rgba(255, 0, 63, 0.1);
+            background: rgba(0, 0, 0, 0.4);
         }
 
         .password-input-wrapper {
@@ -762,7 +761,7 @@
 <body>
     <div class="auth-container">
         <div class="logo">
-            <h1>Blaze Analyzer</h1>
+            <h1>Double Analyzer</h1>
             <p>Sistema de Análise de Padrões</p>
         </div>
 
@@ -1200,9 +1199,9 @@
                 ctx.fillStyle = '#f60';
                 ctx.fillRect(125, 1, 62, 20);
                 ctx.fillStyle = '#069';
-                ctx.fillText('Blaze Analyzer 🔥', 2, 15);
+                ctx.fillText('Double Analyzer 🎯', 2, 15);
                 ctx.fillStyle = 'rgba(102, 204, 0, 0.7)';
-                ctx.fillText('Blaze Analyzer 🔥', 4, 17);
+                ctx.fillText('Double Analyzer 🎯', 4, 17);
                 
                 // Gerar hash do canvas
                 const dataURL = canvas.toDataURL();
@@ -1765,7 +1764,7 @@
                         }
                         
                         if (cleanPhone) {
-                            const message = encodeURIComponent(`Olá! Acabei de fazer o pagamento do Blaze Analyzer. Email: ${userData.email}`);
+                            const message = encodeURIComponent(`Olá! Acabei de fazer o pagamento do Double Analyzer. Email: ${userData.email}`);
                             whatsappLink.href = `https://wa.me/${cleanPhone}?text=${message}`;
                             whatsappLink.removeAttribute('aria-disabled');
                         } else {

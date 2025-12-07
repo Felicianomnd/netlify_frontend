@@ -235,12 +235,6 @@
             console.error('❌ Erro ao notificar background sobre logout forçado:', error);
         }
 
-        try {
-            alert('Sua sessão foi encerrada. Faça login novamente.\n\nMotivo: ' + reason);
-        } catch (error) {
-            console.warn('⚠️ Não foi possível mostrar alerta de logout:', error);
-        }
-
         const loginUrl = getAuthPageUrl();
         try {
             const newWindow = window.open(loginUrl, '_blank');
