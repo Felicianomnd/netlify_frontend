@@ -153,6 +153,33 @@
             transform: translateY(0);
         }
         
+        /* ✅ MODAIS COMO JANELAS FLUTUANTES (Desktop apenas) */
+        @media only screen and (min-width: 769px) {
+            /* Remover overlay escuro em desktop */
+            .auto-bet-modal-overlay,
+            .custom-pattern-modal-overlay,
+            .bank-patterns-modal-overlay {
+                display: none !important;
+            }
+            
+            /* Modal não bloqueia interação */
+            .auto-bet-modal,
+            .custom-pattern-modal,
+            .bank-patterns-modal,
+            #diamondLevelsModal {
+                pointer-events: none !important;
+            }
+            
+            /* Apenas o content é clicável */
+            .auto-bet-modal-content,
+            .custom-pattern-modal-content,
+            .bank-patterns-modal-content {
+                pointer-events: all !important;
+                box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6) !important;
+                border: 1px solid rgba(255, 255, 255, 0.1) !important;
+            }
+        }
+        
         /* ✅ MOBILE: FULLSCREEN */
         @media only screen and (max-width: 768px) {
             #blaze-double-analyzer {

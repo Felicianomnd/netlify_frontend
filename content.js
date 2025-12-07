@@ -1739,11 +1739,21 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
         const filterSelect = document.getElementById('bankPatternFilter');
         
         closeBtn.addEventListener('click', () => {
+            // ✅ Desregistrar do sistema de janelas flutuantes
+            if (isDesktop()) {
+                floatingWindows.unregister('bankPatternsModal');
+            }
             modal.style.display = 'none';
         });
         
         overlay.addEventListener('click', () => {
-            modal.style.display = 'none';
+            // ✅ Overlay só fecha em mobile
+            if (!isDesktop()) {
+                if (isDesktop()) {
+                    floatingWindows.unregister('bankPatternsModal');
+                }
+                modal.style.display = 'none';
+            }
         });
         
         // Filtros em tempo real
@@ -1761,11 +1771,21 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
         const detailsOverlay = detailsModal.querySelector('.bank-patterns-modal-overlay');
         
         closeDetailsBtn.addEventListener('click', () => {
+            // ✅ Desregistrar do sistema de janelas flutuantes
+            if (isDesktop()) {
+                floatingWindows.unregister('patternDetailsModal');
+            }
             detailsModal.style.display = 'none';
         });
         
         detailsOverlay.addEventListener('click', () => {
-            detailsModal.style.display = 'none';
+            // ✅ Overlay só fecha em mobile
+            if (!isDesktop()) {
+                if (isDesktop()) {
+                    floatingWindows.unregister('patternDetailsModal');
+                }
+                detailsModal.style.display = 'none';
+            }
         });
         
         console.log('✅ Modal do Banco de Padrões criado');
@@ -2422,9 +2442,24 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
         const modal = document.getElementById('diamondLevelsModal');
         const closeBtn = document.getElementById('closeDiamondLevelsModal');
         const overlay = modal.querySelector('.custom-pattern-modal-overlay');
-        const closeModal = () => { modal.style.display = 'none'; };
+        
+        const closeModal = () => {
+            // ✅ Desregistrar do sistema de janelas flutuantes
+            if (isDesktop()) {
+                floatingWindows.unregister('diamondLevelsModal');
+            }
+            modal.style.display = 'none';
+        };
+        
         closeBtn.addEventListener('click', closeModal);
-        overlay.addEventListener('click', closeModal);
+        
+        // ✅ Overlay só fecha em mobile
+        overlay.addEventListener('click', () => {
+            if (!isDesktop()) {
+                closeModal();
+            }
+        });
+        
         initializeDiamondLevelToggles();
     }
 
@@ -2564,24 +2599,44 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
         if (!modal) return;
         storageCompat.get(['analyzerConfig']).then(res => {
             populateDiamondLevelsForm(res.analyzerConfig || {});
-            const container = document.getElementById('blaze-double-analyzer');
-            const content = modal.querySelector('.custom-pattern-modal-content');
-            if (container && content) {
-                const rect = container.getBoundingClientRect();
-                content.style.maxWidth = `${rect.width}px`;
-                content.style.width = '100%';
+            
+            // ✅ Mobile: manter comportamento atual
+            if (!isDesktop()) {
+                const container = document.getElementById('blaze-double-analyzer');
+                const content = modal.querySelector('.custom-pattern-modal-content');
+                if (container && content) {
+                    const rect = container.getBoundingClientRect();
+                    content.style.maxWidth = `${rect.width}px`;
+                    content.style.width = '100%';
+                }
             }
+            
             modal.style.display = 'flex';
+            
+            // ✅ Registrar no sistema de janelas flutuantes (Desktop)
+            if (isDesktop()) {
+                floatingWindows.register('diamondLevelsModal');
+            }
         }).catch(() => {
             populateDiamondLevelsForm({});
-            const container = document.getElementById('blaze-double-analyzer');
-            const content = modal.querySelector('.custom-pattern-modal-content');
-            if (container && content) {
-                const rect = container.getBoundingClientRect();
-                content.style.maxWidth = `${rect.width}px`;
-                content.style.width = '100%';
+            
+            // ✅ Mobile: manter comportamento atual
+            if (!isDesktop()) {
+                const container = document.getElementById('blaze-double-analyzer');
+                const content = modal.querySelector('.custom-pattern-modal-content');
+                if (container && content) {
+                    const rect = container.getBoundingClientRect();
+                    content.style.maxWidth = `${rect.width}px`;
+                    content.style.width = '100%';
+                }
             }
+            
             modal.style.display = 'flex';
+            
+            // ✅ Registrar no sistema de janelas flutuantes (Desktop)
+            if (isDesktop()) {
+                floatingWindows.register('diamondLevelsModal');
+            }
         });
     }
 
@@ -2955,6 +3010,11 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
         
             detailsContent.innerHTML = occurrencesHTML;
             detailsModal.style.display = 'flex';
+            
+            // ✅ Registrar no sistema de janelas flutuantes (Desktop)
+            if (isDesktop()) {
+                floatingWindows.register('patternDetailsModal');
+            }
             
             console.log(`✅ Modal de detalhes aberto com ${occurrences.length} ocorrências`);
         });
@@ -7300,6 +7360,12 @@ async function persistAnalyzerState(newState) {
 
         const closeAutoBetModal = () => {
             if (!autoBetModal) return;
+            
+            // ✅ Desregistrar do sistema de janelas flutuantes
+            if (isDesktop()) {
+                floatingWindows.unregister('autoBetModal');
+            }
+            
             autoBetModal.style.display = 'none';
             document.body.classList.remove('auto-bet-modal-open');
             if (autoBetModalEscHandler) {
@@ -7315,9 +7381,17 @@ async function persistAnalyzerState(newState) {
         const openAutoBetModal = async () => {
             if (!autoBetModal) return;
             
-            syncAutoBetModalWidth();
             autoBetModal.style.display = 'flex';
             document.body.classList.add('auto-bet-modal-open');
+            
+            // ✅ Registrar no sistema de janelas flutuantes (Desktop)
+            if (isDesktop()) {
+                floatingWindows.register('autoBetModal');
+            } else {
+                // Mobile: manter comportamento atual
+                syncAutoBetModalWidth();
+            }
+            
             autoBetModalEscHandler = (event) => {
                 if (event.key === 'Escape') {
                     closeAutoBetModal();
@@ -7325,7 +7399,13 @@ async function persistAnalyzerState(newState) {
             };
             document.addEventListener('keydown', autoBetModalEscHandler);
             if (!autoBetModalResizeHandler) {
-                autoBetModalResizeHandler = () => syncAutoBetModalWidth();
+                autoBetModalResizeHandler = () => {
+                    if (isDesktop()) {
+                        floatingWindows.repositionAll();
+                    } else {
+                        syncAutoBetModalWidth();
+                    }
+                };
                 window.addEventListener('resize', autoBetModalResizeHandler);
             }
         };
@@ -7334,7 +7414,12 @@ async function persistAnalyzerState(newState) {
             autoBetConfigBtn.addEventListener('click', openAutoBetModal);
         }
         if (autoBetModalOverlay) {
-            autoBetModalOverlay.addEventListener('click', closeAutoBetModal);
+            // ✅ Overlay só fecha em mobile
+            autoBetModalOverlay.addEventListener('click', () => {
+                if (!isDesktop()) {
+                    closeAutoBetModal();
+                }
+            });
         }
         if (closeAutoBetModalBtn) {
             closeAutoBetModalBtn.addEventListener('click', closeAutoBetModal);
@@ -9370,6 +9455,94 @@ async function persistAnalyzerState(newState) {
             console.log('💡 Use o botão "Resetar Padrões" para limpar padrões locais');
         }
     }
+    
+    // ═══════════════════════════════════════════════════════════════════════════════
+    // 🪟 SISTEMA DE JANELAS FLUTUANTES (Modais Desktop)
+    // ═══════════════════════════════════════════════════════════════════════════════
+    
+    const floatingWindows = {
+        windows: [],
+        
+        register(windowId) {
+            if (!this.windows.includes(windowId)) {
+                this.windows.push(windowId);
+                this.repositionAll();
+                console.log('🪟 Janela registrada:', windowId, '| Total:', this.windows.length);
+            }
+        },
+        
+        unregister(windowId) {
+            const index = this.windows.indexOf(windowId);
+            if (index > -1) {
+                this.windows.splice(index, 1);
+                this.repositionAll();
+                console.log('🪟 Janela removida:', windowId, '| Total:', this.windows.length);
+            }
+        },
+        
+        repositionAll() {
+            if (!isDesktop() || this.windows.length === 0) return;
+            
+            const sidebar = document.getElementById('blaze-double-analyzer');
+            if (!sidebar) return;
+            
+            // Pegar dimensões da sidebar
+            const sidebarRect = sidebar.getBoundingClientRect();
+            const sidebarWidth = sidebarRect.width;
+            const sidebarHeight = sidebarRect.height;
+            const sidebarLeft = sidebarRect.left;
+            const sidebarTop = sidebarRect.top;
+            
+            // Calcular espaço disponível à direita
+            const availableWidth = window.innerWidth - sidebarLeft - sidebarWidth;
+            
+            // Calcular largura de cada janela
+            const gap = 10; // Espaço entre janelas
+            const totalGaps = (this.windows.length - 1) * gap;
+            let windowWidth = (availableWidth - totalGaps) / this.windows.length;
+            
+            // Garantir largura mínima de 300px
+            if (windowWidth < 300) {
+                windowWidth = 300;
+            }
+            
+            // Posicionar cada janela
+            this.windows.forEach((windowId, index) => {
+                const modal = document.getElementById(windowId);
+                if (!modal) return;
+                
+                const content = modal.querySelector('[class*="modal-content"]');
+                if (!content) return;
+                
+                // Calcular posição X
+                const leftPosition = sidebarLeft + sidebarWidth + (index * (windowWidth + gap));
+                
+                // Aplicar estilos
+                content.style.position = 'fixed';
+                content.style.left = leftPosition + 'px';
+                content.style.top = sidebarTop + 'px';
+                content.style.width = windowWidth + 'px';
+                content.style.height = sidebarHeight + 'px';
+                content.style.maxWidth = 'none';
+                content.style.maxHeight = 'none';
+                content.style.transform = 'none';
+                content.style.margin = '0';
+                
+                console.log(`🪟 Janela ${index + 1}/${this.windows.length}:`, {
+                    id: windowId,
+                    left: leftPosition,
+                    width: windowWidth
+                });
+            });
+        }
+    };
+    
+    // Atualizar posições quando redimensionar janela
+    window.addEventListener('resize', () => {
+        if (isDesktop()) {
+            floatingWindows.repositionAll();
+        }
+    });
     
     // ═══════════════════════════════════════════════════════════════════════════════
     // 🖥️ MODO TELA CHEIA vs MODO COMPACTO (Desktop apenas)
