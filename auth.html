@@ -247,7 +247,7 @@
         .btn-secondary {
             background: rgba(255, 255, 255, 0.1);
             color: white;
-            border: 1px solid #2f3546;
+            border: none;
         }
 
         .btn-secondary:hover {
@@ -372,50 +372,12 @@
             margin-bottom: 18px;
         }
 
-        .payment-stepper {
-            display: flex;
-            gap: 12px;
-            margin-bottom: 22px;
-        }
-
-        .payment-step {
-            flex: 1;
-            background: rgba(255, 255, 255, 0.04);
-            border: 1px solid rgba(255, 255, 255, 0.06);
-            border-radius: 12px;
-            padding: 14px 16px;
-            color: #9aa9c6;
-            font-size: 13px;
-            font-weight: 600;
-            text-align: center;
-            display: flex;
-            flex-direction: column;
-            gap: 6px;
-        }
-
-        .payment-step span {
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            width: 28px;
-            height: 28px;
-            border-radius: 10px;
-            background: rgba(255, 255, 255, 0.08);
-            font-size: 13px;
-            margin: 0 auto;
-        }
-
-        .payment-step.active {
-            border-color: rgba(255, 0, 63, 0.4);
-            background: rgba(255, 0, 63, 0.16);
-            color: #ff4d6d;
-        }
 
         .pix-box {
-            background: #101522;
-            border: 1px solid rgba(255, 0, 63, 0.2);
-            border-radius: 16px;
-            padding: 22px;
+            background: rgba(0, 0, 0, 0.3);
+            border: none;
+            border-radius: 4px;
+            padding: 16px;
             margin-bottom: 20px;
         }
 
@@ -423,89 +385,50 @@
             display: flex;
             align-items: center;
             justify-content: space-between;
-            color: #9aa9c6;
-            font-size: 13px;
-            text-transform: uppercase;
-            letter-spacing: 0.12em;
-            margin-bottom: 10px;
+            margin-bottom: 12px;
         }
 
-        .pix-badge {
-            background: rgba(255, 255, 255, 0.08);
-            padding: 4px 10px;
-            border-radius: 10px;
-            font-size: 11px;
-            letter-spacing: 0.08em;
-            color: #9aa9c6;
+        .pix-box-header span {
+            color: #9ca3af;
+            font-size: 13px;
+            font-weight: 500;
+        }
+
+        .copy-pix-btn {
+            background: transparent;
+            border: none;
+            color: #ef4444;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            padding: 4px 8px;
+            border-radius: 3px;
+            transition: all 0.2s;
+        }
+
+        .copy-pix-btn:hover {
+            background: rgba(239, 68, 68, 0.1);
         }
 
         .pix-value {
             color: #ffffff;
-            font-size: 18px;
-            font-weight: 600;
+            font-size: 15px;
+            font-weight: 500;
             line-height: 1.5;
             word-break: break-all;
         }
 
-        .copy-action {
-            margin-top: 18px;
-            display: flex;
-            justify-content: flex-end;
-        }
-
-        .copy-action button {
-            background: rgba(255, 0, 63, 0.18);
-            border: 1px solid rgba(255, 0, 63, 0.4);
-            color: #ff4d6d;
-            padding: 10px 18px;
-            border-radius: 10px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.3s;
-        }
-
-        .copy-action button:disabled {
-            cursor: not-allowed;
-        }
-
-        .copy-action button:hover {
-            transform: translateY(-1px);
-            background: rgba(255, 0, 63, 0.28);
-        }
-
-        .payment-instructions {
-            list-style: none;
-            display: flex;
-            flex-direction: column;
-            gap: 12px;
-            margin-top: 12px;
-            color: #b4c2d8;
-            font-size: 14px;
-        }
-
-        .payment-instructions li {
-            display: flex;
-            align-items: flex-start;
-            gap: 10px;
-        }
-
-        .payment-instructions li span {
-            color: #ff4d6d;
-            font-weight: 700;
-            font-size: 12px;
-            margin-top: 3px;
-        }
-
         .support-card {
-            background: #151d24;
-            border: 1px solid rgba(255, 255, 255, 0.04);
-            border-radius: 16px;
+            background: #1a2332;
+            border: none;
+            border-radius: 8px;
             padding: 22px;
-            color: #9aa9c6;
+            color: #9ca3af;
             font-size: 14px;
             display: flex;
             flex-direction: column;
             gap: 14px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
         }
 
         .support-card h4 {
@@ -520,16 +443,19 @@
             gap: 12px;
         }
 
-        .support-actions a {
-            display: inline-flex;
+        .support-actions a.whatsapp-link {
+            display: flex;
             align-items: center;
             justify-content: center;
-            gap: 10px;
-            padding: 12px;
-            border-radius: 10px;
+            padding: 14px;
+            background: #25d366;
+            color: white;
+            border-radius: 8px;
             text-decoration: none;
+            font-size: 16px;
             font-weight: 600;
-            transition: transform 0.2s ease, box-shadow 0.2s ease;
+            cursor: pointer;
+            transition: all 0.2s;
         }
 
         .support-actions a[aria-disabled="true"] {
@@ -537,15 +463,13 @@
             opacity: 0.5;
         }
 
-        .support-actions a.whatsapp-link {
-            background: #25d366;
-            color: white;
-        }
-
         .support-actions a.whatsapp-link:hover {
             background: #21bd5b;
             transform: translateY(-2px);
-            box-shadow: 0 12px 24px rgba(37, 211, 102, 0.35);
+        }
+
+        .support-actions button {
+            width: 100%;
         }
 
         .activation-card {
@@ -888,45 +812,21 @@
                 <div class="payment-card">
                     <h3>Finalize o pagamento via PIX</h3>
 
-                    <div class="payment-stepper">
-                        <div class="payment-step active">
-                            <span>1</span>
-                            Efetue o pagamento
-                        </div>
-                        <div class="payment-step">
-                            <span>2</span>
-                            Envie o comprovante
-                        </div>
-                        <div class="payment-step">
-                            <span>3</span>
-                            Receba o código e ative
-                        </div>
-                    </div>
-
                     <div class="pix-box">
                         <div class="pix-box-header">
                             <span>Chave PIX</span>
-                            <span class="pix-badge" id="pixKeyType">Copia e cola</span>
+                            <button type="button" onclick="copyPixKey()" class="copy-pix-btn">Copiar</button>
                         </div>
                         <div class="pix-value" id="pixKeyValue">-</div>
-                        <div class="copy-action">
-                            <button type="button" onclick="copyPixKey()">📋 Copiar chave PIX</button>
-                        </div>
                     </div>
-
-                    <ul class="payment-instructions">
-                        <li><span>1.</span> Abra o app do seu banco, escolha pagamento por PIX e cole a chave acima.</li>
-                        <li><span>2.</span> Confirme os dados do destinatário antes de finalizar o envio.</li>
-                        <li><span>3.</span> Envie o comprovante pelo WhatsApp para liberar seu acesso mais rápido.</li>
-                    </ul>
                 </div>
 
                 <div class="support-card">
                     <h4>Envie o comprovante</h4>
                     <p>Assim que o pagamento for confirmado, você receberá um código de ativação exclusivo.</p>
                     <div class="support-actions">
-                        <a href="#" id="whatsappLink" class="whatsapp-link" target="_blank">📱 Abrir WhatsApp</a>
-                        <button type="button" onclick="showActivationScreen()">Já recebi meu código</button>
+                        <a href="#" id="whatsappLink" class="whatsapp-link" target="_blank">Abrir WhatsApp</a>
+                        <button type="button" class="btn btn-primary" onclick="showActivationScreen()">Já recebi meu código</button>
                     </div>
                 </div>
             </div>
