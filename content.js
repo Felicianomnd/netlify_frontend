@@ -3761,6 +3761,14 @@ autoBetHistoryStore.init().catch(error => console.warn('AutoBetHistory: iniciali
                 broadcastAutoBetAvailability();
                 hydratePanel();
                 updateStatusUI();
+
+                // ✅ Atualizar imediatamente o formulário dos Níveis Diamante (sem recarregar página)
+                try {
+                    populateDiamondLevelsForm(newConfig || {});
+                    refreshDiamondLevelToggleStates();
+                } catch (err) {
+                    console.warn('⚠️ Erro ao atualizar UI dos Níveis Diamante após sync:', err);
+                }
             }
             if (changes.autoBetRuntime) {
                 runtime = { ...AUTO_BET_RUNTIME_DEFAULTS, ...(changes.autoBetRuntime.newValue || {}) };
