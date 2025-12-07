@@ -13980,14 +13980,16 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
             });
         }
 
+        // ✅ CORREÇÃO: N10 é apenas calibrador, NÃO vota sozinho
+        // Ele ajusta a força dos outros níveis, mas não gera voto próprio
         const bayesStrength = clamp01(bayesResult && bayesResult.strength ? bayesResult.strength : 0);
         levelReports.push({
             id: 'N10',
             name: 'Calibração Bayesiana',
-            color: n10Enabled ? bayesResult.color : null,
-            weight: n10Enabled ? weightFor(levelWeights.bayesianCalibration) : 0,
-            strength: n10Enabled ? bayesStrength : 0,
-            score: n10Enabled ? directionValue(bayesResult.color) * bayesStrength : 0,
+            color: null, // ✅ N10 nunca vota, apenas calibra outros níveis
+            weight: 0, // ✅ Peso zero = não participa da votação
+            strength: 0, // ✅ Força zero = não influencia diretamente
+            score: 0, // ✅ Score zero = não vota
             details: n10Enabled ? bayesResult.details : 'DESATIVADO',
             disabled: !n10Enabled
         });
@@ -14254,13 +14256,22 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
         }
         }
         const barrierStatusLabel = barrierResult.allowed ? 'APROVADO' : 'BLOQUEADO';
+        
+        // ✅ CORREÇÃO: N9 é apenas validador, NÃO vota
+        // Verificar se há votos de outros níveis (excluindo N0, N9 e N10)
+        const otherLevelsVoting = levelReports.filter(lvl => 
+            lvl.id !== 'N0' && lvl.id !== 'N9' && lvl.id !== 'N10' && 
+            !lvl.disabled && lvl.color && (lvl.strength || 0) > 0
+        );
+        const hasOtherVotes = otherLevelsVoting.length > 0;
+        
         levelReports.push({
             id: 'N9',
             name: 'Barreira Final',
-            color: n9Enabled ? predictedColor : null,
-            weight: n9Enabled ? weightFor(levelWeights.barrier) : 0,
-            strength: n9Enabled ? barrierStrength : 0,
-            score: n9Enabled && barrierResult.allowed ? directionValue(predictedColor) * barrierStrength : 0,
+            color: null, // ✅ N9 nunca vota, apenas valida
+            weight: 0, // ✅ Peso zero = não participa da votação
+            strength: 0, // ✅ Força zero = não influencia
+            score: 0, // ✅ Score zero = não vota
             details: n9Enabled ? `${barrierStatusLabel} • ${barrierDetailsText}` : 'DESATIVADO',
             disabled: !n9Enabled
         });
@@ -14301,6 +14312,22 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
         }
 
         console.log('%c✅ BARREIRA LIBERADA! Sequência é viável.', 'color: #00FF88; font-weight: bold; font-size: 14px;');
+        
+        // ✅ VERIFICAÇÃO CRÍTICA: Se apenas N9/N10 estão ativos (sem outros níveis votando), cancelar sinal
+        const votingLevelsOnly = levelReports.filter(lvl => 
+            lvl.id !== 'N0' && lvl.id !== 'N9' && lvl.id !== 'N10' && 
+            !lvl.disabled && lvl.color && (lvl.strength || 0) > 0
+        );
+        
+        if (votingLevelsOnly.length === 0) {
+            console.log('%c🚫 NENHUM NÍVEL VOTANTE ATIVO (apenas barreiras N9/N10)', 'color: #FF6666; font-weight: bold; font-size: 16px;');
+            console.log('%c   N9 e N10 são apenas validadores, não podem votar sozinhos!', 'color: #FF6666; font-weight: bold;');
+            console.log('%c   ❌ SINAL CANCELADO - sem votos válidos dos níveis 1-8', 'color: #FF0000; font-weight: bold;');
+            sendAnalysisStatus('❌ Sem votos: apenas barreiras ativas (N9/N10 não votam sozinhas)');
+            await sleep(2000);
+            await restoreIAStatus();
+            return null;
+        }
         
         const totalWeight = levelReports.reduce((sum, lvl) => sum + lvl.weight, 0);
         let weightedScore = totalWeight ? levelReports.reduce((sum, lvl) => sum + (lvl.score * lvl.weight), 0) : 0;

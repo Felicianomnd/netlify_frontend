@@ -2022,7 +2022,6 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
             .diamond-level-switch {
                 display: inline-flex;
                 align-items: center;
-                gap: 8px;
                 cursor: pointer;
                 user-select: none;
             }
@@ -2033,43 +2032,33 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
             
             .diamond-level-switch .switch-track {
                 position: relative;
-                width: 34px;
-                height: 18px;
-                background: rgba(255, 255, 255, 0.18);
+                width: 44px;
+                height: 24px;
+                background: #3d4859;
                 border-radius: 999px;
                 transition: background 0.2s ease;
+                flex-shrink: 0;
             }
             
-            .diamond-level-switch .switch-thumb {
+            .diamond-level-switch .switch-track::after {
+                content: '';
                 position: absolute;
-                top: 2px;
-                left: 2px;
-                width: 14px;
-                height: 14px;
+                top: 3px;
+                left: 3px;
+                width: 18px;
+                height: 18px;
                 border-radius: 50%;
-                background: #a8b5ff;
-                transition: transform 0.2s ease, background 0.2s ease;
-            }
-            
-            .diamond-level-switch .switch-label {
-                font-size: 9px;
-                letter-spacing: 0.08em;
-                text-transform: uppercase;
-                color: rgba(200, 214, 233, 0.7);
-                font-weight: 600;
+                background: #8d95a5;
+                transition: all 0.2s ease;
             }
             
             .diamond-level-switch input:checked + .switch-track {
-                background: rgba(0, 212, 255, 0.45);
+                background: #ef4444;
             }
             
-            .diamond-level-switch input:checked + .switch-track .switch-thumb {
-                transform: translateX(16px);
-                background: #00d4ff;
-            }
-            
-            .diamond-level-switch input:checked ~ .switch-label {
-                color: #00d4ff;
+            .diamond-level-switch input:checked + .switch-track::after {
+                transform: translateX(20px);
+                background: white;
             }
             
             .diamond-level-field.level-disabled {
@@ -2123,7 +2112,7 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                                 <div class="diamond-level-title">N0 - Detector de Branco</div>
                                 <label class="diamond-level-switch">
                                     <input type="checkbox" class="diamond-level-toggle-input" id="diamondLevelToggleN0" checked />
-                                    <span class="switch-track"><span class="switch-thumb"></span></span>
+                                    <span class="switch-track"></span>
                                 </label>
                             </div>
                             <div class="diamond-level-note">
@@ -2155,7 +2144,7 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                                 <div class="diamond-level-title">N1 - Padrão Quente (giros analisados)</div>
                                 <label class="diamond-level-switch">
                                     <input type="checkbox" class="diamond-level-toggle-input" id="diamondLevelToggleN1" checked />
-                                    <span class="switch-track"><span class="switch-thumb"></span></span>
+                                    <span class="switch-track"></span>
                                 </label>
                             </div>
                             <div class="diamond-level-note">
@@ -2171,7 +2160,7 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                                 <div class="diamond-level-title">N2 - Momentum</div>
                                 <label class="diamond-level-switch">
                                     <input type="checkbox" class="diamond-level-toggle-input" id="diamondLevelToggleN2" checked />
-                                    <span class="switch-track"><span class="switch-thumb"></span></span>
+                                    <span class="switch-track"></span>
                                 </label>
                             </div>
                             <div class="diamond-level-note">
@@ -2199,7 +2188,7 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                                 <div class="diamond-level-title">N3 - Alternância (janela)</div>
                                 <label class="diamond-level-switch">
                                     <input type="checkbox" class="diamond-level-toggle-input" id="diamondLevelToggleN3" checked />
-                                    <span class="switch-track"><span class="switch-thumb"></span></span>
+                                    <span class="switch-track"></span>
                                 </label>
                             </div>
                             <div class="diamond-level-note">
@@ -2251,7 +2240,7 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                                 <div class="diamond-level-title">N4 - Persistência / Ciclos (janela)</div>
                                 <label class="diamond-level-switch">
                                     <input type="checkbox" class="diamond-level-toggle-input" id="diamondLevelToggleN4" checked />
-                                    <span class="switch-track"><span class="switch-thumb"></span></span>
+                                    <span class="switch-track"></span>
                                 </label>
                             </div>
                             <div class="diamond-level-note">
@@ -2267,7 +2256,7 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                                 <div class="diamond-level-title">N5 - Ritmo por Giro (amostras)</div>
                                 <label class="diamond-level-switch">
                                     <input type="checkbox" class="diamond-level-toggle-input" id="diamondLevelToggleN5" checked />
-                                    <span class="switch-track"><span class="switch-thumb"></span></span>
+                                    <span class="switch-track"></span>
                                 </label>
                             </div>
                             <div class="diamond-level-note">
@@ -2283,7 +2272,7 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                                 <div class="diamond-level-title">N6 - Retração Histórica (janela)</div>
                                 <label class="diamond-level-switch">
                                     <input type="checkbox" class="diamond-level-toggle-input" id="diamondLevelToggleN6" checked />
-                                    <span class="switch-track"><span class="switch-thumb"></span></span>
+                                    <span class="switch-track"></span>
                                 </label>
                             </div>
                             <div class="diamond-level-note">
@@ -2299,7 +2288,7 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                                 <div class="diamond-level-title">N7 - Continuidade Global</div>
                                 <label class="diamond-level-switch">
                                     <input type="checkbox" class="diamond-level-toggle-input" id="diamondLevelToggleN7" checked />
-                                    <span class="switch-track"><span class="switch-thumb"></span></span>
+                                    <span class="switch-track"></span>
                                 </label>
                             </div>
                             <div class="diamond-level-note">
@@ -2327,7 +2316,7 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                                 <div class="diamond-level-title">N8 - Walk-forward não-sobreposto</div>
                                 <label class="diamond-level-switch">
                                     <input type="checkbox" class="diamond-level-toggle-input" id="diamondLevelToggleN8" checked />
-                                    <span class="switch-track"><span class="switch-thumb"></span></span>
+                                    <span class="switch-track"></span>
                                 </label>
                             </div>
                             <div class="diamond-level-note">
@@ -2355,7 +2344,7 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                                 <div class="diamond-level-title">N9 - Barreira Final (janela)</div>
                                 <label class="diamond-level-switch">
                                     <input type="checkbox" class="diamond-level-toggle-input" id="diamondLevelToggleN9" checked />
-                                    <span class="switch-track"><span class="switch-thumb"></span></span>
+                                    <span class="switch-track"></span>
                                 </label>
                             </div>
                             <div class="diamond-level-note">
@@ -2371,7 +2360,7 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                                 <div class="diamond-level-title">N10 - Calibração Bayesiana</div>
                                 <label class="diamond-level-switch">
                                     <input type="checkbox" class="diamond-level-toggle-input" id="diamondLevelToggleN10" checked />
-                                    <span class="switch-track"><span class="switch-thumb"></span></span>
+                                    <span class="switch-track"></span>
                                 </label>
                             </div>
                             <div class="diamond-level-note">
