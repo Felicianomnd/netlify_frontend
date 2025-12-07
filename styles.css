@@ -4713,10 +4713,10 @@
     width: calc(100% - 32px);
     max-width: 420px;
     margin: 0 auto;
-    background: #182534;
-    border-radius: 14px;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    box-shadow: 0 18px 45px rgba(0, 0, 0, 0.45);
+    background: #1a2332;
+    border-radius: 8px;
+    border: none;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
     padding: 24px;
     display: flex;
     flex-direction: column;
@@ -4742,17 +4742,17 @@
     height: auto;
     font-size: 13px;
     color: #9fb3c9;
-    border: 1px solid rgba(159, 179, 201, 0.35);
-    border-radius: 6px;
+    border: none;
+    border-radius: 4px;
     padding: 6px 12px;
     font-weight: 600;
     letter-spacing: 0.2px;
+    background: transparent;
 }
 
 #diamondLevelsModal .custom-pattern-modal-close:hover {
     color: #ffffff;
-    border-color: rgba(239, 68, 68, 0.55);
-    background: rgba(239, 68, 68, 0.25);
+    background: rgba(239, 68, 68, 0.2);
 }
 
 #diamondLevelsModal .custom-pattern-modal-body {
@@ -4790,22 +4790,22 @@
 }
 
 #diamondLevelsModal input[type='number'] {
-    background: #0f1f2a;
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    border-radius: 10px;
+    background: rgba(0, 0, 0, 0.3);
+    border: none;
+    border-radius: 4px;
     padding: 10px 12px;
     height: 44px;
     color: #ffffff;
     font-size: 13px;
-    transition: border 0.2s ease, box-shadow 0.2s ease;
+    transition: background 0.2s ease;
     width: 100%;
     box-sizing: border-box;
 }
 
 #diamondLevelsModal input[type='number']:focus {
-    border-color: rgba(255, 0, 63, 0.45);
-    box-shadow: 0 0 0 2px rgba(255, 0, 63, 0.18);
+    background: rgba(0, 0, 0, 0.4);
     outline: none;
+    box-shadow: none;
 }
 
 .diamond-level-double {
@@ -4833,7 +4833,7 @@
 }
 
 #diamondLevelsModal .btn-hot-pattern {
-    border-radius: 8px;
+    border-radius: 4px;
 }
 
 @media (max-width: 460px) {
@@ -4877,10 +4877,10 @@
     width: calc(100% - 32px);
     max-width: 420px;
     margin: 0 auto;
-    background: #182534;
-    border-radius: 14px;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    box-shadow: 0 18px 45px rgba(0, 0, 0, 0.45);
+    background: #1a2332;
+    border-radius: 8px;
+    border: none;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
     padding: 24px;
     display: flex;
     flex-direction: column;
@@ -4921,20 +4921,20 @@
 }
 
 #diamondLevelsModal input[type='number'] {
-    background: #0f1f2a;
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    border-radius: 10px;
+    background: rgba(0, 0, 0, 0.3);
+    border: none;
+    border-radius: 4px;
     padding: 10px 12px;
     color: #ffffff;
     font-size: 13px;
-    transition: border 0.2s ease, box-shadow 0.2s ease;
+    transition: background 0.2s ease;
     width: 100%;
 }
 
 #diamondLevelsModal input[type='number']:focus {
-    border-color: rgba(255, 0, 63, 0.45);
-    box-shadow: 0 0 0 2px rgba(255, 0, 63, 0.18);
+    background: rgba(0, 0, 0, 0.4);
     outline: none;
+    box-shadow: none;
 }
 
 .diamond-level-double {
@@ -4960,7 +4960,7 @@
 }
 
 #diamondLevelsModal .btn-hot-pattern {
-    border-radius: 8px;
+    border-radius: 4px;
 }
 
 @media (max-width: 460px) {
