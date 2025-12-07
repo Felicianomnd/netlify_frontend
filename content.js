@@ -11,9 +11,24 @@
     console.log('');
     
     // ═══════════════════════════════════════════════════════════════════════════════
-    // 🧹 LIMPEZA AUTOMÁTICA DO CONSOLE A CADA 1 MINUTO
+    // 🧹 LIMPEZA AUTOMÁTICA DO CONSOLE A CADA 10 MINUTOS
     // ═══════════════════════════════════════════════════════════════════════════════
     // Evita acúmulo de logs após horas de uso, prevenindo travamentos
+    // Esta limpeza é apenas VISUAL (console) - não afeta dados ou análises
+    // ═══════════════════════════════════════════════════════════════════════════════
+    let memoryCleanupInterval = setInterval(() => {
+        try {
+            // Limpeza suave do console (apenas visual, não afeta funcionalidade)
+            if (console.clear) {
+                console.clear();
+            }
+            console.log('%c🧹 Limpeza automática de memória executada', 'color: #00FF88; font-weight: bold;');
+            console.log('%c   Próxima limpeza em 10 minutos', 'color: #888;');
+        } catch (error) {
+            console.warn('⚠️ Erro na limpeza automática:', error);
+        }
+    }, 600000); // 10 minutos (600.000ms)
+    
     // ═══════════════════════════════════════════════════════════════════════════════
     // VARIÁVEL GLOBAL: Controle de exibição do histórico por camadas
     // ═══════════════════════════════════════════════════════════════════════════════
@@ -9959,16 +9974,7 @@ function logModeSnapshotUI(snapshot) {
     // ⚠️ OTIMIZADO: Mudado de 3s para 30s para reduzir consumo de bandwidth
     setInterval(loadInitialData, 30000); // 30 segundos em vez de 3
     
-    // FORÇAR ATUALIZAÇÃO DO HISTÓRICO A CADA 2 SEGUNDOS (agora busca do servidor)
-    setInterval(function() {
-        try {
-            // ✅ Atualização automática já está em updateHistoryUIFromServer() a cada 3s
-            // Não precisa mais buscar de chrome.storage.local
-            console.log('ℹ️ Histórico atualizado automaticamente pelo servidor');
-        } catch (e) {
-            console.error('Erro na atualização forçada:', e);
-        }
-    }, 2000);
+    // ✅ [OTIMIZAÇÃO] Interval redundante removido - atualização já acontece via WebSocket e updateHistoryUIFromServer()
     
     // Função para atualizar status de análise real
     function updateAnalysisStatus(status) {
@@ -11097,9 +11103,9 @@ function logModeSnapshotUI(snapshot) {
             
             if (!exists) {
                 currentHistoryData.unshift(newSpin);
-                // Manter no máximo 2000 giros em memória
+                // ✅ [OTIMIZAÇÃO] Manter no máximo 2000 giros - remover apenas o último (mais eficiente que slice)
                 if (currentHistoryData.length > 2000) {
-                    currentHistoryData = currentHistoryData.slice(0, 2000);
+                    currentHistoryData.pop(); // Remove apenas o último (O(1) vs O(n) do slice)
                 }
             }
         } else {
@@ -11119,10 +11125,10 @@ function logModeSnapshotUI(snapshot) {
                 wrap.innerHTML = renderSpinHistory(currentHistoryData);
                 statsSection.appendChild(wrap);
                 
-                // 🆕 Adicionar event listener para o botão "Carregar Mais" (criação inicial)
+                // 🆕 Adicionar event listener para o botão "Carregar Mais" (criação inicial - otimizado)
                 const loadMoreBtn = document.getElementById('loadMoreHistoryBtn');
                 if (loadMoreBtn) {
-                    loadMoreBtn.addEventListener('click', function handleLoadMore() {
+                    loadMoreBtn.onclick = function handleLoadMore() {
                         const remaining = currentHistoryData.length - currentHistoryDisplayLimit;
                         const increment = 500;
                         const addAmount = remaining > increment ? increment : remaining;
@@ -11135,12 +11141,12 @@ function logModeSnapshotUI(snapshot) {
                             container.innerHTML = renderSpinHistory(currentHistoryData);
                         }
                         
-                        // Re-adicionar event listener
+                        // Re-adicionar event listener (onclick substitui automaticamente)
                         const newLoadMoreBtn = document.getElementById('loadMoreHistoryBtn');
                         if (newLoadMoreBtn) {
-                            newLoadMoreBtn.addEventListener('click', handleLoadMore);
+                            newLoadMoreBtn.onclick = handleLoadMore;
                         }
-                    });
+                    };
                 }
                 return; // Container criado com sucesso!
             }
@@ -11153,10 +11159,10 @@ function logModeSnapshotUI(snapshot) {
             historyContainer.innerHTML = renderSpinHistory(currentHistoryData);
             historyContainer.style.display = 'block';
             
-            // ✅ Re-adicionar event listener para o botão "Carregar Mais"
+            // ✅ Re-adicionar event listener para o botão "Carregar Mais" (otimizado)
             const loadMoreBtn = document.getElementById('loadMoreHistoryBtn');
             if (loadMoreBtn) {
-                loadMoreBtn.addEventListener('click', function handleLoadMore() {
+                loadMoreBtn.onclick = function handleLoadMore() {
                     const remaining = currentHistoryData.length - currentHistoryDisplayLimit;
                     const increment = 500;
                     const addAmount = remaining > increment ? increment : remaining;
@@ -11166,12 +11172,12 @@ function logModeSnapshotUI(snapshot) {
                     
                     historyContainer.innerHTML = renderSpinHistory(currentHistoryData);
                     
-                    // Re-adicionar event listener
+                    // Re-adicionar event listener (onclick substitui automaticamente)
                     const newLoadMoreBtn = document.getElementById('loadMoreHistoryBtn');
                     if (newLoadMoreBtn) {
-                        newLoadMoreBtn.addEventListener('click', handleLoadMore);
+                        newLoadMoreBtn.onclick = handleLoadMore;
                     }
-                });
+                };
             }
         }
         
@@ -11228,10 +11234,11 @@ function logModeSnapshotUI(snapshot) {
                     }, 50);
                 }
                 
-                // ✅ Adicionar event listener para o botão "Carregar Mais"
+                // ✅ Adicionar event listener para o botão "Carregar Mais" (otimizado - sem duplicação)
                 const loadMoreBtn = document.getElementById('loadMoreHistoryBtn');
                 if (loadMoreBtn) {
-                    loadMoreBtn.addEventListener('click', function() {
+                    // ✅ Usar onclick para substituir automaticamente (evita acúmulo de listeners)
+                    loadMoreBtn.onclick = function() {
                         const remaining = spins.length - currentHistoryDisplayLimit;
                         const increment = 500;
                         const addAmount = remaining > increment ? increment : remaining;
@@ -11242,12 +11249,12 @@ function logModeSnapshotUI(snapshot) {
                         // Re-renderizar com novo limite
                         historyContainer.innerHTML = renderSpinHistory(currentHistoryData);
                         
-                        // Adicionar event listener novamente (botão foi recriado)
+                        // Re-anexar handler automaticamente (onclick substitui, não acumula)
                         const newLoadMoreBtn = document.getElementById('loadMoreHistoryBtn');
                         if (newLoadMoreBtn) {
-                            newLoadMoreBtn.addEventListener('click', arguments.callee);
+                            newLoadMoreBtn.onclick = arguments.callee;
                         }
-                    });
+                    };
                 }
             } else {
                 // Se container não existe, criar
@@ -11258,10 +11265,11 @@ function logModeSnapshotUI(snapshot) {
                     wrap.innerHTML = renderSpinHistory(spins);
                     statsSection.appendChild(wrap);
                     
-                    // ✅ Adicionar event listener para o botão "Carregar Mais" (criação inicial)
+                    // ✅ Adicionar event listener para o botão "Carregar Mais" (criação inicial - otimizado)
                     const loadMoreBtn = document.getElementById('loadMoreHistoryBtn');
                     if (loadMoreBtn) {
-                        loadMoreBtn.addEventListener('click', function() {
+                        // ✅ Usar onclick para substituir automaticamente (evita acúmulo de listeners)
+                        loadMoreBtn.onclick = function() {
                             const remaining = spins.length - currentHistoryDisplayLimit;
                             const increment = 500;
                             const addAmount = remaining > increment ? increment : remaining;
@@ -11272,12 +11280,12 @@ function logModeSnapshotUI(snapshot) {
                             // Re-renderizar com novo limite
                             wrap.innerHTML = renderSpinHistory(currentHistoryData);
                             
-                            // Adicionar event listener novamente (botão foi recriado)
+                            // Re-anexar handler automaticamente (onclick substitui, não acumula)
                             const newLoadMoreBtn = document.getElementById('loadMoreHistoryBtn');
                             if (newLoadMoreBtn) {
-                                newLoadMoreBtn.addEventListener('click', arguments.callee);
+                                newLoadMoreBtn.onclick = arguments.callee;
                             }
-                        });
+                        };
                     }
                 }
             }
