@@ -106,11 +106,22 @@
     async function checkBlazeConnectionEnabled() {
         try {
             const API_URL = 'https://blaze-analyzer-api-v2-z8s3.onrender.com/api';
+            
+            // Buscar token de autenticação
+            const authToken = sessionStorage.getItem('authToken') || localStorage.getItem('authToken');
+            
+            const headers = {
+                'Content-Type': 'application/json'
+            };
+            
+            // Adicionar token se existir
+            if (authToken) {
+                headers['Authorization'] = `Bearer ${authToken}`;
+            }
+            
             const response = await fetch(`${API_URL}/public/settings`, {
                 method: 'GET',
-                headers: {
-                    'Content-Type': 'application/json'
-                }
+                headers
             });
             
             if (response.ok) {
