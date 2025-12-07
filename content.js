@@ -3766,6 +3766,7 @@ autoBetHistoryStore.init().catch(error => console.warn('AutoBetHistory: iniciali
                 try {
                     populateDiamondLevelsForm(newConfig || {});
                     refreshDiamondLevelToggleStates();
+                    showSyncSpinner();
                 } catch (err) {
                     console.warn('⚠️ Erro ao atualizar UI dos Níveis Diamante após sync:', err);
                 }
@@ -3774,6 +3775,49 @@ autoBetHistoryStore.init().catch(error => console.warn('AutoBetHistory: iniciali
                 runtime = { ...AUTO_BET_RUNTIME_DEFAULTS, ...(changes.autoBetRuntime.newValue || {}) };
                 updateSimulationSnapshots();
                 updateStatusUI();
+            }
+        }
+
+        // Pequena animação de sincronização no centro da tela (2s)
+        let syncSpinnerTimeout = null;
+        function showSyncSpinner() {
+            try {
+                let spinner = document.getElementById('diamondSyncSpinner');
+                if (!spinner) {
+                    spinner = document.createElement('div');
+                    spinner.id = 'diamondSyncSpinner';
+                    spinner.style.cssText = `
+                        position: fixed;
+                        top: 50%;
+                        left: 50%;
+                        transform: translate(-50%, -50%);
+                        z-index: 9999999;
+                        width: 64px;
+                        height: 64px;
+                        border-radius: 50%;
+                        border: 5px solid rgba(255,255,255,0.2);
+                        border-top-color: #ef4444;
+                        animation: diamondSyncSpin 0.8s linear infinite;
+                        background: rgba(0,0,0,0.35);
+                        box-shadow: 0 8px 24px rgba(0,0,0,0.45);
+                    `;
+                    const style = document.createElement('style');
+                    style.textContent = `@keyframes diamondSyncSpin { to { transform: translate(-50%, -50%) rotate(360deg); } }`;
+                    document.head.appendChild(style);
+                    document.body.appendChild(spinner);
+                } else {
+                    spinner.style.display = 'block';
+                }
+                clearTimeout(syncSpinnerTimeout);
+                syncSpinnerTimeout = setTimeout(() => hideSyncSpinner(), 2000);
+            } catch (err) {
+                console.warn('⚠️ Erro ao exibir spinner de sync:', err);
+            }
+        }
+        function hideSyncSpinner() {
+            const spinner = document.getElementById('diamondSyncSpinner');
+            if (spinner) {
+                spinner.style.display = 'none';
             }
         }
 
