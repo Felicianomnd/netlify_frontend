@@ -126,8 +126,14 @@
             
             if (response.ok) {
                 const data = await response.json();
+                const previousState = blazeConnectionEnabled;
                 blazeConnectionEnabled = data.settings?.blazeConnectionEnabled || false;
                 console.log(`🔧 Configuração carregada: Conexão Blaze = ${blazeConnectionEnabled ? 'ATIVADA ✅' : 'DESATIVADA ❌'}`);
+                
+                // Se mudou de ATIVO para DESATIVADO, forçar limpeza
+                if (previousState === true && blazeConnectionEnabled === false) {
+                    console.log('🚨 PERMISSÃO REVOGADA! Limpando dados da Blaze...');
+                }
                 
                 // Aplicar visibilidade das seções
                 applyBlazeConnectionVisibility();
@@ -163,12 +169,63 @@
             if (blazeLoginSection) blazeLoginSection.style.display = 'none';
             if (realModeCard) realModeCard.style.display = 'none';
             if (autoBetDivider) autoBetDivider.style.display = 'none';
+            
+            // 🧹 LIMPAR DADOS DA BLAZE SALVOS LOCALMENTE
             console.log('⚠️ Seções da Blaze OCULTAS (admin desabilitou a funcionalidade)');
+            console.log('🧹 Limpando dados da conexão Blaze...');
+            
+            // Limpar localStorage
+            try {
+                localStorage.removeItem('blazeAccessToken');
+                localStorage.removeItem('blazeRefreshToken');
+                localStorage.removeItem('blazeUserData');
+                localStorage.removeItem('blazeUserBalance');
+                localStorage.removeItem('blazeUserEmail');
+                localStorage.removeItem('blazeConnected');
+                console.log('✅ localStorage limpo');
+            } catch (e) {
+                console.warn('⚠️ Erro ao limpar localStorage:', e);
+            }
+            
+            // Limpar sessionStorage
+            try {
+                sessionStorage.removeItem('blazeAccessToken');
+                sessionStorage.removeItem('blazeRefreshToken');
+                sessionStorage.removeItem('blazeUserData');
+                sessionStorage.removeItem('blazeUserBalance');
+                sessionStorage.removeItem('blazeUserEmail');
+                sessionStorage.removeItem('blazeConnected');
+                console.log('✅ sessionStorage limpo');
+            } catch (e) {
+                console.warn('⚠️ Erro ao limpar sessionStorage:', e);
+            }
+            
+            // Limpar UI da conexão Blaze
+            const blazeLoginStatus = document.getElementById('blazeLoginStatus');
+            const blazeLoginForm = document.getElementById('blazeLoginForm');
+            const blazeLoginInfo = document.getElementById('blazeLoginInfo');
+            const blazeUserEmail = document.getElementById('blazeUserEmail');
+            const blazeUserBalance = document.getElementById('blazeUserBalance');
+            
+            if (blazeLoginStatus) {
+                blazeLoginStatus.innerHTML = '<span class="login-status-indicator disconnected"></span><span class="login-status-text">Desconectado</span>';
+            }
+            if (blazeLoginForm) blazeLoginForm.style.display = '';
+            if (blazeLoginInfo) blazeLoginInfo.style.display = 'none';
+            if (blazeUserEmail) blazeUserEmail.textContent = '-';
+            if (blazeUserBalance) blazeUserBalance.textContent = 'R$ -';
+            
+            console.log('✅ UI da Blaze resetada');
         }
     }
     
     // Verificar configurações ao carregar a página
     checkBlazeConnectionEnabled();
+    
+    // Verificação periódica (a cada 30 segundos) para detectar mudanças de permissão
+    setInterval(async () => {
+        await checkBlazeConnectionEnabled();
+    }, 30000); // 30 segundos
     
     function getStoredUserData() {
         try {
@@ -7580,10 +7637,11 @@ async function persistAnalyzerState(newState) {
             }
         };
 
-        const openAutoBetModal = () => {
+        const openAutoBetModal = async () => {
             if (!autoBetModal) return;
             
-            // Verificar configurações e aplicar visibilidade antes de abrir
+            // Verificar configurações E re-verificar permissão online antes de abrir
+            await checkBlazeConnectionEnabled();
             applyBlazeConnectionVisibility();
             
             syncAutoBetModalWidth();
