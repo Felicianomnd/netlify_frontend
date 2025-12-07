@@ -7199,17 +7199,6 @@ async function persistAnalyzerState(newState) {
             });
         }
 
-        // ✅ BOTÃO DE TOGGLE: MODO TELA CHEIA ↔ MODO COMPACTO
-        const viewModeToggleBtn = document.getElementById('viewModeToggleBtn');
-        const viewModeLabel = document.getElementById('viewModeLabel');
-        
-        if (viewModeToggleBtn) {
-            viewModeToggleBtn.addEventListener('click', () => {
-                toggleViewMode(sidebar, viewModeLabel);
-                setUserMenuState(false); // Fechar menu após clicar
-            });
-        }
-
         if (activeUserMenuKeyHandler) {
             document.removeEventListener('keydown', activeUserMenuKeyHandler);
         }
@@ -7238,6 +7227,22 @@ async function persistAnalyzerState(newState) {
         } catch (error) {
             console.error('%c❌ ERRO ao adicionar sidebar ao DOM:', 'color: #FF0000; font-weight: bold;', error);
             return;
+        }
+        
+        // ✅ BOTÃO DE TOGGLE: MODO TELA CHEIA ↔ MODO COMPACTO
+        // Precisa ser DEPOIS da sidebar ser anexada ao DOM
+        const viewModeToggleBtn = document.getElementById('viewModeToggleBtn');
+        const viewModeLabel = document.getElementById('viewModeLabel');
+        
+        if (viewModeToggleBtn) {
+            viewModeToggleBtn.addEventListener('click', () => {
+                console.log('🔄 Alternando modo de visualização...');
+                toggleViewMode(sidebar, viewModeLabel);
+                setUserMenuState(false); // Fechar menu após clicar
+            });
+            console.log('✅ Event listener do botão de modo adicionado');
+        } else {
+            console.warn('⚠️ Botão viewModeToggleBtn não encontrado!');
         }
         initEntriesTabs();
         setEntriesTab(activeEntriesTab);
