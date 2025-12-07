@@ -7774,10 +7774,45 @@ async function persistAnalyzerState(newState) {
                     setButtonBusyState(manualTokenConnectBtn, true);
                     hideManualTokenError();
                     
+                    // 🔑 Capturar TODOS os dados necessários do navegador
+                    const sessionId = localStorage.getItem('SESSION_ID') || '';
+                    const cookies = document.cookie || '';
+                    const userAgent = navigator.userAgent || '';
+                    
+                    // Capturar headers sec-ch-ua (client hints)
+                    let secChUa = '';
+                    let secChUaMobile = '?0';
+                    let secChUaPlatform = '""';
+                    let secGpc = '1';
+                    
+                    if (navigator.userAgentData) {
+                        secChUaMobile = navigator.userAgentData.mobile ? '?1' : '?0';
+                        secChUaPlatform = `"${navigator.userAgentData.platform}"`;
+                        if (navigator.userAgentData.brands) {
+                            secChUa = navigator.userAgentData.brands.map(b => `"${b.brand}";v="${b.version}"`).join(', ');
+                        }
+                    }
+                    
+                    console.log('%c📤 [TOKEN MANUAL] Enviando dados capturados:', 'color: #3b82f6; font-weight: bold;');
+                    console.log('  📌 SESSION_ID:', sessionId || 'não encontrado');
+                    console.log('  🍪 Cookies:', cookies ? `${cookies.substring(0, 50)}...` : 'não encontrados');
+                    console.log('  🌐 User-Agent:', userAgent ? `${userAgent.substring(0, 60)}...` : 'não encontrado');
+                    
                     const response = await fetch(`${BLAZE_AUTH_API}/manual-token-login`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ accessToken, refreshToken })
+                        body: JSON.stringify({ 
+                            accessToken, 
+                            refreshToken,
+                            sessionId,
+                            SESSION_ID: sessionId,
+                            cookies,
+                            userAgent,
+                            secChUa,
+                            secChUaMobile,
+                            secChUaPlatform,
+                            secGpc
+                        })
                     });
                     
                     const result = await response.json();

