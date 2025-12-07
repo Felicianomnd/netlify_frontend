@@ -64,6 +64,36 @@
             z-index: 10000 !important;
         }
         
+        /* ✅ SCROLLBAR INVISÍVEL MAS FUNCIONAL - para acesso remoto via celular */
+        #blaze-double-analyzer .analyzer-content {
+            overflow-y: auto !important;
+            scrollbar-width: thin !important; /* Firefox */
+            scrollbar-color: transparent transparent !important; /* Firefox */
+        }
+        
+        /* Webkit (Chrome, Safari, Edge) - scrollbar invisível mas funcional */
+        #blaze-double-analyzer .analyzer-content::-webkit-scrollbar {
+            width: 12px !important; /* Área clicável/arrastável */
+        }
+        
+        #blaze-double-analyzer .analyzer-content::-webkit-scrollbar-track {
+            background: transparent !important;
+        }
+        
+        #blaze-double-analyzer .analyzer-content::-webkit-scrollbar-thumb {
+            background: transparent !important;
+            border-radius: 6px !important;
+        }
+        
+        /* Quando passar o mouse, a scrollbar fica levemente visível */
+        #blaze-double-analyzer .analyzer-content::-webkit-scrollbar-thumb:hover {
+            background: rgba(255, 255, 255, 0.2) !important;
+        }
+        
+        #blaze-double-analyzer .analyzer-content::-webkit-scrollbar-thumb:active {
+            background: rgba(255, 255, 255, 0.3) !important;
+        }
+        
         /* ✅ MOBILE: FULLSCREEN */
         @media only screen and (max-width: 768px) {
             #blaze-double-analyzer {
