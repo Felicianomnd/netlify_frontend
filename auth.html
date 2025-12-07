@@ -303,6 +303,8 @@
         .verification-header {
             display: flex;
             align-items: center;
+            justify-content: center;
+            text-align: center;
             gap: 16px;
             margin-bottom: 20px;
         }
@@ -311,17 +313,32 @@
             color: #ffffff;
             font-size: 20px;
             font-weight: 700;
-            margin-bottom: 4px;
+            margin-bottom: 8px;
         }
 
         .verification-subtitle {
             color: #9aa9c6;
+            margin-bottom: 8px;
             font-size: 14px;
         }
 
         .verification-email {
             color: #ff6b88;
             font-weight: 600;
+        }
+
+        .change-email-link {
+            display: inline-block;
+            margin-top: 8px;
+            color: #9ca3af;
+            font-size: 13px;
+            text-decoration: none;
+            transition: color 0.2s;
+        }
+
+        .change-email-link:hover {
+            color: #ef4444;
+            text-decoration: underline;
         }
 
         .resend-wrapper {
@@ -766,10 +783,11 @@
             <div class="verification-card">
                 <div class="verification-header">
                     <div>
-                        <div class="verification-title">Verifique seu email</div>
+                        <div class="verification-title">Verifique seu e-mail</div>
                         <div class="verification-subtitle">
                             <span class="verification-email" id="verificationEmailText">seu@email.com</span>
                         </div>
+                        <a href="#" onclick="showRegisterScreen(); return false;" class="change-email-link">E-mail incorreto? Corrigir</a>
                     </div>
                 </div>
 
@@ -784,7 +802,7 @@
                     </div>
 
                     <button type="submit" class="btn btn-primary" id="confirmEmailBtn">
-                        Confirmar email
+                        Confirmar e-mail
                     </button>
                 </form>
 
@@ -1512,7 +1530,7 @@
                 showMessage(error.message || 'Erro ao validar o código. Tente novamente.', 'error');
             } finally {
                 btn.disabled = false;
-                btn.innerHTML = 'Confirmar email';
+                btn.innerHTML = 'Confirmar e-mail';
             }
         }
 
@@ -1552,7 +1570,7 @@
             }
 
             if (!emailVerificationToken) {
-                showMessage('Confirme o código enviado para o seu email antes de continuar.', 'error');
+                showMessage('Confirme o código enviado para o seu e-mail antes de continuar.', 'error');
                 return;
             }
             
@@ -1642,7 +1660,7 @@
                         }
                         
                         if (cleanPhone) {
-                            const message = encodeURIComponent(`Olá! Acabei de fazer o pagamento do Double Analyzer. Email: ${userData.email}`);
+                            const message = encodeURIComponent(`Olá! Acabei de fazer o pagamento do Double Analyzer. E-mail: ${userData.email}`);
                             whatsappLink.href = `https://wa.me/${cleanPhone}?text=${message}`;
                             whatsappLink.removeAttribute('aria-disabled');
                         } else {
