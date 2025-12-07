@@ -293,11 +293,11 @@
         }
 
         .verification-card {
-            background: #1a2030;
-            border: 1px solid rgba(255, 0, 63, 0.18);
-            border-radius: 16px;
+            background: #1a2332;
+            border: none;
+            border-radius: 8px;
             padding: 28px;
-            box-shadow: 0 14px 32px rgba(9, 12, 22, 0.55);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
         }
 
         .verification-header {
@@ -305,18 +305,6 @@
             align-items: center;
             gap: 16px;
             margin-bottom: 20px;
-        }
-
-        .verification-icon {
-            width: 56px;
-            height: 56px;
-            border-radius: 16px;
-            background: rgba(255, 0, 63, 0.18);
-            color: #ff395e;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 26px;
         }
 
         .verification-title {
@@ -370,11 +358,11 @@
         }
 
         .payment-card {
-            background: #1a2030;
-            border: 1px solid rgba(255, 0, 63, 0.12);
-            border-radius: 18px;
+            background: #1a2332;
+            border: none;
+            border-radius: 8px;
             padding: 28px;
-            box-shadow: 0 18px 36px rgba(9, 12, 22, 0.5);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
         }
 
         .payment-card h3 {
@@ -561,12 +549,12 @@
         }
 
         .activation-card {
-            background: #1a2030;
-            border: 1px solid rgba(255, 0, 63, 0.18);
-            border-radius: 16px;
+            background: #1a2332;
+            border: none;
+            border-radius: 8px;
             padding: 28px;
             text-align: center;
-            box-shadow: 0 14px 34px rgba(9, 12, 22, 0.5);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
         }
 
         .activation-card h2 {
@@ -699,17 +687,16 @@
             text-align: center;
             font-size: 24px;
             font-weight: 700;
-            background: #151924;
-            border: 2px solid #2f3546;
-            border-radius: 8px;
-            color: #ff003f;
+            background: rgba(0, 0, 0, 0.3);
+            border: none;
+            border-radius: 4px;
+            color: white;
             transition: all 0.3s;
         }
 
         .code-digit:focus {
             outline: none;
-            border-color: #ff003f;
-            box-shadow: 0 0 0 3px rgba(255, 0, 63, 0.2);
+            background: rgba(0, 0, 0, 0.4);
         }
 
         .loader {
@@ -854,18 +841,17 @@
         <div id="emailVerificationScreen" class="screen">
             <div class="verification-card">
                 <div class="verification-header">
-                    <div class="verification-icon">✉️</div>
                     <div>
                         <div class="verification-title">Verifique seu email</div>
                         <div class="verification-subtitle">
-                            Enviamos um código para <span class="verification-email" id="verificationEmailText">seu@email.com</span>
+                            <span class="verification-email" id="verificationEmailText">seu@email.com</span>
                         </div>
                     </div>
                 </div>
 
                 <form onsubmit="handleEmailVerification(event)">
                     <div class="code-input-container">
-                        <input type="text" class="code-digit" maxlength="1" id="verifyCode1" autocomplete="one-time-code" oninput="moveToNext(this, 'verifyCode2')" onkeydown="handleBackspace(event, 'verifyCode1')">
+                        <input type="text" class="code-digit" maxlength="1" id="verifyCode1" autocomplete="one-time-code" oninput="moveToNext(this, 'verifyCode2')" onkeydown="handleBackspace(event, 'verifyCode1')" onpaste="handlePaste(event)">
                         <input type="text" class="code-digit" maxlength="1" id="verifyCode2" autocomplete="one-time-code" oninput="moveToNext(this, 'verifyCode3')" onkeydown="handleBackspace(event, 'verifyCode1')">
                         <input type="text" class="code-digit" maxlength="1" id="verifyCode3" autocomplete="one-time-code" oninput="moveToNext(this, 'verifyCode4')" onkeydown="handleBackspace(event, 'verifyCode2')">
                         <input type="text" class="code-digit" maxlength="1" id="verifyCode4" autocomplete="one-time-code" oninput="moveToNext(this, 'verifyCode5')" onkeydown="handleBackspace(event, 'verifyCode3')">
@@ -956,7 +942,7 @@
 
                 <form onsubmit="handleActivation(event)">
                     <div class="code-input-container">
-                        <input type="text" class="code-digit" maxlength="1" id="code1" oninput="moveToNext(this, 'code2')" onkeydown="handleBackspace(event, 'code1')">
+                        <input type="text" class="code-digit" maxlength="1" id="code1" oninput="moveToNext(this, 'code2')" onkeydown="handleBackspace(event, 'code1')" onpaste="handlePasteActivation(event)">
                         <input type="text" class="code-digit" maxlength="1" id="code2" oninput="moveToNext(this, 'code3')" onkeydown="handleBackspace(event, 'code1')">
                         <input type="text" class="code-digit" maxlength="1" id="code3" oninput="moveToNext(this, 'code4')" onkeydown="handleBackspace(event, 'code2')">
                         <input type="text" class="code-digit" maxlength="1" id="code4" oninput="moveToNext(this, 'code5')" onkeydown="handleBackspace(event, 'code3')">
@@ -1403,11 +1389,9 @@
                     console.log('██████████████████████████████████████████████████████████████');
                     console.log('');
                     
-                    showMessage('Login realizado com sucesso!', 'success');
-                    setTimeout(() => {
-                        console.log('🔄 Redirecionando para index.html em 3, 2, 1...');
-                        window.location.href = 'index.html';
-                    }, 1000);
+                    // Redirecionar diretamente sem mensagem
+                    console.log('🔄 Redirecionando para index.html...');
+                    window.location.href = 'index.html';
                 } else {
                     if (data.requiresActivation) {
                         userData = { email };
@@ -1543,12 +1527,6 @@
                 document.getElementById('verificationEmailText').textContent = userData.email;
                 resetVerificationInputs();
                 startVerificationCooldown(60);
-
-                if (showSuccessMessage) {
-                    showMessage('Código enviado! Verifique sua caixa de entrada e spam.', 'success');
-                } else {
-                    showMessage('Novo código enviado!', 'success');
-                }
 
             } catch (error) {
                 console.error('❌ Erro ao solicitar código:', error);
@@ -1815,6 +1793,48 @@
             if (event.key === 'Backspace' && event.target.value === '') {
                 const prev = document.getElementById(prevId);
                 if (prev) prev.focus();
+            }
+        }
+
+        function handlePaste(event) {
+            event.preventDefault();
+            const pastedData = event.clipboardData.getData('text').trim();
+            
+            // Remover espaços e caracteres especiais, pegar só números/letras
+            const cleanCode = pastedData.replace(/[^a-zA-Z0-9]/g, '');
+            
+            if (cleanCode.length === 6) {
+                // Preencher todos os campos
+                for (let i = 0; i < 6; i++) {
+                    const input = document.getElementById(`verifyCode${i + 1}`);
+                    if (input) {
+                        input.value = cleanCode[i].toUpperCase();
+                    }
+                }
+                // Focar no último campo
+                const lastInput = document.getElementById('verifyCode6');
+                if (lastInput) lastInput.focus();
+            }
+        }
+
+        function handlePasteActivation(event) {
+            event.preventDefault();
+            const pastedData = event.clipboardData.getData('text').trim();
+            
+            // Remover espaços e caracteres especiais, pegar só números/letras
+            const cleanCode = pastedData.replace(/[^a-zA-Z0-9]/g, '');
+            
+            if (cleanCode.length === 6) {
+                // Preencher todos os campos
+                for (let i = 0; i < 6; i++) {
+                    const input = document.getElementById(`code${i + 1}`);
+                    if (input) {
+                        input.value = cleanCode[i].toUpperCase();
+                    }
+                }
+                // Focar no último campo
+                const lastInput = document.getElementById('code6');
+                if (lastInput) lastInput.focus();
             }
         }
 
