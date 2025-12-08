@@ -7041,7 +7041,7 @@ async function persistAnalyzerState(newState) {
                         <!-- ═══════════════════════════════════════════════════════ -->
                         <div class="setting-item setting-row" id="customPatternsContainer" style="margin-top: 20px; padding-top: 15px; border-top: 1px solid #333;">
                             <div class="hot-pattern-actions">
-                                <button id="btnHotPattern" class="btn-hot-pattern">
+                                <button id="btnHotPattern" class="btn-hot-pattern btn-diamond-levels">
                                     Padrão Quente
                                 </button>
                                 <button id="diamondLevelsBtn" class="btn-hot-pattern btn-diamond-levels">

@@ -4756,7 +4756,7 @@
     max-width: 420px;
     margin: 0 auto;
     background: #1a2332;
-    border-radius: 8px;
+    border-radius: 0;
     border: none;
     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
     padding: 24px;
@@ -4944,10 +4944,27 @@
 }
 
 #diamondLevelsModal .custom-pattern-modal-footer {
-    padding: 0;
+    padding: 16px 0 0 0;
     display: flex;
     gap: 12px;
-    justify-content: flex-end;
+    justify-content: flex-start;
+}
+
+#diamondLevelsModal #diamondLevelsSaveBtn {
+    width: 100%;
+    padding: 14px 20px;
+    border-radius: 3px;
+    background: #ef4444;
+    color: #ffffff;
+    border: none;
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.2s ease;
+}
+
+#diamondLevelsModal #diamondLevelsSaveBtn:hover {
+    background: #dc2626;
 }
 
 .diamond-level-field {
