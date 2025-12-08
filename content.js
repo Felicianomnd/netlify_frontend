@@ -819,9 +819,10 @@
     function toggleAIConfigFields(isAIMode) {
         // ✅ CAMPOS DO MODO PADRÃO: Ocultar quando IA está ativa
         const standardModeFields = [
-            'cfgHistoryDepth',       // ✅ NOVO: Profundidade de Análise (giros) - VÁLIDO APENAS NO MODO PADRÃO
+            'cfgHistoryDepth',       // ✅ Profundidade de Análise (giros) - VÁLIDO APENAS NO MODO PADRÃO
             'cfgMinOccurrences',     // Ocorrências mínima (modo padrão)
             'cfgMaxOccurrences',     // Quantidade máxima de ocorrências
+            'cfgPatternInterval',    // Intervalo entre padrões (modo padrão)
             'cfgMinPatternSize',     // Tamanho mínimo do padrão
             'cfgMaxPatternSize',     // Tamanho máximo do padrão
             'cfgWinPercentOthers',   // WIN% das demais ocorrências
@@ -839,7 +840,20 @@
             }
         });
         
-        // ✅ Campos do Modo Diamante removidos - agora usa apenas o modal "Configurar Níveis Diamante"
+        // ✅ CAMPOS EXCLUSIVOS DO MODO DIAMANTE
+        const diamondOnlyFields = [
+            'cfgMinInterval'         // Intervalo após entrada (giros) - somente Modo Diamante
+        ];
+        
+        diamondOnlyFields.forEach(fieldId => {
+            const field = document.getElementById(fieldId);
+            if (field) {
+                const settingItem = field.closest('.setting-item');
+                if (settingItem) {
+                    settingItem.style.display = isAIMode ? '' : 'none';
+                }
+            }
+        });
         
         // ✅ CAMPOS COMPARTILHADOS: Destacar quando IA está ativa (são usados em ambos os modos)
         const sharedFields = [
