@@ -6800,7 +6800,7 @@ async function persistAnalyzerState(newState) {
             <div class="analyzer-content" id="analyzerContent">
             <div class="auto-bet-summary" id="autoBetSummary">
                 <div class="auto-bet-summary-header">
-                    <span class="auto-bet-summary-title">Saldo</span>
+                    <span class="auto-bet-summary-title">Simulador</span>
                     <button type="button" class="auto-bet-hide-btn" id="autoBetHideBtn">Ocultar</button>
                     </div>
                 <div class="auto-bet-summary-body">
@@ -6836,7 +6836,7 @@ async function persistAnalyzerState(newState) {
                 </div>
             </div>
             <div class="auto-bet-summary-collapsed" id="autoBetSummaryCollapsed">
-                <button type="button" id="autoBetShowBtn">Ver saldo</button>
+                <button type="button" id="autoBetShowBtn">Abrir simulador</button>
                 </div>
                 
             <div class="analysis-lastspin-row">
