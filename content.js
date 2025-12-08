@@ -4294,8 +4294,8 @@ autoBetHistoryStore.init().catch(error => console.warn('AutoBetHistory: iniciali
                     position: fixed;
                     inset: 0;
                     display: none;
-                    align-items: center;
-                    justify-content: center;
+                    align-items: stretch;
+                    justify-content: flex-start;
                     z-index: 999999;
                 }
                 .auto-bet-modal-overlay {
@@ -4307,10 +4307,12 @@ autoBetHistoryStore.init().catch(error => console.warn('AutoBetHistory: iniciali
                 .auto-bet-modal-content {
                     position: relative;
                     background: #1a2332;
-                    border-radius: 4px;
+                    border-radius: 0;
                     border: none;
-                    width: calc(100% - 32px);
+                    width: 100%;
+                    height: 100%;
                     max-width: 100%;
+                    max-height: 100%;
                     box-shadow: 0 20px 60px rgba(0, 0, 0, 0.7);
                     overflow: hidden;
                     display: flex;
@@ -4349,7 +4351,8 @@ autoBetHistoryStore.init().catch(error => console.warn('AutoBetHistory: iniciali
                 }
                 .auto-bet-modal-body {
                     padding: 20px;
-                    max-height: 65vh;
+                    flex: 1;
+                    max-height: none;
                     overflow-y: auto;
                     background: #1a2332;
                 }
@@ -9610,11 +9613,13 @@ async function persistAnalyzerState(newState) {
         sidebar.classList.add('fullscreen-mode');
         sidebar.classList.remove('compact-mode');
         
-        // Tela cheia: ocupar 100% da tela (menos uma pequena margem)
-        sidebar.style.left = '10px';
-        sidebar.style.top = '10px';
-        sidebar.style.width = 'calc(100vw - 20px)';
-        sidebar.style.height = 'calc(100vh - 20px)';
+        // Tela cheia: ocupar 100% da viewport, sem bordas
+        sidebar.style.left = '0px';
+        sidebar.style.top = '0px';
+        sidebar.style.right = '0px';
+        sidebar.style.bottom = '0px';
+        sidebar.style.width = '100vw';
+        sidebar.style.height = '100vh';
         
         console.log('✅ Modo Tela Cheia ativado');
     }
