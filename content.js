@@ -6852,9 +6852,15 @@ async function persistAnalyzerState(newState) {
                         <span class="user-info-value" id="userMenuDays">—</span>
                     </div>
                     <div class="user-info-item" style="border-top: 1px solid rgba(255,255,255,0.1); margin-top: 12px; padding-top: 12px;">
-                        <span class="user-info-label">Visualização</span>
+                        <span class="user-info-label">Visualização (Desktop)</span>
                         <button type="button" class="view-mode-toggle-btn" id="viewModeToggleBtn" title="Alternar entre Tela Cheia e Modo Compacto">
                             <span id="viewModeLabel">Modo Compacto</span>
+                        </button>
+                    </div>
+                    <div class="user-info-item">
+                        <span class="user-info-label">Modo de aposta</span>
+                        <button type="button" class="view-mode-toggle-btn" id="betModeToggleBtn" title="Alternar entre modo completo e modo aposta">
+                            <span id="betViewLabel">Modo Completo</span>
                         </button>
                     </div>
                 </div>
@@ -6863,6 +6869,7 @@ async function persistAnalyzerState(newState) {
                 </div>
             </div>
             <div class="analyzer-content" id="analyzerContent">
+            <div class="analyzer-default-view" id="analyzerDefaultView">
             <div class="auto-bet-summary" id="autoBetSummary">
                 <div class="auto-bet-summary-header">
                     <span class="auto-bet-summary-title">Simulador</span>
@@ -7004,7 +7011,7 @@ async function persistAnalyzerState(newState) {
                     </div>
                 </div>
                 
-                <div class="observer-section">
+            <div class="observer-section">
                     <h4>Calibrador de porcentagens</h4>
                     <div class="observer-stats" id="observerStats">
                         <div class="observer-loading">Carregando...</div>
@@ -7176,10 +7183,30 @@ async function persistAnalyzerState(newState) {
                         <div class="stat-item">
                             <span class="stat-label">Atualização:</span>
                             <span class="stat-value" id="lastUpdate">-</span>
-                        </div>
                     </div>
                 </div>
             </div>
+            </div> <!-- fim analyzer-default-view -->
+            
+            <!-- MODO APOSTA / VISUALIZAÇÃO SIMPLIFICADA -->
+            <div class="bet-mode-view" id="betModeView" style="display:none;">
+                <div class="bet-mode-card">
+                    <div class="bet-mode-title" id="betModeTitle">Aguardando Análise</div>
+                    <div class="bet-mode-body">
+                        <div class="bet-mode-block">
+                            <span class="bet-mode-label">Cor indicada</span>
+                            <div class="bet-mode-suggestion" id="betModeSuggestion"></div>
+                        </div>
+                        <div class="bet-mode-block">
+                            <span class="bet-mode-label">Último giro</span>
+                            <div class="bet-mode-lastspin">
+                                <div class="bet-mode-lastspin-number" id="betModeLastSpinNumber">-</div>
+                                <div class="bet-mode-lastspin-time" id="betModeLastSpinTime">--:--</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div> <!-- fim bet-mode-view -->
             <div class="auto-bet-modal" id="autoBetModal" style="display:none;">
                 <div class="auto-bet-modal-overlay"></div>
                 <div class="auto-bet-modal-content">
@@ -7412,17 +7439,33 @@ async function persistAnalyzerState(newState) {
         // Precisa ser DEPOIS da sidebar ser anexada ao DOM
         const viewModeToggleBtn = document.getElementById('viewModeToggleBtn');
         const viewModeLabel = document.getElementById('viewModeLabel');
+        const betModeToggleBtn = document.getElementById('betModeToggleBtn');
+        const betViewLabel = document.getElementById('betViewLabel');
         
         if (viewModeToggleBtn) {
             viewModeToggleBtn.addEventListener('click', () => {
-                console.log('🔄 Alternando modo de visualização...');
+                console.log('🔄 Alternando modo de visualização (desktop)...');
                 toggleViewMode(sidebar, viewModeLabel);
                 setUserMenuState(false); // Fechar menu após clicar
             });
-            console.log('✅ Event listener do botão de modo adicionado');
+            console.log('✅ Event listener do botão de modo (desktop) adicionado');
         } else {
             console.warn('⚠️ Botão viewModeToggleBtn não encontrado!');
         }
+        
+        if (betModeToggleBtn) {
+            betModeToggleBtn.addEventListener('click', () => {
+                console.log('🔄 Alternando modo de aposta...');
+                const current = getDisplayMode();
+                const next = current === 'bet' ? 'default' : 'bet';
+                setDisplayMode(next);
+                applyDisplayMode(next);
+                setUserMenuState(false);
+            });
+        }
+        // Aplicar modo de exibição salvo (completo ou aposta)
+        applyDisplayMode(getDisplayMode());
+        
         initEntriesTabs();
         setEntriesTab(activeEntriesTab);
         setupAutoBetHistoryUI();
@@ -8786,6 +8829,9 @@ async function persistAnalyzerState(newState) {
                     lastSpinTime.textContent = t;
                 } catch(_) { lastSpinTime.textContent = ''; }
             }
+            
+            // Atualizar modo aposta com último giro
+            syncBetModeView();
         }
         
         if (Object.prototype.hasOwnProperty.call(data, 'analysis')) {
@@ -8824,6 +8870,9 @@ async function persistAnalyzerState(newState) {
                     }
                     
                     console.log('📊 Cor sugerida atualizada:', analysis.color);
+                    
+                    // Sincronizar visual do modo aposta
+                    syncBetModeView();
                 }
                 
                 // Update pattern info - sempre usar renderização amigável
@@ -8902,6 +8951,8 @@ async function persistAnalyzerState(newState) {
                             } else {
                                 analysisModeTitle.textContent = 'Análise por Sistema Padrão';
                             }
+                            // Atualizar título do modo aposta
+                            syncBetModeView();
                         }
                         console.log('✅ Padrão processado com sucesso!');
                         console.log('🔍 =====================================');
@@ -8974,6 +9025,8 @@ async function persistAnalyzerState(newState) {
                 if (analysisModeTitle) {
                     analysisModeTitle.textContent = 'Aguardando Análise';
                 }
+                // Resetar também o resumo do modo aposta
+                syncBetModeView();
                 
                 renderSuggestionStatus(currentAnalysisStatus);
                 
@@ -9033,6 +9086,9 @@ async function persistAnalyzerState(newState) {
             suggestionColor.className = 'suggestion-color suggestion-color-box neutral loading';
             suggestionColor.innerHTML = '<div class="spinner"></div>';
         }
+        
+        // Sincronizar com modo aposta
+        syncBetModeView();
     }
 
     function setSuggestionStage(label) {
@@ -9048,6 +9104,9 @@ async function persistAnalyzerState(newState) {
             suggestionStage.classList.remove('visible');
             if (wrapper) wrapper.classList.remove('has-stage');
         }
+        
+        // Atualizar visual do modo aposta (usa mesma cor/estágio)
+        syncBetModeView();
     }
     
     // Render de lista de entradas (WIN/LOSS)
@@ -9723,6 +9782,75 @@ async function persistAnalyzerState(newState) {
             localStorage.setItem('sidebarViewMode', mode);
         } catch (e) {
             console.error('Erro ao salvar modo de visualização:', e);
+        }
+    }
+    
+    // ========= MODO DE EXIBIÇÃO (COMPLETO x APOSTA) =========
+    function getDisplayMode() {
+        try {
+            const saved = localStorage.getItem('sidebarDisplayMode');
+            return saved === 'bet' ? 'bet' : 'default';
+        } catch (e) {
+            return 'default';
+        }
+    }
+    
+    function setDisplayMode(mode) {
+        try {
+            localStorage.setItem('sidebarDisplayMode', mode === 'bet' ? 'bet' : 'default');
+        } catch (e) {
+            console.error('Erro ao salvar modo de exibição (aposta):', e);
+        }
+    }
+    
+    function syncBetModeView() {
+        const titleSource = document.getElementById('analysisModeTitle');
+        const titleTarget = document.getElementById('betModeTitle');
+        if (titleSource && titleTarget) {
+            titleTarget.textContent = titleSource.textContent || '';
+        }
+        
+        const suggestionSource = document.getElementById('suggestionColor');
+        const suggestionTarget = document.getElementById('betModeSuggestion');
+        if (suggestionSource && suggestionTarget) {
+            suggestionTarget.className = suggestionSource.className;
+            suggestionTarget.innerHTML = suggestionSource.innerHTML;
+            const title = suggestionSource.getAttribute('title') || '';
+            if (title) suggestionTarget.setAttribute('title', title);
+            else suggestionTarget.removeAttribute('title');
+        }
+        
+        const lastSpinSource = document.getElementById('lastSpinNumber');
+        const lastSpinTarget = document.getElementById('betModeLastSpinNumber');
+        if (lastSpinSource && lastSpinTarget) {
+            lastSpinTarget.className = lastSpinSource.className;
+            lastSpinTarget.innerHTML = lastSpinSource.innerHTML;
+        }
+        
+        const lastSpinTimeSource = document.getElementById('lastSpinTime');
+        const lastSpinTimeTarget = document.getElementById('betModeLastSpinTime');
+        if (lastSpinTimeSource && lastSpinTimeTarget) {
+            lastSpinTimeTarget.textContent = lastSpinTimeSource.textContent || '';
+        }
+    }
+    
+    function applyDisplayMode(mode) {
+        const defaultView = document.getElementById('analyzerDefaultView');
+        const betView = document.getElementById('betModeView');
+        const betLabel = document.getElementById('betViewLabel');
+        if (!defaultView || !betView) return;
+        
+        const isBet = mode === 'bet';
+        
+        defaultView.style.display = isBet ? 'none' : '';
+        betView.style.display = isBet ? 'flex' : 'none';
+        
+        if (isBet) {
+            syncBetModeView();
+        }
+        
+        if (betLabel) {
+            betLabel.textContent = isBet ? 'Modo Aposta' : 'Modo Completo';
         }
     }
     
