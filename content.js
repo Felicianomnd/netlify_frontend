@@ -10956,6 +10956,9 @@ function logModeSnapshotUI(snapshot) {
         console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #00D4FF; font-weight: bold;');
         console.log('');
         
+        // Referência ao botão (para validações que resetam visual em caso de erro)
+        const btn = document.getElementById('cfgSaveBtn');
+        
         // ✅ Feedback global de salvamento (bolinha no centro)
         showGlobalSaveLoading();
         
@@ -11030,7 +11033,8 @@ function logModeSnapshotUI(snapshot) {
                 console.log('📝 Valores capturados dos campos:');
                 console.log('   • minOccurrences:', minOcc);
                 console.log('   • maxOccurrences:', maxOcc);
-                console.log('   • minIntervalSpins:', minInt);
+                console.log('   • minIntervalSpins (entre padrões):', patternInterval);
+                console.log('   • minSignalIntervalSpins (após entrada):', signalInterval);
                 console.log('   • minPatternSize:', minSize);
                 console.log('   • maxPatternSize:', maxSize);
                 console.log('   • winPercentOthers:', winPct + '%');
@@ -11176,8 +11180,21 @@ function logModeSnapshotUI(snapshot) {
     }
 
     function showConfigFeedback(success) {
-        // Mantido apenas para compatibilidade de logs, mas feedback principal agora é global (bolinha no centro).
+        // Feedback principal agora é o indicador global no centro da tela.
         console.log('%c🎨 Feedback de salvamento (success = ' + success + ')', 'color: #00D4FF; font-weight: bold;');
+        
+        if (success) {
+            // Mostra o tique verde e esconde depois de ~1.5s
+            showGlobalSaveSuccess(1500);
+        } else {
+            // Em caso de erro, apenas some com o overlay/spinner
+            const overlay = document.getElementById('saveStatusOverlay');
+            const spinner = document.getElementById('saveStatusSpinner');
+            const check = document.getElementById('saveStatusCheck');
+            if (overlay) overlay.style.display = 'none';
+            if (spinner) spinner.style.display = 'block';
+            if (check) check.style.display = 'none';
+        }
     }
 
     // ========== BANCO DE PADRÕES ==========
