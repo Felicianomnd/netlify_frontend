@@ -9832,14 +9832,28 @@ async function persistAnalyzerState(newState) {
     }
     
     function syncBetModeView() {
-        const suggestionSource = document.getElementById('suggestionColor');
+        const suggestionBox = document.getElementById('suggestionBox');
+        const colorSource = document.getElementById('suggestionColor');
         const suggestionTarget = document.getElementById('betModeSuggestion');
-        if (suggestionSource && suggestionTarget) {
-            suggestionTarget.className = suggestionSource.className;
-            suggestionTarget.innerHTML = suggestionSource.innerHTML;
-            const title = suggestionSource.getAttribute('title') || '';
-            if (title) suggestionTarget.setAttribute('title', title);
-            else suggestionTarget.removeAttribute('title');
+        if (suggestionTarget) {
+            // Mantém a classe fixa do container no modo aposta
+            suggestionTarget.className = 'bet-mode-suggestion';
+            suggestionTarget.innerHTML = '';
+            if (colorSource) {
+                // Clona apenas o quadrado de cor, removendo qualquer texto como "Cor indicada"
+                const cloned = colorSource.cloneNode(true);
+                cloned.id = 'betModeSuggestionColor';
+                cloned.textContent = '';
+                suggestionTarget.appendChild(cloned);
+            }
+            // Preserva o title apenas como tooltip, se existir
+            if (suggestionBox) {
+                const title = suggestionBox.getAttribute('title') || '';
+                if (title) suggestionTarget.setAttribute('title', title);
+                else suggestionTarget.removeAttribute('title');
+            } else {
+                suggestionTarget.removeAttribute('title');
+            }
         }
         
         const lastSpinSource = document.getElementById('lastSpinNumber');

@@ -4012,11 +4012,10 @@
 /* ========= MODO APOSTA (VIEW SIMPLIFICADO) ========= */
 .bet-mode-view {
   display: none;
-  padding: 24px 24px 16px 24px;
-  display: grid;
-  grid-template-rows: 1fr 1fr;
-  gap: 12px;
-  height: calc(100vh - 80px); /* preenche quase toda a altura útil abaixo do header */
+  padding: 24px 24px 24px 24px;
+  flex-direction: column;
+  gap: 16px;
+  height: 100%;
   box-sizing: border-box;
 }
 
@@ -4030,6 +4029,8 @@
   justify-content: center;
   align-items: center;
   gap: 16px;
+  flex: 1;          /* cada card ocupa metade da altura disponível */
+  width: 100%;      /* ocupa toda a largura disponível da coluna */
   box-shadow: none;
 }
 
