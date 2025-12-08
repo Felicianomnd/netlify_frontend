@@ -9894,8 +9894,9 @@ async function persistAnalyzerState(newState) {
             syncBetModeView();
         }
         
+        // Label SEMPRE mostra o modo para o qual o usuário vai mudar ao clicar
         if (betLabel) {
-            betLabel.textContent = isBet ? 'Modo Aposta' : 'Modo Completo';
+            betLabel.textContent = isBet ? 'Modo Completo' : 'Modo Aposta';
         }
         
         // Atualizar cabeçalho (texto do modo) de acordo com o display
