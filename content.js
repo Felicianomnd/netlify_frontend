@@ -9561,27 +9561,34 @@ async function persistAnalyzerState(newState) {
                 return;
             }
             
-            // Pegar dimensões da sidebar
+            // Pegar dimensões atuais da sidebar
             const sidebarRect = sidebar.getBoundingClientRect();
-            const sidebarWidth = sidebarRect.width;
             const sidebarHeight = sidebarRect.height;
-            const sidebarLeft = sidebarRect.left;
             const sidebarTop = sidebarRect.top;
             
-            // Calcular espaço disponível à direita
-            const availableWidth = window.innerWidth - sidebarLeft - sidebarWidth;
+            // Total de colunas (sidebar + janelas flutuantes)
+            const totalColumns = 1 + this.windows.length;
+            const gap = 12;   // espaço entre colunas
+            const margin = 20; // margem lateral
             
-            // Calcular largura de cada janela
-            const gap = 10; // Espaço entre janelas e entre sidebar ↔ primeira janela
-            const totalGaps = (this.windows.length - 1) * gap;
-            let windowWidth = (availableWidth - totalGaps) / this.windows.length;
+            const totalAvailable = window.innerWidth - (margin * 2);
+            let columnWidth = (totalAvailable - ((totalColumns - 1) * gap)) / totalColumns;
+            const minWidth = 320;
             
-            // Garantir largura mínima de 300px
-            if (windowWidth < 300) {
-                windowWidth = 300;
+            if (columnWidth < minWidth) {
+                columnWidth = Math.max(minWidth, totalAvailable / totalColumns);
             }
             
-            // Posicionar cada janela
+            const getLeftForIndex = (index) => margin + index * (columnWidth + gap);
+            
+            // Posicionar a própria sidebar como primeira coluna
+            sidebar.style.position = 'fixed';
+            sidebar.style.left = getLeftForIndex(0) + 'px';
+            sidebar.style.top = sidebarTop + 'px';
+            sidebar.style.width = columnWidth + 'px';
+            sidebar.style.height = sidebarHeight + 'px';
+            
+            // Posicionar cada janela flutuante nas colunas seguintes
             this.windows.forEach((windowId, index) => {
                 const modal = document.getElementById(windowId);
                 if (!modal) return;
@@ -9589,14 +9596,12 @@ async function persistAnalyzerState(newState) {
                 const content = modal.querySelector('[class*="modal-content"]');
                 if (!content) return;
                 
-                // Calcular posição X (sempre com um gap em relação à sidebar)
-                const leftPosition = sidebarLeft + sidebarWidth + gap + (index * (windowWidth + gap));
+                const leftPosition = getLeftForIndex(index + 1);
                 
-                // Aplicar estilos
                 content.style.position = 'fixed';
                 content.style.left = leftPosition + 'px';
                 content.style.top = sidebarTop + 'px';
-                content.style.width = windowWidth + 'px';
+                content.style.width = columnWidth + 'px';
                 content.style.height = sidebarHeight + 'px';
                 content.style.maxWidth = 'none';
                 content.style.maxHeight = 'none';
@@ -9606,7 +9611,7 @@ async function persistAnalyzerState(newState) {
                 console.log(`🪟 Janela ${index + 1}/${this.windows.length}:`, {
                     id: windowId,
                     left: leftPosition,
-                    width: windowWidth
+                    width: columnWidth
                 });
             });
         }
