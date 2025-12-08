@@ -1587,9 +1587,50 @@
   .settings-section input[type="number"] { width: 64px; min-width: 56px; padding: 4px 6px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.18); background: #0f1320; color: #e4ecff; font-weight: 500; text-align: center; box-sizing: border-box; }
   .settings-section input[type="text"] { width: 100%; padding: 6px 8px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.18); background: #0f1320; color: #e4ecff; font-weight: 500; box-sizing: border-box; font-size: 12px; }
   .settings-section input[type="number"]:focus, .settings-section input[type="text"]:focus { outline: none; border-color: #2b6cb0; box-shadow: 0 0 0 2px rgba(43,108,176,0.25); }
-.cfg-save-btn { margin-top: 10px; width: 100%; padding: 10px; border-radius: 8px; background: #ef4444; color: #fff; border: none; cursor: pointer; font-weight: 600; }
+.cfg-save-btn { margin-top: 10px; width: 100%; padding: 10px; border-radius: 3px; background: #ef4444; color: #fff; border: none; cursor: pointer; font-weight: 600; }
 .cfg-save-btn:hover { background: #dc2626; }
 .checkbox-label { font-size: 12px; display: flex; align-items: center; gap: 6px; }
+
+/* ✅ Checkboxes dentro dos modais Diamante com visual de switch, alinhados ao Simulador */
+.custom-pattern-modal-body .checkbox-label {
+    gap: 10px;
+}
+
+.custom-pattern-modal-body .checkbox-label input[type="checkbox"] {
+    appearance: none;
+    -webkit-appearance: none;
+    width: 44px;
+    height: 24px;
+    border-radius: 999px;
+    background: #3d4859;
+    position: relative;
+    cursor: pointer;
+    border: none;
+    outline: none;
+    flex-shrink: 0;
+    transition: background 0.2s ease;
+}
+
+.custom-pattern-modal-body .checkbox-label input[type="checkbox"]::after {
+    content: '';
+    position: absolute;
+    top: 3px;
+    left: 3px;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: #8d95a5;
+    transition: all 0.2s ease;
+}
+
+.custom-pattern-modal-body .checkbox-label input[type="checkbox"]:checked {
+    background: #ef4444;
+}
+
+.custom-pattern-modal-body .checkbox-label input[type="checkbox"]:checked::after {
+    transform: translateX(20px);
+    background: #ffffff;
+}
 
 /* Responsividade da caixa de configurações */
 @media (max-width: 480px) {
@@ -3981,14 +4022,14 @@
 /* Modal content - MINIMALISTA E COMPACTO */
 .custom-pattern-modal-content {
     position: fixed;
-    background: var(--bg-secondary);
-    border: 1px solid var(--border-color);
-    border-radius: 8px;
+    background: #1a2332; /* mesmo fundo do Configurar Simulador */
+    border: none;
+    border-radius: 3px; /* cantos mais retos, alinhado ao simulador */
     max-width: 420px;
     width: 90%;
     max-height: 80vh;
     overflow-y: auto;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.7);
     animation: modalSlideIn 0.2s ease-out;
     z-index: 1000000;
     /* Fallback: centralizar caso JS não execute */
@@ -4013,9 +4054,9 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 12px 16px;
-    border-bottom: 1px solid var(--border-color);
-    background: var(--bg-tertiary);
+    padding: 16px 20px;
+    border-bottom: none;
+    background: #1a2332;
 }
 
 .custom-pattern-modal-header h3 {
@@ -4043,7 +4084,8 @@
 
 /* Modal body - COMPACTO */
 .custom-pattern-modal-body {
-    padding: 16px;
+    padding: 20px;
+    background: #1a2332;
 }
 
 .custom-pattern-modal-body .diamond-level-title {
@@ -4084,9 +4126,9 @@
 .custom-pattern-input {
     width: 100%;
     padding: 8px 10px;
-    background: var(--bg-primary);
-    border: 1px solid var(--border-color);
-    border-radius: 4px;
+    background: #0f1720;
+    border: none;
+    border-radius: 3px;
     color: var(--text-primary);
     font-size: 13px;
     font-family: var(--font-primary);
@@ -4102,9 +4144,9 @@
 .custom-pattern-sequence {
     min-height: 50px;
     padding: 8px;
-    background: var(--bg-primary);
-    border: 1px solid var(--border-color);
-    border-radius: 4px;
+    background: #0f1720;
+    border: none;
+    border-radius: 3px;
     display: flex;
     flex-wrap: wrap;
     gap: 8px;
@@ -4249,16 +4291,16 @@
 .custom-pattern-modal-footer {
     display: flex;
     gap: 10px;
-    padding: 12px 16px;
-    border-top: 1px solid var(--border-color);
-    background: var(--bg-tertiary);
+    padding: 16px 20px;
+    border-top: none;
+    background: #1a2332;
 }
 
 .btn-save-pattern,
 .btn-cancel-pattern {
     flex: 1;
     padding: 8px 16px;
-    border-radius: 4px;
+    border-radius: 3px;
     font-size: 13px;
     cursor: pointer;
     transition: all 0.2s;
@@ -4352,13 +4394,13 @@
 }
 
 .btn-hot-pattern {
-    padding: 8px 14px;
-    background: #1a2e3e;
-    border: 1px solid #ef4444;
-    border-radius: 6px;
-    color: #ef4444;
+    padding: 10px 16px;
+    background: #ef4444;
+    border: none;
+    border-radius: 3px;
+    color: #ffffff;
     font-size: 12px;
-    font-weight: bold;
+    font-weight: 600;
     cursor: pointer;
     transition: all 0.2s;
     font-family: 'Segoe UI', 'Roboto', 'Helvetica Neue', Arial, sans-serif;
@@ -4370,14 +4412,14 @@
 }
 
 .btn-hot-pattern:hover {
-    background: #ef4444;
+    background: #dc2626;
     color: #ffffff;
 }
 
 .btn-hot-pattern.active {
-    background: #1a2e3e;
-    color: #ef4444;
-    border: 1px solid #ef4444;
+    background: #ef4444;
+    color: #ffffff;
+    border: none;
     box-shadow: none;
 }
 
@@ -4833,7 +4875,7 @@
 }
 
 #diamondLevelsModal .btn-hot-pattern {
-    border-radius: 4px;
+    border-radius: 3px;
 }
 
 @media (max-width: 460px) {

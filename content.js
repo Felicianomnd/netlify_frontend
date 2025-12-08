@@ -2139,9 +2139,9 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
             }
             
             .pattern-occurrence-item {
-                background: linear-gradient(135deg, #1a2c38 0%, #0f1f2a 100%);
-                border: 1px solid #2a3c48;
-                border-radius: 6px;
+                background: #0f1720; /* mesmo tom das cartas do simulador */
+                border: none;
+                border-radius: 4px;
                 padding: 12px;
             }
             
@@ -9567,7 +9567,7 @@ async function persistAnalyzerState(newState) {
             const availableWidth = window.innerWidth - sidebarLeft - sidebarWidth;
             
             // Calcular largura de cada janela
-            const gap = 10; // Espaço entre janelas
+            const gap = 10; // Espaço entre janelas e entre sidebar ↔ primeira janela
             const totalGaps = (this.windows.length - 1) * gap;
             let windowWidth = (availableWidth - totalGaps) / this.windows.length;
             
@@ -9584,8 +9584,8 @@ async function persistAnalyzerState(newState) {
                 const content = modal.querySelector('[class*="modal-content"]');
                 if (!content) return;
                 
-                // Calcular posição X
-                const leftPosition = sidebarLeft + sidebarWidth + (index * (windowWidth + gap));
+                // Calcular posição X (sempre com um gap em relação à sidebar)
+                const leftPosition = sidebarLeft + sidebarWidth + gap + (index * (windowWidth + gap));
                 
                 // Aplicar estilos
                 content.style.position = 'fixed';
