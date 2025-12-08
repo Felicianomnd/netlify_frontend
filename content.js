@@ -1739,8 +1739,11 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
         const filterSelect = document.getElementById('bankPatternFilter');
         
         closeBtn.addEventListener('click', () => {
-            // ✅ Desregistrar do sistema de janelas flutuantes
-            if (isDesktop()) {
+            const sidebarEl = document.getElementById('blaze-double-analyzer');
+            const isCompactMode = sidebarEl && sidebarEl.classList.contains('compact-mode');
+
+            // ✅ Desregistrar do sistema de janelas flutuantes apenas no modo compacto
+            if (isDesktop() && isCompactMode) {
                 floatingWindows.unregister('bankPatternsModal');
             }
             modal.style.display = 'none';
@@ -1749,7 +1752,9 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
         overlay.addEventListener('click', () => {
             // ✅ Overlay só fecha em mobile
             if (!isDesktop()) {
-                if (isDesktop()) {
+                const sidebarEl = document.getElementById('blaze-double-analyzer');
+                const isCompactMode = sidebarEl && sidebarEl.classList.contains('compact-mode');
+                if (isDesktop() && isCompactMode) {
                     floatingWindows.unregister('bankPatternsModal');
                 }
                 modal.style.display = 'none';
@@ -1771,8 +1776,11 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
         const detailsOverlay = detailsModal.querySelector('.bank-patterns-modal-overlay');
         
         closeDetailsBtn.addEventListener('click', () => {
-            // ✅ Desregistrar do sistema de janelas flutuantes
-            if (isDesktop()) {
+            const sidebarEl = document.getElementById('blaze-double-analyzer');
+            const isCompactMode = sidebarEl && sidebarEl.classList.contains('compact-mode');
+
+            // ✅ Desregistrar do sistema de janelas flutuantes apenas no modo compacto
+            if (isDesktop() && isCompactMode) {
                 floatingWindows.unregister('patternDetailsModal');
             }
             detailsModal.style.display = 'none';
@@ -1781,7 +1789,9 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
         detailsOverlay.addEventListener('click', () => {
             // ✅ Overlay só fecha em mobile
             if (!isDesktop()) {
-                if (isDesktop()) {
+                const sidebarEl = document.getElementById('blaze-double-analyzer');
+                const isCompactMode = sidebarEl && sidebarEl.classList.contains('compact-mode');
+                if (isDesktop() && isCompactMode) {
                     floatingWindows.unregister('patternDetailsModal');
                 }
                 detailsModal.style.display = 'none';
@@ -2444,8 +2454,11 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
         const overlay = modal.querySelector('.custom-pattern-modal-overlay');
         
         const closeModal = () => {
-            // ✅ Desregistrar do sistema de janelas flutuantes
-            if (isDesktop()) {
+            const sidebarEl = document.getElementById('blaze-double-analyzer');
+            const isCompactMode = sidebarEl && sidebarEl.classList.contains('compact-mode');
+
+            // ✅ Desregistrar do sistema de janelas flutuantes apenas no modo compacto
+            if (isDesktop() && isCompactMode) {
                 floatingWindows.unregister('diamondLevelsModal');
             }
             modal.style.display = 'none';
@@ -2613,8 +2626,11 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
             
             modal.style.display = 'flex';
             
-            // ✅ Registrar no sistema de janelas flutuantes (Desktop)
-            if (isDesktop()) {
+            const sidebarEl = document.getElementById('blaze-double-analyzer');
+            const isCompactMode = sidebarEl && sidebarEl.classList.contains('compact-mode');
+
+            // ✅ Registrar no sistema de janelas flutuantes somente no modo compacto (Desktop)
+            if (isDesktop() && isCompactMode) {
                 floatingWindows.register('diamondLevelsModal');
             }
         }).catch(() => {
@@ -2633,8 +2649,11 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
             
             modal.style.display = 'flex';
             
-            // ✅ Registrar no sistema de janelas flutuantes (Desktop)
-            if (isDesktop()) {
+            const sidebarEl = document.getElementById('blaze-double-analyzer');
+            const isCompactMode = sidebarEl && sidebarEl.classList.contains('compact-mode');
+
+            // ✅ Registrar no sistema de janelas flutuantes somente no modo compacto (Desktop)
+            if (isDesktop() && isCompactMode) {
                 floatingWindows.register('diamondLevelsModal');
             }
         });
@@ -3011,8 +3030,11 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
             detailsContent.innerHTML = occurrencesHTML;
             detailsModal.style.display = 'flex';
             
-            // ✅ Registrar no sistema de janelas flutuantes (Desktop)
-            if (isDesktop()) {
+            const sidebarEl = document.getElementById('blaze-double-analyzer');
+            const isCompactMode = sidebarEl && sidebarEl.classList.contains('compact-mode');
+            
+            // ✅ Registrar no sistema de janelas flutuantes somente no modo compacto (Desktop)
+            if (isDesktop() && isCompactMode) {
                 floatingWindows.register('patternDetailsModal');
             }
             
@@ -7361,8 +7383,11 @@ async function persistAnalyzerState(newState) {
         const closeAutoBetModal = () => {
             if (!autoBetModal) return;
             
-            // ✅ Desregistrar do sistema de janelas flutuantes
-            if (isDesktop()) {
+            const sidebarEl = document.getElementById('blaze-double-analyzer');
+            const isCompactMode = sidebarEl && sidebarEl.classList.contains('compact-mode');
+
+            // ✅ Desregistrar do sistema de janelas flutuantes apenas no modo compacto (Desktop)
+            if (isDesktop() && isCompactMode) {
                 floatingWindows.unregister('autoBetModal');
             }
             
@@ -7384,11 +7409,14 @@ async function persistAnalyzerState(newState) {
             autoBetModal.style.display = 'flex';
             document.body.classList.add('auto-bet-modal-open');
             
-            // ✅ Registrar no sistema de janelas flutuantes (Desktop)
-            if (isDesktop()) {
+            const sidebarEl = document.getElementById('blaze-double-analyzer');
+            const isCompactMode = sidebarEl && sidebarEl.classList.contains('compact-mode');
+
+            // ✅ Registrar no sistema de janelas flutuantes somente no modo compacto (Desktop)
+            if (isDesktop() && isCompactMode) {
                 floatingWindows.register('autoBetModal');
             } else {
-                // Mobile: manter comportamento atual
+                // Mobile ou tela cheia: manter comportamento atual ocupando a tela
                 syncAutoBetModalWidth();
             }
             
@@ -9485,6 +9513,13 @@ async function persistAnalyzerState(newState) {
             
             const sidebar = document.getElementById('blaze-double-analyzer');
             if (!sidebar) return;
+
+            // Em modo tela cheia o painel ocupa toda a largura da tela.
+            // Não há espaço lateral para janelas; nesse caso, deixamos os modais
+            // se comportarem como antes (ocupando a própria tela) e não reposicionamos.
+            if (sidebar.classList.contains('fullscreen-mode')) {
+                return;
+            }
             
             // Pegar dimensões da sidebar
             const sidebarRect = sidebar.getBoundingClientRect();
