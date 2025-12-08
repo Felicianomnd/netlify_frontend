@@ -7414,13 +7414,20 @@ async function persistAnalyzerState(newState) {
             
             const sidebarEl = document.getElementById('blaze-double-analyzer');
             const isCompactMode = sidebarEl && sidebarEl.classList.contains('compact-mode');
+            const isDesktopEnv = isDesktop();
 
-            // ✅ Registrar no sistema de janelas flutuantes somente no modo compacto (Desktop)
-            if (isDesktop() && isCompactMode) {
+            // ✅ Desktop + modo compacto: janelas flutuantes ao lado
+            if (isDesktopEnv && isCompactMode) {
                 floatingWindows.register('autoBetModal');
-            } else {
-                // Mobile ou tela cheia: manter comportamento atual ocupando a tela
+                // Em modo compacto, largura é controlada pelo gerenciador de janelas
+            } else if (!isDesktopEnv) {
+                // Mobile: ajustar largura para caber dentro do painel
                 syncAutoBetModalWidth();
+            } else {
+                // Desktop em tela cheia: ocupar 100% da largura do painel
+                if (autoBetModalContent) {
+                    autoBetModalContent.style.width = '100%';
+                }
             }
             
             autoBetModalEscHandler = (event) => {
