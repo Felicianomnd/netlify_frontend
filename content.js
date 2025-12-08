@@ -999,8 +999,14 @@
             
             // 🧠 Atualizar status dinâmico da memória ativa
             if (modeApiContainer && modeApiStatus) {
-                modeApiContainer.style.display = 'block';
-                atualizarStatusMemoriaAtiva(modeApiStatus);
+                if (isBetDisplay) {
+                    // No modo aposta não exibir cartão de status IA
+                    modeApiContainer.style.display = 'none';
+                    modeApiStatus.textContent = '';
+                } else {
+                    modeApiContainer.style.display = 'block';
+                    atualizarStatusMemoriaAtiva(modeApiStatus);
+                }
             }
             
             console.log('%c═══════════════════════════════════════════════════════════', 'color: #FFD700; font-weight: bold;');
@@ -7209,6 +7215,12 @@ async function persistAnalyzerState(newState) {
             <div class="bet-mode-view" id="betModeView" style="display:none;">
                 <div class="bet-mode-card">
                     <div class="bet-mode-card-title">Aposta agora</div>
+                    <div class="bet-mode-meter">
+                        <div class="confidence-bar">
+                            <div class="confidence-fill" id="betModeConfidenceFill"></div>
+                        </div>
+                        <div class="bet-mode-confidence-text" id="betModeConfidenceText">0%</div>
+                    </div>
                     <div class="bet-mode-block">
                         <span class="bet-mode-label">Cor indicada</span>
                         <div class="bet-mode-suggestion" id="betModeSuggestion"></div>
@@ -9842,6 +9854,18 @@ async function persistAnalyzerState(newState) {
         const lastSpinTimeTarget = document.getElementById('betModeLastSpinTime');
         if (lastSpinTimeSource && lastSpinTimeTarget) {
             lastSpinTimeTarget.textContent = lastSpinTimeSource.textContent || '';
+        }
+        
+        // Sincronizar barra de confiança (porcentagem)
+        const srcFill = document.getElementById('confidenceFill');
+        const srcText = document.getElementById('confidenceText');
+        const dstFill = document.getElementById('betModeConfidenceFill');
+        const dstText = document.getElementById('betModeConfidenceText');
+        if (srcFill && dstFill) {
+            dstFill.style.width = srcFill.style.width || '0%';
+        }
+        if (srcText && dstText) {
+            dstText.textContent = srcText.textContent || '0%';
         }
     }
     
