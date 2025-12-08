@@ -2085,21 +2085,22 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                 user-select: none;
             }
             
-            .diamond-level-switch input {
-                display: none;
-            }
-            
-            .diamond-level-switch .switch-track {
-                position: relative;
+            .diamond-level-switch input[type="checkbox"] {
+                appearance: none;
+                -webkit-appearance: none;
                 width: 44px;
                 height: 24px;
-                background: #3d4859;
                 border-radius: 999px;
-                transition: background 0.2s ease;
+                background: #3d4859;
+                position: relative;
+                cursor: pointer;
+                border: none;
+                outline: none;
                 flex-shrink: 0;
+                transition: background 0.2s ease;
             }
             
-            .diamond-level-switch .switch-track::after {
+            .diamond-level-switch input[type="checkbox"]::after {
                 content: '';
                 position: absolute;
                 top: 3px;
@@ -2111,13 +2112,17 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                 transition: all 0.2s ease;
             }
             
-            .diamond-level-switch input:checked + .switch-track {
+            .diamond-level-switch input[type="checkbox"]:checked {
                 background: #ef4444;
             }
             
-            .diamond-level-switch input:checked + .switch-track::after {
+            .diamond-level-switch input[type="checkbox"]:checked::after {
                 transform: translateX(20px);
-                background: white;
+                background: #ffffff;
+            }
+            
+            .diamond-level-switch .switch-track {
+                display: none;
             }
             
             .diamond-level-field.level-disabled {

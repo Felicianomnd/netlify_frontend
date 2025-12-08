@@ -4024,7 +4024,7 @@
     position: fixed;
     background: #1a2332; /* mesmo fundo do Configurar Simulador */
     border: none;
-    border-radius: 3px; /* cantos mais retos, alinhado ao simulador */
+    border-radius: 0; /* cantos totalmente retos */
     max-width: 420px;
     width: 90%;
     max-height: 80vh;
@@ -4395,7 +4395,7 @@
 
 .btn-hot-pattern {
     padding: 10px 16px;
-    background: #ef4444;
+    background: linear-gradient(135deg, #1a2e3e 0%, #122238 100%);
     border: none;
     border-radius: 3px;
     color: #ffffff;
@@ -4412,12 +4412,12 @@
 }
 
 .btn-hot-pattern:hover {
-    background: #dc2626;
+    background: linear-gradient(135deg, #ef4444 0%, #d13434 100%);
     color: #ffffff;
 }
 
 .btn-hot-pattern.active {
-    background: #ef4444;
+    background: linear-gradient(135deg, #ef4444 0%, #d13434 100%);
     color: #ffffff;
     border: none;
     box-shadow: none;
@@ -4756,13 +4756,12 @@
     max-width: 420px;
     margin: 0 auto;
     background: #1a2332;
-    border-radius: 0;
+    border-radius: 0 !important;
     border: none;
     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
-    padding: 24px;
+    padding: 0;
     display: flex;
     flex-direction: column;
-    gap: 18px;
     box-sizing: border-box;
 }
 
@@ -4900,14 +4899,7 @@
 }
 
 .btn-diamond-levels {
-    border-color: rgba(239, 68, 68, 0.6);
-    background: linear-gradient(135deg, #1a2e3e 0%, #122238 100%);
-    color: #ffffff;
-}
-
-.btn-diamond-levels:hover {
-    background: linear-gradient(135deg, #ef4444 0%, #d13434 100%);
-    color: #ffffff;
+    /* herda visual de .btn-hot-pattern */
 }
 
 @media (max-width: 420px) {
@@ -4931,7 +4923,7 @@
 
 #diamondLevelsModal .custom-pattern-modal-header {
     border: none;
-    padding: 0;
+    padding: 18px 20px 12px 20px;
 }
 
 #diamondLevelsModal .custom-pattern-modal-body {
@@ -4940,11 +4932,11 @@
     display: flex;
     flex-direction: column;
     gap: 16px;
-    padding-right: 4px;
+    padding: 0 20px 20px 20px;
 }
 
 #diamondLevelsModal .custom-pattern-modal-footer {
-    padding: 16px 0 0 0;
+    padding: 16px 20px 20px 20px;
     display: flex;
     gap: 12px;
     justify-content: flex-start;
