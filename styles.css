@@ -4417,7 +4417,8 @@
 }
 
 .btn-hot-pattern.active {
-    background: linear-gradient(135deg, #ef4444 0%, #d13434 100%);
+    /* mantém mesma cor de fundo do estado normal (sem destacar em vermelho) */
+    background: linear-gradient(135deg, #1a2e3e 0%, #122238 100%);
     color: #ffffff;
     border: none;
     box-shadow: none;
@@ -4933,6 +4934,7 @@
     flex-direction: column;
     gap: 16px;
     padding: 0 20px 20px 20px;
+    flex: 1; /* ocupa o espaço vertical, empurrando o footer para baixo */
 }
 
 #diamondLevelsModal .custom-pattern-modal-footer {

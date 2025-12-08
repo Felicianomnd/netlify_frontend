@@ -2174,7 +2174,7 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                         <div class="diamond-level-field" data-level="n0">
                             <div class="diamond-level-header">
                                 <div class="diamond-level-title">N0 - Detector de Branco</div>
-                                <label class="diamond-level-switch">
+                                <label class="diamond-level-switch checkbox-label">
                                     <input type="checkbox" class="diamond-level-toggle-input" id="diamondLevelToggleN0" checked />
                                     <span class="switch-track"></span>
                                 </label>
