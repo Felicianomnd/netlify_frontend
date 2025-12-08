@@ -2697,7 +2697,7 @@
 .entries-panel {
   background: var(--bg-secondary);
   border: 1px solid var(--border-color);
-  border-radius: 8px;
+  border-radius: 0; /* cantos retos, seguindo padrão do simulador */
   padding: 0 10px 10px 10px;
 }
 .entries-header {
@@ -2793,7 +2793,7 @@
 .bets-container {
   background: var(--bg-tertiary, #141e30);
   border: 1px solid var(--border-color);
-  border-radius: 8px;
+  border-radius: 0; /* remover cantos arredondados do fundo mais claro */
   padding: 6px;
   max-height: 220px;
   overflow-y: auto;
