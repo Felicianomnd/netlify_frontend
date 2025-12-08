@@ -6972,7 +6972,7 @@ async function persistAnalyzerState(newState) {
                             <input type="number" id="cfgMaxOccurrences" min="0" value="0" placeholder="0 = sem limite" />
                         </div>
                         <div class="setting-item">
-                            <span class="setting-label">Intervalo entre padrões (giros):</span>
+                            <span class="setting-label">Intervalo após entrada (giros):</span>
                             <input
                                 type="number"
                                 id="cfgMinInterval"
