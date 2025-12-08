@@ -2845,8 +2845,7 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                     console.warn('⚠️ Erro ao sincronizar configurações dos níveis com o servidor:', syncError);
                 }
             }
-            if (modal) modal.style.display = 'none';
-            // Feedback global: sucesso
+            // Não fechar o modal automaticamente; apenas mostrar sucesso
             showGlobalSaveSuccess(1500);
         } catch (err) {
             console.error('❌ Erro ao salvar configurações dos níveis diamante:', err);
@@ -7562,10 +7561,8 @@ async function persistAnalyzerState(newState) {
                 triggerButtonFeedback(autoBetSaveConfigBtn);
                 setButtonBusyState(autoBetSaveConfigBtn, true, 'Salvando...');
                 try {
-                    const shouldClose = await saveSettings();
-                    if (shouldClose !== false) {
-                        closeAutoBetModal();
-                    }
+                    // Salvar configurações, mantendo o modal aberto
+                    await saveSettings();
                 } finally {
                     setButtonBusyState(autoBetSaveConfigBtn, false);
                 }
@@ -9609,8 +9606,22 @@ async function persistAnalyzerState(newState) {
             const index = this.windows.indexOf(windowId);
             if (index > -1) {
                 this.windows.splice(index, 1);
-                this.repositionAll();
                 console.log('🪟 Janela removida:', windowId, '| Total:', this.windows.length);
+                
+                if (this.windows.length > 0) {
+                    // Ainda há janelas abertas → manter layout em colunas
+                    this.repositionAll();
+                } else {
+                    // Nenhuma janela aberta → restaurar posição/ tamanho original da sidebar
+                    const sidebar = document.getElementById('blaze-double-analyzer');
+                    if (sidebar && sidebar.classList.contains('compact-mode')) {
+                        try {
+                            loadSidebarState(sidebar);
+                        } catch (e) {
+                            console.warn('⚠️ Erro ao restaurar estado da sidebar após fechar janelas flutuantes:', e);
+                        }
+                    }
+                }
             }
         },
         
