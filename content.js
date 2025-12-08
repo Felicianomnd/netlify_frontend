@@ -9858,6 +9858,21 @@ async function persistAnalyzerState(newState) {
                 currentX = e.clientX - initialX;
                 currentY = e.clientY - initialY;
                 
+                // ✅ LIMITES: impedir que a sidebar saia totalmente da tela
+                const rect = element.getBoundingClientRect();
+                const width = rect.width;
+                const height = rect.height;
+                const maxLeft = window.innerWidth - 80; // deixa no mínimo ~80px visíveis quando arrastado para a direita
+                const minLeft = Math.min(0, window.innerWidth - width); // não deixar passar além da borda esquerda
+                const maxTop = window.innerHeight - 80; // não colar fora da parte de baixo
+                const minTop = 0; // topo não passa para cima da viewport
+                
+                // Aplicar limites
+                if (currentX < minLeft) currentX = minLeft;
+                if (currentX > maxLeft) currentX = maxLeft;
+                if (currentY < minTop) currentY = minTop;
+                if (currentY > maxTop) currentY = maxTop;
+                
                 xOffset = currentX;
                 yOffset = currentY;
                 
