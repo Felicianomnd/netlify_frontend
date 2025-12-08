@@ -9620,6 +9620,14 @@ async function persistAnalyzerState(newState) {
         sidebar.style.bottom = '0px';
         sidebar.style.width = '100%';
         sidebar.style.height = '100%';
+
+        // Remover scroll da página para evitar faixa da barra de rolagem na direita
+        try {
+            document.documentElement.style.overflow = 'hidden';
+            document.body.style.overflow = 'hidden';
+        } catch (e) {
+            console.warn('Não foi possível bloquear o scroll da página em tela cheia:', e);
+        }
         
         console.log('✅ Modo Tela Cheia ativado');
     }
@@ -9629,6 +9637,14 @@ async function persistAnalyzerState(newState) {
         
         sidebar.classList.add('compact-mode');
         sidebar.classList.remove('fullscreen-mode');
+
+        // Restaurar comportamento padrão de scroll da página
+        try {
+            document.documentElement.style.overflow = '';
+            document.body.style.overflow = '';
+        } catch (e) {
+            console.warn('Não foi possível restaurar o scroll da página ao sair de tela cheia:', e);
+        }
         
         // Modo compacto: restaurar tamanho/posição salva ou padrão
         const saved = localStorage.getItem('blazeSidebarState');
