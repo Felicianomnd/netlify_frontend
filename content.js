@@ -1585,6 +1585,64 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
         }, duration);
     }
     
+    // ========= FEEDBACK GLOBAL DE SALVAR (CENTRO DA TELA) =========
+    let saveStatusTimeout = null;
+    
+    function ensureSaveStatusOverlay() {
+        let overlay = document.getElementById('saveStatusOverlay');
+        if (!overlay) {
+            overlay = document.createElement('div');
+            overlay.id = 'saveStatusOverlay';
+            overlay.className = 'save-status-overlay';
+            overlay.innerHTML = `
+                <div class="save-status-bubble">
+                    <div class="save-status-spinner" id="saveStatusSpinner"></div>
+                    <div class="save-status-check" id="saveStatusCheck" style="display:none;">
+                        <div class="save-status-check-icon"></div>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(overlay);
+        }
+        return overlay;
+    }
+    
+    function showGlobalSaveLoading() {
+        const overlay = ensureSaveStatusOverlay();
+        const spinner = document.getElementById('saveStatusSpinner');
+        const check = document.getElementById('saveStatusCheck');
+        if (!overlay || !spinner || !check) return;
+        
+        if (saveStatusTimeout) {
+            clearTimeout(saveStatusTimeout);
+            saveStatusTimeout = null;
+        }
+        
+        spinner.style.display = 'block';
+        check.style.display = 'none';
+        overlay.style.display = 'flex';
+    }
+    
+    function showGlobalSaveSuccess(durationMs = 1500) {
+        const overlay = ensureSaveStatusOverlay();
+        const spinner = document.getElementById('saveStatusSpinner');
+        const check = document.getElementById('saveStatusCheck');
+        if (!overlay || !spinner || !check) return;
+        
+        spinner.style.display = 'none';
+        check.style.display = 'flex';
+        overlay.style.display = 'flex';
+        
+        if (saveStatusTimeout) {
+            clearTimeout(saveStatusTimeout);
+        }
+        saveStatusTimeout = setTimeout(() => {
+            overlay.style.display = 'none';
+            spinner.style.display = 'block';
+            check.style.display = 'none';
+        }, durationMs);
+    }
+    
     function sendRuntimeMessage(payload) {
         return new Promise(resolve => {
             if (!chrome?.runtime?.sendMessage) {
@@ -2755,6 +2813,8 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
         const allowBlockAll = allowBlockCheckbox ? !!allowBlockCheckbox.checked : true;
 
         try {
+            // Feedback global: início do salvamento
+            showGlobalSaveLoading();
             const storageData = await storageCompat.get(['analyzerConfig']);
             const currentConfig = storageData.analyzerConfig || {};
             const updatedConfig = {
@@ -2786,7 +2846,8 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                 }
             }
             if (modal) modal.style.display = 'none';
-            showToast('Configuração dos níveis atualizada!', 2200);
+            // Feedback global: sucesso
+            showGlobalSaveSuccess(1500);
         } catch (err) {
             console.error('❌ Erro ao salvar configurações dos níveis diamante:', err);
             alert('Não foi possível salvar as configurações dos níveis. Tente novamente.');
@@ -6203,6 +6264,8 @@ async function persistAnalyzerState(newState) {
         
         // Salvar no storage local
         try {
+            // Feedback global: início do salvamento
+            showGlobalSaveLoading();
             const result = await storageCompat.get(['customPatterns']);
             let patterns = result.customPatterns || [];
             
@@ -6282,6 +6345,9 @@ async function persistAnalyzerState(newState) {
             
             // Atualizar lista
             await loadCustomPatternsList();
+            
+            // Feedback global: sucesso
+            showGlobalSaveSuccess(1500);
             
             // ✅ Se estava editando, reabrir modal de visualização
             if (isEditMode) {
@@ -10890,12 +10956,8 @@ function logModeSnapshotUI(snapshot) {
         console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #00D4FF; font-weight: bold;');
         console.log('');
         
-        // ✅ Feedback visual IMEDIATO para o usuário
-        const btn = document.getElementById('cfgSaveBtn');
-        if (btn) {
-            btn.textContent = 'Salvando...';
-            btn.style.background = '#1976d2';
-        }
+        // ✅ Feedback global de salvamento (bolinha no centro)
+        showGlobalSaveLoading();
         
         // ✅ BUSCAR CONFIGURAÇÃO ATUAL PRIMEIRO (para preservar aiMode e outros estados)
         return new Promise((resolve) => {
@@ -11114,29 +11176,8 @@ function logModeSnapshotUI(snapshot) {
     }
 
     function showConfigFeedback(success) {
-        const btn = document.getElementById('cfgSaveBtn');
-        if (!btn) {
-            console.warn('⚠️ Botão cfgSaveBtn não encontrado para feedback visual');
-            return;
-        }
-        
-        console.log('%c🎨 Mostrando feedback visual:', 'color: #00D4FF; font-weight: bold;', success ? '✅ SUCESSO' : '❌ ERRO');
-        
-        if (success) {
-            btn.textContent = '✅ Salvo!';
-            btn.style.background = '#2e7d32';
-            btn.style.color = '#fff';
-        } else {
-            btn.textContent = '❌ Erro';
-            btn.style.background = '#b71c1c';
-            btn.style.color = '#fff';
-        }
-        
-        setTimeout(function(){
-            btn.textContent = 'Salvar';
-            btn.style.background = '';
-            btn.style.color = '';
-        }, 2000);
+        // Mantido apenas para compatibilidade de logs, mas feedback principal agora é global (bolinha no centro).
+        console.log('%c🎨 Feedback de salvamento (success = ' + success + ')', 'color: #00D4FF; font-weight: bold;');
     }
 
     // ========== BANCO DE PADRÕES ==========

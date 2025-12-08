@@ -4357,6 +4357,61 @@
     transform: translateX(-50%) translateY(0);
 }
 
+/* ========= FEEDBACK GLOBAL DE SALVAR (CENTRO DA TELA) ========= */
+.save-status-overlay {
+  position: fixed;
+  inset: 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  z-index: 999999999;
+  pointer-events: none; /* não bloqueia cliques no site */
+}
+
+.save-status-bubble {
+  width: 72px;
+  height: 72px;
+  border-radius: 999px;
+  background: #0f172a;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.75);
+}
+
+.save-status-spinner {
+  width: 32px;
+  height: 32px;
+  border-radius: 999px;
+  border: 3px solid rgba(148, 163, 184, 0.3);
+  border-top-color: #f97373; /* vermelho claro da paleta */
+  animation: saveSpinner 0.9s linear infinite;
+}
+
+.save-status-check {
+  width: 30px;
+  height: 30px;
+  border-radius: 999px;
+  background: #22c55e;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.save-status-check-icon {
+  width: 16px;
+  height: 10px;
+  border-left: 3px solid #0f172a;
+  border-bottom: 3px solid #0f172a;
+  transform: rotate(-45deg);
+}
+
+@keyframes saveSpinner {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 /* ═══════════════════════════════════════════════════════════════════════════════ */
 /* 🎯 BOTÕES DE MODELOS CUSTOMIZADOS                                               */
 /* ═══════════════════════════════════════════════════════════════════════════════ */
