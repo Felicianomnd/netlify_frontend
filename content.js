@@ -844,7 +844,7 @@
         // ✅ CAMPOS COMPARTILHADOS: Destacar quando IA está ativa (são usados em ambos os modos)
         const sharedFields = [
             { id: 'cfgMinOccurrences', label: 'Confiança mínima (%)' },
-            { id: 'cfgMinInterval', label: 'Distância mínima entre sinais' }
+            { id: 'cfgMinInterval', label: 'Distância mínima entre sinais (Modo Diamante)' }
         ];
         
         sharedFields.forEach(({ id, label }) => {
@@ -6972,14 +6972,24 @@ async function persistAnalyzerState(newState) {
                             <input type="number" id="cfgMaxOccurrences" min="0" value="0" placeholder="0 = sem limite" />
                         </div>
                         <div class="setting-item">
+                            <span class="setting-label">Intervalo entre padrões (giros):</span>
+                            <input
+                                type="number"
+                                id="cfgPatternInterval"
+                                min="0"
+                                value="2"
+                                title="Quantidade mínima de giros entre OCORRÊNCIAS do MESMO padrão (0 = não limita, considera todas as ocorrências). Padrões diferentes podem aparecer em sequência normalmente."
+                                placeholder="Ex: 2 giros (0 = sem intervalo entre ocorrências do mesmo padrão)" />
+                        </div>
+                        <div class="setting-item">
                             <span class="setting-label">Intervalo após entrada (giros):</span>
                             <input
                                 type="number"
                                 id="cfgMinInterval"
                                 min="0"
                                 value="2"
-                                title="Quantidade mínima de giros entre OCORRÊNCIAS do MESMO padrão (0 = não limita, considera todas as ocorrências). Padrões diferentes podem aparecer em sequência normalmente."
-                                placeholder="Ex: 2 giros (0 = sem intervalo entre ocorrências do mesmo padrão)" />
+                                title="Quantidade mínima de giros entre ENTRADAS/SINAIS consecutivos no Modo Diamante (0 = pode enviar sinal em qualquer giro)."
+                                placeholder="Ex: 2 giros (0 = sem intervalo mínimo entre entradas)" />
                         </div>
                         <div class="setting-item">
                             <span class="setting-label">Tamanho MÍNIMO do padrão (giros):</span>
@@ -7608,6 +7618,7 @@ async function persistAnalyzerState(newState) {
                         minOccurrences: 2,
                         maxOccurrences: 0,
                         minIntervalSpins: 2,
+                        minSignalIntervalSpins: 2,
                         minPatternSize: 3,
                         maxPatternSize: 0,
                         winPercentOthers: 100,
@@ -10761,6 +10772,7 @@ function logModeSnapshotUI(snapshot) {
                 const histDepth = document.getElementById('cfgHistoryDepth');
                 const minOcc = document.getElementById('cfgMinOccurrences');
                 const maxOcc = document.getElementById('cfgMaxOccurrences');
+                const patternInt = document.getElementById('cfgPatternInterval');
                 const minInt = document.getElementById('cfgMinInterval');
                 const minSize = document.getElementById('cfgMinPatternSize');
                 const maxSize = document.getElementById('cfgMaxPatternSize');
@@ -10772,7 +10784,13 @@ function logModeSnapshotUI(snapshot) {
                 if (histDepth) histDepth.value = cfg.historyDepth != null ? cfg.historyDepth : 2000;
                 if (minOcc) minOcc.value = cfg.minOccurrences != null ? cfg.minOccurrences : 1;
                 if (maxOcc) maxOcc.value = cfg.maxOccurrences != null ? cfg.maxOccurrences : 0;
-                if (minInt) minInt.value = cfg.minIntervalSpins != null ? cfg.minIntervalSpins : 0;
+                if (patternInt) patternInt.value = cfg.minIntervalSpins != null ? cfg.minIntervalSpins : 0;
+                if (minInt) {
+                    const signalInterval = cfg.minSignalIntervalSpins != null
+                        ? cfg.minSignalIntervalSpins
+                        : (cfg.minIntervalSpins != null ? cfg.minIntervalSpins : 0);
+                    minInt.value = signalInterval;
+                }
                 if (minSize) minSize.value = cfg.minPatternSize != null ? cfg.minPatternSize : 3;
                 if (maxSize) maxSize.value = cfg.maxPatternSize != null ? cfg.maxPatternSize : 0;
                 if (winPct) winPct.value = cfg.winPercentOthers != null ? cfg.winPercentOthers : 25;
@@ -10861,7 +10879,8 @@ function logModeSnapshotUI(snapshot) {
                 const historyDepth = Math.max(100, Math.min(2000, parseInt(getElementValue('cfgHistoryDepth', '2000'), 10)));
                 const minOcc = Math.max(parseInt(getElementValue('cfgMinOccurrences', '1'), 10), 1);
                 const maxOcc = Math.max(parseInt(getElementValue('cfgMaxOccurrences', '0'), 10), 0);
-                const minInt = Math.max(parseInt(getElementValue('cfgMinInterval', '0'), 10), 0);
+                const patternInterval = Math.max(parseInt(getElementValue('cfgPatternInterval', '0'), 10), 0);
+                const signalInterval = Math.max(parseInt(getElementValue('cfgMinInterval', '0'), 10), 0);
                 let minSize = Math.max(parseInt(getElementValue('cfgMinPatternSize', '2'), 10), 2);
                 let maxSize = Math.max(parseInt(getElementValue('cfgMaxPatternSize', '0'), 10), 0);
                 const winPct = Math.max(0, Math.min(100, parseInt(getElementValue('cfgWinPercentOthers', '25'), 10)));
@@ -10962,7 +10981,8 @@ function logModeSnapshotUI(snapshot) {
                     historyDepth: historyDepth,
                     minOccurrences: minOcc,
                     maxOccurrences: maxOcc,
-                    minIntervalSpins: minInt,
+                    minIntervalSpins: patternInterval,
+                    minSignalIntervalSpins: signalInterval,
                     minPatternSize: minSize,
                     maxPatternSize: maxSize,
                     winPercentOthers: winPct,

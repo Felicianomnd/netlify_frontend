@@ -81,7 +81,8 @@ function logModeSnapshot(contextLabel = 'Contexto atual', historyLength = cached
         }
     } else {
         logInfo('Min. ocorrências', analyzerConfig.minOccurrences || 1);
-        logInfo('Intervalo entre sinais', analyzerConfig.minIntervalSpins || 0);
+        const signalInterval = (analyzerConfig.minSignalIntervalSpins ?? analyzerConfig.minIntervalSpins) || 0;
+        logInfo('Intervalo entre sinais', signalInterval);
     }
     if (analyzerConfig.aiMode) {
         getDiamondConfigSnapshot().forEach(([label, detail]) => logInfo(label, detail));
@@ -297,7 +298,8 @@ const DEFAULT_ANALYZER_CONFIG = {
     historyDepth: 500,            // ✅ profundidade de análise em giros (100-2000) - MODO PADRÃO
     minOccurrences: 2,            // ✅ quantidade mínima de WINS exigida (padrão: 2) - MODO PADRÃO
     maxOccurrences: 0,            // ✅ quantidade MÁXIMA de ocorrências (0 = sem limite)
-    minIntervalSpins: 2,          // ✅ intervalo mínimo em GIROS entre OCORRÊNCIAS do MESMO padrão (modo padrão) e entre sinais (modo Diamante)
+    minIntervalSpins: 2,          // ✅ intervalo mínimo em GIROS entre OCORRÊNCIAS do MESMO padrão (modo padrão)
+    minSignalIntervalSpins: 2,    // ✅ intervalo mínimo em GIROS entre ENTRADAS/SINAIS (modo Diamante)
     minPatternSize: 3,            // ✅ tamanho MÍNIMO do padrão (giros)
     maxPatternSize: 0,            // ✅ tamanho MÁXIMO do padrão (0 = sem limite)
     winPercentOthers: 100,        // ✅ WIN% mínima para as ocorrências restantes (100% = apenas padrões perfeitos)
@@ -13008,7 +13010,7 @@ async function analyzeWithPatternSystem(history) {
         // ═══════════════════════════════════════════════════════════════
         // ⏱️ VERIFICAÇÃO DE INTERVALO MÍNIMO ENTRE SINAIS (APENAS MODO DIAMANTE)
         // ═══════════════════════════════════════════════════════════════
-        const minIntervalSpins = analyzerConfig.minIntervalSpins || 0;
+        const minIntervalSpins = (analyzerConfig.minSignalIntervalSpins ?? analyzerConfig.minIntervalSpins) || 0;
         
         // ✅ FLAG: Guardar se intervalo está bloqueado (MAS CONTINUAR ANÁLISE)
         let intervalBlocked = false;
