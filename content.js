@@ -952,6 +952,9 @@
         const modeApiStatus = document.getElementById('modeApiStatus');
         const titleBadge = document.getElementById('titleBadge');
         
+        const sidebar = document.getElementById('blaze-double-analyzer');
+        const isBetDisplay = sidebar && sidebar.classList.contains('bet-display-mode');
+        
         if (isActive) {
             // 🔍 LOG: Altura ANTES
             const heightBefore = window.getComputedStyle(toggleElement).height;
@@ -959,15 +962,21 @@
             
             toggleElement.classList.add('active');
             
-            // ✅ FORÇAR TAMANHO FIXO DO CONTAINER PAI
-            toggleElement.style.cssText = `
-                min-height: 80px !important;
-                max-height: 80px !important;
-                height: auto !important;
-                overflow: hidden !important;
-                padding: 6px 12px !important;
-                gap: 0 !important;
-            `;
+            // ✅ Cabeçalho completo x modo aposta
+            if (!isBetDisplay) {
+                // Layout completo: manter container grande
+                toggleElement.style.cssText = `
+                    min-height: 80px !important;
+                    max-height: 80px !important;
+                    height: auto !important;
+                    overflow: hidden !important;
+                    padding: 6px 12px !important;
+                    gap: 0 !important;
+                `;
+            } else {
+                // Modo aposta: cabeçalho simples, estreito
+                toggleElement.style.cssText = '';
+            }
             
             console.log('%c   ✅ Estilos inline aplicados ao toggle', 'color: #00FF88;');
             console.log('%c   🎨 cssText:', 'color: #FFFF00;', toggleElement.style.cssText);
@@ -976,7 +985,11 @@
             const heightAfter = window.getComputedStyle(toggleElement).height;
             console.log('%c   📏 Toggle DEPOIS:', 'color: #00FFFF;', heightAfter);
             
-            if (modeName) modeName.textContent = '💎 Análise Diamante Ativa';
+            if (modeName) {
+                modeName.textContent = isBetDisplay
+                    ? 'Análise Diamante Ativa'
+                    : '💎 Análise Diamante Ativa';
+            }
             
             // ✅ Mudar badge para IA
             if (titleBadge) {
@@ -997,7 +1010,11 @@
             // ✅ REMOVER ESTILOS INLINE
             toggleElement.style.cssText = '';
             
-            if (modeName) modeName.textContent = 'Ativar Modo Diamante';
+            if (modeName) {
+                modeName.textContent = isBetDisplay
+                    ? 'Análise Padrão Ativa'
+                    : 'Ativar Modo Diamante';
+            }
             
             // ✅ Mudar badge para PREMIUM
             if (titleBadge) {
@@ -7191,18 +7208,18 @@ async function persistAnalyzerState(newState) {
             <!-- MODO APOSTA / VISUALIZAÇÃO SIMPLIFICADA -->
             <div class="bet-mode-view" id="betModeView" style="display:none;">
                 <div class="bet-mode-card">
-                    <div class="bet-mode-title" id="betModeTitle">Aguardando Análise</div>
-                    <div class="bet-mode-body">
-                        <div class="bet-mode-block">
-                            <span class="bet-mode-label">Cor indicada</span>
-                            <div class="bet-mode-suggestion" id="betModeSuggestion"></div>
-                        </div>
-                        <div class="bet-mode-block">
-                            <span class="bet-mode-label">Último giro</span>
-                            <div class="bet-mode-lastspin">
-                                <div class="bet-mode-lastspin-number" id="betModeLastSpinNumber">-</div>
-                                <div class="bet-mode-lastspin-time" id="betModeLastSpinTime">--:--</div>
-                            </div>
+                    <div class="bet-mode-card-title">Aposta agora</div>
+                    <div class="bet-mode-block">
+                        <span class="bet-mode-label">Cor indicada</span>
+                        <div class="bet-mode-suggestion" id="betModeSuggestion"></div>
+                    </div>
+                </div>
+                <div class="bet-mode-card">
+                    <div class="bet-mode-card-title">Último giro</div>
+                    <div class="bet-mode-block">
+                        <div class="bet-mode-lastspin">
+                            <div class="bet-mode-lastspin-number" id="betModeLastSpinNumber">-</div>
+                            <div class="bet-mode-lastspin-time" id="betModeLastSpinTime">--:--</div>
                         </div>
                     </div>
                 </div>
@@ -9804,12 +9821,6 @@ async function persistAnalyzerState(newState) {
     }
     
     function syncBetModeView() {
-        const titleSource = document.getElementById('analysisModeTitle');
-        const titleTarget = document.getElementById('betModeTitle');
-        if (titleSource && titleTarget) {
-            titleTarget.textContent = titleSource.textContent || '';
-        }
-        
         const suggestionSource = document.getElementById('suggestionColor');
         const suggestionTarget = document.getElementById('betModeSuggestion');
         if (suggestionSource && suggestionTarget) {
@@ -9838,6 +9849,8 @@ async function persistAnalyzerState(newState) {
         const defaultView = document.getElementById('analyzerDefaultView');
         const betView = document.getElementById('betModeView');
         const betLabel = document.getElementById('betViewLabel');
+        const sidebar = document.getElementById('blaze-double-analyzer');
+        const aiToggle = document.getElementById('aiModeToggle');
         if (!defaultView || !betView) return;
         
         const isBet = mode === 'bet';
@@ -9845,12 +9858,26 @@ async function persistAnalyzerState(newState) {
         defaultView.style.display = isBet ? 'none' : '';
         betView.style.display = isBet ? 'flex' : 'none';
         
+        if (sidebar) {
+            if (isBet) {
+                sidebar.classList.add('bet-display-mode');
+            } else {
+                sidebar.classList.remove('bet-display-mode');
+            }
+        }
+        
         if (isBet) {
             syncBetModeView();
         }
         
         if (betLabel) {
             betLabel.textContent = isBet ? 'Modo Aposta' : 'Modo Completo';
+        }
+        
+        // Atualizar cabeçalho (texto do modo) de acordo com o display
+        if (aiToggle) {
+            const isActive = aiToggle.classList.contains('active');
+            updateAIModeUI(aiToggle, isActive);
         }
     }
     

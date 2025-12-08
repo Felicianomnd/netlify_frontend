@@ -4005,7 +4005,9 @@
 /* ========= MODO APOSTA (VIEW SIMPLIFICADO) ========= */
 .bet-mode-view {
   display: none;
-  padding: 12px 0 4px 0;
+  padding: 16px 0 8px 0;
+  flex-direction: column;
+  gap: 10px;
 }
 
 .bet-mode-card {
@@ -4019,7 +4021,7 @@
   box-shadow: 0 18px 40px rgba(0, 0, 0, 0.7);
 }
 
-.bet-mode-title {
+.bet-mode-card-title {
   font-size: 16px;
   font-weight: 600;
   color: #f9fafb;
@@ -4063,6 +4065,38 @@
   .bet-mode-card {
     padding: 16px 14px;
   }
+}
+
+/* Cabeçalho compacto no modo aposta */
+#blaze-double-analyzer.bet-display-mode .header-title,
+#blaze-double-analyzer.bet-display-mode .title-badge {
+  display: none;
+}
+
+#blaze-double-analyzer.bet-display-mode .analyzer-header {
+  min-height: 42px;
+  padding: 6px 12px;
+}
+
+#blaze-double-analyzer.bet-display-mode .ai-mode-toggle {
+  background: transparent;
+  box-shadow: none;
+  border: none;
+  min-height: auto !important;
+  max-height: none !important;
+  height: auto !important;
+  padding: 0 !important;
+  gap: 0 !important;
+}
+
+#blaze-double-analyzer.bet-display-mode .ai-mode-toggle .mode-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: #f9fafb;
+}
+
+#blaze-double-analyzer.bet-display-mode .ai-mode-toggle .mode-api-container {
+  display: none !important;
 }
 
 /* Modal overlay */
