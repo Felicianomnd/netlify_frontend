@@ -7222,7 +7222,6 @@ async function persistAnalyzerState(newState) {
                         <div class="bet-mode-confidence-text" id="betModeConfidenceText">0%</div>
                     </div>
                     <div class="bet-mode-block">
-                        <span class="bet-mode-label">Cor indicada</span>
                         <div class="bet-mode-suggestion" id="betModeSuggestion"></div>
                     </div>
                 </div>
