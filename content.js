@@ -9613,13 +9613,13 @@ async function persistAnalyzerState(newState) {
         sidebar.classList.add('fullscreen-mode');
         sidebar.classList.remove('compact-mode');
         
-        // Tela cheia: ocupar 100% da viewport, sem bordas
+        // Tela cheia: ocupar 100% da área útil da janela, sem bordas
         sidebar.style.left = '0px';
         sidebar.style.top = '0px';
         sidebar.style.right = '0px';
         sidebar.style.bottom = '0px';
-        sidebar.style.width = '100vw';
-        sidebar.style.height = '100vh';
+        sidebar.style.width = '100%';
+        sidebar.style.height = '100%';
         
         console.log('✅ Modo Tela Cheia ativado');
     }
