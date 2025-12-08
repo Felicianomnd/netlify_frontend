@@ -15,13 +15,15 @@
     
     <style>
         /* Estilos APENAS para a página web, não afeta a sidebar */
-        body {
+        html, body {
+            width: 100%;
+            height: 100%;
             margin: 0;
             padding: 0;
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             background: #1a1a2e;
             color: white;
-            overflow-x: hidden;
+            overflow: hidden; /* Impede barra de rolagem externa criar faixa na direita em tela cheia */
         }
 
         /* Área principal onde a sidebar será renderizada */
