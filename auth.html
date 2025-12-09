@@ -1121,49 +1121,53 @@
             }
         }
         
+        function hashString(value) {
+            if (!value) return '0';
+            let hash = 0;
+            for (let i = 0; i < value.length; i++) {
+                hash = ((hash << 5) - hash) + value.charCodeAt(i);
+                hash |= 0;
+            }
+            const positiveHash = hash >>> 0; // converte para positivo
+            return positiveHash.toString(16).padStart(8, '0');
+        }
+        
         function generateHardwareFingerprint() {
             try {
                 console.log('');
                 console.log('═══════════════════════════════════════════════════════════');
-                console.log('🖥️ GERANDO FINGERPRINT ÚNICO DE DISPOSITIVO FÍSICO');
+                console.log('🖥️ GERANDO FINGERPRINT DO DISPOSITIVO (INDEPENDENTE DO NAVEGADOR)');
                 console.log('═══════════════════════════════════════════════════════════');
                 
-                // ✅ ETAPA 1: Verificar se já existe um UUID PERSISTENTE (localStorage)
-                const STORAGE_KEY = 'blaze_device_uuid';
-                let deviceUUID = localStorage.getItem(STORAGE_KEY);
-                
-                if (deviceUUID) {
-                    console.log('✅ UUID persistente encontrado:', deviceUUID);
-                } else {
-                    // Primeira vez neste dispositivo - gerar novo UUID
-                    deviceUUID = generateUUID();
-                    localStorage.setItem(STORAGE_KEY, deviceUUID);
-                    console.log('🆕 Novo UUID gerado e salvo:', deviceUUID);
-                }
-                
-                // ✅ ETAPA 2: Canvas Fingerprint (único por GPU/renderização)
+                // Canvas fingerprint continua sendo parte do identificador
                 const canvasFP = getCanvasFingerprint();
                 console.log('🎨 Canvas Fingerprint:', canvasFP);
                 
-                // ✅ ETAPA 3: Hardware Info (para validação adicional)
                 const screenWidth = window.screen.width;
                 const screenHeight = window.screen.height;
-                const screen = `${screenWidth}x${screenHeight}`;
-                console.log('📺 Tela física:', screen);
+                const pixelRatio = window.devicePixelRatio || 1;
+                const colorDepth = window.screen.colorDepth || 0;
+                const pixelDepth = window.screen.pixelDepth || 0;
+                const screen = `${screenWidth}x${screenHeight}@${pixelRatio}`;
+                console.log('📺 Tela física:', screen, '| Color depth:', colorDepth, '| Pixel depth:', pixelDepth);
                 
-                const platform = navigator.platform;
-                console.log('💻 Platform:', platform);
+                const platform = navigator.userAgentData?.platform || navigator.platform || 'unknown';
+                const platformVersion = navigator.userAgentData?.platformVersion || '';
+                console.log('💻 Platform:', platform, platformVersion ? `(${platformVersion})` : '');
                 
                 const cores = navigator.hardwareConcurrency || 0;
-                console.log('⚙️ CPU Cores:', cores);
-                
                 const memory = navigator.deviceMemory || 0;
-                console.log('🧠 RAM (GB):', memory || 'N/A');
+                console.log('⚙️ CPU Cores:', cores, '| 🧠 RAM (GB):', memory || 'N/A');
                 
-                const touchSupport = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+                const touchSupport = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
                 console.log('👆 Touch:', touchSupport ? 'Sim' : 'Não');
                 
-                // ✅ ETAPA 4: WebGL/GPU Info
+                const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'unknown';
+                const tzOffset = new Date().getTimezoneOffset();
+                const languages = navigator.languages ? navigator.languages.join(',') : navigator.language || 'unknown';
+                console.log('🌍 Timezone:', timezone, '| Offset:', tzOffset);
+                console.log('🗣️ Idiomas:', languages);
+                
                 let gpuInfo = 'unknown';
                 try {
                     const canvas = document.createElement('canvas');
@@ -1179,28 +1183,36 @@
                     console.log('🎮 GPU: N/A');
                 }
                 
-                // ═══════════════════════════════════════════════════════════════════════
-                // ✅ FINGERPRINT FINAL: UUID (principal) + Canvas + Hardware
-                // ═══════════════════════════════════════════════════════════════════════
-                // UUID é o identificador ÚNICO e PERSISTENTE do dispositivo físico
-                // Canvas e Hardware são usados como camadas adicionais de segurança
+                const hardwareComponents = [
+                    screenWidth,
+                    screenHeight,
+                    pixelRatio,
+                    colorDepth,
+                    pixelDepth,
+                    platform,
+                    platformVersion,
+                    cores,
+                    memory,
+                    touchSupport ? 'touch' : 'notouch',
+                    timezone,
+                    tzOffset,
+                    languages,
+                    gpuInfo
+                ].map(item => item ?? 'unknown').join('|');
+                
+                const stableHardwareId = hashString(hardwareComponents);
                 
                 const hardwareId = [
-                    deviceUUID,          // UUID único do dispositivo (PRINCIPAL)
-                    canvasFP,            // Canvas fingerprint (GPU/renderização)
-                    screen,              // Resolução física da tela
-                    platform,            // Sistema operacional
-                    cores,               // Núcleos da CPU
-                    memory,              // RAM
-                    touchSupport ? 'touch' : 'notouch',  // Tipo de dispositivo
-                    gpuInfo              // GPU info
+                    stableHardwareId,  // Identificador estável baseado apenas em hardware
+                    canvasFP,
+                    hardwareComponents
                 ].join('|');
                 
                 console.log('');
-                console.log('🔑 FINGERPRINT FINAL (ÚNICO E PERSISTENTE):');
-                console.log('   UUID:', deviceUUID);
+                console.log('🔑 FINGERPRINT FINAL (CONSISTENTE ENTRE NAVEGADORES):');
+                console.log('   Stable ID:', stableHardwareId);
                 console.log('   Canvas:', canvasFP);
-                console.log('   Hardware:', `${screen} | ${platform} | ${cores}cores`);
+                console.log('   Componentes:', hardwareComponents.substring(0, 120) + '...');
                 console.log('📏 Tamanho total:', hardwareId.length, 'caracteres');
                 console.log('═══════════════════════════════════════════════════════════');
                 console.log('');
@@ -1208,14 +1220,14 @@
                 return hardwareId;
             } catch (error) {
                 console.error('❌ Erro ao gerar fingerprint:', error);
-                // Fallback: tentar carregar UUID salvo ou gerar novo
+                // Fallback: usar UUID persistido localmente (pode variar por navegador, mas evita bloqueio)
                 const STORAGE_KEY = 'blaze_device_uuid';
-                let deviceUUID = localStorage.getItem(STORAGE_KEY);
-                if (!deviceUUID) {
-                    deviceUUID = generateUUID();
-                    localStorage.setItem(STORAGE_KEY, deviceUUID);
+                let fallbackId = localStorage.getItem(STORAGE_KEY);
+                if (!fallbackId) {
+                    fallbackId = generateUUID();
+                    localStorage.setItem(STORAGE_KEY, fallbackId);
                 }
-                return deviceUUID;
+                return fallbackId;
             }
         }
         
