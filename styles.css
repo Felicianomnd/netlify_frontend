@@ -4012,13 +4012,12 @@
 /* ========= MODO APOSTA (VIEW SIMPLIFICADO) ========= */
 .bet-mode-view {
   display: none;
-  padding: 24px 24px 24px 24px;
+  padding: 16px;
   flex-direction: column;
   gap: 16px;
-  height: 100%;
+  height: calc(100% - 42px); /* descontar altura do cabeçalho */
+  width: 100%;
   box-sizing: border-box;
-  max-width: 900px;    /* centralizado, com espaço pequeno nas laterais */
-  margin: 0 auto;
 }
 
 .bet-mode-card {
@@ -4111,16 +4110,27 @@
   padding: 6px 12px;
 }
 
-#blaze-double-analyzer.bet-display-mode .ai-mode-toggle {
-  display: none !important; /* no modo aposta não mostra cartão de IA/memória */
+/* No modo aposta: mostrar apenas o nome do modo, esconder o card de IA/memória */
+#blaze-double-analyzer.bet-display-mode .ai-mode-toggle .mode-api-container {
+  display: none !important;
 }
 
-/* Escala maior para a cor indicada no modo aposta */
+/* Ajustar layout do cabeçalho no modo aposta: nome à esquerda, três barrinhas à direita */
+#blaze-double-analyzer.bet-display-mode .header-main {
+  justify-content: flex-end;
+}
+
+#blaze-double-analyzer.bet-display-mode .ai-mode-toggle {
+  flex: 1;
+  justify-content: flex-start;
+}
+
+/* Escala GRANDE para a cor indicada no modo aposta */
 #blaze-double-analyzer.bet-display-mode .bet-mode-suggestion .suggestion-color-box {
-  width: 96px;
-  height: 96px;
-  border-radius: 10px;
-  font-size: 28px;
+  width: 140px;
+  height: 140px;
+  border-radius: 12px;
+  font-size: 42px;
 }
 
 /* Ajuste específico da cor PRETA no modo aposta */
@@ -4128,17 +4138,24 @@
   background: #21222d;
 }
 
-/* Escala maior para o último giro no modo aposta */
+/* Escala GRANDE para o último giro no modo aposta - proporcionalmente ao tamanho da cor indicada */
 #blaze-double-analyzer.bet-display-mode .bet-mode-lastspin-number {
-  width: 80px;
-  height: 80px;
-  font-size: 32px;
+  width: 140px;
+  height: 140px;
+  font-size: 56px;
+  font-weight: 700;
 }
 
 #blaze-double-analyzer.bet-display-mode .bet-mode-lastspin-number::after {
-  width: 64px;
-  height: 64px;
-  border-width: 3px;
+  width: 120px;
+  height: 120px;
+  border-width: 4px;
+}
+
+/* Tamanho do horário também maior no modo aposta */
+#blaze-double-analyzer.bet-display-mode .bet-mode-lastspin-time {
+  font-size: 18px;
+  font-weight: 600;
 }
 
 /* Modal overlay */
