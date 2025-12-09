@@ -1121,6 +1121,94 @@
             }
         }
         
+        async function getAudioFingerprint() {
+            try {
+                const context = new OfflineAudioContext(1, 44100, 44100);
+                const oscillator = context.createOscillator();
+                oscillator.type = 'triangle';
+                oscillator.frequency.setValueAtTime(10000, context.currentTime);
+                
+                const compressor = context.createDynamicsCompressor();
+                compressor.threshold.setValueAtTime(-50, context.currentTime);
+                compressor.knee.setValueAtTime(40, context.currentTime);
+                compressor.attack.setValueAtTime(0, context.currentTime);
+                compressor.release.setValueAtTime(0.25, context.currentTime);
+                
+                oscillator.connect(compressor);
+                compressor.connect(context.destination);
+                oscillator.start(0);
+                
+                const buffer = await context.startRendering();
+                const channelData = buffer.getChannelData(0);
+                let sum = 0;
+                for (let i = 0; i < channelData.length; i += 1000) {
+                    sum += Math.abs(channelData[i]);
+                }
+                return hashString(sum.toString());
+            } catch (error) {
+                console.warn('Audio fingerprint error:', error);
+                return 'audio-error';
+            }
+        }
+        
+        function getFontsFingerprint() {
+            try {
+                const baseFonts = ['monospace', 'sans-serif', 'serif'];
+                const testFonts = [
+                    'Arial', 'Verdana', 'Times New Roman', 'Courier New',
+                    'Georgia', 'Tahoma', 'Trebuchet MS', 'Impact'
+                ];
+                
+                const testString = 'abcdefghijklmnopqrstuvwxyz0123456789';
+                const size = '72px';
+                const body = document.body;
+                const spans = [];
+                const defaultWidths = {};
+                const defaultHeights = {};
+                
+                baseFonts.forEach(font => {
+                    const span = document.createElement('span');
+                    span.style.display = 'inline-block';
+                    span.style.position = 'absolute';
+                    span.style.left = '-9999px';
+                    span.style.fontSize = size;
+                    span.style.fontFamily = font;
+                    span.innerHTML = testString;
+                    body.appendChild(span);
+                    defaultWidths[font] = span.offsetWidth;
+                    defaultHeights[font] = span.offsetHeight;
+                    spans.push(span);
+                });
+                
+                const results = [];
+                testFonts.forEach(font => {
+                    baseFonts.forEach(baseFont => {
+                        const span = document.createElement('span');
+                        span.style.display = 'inline-block';
+                        span.style.position = 'absolute';
+                        span.style.left = '-9999px';
+                        span.style.fontSize = size;
+                        span.style.fontFamily = `'${font}',${baseFont}`;
+                        span.innerHTML = testString;
+                        body.appendChild(span);
+                        spans.push(span);
+                        
+                        const width = span.offsetWidth;
+                        const height = span.offsetHeight;
+                        const detected = width !== defaultWidths[baseFont] || height !== defaultHeights[baseFont];
+                        results.push(`${font}_${baseFont}:${detected ? width + 'x' + height : 'default'}`);
+                    });
+                });
+                
+                spans.forEach(span => span.parentNode?.removeChild(span));
+                
+                return hashString(results.join('|'));
+            } catch (error) {
+                console.warn('Fonts fingerprint error:', error);
+                return 'fonts-error';
+            }
+        }
+        
         function hashString(value) {
             if (!value) return '0';
             let hash = 0;
@@ -1154,6 +1242,10 @@
                 const maxTouchPoints = navigator.maxTouchPoints || 0;
                 const touchSupport = maxTouchPoints > 0 ? 'touch' : 'notouch';
                 
+                const canvasFP = getCanvasFingerprint();
+                const audioFP = await getAudioFingerprint();
+                const fontsFP = getFontsFingerprint();
+                
                 const baseComponents = [
                     `sw:${screenWidth}`,
                     `sh:${screenHeight}`,
@@ -1163,7 +1255,10 @@
                     `cpu:${cores}`,
                     `ram:${memory}`,
                     `touch:${touchSupport}`,
-                    `tp:${maxTouchPoints}`
+                    `tp:${maxTouchPoints}`,
+                    `canvas:${canvasFP}`,
+                    `audio:${audioFP}`,
+                    `fonts:${fontsFP}`
                 ];
                 
                 let platform = normalizeString(navigator.userAgentData?.platform || navigator.platform || 'unknown');
@@ -1198,12 +1293,24 @@
                     `uafv:${uaFullVersion}`
                 );
                 
-                const componentString = baseComponents.join('|');
-                const stableHardwareId = hashString(componentString + '|v3');
+                const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'unknown';
+                const tzOffset = new Date().getTimezoneOffset();
+                const languages = navigator.languages && navigator.languages.length
+                    ? navigator.languages.map(normalizeString).join('-')
+                    : normalizeString(navigator.language);
+                
+                baseComponents.push(
+                    `tz:${timezone}`,
+                    `tzOffset:${tzOffset}`,
+                    `langs:${languages}`
+                );
+                
+                const componentString = baseComponents.sort().join('|');
+                const stableHardwareId = hashString(componentString + '|v4');
                 const hardwareId = `${stableHardwareId}|${componentString}`;
                 
                 console.log('');
-                console.log('🔑 FINGERPRINT FINAL (VERSÃO 3):', hardwareId);
+                console.log('🔑 FINGERPRINT FINAL (VERSÃO 4):', hardwareId);
                 console.log('═══════════════════════════════════════════════════════════');
                 console.log('');
                 
