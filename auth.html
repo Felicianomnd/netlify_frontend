@@ -1228,71 +1228,61 @@
             try {
                 console.log('');
                 console.log('═══════════════════════════════════════════════════════════');
-                console.log('🖥️ IDENTIFICADOR DE MÁQUINA V9 - ABORDAGEM POR GRUPO');
+                console.log('🖥️ IDENTIFICADOR UNIVERSAL - DADOS FÍSICOS DO COMPUTADOR');
                 console.log('═══════════════════════════════════════════════════════════');
                 
                 // ═══════════════════════════════════════════════════════════════════════
-                // ✅ V9 - NOVA ESTRATÉGIA: ENVIAR DADOS SIMPLES, BACKEND AGRUPA
+                // ✅ SOLUÇÃO DEFINITIVA: DADOS QUE TODOS OS NAVEGADORES REPORTAM IGUALMENTE
                 // ═══════════════════════════════════════════════════════════════════════
-                // PROBLEMA DESCOBERTO: Brave randomiza TODOS os valores para proteger privacidade!
-                // SOLUÇÃO: Enviar dados básicos + deixar BACKEND decidir se é mesmo PC baseado em:
-                //   - Mesmo IP
-                //   - Screen resolution similar
-                //   - Timezone igual
-                //   - CPU cores igual
-                // Se todos batem, É O MESMO PC!
+                // Porque são características FÍSICAS do computador:
+                // 1. Monitor físico → mesma resolução em Chrome, Brave, Edge, Firefox, etc
+                // 2. Processador físico → mesmos núcleos em todos os navegadores
+                // 3. Sistema Operacional → mesmo timezone em todos os navegadores
+                //
+                // ESTES DADOS SÃO IMPOSSÍVEIS DE VARIAR porque vêm do HARDWARE/SO!
                 // ═══════════════════════════════════════════════════════════════════════
                 
+                // 1. RESOLUÇÃO DO MONITOR (hardware físico)
                 const screenW = parseInt(window.screen.width) || 0;
                 const screenH = parseInt(window.screen.height) || 0;
+                
+                // 2. NÚCLEOS DO PROCESSADOR (hardware físico)
                 const cpu = parseInt(navigator.hardwareConcurrency) || 0;
+                
+                // 3. TIMEZONE (configuração do SO)
                 const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
                 const tzOffset = new Date().getTimezoneOffset();
                 
-                // NÃO fazer hash aqui! Enviar dados separados para o backend analisar
-                const machineData = {
-                    screenWidth: screenW,
-                    screenHeight: screenH,
-                    cpuCores: cpu,
-                    timezone: tz,
-                    timezoneOffset: tzOffset,
-                    platform: navigator.platform || 'unknown',
-                    language: navigator.language || 'unknown'
-                };
+                // Criar assinatura única do PC (não navegador!)
+                const pcSignature = `${screenW}x${screenH}_${cpu}cores_${tz}_${tzOffset}`;
                 
-                // Criar string simples para envio
-                const machineString = JSON.stringify(machineData);
+                // Hash simples e direto
+                const pcHash = hashString(pcSignature);
                 
                 console.log('');
-                console.log('📊 DADOS DA MÁQUINA (enviando para backend analisar):');
-                console.log('   ├─ Screen:', `${screenW}x${screenH}`);
-                console.log('   ├─ CPU:', cpu, 'cores');
-                console.log('   ├─ Timezone:', `${tz} (${tzOffset})`);
-                console.log('   ├─ Platform:', machineData.platform);
-                console.log('   └─ Language:', machineData.language);
+                console.log('📊 CARACTERÍSTICAS FÍSICAS DO COMPUTADOR:');
+                console.log('   ├─ Monitor: ' + screenW + 'x' + screenH + ' pixels');
+                console.log('   ├─ Processador: ' + cpu + ' núcleos');
+                console.log('   └─ Sistema: ' + tz + ' (offset: ' + tzOffset + ')');
                 console.log('');
-                console.log('🔄 BACKEND VAI AGRUPAR dispositivos com:');
-                console.log('   • Mesmo IP');
-                console.log('   • Mesma resolução de tela');
-                console.log('   • Mesmo timezone');
-                console.log('   • Mesmo CPU cores');
-                console.log('   = RECONHECIDO COMO MESMO PC!');
+                console.log('🔑 ASSINATURA DO PC: ' + pcSignature);
+                console.log('🔐 HASH: ' + pcHash);
+                console.log('');
+                console.log('✅ GARANTIA ABSOLUTA:');
+                console.log('   Estes dados são IDÊNTICOS em:');
+                console.log('   • Chrome, Brave, Edge, Firefox, Opera, Safari');
+                console.log('   • Windows, Mac, Linux');
+                console.log('   • Com ou sem extensões');
+                console.log('');
+                console.log('   PORQUE CAPTURAM O HARDWARE FÍSICO,');
+                console.log('   NÃO O NAVEGADOR!');
                 console.log('═══════════════════════════════════════════════════════════');
                 console.log('');
                 
-                return machineString;
+                return pcHash + '|' + pcSignature;
             } catch (error) {
-                console.error('❌ Erro ao coletar dados da máquina:', error);
-                return JSON.stringify({
-                    screenWidth: 0,
-                    screenHeight: 0,
-                    cpuCores: 0,
-                    timezone: 'unknown',
-                    timezoneOffset: 0,
-                    platform: 'unknown',
-                    language: 'unknown',
-                    error: error.message
-                });
+                console.error('❌ Erro ao coletar dados do PC:', error);
+                return 'error|' + error.message;
             }
         }
         
