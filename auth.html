@@ -1136,113 +1136,87 @@
             return (value || '').toString().trim().toLowerCase();
         }
         
-        function generateHardwareFingerprint() {
+        async function generateHardwareFingerprint() {
             try {
                 console.log('');
                 console.log('═══════════════════════════════════════════════════════════');
                 console.log('🖥️ GERANDO FINGERPRINT DO DISPOSITIVO (INDEPENDENTE DO NAVEGADOR)');
                 console.log('═══════════════════════════════════════════════════════════');
                 
-                // Canvas fingerprint continua sendo parte do identificador
-                const canvasFP = getCanvasFingerprint();
-                console.log('🎨 Canvas Fingerprint:', canvasFP);
-                
                 const screenWidth = window.screen.width || 0;
                 const screenHeight = window.screen.height || 0;
                 const pixelRatio = window.devicePixelRatio || 1;
                 const colorDepth = window.screen.colorDepth || 0;
                 const pixelDepth = window.screen.pixelDepth || 0;
-                const screen = `${screenWidth}x${screenHeight}@${pixelRatio}`;
-                console.log('📺 Tela física:', screen, '| Color depth:', colorDepth, '| Pixel depth:', pixelDepth);
-                
-                const platformRaw = navigator.userAgentData?.platform || navigator.platform || 'unknown';
-                const platform = normalizeString(platformRaw);
-                console.log('💻 Platform normalizado:', platformRaw, '→', platform);
                 
                 const cores = navigator.hardwareConcurrency || 0;
                 const memory = navigator.deviceMemory || 0;
-                console.log('⚙️ CPU Cores:', cores, '| 🧠 RAM (GB):', memory || 'N/A');
-                
                 const maxTouchPoints = navigator.maxTouchPoints || 0;
                 const touchSupport = maxTouchPoints > 0 ? 'touch' : 'notouch';
-                console.log('👆 Touch:', touchSupport, '| Pontos:', maxTouchPoints);
                 
-                let gpuVendor = 'unknown';
-                let gpuRenderer = 'unknown';
-                try {
-                    const canvas = document.createElement('canvas');
-                    const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
-                    if (gl) {
-                        const debugInfo = gl.getExtension('WEBGL_debug_renderer_info');
-                        if (debugInfo) {
-                            gpuVendor = gl.getParameter(debugInfo.UNMASKED_VENDOR_WEBGL) || 'unknown';
-                            gpuRenderer = gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL) || 'unknown';
-                        }
-                    }
-                    console.log('🎮 GPU Vendor:', gpuVendor);
-                    console.log('🎮 GPU Renderer:', gpuRenderer);
-                } catch (e) {
-                    console.log('🎮 GPU: N/A');
-                }
-                
-                const componentValues = [
-                    screenWidth,
-                    screenHeight,
-                    pixelRatio,
-                    colorDepth,
-                    pixelDepth,
-                    cores,
-                    memory,
-                    maxTouchPoints,
-                    touchSupport,
-                    platform,
-                    normalizeString(gpuVendor),
-                    normalizeString(gpuRenderer)
+                const baseComponents = [
+                    `sw:${screenWidth}`,
+                    `sh:${screenHeight}`,
+                    `pr:${pixelRatio}`,
+                    `cd:${colorDepth}`,
+                    `pd:${pixelDepth}`,
+                    `cpu:${cores}`,
+                    `ram:${memory}`,
+                    `touch:${touchSupport}`,
+                    `tp:${maxTouchPoints}`
                 ];
                 
-                const hardwareComponents = [
-                    screenWidth,
-                    screenHeight,
-                    pixelRatio,
-                    colorDepth,
-                    pixelDepth,
-                    cores,
-                    memory,
-                    maxTouchPoints,
-                    touchSupport,
-                    platform,
-                    normalizeString(gpuVendor),
-                    normalizeString(gpuRenderer)
-                ].join('|');
+                let platform = normalizeString(navigator.userAgentData?.platform || navigator.platform || 'unknown');
+                let architecture = 'unknown';
+                let bitness = 'unknown';
+                let model = 'unknown';
+                let platformVersion = 'unknown';
+                let uaFullVersion = 'unknown';
                 
-                const stableHardwareId = hashString(hardwareComponents);
+                if (navigator.userAgentData?.getHighEntropyValues) {
+                    try {
+                        const highEntropy = await navigator.userAgentData.getHighEntropyValues([
+                            'platform', 'platformVersion', 'architecture', 'model', 'bitness', 'uaFullVersion'
+                        ]);
+                        platform = normalizeString(highEntropy.platform || platform);
+                        architecture = normalizeString(highEntropy.architecture || architecture);
+                        model = normalizeString(highEntropy.model || model);
+                        bitness = normalizeString(highEntropy.bitness || bitness);
+                        platformVersion = normalizeString(highEntropy.platformVersion || platformVersion);
+                        uaFullVersion = normalizeString(highEntropy.uaFullVersion || uaFullVersion);
+                    } catch (err) {
+                        console.warn('⚠️ Não foi possível obter high-entropy UA data:', err);
+                    }
+                }
                 
-                const hardwareId = [
-                    stableHardwareId,  // Identificador estável baseado apenas em hardware
-                    canvasFP,
-                    hardwareComponents
-                ].join('|');
+                baseComponents.push(
+                    `pf:${platform}`,
+                    `arch:${architecture}`,
+                    `model:${model}`,
+                    `bits:${bitness}`,
+                    `pfv:${platformVersion}`,
+                    `uafv:${uaFullVersion}`
+                );
+                
+                const componentString = baseComponents.join('|');
+                const stableHardwareId = hashString(componentString + '|v3');
+                const hardwareId = `${stableHardwareId}|${componentString}`;
                 
                 console.log('');
-                console.log('🔑 FINGERPRINT FINAL (CONSISTENTE ENTRE NAVEGADORES):');
-                console.log('   Stable ID:', stableHardwareId);
-                console.log('   Canvas:', canvasFP);
-                console.log('   Componentes:', hardwareComponents.substring(0, 120) + '...');
-                console.log('📏 Tamanho total:', hardwareId.length, 'caracteres');
+                console.log('🔑 FINGERPRINT FINAL (VERSÃO 3):', hardwareId);
                 console.log('═══════════════════════════════════════════════════════════');
                 console.log('');
                 
                 return hardwareId;
             } catch (error) {
                 console.error('❌ Erro ao gerar fingerprint:', error);
-                // Fallback: usar UUID persistido localmente (pode variar por navegador, mas evita bloqueio)
                 const STORAGE_KEY = 'blaze_device_uuid';
                 let fallbackId = localStorage.getItem(STORAGE_KEY);
                 if (!fallbackId) {
                     fallbackId = generateUUID();
                     localStorage.setItem(STORAGE_KEY, fallbackId);
                 }
-                return fallbackId;
+                return `fallback|${fallbackId}`;
             }
         }
         
@@ -1259,7 +1233,7 @@
             console.log('🔗 URL de login:', `${API_URL}/auth/login`);
             
             // Gerar fingerprint do hardware (identifica COMPUTADOR, não navegador)
-            const hardwareInfo = generateHardwareFingerprint();
+            const hardwareInfo = await generateHardwareFingerprint();
             
             try {
                 const response = await fetch(`${API_URL}/auth/login`, {
