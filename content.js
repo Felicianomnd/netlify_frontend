@@ -9839,12 +9839,20 @@ async function persistAnalyzerState(newState) {
             // Mantém a classe fixa do container no modo aposta
             suggestionTarget.className = 'bet-mode-suggestion';
             suggestionTarget.innerHTML = '';
-            if (colorSource) {
+            const hasValidColor = colorSource && (
+                colorSource.classList.contains('red') ||
+                colorSource.classList.contains('black') ||
+                colorSource.classList.contains('white')
+            );
+            if (hasValidColor) {
                 // Clona apenas o quadrado de cor, removendo qualquer texto como "Cor indicada"
                 const cloned = colorSource.cloneNode(true);
                 cloned.id = 'betModeSuggestionColor';
                 cloned.textContent = '';
                 suggestionTarget.appendChild(cloned);
+            } else {
+                // Sem cor válida → não exibir nada
+                suggestionTarget.innerHTML = '';
             }
             // Preserva o title apenas como tooltip, se existir
             if (suggestionBox) {

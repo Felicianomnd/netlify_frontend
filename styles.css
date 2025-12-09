@@ -4012,11 +4012,11 @@
 /* ========= MODO APOSTA (VIEW SIMPLIFICADO) ========= */
 .bet-mode-view {
   display: none;
-  padding: 16px;
+  padding: 12px;
   flex-direction: column;
-  gap: 16px;
-  min-height: calc(100vh - 50px);
-  height: calc(100vh - 50px);
+  gap: 12px;
+  min-height: calc(100vh - 60px);
+  height: calc(100vh - 60px);
   width: 100%;
   max-width: 100%;
   box-sizing: border-box;
@@ -4028,16 +4028,16 @@
   background: #323948;
   border: none;
   border-radius: 8px;
-  padding: 40px 24px;
+  padding: 28px 20px;
   display: flex;
   flex-direction: column;
   justify-content: center;
   align-items: center;
-  gap: 16px;
-  flex: 0 0 calc((100% - 16px) / 2);
-  height: calc((100% - 16px) / 2);
-  min-height: calc((100% - 16px) / 2);
-  max-height: calc((100% - 16px) / 2);
+  gap: 12px;
+  flex: 0 0 calc((100% - 12px) / 2);
+  height: calc((100% - 12px) / 2);
+  min-height: calc((100% - 12px) / 2);
+  max-height: calc((100% - 12px) / 2);
   width: 100%;
   max-width: 100%;
   box-sizing: border-box;
