@@ -4020,7 +4020,7 @@
   max-width: 100%;
   box-sizing: border-box;
   align-items: stretch;
-  justify-content: center;
+  justify-content: flex-start;
   overflow: hidden;
 }
 
@@ -4034,12 +4034,15 @@
   justify-content: center;
   align-items: center;
   gap: 16px;
-  flex: 1;
-  min-height: 0;
+  flex: 0 0 calc(50% - 8px);
+  height: calc(50% - 8px);
+  min-height: calc(50% - 8px);
+  max-height: calc(50% - 8px);
   width: 100%;
   max-width: 100%;
   box-sizing: border-box;
   box-shadow: none;
+  overflow: hidden;
 }
 
 .bet-mode-card-title {
