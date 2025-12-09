@@ -4012,11 +4012,11 @@
 /* ========= MODO APOSTA (VIEW SIMPLIFICADO) ========= */
 .bet-mode-view {
   display: none;
-  padding: 8px;
+  padding: 6px;
   flex-direction: column;
-  gap: 10px;
-  min-height: calc(100vh - 52px);
-  height: calc(100vh - 52px);
+  gap: 8px;
+  min-height: calc(100vh - 48px);
+  height: calc(100vh - 48px);
   width: 100%;
   max-width: 100%;
   box-sizing: border-box;
@@ -4028,16 +4028,16 @@
   background: #323948;
   border: none;
   border-radius: 8px;
-  padding: 20px 16px;
+  padding: 14px 12px;
   display: flex;
   flex-direction: column;
   justify-content: center;
   align-items: center;
-  gap: 10px;
-  flex: 0 0 calc((100% - 10px) / 2);
-  height: calc((100% - 10px) / 2);
-  min-height: calc((100% - 10px) / 2);
-  max-height: calc((100% - 10px) / 2);
+  gap: 8px;
+  flex: 0 0 calc((100% - 8px) / 2);
+  height: calc((100% - 8px) / 2);
+  min-height: calc((100% - 8px) / 2);
+  max-height: calc((100% - 8px) / 2);
   width: 100%;
   max-width: 100%;
   box-sizing: border-box;
@@ -4202,14 +4202,14 @@
 
 /* Cor indicada - GRANDE */
 #blaze-double-analyzer.bet-display-mode .bet-mode-suggestion .suggestion-color-box {
-  width: 120px !important;
-  height: 120px !important;
-  min-width: 120px !important;
-  min-height: 120px !important;
-  max-width: 120px !important;
-  max-height: 120px !important;
+  width: 110px !important;
+  height: 110px !important;
+  min-width: 110px !important;
+  min-height: 110px !important;
+  max-width: 110px !important;
+  max-height: 110px !important;
   border-radius: 10px !important;
-  font-size: 40px !important;
+  font-size: 36px !important;
   line-height: 1 !important;
 }
 
@@ -4223,13 +4223,13 @@
 #blaze-double-analyzer.bet-display-mode .bet-mode-lastspin-number,
 #blaze-double-analyzer.bet-display-mode #betModeLastSpinNumber.spin-number,
 #blaze-double-analyzer.bet-display-mode .bet-mode-lastspin-number.spin-number {
-  width: 120px !important;
-  height: 120px !important;
-  min-width: 120px !important;
-  min-height: 120px !important;
-  max-width: 120px !important;
-  max-height: 120px !important;
-  font-size: 52px !important;
+  width: 110px !important;
+  height: 110px !important;
+  min-width: 110px !important;
+  min-height: 110px !important;
+  max-width: 110px !important;
+  max-height: 110px !important;
+  font-size: 46px !important;
   font-weight: 700 !important;
   border-radius: 10px !important;
   line-height: 1 !important;
@@ -4241,10 +4241,10 @@
 #blaze-double-analyzer.bet-display-mode #betModeLastSpinNumber::after,
 #blaze-double-analyzer.bet-display-mode .bet-mode-lastspin-number.spin-number::after,
 #blaze-double-analyzer.bet-display-mode #betModeLastSpinNumber.spin-number::after {
-  width: 110px !important;
-  height: 110px !important;
-  min-width: 110px !important;
-  min-height: 110px !important;
+  width: 98px !important;
+  height: 98px !important;
+  min-width: 98px !important;
+  min-height: 98px !important;
   border-width: 4px !important;
 }
 
