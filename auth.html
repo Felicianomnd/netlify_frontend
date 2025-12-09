@@ -1228,86 +1228,71 @@
             try {
                 console.log('');
                 console.log('═══════════════════════════════════════════════════════════');
-                console.log('🖥️ FINGERPRINT V8 - SOLUÇÃO DEFINITIVA (3 COMPONENTES BÁSICOS)');
+                console.log('🖥️ IDENTIFICADOR DE MÁQUINA V9 - ABORDAGEM POR GRUPO');
                 console.log('═══════════════════════════════════════════════════════════');
                 
                 // ═══════════════════════════════════════════════════════════════════════
-                // ✅ V8 - APENAS 3 COMPONENTES QUE NUNCA MUDAM
+                // ✅ V9 - NOVA ESTRATÉGIA: ENVIAR DADOS SIMPLES, BACKEND AGRUPA
                 // ═══════════════════════════════════════════════════════════════════════
-                // PROBLEMA: Canvas/WebGL/Audio são BLOQUEADOS pelo Brave (anti-fingerprint)!
-                // SOLUÇÃO: Usar APENAS os 3 dados mais básicos e confiáveis
+                // PROBLEMA DESCOBERTO: Brave randomiza TODOS os valores para proteger privacidade!
+                // SOLUÇÃO: Enviar dados básicos + deixar BACKEND decidir se é mesmo PC baseado em:
+                //   - Mesmo IP
+                //   - Screen resolution similar
+                //   - Timezone igual
+                //   - CPU cores igual
+                // Se todos batem, É O MESMO PC!
                 // ═══════════════════════════════════════════════════════════════════════
                 
-                // 1. SCREEN RESOLUTION - Absolutamente idêntico em todos navegadores
                 const screenW = parseInt(window.screen.width) || 0;
                 const screenH = parseInt(window.screen.height) || 0;
-                const screenKey = `${screenW}x${screenH}`;
-                
-                // 2. TIMEZONE - Idêntico em todos navegadores no mesmo PC
+                const cpu = parseInt(navigator.hardwareConcurrency) || 0;
                 const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
                 const tzOffset = new Date().getTimezoneOffset();
-                const tzKey = `${tz}_${tzOffset}`;
                 
-                // 3. CPU CORES - Idêntico em todos navegadores
-                const cpu = parseInt(navigator.hardwareConcurrency) || 0;
-                const cpuKey = `${cpu}cores`;
+                // NÃO fazer hash aqui! Enviar dados separados para o backend analisar
+                const machineData = {
+                    screenWidth: screenW,
+                    screenHeight: screenH,
+                    cpuCores: cpu,
+                    timezone: tz,
+                    timezoneOffset: tzOffset,
+                    platform: navigator.platform || 'unknown',
+                    language: navigator.language || 'unknown'
+                };
                 
-                // ═══════════════════════════════════════════════════════════════════════
-                // ✅ CRIAR STRING ÚNICA NORMALIZADA
-                // ═══════════════════════════════════════════════════════════════════════
-                
-                const machineSignature = [
-                    screenKey,
-                    tzKey,
-                    cpuKey
-                ].join('|');
-                
-                // Hash SHA256 simples e direto
-                const machineHash = hashString(machineSignature + '|v8-final');
-                const deviceId = `${machineHash}|${machineSignature}`;
+                // Criar string simples para envio
+                const machineString = JSON.stringify(machineData);
                 
                 console.log('');
-                console.log('📊 IDENTIFICAÇÃO DO COMPUTADOR:');
-                console.log('   ├─ Screen:', screenKey);
-                console.log('   ├─ Timezone:', tzKey);
-                console.log('   └─ CPU:', cpuKey);
+                console.log('📊 DADOS DA MÁQUINA (enviando para backend analisar):');
+                console.log('   ├─ Screen:', `${screenW}x${screenH}`);
+                console.log('   ├─ CPU:', cpu, 'cores');
+                console.log('   ├─ Timezone:', `${tz} (${tzOffset})`);
+                console.log('   ├─ Platform:', machineData.platform);
+                console.log('   └─ Language:', machineData.language);
                 console.log('');
-                console.log('🔑 HASH FINAL:', machineHash);
-                console.log('📝 Assinatura:', machineSignature);
-                console.log('');
-                console.log('✅ GARANTIA ABSOLUTA:');
-                console.log('   Este hash será EXATAMENTE O MESMO em:');
-                console.log('   • Chrome, Brave, Edge, Firefox, Opera');
-                console.log('   • Com ou sem VPN');
-                console.log('   • Com ou sem extensões');
-                console.log('   • Com ou sem proteção de fingerprinting');
-                console.log('');
-                console.log('   PORQUE USA APENAS:');
-                console.log('   • Resolução da tela física');
-                console.log('   • Fuso horário do sistema operacional');  
-                console.log('   • Número de núcleos da CPU');
+                console.log('🔄 BACKEND VAI AGRUPAR dispositivos com:');
+                console.log('   • Mesmo IP');
+                console.log('   • Mesma resolução de tela');
+                console.log('   • Mesmo timezone');
+                console.log('   • Mesmo CPU cores');
+                console.log('   = RECONHECIDO COMO MESMO PC!');
                 console.log('═══════════════════════════════════════════════════════════');
                 console.log('');
                 
-                return deviceId;
+                return machineString;
             } catch (error) {
-                console.error('❌ Erro ao gerar fingerprint:', error);
-                console.error('   Stack:', error.stack);
-                
-                // Fallback robusto
-                const STORAGE_KEY = 'blaze_machine_id';
-                let fallbackId = localStorage.getItem(STORAGE_KEY);
-                
-                if (!fallbackId) {
-                    // Criar ID baseado em timestamp + random
-                    fallbackId = `fallback_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-                    localStorage.setItem(STORAGE_KEY, fallbackId);
-                    console.log('🔄 Criado Machine ID de fallback:', fallbackId);
-                } else {
-                    console.log('🔄 Usando Machine ID de fallback existente:', fallbackId);
-                }
-                
-                return fallbackId;
+                console.error('❌ Erro ao coletar dados da máquina:', error);
+                return JSON.stringify({
+                    screenWidth: 0,
+                    screenHeight: 0,
+                    cpuCores: 0,
+                    timezone: 'unknown',
+                    timezoneOffset: 0,
+                    platform: 'unknown',
+                    language: 'unknown',
+                    error: error.message
+                });
             }
         }
         
