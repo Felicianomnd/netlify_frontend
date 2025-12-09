@@ -1228,11 +1228,18 @@
             try {
                 console.log('');
                 console.log('═══════════════════════════════════════════════════════════');
-                console.log('🖥️ GERANDO FINGERPRINT DO DISPOSITIVO (INDEPENDENTE DO NAVEGADOR)');
+                console.log('🖥️ GERANDO FINGERPRINT DO DISPOSITIVO FÍSICO (V5 - ESTÁVEL)');
                 console.log('═══════════════════════════════════════════════════════════');
+                
+                // ═══════════════════════════════════════════════════════════════════════
+                // ✅ COMPONENTES ESTÁVEIS - Identificam o COMPUTADOR FÍSICO
+                // Esses valores NÃO mudam entre navegadores diferentes no mesmo PC
+                // ═══════════════════════════════════════════════════════════════════════
                 
                 const screenWidth = window.screen.width || 0;
                 const screenHeight = window.screen.height || 0;
+                const availWidth = window.screen.availWidth || 0;
+                const availHeight = window.screen.availHeight || 0;
                 const pixelRatio = window.devicePixelRatio || 1;
                 const colorDepth = window.screen.colorDepth || 0;
                 const pixelDepth = window.screen.pixelDepth || 0;
@@ -1242,13 +1249,43 @@
                 const maxTouchPoints = navigator.maxTouchPoints || 0;
                 const touchSupport = maxTouchPoints > 0 ? 'touch' : 'notouch';
                 
-                const canvasFP = getCanvasFingerprint();
-                const audioFP = await getAudioFingerprint();
-                const fontsFP = getFontsFingerprint();
+                // Timezone e offset são estáveis para o mesmo computador
+                const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'unknown';
+                const tzOffset = new Date().getTimezoneOffset();
                 
-                const baseComponents = [
+                // ═══════════════════════════════════════════════════════════════════════
+                // ✅ COMPONENTES DE PLATAFORMA - Também estáveis para o mesmo PC
+                // ═══════════════════════════════════════════════════════════════════════
+                
+                let platform = normalizeString(navigator.userAgentData?.platform || navigator.platform || 'unknown');
+                let architecture = 'unknown';
+                let bitness = 'unknown';
+                let model = 'unknown';
+                
+                if (navigator.userAgentData?.getHighEntropyValues) {
+                    try {
+                        const highEntropy = await navigator.userAgentData.getHighEntropyValues([
+                            'platform', 'platformVersion', 'architecture', 'model', 'bitness'
+                        ]);
+                        platform = normalizeString(highEntropy.platform || platform);
+                        architecture = normalizeString(highEntropy.architecture || architecture);
+                        model = normalizeString(highEntropy.model || model);
+                        bitness = normalizeString(highEntropy.bitness || bitness);
+                    } catch (err) {
+                        console.warn('⚠️ Não foi possível obter high-entropy UA data:', err);
+                    }
+                }
+                
+                // ═══════════════════════════════════════════════════════════════════════
+                // ✅ MONTAR FINGERPRINT APENAS COM DADOS ESTÁVEIS
+                // Canvas, Audio, Fonts e User-Agent detalhado REMOVIDOS (variam por navegador)
+                // ═══════════════════════════════════════════════════════════════════════
+                
+                const stableComponents = [
                     `sw:${screenWidth}`,
                     `sh:${screenHeight}`,
+                    `aw:${availWidth}`,
+                    `ah:${availHeight}`,
                     `pr:${pixelRatio}`,
                     `cd:${colorDepth}`,
                     `pd:${pixelDepth}`,
@@ -1256,72 +1293,54 @@
                     `ram:${memory}`,
                     `touch:${touchSupport}`,
                     `tp:${maxTouchPoints}`,
-                    `canvas:${canvasFP}`,
-                    `audio:${audioFP}`,
-                    `fonts:${fontsFP}`
-                ];
-                
-                let platform = normalizeString(navigator.userAgentData?.platform || navigator.platform || 'unknown');
-                let architecture = 'unknown';
-                let bitness = 'unknown';
-                let model = 'unknown';
-                let platformVersion = 'unknown';
-                let uaFullVersion = 'unknown';
-                
-                if (navigator.userAgentData?.getHighEntropyValues) {
-                    try {
-                        const highEntropy = await navigator.userAgentData.getHighEntropyValues([
-                            'platform', 'platformVersion', 'architecture', 'model', 'bitness', 'uaFullVersion'
-                        ]);
-                        platform = normalizeString(highEntropy.platform || platform);
-                        architecture = normalizeString(highEntropy.architecture || architecture);
-                        model = normalizeString(highEntropy.model || model);
-                        bitness = normalizeString(highEntropy.bitness || bitness);
-                        platformVersion = normalizeString(highEntropy.platformVersion || platformVersion);
-                        uaFullVersion = normalizeString(highEntropy.uaFullVersion || uaFullVersion);
-                    } catch (err) {
-                        console.warn('⚠️ Não foi possível obter high-entropy UA data:', err);
-                    }
-                }
-                
-                baseComponents.push(
+                    `tz:${timezone}`,
+                    `tzo:${tzOffset}`,
                     `pf:${platform}`,
                     `arch:${architecture}`,
                     `model:${model}`,
-                    `bits:${bitness}`,
-                    `pfv:${platformVersion}`,
-                    `uafv:${uaFullVersion}`
-                );
+                    `bits:${bitness}`
+                ].sort();
                 
-                const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'unknown';
-                const tzOffset = new Date().getTimezoneOffset();
-                const languages = navigator.languages && navigator.languages.length
-                    ? navigator.languages.map(normalizeString).join('-')
-                    : normalizeString(navigator.language);
-                
-                baseComponents.push(
-                    `tz:${timezone}`,
-                    `tzOffset:${tzOffset}`,
-                    `langs:${languages}`
-                );
-                
-                const componentString = baseComponents.sort().join('|');
-                const stableHardwareId = hashString(componentString + '|v4');
+                const componentString = stableComponents.join('|');
+                const stableHardwareId = hashString(componentString + '|v5-stable');
                 const hardwareId = `${stableHardwareId}|${componentString}`;
                 
                 console.log('');
-                console.log('🔑 FINGERPRINT FINAL (VERSÃO 4):', hardwareId);
+                console.log('📊 COMPONENTES ESTÁVEIS DETECTADOS:');
+                console.log('   Screen:', `${screenWidth}x${screenHeight} (${availWidth}x${availHeight} available)`);
+                console.log('   Pixel Ratio:', pixelRatio);
+                console.log('   Color Depth:', `${colorDepth}/${pixelDepth}`);
+                console.log('   CPU Cores:', cores);
+                console.log('   Memory:', memory, 'GB');
+                console.log('   Touch:', touchSupport, `(${maxTouchPoints} points)`);
+                console.log('   Timezone:', `${timezone} (offset: ${tzOffset})`);
+                console.log('   Platform:', platform);
+                console.log('   Architecture:', architecture);
+                console.log('   Model:', model);
+                console.log('   Bitness:', bitness);
+                console.log('');
+                console.log('🔑 FINGERPRINT HASH (primeiros 8 caracteres):', stableHardwareId.substring(0, 8));
+                console.log('📝 String completa enviada ao servidor (primeiros 100 chars):');
+                console.log('   ', hardwareId.substring(0, 100) + '...');
+                console.log('');
+                console.log('✅ IMPORTANTE: Este fingerprint é o MESMO para Chrome, Brave, Edge, etc no mesmo PC!');
                 console.log('═══════════════════════════════════════════════════════════');
                 console.log('');
                 
                 return hardwareId;
             } catch (error) {
                 console.error('❌ Erro ao gerar fingerprint:', error);
+                console.error('   Stack:', error.stack);
+                
+                // Fallback: usar UUID persistente no localStorage
                 const STORAGE_KEY = 'blaze_device_uuid';
                 let fallbackId = localStorage.getItem(STORAGE_KEY);
                 if (!fallbackId) {
                     fallbackId = generateUUID();
                     localStorage.setItem(STORAGE_KEY, fallbackId);
+                    console.log('🔄 Gerado novo UUID de fallback:', fallbackId);
+                } else {
+                    console.log('🔄 Usando UUID de fallback existente:', fallbackId);
                 }
                 return `fallback|${fallbackId}`;
             }
