@@ -4015,13 +4015,13 @@
   padding: 16px;
   flex-direction: column;
   gap: 16px;
-  height: calc(100% - 50px);
+  min-height: calc(100vh - 50px);
+  height: calc(100vh - 50px);
   width: 100%;
   max-width: 100%;
   box-sizing: border-box;
   align-items: stretch;
   justify-content: flex-start;
-  overflow: hidden;
 }
 
 .bet-mode-card {
@@ -4034,10 +4034,10 @@
   justify-content: center;
   align-items: center;
   gap: 16px;
-  flex: 0 0 calc(50% - 8px);
-  height: calc(50% - 8px);
-  min-height: calc(50% - 8px);
-  max-height: calc(50% - 8px);
+  flex: 0 0 calc((100% - 16px) / 2);
+  height: calc((100% - 16px) / 2);
+  min-height: calc((100% - 16px) / 2);
+  max-height: calc((100% - 16px) / 2);
   width: 100%;
   max-width: 100%;
   box-sizing: border-box;
@@ -4131,9 +4131,10 @@
   display: flex !important;
   flex-direction: row !important;
   align-items: center !important;
-  justify-content: space-between !important;
+  justify-content: center !important;
   width: 100% !important;
   gap: 12px !important;
+  position: relative !important;
 }
 
 /* Apenas o nome do modo, sem fundo, sem container de IA */
@@ -4184,9 +4185,15 @@
 #blaze-double-analyzer.bet-display-mode .header-main {
   display: flex !important;
   align-items: center !important;
-  justify-content: flex-end !important;
-  margin-left: auto !important;
+  justify-content: center !important;
   flex-shrink: 0 !important;
+}
+
+#blaze-double-analyzer.bet-display-mode .user-menu-toggle {
+  position: absolute !important;
+  right: 12px !important;
+  top: 50% !important;
+  transform: translateY(-50%) !important;
 }
 
 /* ══════════════════════════════════════════════════════════════
@@ -4195,14 +4202,14 @@
 
 /* Cor indicada - GRANDE */
 #blaze-double-analyzer.bet-display-mode .bet-mode-suggestion .suggestion-color-box {
-  width: 180px !important;
-  height: 180px !important;
-  min-width: 180px !important;
-  min-height: 180px !important;
-  max-width: 180px !important;
-  max-height: 180px !important;
-  border-radius: 14px !important;
-  font-size: 54px !important;
+  width: 150px !important;
+  height: 150px !important;
+  min-width: 150px !important;
+  min-height: 150px !important;
+  max-width: 150px !important;
+  max-height: 150px !important;
+  border-radius: 12px !important;
+  font-size: 48px !important;
   line-height: 1 !important;
 }
 
@@ -4216,15 +4223,15 @@
 #blaze-double-analyzer.bet-display-mode .bet-mode-lastspin-number,
 #blaze-double-analyzer.bet-display-mode #betModeLastSpinNumber.spin-number,
 #blaze-double-analyzer.bet-display-mode .bet-mode-lastspin-number.spin-number {
-  width: 180px !important;
-  height: 180px !important;
-  min-width: 180px !important;
-  min-height: 180px !important;
-  max-width: 180px !important;
-  max-height: 180px !important;
-  font-size: 72px !important;
+  width: 150px !important;
+  height: 150px !important;
+  min-width: 150px !important;
+  min-height: 150px !important;
+  max-width: 150px !important;
+  max-height: 150px !important;
+  font-size: 60px !important;
   font-weight: 700 !important;
-  border-radius: 14px !important;
+  border-radius: 12px !important;
   line-height: 1 !important;
   display: flex !important;
   align-items: center !important;
@@ -4234,11 +4241,11 @@
 #blaze-double-analyzer.bet-display-mode #betModeLastSpinNumber::after,
 #blaze-double-analyzer.bet-display-mode .bet-mode-lastspin-number.spin-number::after,
 #blaze-double-analyzer.bet-display-mode #betModeLastSpinNumber.spin-number::after {
-  width: 160px !important;
-  height: 160px !important;
-  min-width: 160px !important;
-  min-height: 160px !important;
-  border-width: 6px !important;
+  width: 130px !important;
+  height: 130px !important;
+  min-width: 130px !important;
+  min-height: 130px !important;
+  border-width: 5px !important;
 }
 
 /* Horário - grande também */
@@ -5206,7 +5213,7 @@
 }
 
 .btn-diamond-levels {
-    /* herda visual de .btn-hot-pattern */
+    border-radius: 3px;
 }
 
 @media (max-width: 420px) {
