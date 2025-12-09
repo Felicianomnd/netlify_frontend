@@ -1132,6 +1132,10 @@
             return positiveHash.toString(16).padStart(8, '0');
         }
         
+        function normalizeString(value) {
+            return (value || '').toString().trim().toLowerCase();
+        }
+        
         function generateHardwareFingerprint() {
             try {
                 console.log('');
@@ -1143,45 +1147,58 @@
                 const canvasFP = getCanvasFingerprint();
                 console.log('🎨 Canvas Fingerprint:', canvasFP);
                 
-                const screenWidth = window.screen.width;
-                const screenHeight = window.screen.height;
+                const screenWidth = window.screen.width || 0;
+                const screenHeight = window.screen.height || 0;
                 const pixelRatio = window.devicePixelRatio || 1;
                 const colorDepth = window.screen.colorDepth || 0;
                 const pixelDepth = window.screen.pixelDepth || 0;
                 const screen = `${screenWidth}x${screenHeight}@${pixelRatio}`;
                 console.log('📺 Tela física:', screen, '| Color depth:', colorDepth, '| Pixel depth:', pixelDepth);
                 
-                const platform = navigator.userAgentData?.platform || navigator.platform || 'unknown';
-                const platformVersion = navigator.userAgentData?.platformVersion || '';
-                console.log('💻 Platform:', platform, platformVersion ? `(${platformVersion})` : '');
+                const platformRaw = navigator.userAgentData?.platform || navigator.platform || 'unknown';
+                const platform = normalizeString(platformRaw);
+                console.log('💻 Platform normalizado:', platformRaw, '→', platform);
                 
                 const cores = navigator.hardwareConcurrency || 0;
                 const memory = navigator.deviceMemory || 0;
                 console.log('⚙️ CPU Cores:', cores, '| 🧠 RAM (GB):', memory || 'N/A');
                 
-                const touchSupport = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
-                console.log('👆 Touch:', touchSupport ? 'Sim' : 'Não');
+                const maxTouchPoints = navigator.maxTouchPoints || 0;
+                const touchSupport = maxTouchPoints > 0 ? 'touch' : 'notouch';
+                console.log('👆 Touch:', touchSupport, '| Pontos:', maxTouchPoints);
                 
-                const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'unknown';
-                const tzOffset = new Date().getTimezoneOffset();
-                const languages = navigator.languages ? navigator.languages.join(',') : navigator.language || 'unknown';
-                console.log('🌍 Timezone:', timezone, '| Offset:', tzOffset);
-                console.log('🗣️ Idiomas:', languages);
-                
-                let gpuInfo = 'unknown';
+                let gpuVendor = 'unknown';
+                let gpuRenderer = 'unknown';
                 try {
                     const canvas = document.createElement('canvas');
                     const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
                     if (gl) {
                         const debugInfo = gl.getExtension('WEBGL_debug_renderer_info');
                         if (debugInfo) {
-                            gpuInfo = gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL);
+                            gpuVendor = gl.getParameter(debugInfo.UNMASKED_VENDOR_WEBGL) || 'unknown';
+                            gpuRenderer = gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL) || 'unknown';
                         }
                     }
-                    console.log('🎮 GPU:', gpuInfo);
+                    console.log('🎮 GPU Vendor:', gpuVendor);
+                    console.log('🎮 GPU Renderer:', gpuRenderer);
                 } catch (e) {
                     console.log('🎮 GPU: N/A');
                 }
+                
+                const componentValues = [
+                    screenWidth,
+                    screenHeight,
+                    pixelRatio,
+                    colorDepth,
+                    pixelDepth,
+                    cores,
+                    memory,
+                    maxTouchPoints,
+                    touchSupport,
+                    platform,
+                    normalizeString(gpuVendor),
+                    normalizeString(gpuRenderer)
+                ];
                 
                 const hardwareComponents = [
                     screenWidth,
@@ -1189,16 +1206,14 @@
                     pixelRatio,
                     colorDepth,
                     pixelDepth,
-                    platform,
-                    platformVersion,
                     cores,
                     memory,
-                    touchSupport ? 'touch' : 'notouch',
-                    timezone,
-                    tzOffset,
-                    languages,
-                    gpuInfo
-                ].map(item => item ?? 'unknown').join('|');
+                    maxTouchPoints,
+                    touchSupport,
+                    platform,
+                    normalizeString(gpuVendor),
+                    normalizeString(gpuRenderer)
+                ].join('|');
                 
                 const stableHardwareId = hashString(hardwareComponents);
                 
