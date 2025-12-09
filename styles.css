@@ -4012,27 +4012,30 @@
 /* ========= MODO APOSTA (VIEW SIMPLIFICADO) ========= */
 .bet-mode-view {
   display: none;
-  padding: 20px;
+  padding: 16px;
   flex-direction: column;
-  gap: 20px;
-  height: calc(100% - 48px);
+  gap: 16px;
+  height: calc(100% - 50px);
   width: 100%;
+  max-width: 100%;
   box-sizing: border-box;
-  align-items: center;
+  align-items: stretch;
   justify-content: center;
+  overflow: hidden;
 }
 
 .bet-mode-card {
   background: #323948;
   border: none;
   border-radius: 8px;
-  padding: 32px 24px;
+  padding: 40px 24px;
   display: flex;
   flex-direction: column;
   justify-content: center;
   align-items: center;
-  gap: 20px;
+  gap: 16px;
   flex: 1;
+  min-height: 0;
   width: 100%;
   max-width: 100%;
   box-sizing: border-box;
@@ -4103,81 +4106,145 @@
   }
 }
 
-/* Cabeçalho compacto no modo aposta */
+/* ══════════════════════════════════════════════════════════════
+   MODO APOSTA - CABEÇALHO LIMPO E ESTREITO
+   ══════════════════════════════════════════════════════════════ */
+
 #blaze-double-analyzer.bet-display-mode .header-title,
 #blaze-double-analyzer.bet-display-mode .title-badge {
-  display: none;
+  display: none !important;
 }
 
-/* Cabeçalho estreito no modo aposta */
 #blaze-double-analyzer.bet-display-mode .analyzer-header {
-  min-height: 48px;
-  padding: 8px 16px;
+  min-height: 50px !important;
+  max-height: 50px !important;
+  padding: 10px 16px !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
 }
 
-/* No modo aposta: mostrar apenas o nome do modo, sem fundo, sem card */
+#blaze-double-analyzer.bet-display-mode .header-content {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  width: 100% !important;
+  gap: 12px !important;
+}
+
+/* Apenas o nome do modo, sem fundo, sem container de IA */
 #blaze-double-analyzer.bet-display-mode .ai-mode-toggle {
-  flex: 1;
+  flex: 1 !important;
   background: transparent !important;
   padding: 0 !important;
+  margin: 0 !important;
   border-radius: 0 !important;
   min-height: auto !important;
   max-height: none !important;
   height: auto !important;
-  display: flex;
-  align-items: center;
-  justify-content: flex-start;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: flex-start !important;
+  overflow: visible !important;
+}
+
+#blaze-double-analyzer.bet-display-mode .ai-mode-toggle.active {
+  min-height: auto !important;
+  max-height: none !important;
+  padding: 0 !important;
 }
 
 #blaze-double-analyzer.bet-display-mode .ai-mode-toggle .mode-name {
-  font-size: 14px;
-  font-weight: 600;
-  color: #ffffff;
+  font-size: 15px !important;
+  font-weight: 600 !important;
+  color: #ffffff !important;
+  white-space: nowrap !important;
 }
 
-#blaze-double-analyzer.bet-display-mode .ai-mode-toggle .mode-api-container {
+/* ESCONDER COMPLETAMENTE O CONTAINER DE IA/MEMÓRIA NO MODO APOSTA */
+#blaze-double-analyzer.bet-display-mode .mode-api-container,
+#blaze-double-analyzer.bet-display-mode .ai-mode-toggle .mode-api-container,
+#blaze-double-analyzer.bet-display-mode .mode-api-status {
   display: none !important;
+  visibility: hidden !important;
+  opacity: 0 !important;
+  height: 0 !important;
+  min-height: 0 !important;
+  max-height: 0 !important;
+  overflow: hidden !important;
+  margin: 0 !important;
+  padding: 0 !important;
 }
 
-/* Três barrinhas alinhadas à direita */
+/* Três barrinhas à direita */
 #blaze-double-analyzer.bet-display-mode .header-main {
-  justify-content: flex-end;
-  margin-left: auto;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: flex-end !important;
+  margin-left: auto !important;
+  flex-shrink: 0 !important;
 }
 
-/* Escala GRANDE para a cor indicada no modo aposta */
+/* ══════════════════════════════════════════════════════════════
+   MODO APOSTA - TAMANHOS GRANDES DAS INFORMAÇÕES
+   ══════════════════════════════════════════════════════════════ */
+
+/* Cor indicada - GRANDE */
 #blaze-double-analyzer.bet-display-mode .bet-mode-suggestion .suggestion-color-box {
-  width: 160px !important;
-  height: 160px !important;
-  border-radius: 12px;
-  font-size: 48px !important;
+  width: 180px !important;
+  height: 180px !important;
+  min-width: 180px !important;
+  min-height: 180px !important;
+  max-width: 180px !important;
+  max-height: 180px !important;
+  border-radius: 14px !important;
+  font-size: 54px !important;
+  line-height: 1 !important;
 }
 
-/* Ajuste específico da cor PRETA no modo aposta */
+/* Cor PRETA específica */
 #blaze-double-analyzer.bet-display-mode .bet-mode-suggestion .suggestion-color-box.black {
   background: #21222d !important;
 }
 
-/* Escala GRANDE para o último giro - sobrescrever .spin-number */
+/* Último giro - GRANDE (mesmo tamanho da cor indicada) */
+#blaze-double-analyzer.bet-display-mode #betModeLastSpinNumber,
+#blaze-double-analyzer.bet-display-mode .bet-mode-lastspin-number,
+#blaze-double-analyzer.bet-display-mode #betModeLastSpinNumber.spin-number,
 #blaze-double-analyzer.bet-display-mode .bet-mode-lastspin-number.spin-number {
+  width: 180px !important;
+  height: 180px !important;
+  min-width: 180px !important;
+  min-height: 180px !important;
+  max-width: 180px !important;
+  max-height: 180px !important;
+  font-size: 72px !important;
+  font-weight: 700 !important;
+  border-radius: 14px !important;
+  line-height: 1 !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+}
+
+#blaze-double-analyzer.bet-display-mode #betModeLastSpinNumber::after,
+#blaze-double-analyzer.bet-display-mode .bet-mode-lastspin-number.spin-number::after,
+#blaze-double-analyzer.bet-display-mode #betModeLastSpinNumber.spin-number::after {
   width: 160px !important;
   height: 160px !important;
-  font-size: 64px !important;
-  font-weight: 700 !important;
-  border-radius: 12px !important;
+  min-width: 160px !important;
+  min-height: 160px !important;
+  border-width: 6px !important;
 }
 
-#blaze-double-analyzer.bet-display-mode .bet-mode-lastspin-number.spin-number::after {
-  width: 140px !important;
-  height: 140px !important;
-  border-width: 5px !important;
-}
-
-/* Tamanho do horário também maior no modo aposta */
+/* Horário - grande também */
+#blaze-double-analyzer.bet-display-mode #betModeLastSpinTime,
 #blaze-double-analyzer.bet-display-mode .bet-mode-lastspin-time {
-  font-size: 20px !important;
+  font-size: 22px !important;
   font-weight: 600 !important;
   color: #e5e7eb !important;
+  line-height: 1.2 !important;
 }
 
 /* Modal overlay */
