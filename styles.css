@@ -4015,29 +4015,26 @@
   padding: 6px;
   flex-direction: column;
   gap: 8px;
-  min-height: calc(100vh - 48px);
-  height: calc(100vh - 48px);
+  height: calc(100vh - 50px);
   width: 100%;
   max-width: 100%;
   box-sizing: border-box;
   align-items: stretch;
   justify-content: flex-start;
+  overflow: hidden;
 }
 
 .bet-mode-card {
   background: #323948;
   border: none;
   border-radius: 8px;
-  padding: 14px 12px;
+  padding: 16px 12px;
   display: flex;
   flex-direction: column;
   justify-content: center;
   align-items: center;
   gap: 8px;
-  flex: 0 0 calc((100% - 8px) / 2);
-  height: calc((100% - 8px) / 2);
-  min-height: calc((100% - 8px) / 2);
-  max-height: calc((100% - 8px) / 2);
+  flex: 1;
   width: 100%;
   max-width: 100%;
   box-sizing: border-box;
@@ -4046,27 +4043,28 @@
 }
 
 .bet-mode-card-title {
-  font-size: 16px;
+  font-size: 14px;
   font-weight: 600;
   color: #f9fafb;
+  margin-bottom: 4px;
 }
 
 .bet-mode-body {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 12px;
 }
 
 .bet-mode-block {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
   align-items: center;
   text-align: center;
 }
 
 .bet-mode-label {
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 500;
   color: #9ca3af;
 }
@@ -4077,21 +4075,22 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 6px;
+  gap: 5px;
 }
 
 .bet-mode-meter {
   width: 100%;
-  margin-bottom: 6px;
+  margin-bottom: 4px;
 }
 
 .bet-mode-meter .confidence-bar {
   width: 100%;
+  height: 6px;
 }
 
 .bet-mode-confidence-text {
-  margin-top: 2px;
-  font-size: 11px;
+  margin-top: 1px;
+  font-size: 10px;
   font-weight: 500;
   color: #e5e7eb;
   text-align: center;
@@ -4101,6 +4100,7 @@
   font-size: 13px;
   font-weight: 500;
   color: #e5e7eb;
+  margin-top: 2px;
 }
 
 @media (max-width: 768px) {
@@ -4121,10 +4121,14 @@
 #blaze-double-analyzer.bet-display-mode .analyzer-header {
   min-height: 50px !important;
   max-height: 50px !important;
-  padding: 10px 16px !important;
+  height: 50px !important;
+  padding: 10px 60px !important;
   display: flex !important;
   align-items: center !important;
-  justify-content: space-between !important;
+  justify-content: center !important;
+  position: relative !important;
+  overflow: hidden !important;
+  box-sizing: border-box !important;
 }
 
 #blaze-double-analyzer.bet-display-mode .header-content {
@@ -4133,30 +4137,60 @@
   align-items: center !important;
   justify-content: center !important;
   width: 100% !important;
-  gap: 12px !important;
+  height: 100% !important;
+  gap: 0 !important;
   position: relative !important;
+  overflow: hidden !important;
+  box-sizing: border-box !important;
 }
 
-/* Apenas o nome do modo, sem fundo, sem container de IA */
+/* Apenas o nome do modo, sem fundo, sem container de IA - CENTRALIZADO */
 #blaze-double-analyzer.bet-display-mode .ai-mode-toggle {
-  flex: 1 !important;
+  flex: 0 0 auto !important;
   background: transparent !important;
   padding: 0 !important;
-  margin: 0 !important;
+  margin: 0 auto !important;
   border-radius: 0 !important;
   min-height: auto !important;
   max-height: none !important;
   height: auto !important;
+  line-height: normal !important;
   display: flex !important;
   align-items: center !important;
-  justify-content: flex-start !important;
+  justify-content: center !important;
+  flex-direction: row !important;
+  gap: 0 !important;
   overflow: visible !important;
+  position: static !important;
+  transform: none !important;
+  top: auto !important;
+  left: auto !important;
+  right: auto !important;
+  bottom: auto !important;
 }
 
 #blaze-double-analyzer.bet-display-mode .ai-mode-toggle.active {
+  flex: 0 0 auto !important;
+  background: transparent !important;
+  padding: 0 !important;
+  margin: 0 auto !important;
+  border-radius: 0 !important;
   min-height: auto !important;
   max-height: none !important;
-  padding: 0 !important;
+  height: auto !important;
+  line-height: normal !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  flex-direction: row !important;
+  gap: 0 !important;
+  overflow: visible !important;
+  position: static !important;
+  transform: none !important;
+  top: auto !important;
+  left: auto !important;
+  right: auto !important;
+  bottom: auto !important;
 }
 
 #blaze-double-analyzer.bet-display-mode .ai-mode-toggle .mode-name {
@@ -4164,6 +4198,17 @@
   font-weight: 600 !important;
   color: #ffffff !important;
   white-space: nowrap !important;
+  text-align: center !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  line-height: 1.2 !important;
+  display: block !important;
+  position: static !important;
+  transform: none !important;
+  top: auto !important;
+  left: auto !important;
+  right: auto !important;
+  bottom: auto !important;
 }
 
 /* ESCONDER COMPLETAMENTE O CONTAINER DE IA/MEMÓRIA NO MODO APOSTA */
@@ -4181,19 +4226,63 @@
   padding: 0 !important;
 }
 
-/* Três barrinhas à direita */
+/* Botão de menu (três barrinhas) à direita - ESTILO BONITO E QUADRADINHO */
 #blaze-double-analyzer.bet-display-mode .header-main {
   display: flex !important;
   align-items: center !important;
   justify-content: center !important;
   flex-shrink: 0 !important;
-}
-
-#blaze-double-analyzer.bet-display-mode .user-menu-toggle {
   position: absolute !important;
   right: 12px !important;
   top: 50% !important;
   transform: translateY(-50%) !important;
+  z-index: 10 !important;
+}
+
+#blaze-double-analyzer.bet-display-mode .user-menu-toggle {
+  position: relative !important;
+  right: auto !important;
+  top: auto !important;
+  transform: none !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: 36px !important;
+  height: 36px !important;
+  padding: 8px !important;
+  background: rgba(255, 255, 255, 0.08) !important;
+  border: 1px solid rgba(255, 255, 255, 0.15) !important;
+  border-radius: 0 !important;
+  cursor: pointer !important;
+  transition: all 0.2s ease !important;
+}
+
+#blaze-double-analyzer.bet-display-mode .user-menu-toggle:hover {
+  background: rgba(255, 255, 255, 0.15) !important;
+  border-color: rgba(255, 255, 255, 0.3) !important;
+}
+
+/* Estilo das três barrinhas dentro do botão */
+#blaze-double-analyzer.bet-display-mode .user-menu-toggle::before {
+  content: '' !important;
+  display: block !important;
+  width: 20px !important;
+  height: 14px !important;
+  background-image: 
+    linear-gradient(to bottom, 
+      #ffffff 0%, #ffffff 20%, 
+      transparent 20%, transparent 40%,
+      #ffffff 40%, #ffffff 60%,
+      transparent 60%, transparent 80%,
+      #ffffff 80%, #ffffff 100%
+    ) !important;
+  background-size: 100% 100% !important;
+  background-repeat: no-repeat !important;
+}
+
+/* Esconder conteúdo original do botão se houver */
+#blaze-double-analyzer.bet-display-mode .user-menu-toggle > * {
+  display: none !important;
 }
 
 /* ══════════════════════════════════════════════════════════════
@@ -4202,14 +4291,14 @@
 
 /* Cor indicada - GRANDE */
 #blaze-double-analyzer.bet-display-mode .bet-mode-suggestion .suggestion-color-box {
-  width: 110px !important;
-  height: 110px !important;
-  min-width: 110px !important;
-  min-height: 110px !important;
-  max-width: 110px !important;
-  max-height: 110px !important;
-  border-radius: 10px !important;
-  font-size: 36px !important;
+  width: 90px !important;
+  height: 90px !important;
+  min-width: 90px !important;
+  min-height: 90px !important;
+  max-width: 90px !important;
+  max-height: 90px !important;
+  border-radius: 8px !important;
+  font-size: 32px !important;
   line-height: 1 !important;
 }
 
@@ -4223,15 +4312,15 @@
 #blaze-double-analyzer.bet-display-mode .bet-mode-lastspin-number,
 #blaze-double-analyzer.bet-display-mode #betModeLastSpinNumber.spin-number,
 #blaze-double-analyzer.bet-display-mode .bet-mode-lastspin-number.spin-number {
-  width: 110px !important;
-  height: 110px !important;
-  min-width: 110px !important;
-  min-height: 110px !important;
-  max-width: 110px !important;
-  max-height: 110px !important;
-  font-size: 46px !important;
+  width: 90px !important;
+  height: 90px !important;
+  min-width: 90px !important;
+  min-height: 90px !important;
+  max-width: 90px !important;
+  max-height: 90px !important;
+  font-size: 42px !important;
   font-weight: 700 !important;
-  border-radius: 10px !important;
+  border-radius: 8px !important;
   line-height: 1 !important;
   display: flex !important;
   align-items: center !important;
@@ -4241,17 +4330,17 @@
 #blaze-double-analyzer.bet-display-mode #betModeLastSpinNumber::after,
 #blaze-double-analyzer.bet-display-mode .bet-mode-lastspin-number.spin-number::after,
 #blaze-double-analyzer.bet-display-mode #betModeLastSpinNumber.spin-number::after {
-  width: 98px !important;
-  height: 98px !important;
-  min-width: 98px !important;
-  min-height: 98px !important;
-  border-width: 4px !important;
+  width: 82px !important;
+  height: 82px !important;
+  min-width: 82px !important;
+  min-height: 82px !important;
+  border-width: 3px !important;
 }
 
 /* Horário - grande também */
 #blaze-double-analyzer.bet-display-mode #betModeLastSpinTime,
 #blaze-double-analyzer.bet-display-mode .bet-mode-lastspin-time {
-  font-size: 22px !important;
+  font-size: 18px !important;
   font-weight: 600 !important;
   color: #e5e7eb !important;
   line-height: 1.2 !important;

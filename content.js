@@ -974,8 +974,9 @@
                     gap: 0 !important;
                 `;
             } else {
-                // Modo aposta: cabeçalho simples, estreito
+                // Modo aposta: cabeçalho simples, estreito - LIMPAR TODOS OS ESTILOS INLINE
                 toggleElement.style.cssText = '';
+                toggleElement.removeAttribute('style');
             }
             
             console.log('%c   ✅ Estilos inline aplicados ao toggle', 'color: #00FF88;');
@@ -1015,6 +1016,9 @@
             
             // ✅ REMOVER ESTILOS INLINE
             toggleElement.style.cssText = '';
+            if (isBetDisplay) {
+                toggleElement.removeAttribute('style');
+            }
             
             if (modeName) {
                 modeName.textContent = isBetDisplay
