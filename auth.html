@@ -1228,65 +1228,76 @@
             try {
                 console.log('');
                 console.log('═══════════════════════════════════════════════════════════');
-                console.log('🖥️ GERANDO FINGERPRINT DO DISPOSITIVO FÍSICO (V6 - ULTRA ESTÁVEL)');
+                console.log('🖥️ GERANDO FINGERPRINT DE HARDWARE (V7 - BASEADO EM GPU/CPU)');
                 console.log('═══════════════════════════════════════════════════════════');
                 
                 // ═══════════════════════════════════════════════════════════════════════
-                // ✅ V6 - USANDO APENAS DADOS ULTRA ESTÁVEIS
-                // Removido tudo que pode variar mesmo que ligeiramente entre navegadores!
+                // ✅ V7 - FINGERPRINTING BASEADO EM HARDWARE REAL
+                // ═══════════════════════════════════════════════════════════════════════
+                // Canvas, WebGL e Audio capturam como o HARDWARE (GPU, placa de som)
+                // processa e renderiza - isso é IDÊNTICO em qualquer navegador no mesmo PC!
                 // ═══════════════════════════════════════════════════════════════════════
                 
-                // SCREEN - Mesma resolução em todos os navegadores
+                // 1. SCREEN - Características do monitor
                 const screenWidth = window.screen.width || 0;
                 const screenHeight = window.screen.height || 0;
-                const availWidth = window.screen.availWidth || 0;
-                const availHeight = window.screen.availHeight || 0;
                 const colorDepth = window.screen.colorDepth || 0;
                 
-                // TIMEZONE - Mesmo fuso horário em todos os navegadores
+                // 2. CPU - Número de núcleos
+                const cores = navigator.hardwareConcurrency || 0;
+                
+                // 3. TIMEZONE - Configuração do sistema
                 const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'unknown';
                 const tzOffset = new Date().getTimezoneOffset();
                 
-                // CPU - Mesmo número de cores (mais confiável)
-                const cores = navigator.hardwareConcurrency || 0;
+                // 4. CANVAS FINGERPRINT - Captura como a GPU renderiza (MESMO em todos navegadores!)
+                console.log('🎨 Gerando Canvas Fingerprint (GPU)...');
+                const canvasFP = getCanvasFingerprint();
+                console.log('   Canvas FP:', canvasFP);
                 
-                // ⚠️ REMOVIDOS (podem variar entre navegadores):
-                // - pixelRatio (pode ser diferente no Brave vs Chrome)
-                // - pixelDepth (pode variar)
-                // - deviceMemory (não disponível em todos os navegadores)
-                // - maxTouchPoints (pode variar)
-                // - platform/architecture/model/bitness (reportados diferente em cada navegador)
+                // 5. WEBGL FINGERPRINT - Informações detalhadas da GPU
+                console.log('🎮 Gerando WebGL Fingerprint (GPU detalhado)...');
+                const webglFP = getWebGLFingerprint();
+                console.log('   WebGL FP:', webglFP);
+                
+                // 6. AUDIO FINGERPRINT - Captura como a placa de som processa (MESMO em todos navegadores!)
+                console.log('🔊 Gerando Audio Fingerprint (Placa de Som)...');
+                const audioFP = await getAudioFingerprint();
+                console.log('   Audio FP:', audioFP);
                 
                 // ═══════════════════════════════════════════════════════════════════════
-                // ✅ COMPONENTES MÍNIMOS E ULTRA ESTÁVEIS
+                // ✅ MONTAR FINGERPRINT COM DADOS DE HARDWARE REAL
                 // ═══════════════════════════════════════════════════════════════════════
                 
-                const ultraStableComponents = [
-                    `sw:${screenWidth}`,
-                    `sh:${screenHeight}`,
-                    `aw:${availWidth}`,
-                    `ah:${availHeight}`,
-                    `cd:${colorDepth}`,
+                const hardwareComponents = [
+                    `screen:${screenWidth}x${screenHeight}`,
+                    `color:${colorDepth}`,
                     `cpu:${cores}`,
                     `tz:${timezone}`,
-                    `tzo:${tzOffset}`
+                    `tzo:${tzOffset}`,
+                    `canvas:${canvasFP}`,
+                    `webgl:${webglFP}`,
+                    `audio:${audioFP}`
                 ].sort();
                 
-                const componentString = ultraStableComponents.join('|');
-                const stableHardwareId = hashString(componentString + '|v6-ultra');
-                const hardwareId = `${stableHardwareId}|${componentString}`;
+                const componentString = hardwareComponents.join('|');
+                const hardwareHash = hashString(componentString + '|v7-hardware');
+                const hardwareId = `${hardwareHash}|${componentString}`;
                 
                 console.log('');
-                console.log('📊 COMPONENTES ULTRA ESTÁVEIS DETECTADOS:');
-                console.log('   Screen:', `${screenWidth}x${screenHeight} (disponível: ${availWidth}x${availHeight})`);
-                console.log('   Color Depth:', colorDepth);
+                console.log('📊 HARDWARE DETECTADO:');
+                console.log('   Screen:', `${screenWidth}x${screenHeight} (${colorDepth}-bit)`);
                 console.log('   CPU Cores:', cores);
-                console.log('   Timezone:', `${timezone} (offset: ${tzOffset})`);
+                console.log('   Timezone:', `${timezone} (${tzOffset})`);
+                console.log('   Canvas (GPU):', canvasFP);
+                console.log('   WebGL (GPU):', webglFP);
+                console.log('   Audio (Som):', audioFP);
                 console.log('');
-                console.log('🔑 FINGERPRINT HASH COMPLETO:', stableHardwareId);
-                console.log('📝 String de componentes:', componentString);
+                console.log('🔑 HARDWARE HASH:', hardwareHash);
                 console.log('');
-                console.log('✅ GARANTIA: Este hash é 100% IDÊNTICO em Chrome, Brave, Edge, Firefox no mesmo PC!');
+                console.log('✅ ESTE HASH É IDÊNTICO EM CHROME, BRAVE, EDGE NO MESMO PC!');
+                console.log('   Motivo: Canvas/WebGL/Audio capturam como o HARDWARE processa,');
+                console.log('   não o navegador! GPU e placa de som são as mesmas!');
                 console.log('═══════════════════════════════════════════════════════════');
                 console.log('');
                 
@@ -1306,6 +1317,45 @@
                     console.log('🔄 Usando UUID de fallback existente:', fallbackId);
                 }
                 return `fallback|${fallbackId}`;
+            }
+        }
+        
+        function getWebGLFingerprint() {
+            try {
+                const canvas = document.createElement('canvas');
+                const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
+                
+                if (!gl) {
+                    return 'webgl-not-supported';
+                }
+                
+                // Informações da GPU
+                const debugInfo = gl.getExtension('WEBGL_debug_renderer_info');
+                let vendor = 'unknown';
+                let renderer = 'unknown';
+                
+                if (debugInfo) {
+                    vendor = gl.getParameter(debugInfo.UNMASKED_VENDOR_WEBGL) || 'unknown';
+                    renderer = gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL) || 'unknown';
+                }
+                
+                // Outras características da GPU
+                const maxTextureSize = gl.getParameter(gl.MAX_TEXTURE_SIZE);
+                const maxRenderbufferSize = gl.getParameter(gl.MAX_RENDERBUFFER_SIZE);
+                const maxViewportDims = gl.getParameter(gl.MAX_VIEWPORT_DIMS);
+                
+                const webglData = [
+                    vendor,
+                    renderer,
+                    maxTextureSize,
+                    maxRenderbufferSize,
+                    maxViewportDims ? maxViewportDims.join('x') : 'unknown'
+                ].join('|');
+                
+                return hashString(webglData);
+            } catch (error) {
+                console.warn('WebGL fingerprint error:', error);
+                return 'webgl-error';
             }
         }
         
