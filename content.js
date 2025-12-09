@@ -112,7 +112,7 @@
         return 'auth.html';
     }
 
-    
+
     function getStoredUserData() {
         try {
             const raw = localStorage.getItem('user');
@@ -965,14 +965,14 @@
             // ✅ Cabeçalho completo x modo aposta
             if (!isBetDisplay) {
                 // Layout completo: manter container grande
-                toggleElement.style.cssText = `
-                    min-height: 80px !important;
-                    max-height: 80px !important;
-                    height: auto !important;
-                    overflow: hidden !important;
-                    padding: 6px 12px !important;
-                    gap: 0 !important;
-                `;
+            toggleElement.style.cssText = `
+                min-height: 80px !important;
+                max-height: 80px !important;
+                height: auto !important;
+                overflow: hidden !important;
+                padding: 6px 12px !important;
+                gap: 0 !important;
+            `;
             } else {
                 // Modo aposta: cabeçalho simples, estreito - LIMPAR TODOS OS ESTILOS INLINE
                 toggleElement.style.cssText = '';
@@ -1005,8 +1005,8 @@
                     modeApiContainer.style.display = 'none';
                     modeApiStatus.textContent = '';
                 } else {
-                    modeApiContainer.style.display = 'block';
-                    atualizarStatusMemoriaAtiva(modeApiStatus);
+                modeApiContainer.style.display = 'block';
+                atualizarStatusMemoriaAtiva(modeApiStatus);
                 }
             }
             
@@ -1856,7 +1856,7 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                 if (isDesktop() && isCompactMode) {
                     floatingWindows.unregister('bankPatternsModal');
                 }
-                modal.style.display = 'none';
+            modal.style.display = 'none';
             }
         });
         
@@ -1893,7 +1893,7 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                 if (isDesktop() && isCompactMode) {
                     floatingWindows.unregister('patternDetailsModal');
                 }
-                detailsModal.style.display = 'none';
+            detailsModal.style.display = 'none';
             }
         });
         
@@ -2719,13 +2719,13 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
             
             // ✅ Mobile: manter comportamento atual
             if (!isDesktop()) {
-                const container = document.getElementById('blaze-double-analyzer');
-                const content = modal.querySelector('.custom-pattern-modal-content');
-                if (container && content) {
-                    const rect = container.getBoundingClientRect();
-                    content.style.maxWidth = `${rect.width}px`;
-                    content.style.width = '100%';
-                }
+            const container = document.getElementById('blaze-double-analyzer');
+            const content = modal.querySelector('.custom-pattern-modal-content');
+            if (container && content) {
+                const rect = container.getBoundingClientRect();
+                content.style.maxWidth = `${rect.width}px`;
+                content.style.width = '100%';
+            }
             }
             
             modal.style.display = 'flex';
@@ -2742,13 +2742,13 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
             
             // ✅ Mobile: manter comportamento atual
             if (!isDesktop()) {
-                const container = document.getElementById('blaze-double-analyzer');
-                const content = modal.querySelector('.custom-pattern-modal-content');
-                if (container && content) {
-                    const rect = container.getBoundingClientRect();
-                    content.style.maxWidth = `${rect.width}px`;
-                    content.style.width = '100%';
-                }
+            const container = document.getElementById('blaze-double-analyzer');
+            const content = modal.querySelector('.custom-pattern-modal-content');
+            if (container && content) {
+                const rect = container.getBoundingClientRect();
+                content.style.maxWidth = `${rect.width}px`;
+                content.style.width = '100%';
+            }
             }
             
             modal.style.display = 'flex';
@@ -7038,7 +7038,7 @@ async function persistAnalyzerState(newState) {
                     </div>
                 </div>
                 
-            <div class="observer-section">
+                <div class="observer-section">
                     <h4>Calibrador de porcentagens</h4>
                     <div class="observer-stats" id="observerStats">
                         <div class="observer-loading">Carregando...</div>
@@ -7210,9 +7210,9 @@ async function persistAnalyzerState(newState) {
                         <div class="stat-item">
                             <span class="stat-label">Atualização:</span>
                             <span class="stat-value" id="lastUpdate">-</span>
+                        </div>
                     </div>
                 </div>
-            </div>
             </div> <!-- fim analyzer-default-view -->
             
             <!-- MODO APOSTA / VISUALIZAÇÃO SIMPLIFICADA -->
@@ -7222,7 +7222,7 @@ async function persistAnalyzerState(newState) {
                     <div class="bet-mode-meter">
                         <div class="confidence-bar">
                             <div class="confidence-fill" id="betModeConfidenceFill"></div>
-                        </div>
+            </div>
                         <div class="bet-mode-confidence-text" id="betModeConfidenceText">0%</div>
                     </div>
                     <div class="bet-mode-block">
