@@ -6833,14 +6833,8 @@ async function persistAnalyzerState(newState) {
             </div>
             <div class="analyzer-header" id="sidebarHeader">
                 <div class="header-content">
-                    <div class="header-main">
                     <h3 class="header-title">Double Analyzer <span class="title-badge" id="titleBadge">PREMIUM</span></h3>
-                        <button type="button" class="user-menu-toggle" id="userMenuToggle" title="Abrir informações da conta" aria-controls="userMenuPanel" aria-expanded="false">
-                            <span></span>
-                            <span></span>
-                            <span></span>
-                        </button>
-                    </div>
+                    
                     <div class="ai-mode-toggle" id="aiModeToggle" title="Ativar/Desativar Modo Diamante">
                         <span class="mode-name">Ativar Modo Diamante</span>
                         <div class="mode-api-container" style="display: none;">
@@ -6850,6 +6844,13 @@ async function persistAnalyzerState(newState) {
                             <div class="mode-api-status" id="modeApiStatus"></div>
                         </div>
                     </div>
+
+                    <button type="button" class="user-menu-toggle" id="userMenuToggle" title="Abrir informações da conta" aria-controls="userMenuPanel" aria-expanded="false">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"></path>
+                            <circle cx="12" cy="7" r="4"></circle>
+                        </svg>
+                    </button>
                 </div>
             </div>
             <div class="user-menu-panel" id="userMenuPanel" role="region" aria-labelledby="userMenuTitle">
