@@ -10966,6 +10966,42 @@ function logModeSnapshotUI(snapshot) {
     
     // ✅ [OTIMIZAÇÃO] Interval redundante removido - atualização já acontece via WebSocket e updateHistoryUIFromServer()
     
+    // ═══════════════════════════════════════════════════════════════════════════════
+    // 💓 HEARTBEAT - Sistema de detecção de usuários online
+    // ═══════════════════════════════════════════════════════════════════════════════
+    let heartbeatInterval = null;
+    
+    async function sendHeartbeat() {
+        try {
+            const token = localStorage.getItem('authToken');
+            if (!token) return;
+            
+            const API_URL = getApiUrl();
+            await fetch(`${API_URL}/api/auth/heartbeat`, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                }
+            });
+        } catch (error) {
+            console.log('Heartbeat falhou (silencioso):', error.message);
+        }
+    }
+    
+    // Enviar heartbeat a cada 30 segundos
+    function startHeartbeat() {
+        if (heartbeatInterval) return; // Já está rodando
+        
+        sendHeartbeat(); // Enviar imediatamente
+        heartbeatInterval = setInterval(sendHeartbeat, 30000); // 30 segundos
+        console.log('💓 Sistema de heartbeat iniciado');
+    }
+    
+    // Iniciar heartbeat se usuário estiver autenticado
+    if (localStorage.getItem('authToken')) {
+        startHeartbeat();
+    }
+    
     // Função para atualizar status de análise real
     function updateAnalysisStatus(status) {
         currentAnalysisStatus = status;
