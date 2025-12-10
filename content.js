@@ -1257,15 +1257,11 @@ let bankProgressTimeout = null;
 function applyAutoBetSummaryVisibility() {
     const summary = document.getElementById('autoBetSummary');
     const collapsed = document.getElementById('autoBetSummaryCollapsed');
-    const hideBtn = document.getElementById('autoBetHideBtn');
     if (summary) {
         summary.classList.toggle('hidden', !autoBetSummaryVisible);
     }
     if (collapsed) {
         collapsed.classList.toggle('visible', !autoBetSummaryVisible);
-    }
-    if (hideBtn) {
-        hideBtn.textContent = autoBetSummaryVisible ? 'Ocultar' : 'Mostrar saldo';
     }
 }
 
@@ -1312,13 +1308,12 @@ async function initAutoBetSummaryVisibilityControls() {
         }
     }
     
-    const hideBtn = document.getElementById('autoBetHideBtn');
     const showBtn = document.getElementById('autoBetShowBtn');
-    if (hideBtn) {
-        hideBtn.addEventListener('click', () => setAutoBetSummaryVisibility(false, 'hide-btn'));
-    }
     if (showBtn) {
-        showBtn.addEventListener('click', () => setAutoBetSummaryVisibility(true, 'show-btn'));
+        showBtn.addEventListener('click', () => {
+            // Toggle: Se estiver visível, esconde. Se estiver escondido, mostra.
+            setAutoBetSummaryVisibility(!autoBetSummaryVisible, 'toggle-btn');
+        });
     }
     applyAutoBetSummaryVisibility();
     
@@ -4095,21 +4090,6 @@ autoBetHistoryStore.init().catch(error => console.warn('AutoBetHistory: iniciali
                 .auto-bet-summary-item strong.neutral-value {
                     color: #f5f7ff;
                 }
-                .auto-bet-hide-btn {
-                    border: none;
-                    background: none;
-                    color: #7d8597;
-                    font-size: 11px;
-                    font-weight: 600;
-                    letter-spacing: 0.3px;
-                    text-transform: uppercase;
-                    cursor: pointer;
-                    transition: color 0.2s ease;
-                    padding: 0;
-                }
-                .auto-bet-hide-btn:hover {
-                    color: #ffffff;
-                }
                 .auto-bet-summary-collapsed {
                     display: none;
                     justify-content: center;
@@ -6702,13 +6682,39 @@ async function persistAnalyzerState(newState) {
                         <span class="user-info-label">Nome</span>
                         <span class="user-info-value" id="userMenuName">—</span>
                     </div>
+                    
+                    <div class="profile-divider">Configurações</div>
+                    
                     <div class="user-info-item">
-                        <span class="user-info-label">Email</span>
-                        <span class="user-info-value" id="userMenuEmail">—</span>
+                        <span class="user-info-label">Plano</span>
+                        <span class="user-info-value plan" id="userMenuPlan">—</span>
+                    </div>
+                    <div class="user-info-item">
+                        <span class="user-info-label">Ativado em</span>
+                        <span class="user-info-value" id="userMenuPurchase">—</span>
+                    </div>
+                    <div class="user-info-item">
+                        <span class="user-info-label">Dias restantes</span>
+                        <span class="user-info-value" id="userMenuDays">—</span>
+                    </div>
+                    <div class="user-info-item">
+                        <button type="button" class="view-mode-toggle-btn" id="viewModeToggleBtn" title="Alternar entre Tela Cheia e Modo Compacto">
+                            <span id="viewModeLabel">Modo Compacto</span>
+                        </button>
+                    </div>
+                    <div class="user-info-item">
+                        <button type="button" class="view-mode-toggle-btn" id="betModeToggleBtn" title="Alternar entre modo completo e modo aposta">
+                            <span id="betViewLabel">Modo Completo</span>
+                        </button>
                     </div>
                     
                     <!-- CAMPOS EDITÁVEIS DE PERFIL -->
                     <div class="profile-divider">Dados Pessoais</div>
+                    
+                    <div class="user-info-item">
+                        <span class="user-info-label">Email</span>
+                        <span class="user-info-value" id="userMenuEmail">—</span>
+                    </div>
                     
                     <div class="user-info-item-editable phone-field">
                         <div class="user-info-label-row">
@@ -6761,33 +6767,6 @@ async function persistAnalyzerState(newState) {
                     <button type="button" class="save-profile-btn" id="saveProfileBtn">
                         <span class="button-label">Salvar Dados</span>
                     </button>
-                    
-                    <div class="profile-divider">Configurações</div>
-                    
-                    <div class="user-info-item">
-                        <span class="user-info-label">Plano</span>
-                        <span class="user-info-value plan" id="userMenuPlan">—</span>
-                    </div>
-                    <div class="user-info-item">
-                        <span class="user-info-label">Ativado em</span>
-                        <span class="user-info-value" id="userMenuPurchase">—</span>
-                    </div>
-                    <div class="user-info-item">
-                        <span class="user-info-label">Dias restantes</span>
-                        <span class="user-info-value" id="userMenuDays">—</span>
-                    </div>
-                    <div class="user-info-item">
-                        <span class="user-info-label">Visualização (Desktop)</span>
-                        <button type="button" class="view-mode-toggle-btn" id="viewModeToggleBtn" title="Alternar entre Tela Cheia e Modo Compacto">
-                            <span id="viewModeLabel">Modo Compacto</span>
-                        </button>
-                    </div>
-                    <div class="user-info-item">
-                        <span class="user-info-label">Modo de aposta</span>
-                        <button type="button" class="view-mode-toggle-btn" id="betModeToggleBtn" title="Alternar entre modo completo e modo aposta">
-                            <span id="betViewLabel">Modo Completo</span>
-                        </button>
-                    </div>
                 </div>
                 <div class="user-menu-footer">
                     <button type="button" class="user-menu-logout" id="userMenuLogout">Sair da conta</button>
@@ -6798,7 +6777,6 @@ async function persistAnalyzerState(newState) {
             <div class="auto-bet-summary" id="autoBetSummary">
                 <div class="auto-bet-summary-header">
                     <span class="auto-bet-summary-title">Simulador</span>
-                    <button type="button" class="auto-bet-hide-btn" id="autoBetHideBtn">Ocultar</button>
                     </div>
                 <div class="auto-bet-summary-body">
                     <div class="auto-bet-summary-metrics">
@@ -7412,11 +7390,19 @@ async function persistAnalyzerState(newState) {
                     disableCompactMenuAnchoring();
                 }
             } else {
+                // Fechar sem animação: remover transition temporariamente
+                userMenuPanel.style.transition = 'none';
                 userMenuPanel.classList.remove('open');
                 userMenuToggle.classList.remove('active');
                 userMenuToggle.setAttribute('aria-expanded', 'false');
+                
+                // Restaurar transition após um frame para futuras aberturas
+                requestAnimationFrame(() => {
+                    userMenuPanel.style.transition = '';
+                });
+                
                 if (sidebar.classList.contains('compact-mode')) {
-                    disableCompactMenuAnchoring({ delay: true });
+                    disableCompactMenuAnchoring();
                 } else {
                     disableCompactMenuAnchoring();
                 }
@@ -7621,15 +7607,15 @@ async function persistAnalyzerState(newState) {
             };
 
             saveProfileBtn.disabled = true;
-            const originalText = saveProfileBtn.querySelector('.button-label')?.textContent || 'Salvar Dados';
-            if (saveProfileBtn.querySelector('.button-label')) {
-                saveProfileBtn.querySelector('.button-label').textContent = 'Salvando...';
-            }
+            showGlobalSaveLoading();
 
             try {
                 const token = localStorage.getItem('authToken');
                 if (!token) {
                     showToast('Você precisa estar autenticado', 'error');
+                    saveProfileBtn.disabled = false;
+                    const overlay = document.getElementById('saveStatusOverlay');
+                    if (overlay) overlay.style.display = 'none';
                     return;
                 }
 
@@ -7656,18 +7642,20 @@ async function persistAnalyzerState(newState) {
                     fillProfileInputs(data.user);
                     isPhoneEditing = false;
                     syncProfileFieldState(data.user);
+                    showGlobalSaveSuccess(1500);
                     showToast('Dados salvos com sucesso!', 'success');
                 } else {
+                    const overlay = document.getElementById('saveStatusOverlay');
+                    if (overlay) overlay.style.display = 'none';
                     showToast(data.error || 'Erro ao salvar', 'error');
                 }
             } catch (error) {
                 console.error('Erro ao salvar dados:', error);
+                const overlay = document.getElementById('saveStatusOverlay');
+                if (overlay) overlay.style.display = 'none';
                 showToast('Erro ao conectar com o servidor', 'error');
             } finally {
                 saveProfileBtn.disabled = false;
-                if (saveProfileBtn.querySelector('.button-label')) {
-                    saveProfileBtn.querySelector('.button-label').textContent = originalText;
-                }
             }
         };
 
