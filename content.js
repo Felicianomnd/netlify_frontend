@@ -953,13 +953,13 @@
         if (!targetElement) return;
 
         if (isActive) {
-            // ATIVAR MODO
+            // ATIVAR MODO IA
             targetElement.classList.add('active');
             
             if (aiLabel) aiLabel.textContent = 'AI ON';
             
             if (titleBadge) {
-                titleBadge.textContent = 'IA';
+                titleBadge.textContent = 'Análise por IA';
                 titleBadge.classList.add('badge-ia');
             }
             
@@ -968,13 +968,13 @@
                 header.classList.add('ai-active');
             }
         } else {
-            // DESATIVAR MODO
+            // DESATIVAR MODO (Análise Padrão)
             targetElement.classList.remove('active');
             
             if (aiLabel) aiLabel.textContent = 'AI OFF';
 
             if (titleBadge) {
-                titleBadge.textContent = 'PREMIUM';
+                titleBadge.textContent = 'Análise Premium';
                 titleBadge.classList.remove('badge-ia');
             }
             
@@ -6643,7 +6643,7 @@ async function persistAnalyzerState(newState) {
                         </svg>
                     </div>
                     <span class="da-app-name">Double Analyzer</span>
-                    <span class="title-badge" id="titleBadge">PREMIUM</span>
+                    <span class="title-badge" id="titleBadge">Análise Premium</span>
                 </div>
 
                 <!-- 2. Center: Simple Controls -->
@@ -7380,6 +7380,19 @@ async function persistAnalyzerState(newState) {
 
             if (open) {
                 populateUserMenu();
+                
+                // ✅ GARANTIR que o badge reflita o modo de análise correto após popular o menu
+                chrome.storage.local.get(['analyzerConfig'], function(result) {
+                    const config = result.analyzerConfig || {};
+                    const tabSpecificModeStr = sessionStorage.getItem('tabSpecificAIMode');
+                    const isAIMode = tabSpecificModeStr !== null ? JSON.parse(tabSpecificModeStr) : (config.aiMode || false);
+                    
+                    const aiModeToggle = sidebar.querySelector('#aiModeToggle');
+                    if (aiModeToggle && titleBadge) {
+                        updateAIModeUI(aiModeToggle, isAIMode);
+                    }
+                });
+                
                 userMenuPanel.classList.add('open');
                 userMenuToggle.classList.add('active');
                 userMenuToggle.setAttribute('aria-expanded', 'true');
@@ -7442,9 +7455,8 @@ async function persistAnalyzerState(newState) {
                 userMenuDays.textContent = daysInfo.text;
                 userMenuDays.classList.toggle('alert', !!daysInfo.alert);
             }
-            if (titleBadge) {
-                titleBadge.textContent = badgeText;
-            }
+            // ✅ NÃO TOCAR NO titleBadge AQUI - ele é controlado pelo modo de análise (IA ou Premium)
+            // O badge reflete o modo de análise ativo, não o status do usuário
 
             fillProfileInputs(user);
             syncProfileFieldState(user);
