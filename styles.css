@@ -528,6 +528,7 @@
     display: flex;
     flex-direction: column;
     box-shadow: -10px 0 30px rgba(0,0,0,0.5);
+    opacity: 1;
 }
 
 .user-menu-panel.open {
@@ -536,6 +537,18 @@
 
 .user-menu-panel.compact-anchored {
     right: auto;
+    transform: translateX(0) !important;
+    opacity: 0;
+    transition: opacity 0.2s ease !important;
+}
+
+.user-menu-panel.compact-anchored.open {
+    opacity: 1;
+    transform: translateX(0) !important;
+}
+
+.user-menu-panel.compact-anchored.compact-closing {
+    pointer-events: none;
 }
 
 .user-menu-header {
@@ -670,8 +683,8 @@
 
 .profile-input:focus {
     outline: none;
-    border-color: #2b6cb0;
-    box-shadow: 0 0 0 2px rgba(43, 108, 176, 0.25);
+    border-color: #ef4444;
+    box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.25);
 }
 
 .profile-input::placeholder {
@@ -1917,7 +1930,7 @@
   .setting-label { font-size: 11px; line-height: 1.2; opacity: 0.9; white-space: normal; }
   .settings-section input[type="number"] { width: 64px; min-width: 56px; padding: 4px 6px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.18); background: #0f1320; color: #e4ecff; font-weight: 500; text-align: center; box-sizing: border-box; }
   .settings-section input[type="text"] { width: 100%; padding: 6px 8px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.18); background: #0f1320; color: #e4ecff; font-weight: 500; box-sizing: border-box; font-size: 12px; }
-  .settings-section input[type="number"]:focus, .settings-section input[type="text"]:focus { outline: none; border-color: #2b6cb0; box-shadow: 0 0 0 2px rgba(43,108,176,0.25); }
+  .settings-section input[type="number"]:focus, .settings-section input[type="text"]:focus { outline: none; border-color: #ef4444; box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.25); }
 .cfg-save-btn { margin-top: 10px; width: 100%; padding: 10px; border-radius: 3px; background: #ef4444; color: #fff; border: none; cursor: pointer; font-weight: 600; }
 .cfg-save-btn:hover { background: #dc2626; }
 .checkbox-label { font-size: 12px; display: flex; align-items: center; gap: 6px; }
