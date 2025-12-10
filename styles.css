@@ -5021,11 +5021,59 @@
 }
 
 .btn-hot-pattern.active {
-    /* mantém mesma cor de fundo do estado normal (sem destacar em vermelho) */
     background: linear-gradient(135deg, #1a2e3e 0%, #122238 100%);
     color: #ffffff;
     border: none;
     box-shadow: none;
+}
+
+.safe-zone-row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: rgba(255, 255, 255, 0.6);
+    width: 100%;
+}
+
+.safe-zone-label {
+    font-weight: 600;
+}
+
+.safe-zone-value {
+    font-weight: 600;
+    color: #f97316;
+}
+
+.safe-zone-status-pill {
+    width: 100%;
+    text-align: center;
+    padding: 6px 10px;
+    border-radius: 999px;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.safe-zone-status-pill.status-ready {
+    background: rgba(16, 185, 129, 0.15);
+    border-color: rgba(16, 185, 129, 0.35);
+    color: #10b981;
+}
+
+.safe-zone-status-pill.status-waiting {
+    background: rgba(250, 204, 21, 0.12);
+    border-color: rgba(250, 204, 21, 0.35);
+    color: #facc15;
+}
+
+.safe-zone-status-pill.status-idle {
+    background: rgba(148, 163, 184, 0.08);
+    border-color: rgba(148, 163, 184, 0.25);
+    color: #94a3b8;
 }
 
 @keyframes pulse-hot {

@@ -52,7 +52,7 @@ function getDiamondConfigSnapshot() {
     };
     return [
         ['N0', `Hist ${getValue('n0History', N0_DEFAULTS.historySize)} | W ${getDiamondWindow('n0Window', N0_DEFAULTS.windowSize)} | BlockAll ${analyzerConfig.n0AllowBlockAll !== false ? 'sim' : 'não'}`],
-        ['N1', `${getDiamondWindow('n1HotPattern', 60)} giros`],
+        ['N1', `W ${getDiamondWindow('n1WindowSize', SAFE_ZONE_DEFAULTS.windowSize)} | minA ${getDiamondWindow('n1PrimaryRequirement', SAFE_ZONE_DEFAULTS.primaryRequirement)} | minB ${getDiamondWindow('n1SecondaryRequirement', SAFE_ZONE_DEFAULTS.secondaryRequirement)}`],
         ['N2', `Rec ${getDiamondWindow('n2Recent', 5)} | Ant ${getDiamondWindow('n2Previous', 15)}`],
         ['N3', `Hist ${getDiamondWindow('n3Alternance', 12)} | L ${getDiamondWindow('n3PatternLength', 4)} | Rigor ${getDiamondWindow('n3ThresholdPct', 75)}% | minOcc ${getDiamondWindow('n3MinOccurrences', 1)}`],
         ['N4', `${getDiamondWindow('n4Persistence', 20)} giros`],
@@ -317,7 +317,9 @@ const DEFAULT_ANALYZER_CONFIG = {
     whiteProtectionAsWin: false,  // Proteção no Branco: conta branco como WIN (default: conta como LOSS)
     autoBetConfig: DEFAULT_AUTOBET_CONFIG,
     diamondLevelWindows: {        // Configuração dos níveis do modo Diamante
-        n1HotPattern: 60,         // N1 - Padrão Quente (histórico analisado)
+        n1WindowSize: 20,         // N1 - Zona Segura (tamanho da janela)
+        n1PrimaryRequirement: 15, // N1 - Zona Segura (requisito mínimo A)
+        n1SecondaryRequirement: 3,// N1 - Zona Segura (requisito mínimo B)
         n2Recent: 5,              // N2 - Momentum (janela recente)
         n2Previous: 15,           // N2 - Momentum (janela anterior)
         n3Alternance: 12,         // N3 - Alternância (histórico analisado em giros)
@@ -360,6 +362,99 @@ const DEFAULT_ANALYZER_CONFIG = {
 };
 
 const DIAMOND_LEVEL_IDS = Object.freeze(['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9', 'N10']);
+
+const SAFE_ZONE_DEFAULTS = Object.freeze({
+    windowSize: DEFAULT_ANALYZER_CONFIG.diamondLevelWindows.n1WindowSize,
+    primaryRequirement: DEFAULT_ANALYZER_CONFIG.diamondLevelWindows.n1PrimaryRequirement,
+    secondaryRequirement: DEFAULT_ANALYZER_CONFIG.diamondLevelWindows.n1SecondaryRequirement
+});
+
+function analyzeSafeZone(history, options = {}) {
+    const colorPriority = ['black', 'red', 'white'];
+    const windowSize = Math.max(5, Math.min(options.windowSize || SAFE_ZONE_DEFAULTS.windowSize, history.length));
+    const minPrimary = Math.max(1, options.minPrimary || SAFE_ZONE_DEFAULTS.primaryRequirement);
+    const minSecondary = Math.max(1, options.minSecondary || SAFE_ZONE_DEFAULTS.secondaryRequirement);
+    const windowSpins = history.slice(0, windowSize);
+    const counts = { red: 0, black: 0, white: 0 };
+    windowSpins.forEach(spin => {
+        if (spin && counts.hasOwnProperty(spin.color)) {
+            counts[spin.color]++;
+        }
+    });
+
+    const result = {
+        windowSize,
+        minPrimary,
+        minSecondary,
+        counts,
+        dominant: null,
+        secondary: null,
+        lastColor: windowSpins[0]?.color || history[0]?.color || null,
+        zoneActive: false,
+        signal: false,
+        strength: 0,
+        reason: 'req_not_met'
+    };
+
+    if (windowSpins.length < windowSize) {
+        result.reason = 'insufficient_history';
+        return result;
+    }
+
+    const eligibleDominants = colorPriority
+        .filter(color => counts[color] >= minPrimary)
+        .sort((a, b) => {
+            if (counts[b] === counts[a]) {
+                return colorPriority.indexOf(a) - colorPriority.indexOf(b);
+            }
+            return counts[b] - counts[a];
+        });
+
+    if (!eligibleDominants.length) {
+        return result;
+    }
+
+    result.dominant = eligibleDominants[0];
+
+    const secondaryCandidates = colorPriority
+        .filter(color => color !== result.dominant && counts[color] >= minSecondary)
+        .sort((a, b) => counts[b] - counts[a]);
+
+    if (!secondaryCandidates.length) {
+        return result;
+    }
+
+    result.secondary = secondaryCandidates[0];
+    result.zoneActive = true;
+    result.strength = Math.min(1, counts[result.dominant] / windowSize);
+
+    if (result.lastColor === result.dominant) {
+        result.signal = true;
+        result.reason = 'zone_active_last_is_dominant';
+    } else {
+        result.signal = false;
+        result.reason = 'last_not_dominant';
+    }
+
+    return result;
+}
+
+function getSafeZoneSettingsFromAnalyzerConfig() {
+    const windows = analyzerConfig?.diamondLevelWindows || {};
+    let windowSize = Number(windows.n1WindowSize) || SAFE_ZONE_DEFAULTS.windowSize;
+    let minPrimary = Number(windows.n1PrimaryRequirement) || SAFE_ZONE_DEFAULTS.primaryRequirement;
+    let minSecondary = Number(windows.n1SecondaryRequirement) || SAFE_ZONE_DEFAULTS.secondaryRequirement;
+
+    windowSize = Math.max(5, Math.min(200, windowSize));
+    minPrimary = Math.max(1, Math.min(windowSize - 1, minPrimary));
+    minSecondary = Math.max(1, Math.min(minPrimary - 1, minSecondary));
+
+    return {
+        windowSize,
+        minPrimary,
+        minSecondary
+    };
+}
 
 function getDiamondLevelKeyFromId(levelId = '') {
     return String(levelId).toLowerCase();
@@ -557,21 +652,6 @@ let aiModeJustActivated = false;
 
 // Armazena timeouts usados para animar a exibição sequencial dos níveis Diamante
 let lastDiamondLevelTimeouts = [];
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// 🔥 MODO PADRÃO QUENTE - VARIÁVEIS GLOBAIS
-// ═══════════════════════════════════════════════════════════════════════════════
-let hotPatternMode = false;  // Modo Padrão Quente ativo/inativo
-let currentHotPattern = null; // Padrão quente atual
-let hotPatternState = {
-    pattern: null,           // Padrão (ex: [red, red, red, black])
-    prediction: null,        // Cor prevista (ex: 'red')
-    consecutiveLosses: 0,    // 0, 1, ou 2 (abandonar se >= 2)
-    status: 'searching',     // 'searching', 'active', 'observing', 'abandoned'
-    totalWins: 0,
-    totalLosses: 0,
-    winRate: 0
-};
 
 // 📊 CONTADOR DE CORES RECOMENDADAS PELA IA (para detectar viés)
 let aiColorCounter = {
@@ -4605,7 +4685,7 @@ async function loadCustomPatterns() {
     }
     
     console.log('%c║  🎯 PADRÕES CUSTOMIZADOS DESATIVADOS (MODO DIAMANTE)     ║', 'color: #666; font-weight: bold;');
-    console.log('%c   ➤ Análise focada apenas no Padrão Quente automático', 'color: #666; font-style: italic;');
+    console.log('%c   ➤ Análise focada apenas na Zona Segura automática', 'color: #666; font-style: italic;');
         
         return customPatternsCache;
 }
@@ -4768,11 +4848,6 @@ function analyzeCustomPatternStatistics(matches) {
 async function checkForCustomPatterns(history) {
     // ⚠️ Funcionalidade desativada: padrões customizados foram removidos do sistema.
     return null;
-    console.log('%c║  🎯 PADRÕES CUSTOMIZADOS DESATIVADOS (MODO DIAMANTE)     ║', 'color: #666; font-weight: bold;');
-    console.log('%c   ➤ Somente o Padrão Quente automático será utilizado', 'color: #666; font-style: italic;');
-    
-    return null;
-    
     // ✅ SEMPRE recarregar do storage para pegar mudanças mais recentes
     console.log('%c🔄 Recarregando padrões customizados do storage...', 'color: #00d4ff; font-weight: bold;');
     await loadCustomPatterns();
@@ -6206,93 +6281,6 @@ async function checkPreviousSignalAccuracy(newSpin) {
     
     // Salvar
     await saveSignalsHistory();
-    
-    // ═══════════════════════════════════════════════════════════════
-    // 🔥 ATUALIZAR ESTADO DO PADRÃO QUENTE (se ativo)
-    // ═══════════════════════════════════════════════════════════════
-    if (hotPatternMode && hotPatternState.pattern) {
-        console.log('%c🔥 ATUALIZANDO ESTADO DO PADRÃO QUENTE', 'color: #FF6B35; font-weight: bold;');
-        console.log(`   Status atual: ${hotPatternState.status.toUpperCase()}`);
-        console.log(`   LOSSes consecutivos: ${hotPatternState.consecutiveLosses}`);
-        
-        if (hotPatternState.status === 'observing') {
-            // Estava em observação, verificar resultado
-            if (hit) {
-                console.log('   ✅ WIN! Voltando para status ACTIVE');
-                hotPatternState.consecutiveLosses = 0;
-                hotPatternState.status = 'active';
-                hotPatternState.totalWins++;
-                
-                // 💾 ATUALIZAR PADRÃO SALVO (voltou para active)
-                chrome.storage.local.get('savedHotPattern', (result) => {
-                    if (result.savedHotPattern) {
-                        result.savedHotPattern.totalWins = hotPatternState.totalWins;
-                        result.savedHotPattern.consecutiveLosses = 0;
-                        chrome.storage.local.set({ savedHotPattern: result.savedHotPattern });
-                    }
-                });
-            } else {
-                console.log('   ❌ LOSS! 2º consecutivo - ABANDONANDO PADRÃO');
-                hotPatternState.consecutiveLosses = 2;
-                hotPatternState.status = 'abandoned';
-                hotPatternState.totalLosses++;
-                console.log('   🔍 Buscando NOVO padrão quente AUTOMATICAMENTE...');
-                
-                // 🗑️ LIMPAR PADRÃO SALVO (foi abandonado)
-                chrome.storage.local.remove('savedHotPattern');
-                console.log('🗑️ Padrão abandonado removido do storage');
-                
-                // Notificar content.js para mostrar "Buscando..."
-        if (!analyzerConfig.aiMode) {
-                chrome.tabs.query({url: '*://blaze.com/*'}, function(tabs) {
-                    tabs.forEach(tab => {
-                        chrome.tabs.sendMessage(tab.id, {
-                            type: 'HOT_PATTERN_SEARCHING'
-                        }).catch(() => {});
-                    });
-                });
-        }
-            }
-        } else if (hotPatternState.status === 'active') {
-            // Estava ativo, verificar resultado
-            if (hit) {
-                console.log('   ✅ WIN! Mantendo status ACTIVE');
-                hotPatternState.totalWins++;
-                
-                // 💾 ATUALIZAR PADRÃO SALVO (manter stats atualizados)
-                chrome.storage.local.get('savedHotPattern', (result) => {
-                    if (result.savedHotPattern) {
-                        result.savedHotPattern.totalWins = hotPatternState.totalWins;
-                        result.savedHotPattern.consecutiveLosses = 0;
-                        chrome.storage.local.set({ savedHotPattern: result.savedHotPattern });
-                    }
-                });
-            } else {
-                console.log('   ❌ LOSS! Indo para status OBSERVING');
-                hotPatternState.consecutiveLosses = 1;
-                hotPatternState.status = 'observing';
-                hotPatternState.totalLosses++;
-                
-                // 💾 ATUALIZAR PADRÃO SALVO (1 loss, observando)
-                chrome.storage.local.get('savedHotPattern', (result) => {
-                    if (result.savedHotPattern) {
-                        result.savedHotPattern.consecutiveLosses = 1;
-                        chrome.storage.local.set({ savedHotPattern: result.savedHotPattern });
-                    }
-                });
-            }
-        }
-        
-        // Recalcular win rate
-        const total = hotPatternState.totalWins + hotPatternState.totalLosses;
-        if (total > 0) {
-            hotPatternState.winRate = hotPatternState.totalWins / total;
-        }
-        
-        console.log(`   Novo status: ${hotPatternState.status.toUpperCase()}`);
-        console.log(`   LOSSes consecutivos: ${hotPatternState.consecutiveLosses}`);
-        console.log(`   Win Rate: ${(hotPatternState.winRate * 100).toFixed(1)}%`);
-    }
 }
 
 /**
@@ -7679,331 +7667,6 @@ function analyzeSequenceViability(history, suggestedColor) {
         currentLength: currentSequenceLength,
         isViable: false
     };
-}
-
-/**
- * ✅ VERIFICAR SE PADRÃO SALVO AINDA É VÁLIDO
- * Checa se o padrão ainda aparece recentemente e mantém 100% WIN
- */
-function verifyHotPatternStillValid(history, savedPattern) {
-    try {
-        
-        const hotWindow = getDiamondWindow('n1HotPattern', 60);
-        const windowHistory = history.slice(0, Math.min(hotWindow, history.length));
-        const patternSize = savedPattern.pattern.length;
-        
-        // Procurar se o padrão ainda aparece nos últimos giros configurados
-        let found = false;
-        let totalWins = 0;
-        let totalLosses = 0;
-        
-        for (let i = 0; i <= windowHistory.length - patternSize - 1; i++) {
-            const currentPattern = windowHistory.slice(i, i + patternSize).map(s => s.color);
-            
-            if (JSON.stringify(currentPattern) === JSON.stringify(savedPattern.pattern)) {
-                found = true;
-                const result = windowHistory[i + patternSize].color;
-                
-                if (result === savedPattern.prediction) {
-                    totalWins++;
-                } else {
-                    totalLosses++;
-                }
-            }
-        }
-        
-        // Padrão é válido se:
-        // 1. Ainda aparece na janela configurada
-        // 2. Tem pelo menos 2 ocorrências da cor prevista
-        // 3. Não teve 2+ losses consecutivos recentes
-        const isValid = found && totalWins >= 2;
-        
-        console.log(`   ✓ Padrão encontrado: ${found}`);
-        console.log(`   ✓ Total WINs: ${totalWins}`);
-        console.log(`   ✓ Total LOSSes: ${totalLosses}`);
-        console.log(`   ${isValid ? '✅ PADRÃO AINDA É VÁLIDO!' : '❌ PADRÃO NÃO É MAIS VÁLIDO'}`);
-        
-        return isValid;
-    } catch (error) {
-        console.error('❌ Erro ao verificar padrão salvo:', error);
-        return false;
-    }
-}
-
-/**
- * 🔥 DETECTAR PADRÃO QUENTE NOS ÚLTIMOS 75 GIROS
- * Encontra padrões de 4-6 giros com maior taxa de acerto
- * ⚙️ DETERMINÍSTICO: Sempre retorna o mesmo padrão com o mesmo histórico
- * ⏱️ RÁPIDO: Executa em <100ms (otimizado, sem logs excessivos)
- */
-function detectHotPattern(history, windowSize = 60) {
-    const startTime = performance.now(); // ⏱️ MEDIR TEMPO
-    
-    try {
-        console.log('🔥 DETECTANDO PADRÃO QUENTE');
-        
-        if (!history || history.length < 12) {
-            console.log('⚠️ Histórico insuficiente (mínimo 12 giros)');
-            return null;
-        }
-    
-    // Pegar últimos 60 giros (padrão para Modo Diamante)
-    const effectiveWindow = Math.max(12, Math.min(windowSize, history.length));
-    const windowHistory = history.slice(0, effectiveWindow);
-    console.log(`📊 Analisando ${windowHistory.length} giros (janela configurada: ${windowSize}) - buscando padrões 4-6 giros...`);
-    
-    // Debug: mostrar os últimos 15 giros
-    const preview = windowHistory.slice(0, 15).map(s => {
-        if (s.color === 'red') return '🔴';
-        if (s.color === 'black') return '⚫';
-        return '⚪';
-    }).join(' ');
-    console.log(`🎲 Últimos 15 giros: ${preview}`);
-    
-    const candidatos = [];
-    
-    // Testar padrões de tamanho 4, 5 e 6 (MÍNIMO 4 GIROS)
-    for (let patternSize = 4; patternSize <= 6; patternSize++) {
-        if (windowHistory.length < patternSize + 1) {
-            continue;
-        }
-        
-        // Mapear todos os padrões possíveis desse tamanho
-        const patternMap = {};
-        let patternsFound = 0;
-        
-        for (let i = 0; i <= windowHistory.length - patternSize - 1; i++) {
-            // Extrair padrão (ex: [red, red, black])
-            const pattern = windowHistory.slice(i, i + patternSize).map(s => s.color);
-            const result = windowHistory[i + patternSize].color; // Próxima cor (resultado)
-            
-            const patternKey = pattern.join('-');
-            
-            if (!patternMap[patternKey]) {
-                patternMap[patternKey] = {
-                    pattern: pattern,
-                    occurrences: [],
-                    predictions: { red: 0, black: 0, white: 0 },
-                    totalWins: 0,
-                    totalLosses: 0,
-                    consecutiveLosses: 0,
-                    maxConsecutiveLosses: 0
-                };
-            }
-            
-            patternMap[patternKey].occurrences.push({
-                result: result,
-                index: i,
-                timestamp: windowHistory[i + patternSize].timestamp // Timestamp do giro resultado
-            });
-            
-            // Contar previsões (qual cor mais saiu depois desse padrão)
-            patternMap[patternKey].predictions[result]++;
-        }
-        
-        // Analisar cada padrão encontrado
-        let validPatterns = 0;
-        for (const key in patternMap) {
-            const data = patternMap[key];
-            
-            // ✅ NOVO CRITÉRIO: Mínimo 2 ocorrências (não precisa ser muitas)
-            if (data.occurrences.length < 2) continue;
-            
-            // Determinar cor prevista (mais frequente)
-            let predictedColor = 'red';
-            let maxCount = data.predictions.red;
-            if (data.predictions.black > maxCount) {
-                predictedColor = 'black';
-                maxCount = data.predictions.black;
-            }
-            
-            // ✅ NOVO ALGORITMO CORRETO:
-            // Contar APENAS as vezes que a cor prevista saiu (ignorar outras cores)
-            const timesPredictedColorAppeared = data.predictions[predictedColor];
-            
-            // Se a cor prevista saiu menos de 2 vezes, descartar
-            if (timesPredictedColorAppeared < 2) {
-                continue;
-            }
-            
-            // ASSUMIR 100% WIN: Se o padrão apareceu e sempre saiu a mesma cor depois,
-            // isso indica um padrão forte! Não precisa verificar "acerto" porque
-            // o padrão EM SI já é o indicador.
-            data.totalWins = timesPredictedColorAppeared;
-            data.totalLosses = 0; // Não contamos outras cores como "loss"
-            
-            const winRate = 1.0; // 100% porque estamos contando apenas a cor que mais saiu
-            
-            // Pegar timestamp da última ocorrência (mais recente, index mais baixo)
-            const lastOccurrence = data.occurrences.reduce((latest, current) => {
-                return current.index < latest.index ? current : latest;
-            });
-            
-            // Capturar os timestamps de CADA giro do padrão (para mostrar nos ícones)
-            const patternTimestamps = [];
-            for (let j = 0; j < patternSize; j++) {
-                if (windowHistory[lastOccurrence.index + j]) {
-                    patternTimestamps.push(windowHistory[lastOccurrence.index + j].timestamp);
-                }
-            }
-            
-            candidatos.push({
-                pattern: data.pattern,
-                prediction: predictedColor,
-                occurrences: data.occurrences.length,
-                totalWins: data.totalWins,
-                totalLosses: data.totalLosses,
-                winRate: winRate,
-                maxConsecutiveLosses: 0, // Zero porque assumimos 100% WIN
-                lastOccurrenceTimestamp: lastOccurrence.timestamp, // Horário da última vez que o padrão apareceu
-                patternTimestamps: patternTimestamps // Timestamps de CADA giro do padrão
-            });
-            validPatterns++;
-        }
-    }
-    
-    console.log(`   ✓ ${candidatos.length} candidatos encontrados (4-6 giros)`);
-    
-    // ✅ SE NÃO ENCONTROU com 4-6 giros, tentar com padrões MENORES (3 giros)
-    if (candidatos.length === 0) {
-        console.log('   ⚠️ Nenhum padrão de 4-6 giros, tentando 3 giros (fallback)...');
-        
-        const patternSize = 3;
-        if (windowHistory.length >= patternSize + 1) {
-            const patternMap = {};
-            
-            for (let i = 0; i <= windowHistory.length - patternSize - 1; i++) {
-                const pattern = windowHistory.slice(i, i + patternSize).map(s => s.color);
-                const result = windowHistory[i + patternSize].color;
-                
-                const patternKey = pattern.join('-');
-                
-                if (!patternMap[patternKey]) {
-                    patternMap[patternKey] = {
-                        pattern: pattern,
-                        occurrences: [],
-                        predictions: { red: 0, black: 0, white: 0 }
-                    };
-                }
-                
-                patternMap[patternKey].occurrences.push({ 
-                    result: result, 
-                    index: i,
-                    timestamp: windowHistory[i + patternSize].timestamp
-                });
-                patternMap[patternKey].predictions[result]++;
-            }
-            
-            for (const key in patternMap) {
-                const data = patternMap[key];
-                
-                // Padrão deve aparecer pelo menos 2 vezes
-                if (data.occurrences.length < 2) continue;
-                
-                // Determinar cor mais frequente
-                let predictedColor = 'red';
-                let maxCount = data.predictions.red;
-                if (data.predictions.black > maxCount) {
-                    predictedColor = 'black';
-                    maxCount = data.predictions.black;
-                }
-                
-                const timesPredictedColorAppeared = data.predictions[predictedColor];
-                
-                // Se a cor prevista saiu menos de 2 vezes, descartar
-                if (timesPredictedColorAppeared < 2) continue;
-                
-                // Pegar timestamp da última ocorrência (mais recente, index mais baixo)
-                const lastOccurrence = data.occurrences.reduce((latest, current) => {
-                    return current.index < latest.index ? current : latest;
-                });
-                
-                // Capturar os timestamps de CADA giro do padrão (para mostrar nos ícones)
-                const patternTimestamps = [];
-                for (let j = 0; j < patternSize; j++) {
-                    if (windowHistory[lastOccurrence.index + j]) {
-                        patternTimestamps.push(windowHistory[lastOccurrence.index + j].timestamp);
-                    }
-                }
-                
-                candidatos.push({
-                    pattern: data.pattern,
-                    prediction: predictedColor,
-                    occurrences: data.occurrences.length,
-                    totalWins: timesPredictedColorAppeared,
-                    totalLosses: 0,
-                    winRate: 1.0,
-                    maxConsecutiveLosses: 0,
-                    lastOccurrenceTimestamp: lastOccurrence.timestamp,
-                    patternTimestamps: patternTimestamps // Timestamps de CADA giro do padrão
-                });
-            }
-        }
-        
-        if (candidatos.length === 0) {
-            console.log('   ❌ Nenhum padrão encontrado (histórico aleatório ou insuficiente)');
-            return null;
-        }
-    }
-    
-    console.log(`   ✅ ${candidatos.length} padrão(ões) encontrado(s)`);
-    
-    // Ordenar por (DETERMINÍSTICO):
-    // 1. Maior win rate (deve ser 100%)
-    // 2. Maior número de ocorrências da cor prevista
-    // 3. Mais recente (timestamp maior = mais recente)
-    // 4. Maior número total de ocorrências do padrão
-    candidatos.sort((a, b) => {
-        // 1º critério: win rate
-        if (b.winRate !== a.winRate) return b.winRate - a.winRate;
-        
-        // 2º critério: total de wins
-        if (b.totalWins !== a.totalWins) return b.totalWins - a.totalWins;
-        
-        // 3º critério: MAIS RECENTE (timestamp da última ocorrência)
-        // Timestamp maior = mais recente
-        if (b.lastOccurrenceTimestamp !== a.lastOccurrenceTimestamp) {
-            return new Date(b.lastOccurrenceTimestamp) - new Date(a.lastOccurrenceTimestamp);
-        }
-        
-        // 4º critério: mais ocorrências totais
-        return b.occurrences - a.occurrences;
-    });
-    
-    const melhor = candidatos[0];
-    
-    const patternDisplay = melhor.pattern.map(color => {
-        if (color === 'red') return '🔴 RED';
-        if (color === 'black') return '⚫ BLACK';
-        return '⚪ WHITE';
-    }).join(' → ');
-    const predDisplay = melhor.prediction === 'red' ? '🔴 RED' : (melhor.prediction === 'black' ? '⚫ BLACK' : '⚪ WHITE');
-    
-    console.log('🔥🔥🔥 PADRÃO QUENTE IDENTIFICADO! 🔥🔥🔥');
-    console.log(`   📋 Padrão: ${patternDisplay}`);
-    console.log(`   🎯 Previsão: ${predDisplay}`);
-    console.log(`   📊 Padrão apareceu: ${melhor.occurrences} vezes nos últimos 50 giros`);
-    console.log(`   ✅ Cor prevista (${melhor.prediction.toUpperCase()}) saiu: ${melhor.totalWins} vezes`);
-    console.log(`   🎯 Frequência: ${((melhor.totalWins / melhor.occurrences) * 100).toFixed(1)}%`);
-    console.log(`   ⏰ Última vez que apareceu: ${new Date(melhor.lastOccurrenceTimestamp).toLocaleTimeString('pt-BR')}`);
-    console.log('💡 POR QUE ESTE PADRÃO FOI ESCOLHIDO:');
-    console.log(`   1️⃣ Win Rate: ${(melhor.winRate * 100).toFixed(1)}% (critério principal)`);
-    console.log(`   2️⃣ Total de Wins: ${melhor.totalWins}x (cor prevista acertou)`);
-    console.log(`   3️⃣ Recente: apareceu às ${new Date(melhor.lastOccurrenceTimestamp).toLocaleTimeString('pt-BR')} (desempate)`);
-    console.log(`   4️⃣ Ocorrências totais: ${melhor.occurrences}x (último critério)`);
-    console.log('✅ Este padrão é DETERMINÍSTICO - sempre será o mesmo com o mesmo histórico!');
-    
-    const elapsedTime = (performance.now() - startTime).toFixed(2);
-    console.log(`⏱️ TEMPO DE EXECUÇÃO: ${elapsedTime}ms`);
-    
-    return melhor;
-    
-    } catch (error) {
-        console.error('❌❌❌ ERRO CRÍTICO em detectHotPattern! ❌❌❌');
-        console.error('Erro:', error);
-        console.error('Stack:', error.stack);
-        return null;
-    }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -12877,7 +12540,6 @@ async function analyzeWithPatternSystem(history) {
     logSection('📊 1. Validação de dados de entrada');
     console.log(`   ✓ history existe? ${!!history ? '✅ SIM' : '❌ NÃO'}`);
     console.log(`   ✓ history.length = ${history ? history.length : 'N/A'}`);
-    console.log(`   ✓ hotPatternMode = ${hotPatternMode ? '✅ ATIVO' : '❌ INATIVO'}`);
     
     if (history && history.length > 0) {
         logSection('📜 Últimos 20 giros do histórico (dados reais)');
@@ -12893,7 +12555,7 @@ async function analyzeWithPatternSystem(history) {
         logSection(`[Diamante] Análise (${activeLevelsSummary} níveis ativos)`);
         [
             'N0 - Detector de Branco · bloqueio dinâmico',
-            'N1 - Padrões · customizado/quente/nulo',
+            'N1 - Zona Segura · predominância confirmada',
             'N2 - Momentum · comparação entre janelas',
             'N3 - Alternância Inteligente · n-grams configuráveis',
             'N4 - Persistência / Ciclos',
@@ -12909,7 +12571,9 @@ async function analyzeWithPatternSystem(history) {
     
     // Pegar configurações do analyzerConfig
     const userDiamondWindows = analyzerConfig.diamondLevelWindows || {};
-    const n1Window = getDiamondWindow('n1HotPattern', 60);
+    const n1WindowSize = getDiamondWindow('n1WindowSize', SAFE_ZONE_DEFAULTS.windowSize);
+    const n1PrimaryRequirement = getDiamondWindow('n1PrimaryRequirement', SAFE_ZONE_DEFAULTS.primaryRequirement);
+    const n1SecondaryRequirement = getDiamondWindow('n1SecondaryRequirement', SAFE_ZONE_DEFAULTS.secondaryRequirement);
     const n2RecentWindow = getDiamondWindow('n2Recent', 5);
     const n2PreviousWindow = getDiamondWindow('n2Previous', 15);
     const n3Window = getDiamondWindow('n3Alternance', 12);
@@ -12938,7 +12602,7 @@ async function analyzeWithPatternSystem(history) {
     
     [
         ['N0', `Hist ${n0HistoryConfigured} | W ${n0WindowConfigured} | BlockAll ${analyzerConfig.n0AllowBlockAll !== false ? 'sim' : 'não'}`],
-        ['N1', `${n1Window} giros`],
+        ['N1', `Zona Segura → W ${n1WindowSize} | minA ${n1PrimaryRequirement} | minB ${n1SecondaryRequirement}`],
         ['N2', `Recente ${n2RecentWindow} | Anterior ${n2PreviousWindow}`],
         ['N3', `Hist ${n3Window} | L ${getDiamondWindow('n3PatternLength', 4)} | Rigor ${getDiamondWindow('n3ThresholdPct', 75)}%`],
         ['N4', `${n4Window} giros`],
@@ -12953,7 +12617,9 @@ async function analyzeWithPatternSystem(history) {
     
     // Verificar se os valores são padrão ou personalizados
     const isN0Custom = n0HistoryConfigured !== N0_DEFAULTS.historySize || n0WindowConfigured !== N0_DEFAULTS.windowSize;
-    const isN1Custom = n1Window !== 60;
+    const isN1Custom = n1WindowSize !== SAFE_ZONE_DEFAULTS.windowSize ||
+        n1PrimaryRequirement !== SAFE_ZONE_DEFAULTS.primaryRequirement ||
+        n1SecondaryRequirement !== SAFE_ZONE_DEFAULTS.secondaryRequirement;
     const isN2Custom = n2RecentWindow !== 5 || n2PreviousWindow !== 15;
     const isN3Custom = n3Window !== 12;
     const isN4Custom = n4Window !== 20;
@@ -13101,152 +12767,6 @@ async function analyzeWithPatternSystem(history) {
         }
         
         // ═══════════════════════════════════════════════════════════════
-        // 🔥 MODO PADRÃO QUENTE (NÍVEL 1 DO MODO DIAMANTE)
-        // ═══════════════════════════════════════════════════════════════
-        let hotPatternSignal = null;
-        
-        // ✅ CORREÇÃO: Executar quando Modo Diamante (aiMode) estiver ativo
-        // O Padrão Quente é o NÍVEL 1 do sistema Diamante
-        if (analyzerConfig.aiMode) {
-            console.log('%c║  🔥 NÍVEL 1 - PADRÃO QUENTE (MODO DIAMANTE ATIVO)        ║', 'color: #FF6B35; font-weight: bold; font-size: 14px;');
-            console.log('%c🔍 STATUS ATUAL DO PADRÃO QUENTE:', 'color: #FF6B35; font-weight: bold;');
-            console.log(`%c   ➤ Status: ${hotPatternState.status.toUpperCase()}`, 'color: #FF6B35;');
-            console.log(`%c   ➤ LOSSes consecutivos: ${hotPatternState.consecutiveLosses}`, 'color: #FF6B35;');
-            console.log(`%c   ➤ Total WINs: ${hotPatternState.totalWins || 0}`, 'color: #00FF88;');
-            console.log(`%c   ➤ Total LOSSes: ${hotPatternState.totalLosses || 0}`, 'color: #FF6666;');
-            console.log(`%c   ➤ Win Rate: ${((hotPatternState.winRate || 0) * 100).toFixed(1)}%`, 'color: #FFD700;');
-            if (hotPatternState.pattern && hotPatternState.pattern.length > 0) {
-                const patternDisplay = hotPatternState.pattern.map(c => c === 'red' ? '🔴' : c === 'black' ? '⚫' : '⚪').join(' → ');
-                const predictionDisplay = hotPatternState.prediction === 'red' ? '🔴' : hotPatternState.prediction === 'black' ? '⚫' : '⚪';
-                console.log(`%c   ➤ Padrão: ${patternDisplay} → ${predictionDisplay}`, 'color: #FFD700; font-weight: bold;');
-            }
-            
-            // Se status = 'searching' ou 'abandoned', VERIFICAR SE HÁ PADRÃO SALVO primeiro
-            if (hotPatternState.status === 'searching' || hotPatternState.status === 'abandoned') {
-                let detected = null;
-                
-                // ✅ VERIFICAR SE HÁ PADRÃO SALVO NO STORAGE
-                const savedResult = await chrome.storage.local.get('savedHotPattern');
-                
-                if (savedResult.savedHotPattern) {
-                    console.log('💾 PADRÃO SALVO ENCONTRADO NO STORAGE!');
-                    
-                    const isValid = verifyHotPatternStillValid(history, savedResult.savedHotPattern);
-                    
-                    if (isValid) {
-                        console.log('✅ PADRÃO SALVO AINDA É VÁLIDO - REUTILIZANDO!');
-                        detected = savedResult.savedHotPattern;
-                    } else {
-                        console.log('❌ Padrão salvo não é mais válido - buscando novo...');
-                        chrome.storage.local.remove('savedHotPattern');
-                    }
-                }
-                
-                // Se não tinha padrão salvo ou não é mais válido, buscar novo
-                if (!detected) {
-                    const hotWindow = getDiamondWindow('n1HotPattern', 60);
-                    console.log(`🔍 Buscando padrão quente nos últimos ${hotWindow} giros...`);
-                    detected = detectHotPattern(history, hotWindow);
-                }
-                
-                
-                if (detected) {
-                    hotPatternState = {
-                        pattern: detected.pattern,
-                        prediction: detected.prediction,
-                        consecutiveLosses: 0,
-                        status: 'active',
-                        totalWins: detected.totalWins,
-                        totalLosses: detected.totalLosses,
-                        winRate: detected.winRate
-                    };
-                    console.log('✅ Padrão quente detectado e ativado!');
-                    
-                    // 💾 SALVAR O PADRÃO NO STORAGE (para persistir ao recarregar)
-                    try {
-                        await chrome.storage.local.set({
-                            savedHotPattern: {
-                                pattern: detected.pattern,
-                                prediction: detected.prediction,
-                                occurrences: detected.occurrences,
-                                totalWins: detected.totalWins,
-                                totalLosses: detected.totalLosses,
-                                winRate: detected.winRate,
-                                consecutiveLosses: 0,
-                                patternTimestamps: detected.patternTimestamps, // Timestamps de cada giro
-                                lastOccurrenceTimestamp: detected.lastOccurrenceTimestamp,
-                                savedAt: Date.now()
-                            }
-                        });
-                        console.log('💾 Padrão salvo no storage para persistir ao recarregar!');
-                    } catch (error) {
-                        console.error('❌ Erro ao salvar padrão:', error);
-                    }
-                    
-                    // ✅ CORREÇÃO: Notificar TODAS as tabs do Blaze (Modo Diamante também precisa receber)
-                    chrome.tabs.query({url: '*://blaze.com/*'}, function(tabs) {
-                        tabs.forEach(tab => {
-                            chrome.tabs.sendMessage(tab.id, {
-                                type: 'HOT_PATTERN_FOUND',
-                                data: {
-                                    pattern: detected.pattern,
-                                    prediction: detected.prediction,
-                                    occurrences: detected.occurrences,
-                                    totalWins: detected.totalWins,
-                                    lastOccurrenceTimestamp: detected.lastOccurrenceTimestamp,
-                                    patternTimestamps: detected.patternTimestamps // Timestamps de cada giro
-                                }
-                            }).catch(() => {});
-                        });
-                    });
-                } else {
-                    console.log('⚠️⚠️⚠️ Nenhum padrão quente disponível no momento!');
-                    
-                    // ✅ CORREÇÃO: Notificar TODAS as tabs do Blaze (Modo Diamante também precisa receber)
-                    chrome.tabs.query({url: '*://blaze.com/*'}, function(tabs) {
-                        tabs.forEach(tab => {
-                            chrome.tabs.sendMessage(tab.id, {
-                                type: 'HOT_PATTERN_NOT_FOUND'
-                            }).catch(() => {});
-                        });
-                    });
-                }
-            }
-            
-            // Se temos um padrão ativo, verificar se bate com os últimos giros
-            if (hotPatternState.pattern && Array.isArray(hotPatternState.pattern) && hotPatternState.pattern.length > 0) {
-                const patternLength = hotPatternState.pattern.length;
-                const currentSequence = history.slice(0, patternLength).map(s => s.color);
-                const patternMatch = JSON.stringify(currentSequence) === JSON.stringify(hotPatternState.pattern);
-                
-                console.log(`   Padrão: ${hotPatternState.pattern.map(c => c.toUpperCase()).join(' → ')}`);
-                console.log(`   Atual:  ${currentSequence.map(c => c.toUpperCase()).join(' → ')}`);
-                console.log(`   Match:  ${patternMatch ? '✅ SIM' : '❌ NÃO'}`);
-                console.log(`   Status: ${hotPatternState.status.toUpperCase()}`);
-                console.log(`   LOSSes consecutivos: ${hotPatternState.consecutiveLosses}`);
-                
-                if (patternMatch) {
-                    if (hotPatternState.status === 'active' && hotPatternState.consecutiveLosses === 0) {
-                        // Enviar sinal!
-                        console.log('🔥🔥🔥 PADRÃO QUENTE DETECTADO - ENVIANDO SINAL! 🔥🔥🔥');
-                        console.log(`   Cor prevista: ${hotPatternState.prediction.toUpperCase()}`);
-                        hotPatternSignal = {
-                            color: hotPatternState.prediction,
-                            confidence: Math.round(hotPatternState.winRate * 100),
-                            pattern: hotPatternState.pattern,
-                            source: 'hot_pattern'
-                        };
-                    } else if (hotPatternState.consecutiveLosses === 1) {
-                        // Apenas observar (não enviar)
-                        console.log('👀 PADRÃO QUENTE EM OBSERVAÇÃO - NÃO ENVIANDO SINAL');
-                        console.log('   Aguardando resultado para validar...');
-                    }
-                }
-            }
-            
-        }
-        
-        // ═══════════════════════════════════════════════════════════════
         // 💎 FLUXO ATUAL - NÍVEL DIAMANTE: 5 NÍVEIS COM PONTUAÇÃO
         // ═══════════════════════════════════════════════════════════════
         
@@ -13289,51 +12809,63 @@ async function analyzeWithPatternSystem(history) {
     const targetMinute = nextSpinDate.getMinutes();
         
     // ═══════════════════════════════════════════════════════════════
-        // 🎯 NÍVEL 1: PADRÃO QUENTE (AUTOMÁTICO)
+        // 🎯 NÍVEL 1: ZONA SEGURA
     // ═══════════════════════════════════════════════════════════════
-        console.log('%c║  🎯 NÍVEL 1: PADRÃO QUENTE                              ║', 'color: #FF6B35; font-weight: bold; font-size: 14px;');
+        console.log('%c║  🛡️ NÍVEL 1: ZONA SEGURA                             ║', 'color: #FF6B35; font-weight: bold; font-size: 14px;');
         
-        let nivel4 = null;
+        let safeZoneVote = null;
+        let safeZoneMeta = null;
 		let patternDescription = 'Análise Nível Diamante - 11 Níveis';
         
-    // ETAPA 1: Verificar PADRÕES CUSTOMIZADOS
-        console.log('%cℹ️ Padrões customizados desativados para o Nível 1', 'color: #888; font-style: italic;');
-        console.log(`%c   Configuração atual de giros (hot pattern): ${getDiamondWindow('n1HotPattern', historySize)} giros`, 'color: #FF6B35;');
-    
-    // ✅ USAR totalHistory (respeitando a configuração do usuário) em vez de history (todos os giros)
-        const customPatternResult = null;
+        const safeZoneSettings = getSafeZoneSettingsFromAnalyzerConfig();
+        console.log(`%c   Configurações: janela ${safeZoneSettings.windowSize} | mín A ${safeZoneSettings.minPrimary} | mín B ${safeZoneSettings.minSecondary}`, 'color: #FF6B35;');
+        safeZoneMeta = analyzeSafeZone(history, safeZoneSettings);
         
-        if (customPatternResult) {
-            // ✅ PADRÃO CUSTOMIZADO ENCONTRADO!
-            const customConfidence = Math.min(1, Math.max(0.3, (customPatternResult.confidence ?? 70) / 100));
-            nivel4 = { color: customPatternResult.color, source: 'custom', confidence: customConfidence, patternName: customPatternResult.patternName };
-            patternDescription = `${customPatternResult.patternName}`;
-            
-            console.log('%c🎯 PADRÃO CUSTOMIZADO DETECTADO!', 'color: #FF00FF; font-weight: bold; font-size: 16px; background: #FFD700;');
-            console.log(`%c   Padrão: ${customPatternResult.patternName}`, 'color: #FF00FF; font-weight: bold;');
-            console.log(`%c   🗳️ VOTA: ${customPatternResult.color.toUpperCase()}`, `color: ${customPatternResult.color === 'red' ? '#FF0000' : '#FFFFFF'}; font-weight: bold; font-size: 14px;`);
+        if (!safeZoneMeta.zoneActive) {
+            console.log(`%c⚠️ Zona inativa → ${safeZoneMeta.reason}`, 'color: #888; font-style: italic;');
         } else {
-            console.log('%cℹ️ Nenhum padrão customizado será buscado (feature desativada)', 'color: #888; font-style: italic;');
-            
-            // Foco exclusivo no padrão quente automático
-            console.log('%c🔥 PADRÃO QUENTE AUTOMÁTICO', 'color: #FF6B35; font-weight: bold;');
-            console.log(`%c   Janela configurada: ${getDiamondWindow('n1HotPattern', 60)} giros`, 'color: #FF6B35;');
-            
-            if (hotPatternSignal && hotPatternSignal.source === 'hot_pattern') {
-                const hotConfidence = Math.min(1, Math.max(0.4, (hotPatternSignal.confidence ?? 65) / 100));
-                nivel4 = { color: hotPatternSignal.color, source: 'hot', confidence: hotConfidence, patternName: 'Padrão Quente' };
-                console.log('%c🔥 PADRÃO QUENTE ATIVO!', 'color: #FF6B35; font-weight: bold;');
-                console.log(`%c   🗳️ VOTA: ${hotPatternSignal.color.toUpperCase()}`, `color: ${hotPatternSignal.color === 'red' ? '#FF0000' : '#FFFFFF'}; font-weight: bold; font-size: 14px;`);
-            } else {
-                console.log('%c❌ Padrão quente não encontrado', 'color: #888;');
-            }
+            console.log(`%c   Dominante: ${safeZoneMeta.dominant?.toUpperCase() || 'N/A'} (${safeZoneMeta.counts[safeZoneMeta.dominant]}/${safeZoneMeta.windowSize})`, 'color: #FF6B35;');
+            console.log(`%c   Secundária: ${safeZoneMeta.secondary ? safeZoneMeta.secondary.toUpperCase() + ` (${safeZoneMeta.counts[safeZoneMeta.secondary]})` : 'N/A'}`, 'color: #FF6B35;');
+            console.log(`%c   Última cor: ${safeZoneMeta.lastColor ? safeZoneMeta.lastColor.toUpperCase() : 'N/A'}`, 'color: #FF6B35;');
         }
         
-    if (!nivel4) {
-        console.log('%c⚠️ NÍVEL 1 VOTA: NULO (não participa da votação)', 'color: #888; font-weight: bold; font-size: 14px;');
-    } else {
-        console.log(`%c🗳️ NÍVEL 1 VOTA: ${nivel4.color.toUpperCase()}`, `color: ${nivel4.color === 'red' ? '#FF0000' : '#FFFFFF'}; font-weight: bold; font-size: 14px;`);
-    }
+        if (safeZoneMeta.zoneActive && safeZoneMeta.signal && safeZoneMeta.dominant) {
+            safeZoneVote = {
+                color: safeZoneMeta.dominant,
+                source: 'safe-zone',
+                confidence: safeZoneMeta.strength,
+                detail: safeZoneMeta
+            };
+            patternDescription = JSON.stringify({
+                type: 'safe_zone',
+                dominant: safeZoneMeta.dominant,
+                secondary: safeZoneMeta.secondary,
+                counts: safeZoneMeta.counts,
+                windowSize: safeZoneMeta.windowSize,
+                minPrimary: safeZoneMeta.minPrimary,
+                minSecondary: safeZoneMeta.minSecondary,
+                lastColor: safeZoneMeta.lastColor,
+                status: safeZoneMeta.reason
+            });
+        } else if (safeZoneMeta.zoneActive) {
+            patternDescription = JSON.stringify({
+                type: 'safe_zone',
+                dominant: safeZoneMeta.dominant,
+                secondary: safeZoneMeta.secondary,
+                counts: safeZoneMeta.counts,
+                windowSize: safeZoneMeta.windowSize,
+                minPrimary: safeZoneMeta.minPrimary,
+                minSecondary: safeZoneMeta.minSecondary,
+                lastColor: safeZoneMeta.lastColor,
+                status: safeZoneMeta.reason
+            });
+        }
+        
+        if (!safeZoneVote) {
+            console.log('%c⚠️ NÍVEL 1 VOTA: NULO (zona fora de sinal)', 'color: #888; font-weight: bold; font-size: 14px;');
+        } else {
+            console.log(`%c🗳️ NÍVEL 1 VOTA: ${safeZoneVote.color.toUpperCase()}`, `color: ${safeZoneVote.color === 'red' ? '#FF0000' : '#FFFFFF'}; font-weight: bold; font-size: 14px;`);
+        }
     
     // ⚡ NÃO EXIBIR na UI ainda (análise rápida, mostraremos depois)
         
@@ -13418,7 +12950,7 @@ async function analyzeWithPatternSystem(history) {
         };
         const levelMeta = {
             N0: { emoji: '⚪', label: 'N0 - Detector de Branco' },
-            N1: { emoji: '🎯', label: 'N1 - Padrões' },
+            N1: { emoji: '🛡️', label: 'N1 - Zona Segura' },
             N2: { emoji: '⚡', label: 'N2 - Momentum' },
             N3: { emoji: '🔷', label: 'N3 - Alternância' },
             N4: { emoji: '🔷', label: 'N4 - Persistência' },
@@ -13800,27 +13332,39 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
             }
         }
 
-        // N1 - Padrões
+        // N1 - Zona Segura
         const n1Enabled = isLevelEnabledLocal('N1');
         let patternStrength = 0;
         let patternColor = null;
         let patternDetailsText = n1Enabled ? 'NULO' : 'DESATIVADO';
-        if (n1Enabled && nivel4 && nivel4.color) {
-            patternColor = nivel4.color;
-            const baseConfidence = clamp01(nivel4.confidence ?? 0.55);
-            patternStrength = baseConfidence;
-            const sourceLabel = nivel4.source === 'custom' ? 'Custom' : 'Quente';
-            patternDetailsText = `${sourceLabel} (${Math.round(baseConfidence * 100)}%)`;
+        if (n1Enabled && safeZoneMeta) {
+            if (!safeZoneMeta.zoneActive) {
+                patternDetailsText = safeZoneMeta.reason === 'insufficient_history'
+                    ? 'Histórico insuficiente'
+                    : 'Requisitos não atendidos';
+            } else {
+                const dominantLabel = safeZoneMeta.dominant
+                    ? `${safeZoneMeta.dominant.toUpperCase()} ${safeZoneMeta.counts[safeZoneMeta.dominant]}/${safeZoneMeta.windowSize}`
+                    : 'Zona ativa';
+                if (safeZoneMeta.signal && safeZoneVote && safeZoneVote.color) {
+                    patternColor = safeZoneVote.color;
+                    patternStrength = clamp01(safeZoneVote.confidence ?? safeZoneMeta.strength ?? 0.5);
+                    patternDetailsText = `Dominância ${dominantLabel} • última ${safeZoneMeta.lastColor ? safeZoneMeta.lastColor.toUpperCase() : '-'}`;
+                } else {
+                    patternDetailsText = `Dominância ${dominantLabel} • aguardando confirmação`;
+                }
+            }
         }
         levelReports.push({
             id: 'N1',
-            name: 'Padrões',
+            name: 'Zona Segura',
             color: patternColor,
             weight: n1Enabled ? weightFor(levelWeights.patterns) : 0,
             strength: patternStrength,
-            score: directionValue(patternColor) * patternStrength,
+            score: patternColor ? directionValue(patternColor) * patternStrength : 0,
             details: patternDetailsText,
-            disabled: !n1Enabled
+            disabled: !n1Enabled,
+            meta: safeZoneMeta
         });
 
         // N2 - Momentum
@@ -14518,7 +14062,8 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
             confidence: finalConfidence,
             probability: finalConfidence,
             reasoning: reasoning,
-            patternDescription: patternDescription
+            patternDescription: patternDescription,
+            safeZone: safeZoneMeta
         };
 
         /* LEGACY VOTING BLOCK (COMENTADO)
@@ -14546,13 +14091,13 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
         // ✅ MOSTRAR AS 6 FASES COM DELAY (para o usuário ver o processo)
         // ❌ Níveis 1, 2, 3 removidos (não mostrar mais)
         
-        if (!nivel4) {
-            sendAnalysisStatus(`🎯 N1 - Padrões → NULO`);
-        } else {
-            const sourceLabel = nivel4.source === 'custom' ? 'Custom' : 'Quente';
-            if (!analyzerConfig.aiMode) {
-                sendAnalysisStatus(`🎯 N1 - Padrões (${sourceLabel}) → ${nivel4.color.toUpperCase()}`);
-            }
+        if (!safeZoneMeta || !safeZoneMeta.zoneActive) {
+            sendAnalysisStatus(`🎯 N1 - Zona Segura → NULO`);
+        } else if (!analyzerConfig.aiMode) {
+            const statusLabel = safeZoneMeta.signal && safeZoneVote && safeZoneVote.color
+                ? `${safeZoneMeta.dominant?.toUpperCase() || '-'}` 
+                : 'Ativa • aguardando';
+            sendAnalysisStatus(`🎯 N1 - Zona Segura → ${statusLabel}`);
         }
         await sleep(1500);
         
@@ -14676,12 +14221,14 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
         // ❌ Níveis 1, 2, 3 removidos (não mostrar mais)
         
         if (!n1Enabled) {
-            sendAnalysisStatus('🎯 N1 - Padrões → DESATIVADO');
-        } else if (!nivel4) {
-            sendAnalysisStatus(`🎯 N1 - Padrões → NULO`);
+            sendAnalysisStatus('🎯 N1 - Zona Segura → DESATIVADO');
+        } else if (!safeZoneMeta || !safeZoneMeta.zoneActive) {
+            sendAnalysisStatus(`🎯 N1 - Zona Segura → NULO`);
         } else {
-            const sourceLabel = nivel4.source === 'custom' ? 'Custom' : 'Quente';
-            sendAnalysisStatus(`🎯 N1 - Padrões (${sourceLabel}) → ${nivel4.color.toUpperCase()}`);
+            const statusLabel = safeZoneMeta.signal && safeZoneVote && safeZoneVote.color
+                ? `${safeZoneMeta.dominant?.toUpperCase() || '-'}` 
+                : 'Ativa • aguardando';
+            sendAnalysisStatus(`🎯 N1 - Zona Segura → ${statusLabel}`);
         }
         await sleep(1500);
         
@@ -14774,11 +14321,13 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
         // ✅ MOSTRAR AS 6 FASES COM DELAY (para o usuário ver o processo)
         // ❌ Níveis 1, 2, 3 removidos (não mostrar mais)
         
-        if (!nivel4) {
-            sendAnalysisStatus(`🎯 N1 - Padrões → NULO`);
+        if (!safeZoneMeta || !safeZoneMeta.zoneActive) {
+            sendAnalysisStatus(`🎯 N1 - Zona Segura → NULO`);
         } else {
-            const sourceLabel = nivel4.source === 'custom' ? 'Custom' : 'Quente';
-            sendAnalysisStatus(`🎯 N1 - Padrões (${sourceLabel}) → ${nivel4.color.toUpperCase()}`);
+            const statusLabel = safeZoneMeta.signal && safeZoneVote && safeZoneVote.color
+                ? `${safeZoneMeta.dominant?.toUpperCase() || '-'}` 
+                : 'Ativa • aguardando';
+            sendAnalysisStatus(`🎯 N1 - Zona Segura → ${statusLabel}`);
         }
         await sleep(1500);
         
@@ -14897,13 +14446,13 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
         
 		let nivel1Description = '';
         if (!n1Enabled) {
-			nivel1Description = `N1 - Padrões: DESATIVADO`;
-        } else if (nivel4 && nivel4.source === 'custom') {
-			nivel1Description = `N1 - Padrões: ${nivel4.color.toUpperCase()} (Custom)`;
-        } else if (nivel4 && nivel4.source === 'hot') {
-			nivel1Description = `N1 - Padrões: ${nivel4.color.toUpperCase()} (Quente)`;
+			nivel1Description = `N1 - Zona Segura: DESATIVADO`;
+        } else if (!safeZoneMeta || !safeZoneMeta.zoneActive) {
+			nivel1Description = `N1 - Zona Segura: NULO`;
+        } else if (safeZoneMeta.signal && safeZoneVote && safeZoneVote.color) {
+			nivel1Description = `N1 - Zona Segura: ${safeZoneVote.color.toUpperCase()} (${safeZoneMeta.counts[safeZoneMeta.dominant]}/${safeZoneMeta.windowSize})`;
         } else {
-			nivel1Description = `N1 - Padrões: NULO`;
+			nivel1Description = `N1 - Zona Segura: Ativa • aguardando confirmação`;
 		}
 		
 		const nivel2Description = !n2Enabled
@@ -15057,8 +14606,14 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
         console.log(`%c   🔍 Padrão: ${patternDescription}`, 'color: #FFD700; font-weight: bold;');
         console.log('%c📋 ORIGEM DOS DADOS:', 'color: #00FFFF; font-weight: bold;');
         console.log(`%c   ✅ Histórico analisado: ${history.length} giros REAIS`, 'color: #00FF88;');
-        console.log(`%c   ✅ Padrão Customizado: ${nivel4 && nivel4.source === 'custom' ? 'SIM (' + patternDescription + ')' : 'NÃO'}`, nivel4 && nivel4.source === 'custom' ? 'color: #FF00FF; font-weight: bold;' : 'color: #888;');
-        console.log(`%c   ✅ Padrão Quente: ${nivel4 && nivel4.source === 'hot' ? 'SIM (integrado no Nível 4)' : 'NÃO'}`, nivel4 && nivel4.source === 'hot' ? 'color: #FF6B35; font-weight: bold;' : 'color: #888;');
+        if (safeZoneMeta && safeZoneMeta.zoneActive) {
+            const detail = safeZoneMeta.signal && safeZoneVote && safeZoneVote.color
+                ? `${safeZoneMeta.dominant?.toUpperCase() || '-'} confirmado`
+                : 'Ativa • aguardando';
+            console.log(`%c   ✅ Zona Segura: ${detail} (${safeZoneMeta.counts[safeZoneMeta.dominant] || 0}/${safeZoneMeta.windowSize})`, 'color: #FF6B35; font-weight: bold;');
+        } else {
+            console.log(`%c   ✅ Zona Segura: NULO`, 'color: #888;');
+        }
         console.log(`%c   ✅ Barreira Validada: ${barrierResult.allowed ? 'SIM (liberado)' : 'BLOQUEADO'}`, barrierResult.allowed ? 'color: #00FF88;' : 'color: #FF6666;');
         console.log('%c✅ GARANTIAS:', 'color: #00FF00; font-weight: bold;');
         console.log('%c   ✓ Todos os dados vêm do histórico REAL da Blaze', 'color: #00FF88;');
@@ -22204,45 +21759,10 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             }
         })();
         return true;
-    } else if (request.action === 'enableHotPattern') {
-        // Ativar modo Padrão Quente
-        console.log('🔥 ATIVANDO MODO PADRÃO QUENTE');
-        hotPatternMode = true;
-        hotPatternState = {
-            pattern: null,
-            prediction: null,
-            consecutiveLosses: 0,
-            status: 'searching',
-            totalWins: 0,
-            totalLosses: 0,
-            winRate: 0
-        };
-        console.log('✅ Modo Padrão Quente ATIVADO');
-        console.log('🔍 Sistema começará a buscar padrões quentes nos próximos giros');
-        sendResponse({ status: 'enabled' });
-        return true;
-    } else if (request.action === 'disableHotPattern') {
-        // Desativar modo Padrão Quente
-        console.log('🔥 DESATIVANDO MODO PADRÃO QUENTE');
-        hotPatternMode = false;
-        currentHotPattern = null;
-        hotPatternState = {
-            pattern: null,
-            prediction: null,
-            consecutiveLosses: 0,
-            status: 'searching',
-            totalWins: 0,
-            totalLosses: 0,
-            winRate: 0
-        };
-        console.log('✅ Modo Padrão Quente DESATIVADO');
-        sendResponse({ status: 'disabled' });
-        return true;
     } else if (request.action === 'requestImmediateAnalysis') {
         // Solicitar análise imediata (para buscar padrão quente)
         console.log('🔥 ANÁLISE IMEDIATA SOLICITADA PARA BUSCAR PADRÃO QUENTE');
         console.log(`📊 Histórico disponível: ${cachedHistory ? cachedHistory.length : 0} giros`);
-        console.log(`🔥 Modo Padrão Quente ativo: ${hotPatternMode ? 'SIM' : 'NÃO'}`);
         
         (async () => {
             try {

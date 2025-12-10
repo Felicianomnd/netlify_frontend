@@ -906,7 +906,7 @@
         }
         
         // ✅ BOTÕES DE PADRÕES CUSTOMIZADOS: Visíveis apenas no Nível Diamante
-        // (Padrão Quente, Padrões Ativos, Adicionar Modelo)
+        // (Zona Segura, Padrões Ativos, Adicionar Modelo)
         const customPatternsContainer = document.getElementById('customPatternsContainer');
         if (customPatternsContainer) {
             if (isAIMode) {
@@ -1071,7 +1071,9 @@
 const DIAMOND_LEVEL_DEFAULTS = {
     n0History: 2000,
     n0Window: 100,
-    n1HotPattern: 60,
+    n1WindowSize: 20,
+    n1PrimaryRequirement: 15,
+    n1SecondaryRequirement: 3,
     n2Recent: 5,
     n2Previous: 15,
     n3Alternance: 12,
@@ -2104,18 +2106,48 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                         </div>
                         <div class="diamond-level-field" data-level="n1">
                             <div class="diamond-level-header">
-                                <div class="diamond-level-title">N1 - Padrão Quente (giros analisados)</div>
+                                <div class="diamond-level-title">N1 - Zona Segura</div>
                                 <label class="diamond-level-switch checkbox-label">
                                     <input type="checkbox" class="diamond-level-toggle-input" id="diamondLevelToggleN1" checked />
                                     <span class="switch-track"></span>
                                 </label>
                             </div>
                             <div class="diamond-level-note">
-                                Busca padrões que se repetem no histórico. Valores menores = mais ágil porém menos estável. Valores maiores = mais robusto porém menos sensível.
+                                Identifica áreas de predominância absoluta. A zona só gera sinal quando a última cor confirma a cor dominante configurada pelos requisitos mínimos.
                             </div>
-                            <input type="number" id="diamondN1HotPattern" min="12" max="200" value="60" />
+                            <div class="diamond-level-double">
+                                <div>
+                                    <span>Janela analisada (giros)</span>
+                                    <input type="number" id="diamondN1WindowSize" min="10" max="120" value="20" />
+                                    <span class="diamond-level-subnote">
+                                        Recomendado: 20 giros (mín. 10 • máx. 120)
+                                    </span>
+                                </div>
+                                <div>
+                                    <span>Requisito mínimo A</span>
+                                    <input type="number" id="diamondN1PrimaryRequirement" min="5" max="120" value="15" />
+                                    <span class="diamond-level-subnote">
+                                        Dominância mínima exigida para uma cor
+                                    </span>
+                                </div>
+                            </div>
+                            <div class="diamond-level-double">
+                                <div>
+                                    <span>Requisito mínimo B</span>
+                                    <input type="number" id="diamondN1SecondaryRequirement" min="1" max="120" value="3" />
+                                    <span class="diamond-level-subnote">
+                                        Confirmação da cor adversária (ex.: 3 giros)
+                                    </span>
+                                </div>
+                                <div>
+                                    <span>Última cor confirma?</span>
+                                    <div class="diamond-level-subnote">
+                                        Sinal só ocorre quando a última cor da janela é a dominante.
+                                    </div>
+                                </div>
+                            </div>
                             <span class="diamond-level-subnote">
-                                Recomendado: 60 giros para equilíbrio entre estabilidade e agilidade
+                                Exemplo: Janela 20 • mín A 15 • mín B 3 → dominância absoluta e confirmação pela última cor.
                             </span>
                         </div>
                         <div class="diamond-level-field" data-level="n2">
@@ -2430,7 +2462,8 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
             n7HistoryWindow: 'n10HistoryWindow',
             n8Barrier: 'n6Barrier',
             n0History: 'n0TotalHistory',
-            n0Window: 'n0WindowSize'
+            n0Window: 'n0WindowSize',
+            n1WindowSize: 'n1HotPattern'
         };
         const getValue = (key, def) => {
             const direct = Number(windows[key]);
@@ -2476,7 +2509,9 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                 allowBlockCheckbox.checked = true;
             }
         }
-        setInput('diamondN1HotPattern', getValue('n1HotPattern', DIAMOND_LEVEL_DEFAULTS.n1HotPattern));
+        setInput('diamondN1WindowSize', getValue('n1WindowSize', DIAMOND_LEVEL_DEFAULTS.n1WindowSize));
+        setInput('diamondN1PrimaryRequirement', getValue('n1PrimaryRequirement', DIAMOND_LEVEL_DEFAULTS.n1PrimaryRequirement));
+        setInput('diamondN1SecondaryRequirement', getValue('n1SecondaryRequirement', DIAMOND_LEVEL_DEFAULTS.n1SecondaryRequirement));
         setInput('diamondN2Recent', getValue('n2Recent', DIAMOND_LEVEL_DEFAULTS.n2Recent));
         setInput('diamondN2Previous', getValue('n2Previous', DIAMOND_LEVEL_DEFAULTS.n2Previous));
         setInput('diamondN3Alternance', getValue('n3Alternance', DIAMOND_LEVEL_DEFAULTS.n3Alternance));
@@ -2605,7 +2640,9 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
         const newWindows = {
             n0History: getNumber('diamondN0History', 500, 5000, DIAMOND_LEVEL_DEFAULTS.n0History),
             n0Window: getNumber('diamondN0Window', 25, 250, DIAMOND_LEVEL_DEFAULTS.n0Window),
-            n1HotPattern: getNumber('diamondN1HotPattern', 12, 200, DIAMOND_LEVEL_DEFAULTS.n1HotPattern),
+            n1WindowSize: getNumber('diamondN1WindowSize', 10, 120, DIAMOND_LEVEL_DEFAULTS.n1WindowSize),
+            n1PrimaryRequirement: getNumber('diamondN1PrimaryRequirement', 5, 200, DIAMOND_LEVEL_DEFAULTS.n1PrimaryRequirement),
+            n1SecondaryRequirement: getNumber('diamondN1SecondaryRequirement', 1, 200, DIAMOND_LEVEL_DEFAULTS.n1SecondaryRequirement),
             n2Recent: getNumber('diamondN2Recent', 2, 20, DIAMOND_LEVEL_DEFAULTS.n2Recent),
             n2Previous: getNumber('diamondN2Previous', 3, 200, DIAMOND_LEVEL_DEFAULTS.n2Previous),
             n3Alternance: getNumber('diamondN3Alternance', 1, null, DIAMOND_LEVEL_DEFAULTS.n3Alternance),
@@ -2626,6 +2663,18 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
             n10Window: getNumber('diamondN10Window', 5, 50, DIAMOND_LEVEL_DEFAULTS.n10Window),
             n10History: getNumber('diamondN10History', 100, 2000, DIAMOND_LEVEL_DEFAULTS.n10History)
         };
+        if (newWindows.n1WindowSize < 10) {
+            newWindows.n1WindowSize = 10;
+        }
+        if (newWindows.n1PrimaryRequirement >= newWindows.n1WindowSize) {
+            newWindows.n1PrimaryRequirement = Math.max(1, newWindows.n1WindowSize - 1);
+        }
+        if (newWindows.n1SecondaryRequirement >= newWindows.n1WindowSize) {
+            newWindows.n1SecondaryRequirement = Math.max(1, newWindows.n1WindowSize - 2);
+        }
+        if (newWindows.n1SecondaryRequirement >= newWindows.n1PrimaryRequirement) {
+            newWindows.n1SecondaryRequirement = Math.max(1, newWindows.n1PrimaryRequirement - 1);
+        }
         const newEnabled = {
             n0: getToggleValue('diamondLevelToggleN0', DIAMOND_LEVEL_ENABLE_DEFAULTS.n0),
             n1: getToggleValue('diamondLevelToggleN1', DIAMOND_LEVEL_ENABLE_DEFAULTS.n1),
@@ -3126,30 +3175,17 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
     
     // Criar modal de padrões customizados
     function createCustomPatternModal() {
-        const btnHotPattern = document.getElementById('btnHotPattern');
-        if (!btnHotPattern) {
-            console.warn('⚠️ Elemento do Padrão Quente não encontrado (custom patterns removidos)');
+        const safeZoneBtn = document.getElementById('btnSafeZone');
+        if (!safeZoneBtn) {
+            console.warn('⚠️ Elemento da Zona Segura não encontrado');
             return;
         }
         
         // Garantir aparência/estado padrão
-        btnHotPattern.classList.add('active');
-        btnHotPattern.style.cursor = 'default';
-        btnHotPattern.title = 'Padrão Quente gerenciado automaticamente';
-        
-        // Atualizar estado local e exibir status
-        setHotPatternState(true);
-        showHotPatternStatus('searching');
-        
-        // Notificar background para manter o modo ativo
-        chrome.runtime.sendMessage({ action: 'enableHotPattern' });
-        
-        // Solicitar análise inicial após pequeno atraso
-        setTimeout(() => {
-            chrome.runtime.sendMessage({ action: 'requestImmediateAnalysis' });
-        }, 500);
-        
-        console.log('🔥 Padrão Quente inicializado (modelos customizados desativados)');
+        safeZoneBtn.classList.add('active');
+        safeZoneBtn.style.cursor = 'default';
+        safeZoneBtn.title = 'Zona Segura monitora automaticamente as predominâncias';
+        renderSafeZoneStatus(null);
     }
     
     // Configurar listeners do modal
@@ -3222,34 +3258,13 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                 });
             }
             
-            // Botão "🔥 Padrão Quente" - SEMPRE ATIVO E AUTOMÁTICO
-            const btnHotPattern = document.getElementById('btnHotPattern');
-            if (btnHotPattern) {
-                // ATIVAR AUTOMATICAMENTE ao carregar
-                btnHotPattern.classList.add('active');
-                setHotPatternState(true);
-                
-                // Mostrar "Buscando..."
-                showHotPatternStatus('searching');
-                
-                console.log('🔥 Modo Padrão Quente ATIVADO AUTOMATICAMENTE');
-                
-                // Notificar background.js
-                chrome.runtime.sendMessage({ 
-                    action: 'enableHotPattern' 
-                });
-                
-                // Buscar padrão AUTOMATICAMENTE após 500ms
-                setTimeout(() => {
-                    console.log('📡 Solicitando análise automática inicial...');
-                    chrome.runtime.sendMessage({ 
-                        action: 'requestImmediateAnalysis' 
-                    });
-                }, 500);
-                
-                // Remover funcionalidade de clique (agora é sempre ativo)
-                btnHotPattern.style.cursor = 'default';
-                btnHotPattern.title = 'Padrão Quente sempre ativo (atualiza automaticamente)';
+            // Botão "🛡️ Zona Segura" - status informativo
+            const safeZoneBtn = document.getElementById('btnSafeZone');
+            if (safeZoneBtn) {
+                safeZoneBtn.classList.add('active');
+                safeZoneBtn.style.cursor = 'default';
+                safeZoneBtn.title = 'Zona Segura sempre ativa (detecta predominância)';
+                renderSafeZoneStatus(null);
             }
         }, 100);
     }
@@ -5736,98 +5751,63 @@ async function persistAnalyzerState(newState) {
     }
     
     // ═══════════════════════════════════════════════════════════════════════════════
-    // 🔥 MODO PADRÃO QUENTE
+    // 🛡️ ZONA SEGURA - VISUAL NO BOTÃO DE STATUS
     // ═══════════════════════════════════════════════════════════════════════════════
     
-    // Obter estado do modo Padrão Quente
-    function getHotPatternState() {
-        const state = localStorage.getItem('hotPatternMode');
-        return state === 'true';
-    }
-    
-    // Salvar estado do modo Padrão Quente
-    function setHotPatternState(isActive) {
-        localStorage.setItem('hotPatternMode', isActive ? 'true' : 'false');
-        console.log(`🔥 Modo Padrão Quente: ${isActive ? 'ATIVADO' : 'DESATIVADO'}`);
-    }
-    
-    // Mostrar status visual do Padrão Quente (DENTRO DO BOTÃO)
-    function showHotPatternStatus(status, patternData = null) {
-        const btn = document.getElementById('btnHotPattern');
+    function renderSafeZoneStatus(meta) {
+        const btn = document.getElementById('btnSafeZone');
         if (!btn) return;
         
-        if (status === 'disabled') {
-            btn.innerHTML = 'Padrão Quente';
-            btn.style.height = 'auto';
-            btn.style.padding = '8px 14px';
+        btn.style.height = 'auto';
+        btn.style.padding = '12px 14px';
+        btn.title = 'Zona Segura monitora predominâncias fortes e confirmações';
+        
+        if (!meta) {
+            btn.innerHTML = `
+                <div style="display: flex; flex-direction: column; gap: 4px; align-items: center;">
+                    <div style="font-size: 12px; font-weight: 600;">Zona Segura</div>
+                    <div class="safe-zone-status-pill status-idle">Aguardando histórico</div>
+                </div>
+            `;
             return;
         }
         
-        if (status === 'searching') {
-            btn.style.height = 'auto';
-            btn.style.padding = '12px 14px';
+        if (!meta.zoneActive) {
+            const reasonLabel = meta.reason === 'insufficient_history' ? 'Histórico insuficiente' : 'Requisitos não atendidos';
             btn.innerHTML = `
                 <div style="display: flex; flex-direction: column; gap: 4px; align-items: center;">
-                    <div style="font-size: 12px; font-weight: 600;">🔍 Buscando...</div>
-                    <div style="font-size: 9px; opacity: 0.7;">Analisando últimos 75 giros</div>
+                    <div style="font-size: 12px; font-weight: 600;">Zona Segura</div>
+                    <div class="safe-zone-status-pill status-idle">${reasonLabel}</div>
                 </div>
             `;
-        } else if (status === 'found' && patternData) {
-            // ✅ FORMATO CORRETO:
-            // [🔴] → [⚫ 19:27] → [🔴 19:26] → [🔴 19:25]
-            //  ↑         ↑ padrão histórico (mais recente ao mais antigo)
-            // previsão
-            // (FUTURO)
-            
-            // 1. Criar ícone da PREVISÃO (SEM horário, pois é o FUTURO)
-            const predictionHTML = `<span class="spin-color-circle-small ${patternData.prediction}"></span>`;
-            
-            // 2. Criar ícones do PADRÃO com horários de CADA giro
-            const patternCirclesHTML = patternData.pattern.map((color, index) => {
-                let timeString = '';
-                
-                // Se temos os timestamps de cada giro do padrão
-                if (patternData.patternTimestamps && patternData.patternTimestamps[index]) {
-                    const date = new Date(patternData.patternTimestamps[index]);
-                    const hours = String(date.getHours()).padStart(2, '0');
-                    const minutes = String(date.getMinutes()).padStart(2, '0');
-                    timeString = `${hours}:${minutes}`;
-                }
-                
-                if (timeString) {
-                    return `<span class="spin-color-circle-small ${color}" style="position: relative; display: inline-flex; align-items: center; justify-content: center;">
-                        <span style="position: absolute; font-size: 7px; font-weight: bold; color: white; text-shadow: 0 0 3px rgba(0,0,0,1), 0 0 2px rgba(0,0,0,1); z-index: 1; line-height: 1;">${timeString}</span>
-                    </span>`;
-                } else {
-                    return `<span class="spin-color-circle-small ${color}"></span>`;
-                }
-            }).join('');
-            
-            btn.style.height = 'auto';
-            btn.style.padding = '10px 14px';
-            btn.innerHTML = `
-                <div style="display: flex; flex-direction: column; gap: 6px; align-items: center; width: 100%;">
-                    <div style="font-size: 11px; font-weight: 600;">Padrão Quente</div>
-                    <div style="display: flex; gap: 4px; align-items: center; justify-content: center;">
-                        ${predictionHTML}
-                        <span style="font-size: 10px; font-weight: bold;">→</span>
-                        ${patternCirclesHTML}
-                    </div>
-                    <div style="font-size: 9px; opacity: 0.8;">
-                        ${patternData.occurrences} ocorrência${patternData.occurrences > 1 ? 's' : ''}
-                    </div>
-                </div>
-            `;
-        } else if (status === 'not_found') {
-            btn.style.height = 'auto';
-            btn.style.padding = '12px 14px';
-            btn.innerHTML = `
-                <div style="display: flex; flex-direction: column; gap: 4px; align-items: center;">
-                    <div style="font-size: 12px; font-weight: 600;">⚠️ Não encontrado</div>
-                    <div style="font-size: 9px; opacity: 0.7;">Nenhum padrão com 100% WIN</div>
-                </div>
-            `;
+            return;
         }
+        
+        const dominantLabel = meta.dominant
+            ? `${meta.dominant.toUpperCase()} • ${meta.counts[meta.dominant]}/${meta.windowSize}`
+            : 'Dominância ativa';
+        const secondaryLabel = meta.secondary
+            ? `${meta.secondary.toUpperCase()} • ${meta.counts[meta.secondary]}`
+            : 'Sem requisito B';
+        const statusClass = meta.signal ? 'status-ready' : 'status-waiting';
+        const statusText = meta.signal ? 'Confirmado! Entrar no próximo giro' : 'Aguardando última cor';
+        
+        btn.innerHTML = `
+            <div style="display: flex; flex-direction: column; gap: 6px; align-items: center; width: 100%;">
+                <div style="font-size: 11px; font-weight: 600;">Zona Segura</div>
+                <div style="display: flex; flex-direction: column; gap: 4px; width: 100%;">
+                    <div class="safe-zone-row">
+                        <span class="safe-zone-label">Dominante</span>
+                        <span class="safe-zone-value">${dominantLabel}</span>
+                    </div>
+                    <div class="safe-zone-row">
+                        <span class="safe-zone-label">Suporte</span>
+                        <span class="safe-zone-value">${secondaryLabel}</span>
+                    </div>
+                </div>
+                <div class="safe-zone-status-pill ${statusClass}">${statusText}</div>
+            </div>
+        `;
     }
     // Sincronizar padrões com o servidor
     async function syncPatternsToServer(patterns) {
@@ -7021,8 +7001,8 @@ async function persistAnalyzerState(newState) {
                         <!-- ═══════════════════════════════════════════════════════ -->
                         <div class="setting-item setting-row" id="customPatternsContainer" style="margin-top: 20px; padding-top: 15px; border-top: 1px solid #333;">
                             <div class="hot-pattern-actions">
-                                <button id="btnHotPattern" class="btn-hot-pattern btn-diamond-levels">
-                                    Padrão Quente
+                                <button id="btnSafeZone" class="btn-hot-pattern btn-diamond-levels">
+                                    Zona Segura
                                 </button>
                                 <button id="diamondLevelsBtn" class="btn-hot-pattern btn-diamond-levels">
                                     Configurar Níveis Diamante
@@ -9265,6 +9245,12 @@ async function persistAnalyzerState(newState) {
                     }
                 }
                 
+                if (analysis.safeZone) {
+                    renderSafeZoneStatus(analysis.safeZone);
+                } else {
+                    renderSafeZoneStatus(null);
+                }
+                
                 // ✅ Update G1 status - LÓGICA CORRETA baseada no Martingale
                 // Verificar estado do Martingale para mostrar o indicador correto
                 storageCompat.get(['martingaleState']).then((result = {}) => {
@@ -10793,6 +10779,7 @@ function logModeSnapshotUI(snapshot) {
             // ✅ LIMPAR STATUS DE ANÁLISE E FORÇAR RESET COMPLETO DA UI
             currentAnalysisStatus = 'Aguardando análise...';
             updateSidebar({ analysis: null, pattern: null });
+            renderSafeZoneStatus(null);
         } else if (request.type === 'PATTERN_BANK_UPDATE') {
             // Atualizar banco de padrões quando novos forem descobertos
             console.log('📂 Banco de padrões atualizado');
@@ -10812,32 +10799,6 @@ function logModeSnapshotUI(snapshot) {
             console.log('📊 Dados recebidos:', request.data);
             updateObserverUI(request.data);
             console.log('✅ updateObserverUI executado!');
-        } else if (request.type === 'HOT_PATTERN_FOUND') {
-            // Padrão quente encontrado!
-            console.log('🔥 Padrão Quente ENCONTRADO!', request.data);
-            
-            // Cancelar timeout
-            if (window.hotPatternTimeout) {
-                clearTimeout(window.hotPatternTimeout);
-                window.hotPatternTimeout = null;
-            }
-            
-            showHotPatternStatus('found', request.data);
-        } else if (request.type === 'HOT_PATTERN_NOT_FOUND') {
-            // Nenhum padrão quente encontrado
-            console.log('⚠️ Nenhum padrão quente encontrado');
-            
-            // Cancelar timeout
-            if (window.hotPatternTimeout) {
-                clearTimeout(window.hotPatternTimeout);
-                window.hotPatternTimeout = null;
-            }
-            
-            showHotPatternStatus('not_found');
-        } else if (request.type === 'HOT_PATTERN_SEARCHING') {
-            // Padrão foi abandonado, buscando novo
-            console.log('🔍 Padrão abandonado - buscando novo automaticamente...');
-            showHotPatternStatus('searching');
         } else if (request.type === 'WEBSOCKET_STATUS') {
             // ✅ GERENCIAR STATUS DO WEBSOCKET
             isWebSocketConnected = request.data.connected;
