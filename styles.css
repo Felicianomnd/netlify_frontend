@@ -663,13 +663,6 @@
     gap: 12px;
 }
 
-.profile-lock-hint {
-    font-size: 10px;
-    color: rgba(255, 255, 255, 0.35);
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-}
-
 .profile-edit-link {
     background: none;
     border: none;
@@ -717,12 +710,6 @@
     border-color: rgba(255, 255, 255, 0.08);
     color: rgba(255, 255, 255, 0.7);
     cursor: default;
-}
-
-.profile-field-note {
-    margin: 0;
-    font-size: 11px;
-    color: rgba(255, 255, 255, 0.35);
 }
 
 /* Row for side-by-side inputs */
@@ -782,6 +769,38 @@
 .view-mode-toggle-btn:hover {
     background: rgba(255, 255, 255, 0.1);
     border-color: #FF003F;
+}
+
+/* Save profile button */
+.save-profile-btn {
+    width: 100%;
+    padding: 12px;
+    background: #ef4444;
+    border: none;
+    border-radius: 6px;
+    color: #fff;
+    font-size: 13px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.2s;
+    margin: 16px 0;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.save-profile-btn:hover {
+    background: #dc2626;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(239, 68, 68, 0.4);
+}
+
+.save-profile-btn:active {
+    transform: translateY(0);
+}
+
+.save-profile-btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
 }
 
 /* RESPONSIVE */

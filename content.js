@@ -6715,53 +6715,46 @@ async function persistAnalyzerState(newState) {
                             <span class="user-info-label">Telefone</span>
                             <button type="button" class="profile-edit-link" id="editPhoneBtn" style="display: none;">Editar</button>
                         </div>
-                        <input type="tel" class="profile-input" id="profilePhone" placeholder="(00) 00000-0000" />
-                        <p class="profile-field-note" id="phoneFieldNote">Informe um número válido para contato.</p>
+                        <input type="tel" class="profile-input" id="profilePhone" />
                     </div>
                     
                     <div class="user-info-item-editable">
-                        <div class="user-info-label-row">
-                            <span class="user-info-label">CPF</span>
-                            <span class="profile-lock-hint">Preencha apenas uma vez</span>
-                        </div>
-                        <input type="text" class="profile-input" id="profileCpf" placeholder="000.000.000-00" maxlength="14" />
+                        <span class="user-info-label">CPF</span>
+                        <input type="text" class="profile-input" id="profileCpf" maxlength="14" />
                     </div>
                     
                     <div class="profile-divider">Endereço</div>
                     
                     <div class="user-info-item-editable">
-                        <div class="user-info-label-row">
-                            <span class="user-info-label">CEP</span>
-                            <span class="profile-lock-hint">Utilize apenas números</span>
-                        </div>
-                        <input type="text" class="profile-input" id="profileZipCode" placeholder="00000-000" maxlength="9" />
+                        <span class="user-info-label">CEP</span>
+                        <input type="text" class="profile-input" id="profileZipCode" maxlength="9" />
                     </div>
                     <div class="user-info-item-editable">
                         <span class="user-info-label">Rua</span>
-                        <input type="text" class="profile-input" id="profileStreet" placeholder="Nome da rua" />
+                        <input type="text" class="profile-input" id="profileStreet" />
                     </div>
                     <div class="user-info-row">
                         <div class="user-info-item-editable user-info-number">
                             <span class="user-info-label">Número</span>
-                            <input type="text" class="profile-input" id="profileNumber" placeholder="123" />
+                            <input type="text" class="profile-input" id="profileNumber" />
                         </div>
                         <div class="user-info-item-editable user-info-complement">
                             <span class="user-info-label">Complemento</span>
-                            <input type="text" class="profile-input" id="profileComplement" placeholder="Apt, Bloco..." />
+                            <input type="text" class="profile-input" id="profileComplement" />
                         </div>
                     </div>
                     <div class="user-info-item-editable">
                         <span class="user-info-label">Bairro</span>
-                        <input type="text" class="profile-input" id="profileNeighborhood" placeholder="Nome do bairro" />
+                        <input type="text" class="profile-input" id="profileNeighborhood" />
                     </div>
                     <div class="user-info-row">
                         <div class="user-info-item-editable user-info-city">
                             <span class="user-info-label">Cidade</span>
-                            <input type="text" class="profile-input" id="profileCity" placeholder="Nome da cidade" />
+                            <input type="text" class="profile-input" id="profileCity" />
                         </div>
                         <div class="user-info-item-editable user-info-state">
                             <span class="user-info-label">Estado</span>
-                            <input type="text" class="profile-input" id="profileState" placeholder="UF" maxlength="2" />
+                            <input type="text" class="profile-input" id="profileState" maxlength="2" />
                         </div>
                     </div>
                     
@@ -7496,7 +7489,6 @@ async function persistAnalyzerState(newState) {
         // Profile inputs
         const saveProfileBtn = sidebar.querySelector('#saveProfileBtn');
         const editPhoneBtn = sidebar.querySelector('#editPhoneBtn');
-        const phoneFieldNote = sidebar.querySelector('#phoneFieldNote');
         const profilePhoneInput = sidebar.querySelector('#profilePhone');
         const profileCpfInput = sidebar.querySelector('#profileCpf');
         const profileZipCodeInput = sidebar.querySelector('#profileZipCode');
@@ -7604,15 +7596,6 @@ async function persistAnalyzerState(newState) {
                 editPhoneBtn.textContent = isPhoneEditing ? 'Cancelar' : 'Editar';
             }
             setInputReadOnly(profilePhoneInput, phoneSaved && !isPhoneEditing);
-            if (phoneFieldNote) {
-                if (!phoneSaved) {
-                    phoneFieldNote.textContent = 'Informe um número válido para contato.';
-                } else if (isPhoneEditing) {
-                    phoneFieldNote.textContent = 'Atualize o número e clique em salvar.';
-                } else {
-                    phoneFieldNote.textContent = 'Clique em Editar para alterar o número.';
-                }
-            }
 
             const cpfSaved = Boolean(persistedUser.cpf);
             setInputReadOnly(profileCpfInput, cpfSaved);
@@ -7644,7 +7627,12 @@ async function persistAnalyzerState(newState) {
             }
 
             try {
-                const token = await getAuthToken();
+                const token = localStorage.getItem('authToken');
+                if (!token) {
+                    showToast('Você precisa estar autenticado', 'error');
+                    return;
+                }
+
                 const API_URL = getApiUrl();
 
                 const response = await fetch(`${API_URL}/api/auth/profile`, {
