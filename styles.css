@@ -366,233 +366,345 @@
     cursor: sw-resize;
 }
 
-.analyzer-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 20px;
-    background: var(--bg-secondary);
-    border-bottom: 1px solid var(--border-color);
-    cursor: grab;
-    user-select: none;
-    transition: background 0.4s ease, border-bottom 0.4s ease;
+/* =========================================================================
+   HEADER & USER MENU - REDESIGN (CLEAN & MODERN)
+   ========================================================================= */
+
+/* ═══════════════════════════════════════════════════════════════════════════════ */
+/* 🌟 NEW HEADER DESIGN - MODERN, CLEAN, PROFESSIONAL (BRIGHTCHECK STYLE)          */
+/* ═══════════════════════════════════════════════════════════════════════════════ */
+
+:root {
+    --da-header-bg: #1a1a2e;
+    --da-header-border: rgba(255, 255, 255, 0.05);
+    --da-primary: #FF003F;
+    --da-text: #ffffff;
+    --da-header-height: 60px;
 }
 
-/* 💎 MODO NÍVEL DIAMANTE ATIVO - Header em VERMELHO BLAZE */
-#blaze-double-analyzer.diamond-mode-active .analyzer-header {
-    background: linear-gradient(135deg, #dc2626 0%, #991b1b 100%);
-    border-bottom: 1px solid rgba(239, 68, 68, 0.3);
-}
-
-.analyzer-header:active {
-    cursor: grabbing;
-}
-
-.header-content {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
+/* HEADER CONTAINER */
+.da-header {
+    position: relative;
     width: 100%;
-    gap: 16px;
-}
-
-.header-main {
-    display: none;
-}
-
-.user-menu-toggle {
+    height: var(--da-header-height);
+    background: var(--da-header-bg);
+    border-bottom: 1px solid var(--da-header-border);
     display: flex;
     align-items: center;
-    justify-content: center;
-    width: 42px;
-    height: 42px;
-    padding: 0;
-    border-radius: 50%;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    background: rgba(255, 255, 255, 0.03);
-    cursor: pointer;
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    color: #a0aec0;
-    margin-left: auto; /* Garante que vá para a direita se houver espaço livre */
-}
-
-.user-menu-toggle svg {
-    width: 22px;
-    height: 22px;
-    stroke-width: 1.8;
-}
-
-.user-menu-toggle:hover {
-    background: rgba(255, 255, 255, 0.1);
-    border-color: rgba(255, 255, 255, 0.2);
-    color: #ffffff;
-    transform: translateY(-1px);
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
-}
-
-.user-menu-toggle:active {
-    transform: translateY(0);
-    background: rgba(255, 255, 255, 0.15);
-}
-
-.user-menu-toggle.active {
-    background: rgba(255, 255, 255, 0.15);
-    border-color: #00ff88;
-    color: #ffffff;
-    box-shadow: 0 0 0 2px rgba(0, 255, 136, 0.1);
-}
-
-.user-menu-panel {
-    position: absolute;
-    top: 0;
-    right: 0;
-    width: 100%;
-    height: 100%;
-    background: rgba(26, 26, 46, 0.98); /* Slightly transparent for backdrop effect if supported */
-    backdrop-filter: blur(10px);
-    -webkit-backdrop-filter: blur(10px);
-    border-left: 1px solid var(--border-color);
-    transform: translateX(100%);
-    opacity: 0;
-    transition: transform 0.5s cubic-bezier(0.2, 0.8, 0.2, 1), opacity 0.4s ease;
-    display: flex;
-    flex-direction: column;
-    padding: 24px;
+    justify-content: space-between;
+    padding: 0 24px;
+    z-index: 10000;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.4);
     box-sizing: border-box;
-    z-index: 12000;
-    pointer-events: none;
-    box-shadow: -10px 0 30px rgba(0, 0, 0, 0.5);
+    backdrop-filter: blur(10px);
 }
 
-.user-menu-panel.open {
-    transform: translateX(0);
-    opacity: 1;
-    pointer-events: auto;
-}
-
-.user-menu-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: 24px;
-}
-
-.user-menu-title {
-    font-size: 16px;
-    font-weight: 600;
-    color: var(--text-primary);
-}
-
-.user-menu-close {
-    border: 1px solid var(--border-color);
-    background: rgba(255, 255, 255, 0.05);
-    color: var(--text-secondary);
-    border-radius: 6px;
-    padding: 8px 14px;
-    font-size: 12px;
-    font-weight: 500;
-    cursor: pointer;
-    transition: all 0.2s ease;
-}
-
-.user-menu-close:hover {
-    color: #ffffff;
-    border-color: rgba(255, 255, 255, 0.25);
-    background: rgba(255, 255, 255, 0.1);
-}
-
-.user-menu-body {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    gap: 16px;
-    overflow-y: auto;
-}
-
-.user-info-item {
-    background: rgba(255, 255, 255, 0.04);
-    border: 1px solid rgba(255, 255, 255, 0.06);
-    border-radius: 10px;
-    padding: 14px;
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-}
-
-.user-info-label {
-    font-size: 11px;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    color: var(--text-secondary);
-}
-
-.user-info-value {
-    font-size: 15px;
-    color: var(--text-primary);
-    font-weight: 500;
-    word-break: break-word;
-}
-
-.user-info-value.alert {
-    color: #ff003f;
-}
-
-.user-menu-footer {
-    padding-top: 16px;
-}
-
-.user-menu-logout {
-    width: 100%;
-    padding: 12px 18px;
-    border-radius: 8px;
-    border: 1px solid #ff003f;
-    background: #ff003f;
-    color: #ffffff;
-    font-size: 14px;
-    font-weight: 600;
-    cursor: pointer;
-    transition: background 0.2s ease, transform 0.2s ease;
-}
-
-.user-menu-logout:hover {
-    background: #e6003a;
-    transform: translateY(-1px);
-}
-
-.analyzer-header h3 {
-    margin: 0;
-    font-size: 18px;
-    font-weight: 600;
-    color: #fff;
+/* LEFT: BRAND */
+.da-brand {
     display: flex;
     align-items: center;
     gap: 12px;
 }
+.da-logo svg {
+    width: 28px;
+    height: 28px;
+    filter: drop-shadow(0 0 8px rgba(255, 0, 63, 0.5));
+}
+.da-title-wrapper {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+}
+.da-app-name {
+    font-size: 16px;
+    font-weight: 700;
+    color: #fff;
+    letter-spacing: -0.5px;
+    line-height: 1.2;
+}
+.title-badge {
+    background: linear-gradient(135deg, #FF003F, #ff4d79);
+    color: white;
+    font-size: 9px;
+    font-weight: 800;
+    padding: 2px 6px;
+    border-radius: 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    box-shadow: 0 2px 8px rgba(255, 0, 63, 0.3);
+    align-self: flex-start;
+    display: inline-block;
+}
 
-/* Toggle de modo IA */
-.ai-mode-toggle {
-    font-size: 11px;
-    padding: 4px 10px;
-    border-radius: 12px;
-    background: rgba(255, 255, 255, 0.1);
+/* CENTER: AI TOGGLE SWITCH */
+.da-center-control {
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+/* The actual switch container */
+.ai-toggle-switch {
+    position: relative;
+    display: flex;
+    align-items: center;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 100px;
+    padding: 3px;
     cursor: pointer;
-    transition: all 0.3s ease;
-    font-weight: normal;
-    color: #888;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    width: 140px;
+    height: 36px;
+    box-sizing: border-box;
 }
 
-.ai-mode-toggle.active {
-    min-height: 80px !important;
-    max-height: 80px !important;
-    height: auto !important;
-    overflow: hidden !important;
-    gap: 0 !important;
+.ai-toggle-switch:hover {
+    background: rgba(255, 255, 255, 0.08);
+    border-color: rgba(255, 255, 255, 0.2);
 }
 
-.ai-mode-toggle:hover {
-    background: rgba(255, 255, 255, 0.2);
-    transform: scale(1.05);
+/* The sliding knob */
+.ai-toggle-knob {
+    width: 28px;
+    height: 28px;
+    background: #4a5568;
+    border-radius: 50%;
+    position: absolute;
+    left: 3px;
+    transition: all 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+    box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #1a1a2e;
+    z-index: 2;
 }
+
+/* The text label inside */
+.ai-toggle-label {
+    position: absolute;
+    right: 12px;
+    font-size: 11px;
+    font-weight: 700;
+    color: #718096;
+    transition: color 0.3s;
+    user-select: none;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    z-index: 1;
+    pointer-events: none;
+}
+
+/* ACTIVE STATE */
+.ai-toggle-switch.active {
+    border-color: #FF003F;
+    background: rgba(255, 0, 63, 0.05);
+    box-shadow: 0 0 20px rgba(255, 0, 63, 0.1);
+}
+
+.ai-toggle-switch.active .ai-toggle-knob {
+    background: #FF003F;
+    transform: translateX(104px); /* (140 - 3 - 28 - 3) approx */
+    color: white;
+    box-shadow: 0 0 10px rgba(255, 0, 63, 0.5);
+}
+
+.ai-toggle-switch.active .ai-toggle-label {
+    right: auto;
+    left: 12px;
+    color: #fff;
+    text-shadow: 0 0 10px rgba(255, 255, 255, 0.5);
+}
+
+/* RIGHT: USER ACTION */
+.da-user-actions {
+    display: flex;
+    align-items: center;
+}
+
+.da-user-btn {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    background: transparent;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #fff;
+    cursor: pointer;
+    transition: all 0.2s;
+    margin: 0; /* Reset margin */
+}
+.da-user-btn:hover {
+    background: rgba(255, 255, 255, 0.1);
+    border-color: #FF003F;
+    color: #FF003F;
+    box-shadow: 0 0 15px rgba(255, 0, 63, 0.2);
+}
+
+/* USER MENU PANEL */
+.user-menu-panel {
+    position: fixed;
+    top: var(--da-header-height);
+    right: 0;
+    width: 300px;
+    height: calc(100vh - var(--da-header-height));
+    background: #1a1a2e;
+    border-left: 1px solid rgba(255, 255, 255, 0.08);
+    transform: translateX(100%);
+    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    z-index: 9999;
+    display: flex;
+    flex-direction: column;
+    box-shadow: -10px 0 30px rgba(0,0,0,0.5);
+}
+
+.user-menu-panel.open {
+    transform: translateX(0);
+}
+
+.user-menu-panel.compact-anchored {
+    right: auto;
+}
+
+.user-menu-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 16px 20px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.user-menu-title {
+    font-size: 14px;
+    font-weight: 700;
+    color: #fff;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.user-menu-close {
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    color: #a0aec0;
+    padding: 4px 10px;
+    border-radius: 4px;
+    font-size: 11px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.user-menu-close:hover {
+    background: rgba(255, 255, 255, 0.1);
+    color: #fff;
+}
+
+.user-menu-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.user-info-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding-bottom: 8px;
+    border-bottom: 1px solid rgba(255,255,255,0.03);
+}
+.user-info-label {
+    font-size: 12px;
+    color: #8b92a8;
+}
+.user-info-value {
+    font-size: 12px;
+    color: #fff;
+    font-weight: 600;
+}
+.user-info-value.plan {
+    color: #FF003F;
+}
+
+.user-menu-footer {
+    padding: 20px;
+    border-top: 1px solid rgba(255, 255, 255, 0.05);
+    background: rgba(0, 0, 0, 0.1);
+}
+
+.user-menu-logout {
+    width: 100%;
+    padding: 10px;
+    background: rgba(239, 68, 68, 0.1);
+    border: 1px solid rgba(239, 68, 68, 0.3);
+    color: #ef4444;
+    border-radius: 6px;
+    cursor: pointer;
+    font-weight: 600;
+    transition: all 0.2s;
+}
+.user-menu-logout:hover {
+    background: rgba(239, 68, 68, 0.2);
+}
+
+/* FIX: Button styles for view mode toggles inside menu */
+.view-mode-toggle-btn {
+    padding: 4px 10px;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 4px;
+    color: #fff;
+    font-size: 11px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+.view-mode-toggle-btn:hover {
+    background: rgba(255, 255, 255, 0.1);
+    border-color: #FF003F;
+}
+
+/* RESPONSIVE */
+@media (max-width: 768px) {
+    .da-header {
+        padding: 0 16px;
+        height: 56px;
+    }
+    .da-app-name {
+        display: none; 
+    }
+    .da-title-wrapper {
+        display: none;
+    }
+    .ai-toggle-switch {
+        width: 110px;
+        height: 32px;
+    }
+    .ai-toggle-knob {
+        width: 24px;
+        height: 24px;
+        left: 3px;
+    }
+    .ai-toggle-switch.active .ai-toggle-knob {
+        transform: translateX(80px);
+    }
+    .ai-toggle-label {
+        font-size: 10px;
+    }
+    
+    .user-menu-panel {
+        width: 100%;
+        top: 56px;
+        height: calc(100vh - 56px);
+    }
+}
+
 
 
 .analyzer-content {
@@ -3126,135 +3238,7 @@
     box-shadow: 0 2px 6px rgba(0, 212, 255, 0.4);
 }
 
-.ai-mode-toggle {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 2px;
-    padding: 6px 12px;
-    background: var(--bg-tertiary);
-    border: none;
-    border-radius: 6px;
-    cursor: pointer;
-    transition: all 0.3s ease;
-}
-
-.ai-mode-toggle:hover {
-    background: var(--bg-secondary);
-    transform: translateY(-1px);
-}
-
-.ai-mode-toggle.active {
-    background: rgba(239, 68, 68, 0.15);
-    border: none;
-    border-radius: 4px;
-    min-height: 80px !important;
-    max-height: 80px !important;
-    height: auto !important;
-    overflow: hidden !important;
-    padding: 6px 12px !important;
-    gap: 0 !important;
-}
-
-.mode-name {
-    font-size: 14px;
-    font-weight: 600;
-    color: var(--text-primary);
-    text-align: center;
-    font-family: var(--font-primary);
-    letter-spacing: 0.3px;
-    min-height: 20px !important;
-    max-height: 20px !important;
-    height: 20px !important;
-    line-height: 20px !important;
-    overflow: hidden !important;
-    white-space: nowrap !important;
-    text-overflow: ellipsis !important;
-    margin: 0 !important;
-    padding: 0 !important;
-}
-
-.ai-mode-toggle.active .mode-name {
-    color: var(--text-primary);
-}
-
-.mode-api-container {
-    position: relative !important;
-    margin-top: 8px !important;
-    margin-bottom: 0 !important;
-    min-height: 50px !important;
-    max-height: 50px !important;
-    height: 50px !important;
-    min-width: 100% !important;
-    max-width: 100% !important;
-    width: 100% !important;
-    box-sizing: border-box !important;
-    overflow: hidden !important;
-    display: block !important;
-    flex-grow: 0 !important;
-    flex-shrink: 0 !important;
-    flex-basis: 50px !important;
-}
-
-.mode-api-header-simple {
-    display: block !important;
-    text-align: center !important;
-    padding-bottom: 4px !important;
-    padding-top: 0 !important;
-    margin-bottom: 4px !important;
-    margin-top: 0 !important;
-    border-bottom: 1px solid rgba(0, 255, 136, 0.2) !important;
-    max-height: 18px !important;
-    height: 18px !important;
-    overflow: hidden !important;
-}
-
-.mode-api-title-simple {
-    font-size: 11px !important;
-    font-weight: 700 !important;
-    color: rgba(0, 255, 136, 0.95) !important;
-    text-transform: uppercase !important;
-    letter-spacing: 1px !important;
-    display: inline-block !important;
-    line-height: 14px !important;
-}
-
-.mode-api-status {
-    display: block !important;
-    font-size: 10px !important;
-    font-weight: 500 !important;
-    color: rgba(255, 255, 255, 0.9) !important;
-    line-height: 1.2 !important;
-    text-align: center !important;
-    overflow: hidden !important;
-    white-space: nowrap !important;
-    text-overflow: ellipsis !important;
-    max-height: 14px !important;
-    height: 14px !important;
-    padding: 0 !important;
-    margin: 0 !important;
-}
-.mode-api-status .diamond-status-tag {
-    color: #00d4ff !important;
-    font-weight: 600 !important;
-}
-.mode-api-status .typing-caret {
-    display: inline-block;
-    width: 2px;
-    height: 1em;
-    background: #00d4ff;
-    margin-left: 2px;
-    animation: diamondTypingCaret 1s steps(2, start) infinite;
-    vertical-align: baseline;
-}
-.mode-api-status[data-typing="true"] {
-    white-space: nowrap !important;
-}
-@keyframes diamondTypingCaret {
-    50% {
-        opacity: 0;
-    }
-}
+/* REMOVED OLD AI MODE TOGGLE STYLES TO PREVENT CONFLICTS */
 
 /* ═══════════════════════════════════════════════════════════════════════════════ */
 /* 🔒 BOTÃO DE MOSTRAR/OCULTAR SENHA (PROFISSIONAL)                                */
@@ -3519,91 +3503,7 @@
         gap: 0 !important;
     }
     
-    /* 🎯 MODO APOSTA NO MOBILE - AI MODE TOGGLE (APENAS NOME) */
-    #blaze-double-analyzer.bet-display-mode .ai-mode-toggle {
-        flex: 0 0 auto !important;
-        background: transparent !important;
-        padding: 0 !important;
-        margin: 0 auto !important;
-        border-radius: 0 !important;
-        min-height: auto !important;
-        max-height: none !important;
-        height: auto !important;
-        line-height: normal !important;
-        display: flex !important;
-        align-items: center !important;
-        justify-content: center !important;
-        flex-direction: row !important;
-        gap: 0 !important;
-        overflow: visible !important;
-        position: static !important;
-        transform: none !important;
-        top: auto !important;
-        left: auto !important;
-        right: auto !important;
-        bottom: auto !important;
-        width: auto !important;
-    }
-    
-    #blaze-double-analyzer.bet-display-mode .ai-mode-toggle.active {
-        flex: 0 0 auto !important;
-        background: transparent !important;
-        padding: 0 !important;
-        margin: 0 auto !important;
-        border-radius: 0 !important;
-        min-height: auto !important;
-        max-height: none !important;
-        height: auto !important;
-        line-height: normal !important;
-        display: flex !important;
-        align-items: center !important;
-        justify-content: center !important;
-        flex-direction: row !important;
-        gap: 0 !important;
-        overflow: visible !important;
-        position: static !important;
-        transform: none !important;
-        top: auto !important;
-        left: auto !important;
-        right: auto !important;
-        bottom: auto !important;
-        width: auto !important;
-    }
-    
-    /* 🎯 MODO APOSTA NO MOBILE - MODE NAME */
-    #blaze-double-analyzer.bet-display-mode .ai-mode-toggle .mode-name {
-        font-size: 15px !important;
-        font-weight: 600 !important;
-        color: #ffffff !important;
-        white-space: nowrap !important;
-        text-align: center !important;
-        margin: 0 !important;
-        padding: 0 !important;
-        line-height: 1.2 !important;
-        display: block !important;
-        position: static !important;
-        transform: none !important;
-        top: auto !important;
-        left: auto !important;
-        right: auto !important;
-        bottom: auto !important;
-    }
-    
-    /* 🎯 MODO APOSTA NO MOBILE - ESCONDER CONTAINER DE IA */
-    #blaze-double-analyzer.bet-display-mode .mode-api-container,
-    #blaze-double-analyzer.bet-display-mode .ai-mode-toggle .mode-api-container,
-    #blaze-double-analyzer.bet-display-mode .mode-api-status {
-        display: none !important;
-        visibility: hidden !important;
-        opacity: 0 !important;
-        height: 0 !important;
-        width: 0 !important;
-        margin: 0 !important;
-        padding: 0 !important;
-        overflow: hidden !important;
-        position: absolute !important;
-        pointer-events: none !important;
-    }
+/* REMOVED OLD BET DISPLAY MODE STYLES TO PREVENT CONFLICTS */
     
     /* ✅ USER MENU TOGGLE: Visível no mobile, alinhado à direita */
     .user-menu-toggle {
@@ -3651,15 +3551,7 @@
         transition: all 0.2s ease !important;
     }
     
-    /* ✅ AI MODE TOGGLE: Segunda linha no mobile (largura total) */
-    .ai-mode-toggle {
-        width: 100% !important;
-        max-width: 100% !important;
-        margin: 0 !important;
-        padding: 8px 12px !important;
-        box-sizing: border-box !important;
-        font-size: 13px !important;
-    }
+/* REMOVED OLD AI MODE TOGGLE RESPONSIVE STYLES TO PREVENT CONFLICTS */
     
     /* ✅ AJUSTAR BOTÕES DO HEADER */
     .header-buttons {
@@ -3830,14 +3722,7 @@
         height: 20px !important;
     }
     
-    /* ✅ AJUSTAR TOGGLE DIAMANTE - REMOVER DUPLICAÇÃO (já definido acima) */
-    .ai-mode-toggle .mode-name {
-        font-size: 13px !important;
-        min-height: 20px !important;
-        max-height: 20px !important;
-        height: 20px !important;
-        overflow: hidden !important;
-    }
+/* REMOVED OLD AI MODE TOGGLE NAME STYLE */
     
     /* ✅ AJUSTAR BOTÕES DE PADRÕES */
     .btn-hot-pattern,
@@ -4007,19 +3892,7 @@
         font-size: 16px !important;
     }
     
-    /* ✅ TOGGLE AI MODE NO MOBILE */
-    .ai-mode-toggle {
-        font-size: 13px !important;
-        padding: 6px 10px !important;
-    }
-    
-    .ai-mode-toggle.active {
-        min-height: 80px !important;
-        max-height: 80px !important;
-        height: auto !important;
-        overflow: hidden !important;
-        gap: 0 !important;
-    }
+/* REMOVED OLD AI MODE TOGGLE RESPONSIVE STYLES TO PREVENT CONFLICTS */
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════════ */
@@ -4070,18 +3943,7 @@
         margin-left: 3px !important;
     }
     
-    .ai-mode-toggle {
-        font-size: 10px !important;
-        padding: 6px 8px !important;
-    }
-    
-    .ai-mode-toggle.active {
-        min-height: 80px !important;
-        max-height: 80px !important;
-        height: auto !important;
-        overflow: hidden !important;
-        gap: 0 !important;
-    }
+/* REMOVED OLD AI MODE TOGGLE RESPONSIVE STYLES TO PREVENT CONFLICTS */
     
     .btn-hot-pattern,
     .btn-view-patterns,
@@ -4130,18 +3992,7 @@
         margin-left: 3px !important;
     }
     
-    .ai-mode-toggle {
-        padding: 4px 8px !important;
-        font-size: 10px !important;
-    }
-    
-    .ai-mode-toggle.active {
-        min-height: 80px !important;
-        max-height: 80px !important;
-        height: auto !important;
-        overflow: hidden !important;
-        gap: 0 !important;
-    }
+/* REMOVED OLD AI MODE TOGGLE RESPONSIVE STYLES 2 */
     
     .analyzer-body {
         height: calc(100vh - 40px) !important;
@@ -4359,87 +4210,7 @@
   box-sizing: border-box !important;
 }
 
-/* Apenas o nome do modo, sem fundo, sem container de IA - CENTRALIZADO */
-#blaze-double-analyzer.bet-display-mode .ai-mode-toggle {
-  flex: 0 0 auto !important;
-  background: transparent !important;
-  padding: 0 !important;
-  margin: 0 auto !important;
-  border-radius: 0 !important;
-  min-height: auto !important;
-  max-height: none !important;
-  height: auto !important;
-  line-height: normal !important;
-  display: flex !important;
-  align-items: center !important;
-  justify-content: center !important;
-  flex-direction: row !important;
-  gap: 0 !important;
-  overflow: visible !important;
-  position: static !important;
-  transform: none !important;
-  top: auto !important;
-  left: auto !important;
-  right: auto !important;
-  bottom: auto !important;
-}
-
-#blaze-double-analyzer.bet-display-mode .ai-mode-toggle.active {
-  flex: 0 0 auto !important;
-  background: transparent !important;
-  padding: 0 !important;
-  margin: 0 auto !important;
-  border-radius: 0 !important;
-  min-height: auto !important;
-  max-height: none !important;
-  height: auto !important;
-  line-height: normal !important;
-  display: flex !important;
-  align-items: center !important;
-  justify-content: center !important;
-  flex-direction: row !important;
-  gap: 0 !important;
-  overflow: visible !important;
-  position: static !important;
-  transform: none !important;
-  top: auto !important;
-  left: auto !important;
-  right: auto !important;
-  bottom: auto !important;
-}
-
-#blaze-double-analyzer.bet-display-mode .ai-mode-toggle .mode-name {
-  font-size: 15px !important;
-  font-weight: 600 !important;
-  color: #ffffff !important;
-  white-space: nowrap !important;
-  text-align: center !important;
-  margin: 0 !important;
-  padding: 0 !important;
-  line-height: 1.2 !important;
-  display: block !important;
-  position: static !important;
-  transform: none !important;
-  top: auto !important;
-  left: auto !important;
-  right: auto !important;
-  bottom: auto !important;
-}
-
-/* ESCONDER COMPLETAMENTE O CONTAINER DE IA/MEMÓRIA NO MODO APOSTA */
-#blaze-double-analyzer.bet-display-mode .mode-api-container,
-#blaze-double-analyzer.bet-display-mode .ai-mode-toggle .mode-api-container,
-#blaze-double-analyzer.bet-display-mode .mode-api-status {
-  display: none !important;
-  visibility: hidden !important;
-  opacity: 0 !important;
-  height: 0 !important;
-  min-height: 0 !important;
-  max-height: 0 !important;
-  overflow: hidden !important;
-  margin: 0 !important;
-  padding: 0 !important;
-}
+/* REMOVED OLD BET MODE AI TOGGLE STYLES */
 
 /* Botão de menu (três barrinhas) à direita - ESTILO BONITO E QUADRADINHO */
 #blaze-double-analyzer.bet-display-mode .header-main {

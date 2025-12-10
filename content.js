@@ -938,246 +938,54 @@
     }
     
     // ═══════════════════════════════════════════════════════════════════════════════
-    // FUNÇÃO: Atualizar visual do toggle de modo IA
+    // FUNÇÃO: Atualizar visual do toggle de modo IA (NOVO - SWITCH)
     // ═══════════════════════════════════════════════════════════════════════════════
     function updateAIModeUI(toggleElement, isActive) {
-        if (!toggleElement) return;
-        
-        console.log('%c═══════════════════════════════════════════════════════════', 'color: #FFD700; font-weight: bold;');
-        console.log('%c⚙️ [DEBUG updateAIModeUI]', 'color: #FFD700; font-weight: bold;');
-        console.log('%c   isActive:', 'color: #FFD700;', isActive);
-        
-        const modeName = toggleElement.querySelector('.mode-name');
-        const modeApiContainer = toggleElement.querySelector('.mode-api-container');
-        const modeApiStatus = document.getElementById('modeApiStatus');
+        // Obter elementos principais
+        const aiSwitch = document.getElementById('aiModeToggle');
+        const aiLabel = document.getElementById('aiToggleLabel');
         const titleBadge = document.getElementById('titleBadge');
+
+        // Toggle Element pode ser passado como argumento ou buscado
+        const targetElement = aiSwitch || toggleElement;
         
-        const sidebar = document.getElementById('blaze-double-analyzer');
-        const isBetDisplay = sidebar && sidebar.classList.contains('bet-display-mode');
-        
+        if (!targetElement) return;
+
         if (isActive) {
-            // 🔍 LOG: Altura ANTES
-            const heightBefore = window.getComputedStyle(toggleElement).height;
-            console.log('%c   📏 Toggle ANTES:', 'color: #FFA500;', heightBefore);
+            // ATIVAR MODO
+            targetElement.classList.add('active');
             
-            toggleElement.classList.add('active');
+            if (aiLabel) aiLabel.textContent = 'AI ON';
             
-            // ✅ Cabeçalho completo x modo aposta
-            if (!isBetDisplay) {
-                // Layout completo: manter container grande
-            toggleElement.style.cssText = `
-                min-height: 80px !important;
-                max-height: 80px !important;
-                height: auto !important;
-                overflow: hidden !important;
-                padding: 6px 12px !important;
-                gap: 0 !important;
-            `;
-            } else {
-                // Modo aposta: cabeçalho simples, estreito - LIMPAR TODOS OS ESTILOS INLINE
-                toggleElement.style.cssText = '';
-                toggleElement.removeAttribute('style');
-            }
-            
-            console.log('%c   ✅ Estilos inline aplicados ao toggle', 'color: #00FF88;');
-            console.log('%c   🎨 cssText:', 'color: #FFFF00;', toggleElement.style.cssText);
-            
-            // 🔍 LOG: Altura DEPOIS
-            const heightAfter = window.getComputedStyle(toggleElement).height;
-            console.log('%c   📏 Toggle DEPOIS:', 'color: #00FFFF;', heightAfter);
-            
-            if (modeName) {
-                modeName.textContent = isBetDisplay
-                    ? 'Análise Diamante Ativa'
-                    : '💎 Análise Diamante Ativa';
-            }
-            
-            // ✅ Mudar badge para IA
             if (titleBadge) {
                 titleBadge.textContent = 'IA';
                 titleBadge.classList.add('badge-ia');
             }
-            
-            // 🧠 Atualizar status dinâmico da memória ativa
-            if (modeApiContainer && modeApiStatus) {
-                if (isBetDisplay) {
-                    // No modo aposta não exibir cartão de status IA
-                    modeApiContainer.style.display = 'none';
-                    modeApiStatus.textContent = '';
-                } else {
-                modeApiContainer.style.display = 'block';
-                atualizarStatusMemoriaAtiva(modeApiStatus);
-                }
-            }
-            
-            console.log('%c═══════════════════════════════════════════════════════════', 'color: #FFD700; font-weight: bold;');
         } else {
-            toggleElement.classList.remove('active');
+            // DESATIVAR MODO
+            targetElement.classList.remove('active');
             
-            // ✅ REMOVER ESTILOS INLINE
-            toggleElement.style.cssText = '';
-            if (isBetDisplay) {
-                toggleElement.removeAttribute('style');
-            }
-            
-            if (modeName) {
-                modeName.textContent = isBetDisplay
-                    ? 'Análise Padrão Ativa'
-                    : 'Ativar Modo Diamante';
-            }
-            
-            // ✅ Mudar badge para PREMIUM
+            if (aiLabel) aiLabel.textContent = 'AI OFF';
+
             if (titleBadge) {
                 titleBadge.textContent = 'PREMIUM';
                 titleBadge.classList.remove('badge-ia');
             }
             
-            // ✅ FORÇAR OCULTAR CONTAINER
-            if (modeApiContainer) {
-                modeApiContainer.style.display = 'none';
-                console.log('%c🚫 Container IA OCULTO (modo DESATIVADO)', 'color: #FF6666; font-weight: bold;');
-            }
-            if (modeApiStatus) {
-                modeApiStatus.textContent = '';
-            }
-            
-            // ✅ PARAR INTERVALO DE ATUALIZAÇÃO
+            // Parar updates se houver
             if (intervaloAtualizacaoMemoria) {
                 clearInterval(intervaloAtualizacaoMemoria);
                 intervaloAtualizacaoMemoria = null;
-                console.log('%c🛑 Intervalo parado (modo DESATIVADO)', 'color: #FFA500; font-weight: bold;');
             }
         }
     }
 
-    // 🧠 Atualizar status da memória ativa na interface
+
+    // 🧠 Atualizar status da memória ativa na interface (DESATIVADO - Painel removido)
     async function atualizarStatusMemoriaAtiva(elemento) {
-        // ✅ VERIFICAR SE O MODO IA ESTÁ ATIVO - SE NÃO, NÃO FAZER NADA
-        const aiModeToggle = document.querySelector('.ai-mode-toggle.active');
-        if (!aiModeToggle) {
-            console.log('%c🚫 [atualizarStatusMemoriaAtiva] Modo IA NÃO está ativo - ignorando', 'color: #FFA500; font-weight: bold;');
-            return;
-        }
-        
-        const modeApiContainer = document.querySelector('.mode-api-container');
-        
-        console.log('%c═══════════════════════════════════════════════════════════', 'color: #00CED1; font-weight: bold;');
-        console.log('%c🧠 [DEBUG atualizarStatusMemoriaAtiva]', 'color: #00CED1; font-weight: bold;');
-        
-        // 🔍 LOG: Tamanhos NO INÍCIO
-        if (modeApiContainer && aiModeToggle) {
-            const containerHeight = window.getComputedStyle(modeApiContainer).height;
-            const toggleHeight = window.getComputedStyle(aiModeToggle).height;
-            console.log('%c   📏 NO INÍCIO:', 'color: #FFA500;', {
-                container: containerHeight,
-                toggle: toggleHeight
-            });
-        }
-        
-        // ✅ VERIFICAR SE ESTÁ EM ANÁLISE PROGRESSIVA - NÃO SOBRESCREVER!
-        const isProgressiveAnalysis = currentAnalysisStatus && (
-            currentAnalysisStatus.includes('Nível') ||
-            currentAnalysisStatus.includes('Iniciando análise') ||
-            currentAnalysisStatus.includes('Barreira') ||
-            currentAnalysisStatus.includes('aprovado') ||
-            currentAnalysisStatus.includes('rejeitado') ||
-            currentAnalysisStatus.includes('Rejeitado') ||
-            currentAnalysisStatus.includes('Análise:') ||
-            currentAnalysisStatus.includes('Aguarde novo giro')
-        );
-        
-        if (isProgressiveAnalysis) {
-            console.log('%c⏸️ [atualizarStatusMemoriaAtiva] ANÁLISE PROGRESSIVA EM ANDAMENTO - NÃO atualizar', 'color: #FFA500; font-weight: bold;');
-            console.log('%c   Status atual:', 'color: #FFA500;', currentAnalysisStatus);
-            console.log('%c═══════════════════════════════════════════════════════════', 'color: #00CED1; font-weight: bold;');
-            return; // ✅ NÃO sobrescrever durante análise progressiva
-        }
-        
-        console.log('%c╔══════════════════════════════════════════════════════════╗', 'color: #00CED1; font-weight: bold;');
-        console.log('%c║  🧠 [CONTENT] INICIANDO ATUALIZAÇÃO DO STATUS          ║', 'color: #00CED1; font-weight: bold;');
-        console.log('%c╚══════════════════════════════════════════════════════════╝', 'color: #00CED1; font-weight: bold;');
-        
-        try {
-            console.log('%c📤 [CONTENT] Enviando mensagem GET_MEMORIA_ATIVA_STATUS...', 'color: #00CED1;');
-            console.log('%c   Elemento alvo:', 'color: #00CED1;', elemento);
-            console.log('%c   chrome.runtime exists?', 'color: #00CED1;', !!chrome.runtime);
-            console.log('%c   chrome.runtime.sendMessage exists?', 'color: #00CED1;', !!chrome.runtime.sendMessage);
-            
-            // Pedir status da memória ativa do background.js
-            const response = await chrome.runtime.sendMessage({ action: 'GET_MEMORIA_ATIVA_STATUS' });
-            
-            console.log('%c╔══════════════════════════════════════════════════════════╗', 'color: #00FF88; font-weight: bold;');
-            console.log('%c║  📥 [CONTENT] RESPOSTA RECEBIDA!                       ║', 'color: #00FF88; font-weight: bold;');
-            console.log('%c╚══════════════════════════════════════════════════════════╝', 'color: #00FF88; font-weight: bold;');
-            console.log('%c   Resposta completa:', 'color: #00FF88;', response);
-            console.log('%c   response.status exists?', 'color: #00FF88;', !!response?.status);
-            
-            if (response && response.status) {
-                const status = response.status;
-                console.log('%c✅ [CONTENT] Status válido recebido!', 'color: #00FF88; font-weight: bold;');
-                console.log('%c   📊 Detalhes do status:', 'color: #00FF88;');
-                console.log('%c      ├─ inicializada:', 'color: #00FF88;', status.inicializada);
-                console.log('%c      ├─ totalAtualizacoes:', 'color: #00FF88;', status.totalAtualizacoes);
-                console.log('%c      ├─ tempoUltimaAtualizacao:', 'color: #00FF88;', status.tempoUltimaAtualizacao);
-                console.log('%c      └─ totalGiros:', 'color: #00FF88;', status.totalGiros);
-                
-                const modeApiContainer = document.querySelector('.mode-api-container');
-                
-                if (!status.inicializada) {
-                    // Memória está inicializando
-                    console.log('%c🟠 [UI] Atualizando para: Inicializando IA...', 'color: #FFA500; font-weight: bold;');
-                    elemento.textContent = '⚡ Inicializando...';
-                    // ✅ NÃO mexer no display - já está gerenciado pelo updateAIModeUI
-                } else {
-                    // Memória está ativa
-                    const updates = status.totalAtualizacoes || 0;
-                    
-                    console.log('%c🟢 [UI] Atualizando para: Memória ativada', 'color: #00FF00; font-weight: bold;');
-                    
-                    elemento.textContent = `Memória ativada • ${updates} análises`;
-                    // ✅ NÃO mexer no display - já está gerenciado pelo updateAIModeUI
-                }
-                
-                console.log('%c✅ [UI] Texto do elemento após atualização:', 'color: #00FF88;', elemento.textContent);
-                
-                // 🔍 LOG: Tamanhos NO FINAL
-                if (modeApiContainer && aiModeToggle) {
-                    const containerHeightFinal = window.getComputedStyle(modeApiContainer).height;
-                    const toggleHeightFinal = window.getComputedStyle(aiModeToggle).height;
-                    console.log('%c   📏 NO FINAL:', 'color: #00FFFF;', {
-                        container: containerHeightFinal,
-                        toggle: toggleHeightFinal
-                    });
-                }
-            } else {
-                uiLog('⚠️ [CONTENT] Resposta inválida ou vazia!', response);
-                elemento.textContent = 'Memória ativada';
-                return;
-            }
-        } catch (error) {
-            console.error('%c╔══════════════════════════════════════════════════════════╗', 'color: #FF0000; font-weight: bold;');
-            console.error('%c║  ❌ [CONTENT] ERRO AO OBTER STATUS!                    ║', 'color: #FF0000; font-weight: bold;');
-            console.error('%c╚══════════════════════════════════════════════════════════╝', 'color: #FF0000; font-weight: bold;');
-            console.error('%c   Erro:', 'color: #FF0000;', error);
-            console.error('%c   Stack:', 'color: #FF0000;', error.stack);
-            elemento.textContent = 'Memória ativada';
-            // ✅ NÃO mexer no display - já está gerenciado pelo updateAIModeUI
-        }
-        
-        // 🔍 LOG: Tamanhos NO FIM TOTAL
-        if (modeApiContainer && aiModeToggle) {
-            const containerHeightEnd = window.getComputedStyle(modeApiContainer).height;
-            const toggleHeightEnd = window.getComputedStyle(aiModeToggle).height;
-            console.log('%c   📏 NO FIM TOTAL:', 'color: #FF00FF;', {
-                container: containerHeightEnd,
-                toggle: toggleHeightEnd
-            });
-            console.log('%c   🎨 Estilos inline finais do container:', 'color: #FFFF00;', modeApiContainer.style.cssText);
-            console.log('%c   🎨 Estilos inline finais do toggle:', 'color: #FFFF00;', aiModeToggle.style.cssText);
-        }
-        
-        console.log('%c═══════════════════════════════════════════════════════════', 'color: #00CED1; font-weight: bold;');
-        console.log('');
+        // Função desativada pois o painel de status foi removido da interface
+        // Mantida apenas para evitar erros se chamada de outros lugares
+        return;
     }
     
     // 🔍 DEBUG: MutationObserver para rastrear mudanças de altura
@@ -6831,28 +6639,48 @@ async function persistAnalyzerState(newState) {
                 <div class="resize-handle resize-se"></div>
                 <div class="resize-handle resize-sw"></div>
             </div>
-            <div class="analyzer-header" id="sidebarHeader">
-                <div class="header-content">
-                    <h3 class="header-title">Double Analyzer <span class="title-badge" id="titleBadge">PREMIUM</span></h3>
-                    
-                    <div class="ai-mode-toggle" id="aiModeToggle" title="Ativar/Desativar Modo Diamante">
-                        <span class="mode-name">Ativar Modo Diamante</span>
-                        <div class="mode-api-container" style="display: none;">
-                            <div class="mode-api-header-simple">
-                                <span class="mode-api-title-simple">IA</span>
-                            </div>
-                            <div class="mode-api-status" id="modeApiStatus"></div>
-                        </div>
+            
+            <!-- HEADER REFEITO DO ZERO - CLEAN & MODERN (BrightCheck Inspired) -->
+            <div class="da-header">
+                <!-- 1. Left: Brand -->
+                <div class="da-brand">
+                    <div class="da-logo">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                           <path d="M12 2L2 7L12 12L22 7L12 2Z" stroke="#FF003F" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                           <path d="M2 17L12 22L22 17" stroke="#FF003F" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                           <path d="M2 12L12 17L22 12" stroke="#FF003F" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                        </svg>
                     </div>
+                    <div class="da-title-wrapper">
+                        <span class="da-app-name">Double Analyzer</span>
+                        <span class="title-badge" id="titleBadge">PREMIUM</span>
+                    </div>
+                </div>
 
-                    <button type="button" class="user-menu-toggle" id="userMenuToggle" title="Abrir informações da conta" aria-controls="userMenuPanel" aria-expanded="false">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                            <path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"></path>
+                <!-- 2. Center: AI Toggle Switch -->
+                <div class="da-center-control">
+                    <div class="ai-toggle-switch ai-mode-toggle" id="aiModeToggle">
+                        <div class="ai-toggle-knob">
+                            <!-- Icon inside knob -->
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
+                            </svg>
+                        </div>
+                        <div class="ai-toggle-label" id="aiToggleLabel">AI OFF</div>
+                    </div>
+                </div>
+
+                <!-- 3. Right: User Actions -->
+                <div class="da-user-actions">
+                    <button class="da-user-btn user-menu-toggle" id="userMenuToggle" title="Minha Conta">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
                             <circle cx="12" cy="7" r="4"></circle>
                         </svg>
                     </button>
                 </div>
             </div>
+
             <div class="user-menu-panel" id="userMenuPanel" role="region" aria-labelledby="userMenuTitle">
                 <div class="user-menu-header">
                     <div class="user-menu-title" id="userMenuTitle">Minha Conta</div>
@@ -7350,6 +7178,7 @@ async function persistAnalyzerState(newState) {
         
         const userMenuToggle = sidebar.querySelector('#userMenuToggle');
         const userMenuPanel = sidebar.querySelector('#userMenuPanel');
+        const daHeader = sidebar.querySelector('.da-header');
         const userMenuClose = sidebar.querySelector('#userMenuClose');
         const userMenuLogout = sidebar.querySelector('#userMenuLogout');
         const userMenuName = sidebar.querySelector('#userMenuName');
@@ -7358,6 +7187,96 @@ async function persistAnalyzerState(newState) {
         const userMenuPurchase = sidebar.querySelector('#userMenuPurchase');
         const userMenuDays = sidebar.querySelector('#userMenuDays');
         const titleBadge = sidebar.querySelector('#titleBadge');
+
+        let compactMenuListenersAttached = false;
+        let compactMenuAnimationFrame = null;
+
+        const scheduleCompactMenuReposition = () => {
+            if (!userMenuPanel || !userMenuPanel.classList.contains('compact-anchored')) {
+                return;
+            }
+            if (compactMenuAnimationFrame) {
+                cancelAnimationFrame(compactMenuAnimationFrame);
+            }
+            compactMenuAnimationFrame = requestAnimationFrame(() => {
+                compactMenuAnimationFrame = null;
+                repositionCompactMenuPanel();
+            });
+        };
+
+        const attachCompactMenuListeners = () => {
+            if (compactMenuListenersAttached) return;
+            window.addEventListener('resize', scheduleCompactMenuReposition);
+            window.addEventListener('scroll', scheduleCompactMenuReposition, true);
+            compactMenuListenersAttached = true;
+        };
+
+        const detachCompactMenuListeners = () => {
+            if (!compactMenuListenersAttached) return;
+            window.removeEventListener('resize', scheduleCompactMenuReposition);
+            window.removeEventListener('scroll', scheduleCompactMenuReposition, true);
+            compactMenuListenersAttached = false;
+        };
+
+        function repositionCompactMenuPanel() {
+            if (!userMenuPanel || !userMenuPanel.classList.contains('compact-anchored')) {
+                return;
+            }
+
+            const sidebarRect = sidebar.getBoundingClientRect();
+            const headerHeight = (() => {
+                try {
+                    const headerRect = daHeader?.getBoundingClientRect();
+                    if (headerRect && Number.isFinite(headerRect.height)) {
+                        return headerRect.height;
+                    }
+                } catch (_) {}
+                return 60;
+            })();
+
+            let panelWidth = Math.min(320, Math.max(260, sidebarRect.width - 20));
+            if (!Number.isFinite(panelWidth) || panelWidth <= 0) {
+                panelWidth = 300;
+            }
+
+            const minMargin = 16;
+            let left = sidebarRect.right - panelWidth;
+            if (left < minMargin) {
+                left = minMargin;
+            }
+
+            const top = Math.max(minMargin, sidebarRect.top + headerHeight);
+            const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 800;
+            const maxHeight = Math.max(260, viewportHeight - top - minMargin);
+
+            userMenuPanel.style.left = `${Math.round(left)}px`;
+            userMenuPanel.style.right = 'auto';
+            userMenuPanel.style.top = `${Math.round(top)}px`;
+            userMenuPanel.style.width = `${Math.round(panelWidth)}px`;
+            userMenuPanel.style.maxHeight = `${Math.round(maxHeight)}px`;
+        }
+
+        const enableCompactMenuAnchoring = () => {
+            if (!userMenuPanel) return;
+            userMenuPanel.classList.add('compact-anchored');
+            scheduleCompactMenuReposition();
+            attachCompactMenuListeners();
+        };
+
+        const disableCompactMenuAnchoring = () => {
+            if (!userMenuPanel) return;
+            userMenuPanel.classList.remove('compact-anchored');
+            detachCompactMenuListeners();
+            if (compactMenuAnimationFrame) {
+                cancelAnimationFrame(compactMenuAnimationFrame);
+                compactMenuAnimationFrame = null;
+            }
+            userMenuPanel.style.left = '';
+            userMenuPanel.style.right = '';
+            userMenuPanel.style.top = '';
+            userMenuPanel.style.width = '';
+            userMenuPanel.style.maxHeight = '';
+        };
 
         const setUserMenuState = (open) => {
             if (!userMenuPanel || !userMenuToggle) {
@@ -7369,10 +7288,17 @@ async function persistAnalyzerState(newState) {
                 userMenuPanel.classList.add('open');
                 userMenuToggle.classList.add('active');
                 userMenuToggle.setAttribute('aria-expanded', 'true');
+
+                if (sidebar.classList.contains('compact-mode')) {
+                    enableCompactMenuAnchoring();
+                } else {
+                    disableCompactMenuAnchoring();
+                }
             } else {
                 userMenuPanel.classList.remove('open');
                 userMenuToggle.classList.remove('active');
                 userMenuToggle.setAttribute('aria-expanded', 'false');
+                disableCompactMenuAnchoring();
             }
         };
 
@@ -10792,84 +10718,14 @@ function logModeSnapshotUI(snapshot) {
                 
                 // ✅ NÃO mexer no display - já está gerenciado pelo updateAIModeUI
                 
-                // ✅ APLICAR ESTILOS FIXOS (UMA VEZ SÓ)
+                // ✅ APLICAR ESTILOS FIXOS (REMOVIDO PARA USAR CSS EXTERNO)
+                /* 
                 if (!modeApiContainer.hasAttribute('data-styled')) {
                     modeApiContainer.setAttribute('data-styled', 'true');
-                    
-                    // Container principal - TAMANHO ABSOLUTO FIXO
-                    modeApiContainer.style.cssText = `
-                        display: block !important;
-                        position: relative !important;
-                        margin-top: 8px !important;
-                        margin-bottom: 0 !important;
-                        min-height: 50px !important;
-                        max-height: 50px !important;
-                        height: 50px !important;
-                        min-width: 100% !important;
-                        max-width: 100% !important;
-                        width: 100% !important;
-                        box-sizing: border-box !important;
-                        background: linear-gradient(135deg, rgba(0, 255, 136, 0.08) 0%, rgba(0, 212, 255, 0.08) 100%) !important;
-                        border: none !important;
-                        border-radius: 8px !important;
-                        padding: 8px 12px !important;
-                        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.05) !important;
-                        backdrop-filter: blur(10px) !important;
-                        overflow: hidden !important;
-                        flex-grow: 0 !important;
-                        flex-shrink: 0 !important;
-                        flex-basis: 50px !important;
-                    `;
-                    
-                    // Header simples
-                    const headerSimple = modeApiContainer.querySelector('.mode-api-header-simple');
-                    if (headerSimple) {
-                        headerSimple.style.cssText = `
-                            display: block !important;
-                            text-align: center !important;
-                            padding-bottom: 4px !important;
-                            padding-top: 0 !important;
-                            margin-bottom: 4px !important;
-                            margin-top: 0 !important;
-                            border-bottom: 1px solid rgba(0, 255, 136, 0.2) !important;
-                            max-height: 18px !important;
-                            height: 18px !important;
-                            overflow: hidden !important;
-                        `;
-                        
-                        const titleSimple = headerSimple.querySelector('.mode-api-title-simple');
-                        if (titleSimple) {
-                            titleSimple.style.cssText = `
-                                font-size: 11px !important;
-                                font-weight: 700 !important;
-                                color: rgba(0, 255, 136, 0.95) !important;
-                                text-transform: uppercase !important;
-                                letter-spacing: 1px !important;
-                                display: inline-block !important;
-                                line-height: 14px !important;
-                            `;
-                        }
-                    }
-                    
-                    // Status - FIXO
-                    modeApiStatus.style.cssText = `
-                        display: block !important;
-                        font-size: 10px !important;
-                        font-weight: 500 !important;
-                        color: rgba(255, 255, 255, 0.9) !important;
-                        line-height: 1.2 !important;
-                        text-align: center !important;
-                        overflow: hidden !important;
-                        white-space: nowrap !important;
-                        text-overflow: ellipsis !important;
-                        max-height: 14px !important;
-                        height: 14px !important;
-                        padding: 0 !important;
-                        margin: 0 !important;
-                    `;
-                    
-                    console.log('%c   ✅ Estilos aplicados pela primeira vez', 'color: #00FF88;');
+                    // Estilos removidos para usar classes CSS
                 }
+                */
+
                 
                 // 🔍 LOG: Tamanhos DEPOIS
                 const heightAfter = window.getComputedStyle(modeApiContainer).height;
