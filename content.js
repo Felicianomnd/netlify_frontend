@@ -6710,85 +6710,64 @@ async function persistAnalyzerState(newState) {
                     <!-- CAMPOS EDITÁVEIS DE PERFIL -->
                     <div class="profile-divider">Dados Pessoais</div>
                     
-                    <div class="user-info-item-editable">
-                        <span class="user-info-label">Telefone</span>
-                        <div class="profile-input-wrapper">
-                            <input type="tel" class="profile-input" id="profilePhone" placeholder="(00) 00000-0000" data-field="phone" />
-                            <button type="button" class="profile-ok-btn" data-field="phone" title="Salvar telefone">OK</button>
-                            <span class="profile-verified-icon" data-field="phone">✓</span>
+                    <div class="user-info-item-editable phone-field">
+                        <div class="user-info-label-row">
+                            <span class="user-info-label">Telefone</span>
+                            <button type="button" class="profile-edit-link" id="editPhoneBtn" style="display: none;">Editar</button>
                         </div>
+                        <input type="tel" class="profile-input" id="profilePhone" placeholder="(00) 00000-0000" />
+                        <p class="profile-field-note" id="phoneFieldNote">Informe um número válido para contato.</p>
                     </div>
+                    
                     <div class="user-info-item-editable">
-                        <span class="user-info-label">CPF</span>
-                        <div class="profile-input-wrapper">
-                            <input type="text" class="profile-input" id="profileCpf" placeholder="000.000.000-00" maxlength="14" data-field="cpf" />
-                            <button type="button" class="profile-ok-btn" data-field="cpf" title="Salvar CPF">OK</button>
-                            <span class="profile-verified-icon" data-field="cpf">✓</span>
+                        <div class="user-info-label-row">
+                            <span class="user-info-label">CPF</span>
+                            <span class="profile-lock-hint">Preencha apenas uma vez</span>
                         </div>
+                        <input type="text" class="profile-input" id="profileCpf" placeholder="000.000.000-00" maxlength="14" />
                     </div>
                     
                     <div class="profile-divider">Endereço</div>
                     
                     <div class="user-info-item-editable">
-                        <span class="user-info-label">CEP</span>
-                        <div class="profile-input-wrapper">
-                            <input type="text" class="profile-input" id="profileZipCode" placeholder="00000-000" maxlength="9" data-field="zipCode" />
-                            <button type="button" class="profile-ok-btn" data-field="zipCode" title="Salvar CEP">OK</button>
-                            <span class="profile-verified-icon" data-field="zipCode">✓</span>
+                        <div class="user-info-label-row">
+                            <span class="user-info-label">CEP</span>
+                            <span class="profile-lock-hint">Utilize apenas números</span>
                         </div>
+                        <input type="text" class="profile-input" id="profileZipCode" placeholder="00000-000" maxlength="9" />
                     </div>
                     <div class="user-info-item-editable">
                         <span class="user-info-label">Rua</span>
-                        <div class="profile-input-wrapper">
-                            <input type="text" class="profile-input" id="profileStreet" placeholder="Nome da rua" data-field="street" />
-                            <button type="button" class="profile-ok-btn" data-field="street" title="Salvar rua">OK</button>
-                            <span class="profile-verified-icon" data-field="street">✓</span>
-                        </div>
+                        <input type="text" class="profile-input" id="profileStreet" placeholder="Nome da rua" />
                     </div>
                     <div class="user-info-row">
                         <div class="user-info-item-editable user-info-number">
                             <span class="user-info-label">Número</span>
-                            <div class="profile-input-wrapper">
-                                <input type="text" class="profile-input" id="profileNumber" placeholder="123" data-field="number" />
-                                <button type="button" class="profile-ok-btn" data-field="number" title="Salvar número">OK</button>
-                                <span class="profile-verified-icon" data-field="number">✓</span>
-                            </div>
+                            <input type="text" class="profile-input" id="profileNumber" placeholder="123" />
                         </div>
                         <div class="user-info-item-editable user-info-complement">
                             <span class="user-info-label">Complemento</span>
-                            <div class="profile-input-wrapper">
-                                <input type="text" class="profile-input" id="profileComplement" placeholder="Apt" data-field="complement" />
-                                <button type="button" class="profile-ok-btn" data-field="complement" title="Salvar complemento">OK</button>
-                                <span class="profile-verified-icon" data-field="complement">✓</span>
-                            </div>
+                            <input type="text" class="profile-input" id="profileComplement" placeholder="Apt, Bloco..." />
                         </div>
                     </div>
                     <div class="user-info-item-editable">
                         <span class="user-info-label">Bairro</span>
-                        <div class="profile-input-wrapper">
-                            <input type="text" class="profile-input" id="profileNeighborhood" placeholder="Nome do bairro" data-field="neighborhood" />
-                            <button type="button" class="profile-ok-btn" data-field="neighborhood" title="Salvar bairro">OK</button>
-                            <span class="profile-verified-icon" data-field="neighborhood">✓</span>
-                        </div>
+                        <input type="text" class="profile-input" id="profileNeighborhood" placeholder="Nome do bairro" />
                     </div>
                     <div class="user-info-row">
                         <div class="user-info-item-editable user-info-city">
                             <span class="user-info-label">Cidade</span>
-                            <div class="profile-input-wrapper">
-                                <input type="text" class="profile-input" id="profileCity" placeholder="Cidade" data-field="city" />
-                                <button type="button" class="profile-ok-btn" data-field="city" title="Salvar cidade">OK</button>
-                                <span class="profile-verified-icon" data-field="city">✓</span>
-                            </div>
+                            <input type="text" class="profile-input" id="profileCity" placeholder="Nome da cidade" />
                         </div>
                         <div class="user-info-item-editable user-info-state">
                             <span class="user-info-label">Estado</span>
-                            <div class="profile-input-wrapper">
-                                <input type="text" class="profile-input" id="profileState" placeholder="UF" maxlength="2" data-field="state" />
-                                <button type="button" class="profile-ok-btn" data-field="state" title="Salvar estado">OK</button>
-                                <span class="profile-verified-icon" data-field="state">✓</span>
-                            </div>
+                            <input type="text" class="profile-input" id="profileState" placeholder="UF" maxlength="2" />
                         </div>
                     </div>
+                    
+                    <button type="button" class="save-profile-btn" id="saveProfileBtn">
+                        <span class="button-label">Salvar Dados</span>
+                    </button>
                     
                     <div class="profile-divider">Configurações</div>
                     
@@ -7488,38 +7467,9 @@ async function persistAnalyzerState(newState) {
                 titleBadge.textContent = badgeText;
             }
 
-            // Populate profile fields
-            const phoneInput = sidebar.querySelector('#profilePhone');
-            const cpfInput = sidebar.querySelector('#profileCpf');
-            const zipCodeInput = sidebar.querySelector('#profileZipCode');
-            const streetInput = sidebar.querySelector('#profileStreet');
-            const numberInput = sidebar.querySelector('#profileNumber');
-            const complementInput = sidebar.querySelector('#profileComplement');
-            const neighborhoodInput = sidebar.querySelector('#profileNeighborhood');
-            const cityInput = sidebar.querySelector('#profileCity');
-            const stateInput = sidebar.querySelector('#profileState');
-
-            if (phoneInput && user?.phone) phoneInput.value = formatPhone(user.phone);
-            if (cpfInput && user?.cpf) cpfInput.value = formatCPF(user.cpf);
-
-            // Parse address if it exists
-            if (user?.address) {
-                try {
-                    const addr = typeof user.address === 'string' ? JSON.parse(user.address) : user.address;
-                    if (zipCodeInput && addr.zipCode) zipCodeInput.value = formatCEP(addr.zipCode);
-                    if (streetInput && addr.street) streetInput.value = addr.street;
-                    if (numberInput && addr.number) numberInput.value = addr.number;
-                    if (complementInput && addr.complement) complementInput.value = addr.complement;
-                    if (neighborhoodInput && addr.neighborhood) neighborhoodInput.value = addr.neighborhood;
-                    if (cityInput && addr.city) cityInput.value = addr.city;
-                    if (stateInput && addr.state) stateInput.value = addr.state.toUpperCase();
-                } catch (e) {
-                    console.error('Erro ao carregar endereço:', e);
-                }
-            }
+            fillProfileInputs(user);
+            syncProfileFieldState(user);
         };
-
-        populateUserMenu();
 
         if (userMenuToggle) {
             const toggleHandler = () => {
@@ -7544,6 +7494,9 @@ async function persistAnalyzerState(newState) {
         }
 
         // Profile inputs
+        const saveProfileBtn = sidebar.querySelector('#saveProfileBtn');
+        const editPhoneBtn = sidebar.querySelector('#editPhoneBtn');
+        const phoneFieldNote = sidebar.querySelector('#phoneFieldNote');
         const profilePhoneInput = sidebar.querySelector('#profilePhone');
         const profileCpfInput = sidebar.querySelector('#profileCpf');
         const profileZipCodeInput = sidebar.querySelector('#profileZipCode');
@@ -7553,6 +7506,17 @@ async function persistAnalyzerState(newState) {
         const profileNeighborhoodInput = sidebar.querySelector('#profileNeighborhood');
         const profileCityInput = sidebar.querySelector('#profileCity');
         const profileStateInput = sidebar.querySelector('#profileState');
+        const addressInputs = [
+            profileZipCodeInput,
+            profileStreetInput,
+            profileNumberInput,
+            profileComplementInput,
+            profileNeighborhoodInput,
+            profileCityInput,
+            profileStateInput
+        ];
+        let isPhoneEditing = false;
+        let lastProfileUserData = null;
 
         // Apply formatting on input
         if (profilePhoneInput) {
@@ -7576,77 +7540,179 @@ async function persistAnalyzerState(newState) {
             });
         }
 
-        // Profile OK buttons - salvar campo individual
-        const profileOkButtons = sidebar.querySelectorAll('.profile-ok-btn');
-        profileOkButtons.forEach(btn => {
-            btn.addEventListener('click', async (e) => {
-                const field = e.target.getAttribute('data-field');
-                const input = sidebar.querySelector(`.profile-input[data-field="${field}"]`);
-                const verifiedIcon = sidebar.querySelector(`.profile-verified-icon[data-field="${field}"]`);
-                
-                if (!input) return;
+        const setInputReadOnly = (input, readOnly) => {
+            if (!input) return;
+            input.readOnly = !!readOnly;
+            input.classList.toggle('input-readonly', !!readOnly);
+        };
 
-                // Coletar todos os dados
-                const phone = profilePhoneInput?.value.replace(/\D/g, '') || '';
-                const cpf = profileCpfInput?.value.replace(/\D/g, '') || '';
-                const address = {
-                    zipCode: profileZipCodeInput?.value.replace(/\D/g, '') || '',
-                    street: profileStreetInput?.value || '',
-                    number: profileNumberInput?.value || '',
-                    complement: profileComplementInput?.value || '',
-                    neighborhood: profileNeighborhoodInput?.value || '',
-                    city: profileCityInput?.value || '',
-                    state: profileStateInput?.value?.toUpperCase() || ''
-                };
-
-                // Desabilitar botão temporariamente
-                btn.disabled = true;
-                btn.textContent = '...';
-
+        const parseAddressData = (address) => {
+            if (!address) return null;
+            if (typeof address === 'string') {
                 try {
-                    const token = await getAuthToken();
-                    const API_URL = getApiUrl();
+                    return JSON.parse(address);
+                } catch (_error) {
+                    return null;
+                }
+            }
+            return address;
+        };
 
-                    const response = await fetch(`${API_URL}/api/auth/profile`, {
-                        method: 'PUT',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'Authorization': `Bearer ${token}`
-                        },
-                        body: JSON.stringify({ phone, cpf, address })
+        const fillProfileInputs = (user) => {
+            const addr = parseAddressData(user?.address);
+            if (profilePhoneInput) {
+                profilePhoneInput.value = user?.phone ? formatPhone(user.phone) : '';
+            }
+            if (profileCpfInput) {
+                profileCpfInput.value = user?.cpf ? formatCPF(user.cpf) : '';
+            }
+            if (profileZipCodeInput) {
+                profileZipCodeInput.value = addr?.zipCode ? formatCEP(addr.zipCode) : '';
+            }
+            if (profileStreetInput) {
+                profileStreetInput.value = addr?.street || '';
+            }
+            if (profileNumberInput) {
+                profileNumberInput.value = addr?.number || '';
+            }
+            if (profileComplementInput) {
+                profileComplementInput.value = addr?.complement || '';
+            }
+            if (profileNeighborhoodInput) {
+                profileNeighborhoodInput.value = addr?.neighborhood || '';
+            }
+            if (profileCityInput) {
+                profileCityInput.value = addr?.city || '';
+            }
+            if (profileStateInput) {
+                profileStateInput.value = addr?.state ? addr.state.toUpperCase() : '';
+            }
+        };
+
+        const syncProfileFieldState = (user) => {
+            if (user) {
+                lastProfileUserData = user;
+            } else if (!lastProfileUserData) {
+                lastProfileUserData = getStoredUserData();
+            }
+
+            const persistedUser = lastProfileUserData || {};
+            const phoneSaved = Boolean(persistedUser.phone);
+
+            if (editPhoneBtn) {
+                editPhoneBtn.style.display = phoneSaved ? 'inline-flex' : 'none';
+                editPhoneBtn.textContent = isPhoneEditing ? 'Cancelar' : 'Editar';
+            }
+            setInputReadOnly(profilePhoneInput, phoneSaved && !isPhoneEditing);
+            if (phoneFieldNote) {
+                if (!phoneSaved) {
+                    phoneFieldNote.textContent = 'Informe um número válido para contato.';
+                } else if (isPhoneEditing) {
+                    phoneFieldNote.textContent = 'Atualize o número e clique em salvar.';
+                } else {
+                    phoneFieldNote.textContent = 'Clique em Editar para alterar o número.';
+                }
+            }
+
+            const cpfSaved = Boolean(persistedUser.cpf);
+            setInputReadOnly(profileCpfInput, cpfSaved);
+
+            const addressObj = parseAddressData(persistedUser.address);
+            const addressSaved = Boolean(addressObj && Object.values(addressObj).some((value) => !!value));
+            addressInputs.forEach((input) => setInputReadOnly(input, addressSaved));
+        };
+
+        const saveProfile = async () => {
+            if (!saveProfileBtn) return;
+
+            const phone = profilePhoneInput?.value.replace(/\D/g, '') || '';
+            const cpf = profileCpfInput?.value.replace(/\D/g, '') || '';
+            const address = {
+                zipCode: profileZipCodeInput?.value.replace(/\D/g, '') || '',
+                street: profileStreetInput?.value || '',
+                number: profileNumberInput?.value || '',
+                complement: profileComplementInput?.value || '',
+                neighborhood: profileNeighborhoodInput?.value || '',
+                city: profileCityInput?.value || '',
+                state: profileStateInput?.value?.toUpperCase() || ''
+            };
+
+            saveProfileBtn.disabled = true;
+            const originalText = saveProfileBtn.querySelector('.button-label')?.textContent || 'Salvar Dados';
+            if (saveProfileBtn.querySelector('.button-label')) {
+                saveProfileBtn.querySelector('.button-label').textContent = 'Salvando...';
+            }
+
+            try {
+                const token = await getAuthToken();
+                const API_URL = getApiUrl();
+
+                const response = await fetch(`${API_URL}/api/auth/profile`, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify({ phone, cpf, address })
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    chrome.storage.local.get(['user'], (result) => {
+                        const userData = result.user || {};
+                        const updatedUser = { ...userData, ...data.user };
+                        chrome.storage.local.set({ user: updatedUser });
                     });
 
-                    const data = await response.json();
+                    fillProfileInputs(data.user);
+                    isPhoneEditing = false;
+                    syncProfileFieldState(data.user);
+                    showToast('Dados salvos com sucesso!', 'success');
+                } else {
+                    showToast(data.error || 'Erro ao salvar', 'error');
+                }
+            } catch (error) {
+                console.error('Erro ao salvar dados:', error);
+                showToast('Erro ao conectar com o servidor', 'error');
+            } finally {
+                saveProfileBtn.disabled = false;
+                if (saveProfileBtn.querySelector('.button-label')) {
+                    saveProfileBtn.querySelector('.button-label').textContent = originalText;
+                }
+            }
+        };
 
-                    if (data.success) {
-                        // Atualizar dados locais
-                        chrome.storage.local.get(['user'], (result) => {
-                            const userData = result.user || {};
-                            const updatedUser = { ...userData, ...data.user };
-                            chrome.storage.local.set({ user: updatedUser });
-                        });
+        if (saveProfileBtn) {
+            saveProfileBtn.addEventListener('click', saveProfile);
+        }
 
-                        // Mostrar ícone verificado
-                        if (verifiedIcon) {
-                            verifiedIcon.classList.add('show');
-                            setTimeout(() => {
-                                verifiedIcon.classList.remove('show');
-                            }, 2000);
+        if (editPhoneBtn) {
+            editPhoneBtn.addEventListener('click', () => {
+                const hasPhoneSaved = Boolean(lastProfileUserData?.phone);
+                if (!hasPhoneSaved) {
+                    return;
+                }
+                isPhoneEditing = !isPhoneEditing;
+                if (!isPhoneEditing && profilePhoneInput) {
+                    profilePhoneInput.value = lastProfileUserData?.phone ? formatPhone(lastProfileUserData.phone) : '';
+                }
+                syncProfileFieldState();
+                if (isPhoneEditing && profilePhoneInput) {
+                    setTimeout(() => {
+                        profilePhoneInput.focus();
+                        const value = profilePhoneInput.value;
+                        try {
+                            profilePhoneInput.setSelectionRange(value.length, value.length);
+                        } catch (_error) {
+                            // ignore selection errors
                         }
-                        
-                        showToast('Salvo com sucesso!', 'success');
-                    } else {
-                        showToast(data.error || 'Erro ao salvar', 'error');
-                    }
-                } catch (error) {
-                    console.error('Erro ao salvar campo:', error);
-                    showToast('Erro ao conectar com o servidor', 'error');
-                } finally {
-                    btn.disabled = false;
-                    btn.textContent = 'OK';
+                    }, 0);
                 }
             });
-        });
+        }
+
+        populateUserMenu();
 
         if (activeUserMenuKeyHandler) {
             document.removeEventListener('keydown', activeUserMenuKeyHandler);

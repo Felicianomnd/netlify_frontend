@@ -655,21 +655,41 @@
     font-weight: 600;
 }
 
-/* Profile input wrapper with OK button */
-.profile-input-wrapper {
-    position: relative;
+/* Label row and edit helpers */
+.user-info-label-row {
     display: flex;
     align-items: center;
-    gap: 6px;
-    width: 100%;
-    max-width: 100%;
-    box-sizing: border-box;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.profile-lock-hint {
+    font-size: 10px;
+    color: rgba(255, 255, 255, 0.35);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.profile-edit-link {
+    background: none;
+    border: none;
+    color: #ef4444;
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    padding: 2px 0;
+    transition: color 0.2s;
+}
+
+.profile-edit-link:hover {
+    color: #ff6b6b;
 }
 
 /* Profile inputs - seguindo padrão do Configurar Simulador */
 .profile-input {
-    flex: 1;
-    min-width: 0;
+    width: 100%;
     padding: 8px 10px;
     background: #0f1320;
     border: 1px solid rgba(255, 255, 255, 0.18);
@@ -692,52 +712,17 @@
     font-weight: 400;
 }
 
-/* OK Button */
-.profile-ok-btn {
-    flex-shrink: 0;
-    padding: 8px 14px;
-    background: #ef4444;
-    border: none;
-    border-radius: 4px;
-    color: #fff;
+.profile-input.input-readonly {
+    background: rgba(255, 255, 255, 0.03);
+    border-color: rgba(255, 255, 255, 0.08);
+    color: rgba(255, 255, 255, 0.7);
+    cursor: default;
+}
+
+.profile-field-note {
+    margin: 0;
     font-size: 11px;
-    font-weight: 700;
-    cursor: pointer;
-    transition: all 0.2s;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-}
-
-.profile-ok-btn:hover {
-    background: #dc2626;
-    transform: scale(1.05);
-}
-
-.profile-ok-btn:active {
-    transform: scale(0.98);
-}
-
-.profile-ok-btn:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-}
-
-/* Verified icon */
-.profile-verified-icon {
-    position: absolute;
-    right: 80px;
-    top: 50%;
-    transform: translateY(-50%);
-    color: #10b981;
-    font-size: 16px;
-    font-weight: 700;
-    opacity: 0;
-    pointer-events: none;
-    transition: opacity 0.3s;
-}
-
-.profile-verified-icon.show {
-    opacity: 1;
+    color: rgba(255, 255, 255, 0.35);
 }
 
 /* Row for side-by-side inputs */
@@ -759,16 +744,6 @@
 .user-info-row .user-info-number {
     flex: 0 0 30%;
     min-width: 85px;
-}
-
-.user-info-row .user-info-complement {
-    flex: 1;
-    min-width: 0;
-}
-
-.user-info-row .user-info-city {
-    flex: 1;
-    min-width: 0;
 }
 
 .user-info-row .user-info-state {
@@ -890,18 +865,9 @@
         min-width: 0 !important;
     }
     
-    .profile-ok-btn {
-        padding: 8px 12px;
-        font-size: 10px;
-    }
-    
     .profile-input {
         font-size: 12px;
         padding: 7px 9px;
-    }
-    
-    .profile-verified-icon {
-        right: 70px;
     }
     
     .user-menu-panel {
