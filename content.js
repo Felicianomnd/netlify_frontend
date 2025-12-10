@@ -945,6 +945,7 @@
         const aiSwitch = document.getElementById('aiModeToggle');
         const aiLabel = document.getElementById('aiToggleLabel');
         const titleBadge = document.getElementById('titleBadge');
+        const header = document.querySelector('.da-header');
 
         // Toggle Element pode ser passado como argumento ou buscado
         const targetElement = aiSwitch || toggleElement;
@@ -961,6 +962,11 @@
                 titleBadge.textContent = 'IA';
                 titleBadge.classList.add('badge-ia');
             }
+            
+            // Adicionar classe no header para linha indicadora
+            if (header) {
+                header.classList.add('ai-active');
+            }
         } else {
             // DESATIVAR MODO
             targetElement.classList.remove('active');
@@ -970,6 +976,11 @@
             if (titleBadge) {
                 titleBadge.textContent = 'PREMIUM';
                 titleBadge.classList.remove('badge-ia');
+            }
+            
+            // Remover classe no header
+            if (header) {
+                header.classList.remove('ai-active');
             }
             
             // Parar updates se houver
@@ -6640,40 +6651,40 @@ async function persistAnalyzerState(newState) {
                 <div class="resize-handle resize-sw"></div>
             </div>
             
-            <!-- HEADER REFEITO DO ZERO - CLEAN & MODERN (BrightCheck Inspired) -->
+            <!-- HEADER MINIMALISTA - SEM BOTÕES VOLUMOSOS -->
             <div class="da-header">
                 <!-- 1. Left: Brand -->
                 <div class="da-brand">
                     <div class="da-logo">
-                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                           <path d="M12 2L2 7L12 12L22 7L12 2Z" stroke="#FF003F" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                           <path d="M2 17L12 22L22 17" stroke="#FF003F" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                           <path d="M2 12L12 17L22 12" stroke="#FF003F" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                           <path d="M12 2L2 7L12 12L22 7L12 2Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                           <path d="M2 17L12 22L22 17" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                           <path d="M2 12L12 17L22 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
                         </svg>
                     </div>
-                    <div class="da-title-wrapper">
-                        <span class="da-app-name">Double Analyzer</span>
-                        <span class="title-badge" id="titleBadge">PREMIUM</span>
-                    </div>
+                    <span class="da-app-name">Double Analyzer</span>
+                    <span class="title-badge" id="titleBadge">PREMIUM</span>
                 </div>
 
-                <!-- 2. Center: AI Toggle Switch -->
-                <div class="da-center-control">
-                    <div class="ai-toggle-switch ai-mode-toggle" id="aiModeToggle">
-                        <div class="ai-toggle-knob">
-                            <!-- Icon inside knob -->
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
-                                <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
-                            </svg>
-                        </div>
-                        <div class="ai-toggle-label" id="aiToggleLabel">AI OFF</div>
-                    </div>
+                <!-- 2. Center: Simple Controls -->
+                <div class="da-controls-group">
+                    <button type="button" class="header-link" id="autoBetShowBtn" title="Abrir Simulador">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <rect x="2" y="6" width="20" height="12" rx="2"></rect>
+                            <path d="M6 12h4m-2-2v4m7-3h.01m3-2h.01"></path>
+                        </svg>
+                        <span>Simulador</span>
+                    </button>
+
+                    <button type="button" class="header-link ai-mode-toggle" id="aiModeToggle" title="Ativar/Desativar IA">
+                        <span id="aiToggleLabel">AI OFF</span>
+                    </button>
                 </div>
 
-                <!-- 3. Right: User Actions -->
+                <!-- 3. Right: User -->
                 <div class="da-user-actions">
-                    <button class="da-user-btn user-menu-toggle" id="userMenuToggle" title="Minha Conta">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <button class="header-link user-menu-toggle" id="userMenuToggle" title="Minha Conta">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                             <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
                             <circle cx="12" cy="7" r="4"></circle>
                         </svg>
@@ -6695,6 +6706,92 @@ async function persistAnalyzerState(newState) {
                         <span class="user-info-label">Email</span>
                         <span class="user-info-value" id="userMenuEmail">—</span>
                     </div>
+                    
+                    <!-- CAMPOS EDITÁVEIS DE PERFIL -->
+                    <div class="profile-divider">Dados Pessoais</div>
+                    
+                    <div class="user-info-item-editable">
+                        <span class="user-info-label">Telefone</span>
+                        <div class="profile-input-wrapper">
+                            <input type="tel" class="profile-input" id="profilePhone" placeholder="(00) 00000-0000" data-field="phone" />
+                            <button type="button" class="profile-ok-btn" data-field="phone" title="Salvar telefone">OK</button>
+                            <span class="profile-verified-icon" data-field="phone">✓</span>
+                        </div>
+                    </div>
+                    <div class="user-info-item-editable">
+                        <span class="user-info-label">CPF</span>
+                        <div class="profile-input-wrapper">
+                            <input type="text" class="profile-input" id="profileCpf" placeholder="000.000.000-00" maxlength="14" data-field="cpf" />
+                            <button type="button" class="profile-ok-btn" data-field="cpf" title="Salvar CPF">OK</button>
+                            <span class="profile-verified-icon" data-field="cpf">✓</span>
+                        </div>
+                    </div>
+                    
+                    <div class="profile-divider">Endereço</div>
+                    
+                    <div class="user-info-item-editable">
+                        <span class="user-info-label">CEP</span>
+                        <div class="profile-input-wrapper">
+                            <input type="text" class="profile-input" id="profileZipCode" placeholder="00000-000" maxlength="9" data-field="zipCode" />
+                            <button type="button" class="profile-ok-btn" data-field="zipCode" title="Salvar CEP">OK</button>
+                            <span class="profile-verified-icon" data-field="zipCode">✓</span>
+                        </div>
+                    </div>
+                    <div class="user-info-item-editable">
+                        <span class="user-info-label">Rua</span>
+                        <div class="profile-input-wrapper">
+                            <input type="text" class="profile-input" id="profileStreet" placeholder="Nome da rua" data-field="street" />
+                            <button type="button" class="profile-ok-btn" data-field="street" title="Salvar rua">OK</button>
+                            <span class="profile-verified-icon" data-field="street">✓</span>
+                        </div>
+                    </div>
+                    <div class="user-info-row">
+                        <div class="user-info-item-editable user-info-number">
+                            <span class="user-info-label">Número</span>
+                            <div class="profile-input-wrapper">
+                                <input type="text" class="profile-input" id="profileNumber" placeholder="123" data-field="number" />
+                                <button type="button" class="profile-ok-btn" data-field="number" title="Salvar número">OK</button>
+                                <span class="profile-verified-icon" data-field="number">✓</span>
+                            </div>
+                        </div>
+                        <div class="user-info-item-editable user-info-complement">
+                            <span class="user-info-label">Complemento</span>
+                            <div class="profile-input-wrapper">
+                                <input type="text" class="profile-input" id="profileComplement" placeholder="Apt" data-field="complement" />
+                                <button type="button" class="profile-ok-btn" data-field="complement" title="Salvar complemento">OK</button>
+                                <span class="profile-verified-icon" data-field="complement">✓</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="user-info-item-editable">
+                        <span class="user-info-label">Bairro</span>
+                        <div class="profile-input-wrapper">
+                            <input type="text" class="profile-input" id="profileNeighborhood" placeholder="Nome do bairro" data-field="neighborhood" />
+                            <button type="button" class="profile-ok-btn" data-field="neighborhood" title="Salvar bairro">OK</button>
+                            <span class="profile-verified-icon" data-field="neighborhood">✓</span>
+                        </div>
+                    </div>
+                    <div class="user-info-row">
+                        <div class="user-info-item-editable user-info-city">
+                            <span class="user-info-label">Cidade</span>
+                            <div class="profile-input-wrapper">
+                                <input type="text" class="profile-input" id="profileCity" placeholder="Cidade" data-field="city" />
+                                <button type="button" class="profile-ok-btn" data-field="city" title="Salvar cidade">OK</button>
+                                <span class="profile-verified-icon" data-field="city">✓</span>
+                            </div>
+                        </div>
+                        <div class="user-info-item-editable user-info-state">
+                            <span class="user-info-label">Estado</span>
+                            <div class="profile-input-wrapper">
+                                <input type="text" class="profile-input" id="profileState" placeholder="UF" maxlength="2" data-field="state" />
+                                <button type="button" class="profile-ok-btn" data-field="state" title="Salvar estado">OK</button>
+                                <span class="profile-verified-icon" data-field="state">✓</span>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="profile-divider">Configurações</div>
+                    
                     <div class="user-info-item">
                         <span class="user-info-label">Plano</span>
                         <span class="user-info-value plan" id="userMenuPlan">—</span>
@@ -6707,7 +6804,7 @@ async function persistAnalyzerState(newState) {
                         <span class="user-info-label">Dias restantes</span>
                         <span class="user-info-value" id="userMenuDays">—</span>
                     </div>
-                    <div class="user-info-item" style="border-top: 1px solid rgba(255,255,255,0.1); margin-top: 12px; padding-top: 12px;">
+                    <div class="user-info-item">
                         <span class="user-info-label">Visualização (Desktop)</span>
                         <button type="button" class="view-mode-toggle-btn" id="viewModeToggleBtn" title="Alternar entre Tela Cheia e Modo Compacto">
                             <span id="viewModeLabel">Modo Compacto</span>
@@ -6763,9 +6860,9 @@ async function persistAnalyzerState(newState) {
                     </div>
                 </div>
             </div>
-            <div class="auto-bet-summary-collapsed" id="autoBetSummaryCollapsed">
-                <button type="button" id="autoBetShowBtn">Abrir simulador</button>
-                </div>
+            <div class="auto-bet-summary-collapsed" id="autoBetSummaryCollapsed" style="display: none;">
+                <!-- Botão movido para o header -->
+            </div>
                 
             <div class="analysis-lastspin-row">
                  <div class="analysis-section highlight-panel">
@@ -7278,6 +7375,28 @@ async function persistAnalyzerState(newState) {
             userMenuPanel.style.maxHeight = '';
         };
 
+        // Format helpers (must be defined before populateUserMenu uses them)
+        const formatPhone = (value) => {
+            if (!value) return '';
+            const numbers = value.replace(/\D/g, '');
+            if (numbers.length <= 10) {
+                return numbers.replace(/(\d{2})(\d{4})(\d{0,4})/, '($1) $2-$3');
+            }
+            return numbers.replace(/(\d{2})(\d{5})(\d{0,4})/, '($1) $2-$3');
+        };
+
+        const formatCPF = (value) => {
+            if (!value) return '';
+            const numbers = value.replace(/\D/g, '');
+            return numbers.replace(/(\d{3})(\d{3})(\d{3})(\d{0,2})/, '$1.$2.$3-$4');
+        };
+
+        const formatCEP = (value) => {
+            if (!value) return '';
+            const numbers = value.replace(/\D/g, '');
+            return numbers.replace(/(\d{5})(\d{0,3})/, '$1-$2');
+        };
+
         const setUserMenuState = (open) => {
             if (!userMenuPanel || !userMenuToggle) {
                 return;
@@ -7338,6 +7457,36 @@ async function persistAnalyzerState(newState) {
             if (titleBadge) {
                 titleBadge.textContent = badgeText;
             }
+
+            // Populate profile fields
+            const phoneInput = sidebar.querySelector('#profilePhone');
+            const cpfInput = sidebar.querySelector('#profileCpf');
+            const zipCodeInput = sidebar.querySelector('#profileZipCode');
+            const streetInput = sidebar.querySelector('#profileStreet');
+            const numberInput = sidebar.querySelector('#profileNumber');
+            const complementInput = sidebar.querySelector('#profileComplement');
+            const neighborhoodInput = sidebar.querySelector('#profileNeighborhood');
+            const cityInput = sidebar.querySelector('#profileCity');
+            const stateInput = sidebar.querySelector('#profileState');
+
+            if (phoneInput && user?.phone) phoneInput.value = formatPhone(user.phone);
+            if (cpfInput && user?.cpf) cpfInput.value = formatCPF(user.cpf);
+
+            // Parse address if it exists
+            if (user?.address) {
+                try {
+                    const addr = typeof user.address === 'string' ? JSON.parse(user.address) : user.address;
+                    if (zipCodeInput && addr.zipCode) zipCodeInput.value = formatCEP(addr.zipCode);
+                    if (streetInput && addr.street) streetInput.value = addr.street;
+                    if (numberInput && addr.number) numberInput.value = addr.number;
+                    if (complementInput && addr.complement) complementInput.value = addr.complement;
+                    if (neighborhoodInput && addr.neighborhood) neighborhoodInput.value = addr.neighborhood;
+                    if (cityInput && addr.city) cityInput.value = addr.city;
+                    if (stateInput && addr.state) stateInput.value = addr.state.toUpperCase();
+                } catch (e) {
+                    console.error('Erro ao carregar endereço:', e);
+                }
+            }
         };
 
         populateUserMenu();
@@ -7363,6 +7512,111 @@ async function persistAnalyzerState(newState) {
                 forceLogout('Logout manual');
             });
         }
+
+        // Profile inputs
+        const profilePhoneInput = sidebar.querySelector('#profilePhone');
+        const profileCpfInput = sidebar.querySelector('#profileCpf');
+        const profileZipCodeInput = sidebar.querySelector('#profileZipCode');
+        const profileStreetInput = sidebar.querySelector('#profileStreet');
+        const profileNumberInput = sidebar.querySelector('#profileNumber');
+        const profileComplementInput = sidebar.querySelector('#profileComplement');
+        const profileNeighborhoodInput = sidebar.querySelector('#profileNeighborhood');
+        const profileCityInput = sidebar.querySelector('#profileCity');
+        const profileStateInput = sidebar.querySelector('#profileState');
+
+        // Apply formatting on input
+        if (profilePhoneInput) {
+            profilePhoneInput.addEventListener('input', (e) => {
+                e.target.value = formatPhone(e.target.value);
+            });
+        }
+        if (profileCpfInput) {
+            profileCpfInput.addEventListener('input', (e) => {
+                e.target.value = formatCPF(e.target.value);
+            });
+        }
+        if (profileZipCodeInput) {
+            profileZipCodeInput.addEventListener('input', (e) => {
+                e.target.value = formatCEP(e.target.value);
+            });
+        }
+        if (profileStateInput) {
+            profileStateInput.addEventListener('input', (e) => {
+                e.target.value = e.target.value.toUpperCase();
+            });
+        }
+
+        // Profile OK buttons - salvar campo individual
+        const profileOkButtons = sidebar.querySelectorAll('.profile-ok-btn');
+        profileOkButtons.forEach(btn => {
+            btn.addEventListener('click', async (e) => {
+                const field = e.target.getAttribute('data-field');
+                const input = sidebar.querySelector(`.profile-input[data-field="${field}"]`);
+                const verifiedIcon = sidebar.querySelector(`.profile-verified-icon[data-field="${field}"]`);
+                
+                if (!input) return;
+
+                // Coletar todos os dados
+                const phone = profilePhoneInput?.value.replace(/\D/g, '') || '';
+                const cpf = profileCpfInput?.value.replace(/\D/g, '') || '';
+                const address = {
+                    zipCode: profileZipCodeInput?.value.replace(/\D/g, '') || '',
+                    street: profileStreetInput?.value || '',
+                    number: profileNumberInput?.value || '',
+                    complement: profileComplementInput?.value || '',
+                    neighborhood: profileNeighborhoodInput?.value || '',
+                    city: profileCityInput?.value || '',
+                    state: profileStateInput?.value?.toUpperCase() || ''
+                };
+
+                // Desabilitar botão temporariamente
+                btn.disabled = true;
+                btn.textContent = '...';
+
+                try {
+                    const token = await getAuthToken();
+                    const API_URL = getApiUrl();
+
+                    const response = await fetch(`${API_URL}/api/auth/profile`, {
+                        method: 'PUT',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${token}`
+                        },
+                        body: JSON.stringify({ phone, cpf, address })
+                    });
+
+                    const data = await response.json();
+
+                    if (data.success) {
+                        // Atualizar dados locais
+                        chrome.storage.local.get(['user'], (result) => {
+                            const userData = result.user || {};
+                            const updatedUser = { ...userData, ...data.user };
+                            chrome.storage.local.set({ user: updatedUser });
+                        });
+
+                        // Mostrar ícone verificado
+                        if (verifiedIcon) {
+                            verifiedIcon.classList.add('show');
+                            setTimeout(() => {
+                                verifiedIcon.classList.remove('show');
+                            }, 2000);
+                        }
+                        
+                        showToast('Salvo com sucesso!', 'success');
+                    } else {
+                        showToast(data.error || 'Erro ao salvar', 'error');
+                    }
+                } catch (error) {
+                    console.error('Erro ao salvar campo:', error);
+                    showToast('Erro ao conectar com o servidor', 'error');
+                } finally {
+                    btn.disabled = false;
+                    btn.textContent = 'OK';
+                }
+            });
+        });
 
         if (activeUserMenuKeyHandler) {
             document.removeEventListener('keydown', activeUserMenuKeyHandler);
