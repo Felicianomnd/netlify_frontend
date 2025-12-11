@@ -44,6 +44,86 @@
     height: 0;
 }
 
+/* ═══════════════════════════════════════════════════════════════════════════════ */
+/* 📊 SCROLLBAR CUSTOMIZADA (EXATAMENTE O MESMO ESTILO DO SITE PRINCIPAL)          */
+/* ═══════════════════════════════════════════════════════════════════════════════ */
+
+/* Ativar scrollbar nos modais - Firefox */
+.custom-pattern-modal-body,
+.auto-bet-modal-body,
+.pattern-modal-body,
+.bank-patterns-modal-body,
+.user-menu-body,
+.modal-body-scrollable {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, 0.15) transparent;
+}
+
+/* Ativar scrollbar nos modais - Chrome, Edge, Safari */
+.custom-pattern-modal-body::-webkit-scrollbar,
+.custom-pattern-modal-body *::-webkit-scrollbar,
+.auto-bet-modal-body::-webkit-scrollbar,
+.auto-bet-modal-body *::-webkit-scrollbar,
+.pattern-modal-body::-webkit-scrollbar,
+.pattern-modal-body *::-webkit-scrollbar,
+.bank-patterns-modal-body::-webkit-scrollbar,
+.bank-patterns-modal-body *::-webkit-scrollbar,
+.user-menu-body::-webkit-scrollbar,
+.user-menu-body *::-webkit-scrollbar,
+.modal-body-scrollable::-webkit-scrollbar,
+.modal-body-scrollable *::-webkit-scrollbar {
+    width: 12px !important;
+    height: auto !important;
+}
+
+.custom-pattern-modal-body::-webkit-scrollbar-track,
+.custom-pattern-modal-body *::-webkit-scrollbar-track,
+.auto-bet-modal-body::-webkit-scrollbar-track,
+.auto-bet-modal-body *::-webkit-scrollbar-track,
+.pattern-modal-body::-webkit-scrollbar-track,
+.pattern-modal-body *::-webkit-scrollbar-track,
+.bank-patterns-modal-body::-webkit-scrollbar-track,
+.bank-patterns-modal-body *::-webkit-scrollbar-track,
+.user-menu-body::-webkit-scrollbar-track,
+.user-menu-body *::-webkit-scrollbar-track,
+.modal-body-scrollable::-webkit-scrollbar-track,
+.modal-body-scrollable *::-webkit-scrollbar-track {
+    background: rgba(255, 255, 255, 0.02) !important;
+}
+
+.custom-pattern-modal-body::-webkit-scrollbar-thumb,
+.custom-pattern-modal-body *::-webkit-scrollbar-thumb,
+.auto-bet-modal-body::-webkit-scrollbar-thumb,
+.auto-bet-modal-body *::-webkit-scrollbar-thumb,
+.pattern-modal-body::-webkit-scrollbar-thumb,
+.pattern-modal-body *::-webkit-scrollbar-thumb,
+.bank-patterns-modal-body::-webkit-scrollbar-thumb,
+.bank-patterns-modal-body *::-webkit-scrollbar-thumb,
+.user-menu-body::-webkit-scrollbar-thumb,
+.user-menu-body *::-webkit-scrollbar-thumb,
+.modal-body-scrollable::-webkit-scrollbar-thumb,
+.modal-body-scrollable *::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.15) !important;
+    border-radius: 8px !important;
+    border: 2px solid transparent !important;
+    background-clip: padding-box !important;
+}
+
+.custom-pattern-modal-body::-webkit-scrollbar-thumb:hover,
+.custom-pattern-modal-body *::-webkit-scrollbar-thumb:hover,
+.auto-bet-modal-body::-webkit-scrollbar-thumb:hover,
+.auto-bet-modal-body *::-webkit-scrollbar-thumb:hover,
+.pattern-modal-body::-webkit-scrollbar-thumb:hover,
+.pattern-modal-body *::-webkit-scrollbar-thumb:hover,
+.bank-patterns-modal-body::-webkit-scrollbar-thumb:hover,
+.bank-patterns-modal-body *::-webkit-scrollbar-thumb:hover,
+.user-menu-body::-webkit-scrollbar-thumb:hover,
+.user-menu-body *::-webkit-scrollbar-thumb:hover,
+.modal-body-scrollable::-webkit-scrollbar-thumb:hover,
+.modal-body-scrollable *::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.35) !important;
+}
+
 /* Modal customizado para aviso de chave API */
 .ai-modal-overlay {
     position: fixed;
@@ -397,6 +477,42 @@
     padding: 0 32px;
     z-index: 10000;
     box-sizing: border-box;
+}
+
+/* Reusable modal header that mimics the main header */
+.modal-header-minimal {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 32px;
+    height: var(--da-header-height);
+    background: var(--da-header-bg);
+    border-bottom: 1px solid var(--da-header-border);
+    box-sizing: border-box;
+}
+
+.modal-header-minimal h3 {
+    margin: 0;
+    font-size: 17px;
+    font-weight: 600;
+    color: var(--da-text);
+    letter-spacing: -0.3px;
+}
+
+.modal-header-close {
+    background: transparent;
+    border: none;
+    color: var(--da-text-muted);
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    padding: 4px 8px;
+    border-radius: 3px;
+    transition: color 0.2s ease;
+}
+
+.modal-header-close:hover {
+    color: var(--da-text);
 }
 
 /* LEFT: BRAND */
@@ -2190,22 +2306,34 @@
     }
 }
 
-/* Scrollbar styling */
-#blaze-double-analyzer::-webkit-scrollbar {
-    width: 6px;
+/* Scrollbar styling - padrão oficial */
+#blaze-double-analyzer,
+#blaze-double-analyzer .analyzer-content {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, 0.15) transparent;
 }
 
-#blaze-double-analyzer::-webkit-scrollbar-track {
-    background: rgba(255, 255, 255, 0.1);
+#blaze-double-analyzer::-webkit-scrollbar,
+#blaze-double-analyzer *::-webkit-scrollbar {
+    width: 12px;
 }
 
-#blaze-double-analyzer::-webkit-scrollbar-thumb {
-    background: rgba(255, 255, 255, 0.3);
-    border-radius: 3px;
+#blaze-double-analyzer::-webkit-scrollbar-track,
+#blaze-double-analyzer *::-webkit-scrollbar-track {
+    background: rgba(255, 255, 255, 0.02);
 }
 
-#blaze-double-analyzer::-webkit-scrollbar-thumb:hover {
-    background: rgba(255, 255, 255, 0.5);
+#blaze-double-analyzer::-webkit-scrollbar-thumb,
+#blaze-double-analyzer *::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.15);
+    border-radius: 8px;
+    border: 2px solid transparent;
+    background-clip: padding-box;
+}
+
+#blaze-double-analyzer::-webkit-scrollbar-thumb:hover,
+#blaze-double-analyzer *::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.35);
 }
 
 /* Spin history blaze style */
@@ -2702,46 +2830,56 @@
     }
 }
 
-.pattern-modal-header {
+.pattern-modal-header,
+.custom-pattern-modal-header,
+.auto-bet-modal-header,
+.bank-patterns-modal-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 12px 16px;
-    background: #252b3d;
-    border-bottom: 1px solid #333;
+    padding: 0 32px;
+    background: var(--da-header-bg);
+    border-bottom: 1px solid var(--da-header-border);
     position: relative;
+    height: var(--da-header-height);
+    box-sizing: border-box;
 }
 
-.pattern-modal-header h3 {
+.pattern-modal-header h3,
+.custom-pattern-modal-header h3,
+.auto-bet-modal-header h3,
+.bank-patterns-modal-header h3 {
     margin: 0;
-    color: #fff;
-    font-size: 14px;
+    color: var(--da-text);
+    font-size: 17px;
     font-weight: 600;
+    letter-spacing: -0.3px;
     display: flex;
     align-items: center;
     gap: 8px;
 }
 
-.pattern-modal-close {
-    background: rgba(255, 255, 255, 0.05);
-    border: 1px solid rgba(255, 255, 255, 0.15);
-    border-radius: 6px;
-    color: #ccc;
-    font-size: 12px;
+.pattern-modal-close,
+.custom-pattern-modal-close,
+.auto-bet-modal-close,
+.bank-patterns-modal-close {
+    background: transparent;
+    border: none;
+    color: var(--da-text-muted);
+    font-size: 13px;
     font-weight: 500;
     cursor: pointer;
-    padding: 8px 14px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    transition: all 0.2s;
+    padding: 4px 8px;
+    border-radius: 3px;
+    transition: color 0.2s ease;
     white-space: nowrap;
 }
 
-.pattern-modal-close:hover {
-    background: rgba(255, 255, 255, 0.12);
-    color: #fff;
-    border-color: rgba(255, 255, 255, 0.25);
+.pattern-modal-close:hover,
+.custom-pattern-modal-close:hover,
+.auto-bet-modal-close:hover,
+.bank-patterns-modal-close:hover {
+    color: var(--da-text);
 }
 
 .pattern-modal-close:active {
@@ -4603,32 +4741,35 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 16px 20px;
-    border-bottom: none;
-    background: #1a2332;
+    padding: 14px 16px;
+    background: #0a0a0a;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    height: 56px;
+    box-sizing: border-box;
 }
 
 .custom-pattern-modal-header h3 {
     margin: 0;
-    color: var(--text-primary);
-    font-size: 15px;
-    font-weight: bold;
-    font-family: var(--font-primary);
+    color: #fff;
+    font-size: 17px;
+    font-weight: 600;
+    letter-spacing: -0.3px;
 }
 
 .custom-pattern-modal-close {
     background: transparent;
     border: none;
-    color: #888;
-    width: 24px;
-    height: 24px;
-    font-size: 20px;
+    color: #7a7a7a;
+    font-size: 13px;
+    font-weight: 500;
     cursor: pointer;
-    transition: all 0.2s;
+    padding: 4px 8px;
+    border-radius: 3px;
+    transition: color 0.2s ease;
 }
 
 .custom-pattern-modal-close:hover {
-    color: #ff6666;
+    color: #ffffff;
 }
 
 /* Modal body - COMPACTO */
@@ -5418,37 +5559,6 @@
     box-sizing: border-box;
 }
 
-#diamondLevelsModal .custom-pattern-modal-header {
-    border: none;
-    padding: 0;
-    display: flex;
-    align-items: center;
-    gap: 12px;
-}
-
-#diamondLevelsModal .custom-pattern-modal-header h3 {
-    flex: 1;
-    text-align: left;
-}
-
-#diamondLevelsModal .custom-pattern-modal-close {
-    width: auto;
-    height: auto;
-    font-size: 13px;
-    color: #9fb3c9;
-    border: none;
-    border-radius: 4px;
-    padding: 6px 12px;
-    font-weight: 600;
-    letter-spacing: 0.2px;
-    background: transparent;
-}
-
-#diamondLevelsModal .custom-pattern-modal-close:hover {
-    color: #ffffff;
-    background: rgba(239, 68, 68, 0.2);
-}
-
 #diamondLevelsModal .custom-pattern-modal-body {
     max-height: 70vh;
     overflow-y: auto;
@@ -5562,21 +5672,15 @@
 }
 #diamondLevelsModal .custom-pattern-modal-content {
     width: calc(100% - 32px);
-    max-width: 420px;
+    max-width: 480px;
     margin: 0 auto;
     background: #1a2332;
     border-radius: 8px;
     border: none;
     box-shadow: none;
-    padding: 24px;
+    padding: 0;
     display: flex;
     flex-direction: column;
-    gap: 18px;
-}
-
-#diamondLevelsModal .custom-pattern-modal-header {
-    border: none;
-    padding: 18px 20px 12px 20px;
 }
 
 #diamondLevelsModal .custom-pattern-modal-body {
@@ -5585,12 +5689,12 @@
     display: flex;
     flex-direction: column;
     gap: 16px;
-    padding: 0 20px 20px 20px;
+    padding: 24px;
     flex: 1; /* ocupa o espaço vertical, empurrando o footer para baixo */
 }
 
 #diamondLevelsModal .custom-pattern-modal-footer {
-    padding: 16px 20px 20px 20px;
+    padding: 0 24px 24px 24px;
     display: flex;
     gap: 12px;
     justify-content: flex-start;

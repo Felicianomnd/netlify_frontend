@@ -299,13 +299,14 @@
                 background: #1a2c38;
                 border: 2px solid #ff003f;
                 border-radius: 8px;
-                padding: 16px;
+                padding: 0;
                 width: 90%;
                 max-width: 340px;
                 box-shadow: 0 4px 20px rgba(0, 0, 0, 0.8), 0 0 10px rgba(255, 0, 63, 0.3);
                 z-index: 999999;
                 font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
                 box-sizing: border-box;
+                overflow: hidden;
             `;
         
             // Calcular posição: sempre no topo da sidebar, centralizado
@@ -324,6 +325,34 @@
                 modal.style.left = '50%';
                 modal.style.transform = 'translate(-50%, -50%)';
             }
+            
+            // Cabeçalho com título e botão fechar (mesmo estilo do header principal)
+            const header = document.createElement('div');
+            header.className = 'modal-header-minimal';
+            
+            const headerTitle = document.createElement('h3');
+            headerTitle.textContent = 'Confirmação';
+            
+            const closeBtn = document.createElement('button');
+            closeBtn.type = 'button';
+            closeBtn.className = 'modal-header-close';
+            closeBtn.textContent = 'Fechar';
+            closeBtn.onclick = () => {
+                if (modal.parentNode === document.body) {
+                    document.body.removeChild(modal);
+                }
+                resolve(false);
+            };
+            
+            header.appendChild(headerTitle);
+            header.appendChild(closeBtn);
+            
+            // Corpo do modal
+            const modalBody = document.createElement('div');
+            modalBody.className = 'modal-body-scrollable';
+            modalBody.style.cssText = `
+                padding: 16px;
+            `;
             
             // Mensagem
             const messageEl = document.createElement('div');
@@ -406,11 +435,17 @@
                 resolve(true);
             };
             
-            // Montar modal
+            // Montar botões
             buttonsContainer.appendChild(cancelBtn);
             buttonsContainer.appendChild(okBtn);
-            modal.appendChild(messageEl);
-            modal.appendChild(buttonsContainer);
+            
+            // Montar corpo do modal
+            modalBody.appendChild(messageEl);
+            modalBody.appendChild(buttonsContainer);
+            
+            // Montar modal completo
+            modal.appendChild(header);
+            modal.appendChild(modalBody);
             
             // Adicionar ao body
             document.body.appendChild(modal);
@@ -456,7 +491,15 @@
                 info: '#00d4ff'
             };
             
+            const titles = {
+                success: 'Sucesso',
+                error: 'Erro',
+                warning: 'Aviso',
+                info: 'Informação'
+            };
+            
             const color = colors[type] || colors.info;
+            const title = titles[type] || titles.info;
             
             // Criar modal simples (centralizado)
             const modal = document.createElement('div');
@@ -468,7 +511,7 @@
                 background: #1a2c38;
                 border: 2px solid ${color};
                 border-radius: 8px;
-                padding: 16px;
+                padding: 0;
                 width: 90%;
                 min-width: 280px;
                 max-width: 400px;
@@ -476,6 +519,35 @@
                 z-index: 999999;
                 font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
                 box-sizing: border-box;
+                overflow: hidden;
+            `;
+            
+            // Cabeçalho com título e botão fechar (mesmo estilo do header principal)
+            const header = document.createElement('div');
+            header.className = 'modal-header-minimal';
+            
+            const headerTitle = document.createElement('h3');
+            headerTitle.textContent = title;
+            
+            const closeHeaderBtn = document.createElement('button');
+            closeHeaderBtn.type = 'button';
+            closeHeaderBtn.className = 'modal-header-close';
+            closeHeaderBtn.textContent = 'Fechar';
+            closeHeaderBtn.onclick = () => {
+                if (modal.parentNode === document.body) {
+                    document.body.removeChild(modal);
+                }
+                resolve(true);
+            };
+            
+            header.appendChild(headerTitle);
+            header.appendChild(closeHeaderBtn);
+            
+            // Corpo do modal
+            const modalBody = document.createElement('div');
+            modalBody.className = 'modal-body-scrollable';
+            modalBody.style.cssText = `
+                padding: 16px;
             `;
         
             // Mensagem
@@ -521,9 +593,13 @@
                 resolve(true);
             };
         
-            // Montar modal
-            modal.appendChild(messageEl);
-            modal.appendChild(okBtn);
+            // Montar corpo do modal
+            modalBody.appendChild(messageEl);
+            modalBody.appendChild(okBtn);
+            
+            // Montar modal completo
+            modal.appendChild(header);
+            modal.appendChild(modalBody);
             document.body.appendChild(modal);
             
             // Focar no botão OK
@@ -565,25 +641,51 @@
             background: #1a2c38;
             border: 2px solid #FFD700;
             border-radius: 8px;
-            padding: 20px;
+            padding: 0;
             width: 90%;
             max-width: 420px;
             box-shadow: 0 4px 20px rgba(0, 0, 0, 0.8), 0 0 10px rgba(255, 215, 0, 0.3);
             z-index: 999999;
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             box-sizing: border-box;
+            overflow: hidden;
         `;
         
-        // Título com ícone
+        // Cabeçalho com título e botão fechar (mesmo estilo do header principal)
         const header = document.createElement('div');
-        header.style.cssText = `
+        header.className = 'modal-header-minimal';
+        
+        const headerTitle = document.createElement('h3');
+        headerTitle.textContent = 'Análise Nível Diamante Bloqueada';
+        
+        const closeBtn = document.createElement('button');
+        closeBtn.type = 'button';
+        closeBtn.className = 'modal-header-close';
+        closeBtn.textContent = 'Fechar';
+        closeBtn.onclick = () => {
+            if (modal.parentNode === document.body) {
+                document.body.removeChild(modal);
+            }
+        };
+        
+        header.appendChild(headerTitle);
+        header.appendChild(closeBtn);
+        
+        // Corpo do modal
+        const modalBody = document.createElement('div');
+        modalBody.className = 'modal-body-scrollable';
+        modalBody.style.cssText = `
+            padding: 20px;
+        `;
+        
+        // Ícone de aviso
+        const iconDiv = document.createElement('div');
+        iconDiv.style.cssText = `
             text-align: center;
-            margin-bottom: 16px;
+            font-size: 36px;
+            margin-bottom: 12px;
         `;
-        header.innerHTML = `
-            <div style="font-size: 36px; margin-bottom: 8px;">⚠️</div>
-            <h3 style="margin: 0; color: #FFD700; font-size: 18px;">Análise Nível Diamante Bloqueada</h3>
-        `;
+        iconDiv.textContent = '⚠️';
         
         // Mensagem
         const message = document.createElement('div');
@@ -708,12 +810,18 @@
             callback(false); // ✅ Retorna false - NÃO ativa o modo IA
         };
         
-        // Montar modal
+        // Montar botões
         buttonsContainer.appendChild(configBtn);
         buttonsContainer.appendChild(okBtn);
+        
+        // Montar corpo do modal
+        modalBody.appendChild(iconDiv);
+        modalBody.appendChild(message);
+        modalBody.appendChild(buttonsContainer);
+        
+        // Montar modal completo
         modal.appendChild(header);
-        modal.appendChild(message);
-        modal.appendChild(buttonsContainer);
+        modal.appendChild(modalBody);
         document.body.appendChild(modal);
     }
     
@@ -1609,9 +1717,9 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
             <div id="bankPatternsModal" class="bank-patterns-modal" style="display: none;">
                 <div class="bank-patterns-modal-overlay"></div>
                 <div class="bank-patterns-modal-content">
-                    <div class="bank-patterns-modal-header">
+                    <div class="bank-patterns-modal-header modal-header-minimal">
                         <h3>📂 Banco de Padrões (<span id="bankModalPatternsCount">0</span>)</h3>
-                        <button class="bank-patterns-modal-close" id="closeBankPatternsModal">✕</button>
+                        <button class="bank-patterns-modal-close modal-header-close" id="closeBankPatternsModal" type="button">Fechar</button>
                     </div>
                     
                     <div class="bank-patterns-filters">
@@ -1633,9 +1741,9 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
             <div id="patternDetailsModal" class="bank-patterns-modal" style="display: none;">
                 <div class="bank-patterns-modal-overlay"></div>
                 <div class="bank-patterns-modal-content">
-                    <div class="bank-patterns-modal-header">
+                    <div class="bank-patterns-modal-header modal-header-minimal">
                         <h3>📊 Ocorrências do Padrão</h3>
-                        <button class="bank-patterns-modal-close" id="closePatternDetailsModal">✕</button>
+                        <button class="bank-patterns-modal-close modal-header-close" id="closePatternDetailsModal" type="button">Fechar</button>
                             </div>
                     
                     <div class="bank-patterns-modal-body">
@@ -1775,43 +1883,6 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                 flex-direction: column;
                 box-shadow: 0 4px 20px rgba(0, 0, 0, 0.8);
                 z-index: 1;
-            }
-            
-            .bank-patterns-modal-header {
-                display: flex;
-                justify-content: space-between;
-                align-items: center;
-                padding: 12px 16px;
-                background: linear-gradient(135deg, #1a2c38 0%, #0f1f2a 100%);
-                border-bottom: 2px solid #ff003f;
-            }
-            
-            .bank-patterns-modal-header h3 {
-                margin: 0;
-                color: #fff;
-                font-size: 16px;
-                font-weight: 700;
-            }
-            
-            .bank-patterns-modal-close {
-                background: transparent;
-                border: 1px solid #ff003f;
-                color: #ff003f;
-                width: 28px;
-                height: 28px;
-                border-radius: 4px;
-                font-size: 18px;
-                cursor: pointer;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                transition: all 0.2s ease;
-            }
-            
-            .bank-patterns-modal-close:hover {
-                background: #ff003f;
-                color: #fff;
-                transform: scale(1.05);
             }
             
             .bank-patterns-filters {
@@ -2068,9 +2139,9 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
             <div id="diamondLevelsModal" class="custom-pattern-modal" style="display: none;">
                 <div class="custom-pattern-modal-overlay"></div>
                 <div class="custom-pattern-modal-content">
-                    <div class="custom-pattern-modal-header">
+                <div class="custom-pattern-modal-header modal-header-minimal">
                         <h3>Configurar Níveis Diamante</h3>
-                        <button class="custom-pattern-modal-close" id="closeDiamondLevelsModal">Fechar</button>
+                    <button class="custom-pattern-modal-close modal-header-close" id="closeDiamondLevelsModal" type="button">Fechar</button>
                     </div>
                     <div class="custom-pattern-modal-body">
                         <div class="diamond-level-field" data-level="n0">
@@ -4337,37 +4408,6 @@ autoBetHistoryStore.init().catch(error => console.warn('AutoBetHistory: iniciali
                     display: flex;
                     flex-direction: column;
                 }
-                .auto-bet-modal-header {
-                    display: flex;
-                    justify-content: space-between;
-                    align-items: center;
-                    padding: 18px 20px;
-                    border-bottom: none;
-                    background: #1a2332;
-                }
-                .auto-bet-modal-header h3 {
-                    margin: 0;
-                    font-size: 18px;
-                    color: #ffffff;
-                    font-weight: 700;
-                }
-                .auto-bet-modal-close {
-                    background: transparent;
-                    border: none;
-                    color: #5a6b84;
-                    font-size: 14px;
-                    font-weight: 500;
-                    cursor: pointer;
-                    padding: 4px 8px;
-                    border-radius: 3px;
-                    display: inline-flex;
-                    align-items: center;
-                    gap: 0;
-                    transition: all 0.2s ease;
-                }
-                .auto-bet-modal-close:hover {
-                    color: #8d95a5;
-                }
                 .auto-bet-modal-body {
                     padding: 20px;
                     flex: 1;
@@ -4554,8 +4594,8 @@ autoBetHistoryStore.init().catch(error => console.warn('AutoBetHistory: iniciali
                     background: #111921;
                 }
                 .white-mode-btn.active {
-                    background: rgba(102, 126, 234, 0.15);
-                    box-shadow: inset 0 0 0 2px #667eea;
+                    background: rgba(239, 68, 68, 0.15);
+                    box-shadow: inset 0 0 0 2px #ef4444;
                 }
                 .white-mode-btn:disabled {
                     opacity: 0.4;
@@ -7203,9 +7243,9 @@ async function persistAnalyzerState(newState) {
             <div class="auto-bet-modal" id="autoBetModal" style="display:none;">
                 <div class="auto-bet-modal-overlay"></div>
                 <div class="auto-bet-modal-content">
-                    <div class="auto-bet-modal-header">
+                <div class="auto-bet-modal-header modal-header-minimal">
                         <h3>Configurar Simulador</h3>
-                        <button type="button" class="auto-bet-modal-close" id="closeAutoBetModal">
+                    <button type="button" class="auto-bet-modal-close modal-header-close" id="closeAutoBetModal">
                             Fechar
                         </button>
                     </div>
@@ -8285,9 +8325,9 @@ async function persistAnalyzerState(newState) {
             modal.className = 'pattern-modal';
             modal.innerHTML = `
                 <div class="pattern-modal-content">
-                    <div class="pattern-modal-header">
+                    <div class="pattern-modal-header modal-header-minimal">
                         <h3>Padrão da Entrada</h3>
-                        <button class="pattern-modal-close">Fechar</button>
+                        <button class="pattern-modal-close modal-header-close" type="button">Fechar</button>
                     </div>
                     <div class="pattern-modal-body">
                         <div class="entry-info">
@@ -8366,9 +8406,9 @@ async function persistAnalyzerState(newState) {
         modal.className = 'pattern-modal';
         modal.innerHTML = `
             <div class="pattern-modal-content">
-                <div class="pattern-modal-header">
+                <div class="pattern-modal-header modal-header-minimal">
                     <h3>Padrão Não Disponível</h3>
-                    <button class="pattern-modal-close">Fechar</button>
+                    <button class="pattern-modal-close modal-header-close" type="button">Fechar</button>
                 </div>
                 <div class="pattern-modal-body">
                     <div class="no-pattern-info">
@@ -11250,23 +11290,40 @@ function logModeSnapshotUI(snapshot) {
             background: linear-gradient(135deg, #1a1a1a 0%, #2a2a2a 100%);
             border: 2px solid #FF00FF;
             border-radius: 12px;
-            padding: 25px;
+            padding: 0;
             max-width: 80%;
             max-height: 80%;
-            overflow: auto;
+            overflow: hidden;
             box-shadow: 0 10px 50px rgba(255, 0, 255, 0.5);
+            display: flex;
+            flex-direction: column;
         `;
         
-        // Título
-        const modalTitle = document.createElement('div');
-        modalTitle.textContent = title;
-        modalTitle.style.cssText = `
-            color: #FF00FF;
-            font-weight: bold;
-            font-size: 18px;
-            margin-bottom: 20px;
-            text-align: center;
-            text-shadow: 0 0 10px rgba(255, 0, 255, 0.7);
+        // Cabeçalho com título e botão fechar (mesmo estilo do header principal)
+        const header = document.createElement('div');
+        header.className = 'modal-header-minimal';
+        
+        const headerTitle = document.createElement('h3');
+        headerTitle.textContent = title;
+        
+        const closeHeaderBtn = document.createElement('button');
+        closeHeaderBtn.type = 'button';
+        closeHeaderBtn.className = 'modal-header-close';
+        closeHeaderBtn.textContent = 'Fechar';
+        closeHeaderBtn.onclick = () => {
+            document.body.removeChild(overlay);
+        };
+        
+        header.appendChild(headerTitle);
+        header.appendChild(closeHeaderBtn);
+        
+        // Corpo do modal
+        const modalBody = document.createElement('div');
+        modalBody.className = 'modal-body-scrollable';
+        modalBody.style.cssText = `
+            padding: 25px;
+            overflow: auto;
+            flex: 1;
         `;
         
         // Textarea com o prompt
@@ -11357,10 +11414,13 @@ function logModeSnapshotUI(snapshot) {
         buttonsContainer.appendChild(copyBtn);
         buttonsContainer.appendChild(closeBtn);
         
-        // Montar modal
-        modal.appendChild(modalTitle);
-        modal.appendChild(textarea);
-        modal.appendChild(buttonsContainer);
+        // Montar corpo do modal
+        modalBody.appendChild(textarea);
+        modalBody.appendChild(buttonsContainer);
+        
+        // Montar modal completo
+        modal.appendChild(header);
+        modal.appendChild(modalBody);
         overlay.appendChild(modal);
         document.body.appendChild(overlay);
         
