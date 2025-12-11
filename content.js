@@ -951,7 +951,7 @@
         const targetElement = aiSwitch || toggleElement;
         
         if (!targetElement) return;
-
+        
         if (isActive) {
             // ATIVAR MODO IA
             targetElement.classList.add('active');
@@ -966,7 +966,7 @@
             // Adicionar classe no header para linha indicadora
             if (header) {
                 header.classList.add('ai-active');
-            }
+                }
         } else {
             // DESATIVAR MODO (Análise Padrão)
             targetElement.classList.remove('active');
@@ -996,7 +996,7 @@
     async function atualizarStatusMemoriaAtiva(elemento) {
         // Função desativada pois o painel de status foi removido da interface
         // Mantida apenas para evitar erros se chamada de outros lugares
-        return;
+            return;
     }
     
     // 🔍 DEBUG: MutationObserver para rastrear mudanças de altura
@@ -1074,6 +1074,7 @@ const DIAMOND_LEVEL_DEFAULTS = {
     n1WindowSize: 20,
     n1PrimaryRequirement: 15,
     n1SecondaryRequirement: 3,
+    n1MaxEntries: 1,
     n2Recent: 5,
     n2Previous: 15,
     n3Alternance: 12,
@@ -2119,7 +2120,7 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                                 <div>
                                     <span>Janela analisada (giros)</span>
                                     <input type="number" id="diamondN1WindowSize" min="10" max="120" value="20" />
-                                    <span class="diamond-level-subnote">
+                            <span class="diamond-level-subnote">
                                         Recomendado: 20 giros (mín. 10 • máx. 120)
                                     </span>
                                 </div>
@@ -2140,11 +2141,15 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                                     </span>
                                 </div>
                                 <div>
-                                    <span>Última cor confirma?</span>
-                                    <div class="diamond-level-subnote">
-                                        Sinal só ocorre quando a última cor da janela é a dominante.
-                                    </div>
+                                    <span>Entradas consecutivas</span>
+                                    <input type="number" id="diamondN1MaxEntries" min="1" max="10" value="1" />
+                                    <span class="diamond-level-subnote">
+                                        Quantas entradas realizar enquanto a zona estiver ativa.
+                                    </span>
                                 </div>
+                            </div>
+                            <div class="diamond-level-subnote">
+                                Sinal só ocorre quando a última cor da janela confirma a dominante.
                             </div>
                             <span class="diamond-level-subnote">
                                 Exemplo: Janela 20 • mín A 15 • mín B 3 → dominância absoluta e confirmação pela última cor.
@@ -2442,16 +2447,119 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
         const toggles = document.querySelectorAll('.diamond-level-toggle-input');
         toggles.forEach(toggle => {
             if (!toggle.dataset.listenerAttached) {
-                toggle.addEventListener('change', () => updateDiamondLevelToggleVisual(toggle));
+                toggle.addEventListener('change', () => {
+                    updateDiamondLevelToggleVisual(toggle);
+                    enforceSignalIntensityAvailability();
+                });
                 toggle.dataset.listenerAttached = '1';
             }
             updateDiamondLevelToggleVisual(toggle);
         });
+        enforceSignalIntensityAvailability();
     }
 
     function refreshDiamondLevelToggleStates() {
         const toggles = document.querySelectorAll('.diamond-level-toggle-input');
         toggles.forEach(updateDiamondLevelToggleVisual);
+    }
+
+const VOTING_LEVEL_DOM_IDS = ['N1','N2','N3','N4','N5','N6','N7','N8'];
+const VOTING_LEVEL_CONFIG_KEYS = ['n1','n2','n3','n4','n5','n6','n7','n8'];
+let latestAnalyzerConfig = null;
+
+function areAllVotingLevelsEnabledFromConfig(config) {
+    const enabledMap = (config && config.diamondLevelEnabled) || {};
+    return VOTING_LEVEL_CONFIG_KEYS.every(key => {
+        if (Object.prototype.hasOwnProperty.call(enabledMap, key)) {
+            return !!enabledMap[key];
+        }
+        return !!DIAMOND_LEVEL_ENABLE_DEFAULTS[key];
+    });
+}
+
+function showCenteredNotice(message, options = {}) {
+    const existing = document.getElementById('centeredNotice');
+    if (existing) existing.remove();
+    const {
+        title = 'Atenção',
+        autoHide = 4000,
+        accentColor = '#ef4444'
+    } = options;
+    const wrapper = document.createElement('div');
+    wrapper.id = 'centeredNotice';
+    wrapper.style.cssText = `
+        position: fixed;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        background: #0f172a;
+        color: #f8fafc;
+        border: 1px solid ${accentColor};
+        border-radius: 14px;
+        padding: 24px 32px;
+        width: min(90vw, 380px);
+        box-shadow: 0 20px 45px rgba(0,0,0,0.35);
+        z-index: 9999;
+        font-family: 'Segoe UI', 'Inter', sans-serif;
+        text-align: center;
+    `;
+    wrapper.innerHTML = `
+        <div style="font-size: 16px; font-weight: 700; margin-bottom: 10px; color: ${accentColor};">
+            ${title}
+        </div>
+        <div style="font-size: 14px; line-height: 1.5; margin-bottom: 20px;">
+            ${message}
+        </div>
+    `;
+    const button = document.createElement('button');
+    button.textContent = 'Entendi';
+    button.style.cssText = `
+        background: linear-gradient(135deg, ${accentColor}, #b91c1c);
+        border: none;
+        color: #fff;
+        font-weight: 600;
+        border-radius: 999px;
+        padding: 10px 26px;
+        cursor: pointer;
+        transition: opacity .2s ease;
+    `;
+    button.onmouseover = () => (button.style.opacity = '0.9');
+    button.onmouseout = () => (button.style.opacity = '1');
+    button.onclick = () => wrapper.remove();
+    wrapper.appendChild(button);
+    document.body.appendChild(wrapper);
+    if (autoHide > 0) {
+        setTimeout(() => wrapper.remove(), autoHide);
+    }
+}
+
+function areAllVotingLevelsEnabled() {
+    let domFound = false;
+    let domAllActive = true;
+    VOTING_LEVEL_DOM_IDS.forEach(levelId => {
+        const checkbox = document.getElementById(`diamondLevelToggle${levelId}`);
+        if (checkbox) {
+            domFound = true;
+            domAllActive = domAllActive && checkbox.checked;
+        }
+    });
+    if (domFound) {
+        return domAllActive;
+    }
+    return areAllVotingLevelsEnabledFromConfig(latestAnalyzerConfig);
+}
+
+    function enforceSignalIntensityAvailability() {
+        const select = document.getElementById('signalIntensitySelect');
+        if (!select) return;
+        const conservativeOption = select.querySelector('option[value="conservative"]');
+    const allVotingLevelsActive = areAllVotingLevelsEnabled();
+        if (conservativeOption) {
+            conservativeOption.disabled = !allVotingLevelsActive;
+        }
+        if (!allVotingLevelsActive && select.value === 'conservative') {
+            select.value = 'aggressive';
+        }
     }
 
     function populateDiamondLevelsForm(config) {
@@ -2512,6 +2620,7 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
         setInput('diamondN1WindowSize', getValue('n1WindowSize', DIAMOND_LEVEL_DEFAULTS.n1WindowSize));
         setInput('diamondN1PrimaryRequirement', getValue('n1PrimaryRequirement', DIAMOND_LEVEL_DEFAULTS.n1PrimaryRequirement));
         setInput('diamondN1SecondaryRequirement', getValue('n1SecondaryRequirement', DIAMOND_LEVEL_DEFAULTS.n1SecondaryRequirement));
+        setInput('diamondN1MaxEntries', getValue('n1MaxEntries', DIAMOND_LEVEL_DEFAULTS.n1MaxEntries));
         setInput('diamondN2Recent', getValue('n2Recent', DIAMOND_LEVEL_DEFAULTS.n2Recent));
         setInput('diamondN2Previous', getValue('n2Previous', DIAMOND_LEVEL_DEFAULTS.n2Previous));
         setInput('diamondN3Alternance', getValue('n3Alternance', DIAMOND_LEVEL_DEFAULTS.n3Alternance));
@@ -2556,6 +2665,7 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
         setToggle('diamondLevelToggleN8', 'n8');
         setToggle('diamondLevelToggleN9', 'n9');
         setToggle('diamondLevelToggleN10', 'n10');
+        enforceSignalIntensityAvailability();
         initializeDiamondLevelToggles();
         refreshDiamondLevelToggleStates();
     }
@@ -2643,6 +2753,7 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
             n1WindowSize: getNumber('diamondN1WindowSize', 10, 120, DIAMOND_LEVEL_DEFAULTS.n1WindowSize),
             n1PrimaryRequirement: getNumber('diamondN1PrimaryRequirement', 5, 200, DIAMOND_LEVEL_DEFAULTS.n1PrimaryRequirement),
             n1SecondaryRequirement: getNumber('diamondN1SecondaryRequirement', 1, 200, DIAMOND_LEVEL_DEFAULTS.n1SecondaryRequirement),
+            n1MaxEntries: getNumber('diamondN1MaxEntries', 1, 20, DIAMOND_LEVEL_DEFAULTS.n1MaxEntries),
             n2Recent: getNumber('diamondN2Recent', 2, 20, DIAMOND_LEVEL_DEFAULTS.n2Recent),
             n2Previous: getNumber('diamondN2Previous', 3, 200, DIAMOND_LEVEL_DEFAULTS.n2Previous),
             n3Alternance: getNumber('diamondN3Alternance', 1, null, DIAMOND_LEVEL_DEFAULTS.n3Alternance),
@@ -2721,7 +2832,9 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                 n0AllowBlockAll: allowBlockAll
             };
 
-            await storageCompat.set({ analyzerConfig: updatedConfig });
+                await storageCompat.set({ analyzerConfig: updatedConfig });
+                latestAnalyzerConfig = updatedConfig;
+                enforceSignalIntensityAvailability();
             try {
                 chrome.runtime.sendMessage({ action: 'applyConfig' });
             } catch (error) {
@@ -3175,17 +3288,6 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
     
     // Criar modal de padrões customizados
     function createCustomPatternModal() {
-        const safeZoneBtn = document.getElementById('btnSafeZone');
-        if (!safeZoneBtn) {
-            console.warn('⚠️ Elemento da Zona Segura não encontrado');
-            return;
-        }
-        
-        // Garantir aparência/estado padrão
-        safeZoneBtn.classList.add('active');
-        safeZoneBtn.style.cursor = 'default';
-        safeZoneBtn.title = 'Zona Segura monitora automaticamente as predominâncias';
-        renderSafeZoneStatus(null);
     }
     
     // Configurar listeners do modal
@@ -3258,14 +3360,6 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                 });
             }
             
-            // Botão "🛡️ Zona Segura" - status informativo
-            const safeZoneBtn = document.getElementById('btnSafeZone');
-            if (safeZoneBtn) {
-                safeZoneBtn.classList.add('active');
-                safeZoneBtn.style.cursor = 'default';
-                safeZoneBtn.title = 'Zona Segura sempre ativa (detecta predominância)';
-                renderSafeZoneStatus(null);
-            }
         }, 100);
     }
     
@@ -3522,6 +3616,11 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
             return true;
         }
     };
+
+storageCompat.get(['analyzerConfig']).then(res => {
+    latestAnalyzerConfig = res.analyzerConfig || null;
+    enforceSignalIntensityAvailability();
+}).catch(() => {});
 
 const autoBetHistoryStore = (() => {
     let cache = [];
@@ -5758,7 +5857,7 @@ async function persistAnalyzerState(newState) {
         const btn = document.getElementById('btnSafeZone');
         if (!btn) return;
         
-        btn.style.height = 'auto';
+            btn.style.height = 'auto';
         btn.style.padding = '12px 14px';
         btn.title = 'Zona Segura monitora predominâncias fortes e confirmações';
         
@@ -5773,7 +5872,9 @@ async function persistAnalyzerState(newState) {
         }
         
         if (!meta.zoneActive) {
-            const reasonLabel = meta.reason === 'insufficient_history' ? 'Histórico insuficiente' : 'Requisitos não atendidos';
+            let reasonLabel = 'Requisitos não atendidos';
+            if (meta.reason === 'insufficient_history') reasonLabel = 'Histórico insuficiente';
+            if (meta.reason === 'entry_limit_reached') reasonLabel = 'Limite atingido';
             btn.innerHTML = `
                 <div style="display: flex; flex-direction: column; gap: 4px; align-items: center;">
                     <div style="font-size: 12px; font-weight: 600;">Zona Segura</div>
@@ -5789,11 +5890,18 @@ async function persistAnalyzerState(newState) {
         const secondaryLabel = meta.secondary
             ? `${meta.secondary.toUpperCase()} • ${meta.counts[meta.secondary]}`
             : 'Sem requisito B';
-        const statusClass = meta.signal ? 'status-ready' : 'status-waiting';
-        const statusText = meta.signal ? 'Confirmado! Entrar no próximo giro' : 'Aguardando última cor';
+        const statusClass = meta.reason === 'entry_limit_reached'
+            ? 'status-idle'
+            : (meta.signal ? 'status-ready' : 'status-waiting');
+        const statusText = meta.reason === 'entry_limit_reached'
+            ? 'Limite de entradas atingido'
+            : (meta.signal ? 'Confirmado! Entrar no próximo giro' : 'Aguardando última cor');
+        const entriesInfo = meta.maxEntries
+            ? `${Math.min(meta.entriesUsed || 0, meta.maxEntries)}/${meta.maxEntries}`
+            : `${meta.entriesUsed || 0}`;
         
-        btn.innerHTML = `
-            <div style="display: flex; flex-direction: column; gap: 6px; align-items: center; width: 100%;">
+            btn.innerHTML = `
+                <div style="display: flex; flex-direction: column; gap: 6px; align-items: center; width: 100%;">
                 <div style="font-size: 11px; font-weight: 600;">Zona Segura</div>
                 <div style="display: flex; flex-direction: column; gap: 4px; width: 100%;">
                     <div class="safe-zone-row">
@@ -5804,10 +5912,14 @@ async function persistAnalyzerState(newState) {
                         <span class="safe-zone-label">Suporte</span>
                         <span class="safe-zone-value">${secondaryLabel}</span>
                     </div>
+                    <div class="safe-zone-row">
+                        <span class="safe-zone-label">Entradas</span>
+                        <span class="safe-zone-value">${entriesInfo}</span>
+                    </div>
                 </div>
                 <div class="safe-zone-status-pill ${statusClass}">${statusText}</div>
-            </div>
-        `;
+                </div>
+            `;
     }
     // Sincronizar padrões com o servidor
     async function syncPatternsToServer(patterns) {
@@ -6624,7 +6736,7 @@ async function persistAnalyzerState(newState) {
                     </div>
                     <span class="da-app-name">Double Analyzer</span>
                     <span class="title-badge" id="titleBadge">Análise Premium</span>
-                </div>
+                            </div>
 
                 <!-- 2. Center: Simple Controls -->
                 <div class="da-controls-group">
@@ -6639,7 +6751,7 @@ async function persistAnalyzerState(newState) {
                     <button type="button" class="header-link ai-mode-toggle" id="aiModeToggle" title="Ativar/Desativar IA">
                         <span id="aiToggleLabel">AI OFF</span>
                     </button>
-                </div>
+                        </div>
 
                 <!-- 3. Right: User -->
                 <div class="da-user-actions">
@@ -6649,8 +6761,8 @@ async function persistAnalyzerState(newState) {
                             <circle cx="12" cy="7" r="4"></circle>
                         </svg>
                     </button>
+                    </div>
                 </div>
-            </div>
 
             <div class="user-menu-panel" id="userMenuPanel" role="region" aria-labelledby="userMenuTitle">
                 <div class="user-menu-header">
@@ -6792,7 +6904,7 @@ async function persistAnalyzerState(newState) {
             </div>
             <div class="auto-bet-summary-collapsed" id="autoBetSummaryCollapsed" style="display: none;">
                 <!-- Botão movido para o header -->
-            </div>
+                </div>
                 
             <div class="analysis-lastspin-row">
                  <div class="analysis-section highlight-panel">
@@ -7001,9 +7113,6 @@ async function persistAnalyzerState(newState) {
                         <!-- ═══════════════════════════════════════════════════════ -->
                         <div class="setting-item setting-row" id="customPatternsContainer" style="margin-top: 20px; padding-top: 15px; border-top: 1px solid #333;">
                             <div class="hot-pattern-actions">
-                                <button id="btnSafeZone" class="btn-hot-pattern btn-diamond-levels">
-                                    Zona Segura
-                                </button>
                                 <button id="diamondLevelsBtn" class="btn-hot-pattern btn-diamond-levels">
                                     Configurar Níveis Diamante
                                 </button>
@@ -7032,13 +7141,9 @@ async function persistAnalyzerState(newState) {
                                     outline: none;
                                     text-align: center;
                                 ">
-                                    <option value="aggressive" style="background: #1a1a1a; color: #fff;">🔥 AGRESSIVO (score ≥ 25%)</option>
-                                    <option value="moderate" selected style="background: #1a1a1a; color: #fff;">⚖️ MODERADO (score ≥ 45%)</option>
-                                    <option value="conservative" style="background: #1a1a1a; color: #fff;">🛡️ CONSERVADOR (score ≥ 65%)</option>
+                                    <option value="aggressive" selected style="background: #1a1a1a; color: #fff;">Agressivo</option>
+                                    <option value="conservative" style="background: #1a1a1a; color: #fff;">Conservador</option>
                                 </select>
-                                <div style="font-size: 11px; color: #888; text-align: center; padding: 0 10px;">
-                                    Pontuação contínua • Define o score mínimo para enviar sinal
-                                </div>
                             </div>
                         </div>
                         
@@ -7379,7 +7484,7 @@ async function persistAnalyzerState(newState) {
 
                 if (sidebar.classList.contains('compact-mode')) {
                     enableCompactMenuAnchoring();
-                } else {
+            } else {
                     disableCompactMenuAnchoring();
                 }
             } else {
@@ -10361,7 +10466,11 @@ async function persistAnalyzerState(newState) {
     
     // Make sidebar draggable
     function makeDraggable(element) {
-        const header = document.getElementById('sidebarHeader');
+        const header = element.querySelector('.da-header');
+        if (!header) {
+            console.warn('⚠️ makeDraggable: header não encontrado');
+            return;
+        }
         let isDragging = false;
         let currentX;
         let currentY;
@@ -10931,21 +11040,42 @@ function logModeSnapshotUI(snapshot) {
     // 💓 HEARTBEAT - Sistema de detecção de usuários online
     // ═══════════════════════════════════════════════════════════════════════════════
     let heartbeatInterval = null;
+    let heartbeatFailures = 0;
+    const MAX_HEARTBEAT_FAILURES = 3;
     
     async function sendHeartbeat() {
         try {
             const token = localStorage.getItem('authToken');
-            if (!token) return;
+            if (!token) {
+                stopHeartbeat();
+                return;
+            }
             
             const API_URL = getApiUrl();
-            await fetch(`${API_URL}/api/auth/heartbeat`, {
+            const response = await fetch(`${API_URL}/api/auth/heartbeat`, {
                 method: 'POST',
                 headers: {
                     'Authorization': `Bearer ${token}`
-                }
+                },
+                signal: AbortSignal.timeout(5000) // Timeout de 5 segundos
             });
+            
+            if (response.ok) {
+                heartbeatFailures = 0; // Resetar contador de falhas
+            } else {
+                heartbeatFailures++;
+                if (heartbeatFailures >= MAX_HEARTBEAT_FAILURES) {
+                    console.log('💓 Heartbeat desativado após múltiplas falhas');
+                    stopHeartbeat();
+                }
+            }
         } catch (error) {
-            console.log('Heartbeat falhou (silencioso):', error.message);
+            heartbeatFailures++;
+            if (heartbeatFailures >= MAX_HEARTBEAT_FAILURES) {
+                console.log('💓 Heartbeat desativado após múltiplas falhas de conexão');
+                stopHeartbeat();
+            }
+            // Silencioso - não mostrar erro no console
         }
     }
     
@@ -10953,9 +11083,18 @@ function logModeSnapshotUI(snapshot) {
     function startHeartbeat() {
         if (heartbeatInterval) return; // Já está rodando
         
+        heartbeatFailures = 0; // Resetar contador
         sendHeartbeat(); // Enviar imediatamente
         heartbeatInterval = setInterval(sendHeartbeat, 30000); // 30 segundos
         console.log('💓 Sistema de heartbeat iniciado');
+    }
+    
+    // Parar heartbeat
+    function stopHeartbeat() {
+        if (heartbeatInterval) {
+            clearInterval(heartbeatInterval);
+            heartbeatInterval = null;
+        }
     }
     
     // Iniciar heartbeat se usuário estiver autenticado
@@ -11339,10 +11478,13 @@ function logModeSnapshotUI(snapshot) {
                 setAutoBetInput('autoBetInverseMode', autoBetConfig.inverseModeEnabled, true);
                 
                 // 🎚️ Carregar intensidade de sinais
+                latestAnalyzerConfig = cfg;
                 const signalIntensitySelect = document.getElementById('signalIntensitySelect');
                 if (signalIntensitySelect) {
-                    signalIntensitySelect.value = cfg.signalIntensity || 'moderate';
-                    console.log(`🎚️ Intensidade carregada: ${cfg.signalIntensity || 'moderate'}`);
+                    const intensityValue = cfg.signalIntensity === 'conservative' ? 'conservative' : 'aggressive';
+                    signalIntensitySelect.value = intensityValue;
+                    console.log(`🎚️ Intensidade carregada: ${intensityValue}`);
+                    enforceSignalIntensityAvailability();
                 }
                 
                 // ✅ Aplicar visibilidade dos campos baseado no modo IA (considerando modo específico da aba)
@@ -11375,6 +11517,23 @@ function logModeSnapshotUI(snapshot) {
         chrome.storage.local.get(['analyzerConfig'], async function(result) {
             try {
                 const currentConfig = result.analyzerConfig || {};
+                const signalIntensitySelect = document.getElementById('signalIntensitySelect');
+                const signalIntensity = signalIntensitySelect ? signalIntensitySelect.value : 'aggressive';
+                const votingLevelsEnabled = areAllVotingLevelsEnabledFromConfig(currentConfig);
+                if (signalIntensity === 'conservative' && !votingLevelsEnabled) {
+                    showCenteredNotice('Modo Conservador só pode ser usado quando os níveis N1–N8 estiverem ativos.', {
+                        title: 'Modo Conservador'
+                    });
+                    if (signalIntensitySelect) {
+                        signalIntensitySelect.value = 'aggressive';
+                    }
+                    const overlay = document.getElementById('saveStatusOverlay');
+                    if (overlay) overlay.style.display = 'none';
+                    if (btn) {
+                        btn.textContent = 'Salvar';
+                    }
+                    return;
+                }
                 const martingaleProfiles = sanitizeMartingaleProfilesFromConfig(currentConfig);
                 console.log('📊 Configuração atual:', currentConfig);
                 
@@ -11402,10 +11561,8 @@ function logModeSnapshotUI(snapshot) {
                 const tgChatId = String(getElementValue('cfgTgChatId', '')).trim();
                 
                 // 🎚️ Intensidade de sinais
-                const signalIntensitySelect = document.getElementById('signalIntensitySelect');
-                const signalIntensity = signalIntensitySelect ? signalIntensitySelect.value : 'moderate';
                 const autoBetRawConfig = {
-                    enabled: getElementValue('autoBetEnabled', false, true),
+                    enabled: false, // Auto-bet sempre desabilitado (apenas simulação)
                     simulationOnly: getElementValue('autoBetSimulationOnly', true, true),
                     baseStake: getElementValue('autoBetBaseStake', AUTO_BET_DEFAULTS.baseStake),
                     galeMultiplier: getElementValue('autoBetGaleMultiplier', AUTO_BET_DEFAULTS.galeMultiplier),
@@ -11526,6 +11683,8 @@ function logModeSnapshotUI(snapshot) {
                     
                     console.log('%c✅ SALVO NO STORAGE COM SUCESSO!', 'color: #00FF00; font-weight: bold;');
                     console.log('');
+                    latestAnalyzerConfig = cfg;
+                    enforceSignalIntensityAvailability();
                     
                     // ✅ VERIFICAR SE DEVE SINCRONIZAR COM SERVIDOR
                     const syncCheckbox = document.getElementById('syncConfigToAccount');

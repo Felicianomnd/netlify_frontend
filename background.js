@@ -123,7 +123,7 @@ function buildModeSnapshot(contextLabel = 'Contexto atual', historyLength = cach
         aiMode: aiModeActive,
         modeLabel: aiModeActive ? 'Análise Diamante' : 'Modo Padrão',
         historyAvailable: historyLength || 0,
-        signalIntensity: analyzerConfig.signalIntensity || 'moderate',
+    signalIntensity: analyzerConfig.signalIntensity || 'aggressive',
         galeSummary: getGaleSummary(),
         galeSettings: getMartingaleSettings(),
         galeState: {
@@ -313,13 +313,14 @@ const DEFAULT_ANALYZER_CONFIG = {
     },
     telegramChatId: '',           // Chat ID do Telegram para enviar sinais
     aiMode: false,                // Modo Diamante (true) ou Modo Padrão (false)
-    signalIntensity: 'moderate',  // Intensidade de sinais: 'aggressive', 'moderate', 'conservative', 'ultraconservative'
+    signalIntensity: 'aggressive',  // Intensidade de sinais: 'aggressive' ou 'conservative'
     whiteProtectionAsWin: false,  // Proteção no Branco: conta branco como WIN (default: conta como LOSS)
     autoBetConfig: DEFAULT_AUTOBET_CONFIG,
     diamondLevelWindows: {        // Configuração dos níveis do modo Diamante
         n1WindowSize: 20,         // N1 - Zona Segura (tamanho da janela)
         n1PrimaryRequirement: 15, // N1 - Zona Segura (requisito mínimo A)
         n1SecondaryRequirement: 3,// N1 - Zona Segura (requisito mínimo B)
+        n1MaxEntries: 1,          // N1 - Zona Segura (entradas consecutivas permitidas)
         n2Recent: 5,              // N2 - Momentum (janela recente)
         n2Previous: 15,           // N2 - Momentum (janela anterior)
         n3Alternance: 12,         // N3 - Alternância (histórico analisado em giros)
@@ -366,7 +367,8 @@ const DIAMOND_LEVEL_IDS = Object.freeze(['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6
 const SAFE_ZONE_DEFAULTS = Object.freeze({
     windowSize: DEFAULT_ANALYZER_CONFIG.diamondLevelWindows.n1WindowSize,
     primaryRequirement: DEFAULT_ANALYZER_CONFIG.diamondLevelWindows.n1PrimaryRequirement,
-    secondaryRequirement: DEFAULT_ANALYZER_CONFIG.diamondLevelWindows.n1SecondaryRequirement
+    secondaryRequirement: DEFAULT_ANALYZER_CONFIG.diamondLevelWindows.n1SecondaryRequirement,
+    maxEntries: DEFAULT_ANALYZER_CONFIG.diamondLevelWindows.n1MaxEntries
 });
 
 function analyzeSafeZone(history, options = {}) {
@@ -444,16 +446,45 @@ function getSafeZoneSettingsFromAnalyzerConfig() {
     let windowSize = Number(windows.n1WindowSize) || SAFE_ZONE_DEFAULTS.windowSize;
     let minPrimary = Number(windows.n1PrimaryRequirement) || SAFE_ZONE_DEFAULTS.primaryRequirement;
     let minSecondary = Number(windows.n1SecondaryRequirement) || SAFE_ZONE_DEFAULTS.secondaryRequirement;
+    let maxEntries = Number(windows.n1MaxEntries) || SAFE_ZONE_DEFAULTS.maxEntries;
 
     windowSize = Math.max(5, Math.min(200, windowSize));
     minPrimary = Math.max(1, Math.min(windowSize - 1, minPrimary));
     minSecondary = Math.max(1, Math.min(minPrimary - 1, minSecondary));
+    maxEntries = Math.max(1, Math.min(20, Math.floor(maxEntries)));
 
     return {
         windowSize,
         minPrimary,
-        minSecondary
+        minSecondary,
+        maxEntries
     };
+}
+
+let safeZoneEntryState = {
+    signature: null,
+    entriesUsed: 0
+};
+
+function buildSafeZoneSignature(meta) {
+    if (!meta || !meta.dominant) return null;
+    return `${meta.dominant}-${meta.secondary || 'none'}-${meta.windowSize}`;
+}
+
+function describeSafeZoneReason(reason) {
+    switch (reason) {
+        case 'insufficient_history':
+            return 'Histórico insuficiente';
+        case 'last_not_dominant':
+            return 'Última cor não confirma a dominante';
+        case 'entry_limit_reached':
+            return 'Limite de entradas atingido';
+        case 'zone_active_last_is_dominant':
+            return 'Zona confirmada';
+        case 'req_not_met':
+        default:
+            return 'Requisitos mínimos não atendidos';
+    }
 }
 
 function getDiamondLevelKeyFromId(levelId = '') {
@@ -8133,7 +8164,7 @@ function analyzeMinuteSpinBias(history, targetMinute, targetPosition, windowSize
     };
 }
 
-function analyzeHistoricalRetracement(history, windowSize = 80, intensity = 'moderate') {
+function analyzeHistoricalRetracement(history, windowSize = 80, intensity = 'aggressive') {
     const validSpins = (history || []).filter(spin => spin && (spin.color === 'red' || spin.color === 'black'));
     if (validSpins.length < 20) {
         return {
@@ -8191,11 +8222,9 @@ function analyzeHistoricalRetracement(history, windowSize = 80, intensity = 'mod
 
     const thresholds = {
         aggressive: 70,
-        moderate: 80,
-        conservative: 85,
-        ultraconservative: 85
+        conservative: 85
     };
-    const inversionThreshold = thresholds[intensity] ?? thresholds.moderate;
+    const inversionThreshold = thresholds[intensity] ?? thresholds.aggressive;
     const neutralThreshold = 50;
 
     let color = null;
@@ -8312,7 +8341,7 @@ function analyzeBayesianCalibration(history, baseWindow = 100, priorConfig = { r
     };
 }
 
-function analyzeGlobalContinuity(signalData, decisionWindow = 20, historyLimit = 100, intensity = 'moderate') {
+function analyzeGlobalContinuity(signalData, decisionWindow = 20, historyLimit = 100, intensity = 'aggressive') {
     if (!signalData || !Array.isArray(signalData.signals) || signalData.signals.length === 0) {
         return {
             color: null,
@@ -8367,11 +8396,9 @@ function analyzeGlobalContinuity(signalData, decisionWindow = 20, historyLimit =
 
     const thresholds = {
         aggressive: { high: 55, low: 40 },
-        moderate: { high: 60, low: 45 },
-        conservative: { high: 65, low: 50 },
-        ultraconservative: { high: 70, low: 55 }
+        conservative: { high: 65, low: 50 }
     };
-    const { high, low } = thresholds[intensity] || thresholds.moderate;
+    const { high, low } = thresholds[intensity] || thresholds.aggressive;
 
     if (dominantAttempts === 0) {
         return {
@@ -12818,15 +12845,32 @@ async function analyzeWithPatternSystem(history) {
 		let patternDescription = 'Análise Nível Diamante - 11 Níveis';
         
         const safeZoneSettings = getSafeZoneSettingsFromAnalyzerConfig();
-        console.log(`%c   Configurações: janela ${safeZoneSettings.windowSize} | mín A ${safeZoneSettings.minPrimary} | mín B ${safeZoneSettings.minSecondary}`, 'color: #FF6B35;');
+        console.log(`%c   Configurações: janela ${safeZoneSettings.windowSize} | mín A ${safeZoneSettings.minPrimary} | mín B ${safeZoneSettings.minSecondary} | entradas ${safeZoneSettings.maxEntries}`, 'color: #FF6B35;');
         safeZoneMeta = analyzeSafeZone(history, safeZoneSettings);
+        safeZoneMeta.maxEntries = safeZoneSettings.maxEntries;
+        safeZoneMeta.entriesUsed = safeZoneEntryState.entriesUsed || 0;
         
         if (!safeZoneMeta.zoneActive) {
-            console.log(`%c⚠️ Zona inativa → ${safeZoneMeta.reason}`, 'color: #888; font-style: italic;');
+            console.log(`%c⚠️ Zona inativa → ${describeSafeZoneReason(safeZoneMeta.reason)}`, 'color: #888; font-style: italic;');
+            safeZoneEntryState = { signature: null, entriesUsed: 0 };
         } else {
             console.log(`%c   Dominante: ${safeZoneMeta.dominant?.toUpperCase() || 'N/A'} (${safeZoneMeta.counts[safeZoneMeta.dominant]}/${safeZoneMeta.windowSize})`, 'color: #FF6B35;');
             console.log(`%c   Secundária: ${safeZoneMeta.secondary ? safeZoneMeta.secondary.toUpperCase() + ` (${safeZoneMeta.counts[safeZoneMeta.secondary]})` : 'N/A'}`, 'color: #FF6B35;');
             console.log(`%c   Última cor: ${safeZoneMeta.lastColor ? safeZoneMeta.lastColor.toUpperCase() : 'N/A'}`, 'color: #FF6B35;');
+            
+            if (safeZoneMeta.signal) {
+                const signature = buildSafeZoneSignature(safeZoneMeta);
+                if (safeZoneEntryState.signature !== signature) {
+                    safeZoneEntryState = { signature, entriesUsed: 0 };
+                }
+                safeZoneMeta.entriesUsed = safeZoneEntryState.entriesUsed;
+                if (safeZoneEntryState.entriesUsed >= safeZoneSettings.maxEntries) {
+                    console.log(`%c   ⚠️ Limite de ${safeZoneSettings.maxEntries} entradas atingido para esta zona.`, 'color: #FFAA00; font-weight: bold;');
+                    safeZoneMeta.signal = false;
+                    safeZoneMeta.reason = 'entry_limit_reached';
+                }
+            }
+            // ✅ NÃO resetar aqui - apenas quando zona ficar inativa (linha 12855)
         }
         
         if (safeZoneMeta.zoneActive && safeZoneMeta.signal && safeZoneMeta.dominant) {
@@ -12836,6 +12880,13 @@ async function analyzeWithPatternSystem(history) {
                 confidence: safeZoneMeta.strength,
                 detail: safeZoneMeta
             };
+            const signature = buildSafeZoneSignature(safeZoneMeta);
+            safeZoneEntryState = {
+                signature,
+                entriesUsed: Math.min(safeZoneSettings.maxEntries, (safeZoneEntryState.signature === signature ? safeZoneEntryState.entriesUsed : 0) + 1)
+            };
+            safeZoneMeta.entriesUsed = safeZoneEntryState.entriesUsed;
+            safeZoneMeta.reason = 'zone_active_last_is_dominant';
             patternDescription = JSON.stringify({
                 type: 'safe_zone',
                 dominant: safeZoneMeta.dominant,
@@ -12845,7 +12896,9 @@ async function analyzeWithPatternSystem(history) {
                 minPrimary: safeZoneMeta.minPrimary,
                 minSecondary: safeZoneMeta.minSecondary,
                 lastColor: safeZoneMeta.lastColor,
-                status: safeZoneMeta.reason
+                status: safeZoneMeta.reason,
+                entriesUsed: safeZoneMeta.entriesUsed,
+                maxEntries: safeZoneSettings.maxEntries
             });
         } else if (safeZoneMeta.zoneActive) {
             patternDescription = JSON.stringify({
@@ -12857,15 +12910,17 @@ async function analyzeWithPatternSystem(history) {
                 minPrimary: safeZoneMeta.minPrimary,
                 minSecondary: safeZoneMeta.minSecondary,
                 lastColor: safeZoneMeta.lastColor,
-                status: safeZoneMeta.reason
+                status: safeZoneMeta.reason,
+                entriesUsed: safeZoneMeta.entriesUsed,
+                maxEntries: safeZoneSettings.maxEntries
             });
         }
         
         if (!safeZoneVote) {
             console.log('%c⚠️ NÍVEL 1 VOTA: NULO (zona fora de sinal)', 'color: #888; font-weight: bold; font-size: 14px;');
-        } else {
+    } else {
             console.log(`%c🗳️ NÍVEL 1 VOTA: ${safeZoneVote.color.toUpperCase()}`, `color: ${safeZoneVote.color === 'red' ? '#FF0000' : '#FFFFFF'}; font-weight: bold; font-size: 14px;`);
-        }
+    }
     
     // ⚡ NÃO EXIBIR na UI ainda (análise rápida, mostraremos depois)
         
@@ -13349,9 +13404,16 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
                 if (safeZoneMeta.signal && safeZoneVote && safeZoneVote.color) {
                     patternColor = safeZoneVote.color;
                     patternStrength = clamp01(safeZoneVote.confidence ?? safeZoneMeta.strength ?? 0.5);
-                    patternDetailsText = `Dominância ${dominantLabel} • última ${safeZoneMeta.lastColor ? safeZoneMeta.lastColor.toUpperCase() : '-'}`;
+                    const entriesInfo = safeZoneMeta.maxEntries
+                        ? `${safeZoneMeta.entriesUsed}/${safeZoneMeta.maxEntries}`
+                        : `${safeZoneMeta.entriesUsed || 0}`;
+                    patternDetailsText = `Dominância ${dominantLabel} • entradas ${entriesInfo}`;
                 } else {
-                    patternDetailsText = `Dominância ${dominantLabel} • aguardando confirmação`;
+                    if (safeZoneMeta.reason === 'entry_limit_reached') {
+                        patternDetailsText = `Dominância ${dominantLabel} • limite atingido (${safeZoneMeta.entriesUsed}/${safeZoneMeta.maxEntries})`;
+                    } else {
+                        patternDetailsText = `Dominância ${dominantLabel} • aguardando confirmação`;
+                    }
                 }
             }
         }
@@ -13464,7 +13526,7 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
 
 		const n6Enabled = isLevelEnabledLocal('N6');
 		const retracementWindow = Math.max(30, Math.min(120, getDiamondWindow('n6RetracementWindow', 80)));
-		const retracementResult = analyzeHistoricalRetracement(history, retracementWindow, analyzerConfig.signalIntensity || 'moderate');
+		const retracementResult = analyzeHistoricalRetracement(history, retracementWindow, analyzerConfig.signalIntensity || 'aggressive');
 		levelReports.push({
 			id: 'N6',
 			name: 'Retração Histórica',
@@ -13479,7 +13541,7 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
 		const n7Enabled = isLevelEnabledLocal('N7');
 		const decisionWindowConfigured = Math.max(10, Math.min(50, getDiamondWindow('n7DecisionWindow', 20)));
 		const historyWindowConfigured = Math.max(decisionWindowConfigured, Math.min(200, getDiamondWindow('n7HistoryWindow', 100)));
-		const continuityResult = analyzeGlobalContinuity(signalsHistory, decisionWindowConfigured, historyWindowConfigured, analyzerConfig.signalIntensity || 'moderate');
+		const continuityResult = analyzeGlobalContinuity(signalsHistory, decisionWindowConfigured, historyWindowConfigured, analyzerConfig.signalIntensity || 'aggressive');
 		levelReports.push({
 			id: 'N7',
 			name: 'Continuidade Global',
@@ -13715,7 +13777,7 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
                 colorRecommended: 'white',
                 normalizedScore: Number(n0WhiteStrength.toFixed(4)),
                 scoreMagnitude: Number(n0WhiteStrength.toFixed(4)),
-                intensityMode: analyzerConfig.signalIntensity || 'moderate',
+                intensityMode: analyzerConfig.signalIntensity || 'aggressive',
                 rawConfidence: whiteConfidencePct,
                 finalConfidence: whiteConfidencePct,
                 levelBreakdown: scoreSummary,
@@ -13899,33 +13961,17 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
             normalizedScore = directionValue(alternanceColor);
         }
         const scoreMagnitude = Math.abs(normalizedScore);
-        let finalColor = alternanceOverride
-            ? alternanceColor
-            : normalizedScore === 0
-                ? predictedColor
-                : (normalizedScore >= 0 ? 'red' : 'black');
 
-        const intensityConfig = {
-            aggressive: { minScore: 0.18, name: '🔥 AGRESSIVO', emoji: '🔥' },
-            moderate: { minScore: 0.30, name: '⚖️ MODERADO', emoji: '⚖️' },
-            conservative: { minScore: 0.42, name: '🛡️ CONSERVADOR', emoji: '🛡️' },
-            ultraconservative: { minScore: 0.52, name: '🛡️ ULTRA CONSERVADOR', emoji: '🛡️' }
-        };
-        const signalIntensity = analyzerConfig.signalIntensity || 'moderate';
-        const currentIntensity = intensityConfig[signalIntensity] || intensityConfig.moderate;
-        const thresholdMet = scoreMagnitude >= currentIntensity.minScore;
+        let signalIntensity = analyzerConfig.signalIntensity === 'conservative' ? 'conservative' : 'aggressive';
+        const votingLevelIds = ['N1','N2','N3','N4','N5','N6','N7','N8'];
+        const allVotingLevelsEnabled = votingLevelIds.every(id => diamondLevelEnabledMap[id]);
 
-        console.log('%c║  🎚️ INTENSIDADE / SCORE                                 ║', 'color: #9C27B0; font-weight: bold; font-size: 14px;');
-        console.log(`%c   Modo selecionado: ${currentIntensity.emoji} ${currentIntensity.name}`, 'color: #9C27B0; font-weight: bold;');
-        console.log(`%c   Score combinado: ${(normalizedScore * 100).toFixed(1)}%`, 'color: #9C27B0;');
-        console.log(`%c   Threshold mínimo: ${(currentIntensity.minScore * 100).toFixed(0)}%`, 'color: #9C27B0;');
-        
-        if (!thresholdMet && !alternanceOverride) {
-            console.log('%c🚫 SINAL REJEITADO: SCORE ABAIXO DO LIMITE', 'color: #FF6666; font-weight: bold; font-size: 14px;');
-            sendAnalysisStatus(`❌ Rejeitado: score ${(scoreMagnitude * 100).toFixed(1)}% < ${Math.round(currentIntensity.minScore * 100)}% (${currentIntensity.name})`);
-            await sleep(2000);
-            await restoreIAStatus();
-            return null;
+        console.log('%c║  🎚️ INTENSIDADE / CONSENSO                              ║', 'color: #9C27B0; font-weight: bold; font-size: 14px;');
+        console.log(`%c   Modo selecionado: ${signalIntensity === 'conservative' ? 'Conservador' : 'Agressivo'}`, 'color: #9C27B0; font-weight: bold;');
+
+        if (signalIntensity === 'conservative' && !allVotingLevelsEnabled) {
+            console.log('%c⚠️ Conservador indisponível: nem todos os níveis N1-N8 estão ativos. Revertendo para Agressivo.', 'color: #FFAA00; font-weight: bold;');
+            signalIntensity = 'aggressive';
         }
 
         if (intervalBlocked) {
@@ -13940,48 +13986,82 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
 		const negativeVotingLevels = votingLevelsList.filter(lvl => lvl.color && (lvl.strength || 0) < 0);
 		const neutralVotingLevels = votingLevelsList.filter(lvl => !lvl.color || (lvl.strength || 0) === 0);
 
-		if (signalIntensity === 'aggressive') {
-			const agreeingLevels = positiveVotingLevels.filter(lvl => lvl.color === finalColor);
-			const agreeingCount = agreeingLevels.length;
-			const availableCount = positiveVotingLevels.length;
-			const agreeingLabels = agreeingLevels.map(lvl => `${lvl.id}-${lvl.color}`).join(', ') || 'nenhum';
-			const disagreeingLabels = positiveVotingLevels
-				.filter(lvl => lvl.color !== finalColor)
-				.map(lvl => `${lvl.id}-${lvl.color}`)
-				.join(', ') || 'nenhum';
+        const voteCounts = { red: 0, black: 0 };
+        positiveVotingLevels.forEach(lvl => {
+            if (lvl.color === 'red') voteCounts.red++;
+            if (lvl.color === 'black') voteCounts.black++;
+        });
 
-			console.log('%c🎯 CONSENSO (Modo Agressivo):', 'color: #9C27B0; font-weight: bold;');
-			console.log(`   Cor final: ${finalColor.toUpperCase()}`);
-			console.log(`   Níveis concordando (positivos): ${agreeingCount}/${availableCount}`);
-			console.log(`   Lista (concordam): ${agreeingLabels}`);
-			console.log(`   Lista (discordam): ${disagreeingLabels}`);
+        const totalVotes = voteCounts.red + voteCounts.black;
+        if (totalVotes === 0) {
+            console.log('%c❌ Nenhum voto válido dos níveis votantes. Sinal cancelado.', 'color: #FF6666; font-weight: bold;');
+            sendAnalysisStatus('❌ Sem votos válidos (N1-N8)');
+            await sleep(2000);
+            await restoreIAStatus();
+            return null;
+        }
 
-            const requiredAggressive = availableCount > 0 ? Math.max(1, Math.min(3, availableCount)) : 3;
-			if (agreeingCount < requiredAggressive) {
-				console.log('%c❌ SINAL BLOQUEADO: consenso insuficiente para modo agressivo', 'color: #FF6666; font-weight: bold;');
-                if (alternanceOverride) {
-                    console.log('%cℹ️ Alternância override ativo - resetando controle por consenso insuficiente', 'color: #FFAA00;');
-                    alternanceEntryControl = {
-                        active: false,
-                        patternSignature: null,
-                        entryColor: null,
-                        entryCount: 0,
-                        lastResult: null,
-                        lastEntryTimestamp: null,
-                        blockedUntil: null,
-                        totalWins: 0,
-                        totalLosses: 0
-                    };
-                }
-				sendAnalysisStatus(`❌ Rejeitado: apenas ${agreeingCount}/${requiredAggressive} níveis positivos concordam (${finalColor.toUpperCase()})`);
+        if (voteCounts.red === voteCounts.black) {
+            console.log('%c⚠️ Empate entre as cores. Sinal anulado.', 'color: #FFAA00; font-weight: bold;');
+            sendAnalysisStatus('❌ Empate entre cores');
+            await sleep(2000);
+            await restoreIAStatus();
+            return null;
+        }
+
+        let consensusColor = voteCounts.red > voteCounts.black ? 'red' : 'black';
+
+        if (signalIntensity === 'conservative') {
+            if (voteCounts[consensusColor] < 5) {
+                console.log(`%c❌ Conservador: apenas ${voteCounts[consensusColor]}/5 votos para ${consensusColor.toUpperCase()}.`, 'color: #FF6666; font-weight: bold;');
+                sendAnalysisStatus(`❌ Conservador: mínimo 5 votos (${voteCounts[consensusColor]}/5)`);
+                await sleep(2000);
+                await restoreIAStatus();
+                return null;
+            }
+
+            if (!n9Enabled) {
+                console.log('%c❌ Conservador: Barreira Final (N9) precisa estar ativa.', 'color: #FF6666; font-weight: bold;');
+                sendAnalysisStatus('❌ Conservador: ative a Barreira Final (N9)');
+                await sleep(2000);
+                await restoreIAStatus();
+                return null;
+            }
+
+            if (!barrierResult.allowed) {
+                console.log('%c❌ Conservador: Barreira Final bloqueou o sinal.', 'color: #FF6666; font-weight: bold;');
+                sendAnalysisStatus('❌ Conservador: Barreira Final bloqueou');
+                await sleep(2000);
+                await restoreIAStatus();
+                return null;
+            }
+
+            const bayesApproves = n10Enabled && bayesResult && bayesResult.color && bayesResult.color === consensusColor;
+            if (!n10Enabled || !bayesApproves) {
+                console.log('%c❌ Conservador: Calibração Bayesiana (N10) não autorizou.', 'color: #FF6666; font-weight: bold;');
+                sendAnalysisStatus('❌ Conservador: N10 não autorizou');
                 await sleep(2000);
                 await restoreIAStatus();
                 return null;
             }
         }
 
-        let rawConfidence = Math.round(50 + (50 * scoreMagnitude));
-        rawConfidence = Math.max(50, Math.min(100, rawConfidence));
+        finalColor = consensusColor;
+        predictedColor = finalColor;
+
+        const maxVotingSlots = votingLevelsList.length;
+        const winningVotes = voteCounts[finalColor];
+        const voteTotals = {
+            red: voteCounts.red,
+            black: voteCounts.black,
+            neutral: neutralVotingLevels.length,
+            negative: negativeVotingLevels.length
+        };
+
+        console.log(`%c🗳️ Contagem de votos → 🔴 ${voteCounts.red} | ⚫ ${voteCounts.black}`, 'color: #9C27B0; font-weight: bold;');
+
+        let rawConfidence = Math.round((winningVotes / Math.max(1, maxVotingSlots)) * 100);
+        rawConfidence = Math.max(0, Math.min(100, rawConfidence));
         let finalConfidence = applyCalibratedConfidence(rawConfidence);
         finalConfidence = Math.max(0, Math.min(100, Math.round(finalConfidence)));
 
@@ -14010,10 +14090,11 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
             details: level.details
         }));
 
+        const intensityLabel = signalIntensity === 'conservative' ? 'Conservador' : 'Agressivo';
         const reasoning =
             `${levelReports.map(level => describeLevel(level)).join('\n')}\n` +
             `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
-            `${currentIntensity.emoji} Modo: ${currentIntensity.name} (mín ${(currentIntensity.minScore * 100).toFixed(0)}%)\n` +
+            `Modo: ${intensityLabel}\n` +
             `Score combinado: ${(normalizedScore * 100).toFixed(1)}%\n` +
             `🎯 DECISÃO: ${finalColor.toUpperCase()}\n` +
             `📊 Confiança: ${finalConfidence}%`;
@@ -14169,117 +14250,6 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
         console.log('%c✅ BARREIRA LIBERADA! Sequência é viável.', 'color: #00FF88; font-weight: bold; font-size: 14px;');
         
         // ═══════════════════════════════════════════════════════════════
-		const winningVotes = positiveVotingLevels.filter(lvl => lvl.color === finalColor).length;
-		const availableVotes = positiveVotingLevels.length;
-		const maxVotingSlots = votingLevelsList.length;
-		const voteTotals = {
-			red: positiveVotingLevels.filter(lvl => lvl.color === 'red').length,
-			black: positiveVotingLevels.filter(lvl => lvl.color === 'black').length,
-			neutral: neutralVotingLevels.length,
-			negative: negativeVotingLevels.length
-		};
-
-        const signalIntensity = analyzerConfig.signalIntensity || 'moderate';
-        
-        console.log('   signalIntensity:', signalIntensity);
-        console.log('   analyzerConfig.signalIntensity:', analyzerConfig.signalIntensity);
-        console.log('   finalColor:', finalColor);
-		console.log('   votos positivos por cor:', {
-			red: positiveVotingLevels.filter(lvl => lvl.color === 'red').map(lvl => lvl.id),
-			black: positiveVotingLevels.filter(lvl => lvl.color === 'black').map(lvl => lvl.id)
-		});
-		console.log('   votos negativos:', negativeVotingLevels.map(lvl => `${lvl.id}-${lvl.color}`));
-		console.log('   votos neutros/indisponíveis:', neutralVotingLevels.map(lvl => lvl.id));
-
-        console.log('%c║  🎚️ VALIDAÇÃO DE INTENSIDADE DE SINAIS                 ║', 'color: #9C27B0; font-weight: bold; font-size: 14px;');
-        
-        const intensityConfig = {
-			'aggressive': { min: 3, name: '🔥 AGRESSIVO', emoji: '🔥' },
-			'moderate': { min: 4, name: '⚖️ MODERADO', emoji: '⚖️' },
-			'conservative': { min: 5, name: '🛡️ CONSERVADOR', emoji: '🛡️' },
-			'ultraconservative': { min: 6, name: '🛡️ ULTRA CONSERVADOR', emoji: '🛡️' }
-		};
-
-		const currentIntensity = intensityConfig[signalIntensity] || intensityConfig.moderate;
-        const effectiveThreshold = availableVotes > 0 ? Math.max(1, Math.min(currentIntensity.min, availableVotes)) : currentIntensity.min;
-		const consensusValid = availableVotes > 0 && winningVotes >= effectiveThreshold;
-        
-        console.log(`%c${currentIntensity.emoji} Modo ativo: ${currentIntensity.name}`, 'color: #9C27B0; font-weight: bold; font-size: 14px;');
-		console.log(`%c   Slots disponíveis (positivos): ${availableVotes}/${maxVotingSlots}`, 'color: #9C27B0;');
-		console.log(`%c   Votos para ${finalColor.toUpperCase()}: ${winningVotes}`, `color: ${finalColor === 'red' ? '#FF0000' : '#FFFFFF'}; font-weight: bold;`);
-		console.log(`%c   Exigidos: ${currentIntensity.min} (após ajuste: ${effectiveThreshold})`, 'color: #9C27B0;');
-        
-    if (!consensusValid) {
-        console.log('%c║  ❌ SINAL REJEITADO - CONSENSO INSUFICIENTE!             ║', 'color: #FF6666; font-weight: bold; font-size: 14px;');
-        console.log(`%c║  ${currentIntensity.emoji} Modo: ${currentIntensity.name.padEnd(44)} ║`, 'color: #FF6666;');
-        console.log(`%c║  ➤ Votos necessários: ${effectiveThreshold.toString().padEnd(36)} ║`, 'color: #FF6666;');
-		console.log(`%c║  ➤ Disponíveis (positivos): ${availableVotes.toString().padEnd(34)} ║`, 'color: #FF6666;');
-        console.log(`%c║  ➤ Votos obtidos: ${winningVotes.toString().padEnd(40)} ║`, 'color: #FF6666;');
-        console.log('%c║  💡 Aumente o consenso ou mude para modo menos rigoroso  ║', 'color: #FFD700;');
-        
-        // ✅ MOSTRAR AS 6 FASES COM DELAY (para o usuário ver o processo)
-        // ❌ Níveis 1, 2, 3 removidos (não mostrar mais)
-        
-        if (!n1Enabled) {
-            sendAnalysisStatus('🎯 N1 - Zona Segura → DESATIVADO');
-        } else if (!safeZoneMeta || !safeZoneMeta.zoneActive) {
-            sendAnalysisStatus(`🎯 N1 - Zona Segura → NULO`);
-        } else {
-            const statusLabel = safeZoneMeta.signal && safeZoneVote && safeZoneVote.color
-                ? `${safeZoneMeta.dominant?.toUpperCase() || '-'}` 
-                : 'Ativa • aguardando';
-            sendAnalysisStatus(`🎯 N1 - Zona Segura → ${statusLabel}`);
-        }
-        await sleep(1500);
-        
-        if (!n2Enabled) {
-            sendAnalysisStatus('⚡ N2 - Momentum → DESATIVADO');
-        } else {
-        const trendLabel2 = nivel5.trending === 'accelerating_red' ? 'Acelerando' : nivel5.trending === 'accelerating_black' ? 'Acelerando' : 'Estável';
-        sendAnalysisStatus(`⚡ N2 - Momentum → ${nivel5.color.toUpperCase()} (${trendLabel2})`);
-        }
-        await sleep(1500);
-        
-        if (!n3Enabled) {
-            sendAnalysisStatus('🔷 N3 - Alternância → DESATIVADO');
-        } else if (nivel7 && nivel7.color) {
-            const overrideLabel = nivel7.override ? ' (override)' : '';
-            sendAnalysisStatus(`🔷 N3 - Alternância${overrideLabel} → ${nivel7.color.toUpperCase()}`);
-        } else {
-            sendAnalysisStatus(`🔷 N3 - Alternância → NULO`);
-        }
-        await sleep(1500);
-        
-        if (!n4Enabled) {
-            sendAnalysisStatus(`🔷 N4 - Persistência → DESATIVADO`);
-        } else if (nivel9 && nivel9.color) {
-            sendAnalysisStatus(`🔷 N4 - Persistência → ${nivel9.color.toUpperCase()}`);
-        } else {
-            sendAnalysisStatus(`🔷 N4 - Persistência → NULO`);
-        }
-        await sleep(1500);
-        
-        if (!n5Enabled) {
-            sendAnalysisStatus(`🕑 N5 - Ritmo por Giro → DESATIVADO`);
-        } else if (minuteBiasColor) {
-            sendAnalysisStatus(`🕑 N5 - Ritmo por Giro → ${minuteBiasColor.toUpperCase()}`);
-        } else {
-            sendAnalysisStatus(`🕑 N5 - Ritmo por Giro → NULO`);
-        }
-        await sleep(1500);
-        
-		if (!n6Enabled) {
-			sendAnalysisStatus(`📉 N6 - Retração Histórica → DESATIVADO`);
-		} else if (retracementResult && retracementResult.color) {
-			sendAnalysisStatus(`📉 N6 - Retração Histórica → ${retracementResult.color.toUpperCase()}`);
-        } else {
-			sendAnalysisStatus(`📉 N6 - Retração Histórica → NULO`);
-        }
-        await sleep(1500);
-        
-		if (!n7Enabled) {
-			sendAnalysisStatus(`📈 N7 - Continuidade Global → DESATIVADO`);
-		} else if (continuityResult && continuityResult.color && (continuityResult.strength || 0) !== 0) {
 			const prefix = continuityResult.strength > 0 ? 'Reforço' : 'Redução';
 			sendAnalysisStatus(`📈 N7 - Continuidade Global → ${continuityResult.color.toUpperCase()} (${prefix})`);
 		} else {
@@ -14296,16 +14266,6 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
             sendAnalysisStatus(`🛑 N9 - Barreira Final → ${barrierStatusText2}`);
         }
         await sleep(1500);
-        
-		const totalVotantes = maxVotingSlots;
-		sendAnalysisStatus(`❌ Rejeitado: ${winningVotes} de ${availableVotes}/${totalVotantes} votos (mín: ${effectiveThreshold})`);
-        await sleep(2000);
-        
-        // ✅ Restaurar status "IA ativada"
-        await restoreIAStatus();
-        
-        return null;
-    }
         
         console.log('%c✅ CONSENSO ATINGIDO! Intensidade aprovada.', 'color: #00FF88; font-weight: bold; font-size: 14px;');
         
@@ -14508,18 +14468,11 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
 			: bayesReport && bayesReport.color
 			? `N10 - Calibração Bayesiana: ${bayesReport.color.toUpperCase()} (${Math.round((bayesReport.strength || 0) * 100)}% • ${bayesReport.details || 'sem detalhes'})`
 			: `N10 - Calibração Bayesiana: NULO`;
-		
-        const intensityName = {
-            'aggressive': '🔥 AGRESSIVO',
-            'moderate': '⚖️ MODERADO',
-            'conservative': '🛡️ CONSERVADOR',
-			'ultraconservative': '🛡️ ULTRA CONSERVADOR'
-        }[signalIntensity] || '⚖️ MODERADO';
         
 		const votingDescription = (() => {
 			const segments = [
-				`${voteTotals.red} VERMELHO`,
-				`${voteTotals.black} PRETO`
+			`${voteTotals.red} VERMELHO`,
+			`${voteTotals.black} PRETO`
 			];
 			if (voteTotals.neutral > 0) segments.push(`${voteTotals.neutral} NEUTRO`);
 			if (voteTotals.negative > 0) segments.push(`${voteTotals.negative} REDUÇÃO`);
@@ -14539,7 +14492,7 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
             `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
             `${votingDescription}\n` +
 			`🏆 ${finalColor.toUpperCase()} (${winningVotes}/${totalVotantes} votos = ${consensusPercent.toFixed(1)}%)\n` +
-			`🎚️ ${intensityName} (mín ${effectiveThreshold}/${totalVotantes})\n` +
+			`🎚️ ${intensityLabel} (${signalIntensity === 'conservative' ? 'mín 5 votos + barreiras' : 'maioria simples'})\n` +
             `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
             `🎯 DECISÃO: ${finalColor.toUpperCase()}\n` +
             `📊 Confiança: ${finalConfidence}%`;
