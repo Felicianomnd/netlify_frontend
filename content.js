@@ -8746,141 +8746,232 @@ async function persistAnalyzerState(newState) {
     // Função auxiliar para renderizar análise IA COM círculos coloridos
     function renderAIAnalysisWithSpins(aiData, last5Spins) {
         console.log('%c🎨 RENDERIZANDO IA COM CÍRCULOS!', 'color: #00FF00; font-weight: bold; font-size: 14px;');
-        
-        // Renderizar círculos coloridos
-        const spinsHTML = last5Spins.map((spin, index) => {
+
+        const parseDiamondReasoning = (raw = '') => {
+            const meta = { mode: null, score: null, decision: null, confidence: null };
+            const levels = [];
+            const lines = String(raw || '')
+                .split('\n')
+                .map(l => String(l || '').trim())
+                .filter(Boolean);
+
+            const normalizeColor = (token = '') => {
+                const t = String(token || '').trim().toLowerCase();
+                if (t === 'red' || t === 'vermelho') return 'red';
+                if (t === 'black' || t === 'preto') return 'black';
+                if (t === 'white' || t === 'branco') return 'white';
+                return null;
+            };
+
+            const colorLabel = (color) => {
+                if (color === 'red') return 'Vermelho';
+                if (color === 'black') return 'Preto';
+                if (color === 'white') return 'Branco';
+                return '—';
+            };
+
+            const detectVoteColor = (text) => {
+                const m = String(text || '').match(/\b(RED|BLACK|WHITE)\b/i);
+                if (!m) return null;
+                return normalizeColor(m[1]);
+            };
+
+            lines.forEach((line) => {
+                // Meta
+                const modeMatch = line.match(/^\s*Modo:\s*(.+)\s*$/i);
+                if (modeMatch) {
+                    meta.mode = modeMatch[1].trim();
+                    return;
+                }
+                const scoreMatch = line.match(/^\s*Score combinado:\s*([0-9]+(?:\.[0-9]+)?)\s*%\s*$/i);
+                if (scoreMatch) {
+                    meta.score = Number(scoreMatch[1]);
+                    return;
+                }
+                const decisionMatch = line.match(/^\s*DECIS(Ã|A)O:\s*([A-Za-z]+)\s*$/i);
+                if (decisionMatch) {
+                    meta.decision = normalizeColor(decisionMatch[2]);
+                    return;
+                }
+                const confMatch = line.match(/^\s*Confian(ç|c)a:\s*([0-9]+(?:\.[0-9]+)?)\s*%\s*$/i);
+                if (confMatch) {
+                    meta.confidence = Number(confMatch[2]);
+                    return;
+                }
+
+                // Level lines
+                const idxN = line.indexOf('N');
+                const candidate = idxN >= 0 ? line.slice(idxN) : line;
+                const m = candidate.match(/\bN(10|[0-9])\b\s*-\s*([^→]+?)\s*→\s*(.+)\s*$/i);
+                if (!m) return;
+
+                const id = `N${m[1]}`;
+                const name = m[2].trim();
+                const statusRaw = m[3].trim();
+
+                // Filtrar níveis desativados para reduzir poluição (pedido do usuário)
+                if (/DESATIVADO/i.test(statusRaw)) return;
+
+                let main = statusRaw;
+                let detail = '';
+                const paren = statusRaw.match(/^(.+?)\s*\((.*)\)\s*$/);
+                if (paren) {
+                    main = paren[1].trim();
+                    detail = paren[2].trim();
+                } else if (statusRaw.includes(' • ')) {
+                    const parts = statusRaw.split(' • ').map(p => p.trim()).filter(Boolean);
+                    main = parts[0] || statusRaw;
+                    detail = parts.slice(1).join(' • ');
+                }
+
+                const pctMatch = statusRaw.match(/([0-9]+(?:\.[0-9]+)?)\s*%/);
+                const pct = pctMatch ? Number(pctMatch[1]) : null;
+                const voteColor = detectVoteColor(main) || detectVoteColor(statusRaw);
+                const badgeText = (() => {
+                    if (voteColor) return `Voto: ${colorLabel(voteColor)}`;
+                    if (/NULO/i.test(main)) return 'Nulo';
+                    if (/BLOQUEADO/i.test(main)) return 'Bloqueado';
+                    if (/APROVADO/i.test(main)) return 'Aprovado';
+                    return main;
+                })();
+
+                levels.push({
+                    id,
+                    name,
+                    voteColor,
+                    pct,
+                    badgeText,
+                    detail
+                });
+            });
+
+            const order = { N0: 0, N1: 1, N2: 2, N3: 3, N4: 4, N5: 5, N6: 6, N7: 7, N8: 8, N9: 9, N10: 10 };
+            levels.sort((a, b) => (order[a.id] ?? 99) - (order[b.id] ?? 99));
+
+            return { meta, levels };
+        };
+
+        const renderDiamondReasoningBlocks = (rawReasoning = '') => {
+            const { meta, levels } = parseDiamondReasoning(rawReasoning);
+
+            const fmtPct = (value) => (typeof value === 'number' && Number.isFinite(value)) ? `${value.toFixed(1)}%` : '—';
+            const colorLabel = (color) => (color === 'red' ? 'Vermelho' : color === 'black' ? 'Preto' : color === 'white' ? 'Branco' : '—');
+
+            const decisionText = meta.decision ? colorLabel(meta.decision) : '—';
+            const modeText = meta.mode ? meta.mode : '—';
+            const scoreText = (typeof meta.score === 'number' && Number.isFinite(meta.score)) ? `${meta.score.toFixed(1)}%` : '—';
+            const confText = (typeof meta.confidence === 'number' && Number.isFinite(meta.confidence)) ? `${meta.confidence.toFixed(0)}%` : '—';
+
+            const summary = `
+                <div class="diamond-reasoning-summary">
+                    <div class="diamond-summary-card">
+                        <div class="diamond-summary-label">Modo</div>
+                        <div class="diamond-summary-value">${escapeHtml(modeText)}</div>
+                    </div>
+                    <div class="diamond-summary-card">
+                        <div class="diamond-summary-label">Score</div>
+                        <div class="diamond-summary-value">${escapeHtml(scoreText)}</div>
+                    </div>
+                    <div class="diamond-summary-card">
+                        <div class="diamond-summary-label">Decisão</div>
+                        <div class="diamond-summary-value">${escapeHtml(decisionText)}</div>
+                    </div>
+                    <div class="diamond-summary-card">
+                        <div class="diamond-summary-label">Confiança</div>
+                        <div class="diamond-summary-value">${escapeHtml(confText)}</div>
+                    </div>
+                </div>
+            `;
+
+            const cards = levels.map((lvl) => {
+                const badgeClass = lvl.voteColor ? `badge-${lvl.voteColor}` : 'badge-neutral';
+                const pctText = fmtPct(lvl.pct);
+                const pctHtml = lvl.pct != null ? `<div class="diamond-level-pct">${escapeHtml(pctText)}</div>` : '';
+                const detailHtml = lvl.detail ? `<div class="diamond-level-detail">${escapeHtml(lvl.detail)}</div>` : '';
+                return `
+                    <div class="diamond-level-card">
+                        <div class="diamond-level-top">
+                            <div class="diamond-level-id">${escapeHtml(lvl.id)}</div>
+                            <div class="diamond-level-name">${escapeHtml(lvl.name)}</div>
+                            <div class="diamond-level-badge ${badgeClass}">${escapeHtml(lvl.badgeText)}</div>
+                        </div>
+                        ${pctHtml}
+                        ${detailHtml}
+                    </div>
+                `;
+            }).join('');
+
+            return `
+                <div class="diamond-reasoning">
+                    ${summary}
+                    <div class="diamond-levels-grid">
+                        ${cards || `<div class="diamond-reasoning-empty">Nenhum nível ativo gerou detalhes para este sinal.</div>`}
+                    </div>
+                </div>
+            `;
+        };
+
+        const spinsCount = Array.isArray(last5Spins) ? last5Spins.length : 0;
+        const spinsHTML = (Array.isArray(last5Spins) ? last5Spins : []).map((spin, index) => {
             const isWhite = spin.color === 'white';
             const colorName = spin.color === 'red' ? 'Vermelho' : spin.color === 'black' ? 'Preto' : 'Branco';
-            return `<div class="spin-history-item-wrap" title="${colorName}: ${spin.number}" style="display: inline-block; margin: 0 4px;">
+            return `<div class="spin-history-item-wrap" title="${colorName}: ${spin.number}">
                 <div class="spin-history-quadrado ${spin.color}">
                     ${isWhite ? blazeWhiteSVG(24) : `<span>${spin.number}</span>`}
                 </div>
-                <div class="spin-history-time" style="font-size: 10px; text-align: center;">${index === 0 ? 'Recente' : `${index + 1}º`}</div>
+                <div class="spin-history-time">${index === 0 ? 'Recente' : `${index + 1}º`}</div>
             </div>`;
         }).join('');
-        
-        return `<div style="
-            background: rgba(20, 20, 30, 0.95);
-            border: 1px solid rgba(100, 100, 200, 0.3);
-            border-radius: 8px;
-            padding: 15px;
-            margin: 10px 0;
-        ">
-            <div style="margin: 12px 0;">
-                <div style="color: #b794f6; font-weight: bold; font-size: 15px; margin-bottom: 8px;">
-                    ${aiData.color === 'red' ? '🔴 Entrar na cor VERMELHA' : aiData.color === 'black' ? '⚫ Entrar na cor PRETA' : '⚪ Entrar na cor BRANCA'}
-                </div>
-                <div style="color: #e8e8ff; font-size: 12px; margin-bottom: 5px;">
-                    Confiança: ${aiData.confidence.toFixed(1)}%
-                </div>
+
+        const safeColorClass = (aiData.color === 'red' || aiData.color === 'black' || aiData.color === 'white') ? aiData.color : '';
+        const entryColorText = aiData.color === 'red'
+            ? 'VERMELHA'
+            : aiData.color === 'black'
+                ? 'PRETA'
+                : aiData.color === 'white'
+                    ? 'BRANCA'
+                    : '—';
+
+        const spinsSection = spinsCount > 0 ? `
+            <div class="ai-entry-section">
+                <div class="ai-entry-section-title">Últimos ${spinsCount} giros</div>
+                <div class="ai-entry-spins">${spinsHTML}</div>
             </div>
-            
-            <div style="
-                border-top: 1px solid rgba(100, 100, 200, 0.2);
-                padding-top: 12px;
-                margin-top: 12px;
-            ">
-                <div style="
-                    color: #b794f6;
-                    font-weight: bold;
-                    font-size: 13px;
-                    margin-bottom: 8px;
-                ">💡 ÚLTIMOS 10 GIROS:</div>
-                
-                <div style="
-                    background: rgba(0, 0, 0, 0.2);
-                    border-radius: 6px;
-                    padding: 12px;
-                    margin: 8px 0;
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
-                    gap: 8px;
-                    flex-wrap: wrap;
-                ">
-                    ${spinsHTML}
+        ` : '';
+
+        return `
+            <div class="ai-entry-analysis">
+                <div class="ai-entry-head">
+                    <div class="ai-entry-action">
+                        Entrar na cor <span class="ai-entry-action-color ${safeColorClass}">${escapeHtml(entryColorText)}</span>
+                    </div>
+                    <div class="ai-entry-confidence">
+                        Confiança <span class="ai-entry-confidence-value">${escapeHtml(Number(aiData.confidence || 0).toFixed(1))}%</span>
+                    </div>
+                </div>
+
+                ${spinsSection}
+
+                <div class="ai-entry-section">
+                    <div class="ai-entry-section-title">Raciocínio</div>
+                    ${renderDiamondReasoningBlocks(aiData.reasoning || '')}
                 </div>
             </div>
-            
-            <div style="
-                border-top: 1px solid rgba(100, 100, 200, 0.2);
-                padding-top: 12px;
-                margin-top: 12px;
-            ">
-                <div style="
-                    color: #b794f6;
-                    font-weight: bold;
-                    font-size: 13px;
-                    margin-bottom: 8px;
-                ">💎 RACIOCÍNIO:</div>
-                <div style="
-                    white-space: pre-wrap;
-                    font-family: 'Segoe UI', 'Roboto', monospace;
-                    font-size: 11.5px;
-                    line-height: 1.5;
-                    color: #d0d0e8;
-                ">${aiData.reasoning
-                    .replace(/N1 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N1</span> -')
-                    .replace(/N2 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N2</span> -')
-                    .replace(/N3 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N3</span> -')
-                    .replace(/N4 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N4</span> -')
-                    .replace(/N5 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N5</span> -')
-                    .replace(/N6 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N6</span> -')
-                    .replace(/N7 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N7</span> -')
-                    .replace(/N8 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N8</span> -')
-                    .replace(/N9 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N9</span> -')
-                    .replace(/N10 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N10</span> -')
-                    .replace(/🗳️/g, '<span style="color: #FFD700; font-weight: bold;">🗳️</span>')
-                    .replace(/🏆/g, '<span style="color: #FFD700; font-weight: bold;">🏆</span>')
-                    .replace(/🎚️/g, '<span style="color: #b794f6; font-weight: bold;">🎚️</span>')
-                    .replace(/🎯/g, '<span style="color: #00FF88; font-weight: bold;">🎯</span>')
-                    .replace(/📊/g, '<span style="color: #00d4ff; font-weight: bold;">📊</span>')
-                }</div>
-            </div>
-        </div>`;
+        `;
     }
     
     // Função auxiliar para renderizar análise IA SEM círculos (formato antigo)
     function renderAIAnalysisOldFormat(aiData) {
-        const reasoning = (aiData.reasoning || 'Análise por IA')
-            .replace(/N1 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N1</span> -')
-            .replace(/N2 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N2</span> -')
-            .replace(/N3 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N3</span> -')
-            .replace(/N4 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N4</span> -')
-            .replace(/N5 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N5</span> -')
-            .replace(/N6 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N6</span> -')
-            .replace(/N7 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N7</span> -')
-            .replace(/N8 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N8</span> -')
-            .replace(/N9 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N9</span> -')
-            .replace(/N10 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N10</span> -')
-            .replace(/🗳️/g, '<span style="color: #FFD700; font-weight: bold;">🗳️</span>')
-            .replace(/🏆/g, '<span style="color: #FFD700; font-weight: bold;">🏆</span>')
-            .replace(/🎚️/g, '<span style="color: #b794f6; font-weight: bold;">🎚️</span>')
-            .replace(/🎯/g, '<span style="color: #00FF88; font-weight: bold;">🎯</span>')
-            .replace(/📊/g, '<span style="color: #00d4ff; font-weight: bold;">📊</span>');
-        
-        return `<div style="
-            background: rgba(20, 20, 30, 0.95);
-            border: 1px solid rgba(100, 100, 200, 0.3);
-            border-radius: 8px;
-            padding: 15px;
-            margin: 10px 0;
-        ">
-            <div style="
-                color: #b794f6;
-                font-weight: bold;
-                font-size: 13px;
-                margin-bottom: 10px;
-            ">💎 RACIOCÍNIO:</div>
-            <div style="
-                white-space: pre-wrap;
-                font-family: 'Segoe UI', 'Roboto', monospace;
-                font-size: 11.5px;
-                line-height: 1.5;
-                color: #d0d0e8;
-                margin: 0;
-            ">${reasoning}</div>
-        </div>`;
+        // Fallback: sem lista de giros, mas ainda renderiza o raciocínio em blocos (mesmo layout)
+        const dummySpins = [];
+        return renderAIAnalysisWithSpins(
+            {
+                ...aiData,
+                confidence: typeof aiData.confidence === 'number' ? aiData.confidence : 0,
+                reasoning: aiData.text || aiData.reasoning || ''
+            },
+            dummySpins
+        );
     }
     // Função para renderizar padrão visualmente com números e horários completos
     function renderPatternVisual(parsed, patternData = null) {
@@ -8973,152 +9064,9 @@ async function persistAnalyzerState(newState) {
                 
                 // Se for formato novo (estruturado com last5Spins)
                 if (aiData.last5Spins && aiData.last5Spins.length > 0) {
-                    console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #00FF00; font-weight: bold; font-size: 14px;');
-                    console.log('%c║  🎨 RENDERIZANDO COM CÍRCULOS COLORIDOS!                 ║', 'color: #00FF00; font-weight: bold; font-size: 14px;');
-                    console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #00FF00; font-weight: bold; font-size: 14px;');
-                    console.log('%c   📊 Quantidade de giros para renderizar:', 'color: #00FF00; font-weight: bold;', aiData.last5Spins.length);
-                    
-                    // Mostrar cada giro que será renderizado
-                    aiData.last5Spins.forEach((spin, index) => {
-                        console.log(`%c   ${index + 1}. ${spin.color.toUpperCase()} (${spin.number})`, 
-                            `color: ${spin.color === 'red' ? '#FF0000' : spin.color === 'black' ? '#FFFFFF' : '#00FF00'}; font-weight: bold;`);
-                    });
-                    console.log('');
-                    
-                    // Renderizar círculos coloridos igual ao histórico
-                    const spinsHTML = aiData.last5Spins.map((spin, index) => {
-                        const isWhite = spin.color === 'white';
-                        const colorName = spin.color === 'red' ? 'Vermelho' : spin.color === 'black' ? 'Preto' : 'Branco';
-                        return `<div class="spin-history-item-wrap" title="${colorName}: ${spin.number}" style="display: inline-block; margin: 0 4px;">
-                            <div class="spin-history-quadrado ${spin.color}">
-                                ${isWhite ? blazeWhiteSVG(24) : `<span>${spin.number}</span>`}
-                            </div>
-                            <div class="spin-history-time" style="font-size: 10px; text-align: center;">${index === 0 ? 'Recente' : `${index + 1}º`}</div>
-                        </div>`;
-                    }).join('');
-                    
-                    return `<div style="
-                        background: rgba(20, 20, 30, 0.95);
-                        border: 1px solid rgba(100, 100, 200, 0.3);
-                        border-radius: 8px;
-                        padding: 15px;
-                        margin: 10px 0;
-                    ">
-                        <div style="margin: 12px 0;">
-                            <div style="color: #b794f6; font-weight: bold; font-size: 15px; margin-bottom: 8px;">
-                                ${aiData.color === 'red' ? '🔴 Entrar na cor VERMELHA' : aiData.color === 'black' ? '⚫ Entrar na cor PRETA' : '⚪ Entrar na cor BRANCA'}
-                            </div>
-                            <div style="color: #e8e8ff; font-size: 12px; margin-bottom: 5px;">
-                                Confiança: ${aiData.confidence.toFixed(1)}%
-                            </div>
-                        </div>
-                        
-                        <div style="
-                            border-top: 1px solid rgba(100, 100, 200, 0.2);
-                            padding-top: 12px;
-                            margin-top: 12px;
-                        ">
-                            <div style="
-                                color: #b794f6;
-                                font-weight: bold;
-                                font-size: 13px;
-                                margin-bottom: 8px;
-                            ">💡 ÚLTIMOS 5 GIROS ANALISADOS:</div>
-                            
-                            <div style="
-                                background: rgba(0, 0, 0, 0.2);
-                                border-radius: 6px;
-                                padding: 12px;
-                                margin: 8px 0;
-                                display: flex;
-                                align-items: center;
-                                justify-content: center;
-                                gap: 8px;
-                                flex-wrap: wrap;
-                            ">
-                                ${spinsHTML}
-                            </div>
-                        </div>
-                        
-                        <div style="
-                            border-top: 1px solid rgba(100, 100, 200, 0.2);
-                            padding-top: 12px;
-                            margin-top: 12px;
-                        ">
-                            <div style="
-                                color: #b794f6;
-                                font-weight: bold;
-                                font-size: 13px;
-                                margin-bottom: 8px;
-                            ">💎 RACIOCÍNIO:</div>
-                            <div style="
-                                white-space: pre-wrap;
-                                font-family: 'Segoe UI', 'Roboto', monospace;
-                                font-size: 11.5px;
-                                line-height: 1.5;
-                                color: #d0d0e8;
-                            ">${aiData.reasoning
-                                .replace(/N1 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N1</span> -')
-                                .replace(/N2 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N2</span> -')
-                                .replace(/N3 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N3</span> -')
-                                .replace(/N4 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N4</span> -')
-                                .replace(/N5 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N5</span> -')
-                                .replace(/N6 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N6</span> -')
-                                .replace(/N7 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N7</span> -')
-                                .replace(/N8 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N8</span> -')
-                                .replace(/N9 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N9</span> -')
-                                .replace(/🗳️/g, '<span style="color: #FFD700; font-weight: bold;">🗳️</span>')
-                                .replace(/🏆/g, '<span style="color: #FFD700; font-weight: bold;">🏆</span>')
-                                .replace(/🎚️/g, '<span style="color: #b794f6; font-weight: bold;">🎚️</span>')
-                                .replace(/🎯/g, '<span style="color: #00FF88; font-weight: bold;">🎯</span>')
-                                .replace(/📊/g, '<span style="color: #00d4ff; font-weight: bold;">📊</span>')
-                            }</div>
-                        </div>
-                    </div>`;
+                    return renderAIAnalysisWithSpins(aiData, aiData.last5Spins);
                 } else {
-                    // Formato antigo (texto simples)
-                    console.log('%c⚠️ CAIU NO ELSE - Formato antigo (sem círculos)', 'color: #FF0000; font-weight: bold;');
-                    console.log('%c   ❓ Motivo: last5Spins não encontrado ou vazio', 'color: #FF0000;');
-                    console.log('%c   📦 aiData completo:', 'color: #FF0000;', aiData);
-                    
-                    const reasoning = (aiData.text || aiData.reasoning || 'Análise por IA')
-                        .replace(/N1 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N1</span> -')
-                        .replace(/N2 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N2</span> -')
-                        .replace(/N3 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N3</span> -')
-                        .replace(/N4 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N4</span> -')
-                        .replace(/N5 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N5</span> -')
-                        .replace(/N6 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N6</span> -')
-                        .replace(/N7 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N7</span> -')
-                        .replace(/N8 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N8</span> -')
-                        .replace(/N9 -/g, '<span style="color: #00d4ff; font-weight: bold; font-size: 12px;">N9</span> -')
-                        .replace(/🗳️/g, '<span style="color: #FFD700; font-weight: bold;">🗳️</span>')
-                        .replace(/🏆/g, '<span style="color: #FFD700; font-weight: bold;">🏆</span>')
-                        .replace(/🎚️/g, '<span style="color: #b794f6; font-weight: bold;">🎚️</span>')
-                        .replace(/🎯/g, '<span style="color: #00FF88; font-weight: bold;">🎯</span>')
-                        .replace(/📊/g, '<span style="color: #00d4ff; font-weight: bold;">📊</span>');
-                    
-                    return `<div style="
-                        background: rgba(20, 20, 30, 0.95);
-                        border: 1px solid rgba(100, 100, 200, 0.3);
-                        border-radius: 8px;
-                        padding: 15px;
-                        margin: 10px 0;
-                    ">
-                        <div style="
-                            color: #b794f6;
-                            font-weight: bold;
-                            font-size: 13px;
-                            margin-bottom: 10px;
-                        ">💎 RACIOCÍNIO:</div>
-                        <div style="
-                            white-space: pre-wrap;
-                            font-family: 'Segoe UI', 'Roboto', monospace;
-                            font-size: 11.5px;
-                            line-height: 1.5;
-                            color: #d0d0e8;
-                            margin: 0;
-                        ">${reasoning}</div>
-                    </div>`;
+                    return renderAIAnalysisOldFormat(aiData);
                 }
             }
             
