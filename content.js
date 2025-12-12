@@ -125,6 +125,45 @@
         return null;
     }
 
+    function getProfileCompletionSnapshot(user) {
+        const missing = [];
+        if (!user || typeof user !== 'object') {
+            return { complete: false, missing: ['Telefone', 'CPF', 'CEP', 'Rua', 'Número', 'Bairro', 'Cidade', 'Estado'] };
+        }
+        const digits = (value) => String(value || '').replace(/\D/g, '');
+        const phoneDigits = digits(user.phone);
+        const cpfDigits = digits(user.cpf);
+        const addr = typeof user.address === 'string'
+            ? (() => { try { return JSON.parse(user.address); } catch (_) { return null; } })()
+            : (user.address || null);
+        const zipDigits = digits(addr?.zipCode);
+        const street = String(addr?.street || '').trim();
+        const number = String(addr?.number || '').trim();
+        const neighborhood = String(addr?.neighborhood || '').trim();
+        const city = String(addr?.city || '').trim();
+        const state = String(addr?.state || '').trim();
+
+        if (phoneDigits.length < 10) missing.push('Telefone');
+        if (cpfDigits.length !== 11) missing.push('CPF');
+        if (zipDigits.length !== 8) missing.push('CEP');
+        if (!street) missing.push('Rua');
+        if (!number) missing.push('Número');
+        if (!neighborhood) missing.push('Bairro');
+        if (!city) missing.push('Cidade');
+        if (state.length !== 2) missing.push('Estado');
+
+        return { complete: missing.length === 0, missing };
+    }
+
+    function buildProfileIncompleteMessage(missingFields = []) {
+        const fields = missingFields.length ? missingFields.join(', ') : 'Dados do cadastro';
+        return `
+            Para ativar o <strong>Nível Diamante (Modo IA)</strong>, finalize seu cadastro na aba <strong>Minha Conta</strong> e clique em <strong>Salvar Dados</strong>.
+            <br><br>
+            <strong>Campos pendentes:</strong> ${fields}
+        `;
+    }
+
     function getPlanLabel(plan, price) {
         const priceDisplay = (() => {
             if (price === null || price === undefined) return null;
@@ -2553,54 +2592,56 @@ function showCenteredNotice(message, options = {}) {
     if (existing) existing.remove();
     const {
         title = 'Atenção',
-        autoHide = 4000,
-        accentColor = '#ef4444'
+        autoHide = 4000
     } = options;
+
+    // ✅ Reutiliza o estilo padrão de modais (mesma paleta do "Configurar Simulador")
     const wrapper = document.createElement('div');
     wrapper.id = 'centeredNotice';
-    wrapper.style.cssText = `
-        position: fixed;
-        top: 50%;
-        left: 50%;
-        transform: translate(-50%, -50%);
-        background: #0f172a;
-        color: #f8fafc;
-        border: 1px solid ${accentColor};
-        border-radius: 14px;
-        padding: 24px 32px;
-        width: min(90vw, 380px);
-        box-shadow: 0 20px 45px rgba(0,0,0,0.35);
-        z-index: 1000000000;
-        font-family: 'Segoe UI', 'Inter', sans-serif;
-        text-align: center;
-    `;
+    wrapper.className = 'custom-pattern-modal';
+    wrapper.style.display = 'flex';
+    wrapper.style.zIndex = '10000000';
     wrapper.innerHTML = `
-        <div style="font-size: 16px; font-weight: 700; margin-bottom: 10px; color: ${accentColor};">
-            ${title}
-        </div>
-        <div style="font-size: 14px; line-height: 1.5; margin-bottom: 20px;">
-            ${message}
+        <div class="custom-pattern-modal-overlay"></div>
+        <div class="custom-pattern-modal-content" style="max-width: 520px;">
+            <div class="custom-pattern-modal-header modal-header-minimal">
+                <h3>${title}</h3>
+                <button class="custom-pattern-modal-close modal-header-close" id="centeredNoticeCloseBtn" type="button">Fechar</button>
+            </div>
+            <div class="custom-pattern-modal-body" style="text-align: center;">
+                <div style="font-size: 13px; line-height: 1.45; color: #c8d6e9;">
+                    ${message}
+                </div>
+            </div>
+            <div class="custom-pattern-modal-footer" style="justify-content: center;">
+                <button type="button" class="btn-save-pattern" id="centeredNoticeOkBtn" style="max-width: 240px;">Entendi</button>
+            </div>
         </div>
     `;
-    const button = document.createElement('button');
-    button.textContent = 'Entendi';
-    button.style.cssText = `
-        background: linear-gradient(135deg, ${accentColor}, #b91c1c);
-        border: none;
-        color: #fff;
-        font-weight: 600;
-        border-radius: 999px;
-        padding: 10px 26px;
-        cursor: pointer;
-        transition: opacity .2s ease;
-    `;
-    button.onmouseover = () => (button.style.opacity = '0.9');
-    button.onmouseout = () => (button.style.opacity = '1');
-    button.onclick = () => wrapper.remove();
-    wrapper.appendChild(button);
+
+    const close = () => wrapper.remove();
+    const overlay = wrapper.querySelector('.custom-pattern-modal-overlay');
+    const closeBtn = wrapper.querySelector('#centeredNoticeCloseBtn');
+    const okBtn = wrapper.querySelector('#centeredNoticeOkBtn');
+
+    if (closeBtn) closeBtn.addEventListener('click', close);
+    if (okBtn) okBtn.addEventListener('click', close);
+    if (overlay) {
+        // ✅ Mantém o comportamento padrão: overlay fecha somente no mobile
+        overlay.addEventListener('click', () => {
+            if (typeof isDesktop === 'function' && !isDesktop()) {
+                close();
+            }
+        });
+    }
+
     document.body.appendChild(wrapper);
     if (autoHide > 0) {
-        setTimeout(() => wrapper.remove(), autoHide);
+        setTimeout(() => {
+            if (document.getElementById('centeredNotice')) {
+                close();
+            }
+        }, autoHide);
     }
 }
 
@@ -2675,7 +2716,7 @@ function getDisabledVotingLevelsSnapshot() {
                 const disabledText = disabledVotingLevels.length ? disabledVotingLevels.join(', ') : '';
                 hint.innerHTML =
                     `Para ativar <strong>Conservador</strong>, deixe todos os níveis votantes <strong>N1–N8</strong> ativos em <strong>Configurar Níveis Diamante</strong>.` +
-                    (disabledText ? `<br><span style="color: rgba(251,191,36,0.95);"><strong>Desativados agora:</strong> ${disabledText}</span>` : '');
+                    (disabledText ? `<br><span style="color: #00d4ff;"><strong>Desativados agora:</strong> ${disabledText}</span>` : '');
                 hint.style.display = 'block';
             }
         }
@@ -2686,8 +2727,8 @@ function getDisabledVotingLevelsSnapshot() {
             select.style.boxShadow = '';
             select.title = '';
         } else {
-            select.style.borderColor = 'rgba(251, 191, 36, 0.75)';
-            select.style.boxShadow = '0 0 0 2px rgba(251, 191, 36, 0.15)';
+            select.style.borderColor = 'rgba(0, 212, 255, 0.65)';
+            select.style.boxShadow = '0 0 0 2px rgba(0, 212, 255, 0.12)';
             select.title = 'Conservador requer todos os níveis votantes (N1–N8) ativos.';
         }
 
@@ -2699,7 +2740,7 @@ function getDisabledVotingLevelsSnapshot() {
                 showCenteredNotice(
                     `Não dá para ativar o modo <strong>Conservador</strong> sem todos os níveis votantes <strong>N1–N8</strong> ativos.` +
                     (disabledText ? `<br><br><strong>Desativados agora:</strong> ${disabledText}` : ''),
-                    { title: 'Modo Conservador', autoHide: 6500, accentColor: '#f59e0b' }
+                    { title: 'Modo Conservador', autoHide: 6500 }
                 );
             }
         }
@@ -7260,7 +7301,7 @@ async function persistAnalyzerState(newState) {
                                     display: none;
                                     font-size: 11px;
                                     line-height: 1.35;
-                                    color: rgba(251, 191, 36, 0.95);
+                                    color: #c8d6e9;
                                     text-align: center;
                                     padding: 0 4px;
                                 "></div>
@@ -7854,6 +7895,12 @@ async function persistAnalyzerState(newState) {
                         const userData = result.user || {};
                         const updatedUser = { ...userData, ...data.user };
                         chrome.storage.local.set({ user: updatedUser });
+                        try {
+                            // ✅ Manter compatibilidade com pontos do código que leem o usuário do localStorage
+                            localStorage.setItem('user', JSON.stringify(updatedUser));
+                        } catch (error) {
+                            console.warn('⚠️ Não foi possível atualizar localStorage.user após salvar perfil:', error);
+                        }
                     });
 
                     fillProfileInputs(data.user);
@@ -8175,8 +8222,9 @@ async function persistAnalyzerState(newState) {
             // ✅ SOLUÇÃO: Carregar modo específico da ABA primeiro (sessionStorage)
             // ═══════════════════════════════════════════════════════════════════════════════
             // Carregar estado inicial
-            chrome.storage.local.get(['analyzerConfig'], async function(result) {
+            chrome.storage.local.get(['analyzerConfig', 'user'], async function(result) {
                 const config = result.analyzerConfig || {};
+                const user = result.user || getStoredUserData();
                 
                 // ✅ VERIFICAR SE ESTA ABA JÁ TEM UMA CONFIGURAÇÃO PRÓPRIA (sessionStorage)
                 const tabSpecificModeStr = sessionStorage.getItem('tabSpecificAIMode');
@@ -8194,6 +8242,17 @@ async function persistAnalyzerState(newState) {
                 
                 // ✅ Atualizar config com o modo específico desta aba
                 config.aiMode = isAIMode;
+
+                // 🔒 REGRA: só permitir IA se cadastro estiver completo (Minha Conta)
+                const profileStatus = getProfileCompletionSnapshot(user);
+                if (isAIMode && !profileStatus.complete) {
+                    console.warn('🔒 Bloqueando Modo IA: cadastro incompleto.', profileStatus.missing);
+                    isAIMode = false;
+                    config.aiMode = false;
+                    sessionStorage.setItem('tabSpecificAIMode', JSON.stringify(false));
+                    chrome.storage.local.set({ analyzerConfig: config });
+                    showToast('⚠️ Cadasto incompleto — Nível Diamante desativado.', 2600);
+                }
                 
                 updateAIModeUI(aiModeToggle, isAIMode);
                 
@@ -8237,7 +8296,7 @@ async function persistAnalyzerState(newState) {
             // Listener de clique
             aiModeToggle.addEventListener('click', function() {
                 // ✅ BUSCAR CONFIGURAÇÃO MAIS RECENTE DO STORAGE (pode ter sido salva agora)
-                chrome.storage.local.get(['analyzerConfig'], function(result) {
+                chrome.storage.local.get(['analyzerConfig', 'user'], function(result) {
                     // ✅ IMPORTANTE: Mesclar com DEFAULT para garantir que temos todos os campos
                     // ✅ CONFIGURAÇÕES PADRÃO OTIMIZADAS (sincronizadas com background.js)
                     const DEFAULT_CONFIG = {
@@ -8264,6 +8323,7 @@ async function persistAnalyzerState(newState) {
                     };
                     
                     const config = { ...DEFAULT_CONFIG, ...(result.analyzerConfig || {}) };
+                    const user = result.user || getStoredUserData();
                     
                     // ✅ USAR O MODO ESPECÍFICO DESTA ABA (sessionStorage) EM VEZ DO GLOBAL
                     const tabSpecificModeStr = sessionStorage.getItem('tabSpecificAIMode');
@@ -8272,6 +8332,46 @@ async function persistAnalyzerState(newState) {
                     }
                     
                     const newAIMode = !config.aiMode;
+
+                    // 🔒 REGRA: só permitir ativar IA se cadastro estiver completo (Minha Conta)
+                    if (newAIMode) {
+                        const profileStatus = getProfileCompletionSnapshot(user);
+                        if (!profileStatus.complete) {
+                            showCenteredNotice(buildProfileIncompleteMessage(profileStatus.missing), {
+                                title: 'Cadastro incompleto',
+                                autoHide: 0
+                            });
+                            try {
+                                // Abrir Minha Conta para o usuário completar o cadastro
+                                if (typeof setUserMenuState === 'function') {
+                                    setUserMenuState(true);
+                                } else {
+                                    const userMenuToggle = document.getElementById('userMenuToggle');
+                                    if (userMenuToggle) userMenuToggle.click();
+                                }
+                                // Focar no primeiro campo pendente (se existir no DOM)
+                                const fieldMap = {
+                                    'Telefone': 'profilePhone',
+                                    'CPF': 'profileCpf',
+                                    'CEP': 'profileZipCode',
+                                    'Rua': 'profileStreet',
+                                    'Número': 'profileNumber',
+                                    'Bairro': 'profileNeighborhood',
+                                    'Cidade': 'profileCity',
+                                    'Estado': 'profileState'
+                                };
+                                const firstMissing = profileStatus.missing[0];
+                                const targetId = firstMissing ? fieldMap[firstMissing] : null;
+                                const el = targetId ? document.getElementById(targetId) : null;
+                                if (el && typeof el.focus === 'function') {
+                                    setTimeout(() => el.focus(), 0);
+                                }
+                            } catch (error) {
+                                console.warn('⚠️ Falha ao abrir Minha Conta após bloqueio do IA:', error);
+                            }
+                            return;
+                        }
+                    }
                     
                     // ✅ LOG DE DEBUG - Ver o que foi carregado
                     console.log('🔧 Config carregada do storage:', {
@@ -11004,6 +11104,22 @@ function logModeSnapshotUI(snapshot) {
             } catch (err) {
                 console.warn('⚠️ Erro ao aplicar config sincronizada (ANALYZER_CONFIG_UPDATED):', err);
             }
+        } else if (request.type === 'AI_MODE_BLOCKED_PROFILE') {
+            try {
+                const missing = (request.data && Array.isArray(request.data.missing)) ? request.data.missing : (request.missing || []);
+                sessionStorage.setItem('tabSpecificAIMode', JSON.stringify(false));
+                const aiToggle = document.getElementById('aiModeToggle');
+                if (aiToggle) {
+                    updateAIModeUI(aiToggle, false);
+                }
+                toggleAIConfigFields(false);
+                showCenteredNotice(buildProfileIncompleteMessage(missing), {
+                    title: 'Cadastro incompleto',
+                    autoHide: 0
+                });
+            } catch (err) {
+                console.warn('⚠️ Falha ao processar AI_MODE_BLOCKED_PROFILE:', err);
+            }
         } else if (request.type === 'CLEAR_ANALYSIS') {
             // ✅ LIMPAR STATUS DE ANÁLISE E FORÇAR RESET COMPLETO DA UI
             currentAnalysisStatus = 'Aguardando análise...';
@@ -11675,7 +11791,7 @@ function logModeSnapshotUI(snapshot) {
                     showCenteredNotice(
                         `Para usar o modo <strong>Conservador</strong>, ative todos os níveis votantes <strong>N1–N8</strong> em <strong>Configurar Níveis Diamante</strong>.` +
                         (disabledText ? `<br><br><strong>Desativados agora:</strong> ${disabledText}` : ''),
-                        { title: 'Modo Conservador', autoHide: 7000, accentColor: '#f59e0b' }
+                        { title: 'Modo Conservador', autoHide: 7000 }
                     );
                     resolve(false);
                     return;

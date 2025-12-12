@@ -616,6 +616,70 @@ function mergeAnalyzerConfig(overrides = {}) {
     return analyzerConfig;
 }
 
+function getProfileCompletionSnapshot(user) {
+    const missing = [];
+    if (!user || typeof user !== 'object') {
+        return { complete: false, missing: ['Telefone', 'CPF', 'CEP', 'Rua', 'Número', 'Bairro', 'Cidade', 'Estado'] };
+    }
+    const digits = (value) => String(value || '').replace(/\D/g, '');
+    const phoneDigits = digits(user.phone);
+    const cpfDigits = digits(user.cpf);
+    const addr = typeof user.address === 'string'
+        ? (() => { try { return JSON.parse(user.address); } catch (_) { return null; } })()
+        : (user.address || null);
+    const zipDigits = digits(addr?.zipCode);
+    const street = String(addr?.street || '').trim();
+    const number = String(addr?.number || '').trim();
+    const neighborhood = String(addr?.neighborhood || '').trim();
+    const city = String(addr?.city || '').trim();
+    const state = String(addr?.state || '').trim();
+
+    if (phoneDigits.length < 10) missing.push('Telefone');
+    if (cpfDigits.length !== 11) missing.push('CPF');
+    if (zipDigits.length !== 8) missing.push('CEP');
+    if (!street) missing.push('Rua');
+    if (!number) missing.push('Número');
+    if (!neighborhood) missing.push('Bairro');
+    if (!city) missing.push('Cidade');
+    if (state.length !== 2) missing.push('Estado');
+
+    return { complete: missing.length === 0, missing };
+}
+
+async function enforceProfileGateOnAIMode(context = 'unknown') {
+    try {
+        if (!analyzerConfig || !analyzerConfig.aiMode) return { allowed: true };
+        const storage = await chrome.storage.local.get(['user', 'analyzerConfig']);
+        const user = storage.user || null;
+        const status = getProfileCompletionSnapshot(user);
+        if (status.complete) return { allowed: true };
+
+        console.warn(`🔒 [${context}] Bloqueando Modo IA: cadastro incompleto.`, status.missing);
+        // Forçar off em memória e persistir
+        analyzerConfig.aiMode = false;
+        if (storage.analyzerConfig && typeof storage.analyzerConfig === 'object') {
+            const updated = { ...storage.analyzerConfig, aiMode: false };
+            await chrome.storage.local.set({ analyzerConfig: updated });
+        } else {
+            await chrome.storage.local.set({ analyzerConfig: { ...(analyzerConfig || {}), aiMode: false } });
+        }
+
+        // Avisar UI para atualizar e mostrar motivo
+        try {
+            sendMessageToContent('AI_MODE_BLOCKED_PROFILE', {
+                missing: status.missing
+            });
+        } catch (err) {
+            console.warn('⚠️ Não foi possível notificar content.js sobre bloqueio de IA:', err);
+        }
+
+        return { allowed: false, missing: status.missing };
+    } catch (error) {
+        console.warn('⚠️ Erro ao aplicar gate de cadastro no Modo IA:', error);
+        return { allowed: true };
+    }
+}
+
 let analyzerConfig;
 mergeAnalyzerConfig();
 
@@ -2116,6 +2180,7 @@ function logActiveConfiguration() {
         } else {
             await chrome.storage.local.set({ analyzerConfig: analyzerConfig });
         }
+        await enforceProfileGateOnAIMode('startup_load');
         console.log('AnalyzerConfig carregado:', analyzerConfig);
         
         // ✅ INICIALIZAR HISTÓRICO DE SINAIS (para auto-aprendizado)
@@ -2154,6 +2219,9 @@ chrome.storage.onChanged.addListener((changes, area) => {
         try {
             const newVal = changes.analyzerConfig.newValue || {};
             mergeAnalyzerConfig(newVal);
+            (async () => {
+                await enforceProfileGateOnAIMode('storage_changed');
+            })();
             console.log('AnalyzerConfig aplicado imediatamente:', analyzerConfig);
             
             // ✅ EXIBIR NOVAS CONFIGURAÇÕES
@@ -21562,6 +21630,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                 if (res && res.analyzerConfig) {
                     mergeAnalyzerConfig(res.analyzerConfig);
                 }
+                await enforceProfileGateOnAIMode('applyConfig');
                 console.log('%c⚙️ Nova configuração aplicada via UI:', 'color: #00D4FF; font-weight: bold;');
                 console.log('%c📊 Profundidade de Análise: ' + (analyzerConfig.historyDepth || 2000) + ' giros', 'color: #00FF88; font-weight: bold; background: #003322; padding: 4px 8px; border-radius: 4px;');
                 logActiveConfiguration();
@@ -21656,6 +21725,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                     console.log('%c   minOccurrences: ' + res.analyzerConfig.minOccurrences, 'color: #00FFFF;');
                     
                     mergeAnalyzerConfig(res.analyzerConfig);
+                    await enforceProfileGateOnAIMode('aiModeChanged');
                     
                     console.log('%c🤖 Modo IA ' + (analyzerConfig.aiMode ? 'ATIVADO' : 'DESATIVADO'), 'color: ' + (analyzerConfig.aiMode ? '#00FF00' : '#FF6666') + '; font-weight: bold; font-size: 16px; background: ' + (analyzerConfig.aiMode ? '#003300' : '#330000') + '; padding: 5px;');
                     
