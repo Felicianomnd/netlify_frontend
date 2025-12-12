@@ -2607,10 +2607,10 @@ function showCenteredNotice(message, options = {}) {
             <div class="custom-pattern-modal-header modal-header-minimal">
                 <h3>${title}</h3>
                 <button class="custom-pattern-modal-close modal-header-close" id="centeredNoticeCloseBtn" type="button">Fechar</button>
-            </div>
+        </div>
             <div class="custom-pattern-modal-body" style="text-align: center;">
                 <div style="font-size: 13px; line-height: 1.45; color: #c8d6e9;">
-                    ${message}
+            ${message}
                 </div>
             </div>
             <div class="custom-pattern-modal-footer" style="justify-content: center;">
@@ -2688,63 +2688,129 @@ function getDisabledVotingLevelsSnapshot() {
     return getDisabledVotingLevelsFromConfig(latestAnalyzerConfig);
 }
 
-    function enforceSignalIntensityAvailability(options = {}) {
-        const select = document.getElementById('signalIntensitySelect');
-        if (!select) return;
-        if (!select.dataset.listenerAttached) {
-            select.addEventListener('change', () => {
-                enforceSignalIntensityAvailability({ source: 'user' });
-            });
-            select.dataset.listenerAttached = '1';
-        }
-        const conservativeOption = select.querySelector('option[value="conservative"]');
-        const disabledVotingLevels = getDisabledVotingLevelsSnapshot();
-        const allVotingLevelsActive = disabledVotingLevels.length === 0;
-        if (conservativeOption) {
-            conservativeOption.disabled = !allVotingLevelsActive;
-            // reforço visual (alguns browsers respeitam pouco CSS em <option>)
-            conservativeOption.style.color = allVotingLevelsActive ? '#fff' : 'rgba(255,255,255,0.45)';
-        }
+function ensureSignalIntensityCustomUI() {
+    const select = document.getElementById('signalIntensitySelect');
+    const uiButton = document.getElementById('signalIntensitySelectUi');
+    const dropdown = document.getElementById('signalIntensityDropdown');
+    const label = document.getElementById('signalIntensitySelectedLabel');
+    if (!select || !uiButton || !dropdown || !label) return;
 
-        // Dica visual abaixo do dropdown (explica o porquê do bloqueio)
-        const hint = document.getElementById('signalIntensityHint');
-        if (hint) {
-            if (allVotingLevelsActive) {
-                hint.style.display = 'none';
-                hint.innerHTML = '';
-            } else {
-                const disabledText = disabledVotingLevels.length ? disabledVotingLevels.join(', ') : '';
-                hint.innerHTML =
-                    `Para ativar <strong>Conservador</strong>, deixe todos os níveis votantes <strong>N1–N8</strong> ativos em <strong>Configurar Níveis Diamante</strong>.` +
-                    (disabledText ? `<br><span style="color: #00d4ff;"><strong>Desativados agora:</strong> ${disabledText}</span>` : '');
-                hint.style.display = 'block';
+    const setValue = (value) => {
+        const normalized = value === 'conservative' ? 'conservative' : 'aggressive';
+        select.value = normalized;
+        label.textContent = normalized === 'conservative' ? 'Conservador' : 'Agressivo';
+        dropdown.querySelectorAll('.signal-intensity-option').forEach((opt) => {
+            const isSelected = opt.dataset.value === normalized;
+            opt.classList.toggle('selected', isSelected);
+            opt.setAttribute('aria-selected', isSelected ? 'true' : 'false');
+        });
+    };
+
+    const closeDropdown = () => {
+        dropdown.style.display = 'none';
+        uiButton.setAttribute('aria-expanded', 'false');
+        uiButton.classList.remove('open');
+    };
+
+    const openDropdown = () => {
+        dropdown.style.display = 'block';
+        uiButton.setAttribute('aria-expanded', 'true');
+        uiButton.classList.add('open');
+    };
+
+    if (!uiButton.dataset.listenerAttached) {
+        uiButton.addEventListener('click', (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            const isOpen = dropdown.style.display !== 'none';
+            if (isOpen) closeDropdown();
+            else openDropdown();
+        });
+
+        uiButton.addEventListener('keydown', (event) => {
+            if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                const isOpen = dropdown.style.display !== 'none';
+                if (isOpen) closeDropdown();
+                else openDropdown();
+            } else if (event.key === 'Escape') {
+                closeDropdown();
             }
-        }
+        });
 
-        // Reforço no próprio select quando Conservador está bloqueado
-        if (allVotingLevelsActive) {
-            select.style.borderColor = '#333';
-            select.style.boxShadow = '';
-            select.title = '';
+        dropdown.addEventListener('click', (event) => {
+            const optionEl = event.target.closest('.signal-intensity-option');
+            if (!optionEl) return;
+            const value = optionEl.dataset.value;
+            if (value === 'conservative' && optionEl.classList.contains('disabled')) {
+                event.preventDefault();
+                event.stopPropagation();
+                return;
+            }
+            setValue(value);
+            closeDropdown();
+            enforceSignalIntensityAvailability({ source: 'user' });
+        });
+
+        document.addEventListener('click', (event) => {
+            if (!uiButton.contains(event.target) && !dropdown.contains(event.target)) {
+                closeDropdown();
+            }
+        });
+
+        uiButton.dataset.listenerAttached = '1';
+    }
+
+    // Sync UI with current select value
+    setValue(select.value);
+}
+
+function enforceSignalIntensityAvailability(options = {}) {
+    const select = document.getElementById('signalIntensitySelect');
+    if (!select) return;
+    ensureSignalIntensityCustomUI();
+
+    const conservativeOption = select.querySelector('option[value="conservative"]');
+    const disabledVotingLevels = getDisabledVotingLevelsSnapshot();
+    const allVotingLevelsActive = disabledVotingLevels.length === 0;
+    const disabledText = disabledVotingLevels.length ? disabledVotingLevels.join(', ') : '';
+
+    if (conservativeOption) {
+        conservativeOption.disabled = !allVotingLevelsActive;
+    }
+
+    // Atualizar estado do item "Conservador" dentro do dropdown (com mensagem EMBUTIDA)
+    const conservativeUiOption = document.querySelector('#signalIntensityDropdown .signal-intensity-option[data-value="conservative"]');
+    const hintBox = document.getElementById('signalIntensityConservativeHint');
+    const hintText = document.getElementById('signalIntensityConservativeHintText');
+    if (conservativeUiOption) {
+        conservativeUiOption.classList.toggle('disabled', !allVotingLevelsActive);
+    }
+    if (hintBox && hintText) {
+        if (!allVotingLevelsActive) {
+            hintText.innerHTML =
+                `Para ativar, deixe todos os níveis votantes <strong>N1–N8</strong> ativos em <strong>Configurar Níveis Diamante</strong>.` +
+                (disabledText ? `<br><strong>Desativados agora:</strong> ${disabledText}` : '');
+            hintBox.style.display = 'block';
         } else {
-            select.style.borderColor = 'rgba(0, 212, 255, 0.65)';
-            select.style.boxShadow = '0 0 0 2px rgba(0, 212, 255, 0.12)';
-            select.title = 'Conservador requer todos os níveis votantes (N1–N8) ativos.';
-        }
-
-        // Segurança extra: se alguém conseguir selecionar "conservative", desfaz e dá feedback imediato
-        if (!allVotingLevelsActive && select.value === 'conservative') {
-            select.value = 'aggressive';
-            if (options && options.source === 'user') {
-                const disabledText = disabledVotingLevels.length ? disabledVotingLevels.join(', ') : '';
-                showCenteredNotice(
-                    `Não dá para ativar o modo <strong>Conservador</strong> sem todos os níveis votantes <strong>N1–N8</strong> ativos.` +
-                    (disabledText ? `<br><br><strong>Desativados agora:</strong> ${disabledText}` : ''),
-                    { title: 'Modo Conservador', autoHide: 6500 }
-                );
-            }
+            hintText.innerHTML = '';
+            hintBox.style.display = 'none';
         }
     }
+
+    // Segurança extra: se alguém tentar forçar "conservative", desfaz e opcionalmente notifica
+    if (!allVotingLevelsActive && select.value === 'conservative') {
+        select.value = 'aggressive';
+        ensureSignalIntensityCustomUI();
+        if (options && options.source === 'user') {
+            showCenteredNotice(
+                `Não dá para ativar o modo <strong>Conservador</strong> sem todos os níveis votantes <strong>N1–N8</strong> ativos.` +
+                (disabledText ? `<br><br><strong>Desativados agora:</strong> ${disabledText}` : ''),
+                { title: 'Modo Conservador', autoHide: 6500 }
+            );
+        }
+    }
+}
 
     function populateDiamondLevelsForm(config) {
         const windows = (config && config.diamondLevelWindows) || {};
@@ -7280,31 +7346,29 @@ async function persistAnalyzerState(newState) {
                                 <label style="font-size: 13px; color: #ffffff; font-weight: 600; text-align: center;">
                                     Intensidade de Sinais
                                 </label>
-                                <select id="signalIntensitySelect" style="
-                                    width: 100%;
-                                    padding: 10px 12px;
-                                    font-size: 13px;
-                                    font-weight: 600;
-                                    color: #ffffff;
-                                    background: #1a1a1a;
-                                    border: 1px solid #333;
-                                    border-radius: 8px;
-                                    cursor: pointer;
-                                    transition: all 0.3s ease;
-                                    outline: none;
-                                    text-align: center;
-                                ">
-                                    <option value="aggressive" selected style="background: #1a1a1a; color: #fff;">Agressivo</option>
-                                    <option value="conservative" style="background: #1a1a1a; color: #fff;">Conservador</option>
+                                <!-- Select real fica oculto (usado para persistência/config), UI é um dropdown custom -->
+                                <select id="signalIntensitySelect" style="display:none">
+                                    <option value="aggressive" selected>Agressivo</option>
+                                    <option value="conservative">Conservador</option>
                                 </select>
-                                <div id="signalIntensityHint" style="
-                                    display: none;
-                                    font-size: 11px;
-                                    line-height: 1.35;
-                                    color: #c8d6e9;
-                                    text-align: center;
-                                    padding: 0 4px;
-                                "></div>
+                                <div class="signal-intensity-select-wrapper">
+                                    <button type="button" id="signalIntensitySelectUi" class="signal-intensity-select-ui" aria-haspopup="listbox" aria-expanded="false">
+                                        <span id="signalIntensitySelectedLabel">Agressivo</span>
+                                        <span class="signal-intensity-caret">▾</span>
+                                    </button>
+                                    <div id="signalIntensityDropdown" class="signal-intensity-dropdown" role="listbox" style="display:none;">
+                                        <button type="button" class="signal-intensity-option" data-value="aggressive" role="option" aria-selected="true">
+                                            <div class="opt-title">Agressivo</div>
+                                        </button>
+                                        <button type="button" class="signal-intensity-option" data-value="conservative" role="option" aria-selected="false">
+                                            <div class="opt-title">Conservador</div>
+                                            <div class="opt-hint" id="signalIntensityConservativeHint" style="display:none;">
+                                                <div class="opt-divider"></div>
+                                                <div class="opt-hint-text" id="signalIntensityConservativeHintText"></div>
+                                            </div>
+                                        </button>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                         
