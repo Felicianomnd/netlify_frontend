@@ -2190,9 +2190,9 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                             <div class="diamond-level-double">
                                 <div>
                                     <span>Janela analisada (giros)</span>
-                                    <input type="number" id="diamondN1WindowSize" min="10" max="120" value="20" />
+                                    <input type="number" id="diamondN1WindowSize" min="5" max="120" value="20" />
                             <span class="diamond-level-subnote">
-                                        Recomendado: 20 giros (mín. 10 • máx. 120)
+                                        Recomendado: 20 giros (mín. 5 • máx. 120)
                                     </span>
                                 </div>
                                 <div>
@@ -2570,7 +2570,7 @@ function showCenteredNotice(message, options = {}) {
         padding: 24px 32px;
         width: min(90vw, 380px);
         box-shadow: 0 20px 45px rgba(0,0,0,0.35);
-        z-index: 9999;
+        z-index: 1000000000;
         font-family: 'Segoe UI', 'Inter', sans-serif;
         text-align: center;
     `;
@@ -2605,31 +2605,103 @@ function showCenteredNotice(message, options = {}) {
 }
 
 function areAllVotingLevelsEnabled() {
+    const domDisabled = getDisabledVotingLevelsFromDOM();
+    if (domDisabled) {
+        return domDisabled.length === 0;
+    }
+    return getDisabledVotingLevelsFromConfig(latestAnalyzerConfig).length === 0;
+}
+
+function getDisabledVotingLevelsFromConfig(config) {
+    const enabledMap = (config && config.diamondLevelEnabled) || {};
+    const disabled = [];
+    VOTING_LEVEL_CONFIG_KEYS.forEach((key, idx) => {
+        const enabled = Object.prototype.hasOwnProperty.call(enabledMap, key)
+            ? !!enabledMap[key]
+            : !!DIAMOND_LEVEL_ENABLE_DEFAULTS[key];
+        if (!enabled) {
+            disabled.push(VOTING_LEVEL_DOM_IDS[idx]);
+        }
+    });
+    return disabled;
+}
+
+function getDisabledVotingLevelsFromDOM() {
     let domFound = false;
-    let domAllActive = true;
+    const disabled = [];
     VOTING_LEVEL_DOM_IDS.forEach(levelId => {
         const checkbox = document.getElementById(`diamondLevelToggle${levelId}`);
         if (checkbox) {
             domFound = true;
-            domAllActive = domAllActive && checkbox.checked;
+            if (!checkbox.checked) {
+                disabled.push(levelId);
+            }
         }
     });
-    if (domFound) {
-        return domAllActive;
-    }
-    return areAllVotingLevelsEnabledFromConfig(latestAnalyzerConfig);
+    return domFound ? disabled : null;
 }
 
-    function enforceSignalIntensityAvailability() {
+function getDisabledVotingLevelsSnapshot() {
+    const domDisabled = getDisabledVotingLevelsFromDOM();
+    if (domDisabled) return domDisabled;
+    return getDisabledVotingLevelsFromConfig(latestAnalyzerConfig);
+}
+
+    function enforceSignalIntensityAvailability(options = {}) {
         const select = document.getElementById('signalIntensitySelect');
         if (!select) return;
+        if (!select.dataset.listenerAttached) {
+            select.addEventListener('change', () => {
+                enforceSignalIntensityAvailability({ source: 'user' });
+            });
+            select.dataset.listenerAttached = '1';
+        }
         const conservativeOption = select.querySelector('option[value="conservative"]');
-    const allVotingLevelsActive = areAllVotingLevelsEnabled();
+        const disabledVotingLevels = getDisabledVotingLevelsSnapshot();
+        const allVotingLevelsActive = disabledVotingLevels.length === 0;
         if (conservativeOption) {
             conservativeOption.disabled = !allVotingLevelsActive;
+            // reforço visual (alguns browsers respeitam pouco CSS em <option>)
+            conservativeOption.style.color = allVotingLevelsActive ? '#fff' : 'rgba(255,255,255,0.45)';
         }
+
+        // Dica visual abaixo do dropdown (explica o porquê do bloqueio)
+        const hint = document.getElementById('signalIntensityHint');
+        if (hint) {
+            if (allVotingLevelsActive) {
+                hint.style.display = 'none';
+                hint.innerHTML = '';
+            } else {
+                const disabledText = disabledVotingLevels.length ? disabledVotingLevels.join(', ') : '';
+                hint.innerHTML =
+                    `Para ativar <strong>Conservador</strong>, deixe todos os níveis votantes <strong>N1–N8</strong> ativos em <strong>Configurar Níveis Diamante</strong>.` +
+                    (disabledText ? `<br><span style="color: rgba(251,191,36,0.95);"><strong>Desativados agora:</strong> ${disabledText}</span>` : '');
+                hint.style.display = 'block';
+            }
+        }
+
+        // Reforço no próprio select quando Conservador está bloqueado
+        if (allVotingLevelsActive) {
+            select.style.borderColor = '#333';
+            select.style.boxShadow = '';
+            select.title = '';
+        } else {
+            select.style.borderColor = 'rgba(251, 191, 36, 0.75)';
+            select.style.boxShadow = '0 0 0 2px rgba(251, 191, 36, 0.15)';
+            select.title = 'Conservador requer todos os níveis votantes (N1–N8) ativos.';
+        }
+
+        // Segurança extra: se alguém conseguir selecionar "conservative", desfaz e dá feedback imediato
         if (!allVotingLevelsActive && select.value === 'conservative') {
             select.value = 'aggressive';
+            if (options && options.source === 'user') {
+                const disabledText = disabledVotingLevels.length ? disabledVotingLevels.join(', ') : '';
+                showCenteredNotice(
+                    `Não dá para ativar o modo <strong>Conservador</strong> sem todos os níveis votantes <strong>N1–N8</strong> ativos.` +
+                    (disabledText ? `<br><br><strong>Desativados agora:</strong> ${disabledText}` : ''),
+                    { title: 'Modo Conservador', autoHide: 6500, accentColor: '#f59e0b' }
+                );
+            }
         }
     }
 
@@ -2821,7 +2893,7 @@ function areAllVotingLevelsEnabled() {
         const newWindows = {
             n0History: getNumber('diamondN0History', 500, 5000, DIAMOND_LEVEL_DEFAULTS.n0History),
             n0Window: getNumber('diamondN0Window', 25, 250, DIAMOND_LEVEL_DEFAULTS.n0Window),
-            n1WindowSize: getNumber('diamondN1WindowSize', 10, 120, DIAMOND_LEVEL_DEFAULTS.n1WindowSize),
+            n1WindowSize: getNumber('diamondN1WindowSize', 5, 120, DIAMOND_LEVEL_DEFAULTS.n1WindowSize),
             n1PrimaryRequirement: getNumber('diamondN1PrimaryRequirement', 5, 200, DIAMOND_LEVEL_DEFAULTS.n1PrimaryRequirement),
             n1SecondaryRequirement: getNumber('diamondN1SecondaryRequirement', 1, 200, DIAMOND_LEVEL_DEFAULTS.n1SecondaryRequirement),
             n1MaxEntries: getNumber('diamondN1MaxEntries', 1, 20, DIAMOND_LEVEL_DEFAULTS.n1MaxEntries),
@@ -2845,8 +2917,8 @@ function areAllVotingLevelsEnabled() {
             n10Window: getNumber('diamondN10Window', 5, 50, DIAMOND_LEVEL_DEFAULTS.n10Window),
             n10History: getNumber('diamondN10History', 100, 2000, DIAMOND_LEVEL_DEFAULTS.n10History)
         };
-        if (newWindows.n1WindowSize < 10) {
-            newWindows.n1WindowSize = 10;
+        if (newWindows.n1WindowSize < 5) {
+            newWindows.n1WindowSize = 5;
         }
         if (newWindows.n1PrimaryRequirement >= newWindows.n1WindowSize) {
             newWindows.n1PrimaryRequirement = Math.max(1, newWindows.n1WindowSize - 1);
@@ -7184,6 +7256,14 @@ async function persistAnalyzerState(newState) {
                                     <option value="aggressive" selected style="background: #1a1a1a; color: #fff;">Agressivo</option>
                                     <option value="conservative" style="background: #1a1a1a; color: #fff;">Conservador</option>
                                 </select>
+                                <div id="signalIntensityHint" style="
+                                    display: none;
+                                    font-size: 11px;
+                                    line-height: 1.35;
+                                    color: rgba(251, 191, 36, 0.95);
+                                    text-align: center;
+                                    padding: 0 4px;
+                                "></div>
                             </div>
                         </div>
                         
@@ -11581,17 +11661,23 @@ function logModeSnapshotUI(snapshot) {
                 const signalIntensity = signalIntensitySelect ? signalIntensitySelect.value : 'aggressive';
                 const votingLevelsEnabled = areAllVotingLevelsEnabledFromConfig(currentConfig);
                 if (signalIntensity === 'conservative' && !votingLevelsEnabled) {
-                    showCenteredNotice('Modo Conservador só pode ser usado quando os níveis N1–N8 estiverem ativos.', {
-                        title: 'Modo Conservador'
-                    });
-                    if (signalIntensitySelect) {
-                        signalIntensitySelect.value = 'aggressive';
-                    }
                     const overlay = document.getElementById('saveStatusOverlay');
                     if (overlay) overlay.style.display = 'none';
                     if (btn) {
                         btn.textContent = 'Salvar';
                     }
+                    if (signalIntensitySelect) {
+                        signalIntensitySelect.value = 'aggressive';
+                    }
+                    enforceSignalIntensityAvailability();
+                    const disabledVotingLevels = getDisabledVotingLevelsFromConfig(currentConfig);
+                    const disabledText = disabledVotingLevels.length ? disabledVotingLevels.join(', ') : '';
+                    showCenteredNotice(
+                        `Para usar o modo <strong>Conservador</strong>, ative todos os níveis votantes <strong>N1–N8</strong> em <strong>Configurar Níveis Diamante</strong>.` +
+                        (disabledText ? `<br><br><strong>Desativados agora:</strong> ${disabledText}` : ''),
+                        { title: 'Modo Conservador', autoHide: 7000, accentColor: '#f59e0b' }
+                    );
+                    resolve(false);
                     return;
                 }
                 const martingaleProfiles = sanitizeMartingaleProfilesFromConfig(currentConfig);
