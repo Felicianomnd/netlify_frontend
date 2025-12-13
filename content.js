@@ -13590,12 +13590,13 @@ function logModeSnapshotUI(snapshot) {
     // ═══════════════════════════════════════════════════════════════════════════════
     
     const API_URL = 'https://blaze-giros-api-v2-sx14.onrender.com';
+    const GIROS_HISTORY_LIMIT = 10000; // ✅ buffer para análise (mantém 500 visíveis via currentHistoryDisplayLimit)
     let isUpdatingHistory = false;
     let lastHistoryUpdate = null;
     let isWebSocketConnected = true; // Assume conectado inicialmente
     let historyPollingInterval = null; // Intervalo de polling para histórico
     
-    // Buscar giros do servidor (TODOS os 2000)
+    // Buscar giros do servidor (até 10.000 para análise)
     async function fetchHistoryFromServer() {
         if (isUpdatingHistory) return;
         
@@ -13605,8 +13606,9 @@ function logModeSnapshotUI(snapshot) {
             const startTime = Date.now();
             console.log('⏱️ [TIMING] Iniciando fetch em:', new Date().toLocaleTimeString());
             
-            const response = await fetch(`${API_URL}/api/giros?limit=2000`, {
-                signal: AbortSignal.timeout(8000)
+            const response = await fetch(`${API_URL}/api/giros?limit=${GIROS_HISTORY_LIMIT}`, {
+                // 10k giros pode ser um payload maior em conexões lentas
+                signal: AbortSignal.timeout(12000)
             });
             
             const fetchTime = Date.now() - startTime;
@@ -13653,8 +13655,8 @@ function logModeSnapshotUI(snapshot) {
             
             if (!exists) {
                 currentHistoryData.unshift(newSpin);
-                // ✅ [OTIMIZAÇÃO] Manter no máximo 2000 giros - remover apenas o último (mais eficiente que slice)
-                if (currentHistoryData.length > 2000) {
+                // ✅ [OTIMIZAÇÃO] Manter no máximo 10.000 giros - remover apenas o último (mais eficiente que slice)
+                if (currentHistoryData.length > GIROS_HISTORY_LIMIT) {
                     currentHistoryData.pop(); // Remove apenas o último (O(1) vs O(n) do slice)
                 }
             }
