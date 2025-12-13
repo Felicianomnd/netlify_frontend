@@ -2168,6 +2168,82 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                 margin-bottom: 8px;
                 font-weight: 600;
             }
+
+            .diamond-sim-toolbar {
+                display: flex;
+                align-items: center;
+                gap: 10px;
+                margin-bottom: 12px;
+                padding: 0;
+                background: transparent;
+                border: none;
+                border-radius: 0;
+            }
+
+            .diamond-sim-level-wrapper {
+                position: relative;
+            }
+
+            .diamond-sim-dropdown {
+                position: absolute;
+                top: calc(100% + 6px);
+                left: 0;
+                width: 260px;
+                background: #0f1720;
+                border: 1px solid rgba(0, 212, 255, 0.2);
+                border-radius: 8px;
+                box-shadow: 0 12px 24px rgba(0, 0, 0, 0.45);
+                padding: 6px;
+                z-index: 10000003;
+            }
+
+            .diamond-sim-option {
+                padding: 8px 10px;
+                font-size: 12px;
+                color: #c8d6e9;
+                border-radius: 6px;
+                cursor: pointer;
+                user-select: none;
+                background: transparent;
+                border: 1px solid transparent;
+                width: 100%;
+                text-align: left;
+            }
+
+            .diamond-sim-option:hover {
+                background: rgba(239, 68, 68, 0.16);
+                color: #ffffff;
+            }
+
+            .diamond-sim-summary {
+                font-size: 12px;
+                color: #c8d6e9;
+                line-height: 1.45;
+                margin-bottom: 10px;
+            }
+
+            .diamond-sim-progress {
+                display: flex;
+                align-items: center;
+                gap: 10px;
+                font-size: 12px;
+                color: #c8d6e9;
+                margin-top: 10px;
+                margin-bottom: 10px;
+            }
+
+            .diamond-sim-progress .spinner {
+                width: 14px;
+                height: 14px;
+                border: 2px solid rgba(0, 212, 255, 0.25);
+                border-top-color: #00ffa3;
+                border-radius: 50%;
+                animation: spin 1s linear infinite;
+            }
+
+            .sim-entries-list {
+                max-height: 320px;
+            }
         `;
         document.head.appendChild(style);
     }
@@ -2179,10 +2255,29 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                 <div class="custom-pattern-modal-overlay"></div>
                 <div class="custom-pattern-modal-content">
                 <div class="custom-pattern-modal-header modal-header-minimal">
-                        <h3>Configurar Níveis Diamante</h3>
+                        <h3>Configurar Níveis</h3>
                     <button class="custom-pattern-modal-close modal-header-close" id="closeDiamondLevelsModal" type="button">Fechar</button>
                     </div>
                     <div class="custom-pattern-modal-body">
+                        <div class="diamond-sim-toolbar">
+                            <button type="button" class="btn-save-pattern" id="diamondSimulateAllBtn">Simular todos</button>
+                            <div class="diamond-sim-level-wrapper">
+                                <button type="button" class="btn-hot-pattern" id="diamondSimulateLevelBtn">Simular ▾</button>
+                                <div class="diamond-sim-dropdown" id="diamondSimulateLevelDropdown" style="display:none;">
+                                    <button type="button" class="diamond-sim-option" data-level="N0">N0 - Detector de Branco</button>
+                                    <button type="button" class="diamond-sim-option" data-level="N1">N1 - Zona Segura</button>
+                                    <button type="button" class="diamond-sim-option" data-level="N2">N2 - Momentum</button>
+                                    <button type="button" class="diamond-sim-option" data-level="N3">N3 - Alternância</button>
+                                    <button type="button" class="diamond-sim-option" data-level="N4">N4 - Persistência</button>
+                                    <button type="button" class="diamond-sim-option" data-level="N5">N5 - Ritmo por Giro</button>
+                                    <button type="button" class="diamond-sim-option" data-level="N6">N6 - Retração Histórica</button>
+                                    <button type="button" class="diamond-sim-option" data-level="N7">N7 - Continuidade Global</button>
+                                    <button type="button" class="diamond-sim-option" data-level="N8">N8 - Walk-forward</button>
+                                    <button type="button" class="diamond-sim-option" data-level="N9">N9 - Barreira Final</button>
+                                    <button type="button" class="diamond-sim-option" data-level="N10">N10 - Calibração Bayesiana</button>
+                                </div>
+                            </div>
+                        </div>
                         <div class="diamond-level-field" data-level="n0">
                             <div class="diamond-level-header">
                                 <div class="diamond-level-title">N0 - Detector de Branco</div>
@@ -2518,9 +2613,22 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
         const closeBtn = document.getElementById('closeDiamondLevelsModal');
         const overlay = modal.querySelector('.custom-pattern-modal-overlay');
         
-        const closeModal = () => {
+        const closeModal = async () => {
             const sidebarEl = document.getElementById('blaze-double-analyzer');
             const isCompactMode = sidebarEl && sidebarEl.classList.contains('compact-mode');
+
+            // ✅ Se estiver saindo a partir da simulação, persistir ajustes automaticamente
+            try {
+                const isSimActive = modal.classList.contains('diamond-sim-active');
+                if (isSimActive) {
+                    await saveDiamondLevels({ silent: true, skipSync: true });
+                }
+            } catch (_) {}
+
+            // ✅ Se estiver na tela de simulação, limpar e voltar para a tela normal
+            try {
+                exitDiamondSimulationView({ cancelIfRunning: true, clear: true, closeModal: false });
+            } catch (_) {}
 
             // ✅ Desregistrar do sistema de janelas flutuantes apenas no modo compacto
             if (isDesktop() && isCompactMode) {
@@ -2529,7 +2637,7 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
             modal.style.display = 'none';
         };
         
-        closeBtn.addEventListener('click', closeModal);
+        closeBtn.addEventListener('click', () => { closeModal(); });
         
         // ✅ Overlay só fecha em mobile
         overlay.addEventListener('click', () => {
@@ -2539,6 +2647,8 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
         });
         
         initializeDiamondLevelToggles();
+        ensureDiamondSimulationView();
+        initializeDiamondSimulationControls();
     }
 
     function updateDiamondLevelToggleVisual(toggle) {
@@ -2571,6 +2681,1062 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
     function refreshDiamondLevelToggleStates() {
         const toggles = document.querySelectorAll('.diamond-level-toggle-input');
         toggles.forEach(updateDiamondLevelToggleVisual);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════════
+    // 💎 SIMULAÇÃO NO PASSADO (BACKTEST) - MODO DIAMANTE (SEM MISTURAR COM O REAL)
+    // ═══════════════════════════════════════════════════════════════════════════════
+
+    let diamondSimulationJobId = null;
+    let diamondSimulationRunning = false;
+    let diamondSimCurrentMode = null;
+    let diamondSimCurrentLevelId = null;
+    let diamondSimMovedNodes = [];
+    let diamondSimHiddenNodes = [];
+
+    function ensureDiamondSimulationView() {
+        const levelsModal = document.getElementById('diamondLevelsModal');
+        const body = levelsModal ? levelsModal.querySelector('.custom-pattern-modal-body') : null;
+        if (!levelsModal || !body) return;
+
+        if (document.getElementById('diamondSimView')) return;
+
+        const view = document.createElement('div');
+        view.id = 'diamondSimView';
+        view.className = 'diamond-sim-view';
+        view.style.display = 'none';
+        view.innerHTML = `
+            <div id="diamondSimConfigContainer" class="diamond-sim-config"></div>
+            <div class="diamond-sim-view-body">
+                <div id="diamondSimulationSummary" class="diamond-sim-summary">
+                    Configure e clique em <strong>Simular</strong> para ver o resultado aqui.
+                </div>
+                <div id="diamondSimulationProgress" class="diamond-sim-progress" style="display:none;">
+                    <div class="spinner"></div>
+                    <div id="diamondSimulationProgressText">Simulando...</div>
+                    <div style="flex:1;"></div>
+                    <button type="button" class="btn-save-pattern" id="diamondSimulationCancelBtn" style="max-width: 140px;">Cancelar</button>
+                </div>
+
+                <div class="entries-tabs-bar" id="diamondSimTabs" style="margin-top: 8px;">
+                    <button type="button" class="entries-tab active" data-tab="signals">Sinais</button>
+                    <button type="button" class="entries-tab" data-tab="chart">Gráfico</button>
+                </div>
+
+                <div class="diamond-sim-tabview" data-view="signals">
+                    <div class="entries-header" style="margin-top: 8px;">
+                        <div id="diamondSimEntriesHit" class="entries-hit"></div>
+                    </div>
+                    <div id="diamondSimEntriesList" class="entries-list sim-entries-list"></div>
+                </div>
+
+                <div class="diamond-sim-tabview" data-view="chart" hidden>
+                    <div class="diamond-sim-chart-wrap">
+                        <div class="diamond-sim-chart-row win">
+                            <div class="diamond-sim-chart-label">WIN</div>
+                            <div class="diamond-sim-chart-bar">
+                                <div class="diamond-sim-chart-fill" id="diamondSimChartWinFill" style="width:0%"></div>
+                            </div>
+                            <div class="diamond-sim-chart-value" id="diamondSimChartWinValue">0 (0%)</div>
+                        </div>
+                        <div class="diamond-sim-chart-row loss">
+                            <div class="diamond-sim-chart-label">LOSS</div>
+                            <div class="diamond-sim-chart-bar">
+                                <div class="diamond-sim-chart-fill" id="diamondSimChartLossFill" style="width:0%"></div>
+                            </div>
+                            <div class="diamond-sim-chart-value" id="diamondSimChartLossValue">0 (0%)</div>
+                        </div>
+                        <div class="diamond-sim-chart-foot" id="diamondSimChartFoot">Entradas: 0</div>
+
+                        <div class="diamond-sim-equity-metrics">
+                            <div class="diamond-sim-equity-metric">
+                                <span class="label">Saldo</span>
+                                <span class="value" id="diamondSimEquityBalance">R$ 0,00</span>
+                            </div>
+                            <div class="diamond-sim-equity-metric">
+                                <span class="label">Perdas</span>
+                                <span class="value" id="diamondSimEquityLoss">R$ 0,00</span>
+                            </div>
+                        </div>
+
+                        <div class="diamond-sim-ticks-layer" id="diamondSimTicksLayer">
+                            <svg class="diamond-sim-ticks-svg" id="diamondSimTicksSvg" viewBox="0 0 1000 160" preserveAspectRatio="none" aria-label="Gráfico por entrada">
+                                <path id="diamondSimTicksBaseline" d="" />
+                                <path id="diamondSimTicksMaxLine" d="" />
+                                <path id="diamondSimTicksMinLine" d="" />
+                                <path id="diamondSimTicksCurrentLine" d="" />
+                                <path id="diamondSimTicksWinPath" d="" />
+                                <path id="diamondSimTicksLossPath" d="" />
+                            </svg>
+                            <div class="diamond-sim-guide-label max" id="diamondSimGuideMax"></div>
+                            <div class="diamond-sim-guide-label min" id="diamondSimGuideMin"></div>
+                            <div class="diamond-sim-guide-label cur" id="diamondSimGuideCur"></div>
+                            <div class="diamond-sim-direction" id="diamondSimGuideDir"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="diamond-sim-view-footer">
+                <button type="button" class="btn-hot-pattern" id="diamondSimulationClearBtn">Limpar</button>
+                <button type="button" class="btn-save-pattern" id="diamondSimulationRunBtn">Simular novamente</button>
+                <button type="button" class="btn-hot-pattern" id="diamondSimulationClearCloseBtn">Limpar e fechar</button>
+            </div>
+        `;
+
+        // Inserir no topo do body
+        body.insertBefore(view, body.firstChild);
+
+        const clearBtn = document.getElementById('diamondSimulationClearBtn');
+        const runBtn = document.getElementById('diamondSimulationRunBtn');
+        const clearCloseBtn = document.getElementById('diamondSimulationClearCloseBtn');
+        const cancelBtn = document.getElementById('diamondSimulationCancelBtn');
+        const tabsBar = document.getElementById('diamondSimTabs');
+
+        if (tabsBar && !tabsBar.dataset.listenerAttached) {
+            tabsBar.addEventListener('click', (event) => {
+                const btn = event.target && event.target.closest ? event.target.closest('.entries-tab') : null;
+                if (!btn) return;
+                const tab = btn.dataset.tab;
+                setDiamondSimActiveTab(tab);
+            });
+            tabsBar.dataset.listenerAttached = '1';
+        }
+
+        if (clearBtn && !clearBtn.dataset.listenerAttached) {
+            // ✅ Limpar: apenas limpar os RESULTADOS e manter os CAMPOS na tela
+            clearBtn.addEventListener('click', () => clearDiamondSimulationResultsOnly({ cancelIfRunning: true }));
+            clearBtn.dataset.listenerAttached = '1';
+        }
+        if (clearCloseBtn && !clearCloseBtn.dataset.listenerAttached) {
+            // ✅ Limpar e fechar: persistir ajustes do nível (sem precisar clicar em "Salvar"), depois voltar para configurar níveis
+            clearCloseBtn.addEventListener('click', async () => {
+                try { await saveDiamondLevels({ silent: true, skipSync: true }); } catch (_) {}
+                exitDiamondSimulationView({ cancelIfRunning: true, clear: true, closeModal: false });
+            });
+            clearCloseBtn.dataset.listenerAttached = '1';
+        }
+        if (runBtn && !runBtn.dataset.listenerAttached) {
+            runBtn.addEventListener('click', () => {
+                const mode = diamondSimCurrentMode || 'level';
+                const levelId = diamondSimCurrentLevelId || null;
+                if (mode === 'level' && !levelId) {
+                    showCenteredNotice('Selecione um nível para simular.');
+                    return;
+                }
+                startDiamondSimulation(mode, levelId);
+            });
+            runBtn.dataset.listenerAttached = '1';
+        }
+        if (cancelBtn && !cancelBtn.dataset.listenerAttached) {
+            cancelBtn.addEventListener('click', () => {
+                if (!diamondSimulationJobId) return;
+                try {
+                    chrome.runtime.sendMessage({ action: 'DIAMOND_SIMULATE_CANCEL', jobId: diamondSimulationJobId });
+                } catch (err) {
+                    console.warn('⚠️ Falha ao cancelar simulação:', err);
+                }
+            });
+            cancelBtn.dataset.listenerAttached = '1';
+        }
+    }
+
+    function setDiamondSimActiveTab(tab) {
+        const tabsBar = document.getElementById('diamondSimTabs');
+        if (tabsBar) {
+            const tabs = tabsBar.querySelectorAll('.entries-tab');
+            tabs.forEach(t => t.classList.toggle('active', t.dataset.tab === tab));
+        }
+        const views = document.querySelectorAll('#diamondSimView .diamond-sim-tabview');
+        views.forEach(v => {
+            const isActive = v.getAttribute('data-view') === tab;
+            if (isActive) v.removeAttribute('hidden');
+            else v.setAttribute('hidden', '');
+        });
+    }
+
+    function renderDiamondSimulationChart({ wins = 0, losses = 0, totalCycles = 0, totalEntries = 0 } = {}) {
+        const winFill = document.getElementById('diamondSimChartWinFill');
+        const lossFill = document.getElementById('diamondSimChartLossFill');
+        const winValue = document.getElementById('diamondSimChartWinValue');
+        const lossValue = document.getElementById('diamondSimChartLossValue');
+        const foot = document.getElementById('diamondSimChartFoot');
+
+        const denom = totalCycles > 0 ? totalCycles : 0;
+        const winPct = denom ? (wins / denom) * 100 : 0;
+        const lossPct = denom ? (losses / denom) * 100 : 0;
+
+        if (winFill) winFill.style.width = `${Math.max(0, Math.min(100, winPct)).toFixed(1)}%`;
+        if (lossFill) lossFill.style.width = `${Math.max(0, Math.min(100, lossPct)).toFixed(1)}%`;
+        if (winValue) winValue.textContent = `${wins} (${winPct.toFixed(1)}%)`;
+        if (lossValue) lossValue.textContent = `${losses} (${lossPct.toFixed(1)}%)`;
+        if (foot) foot.textContent = `Entradas: ${totalEntries}`;
+    }
+
+    function computeDiamondSimulationProfitSnapshot(allEntries, autoBetConfig) {
+        const entries = Array.isArray(allEntries) ? allEntries : [];
+        const cfg = autoBetConfig && typeof autoBetConfig === 'object' ? autoBetConfig : {};
+        const initialBank = Number(cfg.simulationBankRoll ?? 5000) || 5000;
+        const baseStake = Math.max(0.01, Number(cfg.baseStake ?? 2) || 2);
+        const galeMult = Math.max(1, Number(cfg.galeMultiplier ?? 2) || 2);
+        const whitePayoutMultiplier = Math.max(2, Number(cfg.whitePayoutMultiplier ?? 14) || 14);
+
+        const stageIndexFromEntry = (e) => {
+            const raw = (e && (e.martingaleStage || e.phase || e.wonAt)) ? String(e.martingaleStage || e.phase || e.wonAt) : 'ENTRADA';
+            const s = raw.toUpperCase();
+            if (s === 'ENTRADA' || s === 'G0') return 0;
+            const m = s.match(/^G(\d+)$/);
+            if (!m) return 0;
+            const n = Number(m[1]);
+            return Number.isFinite(n) && n >= 0 ? n : 0;
+        };
+        const resolveBetColor = (e) => {
+            const raw = e && e.patternData && e.patternData.color ? e.patternData.color : null;
+            const c = String(raw || '').toLowerCase();
+            if (c === 'red' || c === 'black' || c === 'white') return c;
+            return 'red';
+        };
+
+        // entries vem newest-first; calcular por ciclo em ordem cronológica para obter o saldo final
+        const cycleDeltasNewestFirst = [];
+        for (let i = 0; i < entries.length; ) {
+            const entry = entries[i];
+            if (!entry) { i++; continue; }
+            const isCycleFinal = entry.finalResult === 'WIN' || entry.finalResult === 'RET' || entry.result === 'WIN';
+            if (!isCycleFinal) { i++; continue; }
+
+            const stageIdx = stageIndexFromEntry(entry);
+            const attemptsCount = Math.max(1, stageIdx + 1);
+            const betColor = resolveBetColor(entry);
+            const payoutMult = betColor === 'white' ? whitePayoutMultiplier : 2;
+
+            const totalInvested = Array.from({ length: attemptsCount }).reduce((sum, _, idx) => {
+                const amt = baseStake * Math.pow(galeMult, idx);
+                return sum + amt;
+            }, 0);
+            const lastAmount = baseStake * Math.pow(galeMult, attemptsCount - 1);
+            const isWin = entry.finalResult === 'WIN' || entry.result === 'WIN';
+            const delta = isWin ? (lastAmount * payoutMult) - totalInvested : -totalInvested;
+            cycleDeltasNewestFirst.push(Number(delta.toFixed(2)));
+
+            i += attemptsCount;
+        }
+
+        const cycleDeltasChron = cycleDeltasNewestFirst.slice().reverse();
+        const profit = Number(cycleDeltasChron.reduce((sum, d) => sum + (Number(d) || 0), 0).toFixed(2));
+        const balance = Number((initialBank + profit).toFixed(2));
+        const loss = profit < 0 ? Math.abs(profit) : 0;
+        return { initialBank, balance, profit, loss, baseStake, galeMult };
+    }
+
+    let diamondSimTickZoomState = { points: 0, zoom: 1, x: 0, baseW: 1, baseH: 160 };
+    let diamondSimLastEntriesForChart = [];
+
+    function attachDiamondSimZoomHandlers(svg) {
+        if (!svg || svg.dataset.zoomBound === '1') return;
+        // Zoom horizontal com wheel, ancorado no mouse
+        svg.addEventListener('wheel', (event) => {
+            try {
+                event.preventDefault();
+            } catch (_) {}
+
+            const state = diamondSimTickZoomState || { points: 0, zoom: 1, x: 0, baseW: 1, baseH: 120 };
+            const bbox = svg.getBoundingClientRect();
+            if (!bbox || bbox.width <= 0) return;
+
+            const mouseRatioX = Math.max(0, Math.min(1, (event.clientX - bbox.left) / bbox.width));
+            const mouseVx = (state.x || 0) + mouseRatioX * (state.baseW / (state.zoom || 1));
+
+            const delta = Math.sign(event.deltaY || 0);
+            const zoomFactor = delta < 0 ? 1.12 : 1 / 1.12;
+            let nextZoom = (state.zoom || 1) * zoomFactor;
+            nextZoom = Math.max(0.6, Math.min(10, nextZoom));
+
+            const nextWidth = state.baseW / nextZoom;
+            let nextX = mouseVx - mouseRatioX * nextWidth;
+            nextX = Math.max(0, Math.min(Math.max(0, state.baseW - nextWidth), nextX));
+
+            diamondSimTickZoomState = { ...state, zoom: nextZoom, x: nextX };
+            // rerender para manter linhas guia e labels corretos (sem "encolher" com o zoom)
+            renderDiamondSimulationTickChart(diamondSimLastEntriesForChart);
+        }, { passive: false });
+
+        // Arrastar para pan (somente eixo X)
+        let dragging = false;
+        let dragStartClientX = 0;
+        let dragStartX = 0;
+
+        const onPointerDown = (event) => {
+            if (!event || event.button !== 0) return;
+            dragging = true;
+            dragStartClientX = event.clientX;
+            dragStartX = diamondSimTickZoomState?.x || 0;
+            try { svg.setPointerCapture(event.pointerId); } catch (_) {}
+            svg.style.cursor = 'grabbing';
+        };
+        const onPointerMove = (event) => {
+            if (!dragging) return;
+            const state = diamondSimTickZoomState || { points: 0, zoom: 1, x: 0, baseW: 1, baseH: 120 };
+            const bbox = svg.getBoundingClientRect();
+            if (!bbox || bbox.width <= 0) return;
+            const viewW = state.baseW / (state.zoom || 1);
+            const dxPx = event.clientX - dragStartClientX;
+            const dxV = (dxPx / bbox.width) * viewW;
+            let nextX = dragStartX - dxV;
+            nextX = Math.max(0, Math.min(Math.max(0, state.baseW - viewW), nextX));
+            diamondSimTickZoomState = { ...state, x: nextX };
+            renderDiamondSimulationTickChart(diamondSimLastEntriesForChart);
+        };
+        const onPointerUp = () => {
+            if (!dragging) return;
+            dragging = false;
+            svg.style.cursor = 'grab';
+        };
+
+        svg.addEventListener('pointerdown', onPointerDown);
+        svg.addEventListener('pointermove', onPointerMove);
+        svg.addEventListener('pointerup', onPointerUp);
+        svg.addEventListener('pointercancel', onPointerUp);
+
+        svg.dataset.zoomBound = '1';
+    }
+
+    function renderDiamondSimulationTickChart(entries) {
+        const balanceEl = document.getElementById('diamondSimEquityBalance');
+        const lossEl = document.getElementById('diamondSimEquityLoss');
+        const svg = document.getElementById('diamondSimTicksSvg');
+        const baselineEl = document.getElementById('diamondSimTicksBaseline');
+        const maxLineEl = document.getElementById('diamondSimTicksMaxLine');
+        const minLineEl = document.getElementById('diamondSimTicksMinLine');
+        const currentLineEl = document.getElementById('diamondSimTicksCurrentLine');
+        const winPathEl = document.getElementById('diamondSimTicksWinPath');
+        const lossPathEl = document.getElementById('diamondSimTicksLossPath');
+        if (!balanceEl || !lossEl || !svg || !baselineEl || !maxLineEl || !minLineEl || !currentLineEl || !winPathEl || !lossPathEl) return;
+
+        attachDiamondSimZoomHandlers(svg);
+
+        const allEntries = Array.isArray(entries) ? entries : [];
+        diamondSimLastEntriesForChart = allEntries;
+        const rawConfig = (latestAnalyzerConfig && latestAnalyzerConfig.autoBetConfig) ? latestAnalyzerConfig.autoBetConfig : null;
+        const autoBetConfig = (typeof sanitizeAutoBetConfig === 'function')
+            ? sanitizeAutoBetConfig(rawConfig)
+            : (rawConfig || {});
+
+        const snapshot = computeDiamondSimulationProfitSnapshot(allEntries, autoBetConfig);
+        balanceEl.textContent = formatCurrencyBRL(snapshot.balance);
+        lossEl.textContent = formatCurrencyBRL(snapshot.loss);
+
+        const stageIndexFromEntry = (e) => {
+            const raw = (e && (e.martingaleStage || e.phase || e.wonAt)) ? String(e.martingaleStage || e.phase || e.wonAt) : 'ENTRADA';
+            const s = raw.toUpperCase();
+            if (s === 'ENTRADA' || s === 'G0') return 0;
+            const m = s.match(/^G(\d+)$/);
+            if (!m) return 0;
+            const n = Number(m[1]);
+            return Number.isFinite(n) && n >= 0 ? n : 0;
+        };
+        const resolveBetColor = (e) => {
+            const raw = e && e.patternData && e.patternData.color ? e.patternData.color : null;
+            const c = String(raw || '').toLowerCase();
+            if (c === 'red' || c === 'black' || c === 'white') return c;
+            return 'red';
+        };
+
+        // ✅ Agora é cumulativo (como no seu desenho): cada tracinho começa onde o anterior terminou.
+        // Ordem: igual aos sinais (histórico é newest-first) → inverter para desenhar da esquerda p/ direita em ordem cronológica.
+        const attemptsChron = allEntries
+            .filter(e => e && (e.result === 'WIN' || e.result === 'LOSS'))
+            .slice()
+            .reverse();
+
+        const vbH = 160;
+        const padY = 8;
+        const n = attemptsChron.length;
+        const vbW = Math.max(1, n - 1);
+        // manter zoom se for o mesmo dataset; caso contrário resetar
+        if (!diamondSimTickZoomState || diamondSimTickZoomState.points !== n || diamondSimTickZoomState.baseW !== vbW) {
+            diamondSimTickZoomState = { points: n, zoom: 1, x: 0, baseW: vbW, baseH: vbH };
+        } else {
+            diamondSimTickZoomState = { ...diamondSimTickZoomState, baseW: vbW, baseH: vbH };
+        }
+        const state = diamondSimTickZoomState;
+        const viewW = state.baseW / (state.zoom || 1);
+        const viewX = Math.max(0, Math.min(Math.max(0, state.baseW - viewW), state.x || 0));
+        diamondSimTickZoomState = { ...state, x: viewX };
+        svg.setAttribute('viewBox', `${viewX.toFixed(3)} 0 ${viewW.toFixed(3)} ${vbH}`);
+
+        const galeMult = Math.max(1, Number(snapshot.galeMult) || 2);
+        const baseStake = Math.max(0.01, Number(snapshot.baseStake) || 2);
+        const whitePayoutMultiplier = Math.max(2, Number(autoBetConfig.whitePayoutMultiplier ?? 14) || 14);
+
+        // deltas por tentativa (impacto real da entrada): LOSS = -stake; WIN = +stake*(payout-1)
+        const deltas = attemptsChron.map(e => {
+            const stageIdx = stageIndexFromEntry(e);
+            const stake = Number((baseStake * Math.pow(galeMult, stageIdx)).toFixed(2));
+            const betColor = resolveBetColor(e);
+            const payoutMult = betColor === 'white' ? whitePayoutMultiplier : 2;
+            const delta = e.result === 'WIN'
+                ? Number((stake * (payoutMult - 1)).toFixed(2))
+                : Number((-stake).toFixed(2));
+            return { e, delta };
+        });
+
+        // série cumulativa
+        let yPrevValue = 0;
+        const segments = deltas.map(({ e, delta }, idx) => {
+            const yNextValue = Number((yPrevValue + delta).toFixed(2));
+            const seg = { idx, e, delta, y0: yPrevValue, y1: yNextValue };
+            yPrevValue = yNextValue;
+            return seg;
+        });
+
+        const values = [0, ...segments.map(s => s.y0), ...segments.map(s => s.y1)];
+        let minV = Math.min(...values);
+        let maxV = Math.max(...values);
+        if (!Number.isFinite(minV) || !Number.isFinite(maxV)) { minV = -1; maxV = 1; }
+        if (Math.abs(maxV - minV) < 0.01) { maxV += 1; minV -= 1; }
+        // padding proporcional
+        const range = maxV - minV;
+        minV -= range * 0.08;
+        maxV += range * 0.08;
+
+        const yScale = (val) => {
+            const t = (val - minV) / (maxV - minV);
+            return (vbH - padY) - (t * (vbH - padY * 2));
+        };
+
+        // baseline no zero (lucro 0)
+        const yZero = yScale(0);
+        // Linhas devem ocupar SEMPRE toda a janela visível (não "encolher" com o zoom)
+        const xStart = viewX;
+        const xEnd = viewX + viewW;
+
+        baselineEl.setAttribute('d', `M ${xStart.toFixed(2)} ${yZero.toFixed(2)} L ${xEnd.toFixed(2)} ${yZero.toFixed(2)}`);
+        baselineEl.setAttribute('fill', 'none');
+        baselineEl.setAttribute('stroke', 'rgba(200,214,233,0.22)');
+        baselineEl.setAttribute('stroke-width', '0.7');
+        baselineEl.setAttribute('vector-effect', 'non-scaling-stroke');
+
+        // linhas guia: topo (máximo), fundo (mínimo) e atual (último ponto)
+        const maxGuideVal = Math.max(...values);
+        const minGuideVal = Math.min(...values);
+        const currentGuideVal = segments.length ? segments[segments.length - 1].y1 : 0;
+        const yMax = yScale(maxGuideVal);
+        const yMin = yScale(minGuideVal);
+        const yCur = yScale(currentGuideVal);
+
+        maxLineEl.setAttribute('d', `M ${xStart.toFixed(2)} ${yMax.toFixed(2)} L ${xEnd.toFixed(2)} ${yMax.toFixed(2)}`);
+        maxLineEl.setAttribute('fill', 'none');
+        maxLineEl.setAttribute('stroke', 'rgba(34,197,94,0.55)');
+        maxLineEl.setAttribute('stroke-width', '0.55');
+        maxLineEl.setAttribute('vector-effect', 'non-scaling-stroke');
+
+        minLineEl.setAttribute('d', `M ${xStart.toFixed(2)} ${yMin.toFixed(2)} L ${xEnd.toFixed(2)} ${yMin.toFixed(2)}`);
+        minLineEl.setAttribute('fill', 'none');
+        minLineEl.setAttribute('stroke', 'rgba(239,68,68,0.55)');
+        minLineEl.setAttribute('stroke-width', '0.55');
+        minLineEl.setAttribute('vector-effect', 'non-scaling-stroke');
+
+        currentLineEl.setAttribute('d', `M ${xStart.toFixed(2)} ${yCur.toFixed(2)} L ${xEnd.toFixed(2)} ${yCur.toFixed(2)}`);
+        currentLineEl.setAttribute('fill', 'none');
+        currentLineEl.setAttribute('stroke', 'rgba(255,255,255,0.6)');
+        currentLineEl.setAttribute('stroke-width', '0.55');
+        currentLineEl.setAttribute('vector-effect', 'non-scaling-stroke');
+
+        // desenhar segmentos verticais começando do fim do anterior (efeito "andando")
+        let dWin = '';
+        let dLoss = '';
+        for (const s of segments) {
+            const x = n === 1 ? 0 : s.idx;
+            const y0 = yScale(s.y0);
+            const y1 = yScale(s.y1);
+            const pathSeg = `M ${x} ${y0.toFixed(2)} L ${x} ${y1.toFixed(2)} `;
+            if (s.delta >= 0) dWin += pathSeg;
+            else dLoss += pathSeg;
+        }
+
+        // deixar mais "colado" quando há poucos pontos
+        const strokeW = n > 600 ? '0.22' : (n > 300 ? '0.35' : (n > 120 ? '0.55' : '0.85'));
+
+        winPathEl.setAttribute('d', dWin.trim());
+        winPathEl.setAttribute('fill', 'none');
+        winPathEl.setAttribute('stroke', '#22c55e');
+        winPathEl.setAttribute('stroke-width', strokeW);
+        winPathEl.setAttribute('stroke-linecap', 'butt');
+
+        lossPathEl.setAttribute('d', dLoss.trim());
+        lossPathEl.setAttribute('fill', 'none');
+        lossPathEl.setAttribute('stroke', '#ef4444');
+        lossPathEl.setAttribute('stroke-width', strokeW);
+        lossPathEl.setAttribute('stroke-linecap', 'butt');
+
+        // Labels de valores nas linhas (no início da janela visível)
+        const layer = svg.parentElement;
+        const labelMax = layer ? layer.querySelector('#diamondSimGuideMax') : null;
+        const labelMin = layer ? layer.querySelector('#diamondSimGuideMin') : null;
+        const labelCur = layer ? layer.querySelector('#diamondSimGuideCur') : null;
+        const dir = layer ? layer.querySelector('#diamondSimGuideDir') : null;
+        if (dir) {
+            dir.textContent = 'Esquerda: Antigo • Direita: Recente';
+        }
+        const bbox = svg.getBoundingClientRect();
+        if (bbox && bbox.height > 0) {
+            const yToPx = (y) => (y / vbH) * bbox.height;
+            const maxBal = snapshot.initialBank + maxGuideVal;
+            const minBal = snapshot.initialBank + minGuideVal;
+            const curBal = snapshot.initialBank + currentGuideVal;
+
+            // Texto curto (como você pediu): só +R$xx / -R$xx
+            const plusText = (v) => `+${formatCurrencyBRL(Math.abs(v))}`;
+            const minusText = (v) => `-${formatCurrencyBRL(Math.abs(v))}`;
+
+            const maxTop = Math.max(0, yToPx(yMax) - 14);     // acima da linha verde
+            const minTop = Math.min(bbox.height - 12, yToPx(yMin) + 4); // abaixo da linha vermelha
+            let curTop = Math.max(0, yToPx(yCur) - 14);       // acima da linha branca
+
+            // evitar sobreposição vertical entre ATUAL e MIN quando estiverem próximos
+            if (Math.abs(curTop - minTop) < 14) {
+                curTop = Math.max(0, minTop - 18);
+            }
+
+            if (labelMax) {
+                labelMax.textContent = `${plusText(maxGuideVal)}`;
+                labelMax.title = `Máximo: ${formatCurrencyBRL(maxBal)}`;
+                labelMax.style.top = `${maxTop}px`;
+            }
+            if (labelMin) {
+                labelMin.textContent = `${minusText(minGuideVal)}`;
+                labelMin.title = `Mínimo: ${formatCurrencyBRL(minBal)}`;
+                labelMin.style.top = `${minTop}px`;
+            }
+            if (labelCur) {
+                labelCur.textContent = `${formatCurrencyBRL(curBal)}`;
+                labelCur.title = `Atual: ${formatCurrencyBRL(curBal)}`;
+                labelCur.style.top = `${curTop}px`;
+                labelCur.style.left = 'auto';
+                labelCur.style.right = '8px';
+            }
+        }
+    }
+
+    function clearDiamondSimulationResultsOnly({ cancelIfRunning = false } = {}) {
+        if (cancelIfRunning && diamondSimulationRunning && diamondSimulationJobId) {
+            try {
+                chrome.runtime.sendMessage({ action: 'DIAMOND_SIMULATE_CANCEL', jobId: diamondSimulationJobId });
+            } catch (_) {}
+        }
+        diamondSimulationJobId = null;
+        diamondSimulationRunning = false;
+
+        const summary = document.getElementById('diamondSimulationSummary');
+        const list = document.getElementById('diamondSimEntriesList');
+        const hitEl = document.getElementById('diamondSimEntriesHit');
+        const progress = document.getElementById('diamondSimulationProgress');
+        const progressText = document.getElementById('diamondSimulationProgressText');
+        if (summary) summary.innerHTML = 'Configure e clique em <strong>Simular</strong> para ver o resultado aqui.';
+        if (list) list.innerHTML = '';
+        if (hitEl) hitEl.innerHTML = '';
+        if (progress) progress.style.display = 'none';
+        if (progressText) progressText.textContent = 'Simulando...';
+
+        renderDiamondSimulationChart({ wins: 0, losses: 0, totalCycles: 0, totalEntries: 0 });
+        renderDiamondSimulationTickChart([]);
+        setDiamondSimActiveTab('signals');
+
+        const allBtn = document.getElementById('diamondSimulateAllBtn');
+        const levelBtn = document.getElementById('diamondSimulateLevelBtn');
+        if (allBtn) allBtn.disabled = false;
+        if (levelBtn) levelBtn.disabled = false;
+    }
+
+    function resetDiamondSimulationViewUI() {
+        diamondSimulationJobId = null;
+        diamondSimulationRunning = false;
+        const summary = document.getElementById('diamondSimulationSummary');
+        const list = document.getElementById('diamondSimEntriesList');
+        const hitEl = document.getElementById('diamondSimEntriesHit');
+        const progress = document.getElementById('diamondSimulationProgress');
+        const progressText = document.getElementById('diamondSimulationProgressText');
+        const configContainer = document.getElementById('diamondSimConfigContainer');
+
+        if (summary) summary.innerHTML = 'Configure e clique em <strong>Simular</strong> para ver o resultado aqui.';
+        if (list) list.innerHTML = '';
+        if (hitEl) hitEl.innerHTML = '';
+        if (progress) progress.style.display = 'none';
+        if (progressText) progressText.textContent = 'Simulando...';
+        if (configContainer) configContainer.innerHTML = '';
+        renderDiamondSimulationChart({ wins: 0, losses: 0, totalCycles: 0, totalEntries: 0 });
+        renderDiamondSimulationTickChart([]);
+        setDiamondSimActiveTab('signals');
+
+        const allBtn = document.getElementById('diamondSimulateAllBtn');
+        const levelBtn = document.getElementById('diamondSimulateLevelBtn');
+        if (allBtn) allBtn.disabled = false;
+        if (levelBtn) levelBtn.disabled = false;
+    }
+
+    const DIAMOND_LEVELS_MODAL_DEFAULT_TITLE = 'Configurar Níveis';
+
+    function setDiamondLevelsModalTitle(text) {
+        const headerTitle = document.querySelector('#diamondLevelsModal .custom-pattern-modal-header h3');
+        if (headerTitle) headerTitle.textContent = text || DIAMOND_LEVELS_MODAL_DEFAULT_TITLE;
+    }
+
+    function restoreDiamondSimMovedNodes() {
+        // Recolocar nodes movidos para o local original
+        const items = Array.isArray(diamondSimMovedNodes) ? diamondSimMovedNodes : [];
+        items.forEach(item => {
+            if (!item || !item.node || !item.parent) return;
+            try {
+                if (item.nextSibling && item.nextSibling.parentNode === item.parent) {
+                    item.parent.insertBefore(item.node, item.nextSibling);
+                } else {
+                    item.parent.appendChild(item.node);
+                }
+            } catch (_) {}
+        });
+        diamondSimMovedNodes = [];
+
+        // Reexibir nodes escondidos
+        const hidden = Array.isArray(diamondSimHiddenNodes) ? diamondSimHiddenNodes : [];
+        hidden.forEach(node => {
+            try { node.classList.remove('diamond-sim-hidden'); } catch (_) {}
+        });
+        diamondSimHiddenNodes = [];
+    }
+
+    function applyDiamondSimMode(mode, levelId) {
+        restoreDiamondSimMovedNodes();
+        diamondSimCurrentMode = mode;
+        diamondSimCurrentLevelId = levelId || null;
+
+        const levelsModal = document.getElementById('diamondLevelsModal');
+        const body = levelsModal ? levelsModal.querySelector('.custom-pattern-modal-body') : null;
+        const configContainer = document.getElementById('diamondSimConfigContainer');
+        if (!levelsModal || !body || !configContainer) return;
+
+        configContainer.innerHTML = '';
+
+        if (mode === 'level' && levelId) {
+            const key = String(levelId).toLowerCase(); // N1 -> n1
+            const field = body.querySelector(`.diamond-level-field[data-level="${key}"]`);
+            if (field) {
+                diamondSimMovedNodes.push({ node: field, parent: field.parentNode, nextSibling: field.nextSibling });
+                configContainer.appendChild(field);
+            }
+
+            // esconder os demais níveis para focar no nível selecionado
+            const others = body.querySelectorAll('.diamond-level-field');
+            others.forEach(el => {
+                if (!el) return;
+                if (field && el === field) return;
+                el.classList.add('diamond-sim-hidden');
+                diamondSimHiddenNodes.push(el);
+            });
+        }
+        // modo "all": mantém todos os níveis visíveis e não move nada (configContainer fica vazio)
+    }
+
+    function enterDiamondSimulationView({ titleText, subtitleText } = {}) {
+        const levelsModal = document.getElementById('diamondLevelsModal');
+        const view = document.getElementById('diamondSimView');
+        if (!levelsModal || !view) return;
+
+        // subtítulo removido (evitar duplicidade com o nome do nível)
+
+        setDiamondLevelsModalTitle(titleText || 'Simulação');
+        levelsModal.classList.add('diamond-sim-active');
+        view.style.display = 'flex';
+    }
+
+    function exitDiamondSimulationView({ cancelIfRunning = false, clear = true, closeModal = false } = {}) {
+        const levelsModal = document.getElementById('diamondLevelsModal');
+        const view = document.getElementById('diamondSimView');
+        if (!levelsModal || !view) return;
+
+        if (cancelIfRunning && diamondSimulationRunning && diamondSimulationJobId) {
+            try {
+                chrome.runtime.sendMessage({ action: 'DIAMOND_SIMULATE_CANCEL', jobId: diamondSimulationJobId });
+            } catch (_) {}
+        }
+
+        levelsModal.classList.remove('diamond-sim-active');
+        view.style.display = 'none';
+
+        restoreDiamondSimMovedNodes();
+
+        if (clear) {
+            resetDiamondSimulationViewUI();
+        }
+
+        setDiamondLevelsModalTitle(DIAMOND_LEVELS_MODAL_DEFAULT_TITLE);
+
+        if (closeModal) {
+            const sidebarEl = document.getElementById('blaze-double-analyzer');
+            const isCompactMode = sidebarEl && sidebarEl.classList.contains('compact-mode');
+            try {
+                if (typeof isDesktop === 'function' && isDesktop() && isCompactMode && typeof floatingWindows !== 'undefined' && floatingWindows && typeof floatingWindows.unregister === 'function') {
+                    floatingWindows.unregister('diamondLevelsModal');
+                }
+            } catch (_) {}
+            levelsModal.style.display = 'none';
+        }
+    }
+
+    function setDiamondSimulationLoading(isLoading, text = 'Simulando...') {
+        diamondSimulationRunning = !!isLoading;
+        const progress = document.getElementById('diamondSimulationProgress');
+        const progressText = document.getElementById('diamondSimulationProgressText');
+        if (progress) progress.style.display = isLoading ? 'flex' : 'none';
+        if (progressText) progressText.textContent = text;
+
+        const allBtn = document.getElementById('diamondSimulateAllBtn');
+        const levelBtn = document.getElementById('diamondSimulateLevelBtn');
+        if (allBtn) allBtn.disabled = isLoading;
+        if (levelBtn) levelBtn.disabled = isLoading;
+    }
+
+    function updateDiamondSimulationProgress(data) {
+        if (!diamondSimulationRunning) return;
+        if (data && data.jobId && diamondSimulationJobId && data.jobId !== diamondSimulationJobId) {
+            return;
+        }
+        const processed = Number(data && data.processed) || 0;
+        const total = Number(data && data.total) || 0;
+        const pct = total > 0 ? Math.min(100, Math.round((processed / total) * 100)) : 0;
+        setDiamondSimulationLoading(true, `Simulando... ${processed}/${total} (${pct}%)`);
+    }
+
+    function renderDiamondSimulationEntries(entries) {
+        const list = document.getElementById('diamondSimEntriesList');
+        const hitEl = document.getElementById('diamondSimEntriesHit');
+        if (!list || !hitEl) return;
+
+        const allEntries = Array.isArray(entries) ? entries : [];
+        const filteredEntries = allEntries.filter(e => {
+            if (!e) return false;
+            if (e.result === 'WIN') return true;
+            if (e.result === 'LOSS') {
+                if (e.finalResult === 'RET') return true;
+                let isContinuing = false;
+                for (let key in e) {
+                    if (key.startsWith('continuingToG')) {
+                        isContinuing = true;
+                        break;
+                    }
+                }
+                if (isContinuing) return false;
+                return true;
+            }
+            return true;
+        });
+
+        const items = filteredEntries.map((e, idx) => {
+            const entryIndex = idx;
+            const time = new Date(e.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            const cls = e.color;
+            const badge = e.color === 'white' ? blazeWhiteSVG(16) : `<span>${e.number}</span>`;
+            const isWin = e.result === 'WIN';
+
+            let barClass = isWin ? 'win' : 'loss';
+            let stageText = '';
+            if (e.martingaleStage) {
+                if (isWin) {
+                    if (e.martingaleStage === 'ENTRADA' || e.wonAt === 'ENTRADA') {
+                        stageText = 'WIN';
+                    } else if (e.martingaleStage && e.martingaleStage.startsWith('G')) {
+                        const galeNum = e.martingaleStage.substring(1);
+                        stageText = `WIN <span style="color: white;">G${galeNum}</span>`;
+                    }
+                } else {
+                    if (e.finalResult === 'RET') {
+                        const stage = e.martingaleStage || e.phase;
+                        if (stage === 'ENTRADA' || stage === 'G0') {
+                            stageText = 'LOSS';
+                        } else if (stage && stage.startsWith('G')) {
+                            const galeNum = stage.substring(1);
+                            stageText = `LOSS <span style="color: white;">G${galeNum}</span>`;
+                        } else {
+                            stageText = 'LOSS';
+                        }
+                    } else {
+                        let isContinuing = false;
+                        let nextGale = '';
+                        for (let key in e) {
+                            if (key.startsWith('continuingToG')) {
+                                isContinuing = true;
+                                nextGale = key.substring('continuingTo'.length);
+                                break;
+                            }
+                        }
+                        stageText = isContinuing ? `LOSS ➜<span style="color: white;">${nextGale}</span>` : 'LOSS';
+                    }
+                }
+            } else {
+                const phaseDigit = e.phase === 'G1' ? '1' : (e.phase === 'G2' ? '2' : '');
+                stageText = phaseDigit ? (isWin ? `WIN <span style="color: white;">G${phaseDigit}</span>` : `LOSS <span style="color: white;">G${phaseDigit}</span>`) : (isWin ? 'WIN' : 'LOSS');
+            }
+
+            const confTop = (typeof e.confidence === 'number') ? `${e.confidence.toFixed(0)}%` : '';
+            const resultBar = `<div class="entry-result-bar ${barClass}"></div>`;
+            const stageLabel = stageText ? `<div class="entry-stage ${barClass}">${stageText}</div>` : '';
+            const title = `Giro: ${e.number} • Cor: ${e.color} • ${time} • Resultado: ${e.result}${e.martingaleStage ? ' • Estágio: '+e.martingaleStage : ''}${e.confidence? ' • Confiança: '+e.confidence.toFixed(1)+'%' : ''}`;
+
+            return `<div class="entry-item-wrap clickable-entry" title="${title}" data-entry-index="${entryIndex}">
+                ${confTop ? `<div class="entry-conf-top">${confTop}</div>` : ''}
+                ${stageLabel}
+                <div class="entry-item">
+                    <div class="entry-box ${cls}">${badge}</div>
+                    ${resultBar}
+                </div>
+                <div class="entry-time">${time}</div>
+            </div>`;
+        }).join('');
+
+        list.innerHTML = items || '<div class="no-history">Sem entradas registradas</div>';
+
+        const totalCycles = filteredEntries.length;
+        const wins = filteredEntries.filter(e => e.result === 'WIN').length;
+        const losses = totalCycles - wins;
+        const pct = totalCycles ? ((wins / totalCycles) * 100).toFixed(1) : '0.0';
+        const totalEntries = allEntries.length;
+        hitEl.innerHTML = `<span class="win-score">WIN: ${wins}</span> <span class="loss-score">LOSS: ${losses}</span> <span class="percentage">(${pct}%)</span> <span class="total-entries">• Entradas: ${totalEntries}</span>`;
+
+        // ✅ Atualizar gráfico com os mesmos dados
+        renderDiamondSimulationChart({ wins, losses, totalCycles, totalEntries });
+        // ✅ Atualizar gráfico por entrada (traços) usando o peso (ENTRADA/G1/G2...) do simulador
+        renderDiamondSimulationTickChart(allEntries);
+
+        const clickableEntries = list.querySelectorAll('.clickable-entry');
+        clickableEntries.forEach((entryEl) => {
+            entryEl.addEventListener('click', function() {
+                const entryIndex = parseInt(this.getAttribute('data-entry-index'), 10);
+                const entry = filteredEntries[entryIndex];
+                if (entry) {
+                    showPatternForEntry(entry);
+                }
+            });
+        });
+    }
+
+    async function buildDiamondConfigSnapshotFromModal() {
+        const getNumber = (id, min, max, fallback) => {
+            const el = document.getElementById(id);
+            if (!el) return fallback;
+            let value = Number(el.value);
+            if (!Number.isFinite(value)) value = fallback;
+            if (Number.isFinite(min)) value = Math.max(min, value);
+            if (Number.isFinite(max)) value = Math.min(max, value);
+            return value;
+        };
+        const getToggleValue = (id, fallback = true) => {
+            const el = document.getElementById(id);
+            if (!el) return fallback;
+            return !!el.checked;
+        };
+        const getCheckboxValue = (id, fallback = false) => {
+            const el = document.getElementById(id);
+            if (!el) return fallback;
+            return !!el.checked;
+        };
+
+        const newWindows = {
+            n0History: getNumber('diamondN0History', 500, 5000, DIAMOND_LEVEL_DEFAULTS.n0History),
+            n0Window: getNumber('diamondN0Window', 25, 250, DIAMOND_LEVEL_DEFAULTS.n0Window),
+            n1WindowSize: getNumber('diamondN1WindowSize', 5, 120, DIAMOND_LEVEL_DEFAULTS.n1WindowSize),
+            n1PrimaryRequirement: getNumber('diamondN1PrimaryRequirement', 5, 200, DIAMOND_LEVEL_DEFAULTS.n1PrimaryRequirement),
+            n1SecondaryRequirement: getNumber('diamondN1SecondaryRequirement', 1, 200, DIAMOND_LEVEL_DEFAULTS.n1SecondaryRequirement),
+            n1MaxEntries: getNumber('diamondN1MaxEntries', 1, 20, DIAMOND_LEVEL_DEFAULTS.n1MaxEntries),
+            n2Recent: getNumber('diamondN2Recent', 2, 20, DIAMOND_LEVEL_DEFAULTS.n2Recent),
+            n2Previous: getNumber('diamondN2Previous', 3, 200, DIAMOND_LEVEL_DEFAULTS.n2Previous),
+            n3Alternance: getNumber('diamondN3Alternance', 1, null, DIAMOND_LEVEL_DEFAULTS.n3Alternance),
+            n3PatternLength: getNumber('diamondN3PatternLength', 3, 8, DIAMOND_LEVEL_DEFAULTS.n3PatternLength),
+            n3ThresholdPct: getNumber('diamondN3ThresholdPct', 50, 95, DIAMOND_LEVEL_DEFAULTS.n3ThresholdPct),
+            n3MinOccurrences: getNumber('diamondN3MinOccurrences', 1, 50, DIAMOND_LEVEL_DEFAULTS.n3MinOccurrences),
+            n3AllowBackoff: getCheckboxValue('diamondN3AllowBackoff', DIAMOND_LEVEL_DEFAULTS.n3AllowBackoff),
+            n3IgnoreWhite: getCheckboxValue('diamondN3IgnoreWhite', DIAMOND_LEVEL_DEFAULTS.n3IgnoreWhite),
+            n4Persistence: getNumber('diamondN4Persistence', 20, 120, DIAMOND_LEVEL_DEFAULTS.n4Persistence),
+            n5MinuteBias: getNumber('diamondN5MinuteBias', 10, 200, DIAMOND_LEVEL_DEFAULTS.n5MinuteBias),
+            n6RetracementWindow: getNumber('diamondN6Retracement', 30, 120, DIAMOND_LEVEL_DEFAULTS.n6RetracementWindow),
+            n7DecisionWindow: getNumber('diamondN7DecisionWindow', 10, 50, DIAMOND_LEVEL_DEFAULTS.n7DecisionWindow),
+            n7HistoryWindow: getNumber('diamondN7HistoryWindow', 50, 200, DIAMOND_LEVEL_DEFAULTS.n7HistoryWindow),
+            n8Barrier: getNumber('diamondN8Barrier', 1, null, DIAMOND_LEVEL_DEFAULTS.n8Barrier),
+            n9History: getNumber('diamondN9History', 30, 400, DIAMOND_LEVEL_DEFAULTS.n9History),
+            n9NullThreshold: getNumber('diamondN9NullThreshold', 2, 20, DIAMOND_LEVEL_DEFAULTS.n9NullThreshold),
+            n9PriorStrength: getNumber('diamondN9PriorStrength', 0.2, 5, DIAMOND_LEVEL_DEFAULTS.n9PriorStrength),
+            n10Window: getNumber('diamondN10Window', 5, 50, DIAMOND_LEVEL_DEFAULTS.n10Window),
+            n10History: getNumber('diamondN10History', 100, 2000, DIAMOND_LEVEL_DEFAULTS.n10History)
+        };
+
+        if (newWindows.n2Previous <= newWindows.n2Recent) {
+            throw new Error('A janela anterior do Momentum (N2) deve ser maior que a janela recente.');
+        }
+        if (newWindows.n7HistoryWindow < newWindows.n7DecisionWindow) {
+            throw new Error('O histórico base do N7 deve ser maior ou igual ao número de decisões analisadas.');
+        }
+
+        const newEnabled = {
+            n0: getToggleValue('diamondLevelToggleN0', DIAMOND_LEVEL_ENABLE_DEFAULTS.n0),
+            n1: getToggleValue('diamondLevelToggleN1', DIAMOND_LEVEL_ENABLE_DEFAULTS.n1),
+            n2: getToggleValue('diamondLevelToggleN2', DIAMOND_LEVEL_ENABLE_DEFAULTS.n2),
+            n3: getToggleValue('diamondLevelToggleN3', DIAMOND_LEVEL_ENABLE_DEFAULTS.n3),
+            n4: getToggleValue('diamondLevelToggleN4', DIAMOND_LEVEL_ENABLE_DEFAULTS.n4),
+            n5: getToggleValue('diamondLevelToggleN5', DIAMOND_LEVEL_ENABLE_DEFAULTS.n5),
+            n6: getToggleValue('diamondLevelToggleN6', DIAMOND_LEVEL_ENABLE_DEFAULTS.n6),
+            n7: getToggleValue('diamondLevelToggleN7', DIAMOND_LEVEL_ENABLE_DEFAULTS.n7),
+            n8: getToggleValue('diamondLevelToggleN8', DIAMOND_LEVEL_ENABLE_DEFAULTS.n8),
+            n9: getToggleValue('diamondLevelToggleN9', DIAMOND_LEVEL_ENABLE_DEFAULTS.n9),
+            n10: getToggleValue('diamondLevelToggleN10', DIAMOND_LEVEL_ENABLE_DEFAULTS.n10)
+        };
+
+        const allowBlockCheckbox = document.getElementById('diamondN0AllowBlockAll');
+        const allowBlockAll = allowBlockCheckbox ? !!allowBlockCheckbox.checked : true;
+
+        const storageData = await storageCompat.get(['analyzerConfig']);
+        const currentConfig = storageData.analyzerConfig || {};
+        const signalIntensitySelect = document.getElementById('signalIntensitySelect');
+        const signalIntensity = signalIntensitySelect
+            ? (signalIntensitySelect.value === 'conservative' ? 'conservative' : 'aggressive')
+            : (currentConfig.signalIntensity === 'conservative' ? 'conservative' : 'aggressive');
+
+        return {
+            ...currentConfig,
+            aiMode: true,
+            signalIntensity,
+            diamondLevelWindows: {
+                ...(currentConfig.diamondLevelWindows || {}),
+                ...newWindows
+            },
+            diamondLevelEnabled: {
+                ...currentConfig.diamondLevelEnabled,
+                ...newEnabled
+            },
+            minuteSpinWindow: newWindows.n5MinuteBias,
+            n0AllowBlockAll: allowBlockAll
+        };
+    }
+
+    async function startDiamondSimulation(mode, levelId = null) {
+        try {
+            if (diamondSimulationRunning) return;
+            ensureDiamondSimulationView();
+
+            const levelLabel = mode === 'level' ? String(levelId || '').toUpperCase() : 'TODOS';
+            enterDiamondSimulationView({
+                titleText: 'Simulação',
+                subtitleText: mode === 'level' ? `Simulando: ${levelLabel}` : 'Simulando: todos os níveis ativos'
+            });
+            applyDiamondSimMode(mode, levelId);
+            setDiamondSimulationLoading(true, 'Simulando...');
+
+            const summary = document.getElementById('diamondSimulationSummary');
+            if (summary) {
+                summary.innerHTML = `Preparando simulação...`;
+            }
+            const cfg = await buildDiamondConfigSnapshotFromModal();
+
+            // ✅ Permite cancelar durante a execução (jobId definido ANTES do request)
+            diamondSimulationJobId = `diamond-sim-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+
+            const requestPayload = {
+                action: 'DIAMOND_SIMULATE_PAST',
+                mode: mode === 'level' ? 'level' : 'all',
+                levelId: mode === 'level' ? levelId : null,
+                jobId: diamondSimulationJobId,
+                config: cfg
+            };
+
+            chrome.runtime.sendMessage(requestPayload, (response) => {
+                const err = chrome.runtime.lastError;
+                if (err) {
+                    console.warn('⚠️ Erro na simulação:', err);
+                    setDiamondSimulationLoading(false);
+                    diamondSimulationJobId = null;
+                    if (summary) summary.innerHTML = `❌ Falha ao simular: ${err.message || err}`;
+                    return;
+                }
+                if (!response) {
+                    setDiamondSimulationLoading(false);
+                    diamondSimulationJobId = null;
+                    if (summary) summary.innerHTML = `❌ Falha ao simular: resposta inválida`;
+                    return;
+                }
+                if (response.status === 'cancelled') {
+                    setDiamondSimulationLoading(false);
+                    diamondSimulationJobId = null;
+                    if (summary) summary.innerHTML = '⏹️ Simulação cancelada.';
+                    return;
+                }
+                if (response.status !== 'success') {
+                    setDiamondSimulationLoading(false);
+                    diamondSimulationJobId = null;
+                    if (summary) summary.innerHTML = `❌ Falha ao simular: ${response && response.error ? response.error : 'resposta inválida'}`;
+                    return;
+                }
+
+                diamondSimulationJobId = response.jobId || null;
+                const meta = response.meta || {};
+                const stats = response.stats || {};
+                const label = response.label || (mode === 'level' ? `Nível ${levelId}` : 'Todos os níveis');
+
+                if (summary) {
+                    const from = meta.fromTimestamp ? new Date(meta.fromTimestamp).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—';
+                    const to = meta.toTimestamp ? new Date(meta.toTimestamp).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—';
+                    summary.innerHTML =
+                        `<strong>${label}</strong><br>` +
+                        `Giros analisados: <strong>${meta.totalSpins || 0}</strong><br>` +
+                        `Período: <strong>${from}</strong> → <strong>${to}</strong><br>` +
+                        `Sinais gerados: <strong>${meta.totalSignals || 0}</strong> • Ciclos: <strong>${stats.totalCycles || 0}</strong>`;
+                }
+
+                renderDiamondSimulationEntries(response.entries || []);
+                setDiamondSimulationLoading(false);
+            });
+        } catch (error) {
+            console.warn('⚠️ Falha ao iniciar simulação:', error);
+            setDiamondSimulationLoading(false);
+            diamondSimulationJobId = null;
+            const summary = document.getElementById('diamondSimulationSummary');
+            if (summary) summary.innerHTML = `❌ Falha ao simular: ${error.message || error}`;
+        }
+    }
+
+    function initializeDiamondSimulationControls() {
+        const allBtn = document.getElementById('diamondSimulateAllBtn');
+        const levelBtn = document.getElementById('diamondSimulateLevelBtn');
+        const dropdown = document.getElementById('diamondSimulateLevelDropdown');
+
+        if (allBtn && !allBtn.dataset.listenerAttached) {
+            allBtn.addEventListener('click', () => startDiamondSimulation('all'));
+            allBtn.dataset.listenerAttached = '1';
+        }
+
+        if (levelBtn && dropdown && !levelBtn.dataset.listenerAttached) {
+            const closeDropdown = () => { dropdown.style.display = 'none'; };
+            const toggleDropdown = () => {
+                dropdown.style.display = dropdown.style.display === 'none' ? 'block' : 'none';
+            };
+            levelBtn.addEventListener('click', (event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                toggleDropdown();
+            });
+            dropdown.addEventListener('click', (event) => {
+                const target = event.target;
+                const option = (target && typeof target.closest === 'function')
+                    ? target.closest('.diamond-sim-option')
+                    : null;
+                if (!option) return;
+                const levelId = option.dataset.level;
+                closeDropdown();
+                startDiamondSimulation('level', levelId);
+            });
+            document.addEventListener('click', (event) => {
+                if (!dropdown.contains(event.target) && event.target !== levelBtn) {
+                    closeDropdown();
+                }
+            });
+            levelBtn.dataset.listenerAttached = '1';
+        }
     }
 
 const VOTING_LEVEL_DOM_IDS = ['N1','N2','N3','N4','N5','N6','N7','N8'];
@@ -2789,7 +3955,7 @@ function enforceSignalIntensityAvailability(options = {}) {
     if (hintBox && hintText) {
         if (!allVotingLevelsActive) {
             hintText.innerHTML =
-                `Para ativar, deixe todos os níveis votantes <strong>N1–N8</strong> ativos em <strong>Configurar Níveis Diamante</strong>.` +
+                `Para ativar, deixe todos os níveis votantes <strong>N1–N8</strong> ativos em <strong>Configurar Níveis</strong>.` +
                 (disabledText ? `<br><strong>Desativados agora:</strong> ${disabledText}` : '');
             hintBox.style.display = 'block';
         } else {
@@ -2972,7 +4138,8 @@ function enforceSignalIntensityAvailability(options = {}) {
         });
     }
 
-    async function saveDiamondLevels() {
+    async function saveDiamondLevels(options = {}) {
+        const { silent = false, skipSync = false } = options || {};
         const modal = document.getElementById('diamondLevelsModal');
         const getNumber = (id, min, max, fallback) => {
             const el = document.getElementById(id);
@@ -3051,13 +4218,19 @@ function enforceSignalIntensityAvailability(options = {}) {
         };
 
         if (newWindows.n2Previous <= newWindows.n2Recent) {
-            alert('A janela anterior do Momentum (N2) deve ser maior que a janela recente.');
-            return;
+            if (!silent) {
+                alert('A janela anterior do Momentum (N2) deve ser maior que a janela recente.');
+                return;
+            }
+            newWindows.n2Previous = Math.min(200, Math.max(newWindows.n2Recent + 1, DIAMOND_LEVEL_DEFAULTS.n2Previous));
         }
 
         if (newWindows.n7HistoryWindow < newWindows.n7DecisionWindow) {
-            alert('O histórico base do N7 deve ser maior ou igual ao número de decisões analisadas.');
-            return;
+            if (!silent) {
+                alert('O histórico base do N7 deve ser maior ou igual ao número de decisões analisadas.');
+                return;
+            }
+            newWindows.n7HistoryWindow = Math.max(newWindows.n7DecisionWindow, DIAMOND_LEVEL_DEFAULTS.n7HistoryWindow);
         }
 
         const allowBlockCheckbox = document.getElementById('diamondN0AllowBlockAll');
@@ -3065,7 +4238,7 @@ function enforceSignalIntensityAvailability(options = {}) {
 
         try {
             // Feedback global: início do salvamento
-            showGlobalSaveLoading();
+            if (!silent) showGlobalSaveLoading();
             const storageData = await storageCompat.get(['analyzerConfig']);
             const currentConfig = storageData.analyzerConfig || {};
             const updatedConfig = {
@@ -3090,7 +4263,7 @@ function enforceSignalIntensityAvailability(options = {}) {
             } catch (error) {
                 console.warn('⚠️ Não foi possível notificar background sobre nova configuração dos níveis:', error);
             }
-            const shouldSync = getSyncConfigPreference();
+            const shouldSync = !skipSync && getSyncConfigPreference();
             if (shouldSync) {
                 try {
                     await syncConfigToServer(updatedConfig);
@@ -3099,10 +4272,12 @@ function enforceSignalIntensityAvailability(options = {}) {
                 }
             }
             // Não fechar o modal automaticamente; apenas mostrar sucesso
-            showGlobalSaveSuccess(1500);
+            if (!silent) showGlobalSaveSuccess(1500);
         } catch (err) {
             console.error('❌ Erro ao salvar configurações dos níveis diamante:', err);
-            alert('Não foi possível salvar as configurações dos níveis. Tente novamente.');
+            if (!silent) {
+                alert('Não foi possível salvar as configurações dos níveis. Tente novamente.');
+            }
         }
     }
     
@@ -7333,7 +8508,7 @@ async function persistAnalyzerState(newState) {
                         <div class="setting-item setting-row" id="customPatternsContainer" style="margin-top: 20px; padding-top: 15px; border-top: 1px solid #333;">
                             <div class="hot-pattern-actions">
                                 <button id="diamondLevelsBtn" class="btn-hot-pattern btn-diamond-levels">
-                                    Configurar Níveis Diamante
+                                    Configurar Níveis
                                 </button>
                             </div>
                         </div>
@@ -11205,6 +12380,17 @@ function logModeSnapshotUI(snapshot) {
         } else if (request.type === 'MODE_SNAPSHOT') {
             const snapshot = request.data || request.snapshot || null;
             logModeSnapshotUI(snapshot);
+        } else if (request.type === 'DIAMOND_SIMULATION_PROGRESS') {
+            updateDiamondSimulationProgress(request.data || {});
+        } else if (request.type === 'DIAMOND_SIMULATION_CANCELLED') {
+            const cancelledJobId = request.data && request.data.jobId ? request.data.jobId : null;
+            if (cancelledJobId && diamondSimulationJobId && cancelledJobId !== diamondSimulationJobId) {
+                return;
+            }
+            setDiamondSimulationLoading(false);
+            diamondSimulationJobId = null;
+            const summary = document.getElementById('diamondSimulationSummary');
+            if (summary) summary.innerHTML = '⏹️ Simulação cancelada.';
         }
     });
     
@@ -11801,7 +12987,7 @@ function logModeSnapshotUI(snapshot) {
                     const disabledVotingLevels = getDisabledVotingLevelsFromConfig(currentConfig);
                     const disabledText = disabledVotingLevels.length ? disabledVotingLevels.join(', ') : '';
                     showCenteredNotice(
-                        `Para usar o modo <strong>Conservador</strong>, ative todos os níveis votantes <strong>N1–N8</strong> em <strong>Configurar Níveis Diamante</strong>.` +
+                        `Para usar o modo <strong>Conservador</strong>, ative todos os níveis votantes <strong>N1–N8</strong> em <strong>Configurar Níveis</strong>.` +
                         (disabledText ? `<br><br><strong>Desativados agora:</strong> ${disabledText}` : ''),
                         { title: 'Modo Conservador', autoHide: 7000 }
                     );

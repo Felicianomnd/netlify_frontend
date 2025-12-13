@@ -433,6 +433,24 @@ function analyzeSafeZone(history, options = {}) {
     if (result.lastColor === result.dominant) {
         result.signal = true;
         result.reason = 'zone_active_last_is_dominant';
+
+        // ✅ NOVO FILTRO (N1): evitar "continuar sequência longa" no curto prazo
+        // Regra: se a cor do sinal já saiu 4+ vezes consecutivas nos giros mais recentes,
+        // não liberar o sinal para tentar o próximo (5º, 6º, ...).
+        // (3 consecutivos ainda é permitido; o N9 decide se a sequência de 4 é viável.)
+        const recentColor = result.dominant;
+        let recentStreak = 0;
+        for (let i = 0; i < history.length; i++) {
+            const c = history[i]?.color;
+            if (!c) break;
+            if (c === recentColor) recentStreak++;
+            else break;
+        }
+        result.recentStreak = recentStreak;
+        if (recentStreak >= 4) {
+            result.signal = false;
+            result.reason = 'recent_streak_limit';
+        }
     } else {
         result.signal = false;
         result.reason = 'last_not_dominant';
@@ -481,6 +499,8 @@ function describeSafeZoneReason(reason) {
             return 'Limite de entradas atingido';
         case 'zone_active_last_is_dominant':
             return 'Zona confirmada';
+        case 'recent_streak_limit':
+            return 'Bloqueado: sequência recente ≥ 4';
         case 'req_not_met':
         default:
             return 'Requisitos mínimos não atendidos';
@@ -21553,6 +21573,1260 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
     }
 });
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// 💎 SIMULAÇÃO NO PASSADO (BACKTEST) - MODO DIAMANTE (SEM SPOILER)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+const DIAMOND_SIMULATION_BATCH = 25;
+const diamondSimulationJobs = new Map();
+
+function makeDiamondSimulationJobId() {
+    return `diamond-sim-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function getDiamondWindowFromConfig(config, key, fallback) {
+    const windows = config && config.diamondLevelWindows ? config.diamondLevelWindows : {};
+    const rawValue = windows ? Number(windows[key]) : NaN;
+    if (Number.isFinite(rawValue) && rawValue > 0) {
+        return rawValue;
+    }
+    const legacyKeyMap = {
+        n6RetracementWindow: 'n8RetracementWindow',
+        n7DecisionWindow: 'n10DecisionWindow',
+        n7HistoryWindow: 'n10HistoryWindow',
+        n8Barrier: 'n6Barrier',
+        n0History: 'n0TotalHistory',
+        n0Window: 'n0WindowSize'
+    };
+    const legacyKey = legacyKeyMap[key];
+    if (legacyKey && Number.isFinite(Number(windows[legacyKey])) && Number(windows[legacyKey]) > 0) {
+        return Number(windows[legacyKey]);
+    }
+    if (key === 'n5MinuteBias' && Number.isFinite(Number(config && config.minuteSpinWindow))) {
+        const legacy = Number(config.minuteSpinWindow);
+        if (legacy > 0) return legacy;
+    }
+    return fallback;
+}
+
+function getDiamondBooleanFromConfig(config, key, fallback = false) {
+    const windows = config && config.diamondLevelWindows ? config.diamondLevelWindows : {};
+    if (!windows || !Object.prototype.hasOwnProperty.call(windows, key)) {
+        return fallback;
+    }
+    const raw = windows[key];
+    if (typeof raw === 'boolean') return raw;
+    if (typeof raw === 'string') {
+        const lowered = raw.trim().toLowerCase();
+        if (lowered === 'true') return true;
+        if (lowered === 'false') return false;
+        const numeric = Number(raw);
+        if (!Number.isNaN(numeric)) return numeric > 0;
+        return fallback;
+    }
+    if (typeof raw === 'number') {
+        if (!Number.isNaN(raw)) return raw > 0;
+    }
+    return fallback;
+}
+
+function getSafeZoneSettingsFromConfig(config) {
+    const windows = config?.diamondLevelWindows || {};
+    let windowSize = Number(windows.n1WindowSize) || SAFE_ZONE_DEFAULTS.windowSize;
+    let minPrimary = Number(windows.n1PrimaryRequirement) || SAFE_ZONE_DEFAULTS.primaryRequirement;
+    let minSecondary = Number(windows.n1SecondaryRequirement) || SAFE_ZONE_DEFAULTS.secondaryRequirement;
+    let maxEntries = Number(windows.n1MaxEntries) || SAFE_ZONE_DEFAULTS.maxEntries;
+
+    windowSize = Math.max(5, Math.min(200, windowSize));
+    minPrimary = Math.max(1, Math.min(windowSize - 1, minPrimary));
+    minSecondary = Math.max(1, Math.min(minPrimary - 1, minSecondary));
+    maxEntries = Math.max(1, Math.min(20, Math.floor(maxEntries)));
+
+    return { windowSize, minPrimary, minSecondary, maxEntries };
+}
+
+function getN0SettingsFromConfig(config) {
+    const windows = config && config.diamondLevelWindows ? config.diamondLevelWindows : {};
+    const historySizeRaw = Number(windows.n0History);
+    const windowSizeRaw = Number(windows.n0Window);
+    const historySize = Number.isFinite(historySizeRaw) && historySizeRaw > 0 ? Math.floor(historySizeRaw) : N0_DEFAULTS.historySize;
+    const windowSize = Number.isFinite(windowSizeRaw) && windowSizeRaw > 0 ? Math.floor(windowSizeRaw) : N0_DEFAULTS.windowSize;
+    return {
+        historySize: Math.max(200, Math.min(5000, historySize)),
+        windowSize: Math.max(25, Math.min(250, windowSize)),
+        allowBlockAll: config && config.n0AllowBlockAll !== false
+    };
+}
+
+function analyzeMomentumFromConfig(history, config) {
+    const recentWindowConfigured = Math.max(2, Math.min(20, getDiamondWindowFromConfig(config, 'n2Recent', 5)));
+    const previousWindowConfigured = Math.max(3, Math.min(200, getDiamondWindowFromConfig(config, 'n2Previous', 15)));
+    const totalNeeded = recentWindowConfigured + previousWindowConfigured;
+    const windowSize = Math.min(totalNeeded, history.length);
+    const windowSpins = history.slice(0, windowSize);
+
+    let recentSize = recentWindowConfigured;
+    let previousSize = previousWindowConfigured;
+    if (windowSpins.length < totalNeeded) {
+        const available = windowSpins.length;
+        recentSize = Math.max(2, Math.min(recentWindowConfigured, Math.floor(available / 3)));
+        previousSize = Math.max(1, available - recentSize);
+    }
+    return analyzeMomentumWithSizes(windowSpins, recentSize, previousSize);
+}
+
+function buildDiamondSingleLevelEnabledMap(levelId, baseEnabledMap = null) {
+    const allKeys = Object.keys(DEFAULT_ANALYZER_CONFIG.diamondLevelEnabled || {});
+    const enabled = {};
+    allKeys.forEach(k => { enabled[k] = false; });
+    const key = getDiamondLevelKeyFromId(levelId);
+    if (key) enabled[key] = true;
+
+    // ✅ Garantir que a Barreira N9 continue respeitada quando o usuário estiver
+    // simulando "apenas um nível" (N9 é validador/veto, não é voto).
+    // Se o usuário manteve N9 ativo na configuração base, preservamos n9 aqui.
+    if (baseEnabledMap && typeof baseEnabledMap === 'object') {
+        if (baseEnabledMap.n9 === true) {
+            enabled.n9 = true;
+        }
+    }
+    return enabled;
+}
+
+function computeIntervalBlockForSimulation(history, config, simState) {
+    const minIntervalSpins = (config?.minSignalIntervalSpins ?? config?.minIntervalSpins) || 0;
+    if (!config?.aiMode || minIntervalSpins <= 0) {
+        return { blocked: false, message: '' };
+    }
+
+    const lastSignalSpinId = simState?.lastSignalSpinId || null;
+    const lastSignalSpinTimestamp = simState?.lastSignalSpinTimestamp || null;
+
+    let spinsSince = null;
+    if (Array.isArray(history) && history.length > 0) {
+        if (lastSignalSpinId) {
+            const idx = history.findIndex(spin => spin && spin.id === lastSignalSpinId);
+            spinsSince = idx >= 0 ? idx : history.length;
+        } else if (lastSignalSpinTimestamp) {
+            const referenceTime = new Date(lastSignalSpinTimestamp).getTime();
+            if (!Number.isNaN(referenceTime)) {
+                for (let i = 0; i < history.length; i++) {
+                    const spinTime = history[i]?.timestamp ? new Date(history[i].timestamp).getTime() : NaN;
+                    if (!Number.isNaN(spinTime) && spinTime <= referenceTime) {
+                        spinsSince = i;
+                        break;
+                    }
+                }
+                if (spinsSince === null) spinsSince = history.length;
+            }
+        }
+    }
+
+    if (spinsSince === null) {
+        return { blocked: false, message: '' };
+    }
+    if (spinsSince >= minIntervalSpins) {
+        return { blocked: false, message: '' };
+    }
+    const remaining = minIntervalSpins - spinsSince;
+    return {
+        blocked: true,
+        message: `⏳ Aguardando ${remaining} giro(s)... ${spinsSince}/${minIntervalSpins}`
+    };
+}
+
+function createDiamondSimulationState(config) {
+    return {
+        config,
+        analysis: null,
+        entriesHistory: [],
+        lastSignalSpinId: null,
+        lastSignalSpinNumber: null,
+        lastSignalSpinTimestamp: null,
+        signalsHistory: { signals: [] },
+        safeZoneEntryState: { signature: null, entriesUsed: 0 },
+        alternanceEntryControl: {
+            active: false,
+            patternSignature: null,
+            entryColor: null,
+            entryCount: 0,
+            lastResult: null,
+            lastEntryTimestamp: null,
+            blockedUntil: null,
+            totalWins: 0,
+            totalLosses: 0
+        },
+        martingaleState: {
+            active: false,
+            stage: 'ENTRADA',
+            patternKey: null,
+            entryColor: null,
+            entryColorResult: null,
+            entryTimestamp: null,
+            analysisData: null,
+            lossCount: 0,
+            lossColors: [],
+            patternsWithoutHistory: 0
+        },
+        totalSignals: 0
+    };
+}
+
+function updateAlternanceControlAfterSignal(simState, hit) {
+    const ctrl = simState.alternanceEntryControl;
+    if (!ctrl || !ctrl.active) return;
+    ctrl.lastResult = hit ? 'win' : 'loss';
+    if (hit) {
+        ctrl.totalWins++;
+        if (ctrl.entryCount >= 2) {
+            ctrl.active = false;
+            ctrl.patternSignature = null;
+            ctrl.entryColor = null;
+            ctrl.entryCount = 0;
+            ctrl.lastResult = null;
+            ctrl.lastEntryTimestamp = null;
+        }
+    } else {
+        ctrl.totalLosses++;
+        if (ctrl.entryCount <= 1 || ctrl.entryCount >= 2) {
+            ctrl.active = false;
+            ctrl.patternSignature = null;
+            ctrl.entryColor = null;
+            ctrl.entryCount = 0;
+            ctrl.lastResult = null;
+            ctrl.lastEntryTimestamp = null;
+        }
+    }
+}
+
+function markLastSignalResolved(simState, newSpin, hit) {
+    const signals = simState?.signalsHistory?.signals;
+    if (!Array.isArray(signals) || signals.length === 0) return;
+    const lastSignal = signals[signals.length - 1];
+    if (!lastSignal || lastSignal.verified) return;
+    lastSignal.colorThatCame = newSpin?.color || null;
+    lastSignal.hit = !!hit;
+    lastSignal.verified = true;
+    updateAlternanceControlAfterSignal(simState, !!hit);
+}
+
+function evaluatePendingAnalysisSimulation(latestSpin, simState) {
+    const config = simState.config || {};
+    const currentAnalysis = simState.analysis;
+    if (!currentAnalysis || !currentAnalysis.createdOnTimestamp || currentAnalysis.predictedFor !== 'next') {
+        return;
+    }
+    if (currentAnalysis.createdOnTimestamp === latestSpin.timestamp) {
+        return;
+    }
+
+    const expectedColor = String(currentAnalysis.color || '').toLowerCase().trim();
+    const actualColor = String(latestSpin.color || '').toLowerCase().trim();
+    const whiteProtectionWin = !!config.whiteProtectionAsWin
+        && actualColor === 'white'
+        && (expectedColor === 'red' || expectedColor === 'black');
+    const hit = whiteProtectionWin || (expectedColor === actualColor);
+
+    // Atualizar signalsHistory (N7) + alternance control
+    markLastSignalResolved(simState, latestSpin, hit);
+
+    const martingale = simState.martingaleState;
+    const { maxGales, consecutiveMartingale } = getMartingaleSettings('diamond', config);
+
+    if (hit) {
+        let martingaleStage = 'ENTRADA';
+        if (currentAnalysis.phase === 'G1') martingaleStage = 'G1';
+        else if (currentAnalysis.phase === 'G2') martingaleStage = 'G2';
+        else if (martingale.active) martingaleStage = martingale.stage;
+
+        const winEntry = {
+            timestamp: latestSpin.timestamp,
+            number: latestSpin.number,
+            color: latestSpin.color,
+            phase: currentAnalysis.phase || 'G0',
+            result: 'WIN',
+            confidence: currentAnalysis.confidence,
+            patternData: {
+                patternDescription: currentAnalysis.patternDescription,
+                confidence: currentAnalysis.confidence,
+                color: currentAnalysis.color,
+                createdOnTimestamp: currentAnalysis.createdOnTimestamp
+            },
+            martingaleStage,
+            wonAt: martingaleStage,
+            finalResult: 'WIN',
+            analysisMode: 'diamond',
+            simulation: true
+        };
+        simState.entriesHistory.unshift(winEntry);
+
+        // Reset ciclo
+        if (martingale.active) {
+            simState.martingaleState = {
+                ...simState.martingaleState,
+                active: false,
+                stage: 'ENTRADA',
+                patternKey: null,
+                entryColor: null,
+                entryColorResult: null,
+                entryTimestamp: null,
+                analysisData: null,
+                lossCount: 0,
+                lossColors: []
+            };
+        }
+        simState.analysis = null;
+        return;
+    }
+
+    // LOSS
+    const currentStage = martingale.active ? martingale.stage : 'ENTRADA';
+    let currentGaleNumber = 0;
+    if (currentStage === 'ENTRADA') currentGaleNumber = 0;
+    else if (currentStage.startsWith('G')) currentGaleNumber = parseInt(currentStage.substring(1)) || 0;
+    const nextGaleNumber = currentGaleNumber + 1;
+    const canTryNextGale = nextGaleNumber <= maxGales;
+
+    if (currentStage === 'ENTRADA') {
+        if (!canTryNextGale) {
+            const lossEntry = {
+                timestamp: latestSpin.timestamp,
+                number: latestSpin.number,
+                color: latestSpin.color,
+                phase: 'G0',
+                result: 'LOSS',
+                confidence: currentAnalysis.confidence,
+                patternData: {
+                    patternDescription: currentAnalysis.patternDescription,
+                    confidence: currentAnalysis.confidence,
+                    color: currentAnalysis.color,
+                    createdOnTimestamp: currentAnalysis.createdOnTimestamp
+                },
+                martingaleStage: 'ENTRADA',
+                finalResult: 'RET',
+                analysisMode: 'diamond',
+                simulation: true
+            };
+            simState.entriesHistory.unshift(lossEntry);
+            simState.martingaleState = {
+                ...simState.martingaleState,
+                active: false,
+                stage: 'ENTRADA',
+                patternKey: null,
+                entryColor: null,
+                entryColorResult: null,
+                entryTimestamp: null,
+                analysisData: null,
+                lossCount: 0,
+                lossColors: []
+            };
+            simState.analysis = null;
+            return;
+        }
+
+        // Registrar LOSS da entrada e ativar ciclo
+        const entradaLossEntry = {
+            timestamp: latestSpin.timestamp,
+            number: latestSpin.number,
+            color: latestSpin.color,
+            phase: 'G0',
+            result: 'LOSS',
+            confidence: currentAnalysis.confidence,
+            patternData: {
+                patternDescription: currentAnalysis.patternDescription,
+                confidence: currentAnalysis.confidence,
+                color: currentAnalysis.color,
+                createdOnTimestamp: currentAnalysis.createdOnTimestamp
+            },
+            martingaleStage: 'ENTRADA',
+            finalResult: null,
+            continuingToG1: true,
+            analysisMode: 'diamond',
+            simulation: true
+        };
+        simState.entriesHistory.unshift(entradaLossEntry);
+
+        const patternKey = martingale.active ? martingale.patternKey : createPatternKey(currentAnalysis);
+        simState.martingaleState = {
+            ...simState.martingaleState,
+            active: true,
+            stage: 'G1',
+            patternKey,
+            entryColor: currentAnalysis.color,
+            entryColorResult: latestSpin.color,
+            entryTimestamp: currentAnalysis.createdOnTimestamp,
+            analysisData: currentAnalysis,
+            lossCount: 1,
+            lossColors: [latestSpin.color]
+        };
+
+        if (consecutiveMartingale) {
+            const g1Analysis = {
+                ...currentAnalysis,
+                color: currentAnalysis.color,
+                phase: 'G1',
+                predictedFor: 'next',
+                createdOnTimestamp: latestSpin.timestamp
+            };
+            g1Analysis.confidence = calculateGaleConfidenceValue(g1Analysis.confidence, g1Analysis, simState.martingaleState);
+            simState.analysis = g1Analysis;
+        } else {
+            simState.analysis = null;
+        }
+        return;
+    }
+
+    // LOSS em um GALE
+    if (currentStage.startsWith('G')) {
+        if (!canTryNextGale) {
+            const retEntry = {
+                timestamp: latestSpin.timestamp,
+                number: latestSpin.number,
+                color: latestSpin.color,
+                phase: currentStage,
+                result: 'LOSS',
+                confidence: currentAnalysis.confidence,
+                patternData: {
+                    patternDescription: currentAnalysis.patternDescription,
+                    confidence: currentAnalysis.confidence,
+                    color: currentAnalysis.color,
+                    createdOnTimestamp: currentAnalysis.createdOnTimestamp
+                },
+                martingaleStage: currentStage,
+                finalResult: 'RET',
+                analysisMode: 'diamond',
+                simulation: true
+            };
+            simState.entriesHistory.unshift(retEntry);
+            simState.martingaleState = {
+                ...simState.martingaleState,
+                active: false,
+                stage: 'ENTRADA',
+                patternKey: null,
+                entryColor: null,
+                entryColorResult: null,
+                entryTimestamp: null,
+                analysisData: null,
+                lossCount: 0,
+                lossColors: []
+            };
+            simState.analysis = null;
+            return;
+        }
+
+        const nextStage = `G${nextGaleNumber}`;
+        const lossEntry = {
+            timestamp: latestSpin.timestamp,
+            number: latestSpin.number,
+            color: latestSpin.color,
+            phase: currentStage,
+            result: 'LOSS',
+            confidence: currentAnalysis.confidence,
+            patternData: {
+                patternDescription: currentAnalysis.patternDescription,
+                confidence: currentAnalysis.confidence,
+                color: currentAnalysis.color,
+                createdOnTimestamp: currentAnalysis.createdOnTimestamp
+            },
+            martingaleStage: currentStage,
+            finalResult: null,
+            [`continuingTo${nextStage}`]: true,
+            analysisMode: 'diamond',
+            simulation: true
+        };
+        simState.entriesHistory.unshift(lossEntry);
+
+        simState.martingaleState = {
+            ...simState.martingaleState,
+            active: true,
+            stage: nextStage,
+            lossCount: nextGaleNumber,
+            lossColors: [...(simState.martingaleState.lossColors || []), latestSpin.color]
+        };
+
+        if (consecutiveMartingale) {
+            const nextAnalysis = {
+                ...currentAnalysis,
+                color: simState.martingaleState.entryColor || currentAnalysis.color,
+                phase: nextStage,
+                predictedFor: 'next',
+                createdOnTimestamp: latestSpin.timestamp
+            };
+            nextAnalysis.confidence = calculateGaleConfidenceValue(nextAnalysis.confidence, nextAnalysis, simState.martingaleState);
+            simState.analysis = nextAnalysis;
+        } else {
+            simState.analysis = null;
+        }
+    }
+}
+
+function analyzeDiamondLevelsSimulation(history, config, simState) {
+    const totalDiamondLevels = DIAMOND_LEVEL_IDS.length;
+    const diamondLevelEnabledMap = {};
+    DIAMOND_LEVEL_IDS.forEach(id => {
+        diamondLevelEnabledMap[id] = isDiamondLevelEnabled(id, config);
+    });
+    const isLevelEnabledLocal = (id) => !!diamondLevelEnabledMap[id];
+    const activeDiamondLevels = DIAMOND_LEVEL_IDS.filter(id => diamondLevelEnabledMap[id]);
+
+    if (activeDiamondLevels.length === 0) {
+        return null;
+    }
+
+    const { blocked: intervalBlocked } = computeIntervalBlockForSimulation(history, config, simState);
+
+    const configuredSize = Math.min(Math.max(config.aiHistorySize || 60, 60), 2000);
+    const historySize = Math.min(configuredSize, history.length);
+
+    const lastSpinTimestamp = history[0]?.timestamp || Date.now();
+    const lastSpinPosition = history[0]?.timestamp ? identifySpinPosition(lastSpinTimestamp) : 1;
+    const nextSpinPosition = lastSpinPosition === 1 ? 2 : 1;
+    const lastSpinDate = new Date(lastSpinTimestamp);
+    const nextSpinDate = new Date(lastSpinDate);
+    if (lastSpinPosition === 2) {
+        nextSpinDate.setMinutes(nextSpinDate.getMinutes() + 1);
+    }
+    const targetMinute = nextSpinDate.getMinutes();
+
+    const clamp01Local = (value) => Math.max(0, Math.min(1, typeof value === 'number' ? value : 0));
+    const directionValue = (color) => color === 'red' ? 1 : color === 'black' ? -1 : 0;
+
+    // Pesos e meta (igual ao modo real)
+    const levelWeights = {
+        whiteDetector: 0,
+        patterns: 0.19,
+        momentum: 0.15,
+        alternance: 0.13,
+        persistence: 0.11,
+        minuteSpin: 0.095,
+        retracement: 0.085,
+        globalContinuity: 0.11,
+        barrier: 0.05,
+        bayesianCalibration: 0.08,
+        walkForward: 0.12
+    };
+
+    const levelReports = [];
+
+    // N0
+    const n0Enabled = isLevelEnabledLocal('N0');
+    const n0Settings = getN0SettingsFromConfig(config);
+    const n0Options = {
+        historySize: n0Settings.historySize,
+        windowSize: n0Settings.windowSize,
+        analysesToRun: N0_DEFAULTS.analysesToRun,
+        minWindowsRequired: N0_DEFAULTS.minWindowsRequired,
+        precisionMin: N0_DEFAULTS.precisionMin,
+        confidenceGrid: N0_DEFAULTS.confidenceGrid,
+        holdoutEnabled: N0_DEFAULTS.holdoutEnabled,
+        holdoutTolerance: N0_DEFAULTS.holdoutTolerance,
+        seed: N0_DEFAULTS.seed
+    };
+
+    let n0Result = null;
+    let n0EffectiveAction = 'no_block';
+    let n0ForceWhite = false;
+    let n0SoftBlockActive = false;
+    let n0WhiteStrength = 0;
+    let n0ActionSuppressed = false;
+
+    if (n0Enabled) {
+        try {
+            n0Result = runN0Detector(history, n0Options);
+            if (n0Result && n0Result.enabled) {
+                const actionRequested = n0Result.blocking_action || 'no_block';
+                const blockAllAllowed = n0Settings.allowBlockAll;
+                n0WhiteStrength = clamp01Local(n0Result.white_confidence || 0);
+                n0EffectiveAction = actionRequested;
+                if (actionRequested === 'block_all' && !blockAllAllowed) {
+                    n0EffectiveAction = 'no_block';
+                    n0ActionSuppressed = true;
+                }
+                n0ForceWhite = n0EffectiveAction === 'block_all' && n0Result.pred_live === 'W';
+                n0SoftBlockActive = n0EffectiveAction === 'soft_block' && n0Result.pred_live === 'W';
+            }
+        } catch (_) {
+            n0Result = { enabled: false, reason: 'Erro interno' };
+        }
+    }
+
+    levelReports.push({
+        id: 'N0',
+        name: 'Detector de Branco',
+        color: n0Result && n0Result.pred_live === 'W' ? 'white' : null,
+        weight: n0Enabled ? levelWeights.whiteDetector : 0,
+        strength: n0WhiteStrength,
+        score: 0,
+        details: !n0Enabled ? 'DESATIVADO' : (n0ForceWhite ? 'BLOCK ALL' : n0SoftBlockActive ? 'SOFT BLOCK' : 'NULO'),
+        disabled: !n0Enabled
+    });
+
+    const n0WeightModifier = (n0Enabled && n0SoftBlockActive) ? N0_DEFAULTS.softBlockFactor : 1;
+    const weightFor = (baseWeight) => baseWeight * n0WeightModifier;
+
+    // N1 - Zona Segura
+    let safeZoneVote = null;
+    let safeZoneMeta = null;
+    let patternDescription = 'Análise Nível Diamante - Simulação';
+
+    const n1Enabled = isLevelEnabledLocal('N1');
+    if (n1Enabled) {
+        const safeZoneSettings = getSafeZoneSettingsFromConfig(config);
+        safeZoneMeta = analyzeSafeZone(history, safeZoneSettings);
+        safeZoneMeta.maxEntries = safeZoneSettings.maxEntries;
+        safeZoneMeta.entriesUsed = simState.safeZoneEntryState.entriesUsed || 0;
+
+        if (!safeZoneMeta.zoneActive) {
+            simState.safeZoneEntryState = { signature: null, entriesUsed: 0 };
+        } else {
+            if (safeZoneMeta.signal) {
+                const signature = buildSafeZoneSignature(safeZoneMeta);
+                if (simState.safeZoneEntryState.signature !== signature) {
+                    simState.safeZoneEntryState = { signature, entriesUsed: 0 };
+                }
+                safeZoneMeta.entriesUsed = simState.safeZoneEntryState.entriesUsed;
+                if (simState.safeZoneEntryState.entriesUsed >= safeZoneSettings.maxEntries) {
+                    safeZoneMeta.signal = false;
+                    safeZoneMeta.reason = 'entry_limit_reached';
+                }
+            }
+        }
+
+        if (safeZoneMeta.zoneActive && safeZoneMeta.signal && safeZoneMeta.dominant) {
+            safeZoneVote = {
+                color: safeZoneMeta.dominant,
+                source: 'safe-zone',
+                confidence: safeZoneMeta.strength,
+                detail: safeZoneMeta
+            };
+            const signature = buildSafeZoneSignature(safeZoneMeta);
+            simState.safeZoneEntryState = {
+                signature,
+                entriesUsed: Math.min(safeZoneSettings.maxEntries, (simState.safeZoneEntryState.signature === signature ? simState.safeZoneEntryState.entriesUsed : 0) + 1)
+            };
+            safeZoneMeta.entriesUsed = simState.safeZoneEntryState.entriesUsed;
+            safeZoneMeta.reason = 'zone_active_last_is_dominant';
+            patternDescription = JSON.stringify({
+                type: 'safe_zone',
+                dominant: safeZoneMeta.dominant,
+                secondary: safeZoneMeta.secondary,
+                counts: safeZoneMeta.counts,
+                windowSize: safeZoneMeta.windowSize,
+                minPrimary: safeZoneMeta.minPrimary,
+                minSecondary: safeZoneMeta.minSecondary,
+                lastColor: safeZoneMeta.lastColor,
+                status: safeZoneMeta.reason,
+                entriesUsed: safeZoneMeta.entriesUsed,
+                maxEntries: safeZoneSettings.maxEntries
+            });
+        }
+    }
+
+    let patternStrength = 0;
+    let patternColor = null;
+    let patternDetailsText = n1Enabled ? 'NULO' : 'DESATIVADO';
+    if (n1Enabled && safeZoneMeta) {
+        if (safeZoneMeta.zoneActive && safeZoneMeta.signal && safeZoneVote && safeZoneVote.color) {
+            patternColor = safeZoneVote.color;
+            patternStrength = clamp01Local(safeZoneVote.confidence ?? safeZoneMeta.strength ?? 0.5);
+            const entriesInfo = safeZoneMeta.maxEntries
+                ? `${safeZoneMeta.entriesUsed}/${safeZoneMeta.maxEntries}`
+                : `${safeZoneMeta.entriesUsed || 0}`;
+            const dominantLabel = safeZoneMeta.dominant
+                ? `${safeZoneMeta.dominant.toUpperCase()} ${safeZoneMeta.counts[safeZoneMeta.dominant]}/${safeZoneMeta.windowSize}`
+                : 'Zona ativa';
+            patternDetailsText = `Dominância ${dominantLabel} • entradas ${entriesInfo}`;
+        }
+    }
+
+    levelReports.push({
+        id: 'N1',
+        name: 'Zona Segura',
+        color: patternColor,
+        weight: n1Enabled ? weightFor(levelWeights.patterns) : 0,
+        strength: patternStrength,
+        score: patternColor ? directionValue(patternColor) * patternStrength : 0,
+        details: patternDetailsText,
+        disabled: !n1Enabled,
+        meta: safeZoneMeta
+    });
+
+    // N2 - Momentum
+    const n2Enabled = isLevelEnabledLocal('N2');
+    const nivel5 = n2Enabled ? analyzeMomentumFromConfig(history, config) : null;
+    const momentumColor = n2Enabled && nivel5 ? nivel5.color : null;
+    const redMomentum = Number(nivel5?.momentum?.red ?? 0);
+    const blackMomentum = Number(nivel5?.momentum?.black ?? 0);
+    const diffMomentum = (isFinite(redMomentum) && isFinite(blackMomentum)) ? Math.abs(redMomentum - blackMomentum) : 0;
+    let momentumStrength = clamp01Local(diffMomentum / 12);
+    if (momentumStrength < 0.1) momentumStrength = momentumStrength / 2;
+    levelReports.push({
+        id: 'N2',
+        name: 'Momentum',
+        color: momentumColor,
+        weight: n2Enabled ? weightFor(levelWeights.momentum) : 0,
+        strength: n2Enabled ? momentumStrength : 0,
+        score: n2Enabled && momentumColor ? directionValue(momentumColor) * momentumStrength : 0,
+        details: n2Enabled && nivel5 ? `${nivel5.trending} | Δ ${diffMomentum.toFixed(1)} pts` : 'DESATIVADO',
+        disabled: !n2Enabled
+    });
+
+    // N3 - Alternância
+    const n3Enabled = isLevelEnabledLocal('N3');
+    const n3HistoryWindow = Math.max(1, getDiamondWindowFromConfig(config, 'n3Alternance', historySize));
+    const n3PatternLengthConfigured = Math.max(3, Math.min(8, getDiamondWindowFromConfig(config, 'n3PatternLength', 4)));
+    const n3ThresholdPctConfigured = Math.max(50, Math.min(95, getDiamondWindowFromConfig(config, 'n3ThresholdPct', 75)));
+    const n3MinOccurrencesConfigured = Math.max(1, Math.min(100, getDiamondWindowFromConfig(config, 'n3MinOccurrences', 1)));
+    const n3AllowBackoffConfigured = getDiamondBooleanFromConfig(config, 'n3AllowBackoff', DEFAULT_ANALYZER_CONFIG.diamondLevelWindows.n3AllowBackoff);
+    const n3IgnoreWhiteConfigured = getDiamondBooleanFromConfig(config, 'n3IgnoreWhite', DEFAULT_ANALYZER_CONFIG.diamondLevelWindows.n3IgnoreWhite);
+
+    const nivel7 = n3Enabled ? analyzeAlternancePattern(history, {
+        historySize: n3HistoryWindow,
+        patternLength: n3PatternLengthConfigured,
+        threshold: n3ThresholdPctConfigured / 100,
+        minOccurrences: n3MinOccurrencesConfigured,
+        allowBackoff: n3AllowBackoffConfigured,
+        ignoreWhite: n3IgnoreWhiteConfigured
+    }) : null;
+
+    const alternanceColor = n3Enabled && nivel7 && nivel7.color ? nivel7.color : null;
+    const alternanceOverrideActive = n3Enabled && Boolean(nivel7 && nivel7.override && alternanceColor);
+    let alternanceStrength = 0;
+    if (n3Enabled && alternanceColor) {
+        const baseConfidence = typeof nivel7.confidence === 'number' ? nivel7.confidence : (nivel7.probability || 0);
+        alternanceStrength = alternanceOverrideActive ? 1 : clamp01Local(baseConfidence);
+    }
+
+    levelReports.push({
+        id: 'N3',
+        name: 'Alternância',
+        color: alternanceColor,
+        weight: n3Enabled ? weightFor(levelWeights.alternance) : 0,
+        strength: n3Enabled ? alternanceStrength : 0,
+        score: n3Enabled && alternanceColor ? directionValue(alternanceColor) * alternanceStrength : 0,
+        details: n3Enabled ? (nivel7 && nivel7.details ? nivel7.details : 'NULO') : 'DESATIVADO',
+        override: alternanceOverrideActive,
+        disabled: !n3Enabled
+    });
+
+    // N4 - Persistência
+    const n4Enabled = isLevelEnabledLocal('N4');
+    const nivel9 = n4Enabled ? analyzePersistence(history, getDiamondWindowFromConfig(config, 'n4Persistence', historySize)) : null;
+    const persistenceColor = n4Enabled && nivel9 && nivel9.color ? nivel9.color : null;
+    const persistenceStrength = n4Enabled && nivel9 && nivel9.color ? clamp01Local(nivel9.confidence ?? 0.5) : 0;
+    levelReports.push({
+        id: 'N4',
+        name: 'Persistência',
+        color: persistenceColor,
+        weight: n4Enabled ? weightFor(levelWeights.persistence) : 0,
+        strength: n4Enabled ? persistenceStrength : 0,
+        score: n4Enabled && persistenceColor ? directionValue(persistenceColor) * persistenceStrength : 0,
+        details: n4Enabled && nivel9 && nivel9.color ? `Seq ${nivel9.currentSequence} • média ${nivel9.averageSequence}` : (n4Enabled ? 'NULO' : 'DESATIVADO'),
+        disabled: !n4Enabled
+    });
+
+    // N5 - Ritmo por giro
+    const n5Enabled = isLevelEnabledLocal('N5');
+    const minuteSpinWindow = Math.max(10, Math.min(200, getDiamondWindowFromConfig(config, 'n5MinuteBias', 60)));
+    const minuteBiasResult = n5Enabled ? analyzeMinuteSpinBias(history, targetMinute, nextSpinPosition, minuteSpinWindow) : null;
+    const minuteBiasColor = n5Enabled && minuteBiasResult && minuteBiasResult.color ? minuteBiasResult.color : null;
+    const minuteBiasStrength = clamp01Local(minuteBiasResult ? minuteBiasResult.confidence : 0);
+    levelReports.push({
+        id: 'N5',
+        name: 'Ritmo por Giro',
+        color: minuteBiasColor,
+        weight: n5Enabled ? weightFor(levelWeights.minuteSpin) : 0,
+        strength: n5Enabled ? minuteBiasStrength : 0,
+        score: n5Enabled && minuteBiasColor ? directionValue(minuteBiasColor) * minuteBiasStrength : 0,
+        details: n5Enabled ? (minuteBiasResult ? minuteBiasResult.details : 'NULO') : 'DESATIVADO',
+        disabled: !n5Enabled
+    });
+
+    // N6 - Retração Histórica
+    const n6Enabled = isLevelEnabledLocal('N6');
+    const retracementWindow = Math.max(30, Math.min(120, getDiamondWindowFromConfig(config, 'n6RetracementWindow', 80)));
+    const retracementResult = n6Enabled ? analyzeHistoricalRetracement(history, retracementWindow, config.signalIntensity || 'aggressive') : null;
+    levelReports.push({
+        id: 'N6',
+        name: 'Retração Histórica',
+        color: n6Enabled ? retracementResult.color : null,
+        weight: n6Enabled ? weightFor(levelWeights.retracement) : 0,
+        strength: n6Enabled ? (retracementResult.strength || 0) : 0,
+        score: n6Enabled && retracementResult.color ? directionValue(retracementResult.color) * (retracementResult.strength || 0) : 0,
+        details: n6Enabled ? retracementResult.details : 'DESATIVADO',
+        disabled: !n6Enabled
+    });
+
+    // N7 - Continuidade global
+    const n7Enabled = isLevelEnabledLocal('N7');
+    const decisionWindowConfigured = Math.max(10, Math.min(50, getDiamondWindowFromConfig(config, 'n7DecisionWindow', 20)));
+    const historyWindowConfigured = Math.max(decisionWindowConfigured, Math.min(200, getDiamondWindowFromConfig(config, 'n7HistoryWindow', 100)));
+    const continuityResult = n7Enabled ? analyzeGlobalContinuity(simState.signalsHistory, decisionWindowConfigured, historyWindowConfigured, config.signalIntensity || 'aggressive') : null;
+    levelReports.push({
+        id: 'N7',
+        name: 'Continuidade Global',
+        color: n7Enabled ? continuityResult.color : null,
+        weight: n7Enabled ? weightFor(levelWeights.globalContinuity) : 0,
+        strength: n7Enabled ? (continuityResult.strength || 0) : 0,
+        score: n7Enabled && continuityResult.color ? directionValue(continuityResult.color) * (continuityResult.strength || 0) : 0,
+        details: n7Enabled ? continuityResult.details : 'DESATIVADO',
+        disabled: !n7Enabled
+    });
+
+    // N8 - Walk-forward (id N8)
+    const n8Enabled = isLevelEnabledLocal('N8');
+    if (n8Enabled) {
+        try {
+            const windowsCfg = config.diamondLevelWindows || {};
+            const n8WindowCfg = getDiamondWindowFromConfig(config, 'n10Window', N8_DEFAULTS.windowSize);
+            const n8HistoryCfg = Number(windowsCfg.n10History) > 0 ? Number(windowsCfg.n10History) : N8_DEFAULTS.historySize;
+            const n8AnalysesCfg = Number(windowsCfg.n10Analyses) > 0 ? Number(windowsCfg.n10Analyses) : N8_DEFAULTS.analysesToRun;
+            const n8MinWindowsCfg = Number(windowsCfg.n10MinWindows) > 0 ? Number(windowsCfg.n10MinWindows) : N8_DEFAULTS.minWindowsRequired;
+            const n8ConfMinPctCfg = Number(windowsCfg.n10ConfMin) > 0 ? Number(windowsCfg.n10ConfMin) : N8_DEFAULTS.confMinLive * 100;
+            const n8ConfMinCfg = Math.max(0, Math.min(1, n8ConfMinPctCfg / 100));
+
+            const n8Result = runN8Detector(history, {
+                windowSize: n8WindowCfg,
+                historySize: n8HistoryCfg,
+                analysesToRun: n8AnalysesCfg,
+                minWindows: n8MinWindowsCfg,
+                confMinLive: n8ConfMinCfg
+            });
+
+            if (n8Result && n8Result.enabled && n8Result.color) {
+                const n8Color = n8Result.color;
+                const n8Strength = clamp01Local(n8Result.confidence || 0);
+                levelReports.push({
+                    id: 'N8',
+                    name: 'Walk-forward',
+                    color: n8Color,
+                    weight: weightFor(levelWeights.walkForward),
+                    strength: n8Strength,
+                    score: directionValue(n8Color) * n8Strength,
+                    details: n8Result.summaryText || 'Walk-forward diversificado',
+                    disabled: false
+                });
+            } else {
+                levelReports.push({
+                    id: 'N8',
+                    name: 'Walk-forward',
+                    color: null,
+                    weight: weightFor(levelWeights.walkForward),
+                    strength: 0,
+                    score: 0,
+                    details: n8Result && n8Result.summaryText ? n8Result.summaryText : 'NULO',
+                    disabled: false
+                });
+            }
+        } catch (_) {
+            levelReports.push({
+                id: 'N8',
+                name: 'Walk-forward',
+                color: null,
+                weight: weightFor(levelWeights.walkForward),
+                strength: 0,
+                score: 0,
+                details: 'Erro interno em N8',
+                disabled: false
+            });
+        }
+    } else {
+        levelReports.push({
+            id: 'N8',
+            name: 'Walk-forward',
+            color: null,
+            weight: 0,
+            strength: 0,
+            score: 0,
+            details: 'DESATIVADO',
+            disabled: true
+        });
+    }
+
+    // N10 - Calibração Bayesiana (id N10) - só calibra
+    const n10Enabled = isLevelEnabledLocal('N10');
+    let bayesResult = null;
+    if (n10Enabled) {
+        const bayesHistoryConfigured = Math.max(30, Math.min(400, getDiamondWindowFromConfig(config, 'n9History', 100)));
+        const bayesNullThresholdConfigured = Math.max(2, Math.min(20, getDiamondWindowFromConfig(config, 'n9NullThreshold', 8)));
+        const bayesPriorStrengthConfigured = Math.max(0.2, Math.min(5, getDiamondWindowFromConfig(config, 'n9PriorStrength', 1)));
+        const bayesPriorConfig = {
+            red: bayesPriorStrengthConfigured,
+            black: bayesPriorStrengthConfigured,
+            white: Math.max(0.1, bayesPriorStrengthConfigured * 0.5)
+        };
+        bayesResult = analyzeBayesianCalibration(
+            history,
+            bayesHistoryConfigured,
+            bayesPriorConfig,
+            bayesNullThresholdConfigured / 100
+        );
+
+        if (bayesResult && bayesResult.adjustments) {
+            levelReports.forEach(level => {
+                if (!level.color) return;
+                const factor = bayesResult.adjustments[level.color] ?? 1;
+                level.strength = clamp01Local((level.strength || 0) * factor);
+                level.score = directionValue(level.color) * (level.strength || 0);
+            });
+        }
+    }
+
+    levelReports.push({
+        id: 'N10',
+        name: 'Calibração Bayesiana',
+        color: null,
+        weight: 0,
+        strength: 0,
+        score: 0,
+        details: n10Enabled && bayesResult ? bayesResult.details : 'DESATIVADO',
+        disabled: !n10Enabled
+    });
+
+    // Alternância override com controle de entradas
+    let alternanceOverride = false;
+    let alternanceBlocked = false;
+    let alternanceBlockReason = '';
+
+    if (alternanceOverrideActive && alternanceColor) {
+        const otherLevelsAgreeingCount = levelReports.filter(lvl =>
+            lvl.id !== 'N3' && lvl.id !== 'N9' && lvl.color === alternanceColor
+        ).length;
+
+        const alternanceSignature = `${nivel7?.pattern}-${alternanceColor}`;
+        const now = Date.now();
+        const ctrl = simState.alternanceEntryControl;
+
+        if (ctrl.active && ctrl.patternSignature === alternanceSignature) {
+            if (ctrl.lastResult === 'loss' && ctrl.entryCount === 1) {
+                alternanceBlocked = true;
+                alternanceBlockReason = 'LOSS na 1ª entrada → bloqueado';
+            } else if (ctrl.entryCount >= 2) {
+                alternanceBlocked = true;
+                alternanceBlockReason = 'Limite de 2 entradas atingido';
+            } else if (ctrl.lastResult === 'win' && ctrl.entryCount === 1) {
+                const { consecutiveMartingale: allowsConsecutiveEntries } = getMartingaleSettings('diamond', config);
+                if (!allowsConsecutiveEntries) {
+                    alternanceBlocked = true;
+                    alternanceBlockReason = 'Entradas consecutivas desativadas';
+                }
+            }
+        }
+
+        if (!alternanceBlocked && otherLevelsAgreeingCount >= 2) {
+            alternanceOverride = true;
+
+            levelReports.forEach(lvl => {
+                if (lvl.id !== 'N3' && lvl.id !== 'N6') {
+                    lvl.score = 0;
+                    lvl.strength = 0;
+                }
+            });
+
+            if (!ctrl.active || ctrl.patternSignature !== alternanceSignature) {
+                ctrl.active = true;
+                ctrl.patternSignature = alternanceSignature;
+                ctrl.entryColor = alternanceColor;
+                ctrl.entryCount = 1;
+                ctrl.lastResult = null;
+                ctrl.lastEntryTimestamp = now;
+            } else {
+                ctrl.entryCount = 2;
+                ctrl.lastEntryTimestamp = now;
+            }
+        }
+    }
+
+    // N0 força branco
+    if (n0ForceWhite) {
+        if (intervalBlocked) return null;
+        const whiteConfidencePct = Math.max(0, Math.min(100, Math.round(n0WhiteStrength * 100)));
+        return {
+            color: 'white',
+            confidence: whiteConfidencePct,
+            probability: whiteConfidencePct,
+            reasoning: 'N0 bloqueou e forçou branco (simulação)',
+            patternDescription: 'Detector de Branco (N0)'
+        };
+    }
+
+    // Score preliminar e barreira
+    const scoreWithoutBarrier = levelReports.reduce((sum, lvl) => sum + (lvl.score * (lvl.weight || 0)), 0);
+    let predictedColor = scoreWithoutBarrier === 0
+        ? (minuteBiasColor || momentumColor || patternColor || 'red')
+        : (scoreWithoutBarrier >= 0 ? 'red' : 'black');
+    if (alternanceOverride) {
+        predictedColor = alternanceColor;
+    }
+
+    const n9Enabled = isLevelEnabledLocal('N9');
+    let barrierResult = { allowed: true, alternanceBlocked: false };
+    if (alternanceBlocked && alternanceOverrideActive) {
+        return null;
+    }
+    if (n9Enabled) {
+        barrierResult = validateSequenceBarrier(history, predictedColor, getDiamondWindowFromConfig(config, 'n8Barrier', historySize), {
+            override: alternanceOverrideActive,
+            targetRuns: nivel7 ? nivel7.alternanceTargetRuns : null,
+            maxRuns: nivel7 ? nivel7.alternanceMaxRuns : null
+        });
+        if (!barrierResult.allowed) {
+            return null;
+        }
+    }
+
+    levelReports.push({
+        id: 'N9',
+        name: 'Barreira Final',
+        color: null,
+        weight: 0,
+        strength: 0,
+        score: 0,
+        details: n9Enabled ? (barrierResult.allowed ? 'APROVADO' : 'BLOQUEADO') : 'DESATIVADO',
+        disabled: !n9Enabled
+    });
+
+    // Verificação: precisa existir voto de níveis 1-8
+    const votingLevelsOnly = levelReports.filter(lvl =>
+        lvl.id !== 'N0' && lvl.id !== 'N9' && lvl.id !== 'N10' &&
+        !lvl.disabled && lvl.color && (lvl.strength || 0) > 0
+    );
+    if (votingLevelsOnly.length === 0) {
+        return null;
+    }
+
+    // Intensidade
+    let signalIntensity = config.signalIntensity === 'conservative' ? 'conservative' : 'aggressive';
+    const votingLevelIds = ['N1','N2','N3','N4','N5','N6','N7','N8'];
+    const allVotingLevelsEnabled = votingLevelIds.every(id => diamondLevelEnabledMap[id]);
+    if (signalIntensity === 'conservative' && !allVotingLevelsEnabled) {
+        signalIntensity = 'aggressive';
+    }
+
+    if (intervalBlocked) {
+        return null;
+    }
+
+    const votingLevelsList = levelReports.filter(lvl => lvl.id !== 'N6' && lvl.id !== 'N0' && !lvl.disabled);
+    const positiveVotingLevels = votingLevelsList.filter(lvl => lvl.color && (lvl.strength || 0) > 0);
+    const negativeVotingLevels = votingLevelsList.filter(lvl => lvl.color && (lvl.strength || 0) < 0);
+    const neutralVotingLevels = votingLevelsList.filter(lvl => !lvl.color || (lvl.strength || 0) === 0);
+
+    const voteCounts = { red: 0, black: 0 };
+    positiveVotingLevels.forEach(lvl => {
+        if (lvl.color === 'red') voteCounts.red++;
+        if (lvl.color === 'black') voteCounts.black++;
+    });
+
+    const totalVotes = voteCounts.red + voteCounts.black;
+    if (totalVotes === 0) return null;
+    if (voteCounts.red === voteCounts.black) return null;
+
+    const consensusColor = voteCounts.red > voteCounts.black ? 'red' : 'black';
+
+    if (signalIntensity === 'conservative') {
+        if (voteCounts[consensusColor] < 5) return null;
+        if (!n9Enabled) return null;
+        if (!barrierResult.allowed) return null;
+        const bayesApproves = n10Enabled && bayesResult && bayesResult.color && bayesResult.color === consensusColor;
+        if (!n10Enabled || !bayesApproves) return null;
+    }
+
+    const maxVotingSlots = votingLevelsList.length;
+    const winningVotes = voteCounts[consensusColor];
+    let rawConfidence = Math.round((winningVotes / Math.max(1, maxVotingSlots)) * 100);
+    rawConfidence = Math.max(0, Math.min(100, rawConfidence));
+    const finalConfidence = Math.max(0, Math.min(100, Math.round(rawConfidence)));
+
+    return {
+        color: consensusColor,
+        confidence: finalConfidence,
+        probability: finalConfidence,
+        reasoning: 'Simulação Diamante (níveis)',
+        patternDescription,
+        safeZone: safeZoneMeta,
+        meta: {
+            votes: voteCounts,
+            neutral: neutralVotingLevels.length,
+            negative: negativeVotingLevels.length
+        }
+    };
+}
+
+function createDiamondAnalysisForNextSpin(history, simState, aiResult) {
+    if (!aiResult) return null;
+    const config = simState.config || {};
+    let aiColor = aiResult.color;
+    let aiPhase = 'G0';
+
+    if (simState.martingaleState.active && simState.martingaleState.entryColor) {
+        aiColor = simState.martingaleState.entryColor;
+        aiPhase = simState.martingaleState.stage;
+    }
+
+    const aiHistorySizeUsed = Math.min(Math.max(config.aiHistorySize || 50, 20), history.length);
+    const last10SpinsForDescription = history.slice(0, 10).map(spin => ({
+        color: spin.color,
+        number: spin.number,
+        timestamp: spin.timestamp
+    }));
+
+    const aiDescriptionData = {
+        type: 'AI_ANALYSIS',
+        color: aiColor,
+        confidence: aiResult.confidence,
+        last10Spins: last10SpinsForDescription,
+        last5Spins: last10SpinsForDescription ? last10SpinsForDescription.slice(0, 10) : [],
+        reasoning: aiResult.reasoning || aiResult.patternDescription || `Simulação baseada nos últimos ${aiHistorySizeUsed} giros.`,
+        historySize: aiHistorySizeUsed
+    };
+    const aiDescription = JSON.stringify(aiDescriptionData);
+
+    const analysis = {
+        color: aiColor,
+        confidence: aiResult.confidence,
+        patternDescription: aiDescription,
+        last10Spins: last10SpinsForDescription,
+        last5Spins: last10SpinsForDescription ? last10SpinsForDescription.slice(0, 10) : [],
+        patternType: 'ai-analysis',
+        phase: aiPhase,
+        predictedFor: 'next',
+        createdOnTimestamp: history[0].timestamp,
+        aiPattern: null
+    };
+
+    if (analysis.phase && analysis.phase !== 'G0' && analysis.phase !== 'ENTRADA') {
+        analysis.confidence = calculateGaleConfidenceValue(analysis.confidence, analysis, simState.martingaleState);
+    }
+
+    return analysis;
+}
+
+function maybeGenerateDiamondAnalysisSimulation(history, simState) {
+    const config = simState.config || {};
+    const { consecutiveMartingale } = getMartingaleSettings('diamond', config);
+
+    // Se análise pendente, não gerar outra
+    if (simState.analysis && simState.analysis.createdOnTimestamp && simState.analysis.predictedFor === 'next') {
+        const latestTs = history[0]?.timestamp;
+        if (latestTs && simState.analysis.createdOnTimestamp !== latestTs) {
+            return;
+        }
+    }
+
+    if (consecutiveMartingale && simState.martingaleState.active) {
+        return;
+    }
+
+    const aiResult = analyzeDiamondLevelsSimulation(history, config, simState);
+    if (!aiResult) return;
+
+    const analysis = createDiamondAnalysisForNextSpin(history, simState, aiResult);
+    if (!analysis) return;
+
+    simState.analysis = analysis;
+    simState.lastSignalSpinNumber = history[0]?.number ?? null;
+    simState.lastSignalSpinId = history[0]?.id ?? null;
+    simState.lastSignalSpinTimestamp = history[0]?.timestamp ?? null;
+
+    // N7 usa signalsHistory.signals verificados
+    const signal = {
+        timestamp: history[0]?.timestamp ? new Date(history[0].timestamp).getTime() : Date.now(),
+        patternType: 'nivel-diamante',
+        patternName: 'Simulação Diamante',
+        colorRecommended: analysis.color,
+        verified: false,
+        colorThatCame: null,
+        hit: null
+    };
+    if (simState.signalsHistory && Array.isArray(simState.signalsHistory.signals)) {
+        simState.signalsHistory.signals.push(signal);
+        if (simState.signalsHistory.signals.length > 200) {
+            simState.signalsHistory.signals = simState.signalsHistory.signals.slice(-200);
+        }
+    }
+
+    simState.totalSignals++;
+}
+
+function filterFinalEntries(entriesHistory) {
+    const allEntries = Array.isArray(entriesHistory) ? entriesHistory : [];
+    return allEntries.filter(e => {
+        if (!e) return false;
+        if (e.result === 'WIN') return true;
+        if (e.result === 'LOSS') {
+            if (e.finalResult === 'RET') return true;
+            let isContinuing = false;
+            for (let key in e) {
+                if (key.startsWith('continuingToG')) {
+                    isContinuing = true;
+                    break;
+                }
+            }
+            if (isContinuing) return false;
+            return true;
+        }
+        return true;
+    });
+}
+
+async function runDiamondPastSimulation({ config, mode, levelId, senderTabId, jobId }) {
+    const job = diamondSimulationJobs.get(jobId);
+    const historyMostRecentFirst = Array.isArray(cachedHistory) ? cachedHistory.slice(0, 2000) : [];
+    const chronological = historyMostRecentFirst.slice().reverse().filter(spin => spin && spin.color && spin.timestamp);
+    const totalSpins = chronological.length;
+
+    const simConfigBase = config && typeof config === 'object' ? { ...config } : {};
+    simConfigBase.aiMode = true;
+    ensureMartingaleProfiles(simConfigBase);
+
+    const simConfig = mode === 'level'
+        ? {
+            ...simConfigBase,
+            diamondLevelEnabled: buildDiamondSingleLevelEnabledMap(levelId, simConfigBase.diamondLevelEnabled || {})
+        }
+        : simConfigBase;
+
+    const simState = createDiamondSimulationState(simConfig);
+    const simHistory = [];
+
+    const fromTimestamp = chronological[0]?.timestamp || null;
+    const toTimestamp = chronological[totalSpins - 1]?.timestamp || null;
+
+    for (let i = 0; i < totalSpins; i++) {
+        if (job && job.cancelled) {
+            if (senderTabId != null) {
+                try { chrome.tabs.sendMessage(senderTabId, { type: 'DIAMOND_SIMULATION_CANCELLED', data: { jobId } }); } catch (_) {}
+            }
+            return { cancelled: true, fromTimestamp, toTimestamp, totalSpins, simState };
+        }
+
+        const spin = chronological[i];
+        simHistory.unshift(spin);
+        if (simHistory.length > 2000) simHistory.pop();
+
+        // 1) Avaliar análise pendente (giro atual resolve o sinal anterior)
+        evaluatePendingAnalysisSimulation(spin, simState);
+
+        // 2) Gerar sinal para o PRÓXIMO giro (sem ver o futuro)
+        if (i < totalSpins - 1) {
+            maybeGenerateDiamondAnalysisSimulation(simHistory, simState);
+        }
+
+        if (senderTabId != null && (i % DIAMOND_SIMULATION_BATCH === 0 || i === totalSpins - 1)) {
+            try {
+                chrome.tabs.sendMessage(senderTabId, {
+                    type: 'DIAMOND_SIMULATION_PROGRESS',
+                    data: { jobId, processed: i + 1, total: totalSpins }
+                }).catch(() => {});
+            } catch (_) {}
+            await new Promise(resolve => setTimeout(resolve, 0));
+        }
+    }
+
+    return { cancelled: false, fromTimestamp, toTimestamp, totalSpins, simState };
+}
+
 // Listen for messages from popup
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     // Log removido: redução de verbosidade
@@ -21617,6 +22891,72 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 		const snapshot = buildModeSnapshot(contextLabel, cachedHistory.length);
 		sendMessageToContent('MODE_SNAPSHOT', snapshot);
 		sendResponse({ status: 'ok', snapshot });
+        return true;
+    } else if (request.action === 'DIAMOND_SIMULATE_PAST') {
+        (async () => {
+            try {
+                const senderTabId = sender && sender.tab ? sender.tab.id : null;
+                const mode = request.mode === 'level' ? 'level' : 'all';
+                const levelId = request.levelId || null;
+                const config = request.config || {};
+
+                const requestedJobId = (typeof request.jobId === 'string' && request.jobId.trim())
+                    ? request.jobId.trim()
+                    : null;
+                const jobId = requestedJobId || makeDiamondSimulationJobId();
+                diamondSimulationJobs.set(jobId, { cancelled: false });
+
+                const result = await runDiamondPastSimulation({ config, mode, levelId, senderTabId, jobId });
+                diamondSimulationJobs.delete(jobId);
+
+                if (result.cancelled) {
+                    sendResponse({ status: 'cancelled', jobId });
+                    return;
+                }
+
+                const entries = result.simState.entriesHistory || [];
+                const filtered = filterFinalEntries(entries);
+                const wins = filtered.filter(e => e.result === 'WIN').length;
+                const totalCycles = filtered.length;
+                const losses = totalCycles - wins;
+                const pct = totalCycles ? ((wins / totalCycles) * 100) : 0;
+
+                const label = mode === 'level' && levelId ? `Simulação • ${levelId}` : 'Simulação • Todos os níveis';
+
+                sendResponse({
+                    status: 'success',
+                    jobId,
+                    label,
+                    entries,
+                    stats: {
+                        wins,
+                        losses,
+                        totalCycles,
+                        pct: Number(pct.toFixed(1))
+                    },
+                    meta: {
+                        totalSpins: result.totalSpins,
+                        totalSignals: result.simState.totalSignals,
+                        fromTimestamp: result.fromTimestamp,
+                        toTimestamp: result.toTimestamp
+                    }
+                });
+            } catch (e) {
+                console.error('❌ Falha na simulação Diamante (passado):', e);
+                sendResponse({ status: 'error', error: String(e) });
+            }
+        })();
+        return true;
+    } else if (request.action === 'DIAMOND_SIMULATE_CANCEL') {
+        const jobId = request.jobId;
+        if (jobId && diamondSimulationJobs.has(jobId)) {
+            const job = diamondSimulationJobs.get(jobId);
+            job.cancelled = true;
+            diamondSimulationJobs.set(jobId, job);
+            sendResponse({ status: 'ok', cancelled: true });
+        } else {
+            sendResponse({ status: 'ok', cancelled: false });
+        }
         return true;
     } else if (request.action === 'applyConfig') {
         console.log('%c✅ ENTROU NO else if applyConfig!', 'color: #00FF00; font-weight: bold; font-size: 16px;');

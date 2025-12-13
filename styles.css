@@ -6037,6 +6037,376 @@
     flex: 1; /* ocupa o espaço vertical, empurrando o footer para baixo */
 }
 
+/* ═══════════════════════════════════════════════════════════════════════════════ */
+/* 💎 SIMULAÇÃO (PASSADO) - TOOLBAR + DROPDOWN (DENTRO DO MODAL DE NÍVEIS)          */
+/* ═══════════════════════════════════════════════════════════════════════════════ */
+
+#diamondLevelsModal .diamond-sim-toolbar {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: nowrap; /* não empilhar */
+    margin-bottom: 12px;
+    padding: 0;
+    background: transparent;
+    border: none;
+    border-radius: 0;
+}
+
+/* dois botões com larguras iguais (lado a lado) */
+#diamondLevelsModal #diamondSimulateAllBtn {
+    flex: 1 1 0;
+    min-width: 0;
+}
+
+#diamondLevelsModal .diamond-sim-level-wrapper {
+    flex: 1 1 0;
+    min-width: 0;
+    position: relative;
+}
+
+#diamondLevelsModal #diamondSimulateLevelBtn {
+    width: 100%;
+}
+
+#diamondLevelsModal .diamond-sim-dropdown {
+    position: absolute;
+    top: calc(100% + 6px);
+    left: 0;
+    width: 100%;
+    min-width: 260px;
+    background: #0f1720;
+    border: 1px solid rgba(0, 212, 255, 0.2);
+    border-radius: 10px;
+    box-shadow: 0 12px 24px rgba(0, 0, 0, 0.45);
+    padding: 6px;
+    z-index: 10000006;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    max-height: 320px;
+    overflow-y: auto;
+}
+
+#diamondLevelsModal .diamond-sim-option {
+    background: transparent;
+    border: 1px solid transparent;
+    width: 100%;
+    text-align: left;
+    padding: 10px 10px;
+    font-size: 12px;
+    color: #c8d6e9;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: background 0.15s ease, border-color 0.15s ease, transform 0.05s ease;
+}
+
+#diamondLevelsModal .diamond-sim-option:hover {
+    background: rgba(239, 68, 68, 0.16);
+    border-color: rgba(239, 68, 68, 0.35);
+}
+
+#diamondLevelsModal .diamond-sim-option:active {
+    transform: translateY(1px);
+}
+
+#diamondLevelsModal .diamond-sim-option:focus-visible {
+    outline: 2px solid rgba(239, 68, 68, 0.45);
+    outline-offset: 1px;
+    background: rgba(239, 68, 68, 0.16);
+    border-color: rgba(239, 68, 68, 0.35);
+}
+
+/* dica removida por UX (evitar ruído visual) */
+#diamondLevelsModal .diamond-sim-hint {
+    display: none !important;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════════ */
+/* 💎 SIMULAÇÃO (PASSADO) - "PÁGINA" DENTRO DO MODAL DE NÍVEIS (SEM MODAL EXTRA)    */
+/* ═══════════════════════════════════════════════════════════════════════════════ */
+
+#diamondLevelsModal.diamond-sim-active #diamondSimView {
+    display: flex !important;
+}
+
+/* Ao simular, esconder o botão grande "Salvar" (não é foco do backtest e ocupa espaço) */
+#diamondLevelsModal.diamond-sim-active .custom-pattern-modal-footer {
+    display: none !important;
+}
+
+#diamondLevelsModal #diamondSimView {
+    display: none;
+    flex-direction: column;
+    gap: 12px;
+    background: transparent;
+    border: none;
+    border-radius: 0; /* cantos quadrados */
+    overflow: visible;
+}
+
+#diamondLevelsModal .diamond-sim-config {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+/* Compactação dos campos do nível quando aparecem na simulação */
+#diamondLevelsModal .diamond-sim-config .diamond-level-note,
+#diamondLevelsModal .diamond-sim-config .diamond-level-subnote {
+    display: none !important;
+}
+
+#diamondLevelsModal .diamond-sim-config .diamond-level-title {
+    font-size: 12px;
+    margin-bottom: 2px;
+}
+
+#diamondLevelsModal .diamond-sim-config .diamond-level-header {
+    margin-bottom: 4px;
+}
+
+#diamondLevelsModal .diamond-sim-config label,
+#diamondLevelsModal .diamond-sim-config span {
+    font-size: 11px;
+}
+
+#diamondLevelsModal .diamond-sim-config .diamond-level-double {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+}
+
+#diamondLevelsModal .diamond-sim-config .diamond-level-double div {
+    min-width: 0;
+}
+
+#diamondLevelsModal .diamond-sim-config input[type='number'] {
+    padding: 8px 10px;
+    font-size: 12px;
+}
+
+/* Durante a simulação, a toolbar de escolha (Simular todos / Simular ▾) não deve aparecer */
+#diamondLevelsModal.diamond-sim-active .diamond-sim-toolbar {
+    display: none !important;
+}
+
+#diamondLevelsModal .diamond-sim-hidden {
+    display: none !important;
+}
+
+#diamondLevelsModal .diamond-sim-view-subtitle {
+    margin-top: 0;
+    margin-bottom: 4px;
+    font-size: 11px;
+    color: rgba(200, 214, 233, 0.75);
+}
+
+#diamondLevelsModal .diamond-sim-view-body {
+    padding: 0;
+}
+
+#diamondLevelsModal .diamond-sim-view-footer {
+    display: flex;
+    gap: 10px;
+    padding: 0;
+    border-top: none;
+    background: transparent;
+}
+
+#diamondLevelsModal .diamond-sim-view-footer button {
+    flex: 1;
+}
+
+/* Botão "Simular novamente" deve ser o destaque principal */
+#diamondLevelsModal #diamondSimulationRunBtn {
+    background: #ef4444;
+    border: 1px solid #ef4444;
+    color: #ffffff;
+}
+
+#diamondLevelsModal #diamondSimulationRunBtn:hover {
+    background: #dc2626;
+}
+
+#diamondLevelsModal .diamond-sim-summary {
+    font-size: 12px;
+    color: #c8d6e9;
+    line-height: 1.45;
+    margin-bottom: 10px;
+}
+
+#diamondLevelsModal .diamond-sim-progress {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 12px;
+    color: #c8d6e9;
+    margin-top: 10px;
+    margin-bottom: 10px;
+}
+
+#diamondLevelsModal .diamond-sim-progress .spinner {
+    width: 14px;
+    height: 14px;
+    border: 2px solid rgba(239, 68, 68, 0.25);
+    border-top-color: #ef4444;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+#diamondLevelsModal .sim-entries-list {
+    max-height: 320px;
+}
+
+/* Abas "Sinais / Gráfico" dentro da simulação */
+#diamondLevelsModal #diamondSimTabs {
+    margin-top: 8px;
+}
+
+#diamondLevelsModal .diamond-sim-chart-wrap {
+    margin-top: 10px;
+    padding: 10px 0;
+}
+
+#diamondLevelsModal .diamond-sim-chart-row {
+    display: grid;
+    grid-template-columns: 54px 1fr 88px;
+    gap: 10px;
+    align-items: center;
+    margin-bottom: 10px;
+    font-size: 12px;
+}
+
+#diamondLevelsModal .diamond-sim-chart-label {
+    font-weight: 800;
+    letter-spacing: 0.4px;
+}
+
+#diamondLevelsModal .diamond-sim-chart-row.win .diamond-sim-chart-label {
+    color: #22c55e;
+}
+
+#diamondLevelsModal .diamond-sim-chart-row.loss .diamond-sim-chart-label {
+    color: #ef4444;
+}
+
+#diamondLevelsModal .diamond-sim-chart-bar {
+    height: 6px;
+    background: rgba(255, 255, 255, 0.08);
+    border-radius: 999px;
+    overflow: hidden;
+}
+
+#diamondLevelsModal .diamond-sim-chart-fill {
+    height: 100%;
+    width: 0%;
+    border-radius: 999px;
+    transition: width 0.2s ease;
+}
+
+#diamondLevelsModal .diamond-sim-chart-row.win .diamond-sim-chart-fill {
+    background: #22c55e;
+}
+
+#diamondLevelsModal .diamond-sim-chart-row.loss .diamond-sim-chart-fill {
+    background: #ef4444;
+}
+
+#diamondLevelsModal .diamond-sim-chart-value {
+    text-align: right;
+    color: rgba(200, 214, 233, 0.9);
+    font-variant-numeric: tabular-nums;
+}
+
+#diamondLevelsModal .diamond-sim-chart-foot {
+    margin-top: 8px;
+    font-size: 12px;
+    color: rgba(200, 214, 233, 0.75);
+}
+
+#diamondLevelsModal .diamond-sim-equity-metrics {
+    display: flex;
+    gap: 12px;
+    margin-top: 10px;
+    align-items: center;
+}
+
+#diamondLevelsModal .diamond-sim-equity-metric {
+    display: inline-flex;
+    gap: 8px;
+    align-items: baseline;
+    font-size: 12px;
+    color: rgba(200, 214, 233, 0.85);
+}
+
+#diamondLevelsModal .diamond-sim-equity-metric .label {
+    color: rgba(200, 214, 233, 0.65);
+    font-weight: 700;
+    letter-spacing: 0.2px;
+    text-transform: uppercase;
+    font-size: 11px;
+}
+
+#diamondLevelsModal .diamond-sim-equity-metric .value {
+    font-weight: 800;
+    color: #e5e7eb;
+    font-variant-numeric: tabular-nums;
+}
+
+#diamondLevelsModal .diamond-sim-equity-svg {
+    display: none;
+}
+
+#diamondLevelsModal .diamond-sim-ticks-svg {
+    width: 100%;
+    height: 210px;
+    margin-top: 8px;
+    display: block;
+    cursor: zoom-in;
+}
+
+#diamondLevelsModal .diamond-sim-ticks-layer {
+    position: relative;
+    width: 100%;
+    height: auto;
+}
+
+#diamondLevelsModal .diamond-sim-guide-label {
+    position: absolute;
+    left: 8px;
+    font-size: 10px;
+    font-weight: 800;
+    color: rgba(229, 231, 235, 0.95);
+    pointer-events: none;
+    text-shadow: 0 1px 2px rgba(0,0,0,0.6);
+    white-space: nowrap;
+}
+
+#diamondLevelsModal .diamond-sim-guide-label.max { color: rgba(34,197,94,0.95); }
+#diamondLevelsModal .diamond-sim-guide-label.min { color: rgba(239,68,68,0.95); }
+#diamondLevelsModal .diamond-sim-guide-label.cur {
+    color: rgba(255,255,255,0.92);
+    left: auto;
+    right: 8px; /* evitar sobreposição com o MIN */
+    text-align: right;
+    font-size: 10px;
+    font-weight: 800;
+}
+
+#diamondLevelsModal .diamond-sim-direction {
+    position: absolute;
+    right: 8px;
+    bottom: 6px;
+    font-size: 11px;
+    font-weight: 700;
+    color: rgba(200, 214, 233, 0.7);
+    pointer-events: none;
+    text-shadow: 0 1px 2px rgba(0,0,0,0.6);
+    white-space: nowrap;
+}
+
 #diamondLevelsModal .custom-pattern-modal-footer {
     padding: 0 24px 24px 24px;
     display: flex;
