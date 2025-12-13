@@ -5887,6 +5887,77 @@
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════════ */
+/* 📱 MOBILE (iPhone): MODAIS FULLSCREEN + HEADER EM 1 LINHA                        */
+/* ═══════════════════════════════════════════════════════════════════════════════ */
+
+@media (max-width: 520px) {
+    /* Configurar Níveis (fullscreen real, sem folgas e sem centralização) */
+    #diamondLevelsModal .custom-pattern-modal-content {
+        position: fixed !important;
+        inset: 0 !important;
+        left: 0 !important;
+        top: 0 !important;
+        transform: none !important;
+        width: 100% !important;
+        height: 100% !important;
+        max-width: none !important;
+        max-height: none !important;
+        margin: 0 !important;
+        border-radius: 0 !important;
+    }
+
+    #diamondLevelsModal .custom-pattern-modal-body {
+        max-height: none !important;
+        height: auto !important;
+        flex: 1 !important;
+        padding: 16px !important;
+    }
+
+    #diamondLevelsModal .custom-pattern-modal-header {
+        padding: 0 16px !important;
+        height: auto !important;
+        min-height: 56px !important;
+        padding-top: env(safe-area-inset-top, 0px) !important;
+        box-sizing: border-box !important;
+    }
+
+    #diamondLevelsModal .custom-pattern-modal-header h3 {
+        white-space: nowrap !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+        max-width: calc(100% - 90px);
+    }
+
+    /* Configurar Simulador (autoBetModal) */
+    #autoBetModal .auto-bet-modal-content {
+        width: 100% !important;
+        max-width: 100% !important;
+        height: 100% !important;
+        max-height: 100% !important;
+        border-radius: 0 !important;
+    }
+
+    #autoBetModal .auto-bet-modal-header {
+        padding: 0 16px !important;
+        height: auto !important;
+        min-height: 56px !important;
+        padding-top: env(safe-area-inset-top, 0px) !important;
+        box-sizing: border-box !important;
+    }
+
+    #autoBetModal .auto-bet-modal-header h3 {
+        white-space: nowrap !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+        max-width: calc(100% - 90px);
+    }
+
+    #autoBetModal .auto-bet-modal-body {
+        padding: 16px !important;
+    }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════════ */
 /* ⚙️ MODAL - CONFIGURAÇÃO DOS NÍVEIS DIAMANTE                                      */
 /* ═══════════════════════════════════════════════════════════════════════════════ */
 #diamondLevelsModal .custom-pattern-modal-content {

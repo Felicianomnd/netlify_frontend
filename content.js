@@ -9301,6 +9301,12 @@ async function persistAnalyzerState(newState) {
 
         const syncAutoBetModalWidth = () => {
             if (!autoBetModalContent) return;
+            // ✅ Mobile deve ser fullscreen (sem cálculos de largura)
+            if (!isDesktop()) {
+                autoBetModalContent.style.width = '100%';
+                autoBetModalContent.style.maxWidth = '100%';
+                return;
+            }
             const sidebarEl = document.getElementById('blaze-double-analyzer');
             const sidebarWidth = sidebarEl ? sidebarEl.getBoundingClientRect().width : window.innerWidth;
             const viewportLimit = window.innerWidth - 32;
@@ -9346,8 +9352,11 @@ async function persistAnalyzerState(newState) {
                 floatingWindows.register('autoBetModal');
                 // Em modo compacto, largura é controlada pelo gerenciador de janelas
             } else if (!isDesktopEnv) {
-                // Mobile: ajustar largura para caber dentro do painel
-                syncAutoBetModalWidth();
+                // ✅ Mobile: fullscreen (sem sobras laterais)
+                if (autoBetModalContent) {
+                    autoBetModalContent.style.width = '100%';
+                    autoBetModalContent.style.maxWidth = '100%';
+                }
             } else {
                 // Desktop em tela cheia: ocupar 100% da largura do painel
                 if (autoBetModalContent) {
@@ -9365,8 +9374,12 @@ async function persistAnalyzerState(newState) {
                 autoBetModalResizeHandler = () => {
                     if (isDesktop()) {
                         floatingWindows.repositionAll();
-                    } else {
-                        syncAutoBetModalWidth();
+                        return;
+                    }
+                    // ✅ Mobile: mantém fullscreen
+                    if (autoBetModalContent) {
+                        autoBetModalContent.style.width = '100%';
+                        autoBetModalContent.style.maxWidth = '100%';
                     }
                 };
                 window.addEventListener('resize', autoBetModalResizeHandler);
