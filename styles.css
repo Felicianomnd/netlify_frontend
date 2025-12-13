@@ -5904,6 +5904,7 @@
         max-height: none !important;
         margin: 0 !important;
         border-radius: 0 !important;
+        padding: 0 !important; /* ✅ sobrescreve o padding mobile antigo (que virava "container") */
     }
 
     #diamondLevelsModal .custom-pattern-modal-body {
@@ -5911,6 +5912,8 @@
         height: auto !important;
         flex: 1 !important;
         padding: 16px !important;
+        margin: 0 !important;         /* ✅ remove margens que estreitavam o conteúdo */
+        padding-right: 16px !important;
     }
 
     #diamondLevelsModal .custom-pattern-modal-header {
@@ -5919,13 +5922,26 @@
         min-height: 56px !important;
         padding-top: env(safe-area-inset-top, 0px) !important;
         box-sizing: border-box !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: space-between !important;
+        width: 100% !important;
     }
 
     #diamondLevelsModal .custom-pattern-modal-header h3 {
         white-space: nowrap !important;
         overflow: hidden !important;
         text-overflow: ellipsis !important;
-        max-width: calc(100% - 90px);
+        max-width: none !important;
+        flex: 1 1 auto !important;
+        min-width: 0 !important;
+        font-size: 15px !important;
+    }
+
+    #diamondLevelsModal #closeDiamondLevelsModal {
+        flex: 0 0 auto !important;
+        margin-left: auto !important;
+        white-space: nowrap !important;
     }
 
     /* Configurar Simulador (autoBetModal) */
@@ -5943,13 +5959,26 @@
         min-height: 56px !important;
         padding-top: env(safe-area-inset-top, 0px) !important;
         box-sizing: border-box !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: space-between !important;
+        width: 100% !important;
     }
 
     #autoBetModal .auto-bet-modal-header h3 {
         white-space: nowrap !important;
         overflow: hidden !important;
         text-overflow: ellipsis !important;
-        max-width: calc(100% - 90px);
+        max-width: none !important;
+        flex: 1 1 auto !important;
+        min-width: 0 !important;
+        font-size: 15px !important;
+    }
+
+    #autoBetModal #closeAutoBetModal {
+        flex: 0 0 auto !important;
+        margin-left: auto !important;
+        white-space: nowrap !important;
     }
 
     #autoBetModal .auto-bet-modal-body {
