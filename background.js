@@ -54,7 +54,7 @@ function getDiamondConfigSnapshot() {
         ['N0', `Hist ${getValue('n0History', N0_DEFAULTS.historySize)} | W ${getDiamondWindow('n0Window', N0_DEFAULTS.windowSize)} | BlockAll ${analyzerConfig.n0AllowBlockAll !== false ? 'sim' : 'não'}`],
         ['N1', `W ${getDiamondWindow('n1WindowSize', SAFE_ZONE_DEFAULTS.windowSize)} | minA ${getDiamondWindow('n1PrimaryRequirement', SAFE_ZONE_DEFAULTS.primaryRequirement)} | minB ${getDiamondWindow('n1SecondaryRequirement', SAFE_ZONE_DEFAULTS.secondaryRequirement)}`],
         ['N2', `Rec ${getDiamondWindow('n2Recent', 5)} | Ant ${getDiamondWindow('n2Previous', 15)}`],
-        ['N3', `Hist ${getDiamondWindow('n3Alternance', 12)} | L ${getDiamondWindow('n3PatternLength', 4)} | Rigor ${getDiamondWindow('n3ThresholdPct', 75)}% | minOcc ${getDiamondWindow('n3MinOccurrences', 1)}`],
+        ['N3', `Hist ${getDiamondWindow('n3Alternance', 12)} | Rigor ${getDiamondWindow('n3ThresholdPct', 75)}% | minOcc ${getDiamondWindow('n3MinOccurrences', 1)}`],
         ['N4', `${getDiamondWindow('n4Persistence', 20)} giros`],
         ['N5', `${getDiamondWindow('n5MinuteBias', 60)} amostras`],
         ['N6', `${getDiamondWindow('n6RetracementWindow', 80)} giros`],
@@ -8640,7 +8640,6 @@ function validateSequenceBarrier(history, predictedColor, configuredSize, altern
  *
  * Config:
  * - historySize: janela analisada (giros)
- * - patternLength (L): quantidade de blocos exigidos para considerar alternância ativa
  * - minOccurrences: mínimo de ocorrências históricas no recorte
  * - threshold: rigor mínimo (taxa de continuação do padrão) no recorte
  */
@@ -8649,7 +8648,6 @@ function analyzeAlternancePattern(history, options = {}) {
 
     const defaultSettings = {
         historySize: 60,
-        patternLength: 4, // L em blocos
         threshold: 0.75,
         minOccurrences: 1,
         allowBackoff: false,
@@ -8658,16 +8656,14 @@ function analyzeAlternancePattern(history, options = {}) {
 
     const settings = {
         historySize: Number(options.historySize) > 0 ? Number(options.historySize) : defaultSettings.historySize,
-        patternLength: Number(options.patternLength) > 0 ? Number(options.patternLength) : defaultSettings.patternLength,
         threshold: typeof options.threshold === 'number' ? options.threshold : defaultSettings.threshold,
         minOccurrences: Number(options.minOccurrences) > 0 ? Number(options.minOccurrences) : defaultSettings.minOccurrences,
         allowBackoff: !!options.allowBackoff,
         ignoreWhite: !!options.ignoreWhite
     };
 
-    // permitir valores maiores (usuário pode querer L=10, L=12, etc)
-    settings.patternLength = Math.max(3, Math.min(20, Math.floor(settings.patternLength)));
-    settings.historySize = Math.max(settings.patternLength + 1, Math.floor(Math.max(1, settings.historySize)));
+    // Comprimento é AUTOMÁTICO (não depende do usuário). historySize é a única janela obrigatória.
+    settings.historySize = Math.max(4, Math.floor(Math.max(1, settings.historySize)));
     settings.threshold = clamp01(settings.threshold);
     settings.minOccurrences = Math.max(1, Math.min(100, Math.floor(settings.minOccurrences)));
 
@@ -8736,32 +8732,66 @@ function analyzeAlternancePattern(history, options = {}) {
         if (endIdx < 0) return null;
 
         const groupSizes = [3, 2, 1];
-        let best = null;
-        let usedBackoff = false;
+
+        // mínimo de blocos para "ver" alternância sem bicar:
+        // simples: P-V-P (3 blocos) já permite prever V
+        // dupla/tripla: 2 blocos já identifica a alternância (mesmo se o bloco atual estiver incompleto)
+        const minBlocksFor = (g) => (g === 1 ? 3 : 2);
+
+        let bestStructural = null;
+        let bestPassing = null;
 
         for (const g of groupSizes) {
             const runsAll = buildRunsBackward(endIdx, g);
             if (!runsAll) continue;
 
-            const startBlocks = settings.patternLength;
-            const minBlocks = settings.allowBackoff ? 3 : startBlocks;
-            for (let blocks = startBlocks; blocks >= minBlocks; blocks--) {
-                const det = checkAlternanceRuns(runsAll, g, blocks);
+            const maxBlocks = runsAll.length;
+            const minBlocks = minBlocksFor(g);
+            // ✅ Comprimento automático: sempre tenta do maior para o menor para não "bicar" alternâncias menores.
+            const blocksToTry = [];
+            for (let b = maxBlocks; b >= minBlocks; b--) blocksToTry.push(b);
+
+            // estrutural (apenas para dizer "existe alternância")
+            for (let b of blocksToTry) {
+                const det = checkAlternanceRuns(runsAll, g, b);
                 if (!det) continue;
-                // escolher o mais "forte": mais blocos; se empatar, maior groupSize (tripla > dupla > simples)
-                if (!best ||
-                    det.blocks > best.blocks ||
-                    (det.blocks === best.blocks && det.groupSize > best.groupSize)
+                if (!bestStructural ||
+                    det.groupSize > bestStructural.groupSize ||
+                    (det.groupSize === bestStructural.groupSize && det.blocks > bestStructural.blocks)
                 ) {
-                    best = det;
-                    usedBackoff = (blocks !== settings.patternLength);
+                    bestStructural = { ...det, backoffApplied: b !== maxBlocks };
                 }
-                break; // para este g, pegamos o maior blocks possível
+                break;
+            }
+
+            // passando critérios (rigor + ocorrências)
+            for (let b of blocksToTry) {
+                const det = checkAlternanceRuns(runsAll, g, b);
+                if (!det) continue;
+                const stats = computeContinuationStats(g, b);
+                if (stats.occurrences < settings.minOccurrences) continue;
+                if (stats.rate < settings.threshold) continue;
+
+                const candidate = {
+                    ...det,
+                    backoffApplied: b !== maxBlocks,
+                    stats
+                };
+
+                if (!bestPassing ||
+                    candidate.groupSize > bestPassing.groupSize ||
+                    (candidate.groupSize === bestPassing.groupSize && candidate.blocks > bestPassing.blocks) ||
+                    (candidate.groupSize === bestPassing.groupSize && candidate.blocks === bestPassing.blocks && (candidate.stats.rate > bestPassing.stats.rate))
+                ) {
+                    bestPassing = candidate;
+                }
+                break;
             }
         }
 
-        if (!best) return null;
-        return { ...best, backoffApplied: usedBackoff };
+        if (bestPassing) return { kind: 'pass', ...bestPassing };
+        if (bestStructural) return { kind: 'struct', ...bestStructural };
+        return null;
     };
 
     const detectAtIndex = (idx, groupSize, neededBlocks) => {
@@ -8789,7 +8819,7 @@ function analyzeAlternancePattern(history, options = {}) {
     };
 
     console.log(`   📊 Total de giros disponíveis: ${Array.isArray(history) ? history.length : 0}`);
-    console.log(`   ⚙️ Config → histórico: ${settings.historySize} | L(blocos): ${settings.patternLength} | rigor: ${(settings.threshold * 100).toFixed(0)}% | min occ: ${settings.minOccurrences}`);
+    console.log(`   ⚙️ Config → histórico: ${settings.historySize} | rigor: ${(settings.threshold * 100).toFixed(0)}% | min occ: ${settings.minOccurrences}`);
     console.log(`   ⚙️ Branco sempre quebra alternância (ignorar branco = irrelevante)`);
 
     if (seq.length < 4) {
@@ -8798,7 +8828,7 @@ function analyzeAlternancePattern(history, options = {}) {
             color: null,
             pattern: 'Dados insuficientes',
             alternationRate: '0.0',
-            alternationSize: settings.patternLength,
+            alternationSize: 0,
             confidence: 0,
             details: message,
             reason: 'insufficient_history',
@@ -8808,7 +8838,7 @@ function analyzeAlternancePattern(history, options = {}) {
             alternanceRuns: null,
             alternanceTargetRuns: null,
             alternanceMaxRuns: null,
-            alternanceBaseSize: settings.patternLength
+            alternanceBaseSize: null
         };
     }
 
@@ -8818,7 +8848,7 @@ function analyzeAlternancePattern(history, options = {}) {
             color: null,
             pattern: 'Alternância',
             alternationRate: '0.0',
-            alternationSize: settings.patternLength,
+            alternationSize: 0,
             confidence: 0,
             details: 'NULO',
             reason: 'no_alternance_detected',
@@ -8828,20 +8858,27 @@ function analyzeAlternancePattern(history, options = {}) {
             alternanceRuns: null,
             alternanceTargetRuns: null,
             alternanceMaxRuns: null,
-            alternanceBaseSize: settings.patternLength
+            alternanceBaseSize: null
         };
     }
 
     const typeName = current.groupSize === 1 ? 'Simples' : (current.groupSize === 2 ? 'Dupla' : 'Tripla');
-    const { occurrences, hits, rate } = computeContinuationStats(current.groupSize, current.blocks);
+
+    // se kind === 'pass', já temos stats; senão calcular stats apenas para exibir (não votar)
+    const stats = current.kind === 'pass' && current.stats ? current.stats : computeContinuationStats(current.groupSize, current.blocks);
+    const occurrences = stats.occurrences || 0;
+    const hits = stats.hits || 0;
+    const rate = stats.rate || 0;
     const pct = (rate * 100);
 
     const meetsOcc = occurrences >= settings.minOccurrences;
     const meetsThreshold = rate >= settings.threshold;
 
-    const allowVote = meetsOcc && meetsThreshold;
+    const allowVote = current.kind === 'pass' && meetsOcc && meetsThreshold;
     const finalColor = allowVote ? current.expectedNext : null;
-    const finalConfidence = allowVote ? clamp01(rate) : 0;
+
+    const occBoost = occurrences > 0 ? Math.min(1, occurrences / Math.max(settings.minOccurrences + 2, 3)) : 0;
+    const finalConfidence = allowVote ? clamp01((rate * 0.8) + (occBoost * 0.2)) : 0;
 
     const details = [
         `Alt ${typeName}`,
@@ -12773,7 +12810,7 @@ async function analyzeWithPatternSystem(history) {
         ['N0', `Hist ${n0HistoryConfigured} | W ${n0WindowConfigured} | BlockAll ${analyzerConfig.n0AllowBlockAll !== false ? 'sim' : 'não'}`],
         ['N1', `Zona Segura → W ${n1WindowSize} | minA ${n1PrimaryRequirement} | minB ${n1SecondaryRequirement}`],
         ['N2', `Recente ${n2RecentWindow} | Anterior ${n2PreviousWindow}`],
-        ['N3', `Hist ${n3Window} | L ${getDiamondWindow('n3PatternLength', 4)} | Rigor ${getDiamondWindow('n3ThresholdPct', 75)}%`],
+        ['N3', `Hist ${n3Window} | Rigor ${getDiamondWindow('n3ThresholdPct', 75)}%`],
         ['N4', `${n4Window} giros`],
         ['N5', `${n5Window} amostras`],
         ['N6', `${n6Window} giros`],
@@ -13089,14 +13126,12 @@ async function analyzeWithPatternSystem(history) {
         // ═══════════════════════════════════════════════════════════════
         console.log('%c║  🔷 N4 - PADRÃO DE ALTERNÂNCIA (CONFIGURÁVEL)          ║', 'color: #8E44AD; font-weight: bold; font-size: 14px;');
         const n3HistoryWindow = Math.max(1, getDiamondWindow('n3Alternance', historySize));
-        const n3PatternLengthConfigured = Math.max(3, Math.min(8, getDiamondWindow('n3PatternLength', 4)));
         const n3ThresholdPctConfigured = Math.max(50, Math.min(95, getDiamondWindow('n3ThresholdPct', 75)));
         const n3MinOccurrencesConfigured = Math.max(1, Math.min(100, getDiamondWindow('n3MinOccurrences', 1)));
         const n3AllowBackoffConfigured = getDiamondBoolean('n3AllowBackoff', DEFAULT_ANALYZER_CONFIG.diamondLevelWindows.n3AllowBackoff);
         const n3IgnoreWhiteConfigured = getDiamondBoolean('n3IgnoreWhite', DEFAULT_ANALYZER_CONFIG.diamondLevelWindows.n3IgnoreWhite);
         const nivel7 = analyzeAlternancePattern(history, {
             historySize: n3HistoryWindow,
-            patternLength: n3PatternLengthConfigured,
             threshold: n3ThresholdPctConfigured / 100,
             minOccurrences: n3MinOccurrencesConfigured,
             allowBackoff: n3AllowBackoffConfigured,
@@ -13105,7 +13140,7 @@ async function analyzeWithPatternSystem(history) {
         
         console.log('%c📊 ANÁLISE DE PADRÃO:', 'color: #8E44AD; font-weight: bold;');
         console.log(`%c   Histórico analisado: ${nivel7.historyUsed || n3HistoryWindow}/${n3HistoryWindow} giros`, 'color: #8E44AD;');
-        console.log(`%c   Janela L=${nivel7.alternationSize || n3PatternLengthConfigured}: ${nivel7.windowLabel || 'N/A'}`, 'color: #8E44AD;');
+        console.log(`%c   Alternância detectada: ${nivel7.pattern || 'N/A'} • ${nivel7.details || 'N/A'}`, 'color: #8E44AD;');
         console.log(`%c   Probabilidade: ${nivel7.alternationRate || '0.0'}% (limiar ${n3ThresholdPctConfigured}%)`, 'color: #8E44AD;');
         console.log(`%c   Ocorrências históricas: ${nivel7.occurrences != null ? nivel7.occurrences : 0}`, 'color: #8E44AD;');
         console.log(`%c   Detalhes: ${nivel7.details}`, 'color: #8E44AD;');
@@ -22331,7 +22366,6 @@ function analyzeDiamondLevelsSimulation(history, config, simState) {
     // N3 - Alternância
     const n3Enabled = isLevelEnabledLocal('N3');
     const n3HistoryWindow = Math.max(1, getDiamondWindowFromConfig(config, 'n3Alternance', historySize));
-    const n3PatternLengthConfigured = Math.max(3, Math.min(8, getDiamondWindowFromConfig(config, 'n3PatternLength', 4)));
     const n3ThresholdPctConfigured = Math.max(50, Math.min(95, getDiamondWindowFromConfig(config, 'n3ThresholdPct', 75)));
     const n3MinOccurrencesConfigured = Math.max(1, Math.min(100, getDiamondWindowFromConfig(config, 'n3MinOccurrences', 1)));
     const n3AllowBackoffConfigured = getDiamondBooleanFromConfig(config, 'n3AllowBackoff', DEFAULT_ANALYZER_CONFIG.diamondLevelWindows.n3AllowBackoff);
@@ -22339,7 +22373,6 @@ function analyzeDiamondLevelsSimulation(history, config, simState) {
 
     const nivel7 = n3Enabled ? analyzeAlternancePattern(history, {
         historySize: n3HistoryWindow,
-        patternLength: n3PatternLengthConfigured,
         threshold: n3ThresholdPctConfigured / 100,
         minOccurrences: n3MinOccurrencesConfigured,
         allowBackoff: n3AllowBackoffConfigured,

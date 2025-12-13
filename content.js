@@ -2397,24 +2397,15 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                                 </label>
                             </div>
                             <div class="diamond-level-note">
-                Motor inteligente baseado em n-grams: reconhece sequências reais e só vota quando a probabilidade condicional histórica está acima do limiar configurado.
+                                Detecta alternância real (simples/dupla/tripla). O branco quebra a alternância.
                             </div>
-            <div class="diamond-level-double">
-                <div>
-                    <span>Histórico analisado (giros)</span>
-                    <input type="number" id="diamondN3Alternance" min="1" value="12" />
-                            <span class="diamond-level-subnote">
-                        Recomendado: 50-80 giros (mín. 1)
-                            </span>
-                        </div>
-                <div>
-                    <span>Comprimento da janela L</span>
-                    <input type="number" id="diamondN3PatternLength" min="3" max="8" value="4" />
-                    <span class="diamond-level-subnote">
-                        Padrão comparado (ex.: L=4 → 🔴⚫🔴⚫)
-                    </span>
-                </div>
-            </div>
+                            <div>
+                                <span>Histórico analisado (giros)</span>
+                                <input type="number" id="diamondN3Alternance" min="1" value="12" />
+                                <span class="diamond-level-subnote">
+                                    Recomendado: 50-80 giros (mín. 1)
+                                </span>
+                            </div>
             <div class="diamond-level-double">
                 <div>
                     <span>Rigor mínimo (%)</span>
@@ -2433,12 +2424,11 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
             </div>
             <label class="checkbox-label" style="margin-top: 6px;">
                 <input type="checkbox" id="diamondN3AllowBackoff" />
-                Permitir backoff (tentar janelas menores quando faltar histórico)
+                Permitir backoff (tentar padrões menores quando faltar histórico)
             </label>
-            <label class="checkbox-label" style="margin-top: 4px;">
-                <input type="checkbox" id="diamondN3IgnoreWhite" />
-                Ignorar previsões de <strong>branco</strong> (força voto NULO ao invés de WHITE)
-            </label>
+            <div class="diamond-level-subnote" style="margin-top: 6px;">
+                Observação: branco sempre quebra a alternância (não é considerado dentro do padrão).
+            </div>
                         </div>
                         <div class="diamond-level-field" data-level="n4">
                             <div class="diamond-level-header">
@@ -2695,7 +2685,9 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
     let diamondSimHiddenNodes = [];
     let diamondSimPeriodPreset = '12h'; // padrão: 12 horas
     let diamondSimHistoryLimit = 1440; // 12h * 120 giros/h
+    let diamondSimHistoryLimitRaw = 1440; // valor digitado (pode estar “em edição”)
     let diamondSimHasResults = false;
+    let diamondSimActiveTab = 'signals';
 
     const DIAMOND_SIM_SPINS_PER_MINUTE = 2;
     const DIAMOND_SIM_SPINS_PER_HOUR = 120; // 2 giros/min * 60 min
@@ -2753,9 +2745,15 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
         const tabs = document.getElementById('diamondSimTabs');
         const signalsView = document.querySelector('#diamondSimView .diamond-sim-tabview[data-view="signals"]');
         const chartView = document.querySelector('#diamondSimView .diamond-sim-tabview[data-view="chart"]');
-        if (tabs) tabs.hidden = !visible;
-        if (signalsView) signalsView.hidden = !visible;
-        if (chartView) chartView.hidden = !visible;
+        if (!visible) {
+            if (tabs) tabs.hidden = true;
+            if (signalsView) signalsView.hidden = true;
+            if (chartView) chartView.hidden = true;
+            return;
+        }
+        if (tabs) tabs.hidden = false;
+        // ✅ importante: não mostrar as duas views ao mesmo tempo
+        setDiamondSimActiveTab(diamondSimActiveTab || 'signals');
     }
 
     function updateDiamondSimRunButtonLabel() {
@@ -2768,20 +2766,21 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
         const summary = document.getElementById('diamondSimulationSummary');
         if (!summary) return;
         const preset = DIAMOND_SIM_PERIOD_PRESETS.find(p => p.id === diamondSimPeriodPreset) || null;
-        const spins = preset ? preset.spins : diamondSimHistoryLimit;
-        const approx = formatApproxHoursFromSpins(spins);
+        const spins = preset ? preset.spins : (diamondSimHistoryLimitRaw ?? diamondSimHistoryLimit);
+        const approx = spins ? formatApproxHoursFromSpins(spins) : '—';
         const periodLabel = preset
             ? (preset.id === '10k' ? approx : preset.label)
             : 'Personalizado';
         summary.innerHTML =
             `Selecione o período e clique em <strong>Simular</strong>.<br>` +
-            `Período: <strong>${periodLabel}</strong> • Giros: <strong>${spins}</strong> • Tempo: <strong>${approx}</strong>`;
+            `Período: <strong>${periodLabel}</strong> • Giros: <strong>${spins || '—'}</strong> • Tempo: <strong>${approx}</strong>`;
     }
 
     function setDiamondSimPeriodPreset(presetId, { updateSummary = true } = {}) {
         const preset = DIAMOND_SIM_PERIOD_PRESETS.find(p => p.id === presetId) || DIAMOND_SIM_PERIOD_PRESETS[3];
         diamondSimPeriodPreset = preset.id;
         diamondSimHistoryLimit = preset.spins;
+        diamondSimHistoryLimitRaw = preset.spins;
 
         const container = document.getElementById('diamondSimPeriodContainer');
         if (container) {
@@ -2793,11 +2792,12 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
         if (updateSummary) updateDiamondSimPreRunSummary();
     }
 
-    function setDiamondSimCustomHistoryLimit(spins, { updateSummary = true } = {}) {
+    function setDiamondSimCustomHistoryLimit(spins, { updateSummary = true, syncInput = false } = {}) {
         const clamped = clampDiamondSimHistoryLimit(spins);
         if (clamped == null) return;
         diamondSimPeriodPreset = 'custom';
         diamondSimHistoryLimit = clamped;
+        diamondSimHistoryLimitRaw = clamped;
 
         const container = document.getElementById('diamondSimPeriodContainer');
         if (container) {
@@ -2805,7 +2805,7 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
             btns.forEach(btn => btn.classList.remove('active'));
         }
         const customInput = document.getElementById('diamondSimCustomSpinsInput');
-        if (customInput) customInput.value = String(diamondSimHistoryLimit);
+        if (syncInput && customInput) customInput.value = String(diamondSimHistoryLimit);
         if (updateSummary) updateDiamondSimPreRunSummary();
     }
 
@@ -2845,16 +2845,37 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
         const customInput = document.getElementById('diamondSimCustomSpinsInput');
         if (customInput && !customInput.dataset.listenerAttached) {
             customInput.value = String(diamondSimHistoryLimit);
-            const onChange = () => {
-                const v = clampDiamondSimHistoryLimit(customInput.value);
-                if (v == null) return;
-                setDiamondSimCustomHistoryLimit(v);
-            };
+            // ✅ IMPORTANTE: não reescrever o valor enquanto o usuário digita (senão não consegue apagar/substituir)
             customInput.addEventListener('input', () => {
-                // atualização “ao vivo”, mas simples (sem debounce) porque é leve
-                onChange();
+                const raw = String(customInput.value || '');
+                diamondSimPeriodPreset = 'custom';
+                if (!raw) {
+                    diamondSimHistoryLimitRaw = null;
+                    updateDiamondSimPreRunSummary();
+                    return;
+                }
+                const numeric = Number(raw);
+                if (!Number.isFinite(numeric)) return;
+                diamondSimHistoryLimitRaw = Math.floor(numeric);
+                updateDiamondSimPreRunSummary();
             });
-            customInput.addEventListener('blur', () => onChange());
+            customInput.addEventListener('blur', () => {
+                const raw = String(customInput.value || '').trim();
+                const clamped = clampDiamondSimHistoryLimit(raw);
+                if (clamped == null) {
+                    // volta para o padrão se ficou vazio/inválido
+                    setDiamondSimPeriodPreset('12h');
+                    return;
+                }
+                // aqui sim aplicamos o clamp e sincronizamos o input
+                setDiamondSimCustomHistoryLimit(clamped, { syncInput: true });
+            });
+            customInput.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    customInput.blur();
+                }
+            });
             customInput.dataset.listenerAttached = '1';
         }
     }
@@ -3024,6 +3045,7 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
     }
 
     function setDiamondSimActiveTab(tab) {
+        diamondSimActiveTab = tab || 'signals';
         const tabsBar = document.getElementById('diamondSimTabs');
         if (tabsBar) {
             const tabs = tabsBar.querySelectorAll('.entries-tab');
@@ -3738,7 +3760,6 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
             n2Recent: getNumber('diamondN2Recent', 2, 20, DIAMOND_LEVEL_DEFAULTS.n2Recent),
             n2Previous: getNumber('diamondN2Previous', 3, 200, DIAMOND_LEVEL_DEFAULTS.n2Previous),
             n3Alternance: getNumber('diamondN3Alternance', 1, null, DIAMOND_LEVEL_DEFAULTS.n3Alternance),
-            n3PatternLength: getNumber('diamondN3PatternLength', 3, 8, DIAMOND_LEVEL_DEFAULTS.n3PatternLength),
             n3ThresholdPct: getNumber('diamondN3ThresholdPct', 50, 95, DIAMOND_LEVEL_DEFAULTS.n3ThresholdPct),
             n3MinOccurrences: getNumber('diamondN3MinOccurrences', 1, 50, DIAMOND_LEVEL_DEFAULTS.n3MinOccurrences),
             n3AllowBackoff: getCheckboxValue('diamondN3AllowBackoff', DIAMOND_LEVEL_DEFAULTS.n3AllowBackoff),
@@ -3813,6 +3834,10 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
             // manter a tela de simulação aberta (sem texto duplicado no cabeçalho)
             enterDiamondSimulationView({ titleText: 'Simulação' });
             applyDiamondSimMode(mode, levelId);
+
+            // ✅ ao rodar novamente, evitar “vazar” o gráfico na aba Sinais
+            setDiamondSimActiveTab('signals');
+            setDiamondSimResultsVisible(false);
             setDiamondSimulationLoading(true, 'Simulando...');
 
             const summary = document.getElementById('diamondSimulationSummary');
@@ -3824,12 +3849,17 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
             // ✅ Permite cancelar durante a execução (jobId definido ANTES do request)
             diamondSimulationJobId = `diamond-sim-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
+            const resolvedHistoryLimit =
+                diamondSimPeriodPreset === 'custom'
+                    ? (clampDiamondSimHistoryLimit(diamondSimHistoryLimitRaw) ?? clampDiamondSimHistoryLimit(diamondSimHistoryLimit) ?? 1440)
+                    : (clampDiamondSimHistoryLimit(diamondSimHistoryLimit) ?? 1440);
+
             const requestPayload = {
                 action: 'DIAMOND_SIMULATE_PAST',
                 mode: mode === 'level' ? 'level' : 'all',
                 levelId: mode === 'level' ? levelId : null,
                 jobId: diamondSimulationJobId,
-                historyLimit: diamondSimHistoryLimit,
+                historyLimit: resolvedHistoryLimit,
                 config: cfg
             };
 
@@ -4231,7 +4261,6 @@ function enforceSignalIntensityAvailability(options = {}) {
         setInput('diamondN2Recent', getValue('n2Recent', DIAMOND_LEVEL_DEFAULTS.n2Recent));
         setInput('diamondN2Previous', getValue('n2Previous', DIAMOND_LEVEL_DEFAULTS.n2Previous));
         setInput('diamondN3Alternance', getValue('n3Alternance', DIAMOND_LEVEL_DEFAULTS.n3Alternance));
-        setInput('diamondN3PatternLength', getValue('n3PatternLength', DIAMOND_LEVEL_DEFAULTS.n3PatternLength));
         setInput('diamondN3ThresholdPct', getValue('n3ThresholdPct', DIAMOND_LEVEL_DEFAULTS.n3ThresholdPct));
         setInput('diamondN3MinOccurrences', getValue('n3MinOccurrences', DIAMOND_LEVEL_DEFAULTS.n3MinOccurrences));
         setCheckbox('diamondN3AllowBackoff', getBoolean('n3AllowBackoff', DIAMOND_LEVEL_DEFAULTS.n3AllowBackoff));
@@ -4365,7 +4394,6 @@ function enforceSignalIntensityAvailability(options = {}) {
             n2Recent: getNumber('diamondN2Recent', 2, 20, DIAMOND_LEVEL_DEFAULTS.n2Recent),
             n2Previous: getNumber('diamondN2Previous', 3, 200, DIAMOND_LEVEL_DEFAULTS.n2Previous),
             n3Alternance: getNumber('diamondN3Alternance', 1, null, DIAMOND_LEVEL_DEFAULTS.n3Alternance),
-            n3PatternLength: getNumber('diamondN3PatternLength', 3, 8, DIAMOND_LEVEL_DEFAULTS.n3PatternLength),
             n3ThresholdPct: getNumber('diamondN3ThresholdPct', 50, 95, DIAMOND_LEVEL_DEFAULTS.n3ThresholdPct),
             n3MinOccurrences: getNumber('diamondN3MinOccurrences', 1, 50, DIAMOND_LEVEL_DEFAULTS.n3MinOccurrences),
             n3AllowBackoff: getCheckboxValue('diamondN3AllowBackoff', DIAMOND_LEVEL_DEFAULTS.n3AllowBackoff),
