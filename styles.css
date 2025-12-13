@@ -5926,6 +5926,7 @@
         align-items: center !important;
         justify-content: space-between !important;
         width: 100% !important;
+        position: relative !important; /* ✅ referência para o botão "Fechar" no canto direito */
     }
 
     #diamondLevelsModal .custom-pattern-modal-header h3 {
@@ -5936,12 +5937,16 @@
         flex: 1 1 auto !important;
         min-width: 0 !important;
         font-size: 15px !important;
+        padding-right: 84px !important; /* ✅ espaço reservado para o botão no canto direito */
     }
 
     #diamondLevelsModal #closeDiamondLevelsModal {
-        flex: 0 0 auto !important;
-        margin-left: auto !important;
+        position: absolute !important;
+        right: 16px !important;
+        top: 50% !important;
+        transform: translateY(-50%) !important;
         white-space: nowrap !important;
+        margin: 0 !important;
     }
 
     /* Configurar Simulador (autoBetModal) */
@@ -5963,6 +5968,7 @@
         align-items: center !important;
         justify-content: space-between !important;
         width: 100% !important;
+        position: relative !important; /* ✅ referência para o botão "Fechar" no canto direito */
     }
 
     #autoBetModal .auto-bet-modal-header h3 {
@@ -5973,12 +5979,16 @@
         flex: 1 1 auto !important;
         min-width: 0 !important;
         font-size: 15px !important;
+        padding-right: 84px !important; /* ✅ espaço reservado para o botão no canto direito */
     }
 
     #autoBetModal #closeAutoBetModal {
-        flex: 0 0 auto !important;
-        margin-left: auto !important;
+        position: absolute !important;
+        right: 16px !important;
+        top: 50% !important;
+        transform: translateY(-50%) !important;
         white-space: nowrap !important;
+        margin: 0 !important;
     }
 
     #autoBetModal .auto-bet-modal-body {
