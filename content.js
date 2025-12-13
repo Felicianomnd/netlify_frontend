@@ -2693,6 +2693,188 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
     let diamondSimCurrentLevelId = null;
     let diamondSimMovedNodes = [];
     let diamondSimHiddenNodes = [];
+    let diamondSimPeriodPreset = '12h'; // padrão: 12 horas
+    let diamondSimHistoryLimit = 1440; // 12h * 120 giros/h
+    let diamondSimHasResults = false;
+
+    const DIAMOND_SIM_SPINS_PER_MINUTE = 2;
+    const DIAMOND_SIM_SPINS_PER_HOUR = 120; // 2 giros/min * 60 min
+    const DIAMOND_SIM_PERIOD_PRESETS = [
+        { id: '1h', label: '1h', spins: 1 * DIAMOND_SIM_SPINS_PER_HOUR },
+        { id: '2h', label: '2h', spins: 2 * DIAMOND_SIM_SPINS_PER_HOUR },
+        { id: '5h', label: '5h', spins: 5 * DIAMOND_SIM_SPINS_PER_HOUR },
+        { id: '12h', label: '12h', spins: 12 * DIAMOND_SIM_SPINS_PER_HOUR },
+        { id: '10k', label: '10k', spins: 10000 }
+    ];
+
+    function clampDiamondSimHistoryLimit(raw) {
+        const n = Number(raw);
+        if (!Number.isFinite(n)) return null;
+        // mínimo útil: 10 giros; máximo: 10k
+        return Math.max(10, Math.min(10000, Math.floor(n)));
+    }
+
+    function formatApproxHoursFromSpins(spins) {
+        const s = Math.max(0, Number(spins) || 0);
+        if (!s) return '0h';
+
+        const totalMinutes = s / DIAMOND_SIM_SPINS_PER_MINUTE;
+        const totalHours = totalMinutes / 60;
+
+        // < 1h: manter simples
+        if (totalHours < 1) return `${Math.max(1, Math.round(totalMinutes))}m`;
+
+        // >= 24h: mostrar em dias + horas + minutos (mais proporcional ao restante do UI)
+        if (totalHours >= 24) {
+            const totalMinsRounded = Math.round(totalMinutes);
+            const days = Math.floor(totalMinsRounded / (60 * 24));
+            const remAfterDays = totalMinsRounded - days * 60 * 24;
+            const hours = Math.floor(remAfterDays / 60);
+            const mins = remAfterDays - hours * 60;
+
+            const parts = [];
+            if (days > 0) parts.push(`${days} dia${days === 1 ? '' : 's'}`);
+            if (hours > 0) parts.push(`${hours} hora${hours === 1 ? '' : 's'}`);
+            if (mins > 0) parts.push(`${mins} minuto${mins === 1 ? '' : 's'}`);
+
+            // sempre mostrar algo legível
+            if (!parts.length) return '0h';
+            return parts.join(' e ');
+        }
+
+        // 1h..23h: manter compacto com h/m
+        const wholeHours = Math.floor(totalHours);
+        const mins = Math.round((totalHours - wholeHours) * 60);
+        if (mins <= 0) return `${wholeHours}h`;
+        return `${wholeHours}h ${mins}m`;
+    }
+
+    function setDiamondSimResultsVisible(visible) {
+        const tabs = document.getElementById('diamondSimTabs');
+        const signalsView = document.querySelector('#diamondSimView .diamond-sim-tabview[data-view="signals"]');
+        const chartView = document.querySelector('#diamondSimView .diamond-sim-tabview[data-view="chart"]');
+        if (tabs) tabs.hidden = !visible;
+        if (signalsView) signalsView.hidden = !visible;
+        if (chartView) chartView.hidden = !visible;
+    }
+
+    function updateDiamondSimRunButtonLabel() {
+        const runBtn = document.getElementById('diamondSimulationRunBtn');
+        if (!runBtn) return;
+        runBtn.textContent = diamondSimHasResults ? 'Simular novamente' : 'Simular';
+    }
+
+    function updateDiamondSimPreRunSummary() {
+        const summary = document.getElementById('diamondSimulationSummary');
+        if (!summary) return;
+        const preset = DIAMOND_SIM_PERIOD_PRESETS.find(p => p.id === diamondSimPeriodPreset) || null;
+        const spins = preset ? preset.spins : diamondSimHistoryLimit;
+        const approx = formatApproxHoursFromSpins(spins);
+        const periodLabel = preset
+            ? (preset.id === '10k' ? approx : preset.label)
+            : 'Personalizado';
+        summary.innerHTML =
+            `Selecione o período e clique em <strong>Simular</strong>.<br>` +
+            `Período: <strong>${periodLabel}</strong> • Giros: <strong>${spins}</strong> • Tempo: <strong>${approx}</strong>`;
+    }
+
+    function setDiamondSimPeriodPreset(presetId, { updateSummary = true } = {}) {
+        const preset = DIAMOND_SIM_PERIOD_PRESETS.find(p => p.id === presetId) || DIAMOND_SIM_PERIOD_PRESETS[3];
+        diamondSimPeriodPreset = preset.id;
+        diamondSimHistoryLimit = preset.spins;
+
+        const container = document.getElementById('diamondSimPeriodContainer');
+        if (container) {
+            const btns = container.querySelectorAll('.diamond-sim-period-option');
+            btns.forEach(btn => btn.classList.toggle('active', btn.dataset.preset === diamondSimPeriodPreset));
+        }
+        const customInput = document.getElementById('diamondSimCustomSpinsInput');
+        if (customInput) customInput.value = String(diamondSimHistoryLimit);
+        if (updateSummary) updateDiamondSimPreRunSummary();
+    }
+
+    function setDiamondSimCustomHistoryLimit(spins, { updateSummary = true } = {}) {
+        const clamped = clampDiamondSimHistoryLimit(spins);
+        if (clamped == null) return;
+        diamondSimPeriodPreset = 'custom';
+        diamondSimHistoryLimit = clamped;
+
+        const container = document.getElementById('diamondSimPeriodContainer');
+        if (container) {
+            const btns = container.querySelectorAll('.diamond-sim-period-option');
+            btns.forEach(btn => btn.classList.remove('active'));
+        }
+        const customInput = document.getElementById('diamondSimCustomSpinsInput');
+        if (customInput) customInput.value = String(diamondSimHistoryLimit);
+        if (updateSummary) updateDiamondSimPreRunSummary();
+    }
+
+    function renderDiamondSimPeriodSelector() {
+        const container = document.getElementById('diamondSimPeriodContainer');
+        if (!container) return;
+        const optionsHtml = DIAMOND_SIM_PERIOD_PRESETS.map(p => {
+            const approx = formatApproxHoursFromSpins(p.spins);
+            const displayText = p.id === '10k' ? `${approx}` : `${p.label}`;
+            const title = p.id === '10k'
+                ? `Banco completo: ${p.spins} giros • ${approx}`
+                : `${p.spins} giros • ${approx}`;
+            return `<button type="button" class="diamond-sim-period-option" data-preset="${p.id}" title="${title}">${displayText}</button>`;
+        }).join('');
+
+        container.innerHTML = `
+            <div class="diamond-sim-period-title">Período da simulação</div>
+            <div class="diamond-sim-period-options">${optionsHtml}</div>
+            <div class="diamond-sim-custom-row">
+                <div class="diamond-sim-custom-label">Giros (personalizado)</div>
+                <input id="diamondSimCustomSpinsInput" class="diamond-sim-custom-input" type="number" inputmode="numeric" min="10" max="10000" step="1" />
+                <div class="diamond-sim-custom-suffix">máx 10.000</div>
+            </div>
+            <div class="diamond-sim-period-note">Estimativa: ${DIAMOND_SIM_SPINS_PER_MINUTE} giros/min</div>
+        `;
+
+        if (!container.dataset.listenerAttached) {
+            container.addEventListener('click', (event) => {
+                const btn = event.target && event.target.closest ? event.target.closest('.diamond-sim-period-option') : null;
+                if (!btn) return;
+                const preset = btn.dataset.preset;
+                setDiamondSimPeriodPreset(preset);
+            });
+            container.dataset.listenerAttached = '1';
+        }
+
+        const customInput = document.getElementById('diamondSimCustomSpinsInput');
+        if (customInput && !customInput.dataset.listenerAttached) {
+            customInput.value = String(diamondSimHistoryLimit);
+            const onChange = () => {
+                const v = clampDiamondSimHistoryLimit(customInput.value);
+                if (v == null) return;
+                setDiamondSimCustomHistoryLimit(v);
+            };
+            customInput.addEventListener('input', () => {
+                // atualização “ao vivo”, mas simples (sem debounce) porque é leve
+                onChange();
+            });
+            customInput.addEventListener('blur', () => onChange());
+            customInput.dataset.listenerAttached = '1';
+        }
+    }
+
+    function openDiamondSimulationSetup(mode, levelId = null) {
+        ensureDiamondSimulationView();
+        enterDiamondSimulationView({ titleText: 'Simulação' });
+        applyDiamondSimMode(mode, levelId);
+
+        // Ao entrar na tela: não rodar simulação automaticamente
+        diamondSimHasResults = false;
+        setDiamondSimResultsVisible(false);
+        updateDiamondSimRunButtonLabel();
+        renderDiamondSimPeriodSelector();
+        setDiamondSimPeriodPreset('12h');
+
+        // Limpar apenas os resultados (mantém campos/config do nível na tela)
+        clearDiamondSimulationResultsOnly({ cancelIfRunning: true });
+        updateDiamondSimPreRunSummary();
+    }
 
     function ensureDiamondSimulationView() {
         const levelsModal = document.getElementById('diamondLevelsModal');
@@ -2706,6 +2888,7 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
         view.className = 'diamond-sim-view';
         view.style.display = 'none';
         view.innerHTML = `
+            <div id="diamondSimPeriodContainer" class="diamond-sim-period"></div>
             <div id="diamondSimConfigContainer" class="diamond-sim-config"></div>
             <div class="diamond-sim-view-body">
                 <div id="diamondSimulationSummary" class="diamond-sim-summary">
@@ -2718,12 +2901,12 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                     <button type="button" class="btn-save-pattern" id="diamondSimulationCancelBtn" style="max-width: 140px;">Cancelar</button>
                 </div>
 
-                <div class="entries-tabs-bar" id="diamondSimTabs" style="margin-top: 8px;">
+                <div class="entries-tabs-bar" id="diamondSimTabs" style="margin-top: 8px;" hidden>
                     <button type="button" class="entries-tab active" data-tab="signals">Sinais</button>
                     <button type="button" class="entries-tab" data-tab="chart">Gráfico</button>
                 </div>
 
-                <div class="diamond-sim-tabview" data-view="signals">
+                <div class="diamond-sim-tabview" data-view="signals" hidden>
                     <div class="entries-header" style="margin-top: 8px;">
                         <div id="diamondSimEntriesHit" class="entries-hit"></div>
                     </div>
@@ -3232,7 +3415,7 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
         const hitEl = document.getElementById('diamondSimEntriesHit');
         const progress = document.getElementById('diamondSimulationProgress');
         const progressText = document.getElementById('diamondSimulationProgressText');
-        if (summary) summary.innerHTML = 'Configure e clique em <strong>Simular</strong> para ver o resultado aqui.';
+        if (summary) summary.innerHTML = 'Selecione o período e clique em <strong>Simular</strong> para ver o resultado aqui.';
         if (list) list.innerHTML = '';
         if (hitEl) hitEl.innerHTML = '';
         if (progress) progress.style.display = 'none';
@@ -3241,6 +3424,9 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
         renderDiamondSimulationChart({ wins: 0, losses: 0, totalCycles: 0, totalEntries: 0 });
         renderDiamondSimulationTickChart([]);
         setDiamondSimActiveTab('signals');
+        diamondSimHasResults = false;
+        setDiamondSimResultsVisible(false);
+        updateDiamondSimRunButtonLabel();
 
         const allBtn = document.getElementById('diamondSimulateAllBtn');
         const levelBtn = document.getElementById('diamondSimulateLevelBtn');
@@ -3258,7 +3444,7 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
         const progressText = document.getElementById('diamondSimulationProgressText');
         const configContainer = document.getElementById('diamondSimConfigContainer');
 
-        if (summary) summary.innerHTML = 'Configure e clique em <strong>Simular</strong> para ver o resultado aqui.';
+        if (summary) summary.innerHTML = 'Selecione o período e clique em <strong>Simular</strong> para ver o resultado aqui.';
         if (list) list.innerHTML = '';
         if (hitEl) hitEl.innerHTML = '';
         if (progress) progress.style.display = 'none';
@@ -3267,6 +3453,9 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
         renderDiamondSimulationChart({ wins: 0, losses: 0, totalCycles: 0, totalEntries: 0 });
         renderDiamondSimulationTickChart([]);
         setDiamondSimActiveTab('signals');
+        diamondSimHasResults = false;
+        setDiamondSimResultsVisible(false);
+        updateDiamondSimRunButtonLabel();
 
         const allBtn = document.getElementById('diamondSimulateAllBtn');
         const levelBtn = document.getElementById('diamondSimulateLevelBtn');
@@ -3621,10 +3810,8 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
             ensureDiamondSimulationView();
 
             const levelLabel = mode === 'level' ? String(levelId || '').toUpperCase() : 'TODOS';
-            enterDiamondSimulationView({
-                titleText: 'Simulação',
-                subtitleText: mode === 'level' ? `Simulando: ${levelLabel}` : 'Simulando: todos os níveis ativos'
-            });
+            // manter a tela de simulação aberta (sem texto duplicado no cabeçalho)
+            enterDiamondSimulationView({ titleText: 'Simulação' });
             applyDiamondSimMode(mode, levelId);
             setDiamondSimulationLoading(true, 'Simulando...');
 
@@ -3642,6 +3829,7 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                 mode: mode === 'level' ? 'level' : 'all',
                 levelId: mode === 'level' ? levelId : null,
                 jobId: diamondSimulationJobId,
+                historyLimit: diamondSimHistoryLimit,
                 config: cfg
             };
 
@@ -3689,6 +3877,9 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                 }
 
                 renderDiamondSimulationEntries(response.entries || []);
+                diamondSimHasResults = true;
+                setDiamondSimResultsVisible(true);
+                updateDiamondSimRunButtonLabel();
                 setDiamondSimulationLoading(false);
             });
         } catch (error) {
@@ -3706,7 +3897,7 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
         const dropdown = document.getElementById('diamondSimulateLevelDropdown');
 
         if (allBtn && !allBtn.dataset.listenerAttached) {
-            allBtn.addEventListener('click', () => startDiamondSimulation('all'));
+            allBtn.addEventListener('click', () => openDiamondSimulationSetup('all'));
             allBtn.dataset.listenerAttached = '1';
         }
 
@@ -3728,7 +3919,7 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                 if (!option) return;
                 const levelId = option.dataset.level;
                 closeDropdown();
-                startDiamondSimulation('level', levelId);
+                openDiamondSimulationSetup('level', levelId);
             });
             document.addEventListener('click', (event) => {
                 if (!dropdown.contains(event.target) && event.target !== levelBtn) {

@@ -8624,19 +8624,36 @@ function validateSequenceBarrier(history, predictedColor, configuredSize, altern
 }
 
 /**
- * NÍVEL 3: Alternância Inteligente (n-grams)
- * Reconhece sequências reais e vota apenas quando a probabilidade condicional é alta
+ * NÍVEL 3: Alternância (REAL) — simples/dupla/tripla
+ *
+ * Definição (sem branco):
+ * - Simples:   P-V-P-V-...
+ * - Dupla:     P-P-V-V-P-P-...
+ * - Tripla:    P-P-P-V-V-V-P-P-P-...
+ *
+ * Regras:
+ * - Branco SEMPRE quebra a alternância (não é válido)
+ * - O tamanho (L) é em "blocos" (runs), não em giros:
+ *   - Simples (g=1):  L blocos = L giros
+ *   - Dupla   (g=2):  L blocos = 2L giros
+ *   - Tripla  (g=3):  L blocos = 3L giros
+ *
+ * Config:
+ * - historySize: janela analisada (giros)
+ * - patternLength (L): quantidade de blocos exigidos para considerar alternância ativa
+ * - minOccurrences: mínimo de ocorrências históricas no recorte
+ * - threshold: rigor mínimo (taxa de continuação do padrão) no recorte
  */
 function analyzeAlternancePattern(history, options = {}) {
-    logSection('[N3] Alternância inteligente (n-gram)');
+    logSection('[N3] Alternância (simples/dupla/tripla)');
 
     const defaultSettings = {
         historySize: 60,
-        patternLength: 4,
+        patternLength: 4, // L em blocos
         threshold: 0.75,
         minOccurrences: 1,
         allowBackoff: false,
-        ignoreWhite: false
+        ignoreWhite: false // mantido por compatibilidade, mas branco sempre quebra alternância
     };
 
     const settings = {
@@ -8648,26 +8665,135 @@ function analyzeAlternancePattern(history, options = {}) {
         ignoreWhite: !!options.ignoreWhite
     };
 
-    settings.patternLength = Math.max(3, Math.min(8, Math.floor(settings.patternLength)));
+    // permitir valores maiores (usuário pode querer L=10, L=12, etc)
+    settings.patternLength = Math.max(3, Math.min(20, Math.floor(settings.patternLength)));
     settings.historySize = Math.max(settings.patternLength + 1, Math.floor(Math.max(1, settings.historySize)));
     settings.threshold = clamp01(settings.threshold);
     settings.minOccurrences = Math.max(1, Math.min(100, Math.floor(settings.minOccurrences)));
 
-    const trimmedHistory = history.slice(0, settings.historySize);
+    const trimmedHistory = Array.isArray(history) ? history.slice(0, settings.historySize) : [];
     const chronologicalSpins = trimmedHistory.slice().reverse();
-    const normalizedSequence = chronologicalSpins
-        .map(spin => normalizeSpinColorValue(spin))
-        .filter(color => !!color);
-    const totalAvailable = normalizedSequence.length;
-    
-    console.log(`   📊 Total de giros disponíveis: ${history.length}`);
-    console.log(`   ⚙️ Config → histórico: ${settings.historySize} | L: ${settings.patternLength} | threshold: ${(settings.threshold * 100).toFixed(0)}% | min occ: ${settings.minOccurrences}`);
-    console.log(`   ⚙️ Extras → backoff: ${settings.allowBackoff ? 'SIM' : 'NÃO'} | ignorar branco: ${settings.ignoreWhite ? 'SIM' : 'NÃO'}`);
-    console.log(`   📊 Dados válidos após sanitização: ${totalAvailable} giros`);
+    const seq = chronologicalSpins.map(spin => normalizeSpinColorValue(spin)); // red/black/white/null
+    const totalAvailable = seq.filter(c => c === 'red' || c === 'black' || c === 'white').length;
 
-    if (totalAvailable < settings.patternLength + 1) {
-        const message = `Apenas ${totalAvailable} giros válidos (mín: ${settings.patternLength + 1})`;
-        console.log(`   ❌ ${message}`);
+    const isRB = (c) => c === 'red' || c === 'black';
+    const oppositeRB = (c) => (c === 'red' ? 'black' : (c === 'black' ? 'red' : null));
+
+    const buildRunsBackward = (endIdx, groupSize) => {
+        if (endIdx < 0 || endIdx >= seq.length) return null;
+        const lastColor = seq[endIdx];
+        if (!isRB(lastColor)) return null;
+
+        const runs = [];
+        let curColor = lastColor;
+        let len = 0;
+        for (let i = endIdx; i >= 0; i--) {
+            const c = seq[i];
+            if (!isRB(c)) break; // branco (ou inválido) quebra
+            if (c === curColor) {
+                len += 1;
+                if (len > groupSize) return null; // excedeu bloco → não é alternância desse tipo
+            } else {
+                runs.push({ color: curColor, len });
+                curColor = c;
+                len = 1;
+            }
+        }
+        runs.push({ color: curColor, len });
+        return runs; // newest-to-oldest
+    };
+
+    const checkAlternanceRuns = (runsNewestFirst, groupSize, neededBlocks) => {
+        if (!Array.isArray(runsNewestFirst) || runsNewestFirst.length < neededBlocks) return null;
+        const runs = runsNewestFirst.slice(0, neededBlocks);
+        if (runs.length < 2) return null;
+
+        // todas as runs precisam ser <= groupSize (já garantido na construção), e cores alternam (já garantido por serem runs)
+        // regra extra: runs internas devem ser exatamente groupSize (para duplas/triplas não virarem bagunça)
+        if (groupSize > 1 && runs.length > 2) {
+            for (let i = 1; i < runs.length - 1; i++) {
+                if (runs[i].len !== groupSize) return null;
+            }
+        }
+
+        const newest = runs[0];
+        const expectedNext = newest.len < groupSize ? newest.color : oppositeRB(newest.color);
+        if (!isRB(expectedNext)) return null;
+
+        const spinsUsed = runs.reduce((acc, r) => acc + (r.len || 0), 0);
+        return {
+            runs,
+            blocks: runs.length,
+            groupSize,
+            spinsUsed,
+            currentRunLen: newest.len,
+            expectedNext
+        };
+    };
+
+    const detectCurrentAlternance = () => {
+        const endIdx = seq.length - 1;
+        if (endIdx < 0) return null;
+
+        const groupSizes = [3, 2, 1];
+        let best = null;
+        let usedBackoff = false;
+
+        for (const g of groupSizes) {
+            const runsAll = buildRunsBackward(endIdx, g);
+            if (!runsAll) continue;
+
+            const startBlocks = settings.patternLength;
+            const minBlocks = settings.allowBackoff ? 3 : startBlocks;
+            for (let blocks = startBlocks; blocks >= minBlocks; blocks--) {
+                const det = checkAlternanceRuns(runsAll, g, blocks);
+                if (!det) continue;
+                // escolher o mais "forte": mais blocos; se empatar, maior groupSize (tripla > dupla > simples)
+                if (!best ||
+                    det.blocks > best.blocks ||
+                    (det.blocks === best.blocks && det.groupSize > best.groupSize)
+                ) {
+                    best = det;
+                    usedBackoff = (blocks !== settings.patternLength);
+                }
+                break; // para este g, pegamos o maior blocks possível
+            }
+        }
+
+        if (!best) return null;
+        return { ...best, backoffApplied: usedBackoff };
+    };
+
+    const detectAtIndex = (idx, groupSize, neededBlocks) => {
+        // idx é o "último giro observado"; prever idx+1
+        if (idx < 0 || idx >= seq.length) return null;
+        if (!isRB(seq[idx])) return null;
+
+        const runsAll = buildRunsBackward(idx, groupSize);
+        if (!runsAll) return null;
+        return checkAlternanceRuns(runsAll, groupSize, neededBlocks);
+    };
+
+    const computeContinuationStats = (groupSize, neededBlocks) => {
+        let occurrences = 0;
+        let hits = 0;
+        for (let i = 0; i < seq.length - 1; i++) {
+            const det = detectAtIndex(i, groupSize, neededBlocks);
+            if (!det) continue;
+            occurrences += 1;
+            const actualNext = seq[i + 1];
+            if (actualNext === det.expectedNext) hits += 1;
+        }
+        const rate = occurrences > 0 ? hits / occurrences : 0;
+        return { occurrences, hits, rate };
+    };
+
+    console.log(`   📊 Total de giros disponíveis: ${Array.isArray(history) ? history.length : 0}`);
+    console.log(`   ⚙️ Config → histórico: ${settings.historySize} | L(blocos): ${settings.patternLength} | rigor: ${(settings.threshold * 100).toFixed(0)}% | min occ: ${settings.minOccurrences}`);
+    console.log(`   ⚙️ Branco sempre quebra alternância (ignorar branco = irrelevante)`);
+
+    if (seq.length < 4) {
+        const message = `Apenas ${seq.length} giros na janela (mínimo: 4)`;
         return {
             color: null,
             pattern: 'Dados insuficientes',
@@ -8676,6 +8802,26 @@ function analyzeAlternancePattern(history, options = {}) {
             confidence: 0,
             details: message,
             reason: 'insufficient_history',
+            historyUsed: seq.length,
+            historyConfigured: settings.historySize,
+            override: false,
+            alternanceRuns: null,
+            alternanceTargetRuns: null,
+            alternanceMaxRuns: null,
+            alternanceBaseSize: settings.patternLength
+        };
+    }
+
+    const current = detectCurrentAlternance();
+    if (!current) {
+        return {
+            color: null,
+            pattern: 'Alternância',
+            alternationRate: '0.0',
+            alternationSize: settings.patternLength,
+            confidence: 0,
+            details: 'NULO',
+            reason: 'no_alternance_detected',
             historyUsed: totalAvailable,
             historyConfigured: settings.historySize,
             override: false,
@@ -8686,149 +8832,57 @@ function analyzeAlternancePattern(history, options = {}) {
         };
     }
 
-    let attemptLength = Math.max(3, settings.patternLength);
-    const minLengthAllowed = settings.allowBackoff ? 3 : attemptLength;
-    let prediction = null;
-    let statsForPrediction = null;
-    let finalReason = '';
-    let backoffApplied = false;
+    const typeName = current.groupSize === 1 ? 'Simples' : (current.groupSize === 2 ? 'Dupla' : 'Tripla');
+    const { occurrences, hits, rate } = computeContinuationStats(current.groupSize, current.blocks);
+    const pct = (rate * 100);
 
-    while (attemptLength >= minLengthAllowed) {
-        if (totalAvailable <= attemptLength) {
-            finalReason = `Histórico insuficiente para L=${attemptLength}`;
-            attemptLength--;
-            continue;
-        }
+    const meetsOcc = occurrences >= settings.minOccurrences;
+    const meetsThreshold = rate >= settings.threshold;
 
-        const targetWindow = normalizedSequence.slice(-attemptLength);
-        const stats = computeNgramStats(normalizedSequence, targetWindow, attemptLength);
+    const allowVote = meetsOcc && meetsThreshold;
+    const finalColor = allowVote ? current.expectedNext : null;
+    const finalConfidence = allowVote ? clamp01(rate) : 0;
 
-        if (stats.total < settings.minOccurrences) {
-            finalReason = `Janela L=${attemptLength} ocorreu ${stats.total} vez(es) (< ${settings.minOccurrences})`;
-            if (!settings.allowBackoff) break;
-            backoffApplied = true;
-            attemptLength--;
-            continue;
-        }
-
-        const sortedCounts = Object.entries(stats.counts)
-            .filter(([, value]) => Number(value) > 0)
-            .sort((a, b) => b[1] - a[1]);
-
-        if (sortedCounts.length === 0) {
-            finalReason = `Nenhuma ocorrência válida para L=${attemptLength}`;
-            if (!settings.allowBackoff) break;
-            backoffApplied = true;
-            attemptLength--;
-            continue;
-        }
-
-        const [bestColor, bestCount] = sortedCounts[0];
-        const probability = stats.total > 0 ? bestCount / stats.total : 0;
-
-        if (probability >= settings.threshold) {
-            if (settings.ignoreWhite && bestColor === 'white') {
-                finalReason = 'Previsão branca ignorada';
-                if (!settings.allowBackoff) break;
-                backoffApplied = true;
-                attemptLength--;
-                continue;
-            }
-            prediction = {
-                color: bestColor,
-                probability,
-                window: targetWindow,
-                length: attemptLength
-            };
-            statsForPrediction = stats;
-            break;
-        }
-
-        finalReason = `Probabilidade ${(probability * 100).toFixed(1)}% abaixo do limiar ${(settings.threshold * 100).toFixed(0)}%`;
-        if (!settings.allowBackoff) break;
-        backoffApplied = true;
-        attemptLength--;
-    }
-
-    const usedLength = prediction ? prediction.length : Math.max(3, settings.patternLength);
-    const windowForDisplay = prediction
-        ? prediction.window
-        : normalizedSequence.slice(-usedLength);
-    const windowLabel = formatNgramWindowDisplay(windowForDisplay);
-    const probabilityPct = prediction ? (prediction.probability * 100).toFixed(1) : '0.0';
-    const thresholdPct = (settings.threshold * 100).toFixed(1);
-    const occurrences = statsForPrediction ? statsForPrediction.total : 0;
-    const countsSummary = statsForPrediction ? summarizeNgramCounts(statsForPrediction.counts) : 'N/A';
-
-    if (prediction) {
-        console.log(`   🧠 Janela atual (L=${usedLength}): ${windowLabel}`);
-        console.log(`   📈 Próximo mais comum: ${prediction.color.toUpperCase()} • ${probabilityPct}% (${occurrences} ocorrência(s))`);
-        console.log(`   📊 Distribuição → ${countsSummary}`);
-        if (backoffApplied && prediction.length !== settings.patternLength) {
-            console.log(`   🔄 Backoff aplicado: L original ${settings.patternLength} → L usado ${prediction.length}`);
-        }
-    } else {
-        console.log(`   🧠 Janela atual (L=${usedLength}): ${windowLabel}`);
-        console.log(`   ⚠️ Sem voto: ${finalReason || 'condições não atingidas'}`);
-    }
-
-    const occurrenceBoost = statsForPrediction
-        ? Math.min(1, statsForPrediction.total / Math.max(settings.minOccurrences, 3))
-        : 0;
-    let finalConfidence = prediction ? clamp01((prediction.probability * 0.7) + (occurrenceBoost * 0.3)) : 0;
-
-    let finalColor = prediction ? prediction.color : null;
-    if (!prediction) {
-        finalColor = null;
-        finalConfidence = 0;
-    }
+    const details = [
+        `Alt ${typeName}`,
+        `blocos ${current.blocks}`,
+        `fase ${current.currentRunLen}/${current.groupSize}`,
+        `rigor ${pct.toFixed(1)}% (${hits}/${occurrences})`,
+        current.backoffApplied ? 'backoff' : null
+    ].filter(Boolean).join(' • ');
 
     const overrideActive = Boolean(
-        prediction &&
-        prediction.probability >= Math.max(settings.threshold + 0.1, 0.85) &&
-        occurrences >= settings.minOccurrences + 1 &&
-        finalColor !== null
+        allowVote &&
+        rate >= Math.max(settings.threshold + 0.1, 0.9) &&
+        occurrences >= settings.minOccurrences + 1
     );
 
-    const detailsParts = [];
-    if (prediction) {
-        detailsParts.push(`L${usedLength} ${windowLabel}`);
-        detailsParts.push(`${probabilityPct}% ≥ ${thresholdPct}%`);
-        detailsParts.push(`${occurrences} ocorr.`);
-        if (settings.allowBackoff && prediction.length !== settings.patternLength) {
-            detailsParts.push('backoff');
-        }
-    } else {
-        detailsParts.push(finalReason || 'Sem consenso');
-    }
-    const details = detailsParts.join(' • ');
-    
     return {
         color: finalColor,
-        pattern: `Alternância Inteligente L${usedLength}`,
-        alternationRate: probabilityPct,
-        alternationSize: usedLength,
+        pattern: `Alternância ${typeName}`,
+        alternationRate: pct.toFixed(1),
+        alternationSize: current.blocks,
         confidence: finalConfidence,
-        probability: prediction ? prediction.probability : 0,
-        probabilityPct,
+        probability: rate,
+        probabilityPct: pct.toFixed(1),
         occurrences,
-        window: windowForDisplay,
-        windowLabel,
+        window: null,
+        windowLabel: null,
         threshold: settings.threshold,
-        thresholdPct,
+        thresholdPct: (settings.threshold * 100).toFixed(1),
         minOccurrences: settings.minOccurrences,
         allowBackoff: settings.allowBackoff,
         ignoreWhite: settings.ignoreWhite,
         historyUsed: totalAvailable,
         historyConfigured: settings.historySize,
         details,
-        reason: prediction ? null : finalReason,
-        backoffApplied,
+        reason: allowVote ? null : (!meetsOcc ? 'min_occ_not_met' : 'threshold_not_met'),
+        backoffApplied: current.backoffApplied,
         override: overrideActive,
-        alternanceRuns: null,
+        alternanceRuns: current.blocks,
         alternanceTargetRuns: null,
         alternanceMaxRuns: null,
-        alternanceBaseSize: usedLength
+        alternanceBaseSize: current.groupSize
     };
 }
 
@@ -22773,9 +22827,15 @@ function filterFinalEntries(entriesHistory) {
     });
 }
 
-async function runDiamondPastSimulation({ config, mode, levelId, senderTabId, jobId }) {
+async function runDiamondPastSimulation({ config, mode, levelId, senderTabId, jobId, historyLimit }) {
     const job = diamondSimulationJobs.get(jobId);
-    const historyMostRecentFirst = Array.isArray(cachedHistory) ? cachedHistory.slice(0, 2000) : [];
+    const requestedLimit = Number(historyLimit);
+    const safeDefault = 1440; // padrão: 12h (2 giros/min)
+    const limit = (Number.isFinite(requestedLimit) && requestedLimit > 0)
+        ? Math.min(requestedLimit, 10000, Array.isArray(cachedHistory) ? cachedHistory.length : requestedLimit)
+        : Math.min(safeDefault, Array.isArray(cachedHistory) ? cachedHistory.length : safeDefault);
+
+    const historyMostRecentFirst = Array.isArray(cachedHistory) ? cachedHistory.slice(0, limit) : [];
     const chronological = historyMostRecentFirst.slice().reverse().filter(spin => spin && spin.color && spin.timestamp);
     const totalSpins = chronological.length;
 
@@ -22806,7 +22866,7 @@ async function runDiamondPastSimulation({ config, mode, levelId, senderTabId, jo
 
         const spin = chronological[i];
         simHistory.unshift(spin);
-        if (simHistory.length > 2000) simHistory.pop();
+        if (simHistory.length > limit) simHistory.pop();
 
         // 1) Avaliar análise pendente (giro atual resolve o sinal anterior)
         evaluatePendingAnalysisSimulation(spin, simState);
@@ -22902,6 +22962,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                 const mode = request.mode === 'level' ? 'level' : 'all';
                 const levelId = request.levelId || null;
                 const config = request.config || {};
+                const historyLimit = request.historyLimit;
 
                 const requestedJobId = (typeof request.jobId === 'string' && request.jobId.trim())
                     ? request.jobId.trim()
@@ -22909,7 +22970,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                 const jobId = requestedJobId || makeDiamondSimulationJobId();
                 diamondSimulationJobs.set(jobId, { cancelled: false });
 
-                const result = await runDiamondPastSimulation({ config, mode, levelId, senderTabId, jobId });
+                const result = await runDiamondPastSimulation({ config, mode, levelId, senderTabId, jobId, historyLimit });
                 diamondSimulationJobs.delete(jobId);
 
                 if (result.cancelled) {

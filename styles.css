@@ -6300,6 +6300,94 @@ body.da-ext-fullscreen #patternDetailsModal .bank-patterns-modal-content {
     gap: 12px;
 }
 
+/* Seletor de período (1h/2h/5h/12h/10k) - aparece antes dos campos do nível */
+#diamondLevelsModal .diamond-sim-period {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+#diamondLevelsModal .diamond-sim-period-title {
+    font-size: 12px;
+    font-weight: 700;
+    color: #e5eefc;
+}
+
+#diamondLevelsModal .diamond-sim-period-options {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 14px;
+}
+
+#diamondLevelsModal .diamond-sim-period-option {
+    appearance: none;
+    border: none;
+    background: transparent;
+    color: rgba(233, 242, 255, 0.92);
+    border-radius: 0;
+    padding: 0;
+    font-size: 12px;
+    cursor: pointer;
+    transition: color 0.15s ease, text-decoration-color 0.15s ease, transform 0.05s ease;
+    text-decoration: none;
+}
+
+#diamondLevelsModal .diamond-sim-period-option:hover {
+    color: #ffffff;
+    text-decoration: underline;
+    text-decoration-color: rgba(239, 68, 68, 0.65);
+}
+
+#diamondLevelsModal .diamond-sim-period-option:active {
+    transform: translateY(1px);
+}
+
+#diamondLevelsModal .diamond-sim-period-option.active {
+    color: var(--da-primary, #ef4444);
+    font-weight: 800;
+    text-decoration: underline;
+    text-decoration-color: rgba(239, 68, 68, 0.85);
+}
+
+#diamondLevelsModal .diamond-sim-period-note {
+    font-size: 11px;
+    color: rgba(200, 214, 233, 0.85);
+}
+
+#diamondLevelsModal .diamond-sim-custom-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 2px;
+}
+
+#diamondLevelsModal .diamond-sim-custom-label {
+    font-size: 12px;
+    color: rgba(233, 242, 255, 0.92);
+    font-weight: 700;
+}
+
+#diamondLevelsModal .diamond-sim-custom-input {
+    width: 140px;
+    padding: 6px 10px;
+    border-radius: 10px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(15, 23, 32, 0.65);
+    color: #e9f2ff;
+    font-size: 12px;
+    outline: none;
+}
+
+#diamondLevelsModal .diamond-sim-custom-input:focus {
+    border-color: rgba(239, 68, 68, 0.45);
+    box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.12);
+}
+
+#diamondLevelsModal .diamond-sim-custom-suffix {
+    font-size: 11px;
+    color: rgba(200, 214, 233, 0.75);
+}
+
 /* Compactação dos campos do nível quando aparecem na simulação */
 #diamondLevelsModal .diamond-sim-config .diamond-level-note,
 #diamondLevelsModal .diamond-sim-config .diamond-level-subnote {
