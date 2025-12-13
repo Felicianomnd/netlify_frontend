@@ -1308,10 +1308,7 @@
     width: 18px;
     height: 18px;
 }
-.suggestion-color-box.neutral.waiting .hourglass-icon {
-    font-size: 18px;
-    display: inline-block;
-}
+/* (removido) ampulheta — agora o estado sem sinal usa sempre o spinner */
 
 .suggestion-stage {
     font-size: 16px;
@@ -3077,7 +3074,7 @@
 }
 
 .ai-entry-confidence-value {
-    color: #00d4ff;
+    color: var(--da-primary);
     font-weight: 700;
     margin-left: 6px;
 }
@@ -3170,8 +3167,8 @@
 
 .diamond-level-card:hover {
     transform: translateY(-1px);
-    border-color: rgba(0, 212, 255, 0.25);
-    background: rgba(0, 212, 255, 0.04);
+    border-color: rgba(255, 0, 63, 0.25);
+    background: rgba(255, 0, 63, 0.04);
 }
 
 .diamond-level-top {
@@ -3184,9 +3181,9 @@
 .diamond-level-id {
     font-size: 11px;
     font-weight: 800;
-    color: #00d4ff;
-    border: 1px solid rgba(0, 212, 255, 0.35);
-    background: rgba(0, 212, 255, 0.08);
+    color: var(--da-primary);
+    border: 1px solid rgba(255, 0, 63, 0.35);
+    background: rgba(255, 0, 63, 0.10);
     padding: 3px 8px;
     border-radius: 999px;
     letter-spacing: 0.4px;
@@ -4117,16 +4114,16 @@
         transform: translateY(-50%) !important;
         z-index: 10 !important;
         display: flex !important;
-        flex-direction: column !important;
+        flex-direction: row !important;
         align-items: center !important;
         justify-content: center !important;
         width: 32px !important;
         height: 32px !important;
-        padding: 6px !important;
-        gap: 4px !important;
-        background: rgba(255, 255, 255, 0.1) !important;
-        border-radius: 4px !important;
-        border: 1px solid rgba(255, 255, 255, 0.2) !important;
+        padding: 0 !important;
+        gap: 0 !important;
+        background: transparent !important; /* ✅ sem fundo */
+        border-radius: 0 !important;
+        border: none !important; /* ✅ sem borda */
         cursor: pointer !important;
         transition: all 0.2s ease !important;
     }
@@ -4135,13 +4132,9 @@
         height: 2px !important;
     }
     
-    /* 🎯 MODO APOSTA NO MOBILE - LINHAS DO MENU */
-    #blaze-double-analyzer.bet-display-mode .user-menu-toggle span {
-        width: 100% !important;
-        height: 2px !important;
-        background: #ffffff !important;
-        border-radius: 1px !important;
-        transition: all 0.2s ease !important;
+    /* 🎯 MODO APOSTA NO MOBILE - manter só o ícone (sem "barrinhas") */
+    #blaze-double-analyzer.bet-display-mode .user-menu-toggle svg {
+        display: block !important;
     }
     
 /* REMOVED OLD AI MODE TOGGLE RESPONSIVE STYLES TO PREVENT CONFLICTS */
@@ -4829,39 +4822,84 @@
   width: 36px !important;
   height: 36px !important;
   padding: 8px !important;
-  background: rgba(255, 255, 255, 0.08) !important;
-  border: 1px solid rgba(255, 255, 255, 0.15) !important;
+  background: transparent !important; /* ✅ sem fundo */
+  border: none !important; /* ✅ sem borda */
   border-radius: 0 !important;
   cursor: pointer !important;
   transition: all 0.2s ease !important;
 }
 
 #blaze-double-analyzer.bet-display-mode .user-menu-toggle:hover {
-  background: rgba(255, 255, 255, 0.15) !important;
-  border-color: rgba(255, 255, 255, 0.3) !important;
+  background: transparent !important;
+  border-color: transparent !important;
 }
 
-/* Estilo das três barrinhas dentro do botão */
+/* Fullscreen (Desktop): modais devem ocupar 100% quando a extensão está em "Tela Cheia" */
+body.da-ext-fullscreen #diamondLevelsModal .custom-pattern-modal-content,
+body.da-ext-fullscreen #diamondLevelsModal .custom-pattern-modal-overlay,
+body.da-ext-fullscreen .custom-pattern-modal:not([style*="display: none"]) .custom-pattern-modal-content {
+    position: fixed !important;
+    inset: 0 !important;
+    left: 0 !important;
+    top: 0 !important;
+    transform: none !important;
+    width: 100% !important;
+    height: 100% !important;
+    max-width: none !important;
+    max-height: none !important;
+    margin: 0 !important;
+    border-radius: 0 !important;
+}
+
+body.da-ext-fullscreen #diamondLevelsModal .custom-pattern-modal-content,
+body.da-ext-fullscreen .custom-pattern-modal .custom-pattern-modal-content {
+    display: flex !important;
+    flex-direction: column !important;
+    overflow: hidden !important;
+}
+
+body.da-ext-fullscreen #diamondLevelsModal .custom-pattern-modal-body,
+body.da-ext-fullscreen .custom-pattern-modal .custom-pattern-modal-body {
+    flex: 1 !important;
+    max-height: none !important;
+    height: auto !important;
+    overflow: auto !important;
+}
+
+body.da-ext-fullscreen #autoBetModal .auto-bet-modal-content {
+    position: fixed !important;
+    inset: 0 !important;
+    width: 100% !important;
+    height: 100% !important;
+    max-width: none !important;
+    max-height: none !important;
+    margin: 0 !important;
+    border-radius: 0 !important;
+}
+
+/* Fullscreen (Desktop): Banco de Padrões / Detalhes de Padrão */
+body.da-ext-fullscreen #bankPatternsModal .bank-patterns-modal-content,
+body.da-ext-fullscreen #patternDetailsModal .bank-patterns-modal-content {
+    position: fixed !important;
+    inset: 0 !important;
+    width: 100% !important;
+    height: 100% !important;
+    max-width: none !important;
+    max-height: none !important;
+    margin: 0 !important;
+    border-radius: 0 !important;
+}
+
+/* No modo aposta, manter o ícone de perfil (NÃO trocar por "três barrinhas") */
 #blaze-double-analyzer.bet-display-mode .user-menu-toggle::before {
-  content: '' !important;
-  display: block !important;
-  width: 20px !important;
-  height: 14px !important;
-  background-image: 
-    linear-gradient(to bottom, 
-      #ffffff 0%, #ffffff 20%, 
-      transparent 20%, transparent 40%,
-      #ffffff 40%, #ffffff 60%,
-      transparent 60%, transparent 80%,
-      #ffffff 80%, #ffffff 100%
-    ) !important;
-  background-size: 100% 100% !important;
-  background-repeat: no-repeat !important;
+  content: none !important;
+  display: none !important;
+  background-image: none !important;
 }
 
-/* Esconder conteúdo original do botão se houver */
+/* Garantir que o SVG/ícone original continue visível */
 #blaze-double-analyzer.bet-display-mode .user-menu-toggle > * {
-  display: none !important;
+  display: inline-block !important;
 }
 
 /* ══════════════════════════════════════════════════════════════

@@ -13092,6 +13092,7 @@ async function analyzeWithPatternSystem(history) {
             walkForward: 0.12
         };
         const levelMeta = {
+            // Mantemos emoji aqui para logs internos, mas o texto exibido na UI (reasoning) NÃO usa emoji.
             N0: { emoji: '⚪', label: 'N0 - Detector de Branco' },
             N1: { emoji: '🛡️', label: 'N1 - Zona Segura' },
             N2: { emoji: '⚡', label: 'N2 - Momentum' },
@@ -13107,16 +13108,18 @@ async function analyzeWithPatternSystem(history) {
         const clamp01 = (value) => Math.max(0, Math.min(1, typeof value === 'number' ? value : 0));
         const directionValue = (color) => color === 'red' ? 1 : color === 'black' ? -1 : 0;
         const levelReports = [];
-        const describeLevel = (level) => {
-            const meta = levelMeta[level.id];
+        const describeLevel = (level, opts = {}) => {
+            const meta = levelMeta[level.id] || { emoji: '', label: `${level.id}` };
+            const includeEmoji = opts && opts.includeEmoji === false ? false : true;
+            const prefix = includeEmoji && meta.emoji ? `${meta.emoji} ` : '';
             if (level.disabled) {
-                return `${meta.emoji} ${meta.label} → DESATIVADO`;
+                return `${prefix}${meta.label} → DESATIVADO`;
             }
             if (!level.color) {
-                return `${meta.emoji} ${meta.label} → NULO`;
+                return `${prefix}${meta.label} → NULO`;
             }
-            const strengthPct = Math.round(level.strength * 100);
-            return `${meta.emoji} ${meta.label} → ${level.color.toUpperCase()} (${strengthPct}% • ${level.details})`;
+            const strengthPct = Math.round((level.strength || 0) * 100);
+            return `${prefix}${meta.label} → ${level.color.toUpperCase()} (${strengthPct}% • ${level.details})`;
         };
 const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9', 'N10'];
         let diamondSequenceDisplayed = false;
@@ -13849,9 +13852,9 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
                 ? `Holdout: ${n0Result.holdout.passed ? 'OK' : 'Falhou'}${n0Result.holdout.reason ? ` (${n0Result.holdout.reason})` : ''}\n`
                 : '';
             const reasoning =
-                `${levelReports.map(level => describeLevel(level)).join('\n')}\n` +
+                `${levelReports.map(level => describeLevel(level, { includeEmoji: false })).join('\n')}\n` +
                 `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
-                `⚪ Detector de Branco\n` +
+                `Detector de Branco\n` +
                 `Confiança: ${whiteConfidencePct}%\n` +
                 `t*: ${thresholdPct !== null ? `${thresholdPct}%` : 'n/d'} • F1 ${(bestMetrics.f1 != null ? (bestMetrics.f1 * 100).toFixed(1) : 'n/d')}% • Precision* ${(blockMetrics.precision != null ? (blockMetrics.precision * 100).toFixed(1) : 'n/d')}%\n` +
                 holdoutReasoning +
@@ -14180,12 +14183,12 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
 
         const intensityLabel = signalIntensity === 'conservative' ? 'Conservador' : 'Agressivo';
         const reasoning =
-            `${levelReports.map(level => describeLevel(level)).join('\n')}\n` +
+            `${levelReports.map(level => describeLevel(level, { includeEmoji: false })).join('\n')}\n` +
             `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
             `Modo: ${intensityLabel}\n` +
             `Score combinado: ${(normalizedScore * 100).toFixed(1)}%\n` +
-            `🎯 DECISÃO: ${finalColor.toUpperCase()}\n` +
-            `📊 Confiança: ${finalConfidence}%`;
+            `DECISÃO: ${finalColor.toUpperCase()}\n` +
+            `Confiança: ${finalConfidence}%`;
 
         console.log('%c🧠 RACIOCÍNIO COMPLETO:', 'color: #00FFFF; font-weight: bold; font-size: 14px;');
         console.log(`%c${reasoning}`, 'color: #00FFFF;');
@@ -14547,8 +14550,8 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
 		const barrierDescription = !n9Enabled
             ? `N9 - Barreira Final: DESATIVADO`
 			: barrierResult.allowed
-			? `N9 - Barreira Final: ✅ LIBERADO`
-			: `N9 - Barreira Final: 🚫 BLOQUEADO`;
+			? `N9 - Barreira Final: LIBERADO`
+			: `N9 - Barreira Final: BLOQUEADO`;
 
 		const bayesReport = levelReports.find(level => level.id === 'N10');
 		const bayesDescription = !n10Enabled
@@ -14564,7 +14567,7 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
 			];
 			if (voteTotals.neutral > 0) segments.push(`${voteTotals.neutral} NEUTRO`);
 			if (voteTotals.negative > 0) segments.push(`${voteTotals.negative} REDUÇÃO`);
-			return `🗳️ ${segments.join(' | ')}`;
+			return `Votos: ${segments.join(' | ')}`;
 		})();
         
         const reasoning = `${nivel1Description}\n` +
@@ -14579,11 +14582,11 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
 			`${bayesDescription}\n` +
             `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
             `${votingDescription}\n` +
-			`🏆 ${finalColor.toUpperCase()} (${winningVotes}/${totalVotantes} votos = ${consensusPercent.toFixed(1)}%)\n` +
-			`🎚️ ${intensityLabel} (${signalIntensity === 'conservative' ? 'mín 5 votos + barreiras' : 'maioria simples'})\n` +
+			`Resultado: ${finalColor.toUpperCase()} (${winningVotes}/${totalVotantes} votos = ${consensusPercent.toFixed(1)}%)\n` +
+			`Intensidade: ${intensityLabel} (${signalIntensity === 'conservative' ? 'mín 5 votos + barreiras' : 'maioria simples'})\n` +
             `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
-            `🎯 DECISÃO: ${finalColor.toUpperCase()}\n` +
-            `📊 Confiança: ${finalConfidence}%`;
+            `DECISÃO: ${finalColor.toUpperCase()}\n` +
+            `Confiança: ${finalConfidence}%`;
         
         // Registrar sinal para verificação futura
         const signal = {

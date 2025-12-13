@@ -8313,7 +8313,8 @@ async function persistAnalyzerState(newState) {
                      
                      <div class="suggestion-box" id="suggestionBox">
                          <div class="suggestion-color-wrapper">
-                             <div class="suggestion-color" id="suggestionColor"></div>
+                             <!-- Estado inicial: sem sinal => spinner sempre (persistente após reload) -->
+                             <div class="suggestion-color suggestion-color-box neutral loading" id="suggestionColor"><div class="spinner"></div></div>
                             <div class="suggestion-stage" id="suggestionStage"></div>
                          </div>
                         </div>
@@ -9222,8 +9223,15 @@ async function persistAnalyzerState(newState) {
             console.error('%c❌ ERRO ao adicionar sidebar ao DOM:', 'color: #FF0000; font-weight: bold;', error);
             return;
         }
+
+        // ✅ Garantir spinner imediato após reload (antes de qualquer mensagem do background)
+        try {
+            renderSuggestionStatus(currentAnalysisStatus || 'Aguardando análise...');
+        } catch (_) {
+            // noop
+        }
         
-        // ✅ BOTÃO DE TOGGLE: MODO TELA CHEIA ↔ MODO COMPACTO
+        // ✅ BOTÃO DE TOGGLE: MODO TELA CHEIA ↔ MODO COMPACTO (DESKTOP APENAS)
         // Precisa ser DEPOIS da sidebar ser anexada ao DOM
         const viewModeToggleBtn = document.getElementById('viewModeToggleBtn');
         const viewModeLabel = document.getElementById('viewModeLabel');
@@ -9231,14 +9239,22 @@ async function persistAnalyzerState(newState) {
         const betViewLabel = document.getElementById('betViewLabel');
         
         if (viewModeToggleBtn) {
-            viewModeToggleBtn.addEventListener('click', () => {
-                console.log('🔄 Alternando modo de visualização (desktop)...');
-                toggleViewMode(sidebar, viewModeLabel);
-                setUserMenuState(false); // Fechar menu após clicar
-            });
-            console.log('✅ Event listener do botão de modo (desktop) adicionado');
-        } else {
-            console.warn('⚠️ Botão viewModeToggleBtn não encontrado!');
+            if (isDesktop()) {
+                viewModeToggleBtn.addEventListener('click', () => {
+                    console.log('🔄 Alternando modo de visualização (desktop)...');
+                    toggleViewMode(sidebar, viewModeLabel);
+                    setUserMenuState(false); // Fechar menu após clicar
+                });
+                console.log('✅ Event listener do botão de modo (desktop) adicionado');
+            } else {
+                // Mobile: não faz sentido ter "Tela Cheia/Compacto" (já é um layout único)
+                const wrapper = viewModeToggleBtn.closest('.user-info-item');
+                if (wrapper) {
+                    wrapper.remove();
+                } else {
+                    viewModeToggleBtn.remove();
+                }
+            }
         }
         
         if (betModeToggleBtn) {
@@ -9964,57 +9980,66 @@ async function persistAnalyzerState(newState) {
                 return normalizeColor(m[1]);
             };
 
+            const stripLeadingSymbols = (text) => {
+                // Remove emojis/símbolos no início (compatibilidade com registros antigos)
+                // Ex.: "🎯 DECISÃO: RED" -> "DECISÃO: RED"
+                // Ex.: "📊 Confiança: 78%" -> "Confiança: 78%"
+                return String(text || '').replace(/^[^A-Za-zÀ-ÿ0-9]+/g, '').trim();
+            };
+
             lines.forEach((line) => {
+                const cleanLine = stripLeadingSymbols(line);
                 // Meta
-                const modeMatch = line.match(/^\s*Modo:\s*(.+)\s*$/i);
+                const modeMatch = cleanLine.match(/^\s*Modo:\s*(.+)\s*$/i);
                 if (modeMatch) {
                     meta.mode = modeMatch[1].trim();
                     return;
                 }
-                const scoreMatch = line.match(/^\s*Score combinado:\s*([0-9]+(?:\.[0-9]+)?)\s*%\s*$/i);
+                const scoreMatch = cleanLine.match(/^\s*Score combinado:\s*([0-9]+(?:\.[0-9]+)?)\s*%\s*$/i);
                 if (scoreMatch) {
                     meta.score = Number(scoreMatch[1]);
                     return;
                 }
-                const decisionMatch = line.match(/^\s*DECIS(Ã|A)O:\s*([A-Za-z]+)\s*$/i);
+                const decisionMatch = cleanLine.match(/^\s*DECIS(Ã|A)O:\s*([A-Za-z]+)\s*$/i);
                 if (decisionMatch) {
                     meta.decision = normalizeColor(decisionMatch[2]);
                     return;
                 }
-                const confMatch = line.match(/^\s*Confian(ç|c)a:\s*([0-9]+(?:\.[0-9]+)?)\s*%\s*$/i);
+                const confMatch = cleanLine.match(/^\s*Confian(ç|c)a:\s*([0-9]+(?:\.[0-9]+)?)\s*%\s*$/i);
                 if (confMatch) {
                     meta.confidence = Number(confMatch[2]);
                     return;
                 }
 
                 // Level lines
-                const idxN = line.indexOf('N');
-                const candidate = idxN >= 0 ? line.slice(idxN) : line;
+                const idxN = cleanLine.indexOf('N');
+                const candidate = idxN >= 0 ? cleanLine.slice(idxN) : cleanLine;
                 const m = candidate.match(/\bN(10|[0-9])\b\s*-\s*([^→]+?)\s*→\s*(.+)\s*$/i);
                 if (!m) return;
 
                 const id = `N${m[1]}`;
                 const name = m[2].trim();
                 const statusRaw = m[3].trim();
+                const statusClean = stripLeadingSymbols(statusRaw);
 
                 // Filtrar níveis desativados para reduzir poluição (pedido do usuário)
-                if (/DESATIVADO/i.test(statusRaw)) return;
+                if (/DESATIVADO/i.test(statusClean)) return;
 
-                let main = statusRaw;
+                let main = statusClean;
                 let detail = '';
-                const paren = statusRaw.match(/^(.+?)\s*\((.*)\)\s*$/);
+                const paren = statusClean.match(/^(.+?)\s*\((.*)\)\s*$/);
                 if (paren) {
                     main = paren[1].trim();
                     detail = paren[2].trim();
-                } else if (statusRaw.includes(' • ')) {
-                    const parts = statusRaw.split(' • ').map(p => p.trim()).filter(Boolean);
+                } else if (statusClean.includes(' • ')) {
+                    const parts = statusClean.split(' • ').map(p => p.trim()).filter(Boolean);
                     main = parts[0] || statusRaw;
                     detail = parts.slice(1).join(' • ');
                 }
 
-                const pctMatch = statusRaw.match(/([0-9]+(?:\.[0-9]+)?)\s*%/);
+                const pctMatch = statusClean.match(/([0-9]+(?:\.[0-9]+)?)\s*%/);
                 const pct = pctMatch ? Number(pctMatch[1]) : null;
-                const voteColor = detectVoteColor(main) || detectVoteColor(statusRaw);
+                const voteColor = detectVoteColor(main) || detectVoteColor(statusClean);
                 const badgeText = (() => {
                     if (voteColor) return `Voto: ${colorLabel(voteColor)}`;
                     if (/NULO/i.test(main)) return 'Nulo';
@@ -10045,10 +10070,12 @@ async function persistAnalyzerState(newState) {
             const fmtPct = (value) => (typeof value === 'number' && Number.isFinite(value)) ? `${value.toFixed(1)}%` : '—';
             const colorLabel = (color) => (color === 'red' ? 'Vermelho' : color === 'black' ? 'Preto' : color === 'white' ? 'Branco' : '—');
 
-            const decisionText = meta.decision ? colorLabel(meta.decision) : '—';
+            const decisionText = meta.decision ? colorLabel(meta.decision) : (aiData && aiData.color ? colorLabel(aiData.color) : '—');
             const modeText = meta.mode ? meta.mode : '—';
             const scoreText = (typeof meta.score === 'number' && Number.isFinite(meta.score)) ? `${meta.score.toFixed(1)}%` : '—';
-            const confText = (typeof meta.confidence === 'number' && Number.isFinite(meta.confidence)) ? `${meta.confidence.toFixed(0)}%` : '—';
+            const confFallback = (aiData && typeof aiData.confidence === 'number' && Number.isFinite(aiData.confidence)) ? aiData.confidence : null;
+            const confValue = (typeof meta.confidence === 'number' && Number.isFinite(meta.confidence)) ? meta.confidence : confFallback;
+            const confText = (typeof confValue === 'number' && Number.isFinite(confValue)) ? `${confValue.toFixed(0)}%` : '—';
 
             const summary = `
                 <div class="diamond-reasoning-summary">
@@ -10884,16 +10911,10 @@ async function persistAnalyzerState(newState) {
         const normalized = typeof statusText === 'string' ? statusText : '';
         suggestionColor.removeAttribute('title');
         
-        if (normalized && normalized.includes('Aguardando')) {
-            suggestionColor.className = 'suggestion-color suggestion-color-box neutral waiting';
-            suggestionColor.innerHTML = '<span class="hourglass-icon">⏳</span>';
-        } else if (normalized && normalized.includes('Coletando')) {
-            suggestionColor.className = 'suggestion-color suggestion-color-box neutral loading';
-            suggestionColor.innerHTML = '<div class="spinner"></div>';
-        } else {
-            suggestionColor.className = 'suggestion-color suggestion-color-box neutral loading';
-            suggestionColor.innerHTML = '<div class="spinner"></div>';
-        }
+        // Regra nova: se NÃO há sinal visível, sempre mostrar o spinner (sensação de análise rodando)
+        // Vale para modo padrão e modo diamante.
+        suggestionColor.className = 'suggestion-color suggestion-color-box neutral loading';
+        suggestionColor.innerHTML = '<div class="spinner"></div>';
         
         // Sincronizar com modo aposta
         syncBetModeView();
@@ -11712,6 +11733,13 @@ async function persistAnalyzerState(newState) {
         
         sidebar.classList.add('fullscreen-mode');
         sidebar.classList.remove('compact-mode');
+
+        // Permite CSS de modais fullscreen mesmo quando o modal é anexado no <body>
+        try {
+            document.body.classList.add('da-ext-fullscreen');
+        } catch (e) {
+            // noop
+        }
         
         // Tela cheia: ocupar 100% da área útil da janela, sem bordas
         sidebar.style.left = '0px';
@@ -11737,6 +11765,13 @@ async function persistAnalyzerState(newState) {
         
         sidebar.classList.add('compact-mode');
         sidebar.classList.remove('fullscreen-mode');
+
+        // Remover flag usada para modais fullscreen
+        try {
+            document.body.classList.remove('da-ext-fullscreen');
+        } catch (e) {
+            // noop
+        }
 
         // Restaurar comportamento padrão de scroll da página
         try {
