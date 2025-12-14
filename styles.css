@@ -6186,6 +6186,18 @@ body.da-ext-fullscreen #patternDetailsModal .bank-patterns-modal-content {
     min-width: 0;
 }
 
+/* ✅ Botão do modo padrão (Premium) — precisa ser full-width como "Configurar Níveis" */
+#standardSimulationContainer .hot-pattern-actions {
+    width: 100%;
+    display: flex;
+}
+
+#standardSimulationContainer .hot-pattern-actions button {
+    flex: 1;
+    min-width: 0;
+    width: 100%;
+}
+
 .btn-diamond-levels {
     border-radius: 3px;
 }

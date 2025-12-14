@@ -1042,6 +1042,12 @@
                 console.log('📂 Banco de Padrões visível (Modo Padrão ativo)');
             }
         }
+
+        // ✅ Botão exclusivo do modo padrão (Premium): ocultar no modo Diamante
+        const standardSimContainer = document.getElementById('standardSimulationContainer');
+        if (standardSimContainer) {
+            standardSimContainer.style.display = isAIMode ? 'none' : '';
+        }
         
         // ✅ VISUAL FEEDBACK: Mudar cor de fundo quando Nível Diamante está ativo
         // Fundo da extensão: 15% mais claro | Header: 25% mais verde
@@ -10794,8 +10800,8 @@ async function persistAnalyzerState(newState) {
                         <!-- Simulação no passado (Modo Padrão / Análise Premium) -->
                         <div class="setting-item setting-row" id="standardSimulationContainer" style="margin-top: 10px;">
                             <div class="hot-pattern-actions">
-                                <button id="standardSimulationBtn" class="btn-hot-pattern" type="button" title="Simular/otimizar esta configuração no passado (sem olhar o futuro)">
-                                    Simular (Premium)
+                                <button id="standardSimulationBtn" class="btn-hot-pattern btn-standard-test-config" type="button" title="Simular/otimizar esta configuração no passado (sem olhar o futuro)">
+                                    Testar configurações
                                 </button>
                             </div>
                         </div>
