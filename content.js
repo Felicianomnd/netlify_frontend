@@ -3300,7 +3300,10 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
         const vbH = 160;
         const padY = 8;
         const n = attemptsChron.length;
-        const vbW = Math.max(1, n - 1);
+        const contentW = Math.max(1, n - 1);
+        // ✅ UX: com poucas entradas, não “esticar” a barra para ocupar a tela inteira.
+        // Mantém um viewBox mínimo para a barra ter um tamanho normal (sem virar um bloco gigante).
+        const vbW = (n <= 3) ? 30 : contentW;
         if (!standardSimTickZoomState || standardSimTickZoomState.points !== n || standardSimTickZoomState.baseW !== vbW) {
             standardSimTickZoomState = { points: n, zoom: 1, x: 0, baseW: vbW, baseH: vbH };
         } else {
@@ -3386,8 +3389,10 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
 
         let dWin = '';
         let dLoss = '';
+        const xOffset = vbW - contentW;
         for (const s of segments) {
-            const x = n === 1 ? 0 : s.idx;
+            const xRaw = (n === 1 ? 0 : s.idx);
+            const x = (n <= 3) ? Math.min(vbW - 0.5, xOffset + xRaw) : xRaw;
             const y0 = yScale(s.y0);
             const y1 = yScale(s.y1);
             const pathSeg = `M ${x} ${y0.toFixed(2)} L ${x} ${y1.toFixed(2)} `;
@@ -4505,7 +4510,8 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
         const vbH = 160;
         const padY = 8;
         const n = attemptsChron.length;
-        const vbW = Math.max(1, n - 1);
+        const contentW = Math.max(1, n - 1);
+        const vbW = (n <= 3) ? 30 : contentW;
         if (!entriesTickZoomState || entriesTickZoomState.points !== n || entriesTickZoomState.baseW !== vbW) {
             entriesTickZoomState = { points: n, zoom: 1, x: 0, baseW: vbW, baseH: vbH };
         } else {
@@ -4591,8 +4597,10 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
 
         let dWin = '';
         let dLoss = '';
+        const xOffset = vbW - contentW;
         for (const s of segments) {
-            const x = n === 1 ? 0 : s.idx;
+            const xRaw = (n === 1 ? 0 : s.idx);
+            const x = (n <= 3) ? Math.min(vbW - 0.5, xOffset + xRaw) : xRaw;
             const y0 = yScale(s.y0);
             const y1 = yScale(s.y1);
             const pathSeg = `M ${x} ${y0.toFixed(2)} L ${x} ${y1.toFixed(2)} `;
@@ -4821,7 +4829,8 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
         const vbH = 160;
         const padY = 8;
         const n = attemptsChron.length;
-        const vbW = Math.max(1, n - 1);
+        const contentW = Math.max(1, n - 1);
+        const vbW = (n <= 3) ? 30 : contentW;
         // manter zoom se for o mesmo dataset; caso contrário resetar
         if (!diamondSimTickZoomState || diamondSimTickZoomState.points !== n || diamondSimTickZoomState.baseW !== vbW) {
             diamondSimTickZoomState = { points: n, zoom: 1, x: 0, baseW: vbW, baseH: vbH };
@@ -4915,8 +4924,10 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
         // desenhar segmentos verticais começando do fim do anterior (efeito "andando")
         let dWin = '';
         let dLoss = '';
+        const xOffset = vbW - contentW;
         for (const s of segments) {
-            const x = n === 1 ? 0 : s.idx;
+            const xRaw = (n === 1 ? 0 : s.idx);
+            const x = (n <= 3) ? Math.min(vbW - 0.5, xOffset + xRaw) : xRaw;
             const y0 = yScale(s.y0);
             const y1 = yScale(s.y1);
             const pathSeg = `M ${x} ${y0.toFixed(2)} L ${x} ${y1.toFixed(2)} `;
@@ -8440,6 +8451,25 @@ autoBetHistoryStore.init().catch(error => console.warn('AutoBetHistory: iniciali
             }
         }
 
+        let autoBetEntriesSnapshot = [];
+
+        function getActiveAnalysisModeKey() {
+            const aiModeToggle = document.querySelector('.ai-mode-toggle.active');
+            return aiModeToggle ? 'diamond' : 'standard';
+        }
+
+        function filterEntriesSnapshotByMode(allEntries, modeKey) {
+            const entriesArr = Array.isArray(allEntries) ? allEntries : [];
+            const hasExplicitMode = entriesArr.some(e => e && (e.analysisMode === 'diamond' || e.analysisMode === 'standard'));
+            return entriesArr.filter(e => {
+                if (!e) return false;
+                const m = (e.analysisMode === 'diamond' || e.analysisMode === 'standard')
+                    ? e.analysisMode
+                    : (hasExplicitMode ? 'legacy' : 'standard');
+                return m === modeKey;
+            });
+        }
+
         function updateStatusUI(message) {
             if (!uiRefs) return;
             const shouldDisplayBalances = !!config.simulationOnly || !!config.enabled;
@@ -8456,8 +8486,19 @@ autoBetHistoryStore.init().catch(error => console.warn('AutoBetHistory: iniciali
                 uiRefs.configBtn.setAttribute('title', `Configurar autoaposta • ${statusText}`);
                 uiRefs.configBtn.setAttribute('aria-label', `Configurar autoaposta • ${statusText}`);
             }
-            const realizedProfit = shouldDisplayBalances ? Number(runtime.profit || 0) : 0;
-            const pendingExposure = shouldDisplayBalances && runtime.openCycle
+            // ✅ Importante: separar saldo do simulador por modo (Diamante vs Premium).
+            // Em vez de usar runtime.profit global (que mistura os modos),
+            // calculamos o lucro/perda do modo ativo a partir do entriesHistory.
+            const activeMode = getActiveAnalysisModeKey();
+            const modeEntries = shouldDisplayBalances
+                ? filterEntriesSnapshotByMode(autoBetEntriesSnapshot, activeMode)
+                : [];
+            const profitSnapshot = shouldDisplayBalances
+                ? computeEntriesProfitSnapshot(modeEntries, config)
+                : { profit: 0 };
+            const realizedProfit = shouldDisplayBalances ? Number(profitSnapshot.profit || 0) : 0;
+
+            const pendingExposure = shouldDisplayBalances && runtime.openCycle && (runtime.openCycle.mode || activeMode) === activeMode
                 ? (getColorExposure() + getWhiteExposure())
                 : 0;
             const profitValue = realizedProfit > 0 ? realizedProfit : 0;
@@ -8874,9 +8915,15 @@ autoBetHistoryStore.init().catch(error => console.warn('AutoBetHistory: iniciali
         }
 
         function handleEntriesUpdate(entries) {
-            if (!Array.isArray(entries) || !entries.length) return;
+            // ✅ Sempre manter um snapshot para o simulador de saldo (mesmo vazio),
+            // para que alternar modos e limpar histórico atualize o painel corretamente.
+            autoBetEntriesSnapshot = Array.isArray(entries) ? entries : [];
+            if (!autoBetEntriesSnapshot.length) {
+                updateStatusUI();
+                return;
+            }
             if (!isAutomationActive() && !runtime.openCycle) return;
-            const latest = entries[0];
+            const latest = autoBetEntriesSnapshot[0];
             if (!latest || runtime.lastProcessedEntryTimestamp === latest.timestamp) return;
             runtime.lastProcessedEntryTimestamp = latest.timestamp;
             if (!runtime.openCycle) return;
@@ -13265,17 +13312,26 @@ async function persistAnalyzerState(newState) {
         const currentMode = isDiamondMode ? 'diamond' : 'standard';
         
         console.log(`🔍 Modo de análise ativo: ${currentMode.toUpperCase()}`);
+
+        // ✅ Política para entradas antigas sem analysisMode:
+        // Se já existem entradas com analysisMode explícito, NÃO tratar "sem analysisMode" como standard
+        // (evita “entradas fantasma” vindas de histórico antigo).
+        const hasExplicitMode = Array.isArray(entries) && entries.some(e =>
+            e && (e.analysisMode === 'diamond' || e.analysisMode === 'standard')
+        );
+        const resolveEntryMode = (e) => {
+            const m = e && typeof e.analysisMode === 'string' ? e.analysisMode : null;
+            if (m === 'diamond' || m === 'standard') return m;
+            return hasExplicitMode ? 'legacy' : 'standard';
+        };
         
         // ═══════════════════════════════════════════════════════════════
         // ✅ FILTRAR ENTRADAS POR MODO DE ANÁLISE
         // ═══════════════════════════════════════════════════════════════
         // Mostrar apenas entradas do modo ativo
-        // ✅ Entradas antigas sem analysisMode → tratar como MODO PADRÃO
         const entriesByMode = entries.filter(e => {
-            // ✅ Entradas antigas sem analysisMode → tratar como MODO PADRÃO
-            const entryMode = e.analysisMode || 'standard';
-            
             // Mostrar apenas se for do modo ativo
+            const entryMode = resolveEntryMode(e);
             return entryMode === currentMode;
         });
         
@@ -13467,9 +13523,15 @@ async function persistAnalyzerState(newState) {
         const totalCycles = filteredEntries.length;
         const wins = filteredEntries.filter(e => e.result === 'WIN').length;
         const losses = totalCycles - wins;
-        const pct = totalCycles ? ((wins/totalCycles)*100).toFixed(1) : '0.0';
-        // ✅ Contar apenas entradas do modo ativo, não de todos os modos
-        const totalEntries = entriesByMode.length;
+        const pct = totalCycles ? ((wins / totalCycles) * 100).toFixed(1) : '0.0';
+
+        // ✅ “Entradas” (contador) deve representar CICLOS FINALIZADOS (o que você vê em Sinais).
+        const totalEntries = totalCycles;
+
+        // ✅ Para o gráfico (tick chart), precisamos das TENTATIVAS do ciclo (ENTRADA/G1/G2…),
+        // senão um WIN em G2 aparece como “+20” sem mostrar os 2 LOSS anteriores.
+        // Mantém o placar/contador por ciclo, mas desenha o gráfico por tentativa.
+        const chartAttempts = entriesByMode;
         
         // Mostrar placar WIN/LOSS com porcentagem e total de entradas
         const clearButtonHTML = `<button type="button" class="clear-entries-btn" id="clearEntriesBtn" title="Limpar histórico">Limpar</button>`;
@@ -13486,7 +13548,7 @@ async function persistAnalyzerState(newState) {
         // ✅ Atualizar gráfico do modo real (usa o mesmo estilo do simulador)
         try {
             renderEntriesChart({ wins, losses, totalCycles, totalEntries });
-            renderEntriesTickChart(entriesByMode);
+            renderEntriesTickChart(chartAttempts);
         } catch (err) {
             console.warn('⚠️ Falha ao atualizar gráfico do modo real:', err);
         }
