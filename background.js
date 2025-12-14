@@ -3945,8 +3945,8 @@ async function processNewSpinFromServer(spinData) {
                 
                 // Notificar content script sobre novo giro (SEMPRE usar cachedHistory - array válido!)
                 // ✅ NÃO enviar history a cada giro (evita sobrescrever buffer de 10k no content.js e reduz payload)
-                sendMessageToContent('NEW_SPIN', {
-                    lastSpin: { number: rollNumber, color: rollColor, timestamp: latestSpin.created_at }
+                sendMessageToContent('NEW_SPIN', { 
+                    lastSpin: { number: rollNumber, color: rollColor, timestamp: latestSpin.created_at } 
                 });
                 
                 // ✅ EXECUTAR NOVA ANÁLISE (após processar WIN/LOSS)
@@ -8126,7 +8126,7 @@ function analyzeMomentum(history) {
     console.log('%c┌─────────────────────────────────────────────────────────┐', 'color: #00AAFF; font-weight: bold;');
     console.log(`%c│ 🔍 N2: RITMO AUTÔNOMO (DUPLAS/SEQUÊNCIA) • W=${baseW} │`, 'color: #00AAFF; font-weight: bold;');
     console.log('%c└─────────────────────────────────────────────────────────┘', 'color: #00AAFF; font-weight: bold;');
-
+    
     return analyzeMomentumWithSizes(history, baseW, 0);
 }
 
@@ -8191,7 +8191,7 @@ function analyzeMomentumWithSizes(history, recentSize, previousSize) {
             }
             if (c === cur) {
                 len += 1;
-            } else {
+    } else {
                 if (cur) by[cur].push(len);
                 cur = c;
                 len = 1;
@@ -8287,7 +8287,8 @@ function analyzeMomentumWithSizes(history, recentSize, previousSize) {
             if (rRuns.length < 1 || bRuns.length < 1) return null;
 
             // ✅ “Nunca sai só”: todas as runs COMPLETAS da cor-alvo devem ser >= 2.
-            // A última run (mais recente) pode estar "em andamento" e pode ser 1 (vamos apostar no 2º).
+            // A última run (mais recente) pode estar "em andamento" e pode ser 1 (vamos apostar no 2º),
+            // mas somente depois de existir "prova suficiente" (ver regra abaixo).
             const isCurrentTarget = currentColor === targetColor;
             const completedTargetRuns = isCurrentTarget ? targetRuns.slice(0, -1) : targetRuns.slice(0);
             if (completedTargetRuns.length === 0) return null; // sem evidência do padrão na janela atual
@@ -8365,7 +8366,7 @@ function analyzeMomentumWithSizes(history, recentSize, previousSize) {
     }
 
     if (!best) {
-        return {
+    return {
             color: null,
             momentum: { red: '0.0', black: '0.0' },
             trending: 'neutral',
@@ -8394,6 +8395,46 @@ function analyzeMomentumWithSizes(history, recentSize, previousSize) {
             confidence: 0,
             confidencePct: 0,
             reason: 'aguardando_cor_alvo',
+            details
+        };
+    }
+
+    // ✅ REGRA NOVA (pedido): só entrar depois de ter "provas" suficientes de que a cor NÃO sai sozinha.
+    // Prova = ocorrência de uma run COMPLETA >= 2. A run atual conta como prova só quando já está em 2+.
+    const completedProofs = Array.isArray(best.completedTargetRuns)
+        ? best.completedTargetRuns.filter(v => Number(v) >= 2).length
+        : 0;
+    const currentProof = (currentRunLen >= 2) ? 1 : 0;
+    const proofsTotal = completedProofs + currentProof;
+    const PROOFS_REQUIRED = 2;
+    if (proofsTotal < PROOFS_REQUIRED) {
+        const details = `NULO • poucas provas (${proofsTotal}/${PROOFS_REQUIRED}) • run ${currentRunLen} • W=${W} • jan ${best.windowSize}`;
+        return {
+            color: null,
+            momentum: { red: (best.redPair * 100).toFixed(1), black: (best.blackPair * 100).toFixed(1) },
+            trending: 'neutral',
+            confidence: 0,
+            confidencePct: 0,
+            reason: 'poucas_provas_duplas',
+            details
+        };
+    }
+
+    // ✅ REGRA NOVA (pedido): se o regime histórico mostra sequências longas (4+),
+    // não entrar no "2º" (run=1→2). Esperar a dupla se formar e entrar no 3º (run>=2).
+    const maxCompleted = Array.isArray(best.completedTargetRuns) && best.completedTargetRuns.length
+        ? Math.max(...best.completedTargetRuns.map(v => Number(v) || 0))
+        : 0;
+    const longRegime = maxCompleted >= 4;
+    if (longRegime && currentRunLen < 2) {
+        const details = `NULO • regime longo (máx ${maxCompleted}) • aguarde dupla • run ${currentRunLen} • W=${W} • jan ${best.windowSize}`;
+        return {
+            color: null,
+            momentum: { red: (best.redPair * 100).toFixed(1), black: (best.blackPair * 100).toFixed(1) },
+            trending: 'neutral',
+            confidence: 0,
+            confidencePct: 0,
+            reason: 'regime_longo_aguarda_dupla',
             details
         };
     }
@@ -8474,7 +8515,7 @@ function analyzeMomentumWithSizes(history, recentSize, previousSize) {
     confidence = clamp01Local(confidence * (0.9 + best.score * 0.2));
 
     const details =
-        `Alvo ${best.target.toUpperCase()} • W=${W} • jan ${best.windowSize} • seg ${best.segmentLen} • ` +
+        `Alvo ${best.target.toUpperCase()} • W=${W} • jan ${best.windowSize} • seg ${best.segmentLen} • provas ${proofsTotal}/${PROOFS_REQUIRED} • ` +
         `P2+ R ${(best.redPair * 100).toFixed(0)}% • B ${(best.blackPair * 100).toFixed(0)}% • ` +
         `run ${currentRunLen}→${currentRunLen + 1} (${(pContinue * 100).toFixed(0)}%)`;
 
@@ -8645,7 +8686,7 @@ function analyzeMinuteSpinBias(history, targetMinute, targetPosition, windowSize
     const dominantPercentFormatted = (dominantPercent * 100).toFixed(1);
     console.log(`   🏆 Cor dominante: ${dominantColor.toUpperCase()} (${dominantPercentFormatted}%)`);
     console.log(`   🗳️ Confiança final: ${(confidence * 100).toFixed(0)}% (viés ${Math.round(edge * 100)}pp • z ${zAbs.toFixed(2)} • n=${effectiveSamples})`);
-
+    
     return {
         color: dominantColor,
         confidence,
@@ -9837,7 +9878,7 @@ function analyzePersistence(history, configuredSize = 20) {
     } else {
         console.log(`   ✅ Nenhum BRANCO encontrado - analisando todos os ${validHistory.length} giros`);
     }
-
+    
     // ✅ Rigor: não votar com pouco histórico (evitar ruído)
     const MIN_VALID_AFTER_WHITE = 12;
     if (validHistory.length < MIN_VALID_AFTER_WHITE) {
@@ -9878,11 +9919,11 @@ function analyzePersistence(history, configuredSize = 20) {
     if (runColor && runLen > 0) sequences[runColor].push(runLen);
     
     // Calcular médias (apenas informativo)
-    const avgRed = sequences.red.length > 0
-        ? sequences.red.reduce((a, b) => a + b, 0) / sequences.red.length
+    const avgRed = sequences.red.length > 0 
+        ? sequences.red.reduce((a, b) => a + b, 0) / sequences.red.length 
         : 0;
-    const avgBlack = sequences.black.length > 0
-        ? sequences.black.reduce((a, b) => a + b, 0) / sequences.black.length
+    const avgBlack = sequences.black.length > 0 
+        ? sequences.black.reduce((a, b) => a + b, 0) / sequences.black.length 
         : 0;
     
     // Sequência atual (streak) no topo do histórico (mais recente primeiro)
@@ -9898,7 +9939,7 @@ function analyzePersistence(history, configuredSize = 20) {
             details: 'NULO • último giro não é red/black'
         };
     }
-
+    
     let currentSequenceLength = 0;
     for (let i = 0; i < validHistory.length; i++) {
         const c = validHistory[i] && validHistory[i].color ? String(validHistory[i].color).toLowerCase() : '';
@@ -13478,7 +13519,7 @@ async function analyzeWithPatternSystem(history) {
             const lastSignalTimestamp = entriesResult.lastSignalTimestamp || null;
             const lastSignalSpinId = entriesResult.lastSignalSpinId || null;
             const lastSignalSpinTimestamp = entriesResult.lastSignalSpinTimestamp || null;
-
+            
             const usingCycleMarker = !!(lastCycleResolvedSpinId || lastCycleResolvedSpinTimestamp || lastCycleResolvedTimestamp);
 
             if (usingCycleMarker) {
@@ -13489,9 +13530,9 @@ async function analyzeWithPatternSystem(history) {
                 }
             } else {
                 console.log(`📊 Último sinal salvo (fallback): ${lastSignalSpinNumber !== null ? '#' + lastSignalSpinNumber : 'Nenhum'}`);
-                if (lastSignalTimestamp) {
-                    const tempoDecorrido = Math.round((Date.now() - lastSignalTimestamp) / 1000);
-                    console.log(`   ⏱️ Registrado há ${tempoDecorrido}s`);
+            if (lastSignalTimestamp) {
+                const tempoDecorrido = Math.round((Date.now() - lastSignalTimestamp) / 1000);
+                console.log(`   ⏱️ Registrado há ${tempoDecorrido}s`);
                 }
             }
 
@@ -13534,10 +13575,10 @@ async function analyzeWithPatternSystem(history) {
                 const minutosDecorridos = timeSince / 60000;
                 const girosEstimados = Math.floor(minutosDecorridos * 2);
                 console.log(`📊 Giros estimados desde o ${usingCycleMarker ? 'fim do ciclo' : 'último sinal'}: ~${girosEstimados}`);
-
+                
                 if (girosEstimados >= minIntervalSpins) {
                     console.log('✅ Intervalo estimado suficiente (fallback temporal)');
-                } else {
+            } else {
                     const remaining = minIntervalSpins - girosEstimados;
                     intervalBlocked = true;
                     intervalMessage = `⏳ Aguardando ${remaining} giro(s)... ${girosEstimados}/${minIntervalSpins}`;
@@ -13548,9 +13589,9 @@ async function analyzeWithPatternSystem(history) {
             }
         } else {
             console.log('✅ Sem intervalo configurado – sinais liberados sempre que houver padrão válido');
-        }
+            }
         } // ✅ fim do if (analyzerConfig.aiMode)
-
+        
         // ═══════════════════════════════════════════════════════════════
         // 💎 FLUXO ATUAL - NÍVEL DIAMANTE: 5 NÍVEIS COM PONTUAÇÃO
         // ═══════════════════════════════════════════════════════════════
@@ -13686,7 +13727,7 @@ async function analyzeWithPatternSystem(history) {
         // ⚡ N2: RITMO AUTÔNOMO (W único + ajuste automático)
         // ═══════════════════════════════════════════════════════════════
         console.log('%c║  ⚡ N2: RITMO AUTÔNOMO (W único • ajuste automático)   ║', 'color: #00AAFF; font-weight: bold; font-size: 14px;');
-
+        
         const nivel5 = analyzeMomentum(history);
         const n2Vote = nivel5 && nivel5.color ? String(nivel5.color).toUpperCase() : 'NULO';
         const p2Red = Number(nivel5?.momentum?.red ?? 0);
@@ -13697,8 +13738,8 @@ async function analyzeWithPatternSystem(history) {
         console.log(`%c   P(2+ por run): 🔴 ${p2Red.toFixed(1)}% | ⚫ ${p2Black.toFixed(1)}%`, 'color: #00AAFF;');
         console.log(`%c   Detalhes: ${n2Details}`, 'color: #00AAFF;');
         console.log(`%c🗳️ N2 VOTA: ${n2Vote}`, `color: ${n2Vote === 'RED' ? '#FF0000' : (n2Vote === 'BLACK' ? '#FFFFFF' : '#888888')}; font-weight: bold; font-size: 14px;`);
-
-        // ⚡ NÃO EXIBIR na UI ainda (análise rápida, mostraremos depois)
+    
+    // ⚡ NÃO EXIBIR na UI ainda (análise rápida, mostraremos depois)
         
         // ═══════════════════════════════════════════════════════════════
         // 🔷 N4 - PADRÃO DE ALTERNÂNCIA (CONFIGURÁVEL PELO USUÁRIO)
@@ -16106,7 +16147,7 @@ async function runAnalysisController(history) {
 				console.log(`║  Cor do novo padrão: ${verifyResult.color}                           ║`);
 				console.log(`║  Cor da entrada original: ${martingaleState.entryColor}                    ║`);
 				console.log(`║  Estágio atual: ${martingaleState.stage}                              ║`);
-
+				
 				// ✅ Sempre marcar o estágio (stake) do Martingale
 				verifyResult.phase = martingaleState.stage;
 
@@ -16274,11 +16315,11 @@ async function runAnalysisController(history) {
 					console.log(`║  Cor da entrada original: ${martingaleState.entryColor}                    ║`);
 					console.log(`║  Estágio atual: ${martingaleState.stage}                              ║`);
 					aiPhase = martingaleState.stage;
-
+					
 					// ✅ Só força a cor se este estágio for consecutivo
 					if (martingaleState.entryColor && isMartingaleStageConsecutive(martingaleState.stage, consecutiveGales)) {
 						console.log('║  ✅ COR FORÇADA (estágio consecutivo)                     ║');
-						aiColor = martingaleState.entryColor;
+					aiColor = martingaleState.entryColor;
 					} else {
 						console.log('║  ✅ COR LIVRE (próximo sinal)                             ║');
 					}
@@ -16872,9 +16913,10 @@ function isDuplicatePattern(newPattern, existingPatterns) {
 }
 
 // Verificação: compara head do histórico com padrões salvos e retorna melhor sinal
-async function verifyWithSavedPatterns(history) {
+// ✅ Aceita db opcional para simulações/otimizações (evita loadPatternDB a cada giro)
+async function verifyWithSavedPatterns(history, dbOverride = null) {
 	if (!history || history.length < 3) return null;
-	const db = await loadPatternDB();
+	const db = dbOverride || await loadPatternDB();
 	if (!db.patterns_found || db.patterns_found.length === 0) return null;
 
 	const headColors = history.map(s => s.color);
@@ -22277,6 +22319,367 @@ const DIAMOND_OPTIMIZATION_PROGRESS_EVERY = 1; // enviar progresso a cada tentat
 const DIAMOND_OPTIMIZATION_MIN_PCT_DEFAULT = 95; // ✅ só "recomendar" config >= 95%
 const diamondOptimizationJobs = new Map(); // jobId -> { cancelled: boolean }
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// ⚙️ SIMULAÇÃO NO PASSADO (BACKTEST) - MODO PADRÃO / ANÁLISE PREMIUM (SEM SPOILER)
+//  - Reusa o banco de padrões (verifyWithSavedPatterns)
+//  - Não olha futuro: cria sinal no giro i para avaliar no giro i+1
+// ═══════════════════════════════════════════════════════════════════════════════
+
+const STANDARD_SIMULATION_BATCH = 25;
+const STANDARD_OPTIMIZATION_TRIALS_DEFAULT = 100;
+const STANDARD_OPTIMIZATION_PROGRESS_EVERY = 1;
+const STANDARD_OPTIMIZATION_MIN_PCT_DEFAULT = 95;
+
+const standardSimulationJobs = new Map(); // jobId -> { cancelled: boolean }
+const standardOptimizationJobs = new Map(); // jobId -> { cancelled: boolean }
+
+function makeStandardSimulationJobId() {
+    return `std-sim-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function makeStandardOptimizationJobId() {
+    return `std-opt-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+async function withTempAnalyzerConfig(tempConfig, fn) {
+    const prev = deepClonePlain(analyzerConfig);
+    try {
+        const merged = { ...prev, ...(tempConfig && typeof tempConfig === 'object' ? deepClonePlain(tempConfig) : {}) };
+        merged.aiMode = false; // forçar modo padrão durante simulação/otimização premium
+        analyzerConfig = merged;
+        return await fn();
+    } finally {
+        analyzerConfig = prev;
+    }
+}
+
+function normalizeStandardConfigForSimulation(cfg) {
+    const c = cfg && typeof cfg === 'object' ? deepClonePlain(cfg) : {};
+    c.aiMode = false;
+    ensureMartingaleProfiles(c);
+    return c;
+}
+
+async function maybeGenerateStandardAnalysisSimulation(history, simState, patternDB) {
+    const config = simState.config || {};
+    const { consecutiveGales } = getMartingaleSettings('standard', config);
+
+    // se análise pendente, não gerar outra
+    if (simState.analysis && simState.analysis.createdOnTimestamp && simState.analysis.predictedFor === 'next') {
+        const latestTs = history[0]?.timestamp;
+        if (latestTs && simState.analysis.createdOnTimestamp !== latestTs) {
+            return;
+        }
+    }
+
+    // se estamos em gale consecutivo, não buscar novo padrão (mantém ciclo)
+    if (simState.martingaleState.active && isMartingaleStageConsecutive(simState.martingaleState.stage, consecutiveGales)) return;
+
+    const verifyResult = await verifyWithSavedPatterns(history, patternDB);
+    if (!verifyResult) return;
+
+    let analysis = { ...verifyResult };
+    analysis.predictedFor = 'next';
+    analysis.createdOnTimestamp = history[0]?.timestamp;
+    if (!analysis.phase) analysis.phase = 'G0';
+
+    if (simState.martingaleState && simState.martingaleState.active) {
+        analysis.phase = simState.martingaleState.stage;
+        if (simState.martingaleState.entryColor && isMartingaleStageConsecutive(simState.martingaleState.stage, consecutiveGales)) {
+            analysis.color = simState.martingaleState.entryColor;
+        }
+        analysis.confidence = calculateGaleConfidenceValue(analysis.confidence, analysis, simState.martingaleState);
+    }
+
+    simState.analysis = analysis;
+    simState.lastSignalSpinNumber = history[0]?.number ?? null;
+    simState.lastSignalSpinId = history[0]?.id ?? null;
+    simState.lastSignalSpinTimestamp = history[0]?.timestamp ?? null;
+
+    const signal = {
+        timestamp: history[0]?.timestamp ? new Date(history[0].timestamp).getTime() : Date.now(),
+        patternType: analysis.patternType || 'premium',
+        patternName: analysis.patternDescription || 'Simulação Premium',
+        colorRecommended: analysis.color,
+        verified: false,
+        colorThatCame: null,
+        hit: null
+    };
+    if (simState.signalsHistory && Array.isArray(simState.signalsHistory.signals)) {
+        simState.signalsHistory.signals.push(signal);
+        if (simState.signalsHistory.signals.length > 200) {
+            simState.signalsHistory.signals = simState.signalsHistory.signals.slice(-200);
+        }
+    }
+    simState.totalSignals++;
+}
+
+async function runStandardPastSimulation({ config, senderTabId, jobId, historyLimit }) {
+    const job = standardSimulationJobs.get(jobId);
+    const requestedLimit = Number(historyLimit);
+    const safeDefault = 1440;
+    const availableHistory = Array.isArray(cachedHistory) ? cachedHistory.length : 0;
+    const limit = (Number.isFinite(requestedLimit) && requestedLimit > 0)
+        ? Math.min(requestedLimit, 10000, availableHistory || requestedLimit)
+        : Math.min(safeDefault, availableHistory || safeDefault);
+
+    const stableWindow = getStableChronologicalHistoryWindow({ limit, sourceHistory: Array.isArray(cachedHistory) ? cachedHistory : [] });
+    const chronological = stableWindow.chronological;
+    const totalSpins = chronological.length;
+    const fromTimestamp = chronological[0]?.timestamp || null;
+    const toTimestamp = chronological[totalSpins - 1]?.timestamp || null;
+
+    const simConfig = normalizeStandardConfigForSimulation(config);
+    const simState = createDiamondSimulationState(simConfig);
+    const simHistory = [];
+
+    const patternDB = await loadPatternDB();
+
+    return await withTempAnalyzerConfig(simConfig, async () => {
+        for (let i = 0; i < totalSpins; i++) {
+            if (job && job.cancelled) {
+                if (senderTabId != null) {
+                    try { chrome.tabs.sendMessage(senderTabId, { type: 'STANDARD_SIMULATION_CANCELLED', data: { jobId } }); } catch (_) {}
+                }
+                return {
+                    cancelled: true,
+                    fromTimestamp,
+                    toTimestamp,
+                    totalSpins,
+                    requestedLimit,
+                    usedHistoryLimit: stableWindow.meta.usedHistoryLimit,
+                    availableHistory: stableWindow.meta.availableHistory,
+                    uniqueHistory: stableWindow.meta.uniqueCount,
+                    droppedDuplicates: stableWindow.meta.droppedDuplicates,
+                    droppedInvalidTs: stableWindow.meta.droppedInvalidTs,
+                    simState
+                };
+            }
+
+            const spin = chronological[i];
+            simHistory.unshift(spin);
+            if (simHistory.length > limit) simHistory.pop();
+
+            // 1) avaliar análise pendente no giro atual
+            evaluatePendingAnalysisSimulation(spin, simState, 'standard');
+
+            // 2) gerar sinal para o próximo giro (sem ver o futuro)
+            if (i < totalSpins - 1) {
+                await maybeGenerateStandardAnalysisSimulation(simHistory, simState, patternDB);
+            }
+
+            if (i % STANDARD_SIMULATION_BATCH === 0 || i === totalSpins - 1) {
+                try {
+                    try {
+                        chrome.runtime.sendMessage({
+                            type: 'STANDARD_SIMULATION_PROGRESS',
+                            data: { jobId, processed: i + 1, total: totalSpins }
+                        });
+                    } catch (_) {}
+                } catch (_) {}
+                await new Promise(resolve => setTimeout(resolve, 0));
+            }
+        }
+
+        return {
+            cancelled: false,
+            fromTimestamp,
+            toTimestamp,
+            totalSpins,
+            requestedLimit,
+            usedHistoryLimit: stableWindow.meta.usedHistoryLimit,
+            availableHistory: stableWindow.meta.availableHistory,
+            uniqueHistory: stableWindow.meta.uniqueCount,
+            droppedDuplicates: stableWindow.meta.droppedDuplicates,
+            droppedInvalidTs: stableWindow.meta.droppedInvalidTs,
+            simState
+        };
+    });
+}
+
+function buildStandardOptimizationCandidateConfig(baseConfig, rng) {
+    const cfg = normalizeStandardConfigForSimulation(baseConfig);
+    // variar em torno do valor atual (faixas seguras)
+    const baseDepth = clampInt(cfg.historyDepth ?? 500, 100, 2000);
+    const baseMinOcc = clampInt(cfg.minOccurrences ?? 2, 1, 20);
+    const baseMaxOcc = clampInt(cfg.maxOccurrences ?? 0, 0, 60);
+    const baseInterval = clampInt(cfg.minIntervalSpins ?? 0, 0, 30);
+    const baseMinSize = clampInt(cfg.minPatternSize ?? 3, 2, 20);
+    const baseMaxSize = clampInt(cfg.maxPatternSize ?? 0, 0, 30);
+    const baseWinPct = clampInt(cfg.winPercentOthers ?? 100, 0, 100);
+    const baseReqTrig = cfg.requireTrigger !== undefined ? !!cfg.requireTrigger : true;
+
+    const depth = clampInt(randomInt(rng, Math.max(100, Math.floor(baseDepth * 0.6)), Math.min(2000, Math.ceil(baseDepth * 1.4))), 100, 2000);
+    const minOcc = clampInt(randomInt(rng, Math.max(1, baseMinOcc - 2), Math.min(20, baseMinOcc + 4)), 1, 20);
+    const maxOccChoices = [0, clampInt(randomInt(rng, minOcc, Math.min(60, Math.max(minOcc, baseMaxOcc || 20))), minOcc, 60)];
+    const maxOcc = maxOccChoices[Math.floor(rng() * maxOccChoices.length)];
+    const interval = clampInt(randomInt(rng, Math.max(0, baseInterval - 3), Math.min(30, baseInterval + 6)), 0, 30);
+    const minSize = clampInt(randomInt(rng, Math.max(2, baseMinSize - 1), Math.min(20, baseMinSize + 4)), 2, 20);
+    const maxSizeChoices = [0, clampInt(randomInt(rng, minSize, Math.min(30, Math.max(minSize, baseMaxSize || 12))), minSize, 30)];
+    const maxSize = maxSizeChoices[Math.floor(rng() * maxSizeChoices.length)];
+    const winPct = clampInt(randomInt(rng, Math.max(0, baseWinPct - 25), Math.min(100, baseWinPct + 10)), 0, 100);
+    const reqTrig = rng() < 0.25 ? !baseReqTrig : baseReqTrig;
+
+    cfg.historyDepth = depth;
+    cfg.minOccurrences = minOcc;
+    cfg.maxOccurrences = maxOcc;
+    cfg.minIntervalSpins = interval;
+    cfg.minPatternSize = minSize;
+    cfg.maxPatternSize = maxSize;
+    cfg.winPercentOthers = winPct;
+    cfg.requireTrigger = reqTrig;
+
+    return cfg;
+}
+
+async function runStandardPastOptimization({ config, senderTabId, jobId, historyLimit, trials }) {
+    const job = standardOptimizationJobs.get(jobId);
+    const requestedLimit = Number(historyLimit);
+    const safeDefault = 1440;
+    const availableHistory = Array.isArray(cachedHistory) ? cachedHistory.length : 0;
+    const limit = (Number.isFinite(requestedLimit) && requestedLimit > 0)
+        ? Math.min(requestedLimit, 10000, availableHistory || requestedLimit)
+        : Math.min(safeDefault, availableHistory || safeDefault);
+
+    const stableWindow = getStableChronologicalHistoryWindow({ limit, sourceHistory: Array.isArray(cachedHistory) ? cachedHistory : [] });
+    const chronological = stableWindow.chronological;
+    const totalSpins = chronological.length;
+    const fromTimestamp = chronological[0]?.timestamp || null;
+    const toTimestamp = chronological[totalSpins - 1]?.timestamp || null;
+
+    const totalTrials = clampInt(trials || STANDARD_OPTIMIZATION_TRIALS_DEFAULT, 1, 1000);
+    const minPct = STANDARD_OPTIMIZATION_MIN_PCT_DEFAULT;
+    const baseConfig = normalizeStandardConfigForSimulation(config);
+
+    // Seed determinístico: mesma config + mesma janela => mesmos 100 testes
+    const seedPayload = JSON.stringify({
+        usedHistoryLimit: limit,
+        fromTimestamp,
+        toTimestamp,
+        standard: {
+            historyDepth: baseConfig.historyDepth,
+            minOccurrences: baseConfig.minOccurrences,
+            maxOccurrences: baseConfig.maxOccurrences,
+            minIntervalSpins: baseConfig.minIntervalSpins,
+            minPatternSize: baseConfig.minPatternSize,
+            maxPatternSize: baseConfig.maxPatternSize,
+            winPercentOthers: baseConfig.winPercentOthers,
+            requireTrigger: baseConfig.requireTrigger
+        }
+    });
+    const seed = hashStringToSeed(seedPayload);
+    const rng = makeMulberry32(seed);
+
+    const patternDB = await loadPatternDB();
+
+    let bestOverall = null;
+    let bestEligible = null;
+    const seen = new Set();
+
+    const simulateCandidate = async (candidateCfg) => {
+        const simState = createDiamondSimulationState(candidateCfg);
+        const simHistory = [];
+        for (let i = 0; i < totalSpins; i++) {
+            const spin = chronological[i];
+            simHistory.unshift(spin);
+            if (simHistory.length > limit) simHistory.pop();
+            evaluatePendingAnalysisSimulation(spin, simState, 'standard');
+            if (i < totalSpins - 1) {
+                await maybeGenerateStandardAnalysisSimulation(simHistory, simState, patternDB);
+            }
+        }
+        const entries = simState.entriesHistory || [];
+        const filtered = filterFinalEntries(entries);
+        const wins = filtered.filter(e => e.result === 'WIN').length;
+        const totalCycles = filtered.length;
+        const losses = totalCycles - wins;
+        const pct = totalCycles ? (wins / totalCycles) * 100 : 0;
+        const score = scoreOptimizationCandidate(pct, totalCycles);
+        return { pct: Number(pct.toFixed(1)), wins, losses, totalCycles, totalSignals: simState.totalSignals || 0, score, entries, config: candidateCfg };
+    };
+
+    for (let t = 0; t < totalTrials; t++) {
+        if (job && job.cancelled) {
+            if (senderTabId != null) {
+                try { chrome.tabs.sendMessage(senderTabId, { type: 'STANDARD_OPTIMIZATION_CANCELLED', data: { jobId } }); } catch (_) {}
+            }
+            return {
+                cancelled: true,
+                jobId,
+                totalTrials,
+                fromTimestamp,
+                toTimestamp,
+                totalSpins,
+                requestedLimit,
+                usedHistoryLimit: stableWindow.meta.usedHistoryLimit,
+                availableHistory: stableWindow.meta.availableHistory,
+                uniqueHistory: stableWindow.meta.uniqueCount,
+                droppedDuplicates: stableWindow.meta.droppedDuplicates,
+                droppedInvalidTs: stableWindow.meta.droppedInvalidTs,
+                bestEligible: null,
+                bestOverall: null
+            };
+        }
+
+        let candidateCfg = null;
+        let sig = '';
+        for (let tries = 0; tries < 30; tries++) {
+            candidateCfg = buildStandardOptimizationCandidateConfig(baseConfig, rng);
+            sig = `D${candidateCfg.historyDepth}|minOcc${candidateCfg.minOccurrences}|maxOcc${candidateCfg.maxOccurrences}|int${candidateCfg.minIntervalSpins}|minS${candidateCfg.minPatternSize}|maxS${candidateCfg.maxPatternSize}|win${candidateCfg.winPercentOthers}|trig${candidateCfg.requireTrigger ? 1 : 0}`;
+            if (!seen.has(sig)) break;
+        }
+        if (!candidateCfg) continue;
+        seen.add(sig);
+
+        const result = await withTempAnalyzerConfig(candidateCfg, async () => simulateCandidate(candidateCfg));
+
+        if (!bestOverall || result.score > bestOverall.score) {
+            bestOverall = result;
+        }
+        if (result.pct >= minPct && (!bestEligible || result.score > bestEligible.score)) {
+            bestEligible = result;
+        }
+
+        if ((t % STANDARD_OPTIMIZATION_PROGRESS_EVERY) === 0 || t === totalTrials - 1) {
+            try {
+                chrome.runtime.sendMessage({
+                    type: 'STANDARD_OPTIMIZATION_PROGRESS',
+                    data: {
+                        jobId,
+                        trial: t + 1,
+                        totalTrials,
+                        minPct,
+                        recommendedFound: !!bestEligible,
+                        best: (bestEligible || bestOverall) ? {
+                            pct: (bestEligible || bestOverall).pct,
+                            totalCycles: (bestEligible || bestOverall).totalCycles
+                        } : null
+                    }
+                });
+            } catch (_) {}
+            await new Promise(resolve => setTimeout(resolve, 0));
+        }
+    }
+
+    return {
+        cancelled: false,
+        jobId,
+        totalTrials,
+        minPct,
+        fromTimestamp,
+        toTimestamp,
+        totalSpins,
+        requestedLimit,
+        usedHistoryLimit: stableWindow.meta.usedHistoryLimit,
+        availableHistory: stableWindow.meta.availableHistory,
+        uniqueHistory: stableWindow.meta.uniqueCount,
+        droppedDuplicates: stableWindow.meta.droppedDuplicates,
+        droppedInvalidTs: stableWindow.meta.droppedInvalidTs,
+        bestEligible,
+        bestOverall
+    };
+}
+
 function makeDiamondOptimizationJobId() {
     return `diamond-opt-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
@@ -22577,7 +22980,7 @@ async function runDiamondPastOptimization({ config, levelId, senderTabId, jobId,
             simHistory.unshift(spin);
             if (simHistory.length > limit) simHistory.pop();
 
-            evaluatePendingAnalysisSimulation(spin, simState);
+            evaluatePendingAnalysisSimulation(spin, simState, 'diamond');
             if (i < totalSpins - 1) {
                 maybeGenerateDiamondAnalysisSimulation(simHistory, simState);
             }
@@ -22909,7 +23312,7 @@ function markLastSignalResolved(simState, newSpin, hit) {
     updateAlternanceControlAfterSignal(simState, !!hit);
 }
 
-function evaluatePendingAnalysisSimulation(latestSpin, simState) {
+function evaluatePendingAnalysisSimulation(latestSpin, simState, modeKey = 'diamond') {
     const config = simState.config || {};
     const currentAnalysis = simState.analysis;
     if (!currentAnalysis || !currentAnalysis.createdOnTimestamp || currentAnalysis.predictedFor !== 'next') {
@@ -22930,7 +23333,7 @@ function evaluatePendingAnalysisSimulation(latestSpin, simState) {
     markLastSignalResolved(simState, latestSpin, hit);
 
     const martingale = simState.martingaleState;
-    const { maxGales, consecutiveGales } = getMartingaleSettings('diamond', config);
+    const { maxGales, consecutiveGales } = getMartingaleSettings(modeKey, config);
 
     if (hit) {
         let martingaleStage = 'ENTRADA';
@@ -22954,7 +23357,7 @@ function evaluatePendingAnalysisSimulation(latestSpin, simState) {
             martingaleStage,
             wonAt: martingaleStage,
             finalResult: 'WIN',
-            analysisMode: 'diamond',
+            analysisMode: modeKey,
             simulation: true
         };
         simState.entriesHistory.unshift(winEntry);
@@ -23006,7 +23409,7 @@ function evaluatePendingAnalysisSimulation(latestSpin, simState) {
                 },
                 martingaleStage: 'ENTRADA',
                 finalResult: 'RET',
-                analysisMode: 'diamond',
+                analysisMode: modeKey,
                 simulation: true
             };
             simState.entriesHistory.unshift(lossEntry);
@@ -23046,7 +23449,7 @@ function evaluatePendingAnalysisSimulation(latestSpin, simState) {
             martingaleStage: 'ENTRADA',
             finalResult: null,
             continuingToG1: true,
-            analysisMode: 'diamond',
+            analysisMode: modeKey,
             simulation: true
         };
         simState.entriesHistory.unshift(entradaLossEntry);
@@ -23100,7 +23503,7 @@ function evaluatePendingAnalysisSimulation(latestSpin, simState) {
                 },
                 martingaleStage: currentStage,
                 finalResult: 'RET',
-                analysisMode: 'diamond',
+                    analysisMode: modeKey,
                 simulation: true
             };
             simState.entriesHistory.unshift(retEntry);
@@ -23140,7 +23543,7 @@ function evaluatePendingAnalysisSimulation(latestSpin, simState) {
             martingaleStage: currentStage,
             finalResult: null,
             [`continuingTo${nextStage}`]: true,
-            analysisMode: 'diamond',
+            analysisMode: modeKey,
             simulation: true
         };
         simState.entriesHistory.unshift(lossEntry);
@@ -23996,7 +24399,7 @@ async function runDiamondPastSimulation({ config, mode, levelId, senderTabId, jo
         if (simHistory.length > limit) simHistory.pop();
 
         // 1) Avaliar análise pendente (giro atual resolve o sinal anterior)
-        evaluatePendingAnalysisSimulation(spin, simState);
+        evaluatePendingAnalysisSimulation(spin, simState, 'diamond');
 
         // 2) Gerar sinal para o PRÓXIMO giro (sem ver o futuro)
         if (i < totalSpins - 1) {
@@ -24096,6 +24499,135 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 		const snapshot = buildModeSnapshot(contextLabel, cachedHistory.length);
 		sendMessageToContent('MODE_SNAPSHOT', snapshot);
 		sendResponse({ status: 'ok', snapshot });
+        return true;
+    } else if (request.action === 'STANDARD_SIMULATE_PAST') {
+        (async () => {
+            try {
+                const senderTabId = sender && sender.tab ? sender.tab.id : null;
+                const config = request.config || {};
+                const historyLimit = request.historyLimit;
+
+                const requestedJobId = (typeof request.jobId === 'string' && request.jobId.trim())
+                    ? request.jobId.trim()
+                    : null;
+                const jobId = requestedJobId || makeStandardSimulationJobId();
+                standardSimulationJobs.set(jobId, { cancelled: false });
+
+                const result = await runStandardPastSimulation({ config, senderTabId, jobId, historyLimit });
+                standardSimulationJobs.delete(jobId);
+
+                if (result.cancelled) {
+                    sendResponse({ status: 'cancelled', jobId });
+                    return;
+                }
+
+                const entries = result.simState.entriesHistory || [];
+                const filtered = filterFinalEntries(entries);
+                const wins = filtered.filter(e => e.result === 'WIN').length;
+                const totalCycles = filtered.length;
+                const losses = totalCycles - wins;
+                const pct = totalCycles ? ((wins / totalCycles) * 100) : 0;
+
+                sendResponse({
+                    status: 'success',
+                    jobId,
+                    label: 'Simulação • Premium',
+                    entries,
+                    stats: { wins, losses, totalCycles, pct: Number(pct.toFixed(1)) },
+                    meta: {
+                        totalSpins: result.totalSpins,
+                        totalSignals: result.simState.totalSignals,
+                        fromTimestamp: result.fromTimestamp,
+                        toTimestamp: result.toTimestamp,
+                        availableHistory: result.availableHistory,
+                        uniqueHistory: result.uniqueHistory,
+                        droppedDuplicates: result.droppedDuplicates,
+                        droppedInvalidTs: result.droppedInvalidTs,
+                        requestedHistoryLimit: result.requestedLimit,
+                        usedHistoryLimit: result.usedHistoryLimit
+                    }
+                });
+            } catch (e) {
+                console.error('❌ Falha na simulação Premium (passado):', e);
+                sendResponse({ status: 'error', error: String(e) });
+            }
+        })();
+        return true;
+    } else if (request.action === 'STANDARD_OPTIMIZE_PAST') {
+        (async () => {
+            try {
+                const senderTabId = sender && sender.tab ? sender.tab.id : null;
+                const config = request.config || {};
+                const historyLimit = request.historyLimit;
+                const trials = request.trials;
+
+                const requestedJobId = (typeof request.jobId === 'string' && request.jobId.trim())
+                    ? request.jobId.trim()
+                    : null;
+                const jobId = requestedJobId || makeStandardOptimizationJobId();
+                standardOptimizationJobs.set(jobId, { cancelled: false });
+
+                const result = await runStandardPastOptimization({ config, senderTabId, jobId, historyLimit, trials });
+                standardOptimizationJobs.delete(jobId);
+
+                if (result.cancelled) {
+                    sendResponse({ status: 'cancelled', jobId });
+                    return;
+                }
+                if (!result.bestEligible && !result.bestOverall) {
+                    sendResponse({ status: 'error', jobId, error: 'Nenhuma configuração elegível encontrada' });
+                    return;
+                }
+
+                const minPct = Number(result.minPct) || STANDARD_OPTIMIZATION_MIN_PCT_DEFAULT;
+                const recommended = result.bestEligible || null;
+                const overall = result.bestOverall || null;
+                const payloadPick = recommended || overall;
+
+                sendResponse({
+                    status: 'success',
+                    jobId,
+                    trials: result.totalTrials,
+                    minPct,
+                    recommendedFound: !!recommended,
+                    recommended: recommended ? {
+                        score: Number(recommended.score.toFixed(2)),
+                        pct: recommended.pct,
+                        wins: recommended.wins,
+                        losses: recommended.losses,
+                        totalCycles: recommended.totalCycles,
+                        totalSignals: recommended.totalSignals,
+                        config: recommended.config
+                    } : null,
+                    bestOverall: overall ? {
+                        score: Number(overall.score.toFixed(2)),
+                        pct: overall.pct,
+                        wins: overall.wins,
+                        losses: overall.losses,
+                        totalCycles: overall.totalCycles,
+                        totalSignals: overall.totalSignals,
+                        config: overall.config
+                    } : null,
+                    config: payloadPick ? payloadPick.config : null,
+                    entries: payloadPick ? payloadPick.entries : [],
+                    meta: {
+                        totalSpins: result.totalSpins,
+                        totalSignals: payloadPick ? payloadPick.totalSignals : 0,
+                        fromTimestamp: result.fromTimestamp,
+                        toTimestamp: result.toTimestamp,
+                        availableHistory: result.availableHistory,
+                        uniqueHistory: result.uniqueHistory,
+                        droppedDuplicates: result.droppedDuplicates,
+                        droppedInvalidTs: result.droppedInvalidTs,
+                        requestedHistoryLimit: result.requestedLimit,
+                        usedHistoryLimit: result.usedHistoryLimit
+                    }
+                });
+            } catch (e) {
+                console.error('❌ Falha na otimização Premium (passado):', e);
+                sendResponse({ status: 'error', error: String(e) });
+            }
+        })();
         return true;
     } else if (request.action === 'DIAMOND_SIMULATE_PAST') {
         (async () => {
@@ -24255,12 +24787,34 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             sendResponse({ status: 'ok', cancelled: false });
         }
         return true;
+    } else if (request.action === 'STANDARD_SIMULATE_CANCEL') {
+        const jobId = request.jobId;
+        if (jobId && standardSimulationJobs.has(jobId)) {
+            const job = standardSimulationJobs.get(jobId);
+            job.cancelled = true;
+            standardSimulationJobs.set(jobId, job);
+            sendResponse({ status: 'ok', cancelled: true });
+        } else {
+            sendResponse({ status: 'ok', cancelled: false });
+        }
+        return true;
     } else if (request.action === 'DIAMOND_OPTIMIZE_CANCEL') {
         const jobId = request.jobId;
         if (jobId && diamondOptimizationJobs.has(jobId)) {
             const job = diamondOptimizationJobs.get(jobId);
             job.cancelled = true;
             diamondOptimizationJobs.set(jobId, job);
+            sendResponse({ status: 'ok', cancelled: true });
+        } else {
+            sendResponse({ status: 'ok', cancelled: false });
+        }
+        return true;
+    } else if (request.action === 'STANDARD_OPTIMIZE_CANCEL') {
+        const jobId = request.jobId;
+        if (jobId && standardOptimizationJobs.has(jobId)) {
+            const job = standardOptimizationJobs.get(jobId);
+            job.cancelled = true;
+            standardOptimizationJobs.set(jobId, job);
             sendResponse({ status: 'ok', cancelled: true });
         } else {
             sendResponse({ status: 'ok', cancelled: false });

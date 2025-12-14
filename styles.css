@@ -7004,3 +7004,254 @@ body.da-ext-fullscreen #patternDetailsModal .bank-patterns-modal-content {
     }
 }
 
+/* ═══════════════════════════════════════════════════════════════════════════════ */
+/* ⚙️ SIMULAÇÃO (PREMIUM / PADRÃO) - estilos iguais ao simulador Diamante          */
+/* ═══════════════════════════════════════════════════════════════════════════════ */
+
+#standardSimulationModal .standard-sim-config-wrap {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+/* Abas (SINAIS / GRÁFICO): centralizar texto dentro de cada “metade” */
+#standardSimulationModal #standardSimTabs .entries-tab {
+    margin: 0 !important;
+    text-align: center !important;
+    justify-content: center !important;
+}
+
+#standardSimulationModal .custom-pattern-modal-content {
+    width: calc(100% - 32px);
+    max-width: 480px;
+    margin: 0 auto;
+    background: #1a2332;
+    border-radius: 8px;
+    border: none;
+    box-shadow: none;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+#standardSimulationModal .custom-pattern-modal-body {
+    max-height: 70vh;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    padding: 24px;
+    flex: 1;
+}
+
+#standardSimulationModal .diamond-sim-period {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+#standardSimulationModal .diamond-sim-period-title {
+    font-size: 12px;
+    font-weight: 700;
+    color: #e5eefc;
+}
+
+#standardSimulationModal .diamond-sim-period-options {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 14px;
+}
+
+#standardSimulationModal .diamond-sim-period-option {
+    appearance: none;
+    border: none;
+    background: transparent;
+    color: rgba(233, 242, 255, 0.92);
+    border-radius: 0;
+    padding: 0;
+    font-size: 12px;
+    cursor: pointer;
+    transition: color 0.15s ease, text-decoration-color 0.15s ease, transform 0.05s ease;
+    text-decoration: none;
+}
+
+#standardSimulationModal .diamond-sim-period-option:hover {
+    color: #ffffff;
+    text-decoration: underline;
+    text-decoration-color: rgba(239, 68, 68, 0.65);
+}
+
+#standardSimulationModal .diamond-sim-period-option:active {
+    transform: translateY(1px);
+}
+
+#standardSimulationModal .diamond-sim-period-option.active {
+    color: var(--da-primary, #ef4444);
+    font-weight: 800;
+    text-decoration: underline;
+    text-decoration-color: rgba(239, 68, 68, 0.85);
+}
+
+#standardSimulationModal .diamond-sim-custom-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 2px;
+}
+
+#standardSimulationModal .diamond-sim-custom-label {
+    font-size: 12px;
+    color: rgba(233, 242, 255, 0.92);
+    font-weight: 700;
+}
+
+#standardSimulationModal .diamond-sim-custom-input {
+    width: 140px;
+    padding: 6px 10px;
+    border-radius: 10px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(15, 23, 32, 0.65);
+    color: #e9f2ff;
+    font-size: 12px;
+    outline: none;
+}
+
+#standardSimulationModal .diamond-sim-custom-input:focus {
+    border-color: rgba(239, 68, 68, 0.45);
+    box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.12);
+}
+
+#standardSimulationModal .diamond-sim-custom-suffix {
+    font-size: 11px;
+    color: rgba(200, 214, 233, 0.75);
+}
+
+#standardSimulationModal .diamond-sim-period-note {
+    font-size: 11px;
+    color: rgba(200, 214, 233, 0.85);
+}
+
+#standardSimulationModal .diamond-sim-summary {
+    font-size: 12px;
+    color: #c8d6e9;
+    line-height: 1.45;
+    margin-bottom: 10px;
+}
+
+#standardSimulationModal .diamond-sim-progress {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 12px;
+    color: #c8d6e9;
+    margin-top: 10px;
+    margin-bottom: 10px;
+}
+
+#standardSimulationModal .diamond-sim-progress .spinner {
+    width: 14px;
+    height: 14px;
+    border: 2px solid rgba(239, 68, 68, 0.25);
+    border-top-color: #ef4444;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+#standardSimulationModal .sim-entries-list {
+    max-height: 320px;
+}
+
+/* Dar destaque ao botão Simular dentro do modal premium */
+#standardSimulationModal #standardSimulationRunBtn {
+    background: #ef4444;
+    border: 1px solid #ef4444;
+    color: #ffffff;
+}
+
+#standardSimulationModal #standardSimulationRunBtn:hover {
+    background: #dc2626;
+}
+
+/* Gráfico: reaproveitar visual do diamante */
+#standardSimulationModal .diamond-sim-chart-wrap { padding: 0; }
+#standardSimulationModal .diamond-sim-chart-row { display:flex; align-items:center; gap:10px; margin-bottom: 10px; }
+#standardSimulationModal .diamond-sim-chart-label { width: 44px; font-size: 12px; font-weight: 800; color: rgba(233,242,255,0.9); }
+#standardSimulationModal .diamond-sim-chart-bar { flex: 1; height: 10px; border-radius: 999px; background: rgba(200,214,233,0.10); overflow: hidden; }
+#standardSimulationModal .diamond-sim-chart-fill { height: 100%; border-radius: 999px; width: 0%; transition: width 0.25s ease; }
+#standardSimulationModal .diamond-sim-chart-row.win .diamond-sim-chart-fill { background: rgba(34,197,94,0.95); }
+#standardSimulationModal .diamond-sim-chart-row.loss .diamond-sim-chart-fill { background: rgba(239,68,68,0.95); }
+#standardSimulationModal .diamond-sim-chart-value { width: 88px; text-align: right; font-size: 12px; color: rgba(200,214,233,0.95); }
+#standardSimulationModal .diamond-sim-chart-foot { margin-top: 8px; font-size: 12px; color: rgba(200,214,233,0.85); }
+
+#standardSimulationModal .diamond-sim-equity-metrics { display: flex; gap: 12px; margin-top: 10px; }
+#standardSimulationModal .diamond-sim-equity-metric { flex: 1; background: rgba(15,23,32,0.35); border: 1px solid rgba(255,255,255,0.06); border-radius: 10px; padding: 10px; display:flex; justify-content: space-between; gap: 10px; }
+#standardSimulationModal .diamond-sim-equity-metric .label { font-size: 11px; color: rgba(200,214,233,0.75); font-weight: 700; }
+#standardSimulationModal .diamond-sim-equity-metric .value { font-size: 12px; color: rgba(233,242,255,0.95); font-weight: 800; }
+
+#standardSimulationModal .diamond-sim-ticks-layer { position: relative; margin-top: 12px; background: rgba(15,23,32,0.35); border: 1px solid rgba(255,255,255,0.06); border-radius: 12px; padding: 8px; }
+#standardSimulationModal .diamond-sim-ticks-svg { width: 100%; height: 160px; display: block; }
+#standardSimulationModal .diamond-sim-guide-label { position:absolute; left: 8px; font-size: 11px; font-weight: 800; }
+#standardSimulationModal .diamond-sim-guide-label.max { color: rgba(34,197,94,0.95); }
+#standardSimulationModal .diamond-sim-guide-label.min { color: rgba(239,68,68,0.95); }
+#standardSimulationModal .diamond-sim-guide-label.cur { color: rgba(255,255,255,0.9); right: 8px; left: auto; }
+#standardSimulationModal .diamond-sim-direction { margin-top: 6px; font-size: 11px; color: rgba(200,214,233,0.75); text-align: center; }
+
+@media (max-width: 520px) {
+    #standardSimulationModal .custom-pattern-modal-content {
+        width: calc(100% - 16px) !important;
+        max-width: none !important;
+        padding: 0 !important;
+        border-radius: 10px;
+    }
+    #standardSimulationModal .custom-pattern-modal-body {
+        padding: 14px !important;
+        max-height: 82vh !important;
+        -webkit-overflow-scrolling: touch;
+    }
+    #standardSimulationModal .diamond-sim-period-options {
+        display: grid !important;
+        grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+        gap: 10px !important;
+        align-items: stretch;
+    }
+    #standardSimulationModal .diamond-sim-period-option {
+        padding: 10px 0 !important;
+        border-radius: 10px !important;
+        border: 1px solid rgba(255, 255, 255, 0.10) !important;
+        background: rgba(15, 23, 32, 0.55) !important;
+        font-weight: 800 !important;
+        text-decoration: none !important;
+        line-height: 1.1;
+    }
+    #standardSimulationModal .diamond-sim-period-option.active {
+        background: rgba(239, 68, 68, 0.16) !important;
+        border-color: rgba(239, 68, 68, 0.40) !important;
+        text-decoration: none !important;
+    }
+    #standardSimulationModal .diamond-sim-custom-row {
+        flex-direction: column !important;
+        align-items: stretch !important;
+        gap: 6px !important;
+    }
+    #standardSimulationModal .diamond-sim-custom-input {
+        width: 100% !important;
+    }
+    #standardSimulationModal .custom-pattern-modal-footer.standard-sim-footer {
+        flex-wrap: wrap !important;
+    }
+    #standardSimulationModal .custom-pattern-modal-footer.standard-sim-footer button {
+        flex: 1 1 calc(50% - 10px) !important;
+        min-width: 0 !important;
+    }
+    #standardSimulationModal #standardSimulationRunBtn {
+        flex: 1 1 100% !important;
+        order: -1 !important;
+    }
+}
+
+@media (max-width: 360px) {
+    #standardSimulationModal .diamond-sim-period-options {
+        grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    }
+}
+

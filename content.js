@@ -2652,6 +2652,1157 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
         initializeDiamondSimulationControls();
     }
 
+    // ═══════════════════════════════════════════════════════════════════════════════
+    // ⚙️ SIMULAÇÃO (PASSADO) - MODO PADRÃO / ANÁLISE PREMIUM
+    //  - UI igual ao simulador Diamante, mas roda o verificador de padrões salvos (modo padrão)
+    //  - Sem "Simular todos" (existe apenas um modo)
+    // ═══════════════════════════════════════════════════════════════════════════════
+
+    let standardSimulationJobId = null;
+    let standardSimulationRunning = false;
+    let standardOptimizationJobId = null;
+    let standardOptimizationRunning = false;
+    let standardSimBusyKind = null; // 'simulate' | 'optimize' | null
+    let standardSimPeriodPreset = '12h';
+    let standardSimHistoryLimit = 1440;
+    let standardSimHistoryLimitRaw = 1440;
+    let standardSimHasResults = false;
+    let standardSimActiveTab = 'signals';
+    let standardSimMovedNodes = [];
+
+    function createStandardSimulationModal() {
+        if (document.getElementById('standardSimulationModal')) return;
+        const modalHTML = `
+            <div id="standardSimulationModal" class="custom-pattern-modal" style="display: none;">
+                <div class="custom-pattern-modal-overlay"></div>
+                <div class="custom-pattern-modal-content">
+                    <div class="custom-pattern-modal-header modal-header-minimal">
+                        <h3>Simulação</h3>
+                        <button class="custom-pattern-modal-close" id="closeStandardSimulationModal" type="button">Fechar</button>
+                    </div>
+                    <div class="custom-pattern-modal-body">
+                        <div id="standardSimPeriodContainer" class="diamond-sim-period"></div>
+                        <div class="standard-sim-config-wrap">
+                            <div class="diamond-sim-period-title" style="margin-top: 10px;">Configurações (Análise Premium)</div>
+                            <div id="standardSimConfigContainer" class="settings-grid"></div>
+                        </div>
+                        <div class="diamond-sim-view-body">
+                            <div id="standardSimulationSummary" class="diamond-sim-summary">
+                                Selecione o período e clique em <strong>Simular</strong> para ver o resultado aqui.
+                            </div>
+                            <div id="standardSimulationProgress" class="diamond-sim-progress" style="display:none;">
+                                <div class="spinner"></div>
+                                <div id="standardSimulationProgressText">Simulando...</div>
+                                <div style="flex:1;"></div>
+                                <button type="button" class="btn-save-pattern" id="standardSimulationCancelBtn" style="max-width: 140px;">Cancelar</button>
+                            </div>
+
+                            <div class="entries-tabs-bar" id="standardSimTabs" style="margin-top: 8px;" hidden>
+                                <button type="button" class="entries-tab active" data-tab="signals">Sinais</button>
+                                <button type="button" class="entries-tab" data-tab="chart">Gráfico</button>
+                            </div>
+
+                            <div class="diamond-sim-tabview" data-view="signals" hidden>
+                                <div class="entries-header" style="margin-top: 8px;">
+                                    <div id="standardSimEntriesHit" class="entries-hit"></div>
+                                </div>
+                                <div id="standardSimEntriesList" class="entries-list sim-entries-list"></div>
+                            </div>
+
+                            <div class="diamond-sim-tabview" data-view="chart" hidden>
+                                <div class="diamond-sim-chart-wrap">
+                                    <div class="diamond-sim-chart-row win">
+                                        <div class="diamond-sim-chart-label">WIN</div>
+                                        <div class="diamond-sim-chart-bar">
+                                            <div class="diamond-sim-chart-fill" id="standardSimChartWinFill" style="width:0%"></div>
+                                        </div>
+                                        <div class="diamond-sim-chart-value" id="standardSimChartWinValue">0 (0%)</div>
+                                    </div>
+                                    <div class="diamond-sim-chart-row loss">
+                                        <div class="diamond-sim-chart-label">LOSS</div>
+                                        <div class="diamond-sim-chart-bar">
+                                            <div class="diamond-sim-chart-fill" id="standardSimChartLossFill" style="width:0%"></div>
+                                        </div>
+                                        <div class="diamond-sim-chart-value" id="standardSimChartLossValue">0 (0%)</div>
+                                    </div>
+                                    <div class="diamond-sim-chart-foot" id="standardSimChartFoot">Entradas: 0</div>
+
+                                    <div class="diamond-sim-equity-metrics">
+                                        <div class="diamond-sim-equity-metric">
+                                            <span class="label">Saldo</span>
+                                            <span class="value" id="standardSimEquityBalance">R$ 0,00</span>
+                                        </div>
+                                        <div class="diamond-sim-equity-metric">
+                                            <span class="label">Perdas</span>
+                                            <span class="value" id="standardSimEquityLoss">R$ 0,00</span>
+                                        </div>
+                                    </div>
+
+                                    <div class="diamond-sim-ticks-layer" id="standardSimTicksLayer">
+                                        <svg class="diamond-sim-ticks-svg" id="standardSimTicksSvg" viewBox="0 0 1000 160" preserveAspectRatio="none" aria-label="Gráfico por entrada">
+                                            <path id="standardSimTicksBaseline" d="" />
+                                            <path id="standardSimTicksMaxLine" d="" />
+                                            <path id="standardSimTicksMinLine" d="" />
+                                            <path id="standardSimTicksCurrentLine" d="" />
+                                            <path id="standardSimTicksWinPath" d="" />
+                                            <path id="standardSimTicksLossPath" d="" />
+                                        </svg>
+                                        <div class="diamond-sim-guide-label max" id="standardSimGuideMax"></div>
+                                        <div class="diamond-sim-guide-label min" id="standardSimGuideMin"></div>
+                                        <div class="diamond-sim-guide-label cur" id="standardSimGuideCur"></div>
+                                        <div class="diamond-sim-direction" id="standardSimGuideDir"></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="custom-pattern-modal-footer standard-sim-footer">
+                        <button type="button" class="btn-hot-pattern" id="standardSimulationClearBtn">Limpar</button>
+                        <button type="button" class="btn-hot-pattern" id="standardSimulationOptimizeBtn">Otimizar (100)</button>
+                        <button type="button" class="btn-save-pattern" id="standardSimulationRunBtn">Simular</button>
+                        <button type="button" class="btn-hot-pattern" id="standardSimulationSaveCloseBtn" title="Salva as configurações e fecha a simulação">Salvar e fechar</button>
+                    </div>
+                </div>
+            </div>
+        `;
+        document.body.insertAdjacentHTML('beforeend', modalHTML);
+
+        const modal = document.getElementById('standardSimulationModal');
+        const overlay = modal.querySelector('.custom-pattern-modal-overlay');
+        const closeBtn = document.getElementById('closeStandardSimulationModal');
+        const saveCloseBtn = document.getElementById('standardSimulationSaveCloseBtn');
+
+        const restoreStandardSimMovedNodes = () => {
+            if (!Array.isArray(standardSimMovedNodes) || standardSimMovedNodes.length === 0) return;
+            // restaurar em ordem reversa para manter posições estáveis
+            const toRestore = standardSimMovedNodes.slice().reverse();
+            standardSimMovedNodes = [];
+            toRestore.forEach(({ node, parent, nextSibling }) => {
+                try {
+                    if (!node || !parent) return;
+                    if (nextSibling && nextSibling.parentNode === parent) parent.insertBefore(node, nextSibling);
+                    else parent.appendChild(node);
+                } catch (_) {}
+            });
+        };
+
+        const moveStandardConfigFieldsIntoModal = () => {
+            const container = document.getElementById('standardSimConfigContainer');
+            if (!container) return;
+            // já movido
+            if (container.dataset.moved === '1') return;
+
+            // IDs do modo padrão (Análise Premium)
+            const ids = [
+                'cfgHistoryDepth',
+                'cfgMinOccurrences',
+                'cfgMaxOccurrences',
+                'cfgPatternInterval',
+                'cfgMinPatternSize',
+                'cfgMaxPatternSize',
+                'cfgWinPercentOthers',
+                'cfgRequireTrigger'
+            ];
+
+            const moved = [];
+            ids.forEach((id) => {
+                const input = document.getElementById(id);
+                if (!input) return;
+                const item = input.closest ? input.closest('.setting-item') : null;
+                if (!item) return;
+                const parent = item.parentNode;
+                if (!parent) return;
+                // evitar mover novamente se já está no container
+                if (item.parentNode === container) return;
+                moved.push({ node: item, parent, nextSibling: item.nextSibling });
+            });
+
+            // mover na ordem original (conforme ids)
+            moved.forEach(({ node }) => container.appendChild(node));
+            if (moved.length) {
+                standardSimMovedNodes = moved;
+                container.dataset.moved = '1';
+            }
+        };
+
+        const closeModal = () => {
+            try { closeEntryPatternModalIfOpen(); } catch (_) {}
+            try { clearStandardSimulationResultsOnly({ cancelIfRunning: true }); } catch (_) {}
+            try { restoreStandardSimMovedNodes(); } catch (_) {}
+            try {
+                const container = document.getElementById('standardSimConfigContainer');
+                if (container) container.dataset.moved = '0';
+            } catch (_) {}
+            modal.style.display = 'none';
+        };
+
+        if (closeBtn) closeBtn.addEventListener('click', closeModal);
+        if (saveCloseBtn && !saveCloseBtn.dataset.listenerAttached) {
+            saveCloseBtn.addEventListener('click', async () => {
+                try {
+                    await saveSettings();
+                } catch (_) {}
+                closeModal();
+            });
+            saveCloseBtn.dataset.listenerAttached = '1';
+        }
+        if (overlay) {
+            overlay.addEventListener('click', () => {
+                if (!isDesktop()) closeModal();
+            });
+        }
+
+        const tabsBar = document.getElementById('standardSimTabs');
+        if (tabsBar && !tabsBar.dataset.listenerAttached) {
+            tabsBar.addEventListener('click', (event) => {
+                const btn = event.target && event.target.closest ? event.target.closest('.entries-tab') : null;
+                if (!btn) return;
+                const tab = btn.dataset.tab;
+                setStandardSimActiveTab(tab);
+            });
+            tabsBar.dataset.listenerAttached = '1';
+        }
+
+        const clearBtn = document.getElementById('standardSimulationClearBtn');
+        const optimizeBtn = document.getElementById('standardSimulationOptimizeBtn');
+        const runBtn = document.getElementById('standardSimulationRunBtn');
+        const cancelBtn = document.getElementById('standardSimulationCancelBtn');
+
+        if (clearBtn && !clearBtn.dataset.listenerAttached) {
+            clearBtn.addEventListener('click', () => clearStandardSimulationResultsOnly({ cancelIfRunning: true }));
+            clearBtn.dataset.listenerAttached = '1';
+        }
+        if (runBtn && !runBtn.dataset.listenerAttached) {
+            runBtn.addEventListener('click', () => startStandardSimulation());
+            runBtn.dataset.listenerAttached = '1';
+        }
+        if (optimizeBtn && !optimizeBtn.dataset.listenerAttached) {
+            optimizeBtn.addEventListener('click', () => startStandardOptimization());
+            optimizeBtn.dataset.listenerAttached = '1';
+        }
+        if (cancelBtn && !cancelBtn.dataset.listenerAttached) {
+            cancelBtn.addEventListener('click', () => {
+                try {
+                    if (standardOptimizationRunning && standardOptimizationJobId) {
+                        chrome.runtime.sendMessage({ action: 'STANDARD_OPTIMIZE_CANCEL', jobId: standardOptimizationJobId });
+                        return;
+                    }
+                    if (standardSimulationJobId) {
+                        chrome.runtime.sendMessage({ action: 'STANDARD_SIMULATE_CANCEL', jobId: standardSimulationJobId });
+                    }
+                } catch (err) {
+                    console.warn('⚠️ Falha ao cancelar simulação padrão:', err);
+                }
+            });
+            cancelBtn.dataset.listenerAttached = '1';
+        }
+    }
+
+    function openStandardSimulationModal() {
+        createStandardSimulationModal();
+        const modal = document.getElementById('standardSimulationModal');
+        if (!modal) return;
+
+        modal.style.display = 'flex';
+        // mover os campos do modo padrão pra dentro do modal (igual ao fluxo do Diamante)
+        try {
+            const container = document.getElementById('standardSimConfigContainer');
+            if (container) container.dataset.moved = '0';
+        } catch (_) {}
+        try {
+            // função está no escopo de createStandardSimulationModal, então reexecutamos via recriação segura:
+            // se o modal já existe, chamamos a função local pelo evento de abertura (fallback via dispatch)
+            // Aqui fazemos direto: os elementos já existem e podem ser movidos novamente se necessário.
+            const container = document.getElementById('standardSimConfigContainer');
+            if (container && container.dataset.moved !== '1') {
+                // duplicar a lógica local (sem depender de closures)
+                const ids = [
+                    'cfgHistoryDepth',
+                    'cfgMinOccurrences',
+                    'cfgMaxOccurrences',
+                    'cfgPatternInterval',
+                    'cfgMinPatternSize',
+                    'cfgMaxPatternSize',
+                    'cfgWinPercentOthers',
+                    'cfgRequireTrigger'
+                ];
+                const moved = [];
+                ids.forEach((id) => {
+                    const input = document.getElementById(id);
+                    if (!input) return;
+                    const item = input.closest ? input.closest('.setting-item') : null;
+                    if (!item) return;
+                    const parent = item.parentNode;
+                    if (!parent) return;
+                    if (item.parentNode === container) return;
+                    moved.push({ node: item, parent, nextSibling: item.nextSibling });
+                });
+                moved.forEach(({ node }) => container.appendChild(node));
+                if (moved.length) {
+                    standardSimMovedNodes = moved;
+                    container.dataset.moved = '1';
+                }
+            }
+        } catch (_) {}
+
+        standardSimHasResults = false;
+        setStandardSimResultsVisible(false);
+        setStandardSimActiveTab('signals');
+        standardSimPeriodPreset = '12h';
+        standardSimHistoryLimit = 1440;
+        standardSimHistoryLimitRaw = 1440;
+        renderStandardSimPeriodSelector();
+        setStandardSimPeriodPreset('12h');
+        clearStandardSimulationResultsOnly({ cancelIfRunning: true });
+        updateStandardSimPreRunSummary();
+    }
+
+    function setStandardSimResultsVisible(visible) {
+        const tabs = document.getElementById('standardSimTabs');
+        const signalsView = document.querySelector('#standardSimulationModal .diamond-sim-tabview[data-view="signals"]');
+        const chartView = document.querySelector('#standardSimulationModal .diamond-sim-tabview[data-view="chart"]');
+        if (!visible) {
+            if (tabs) tabs.hidden = true;
+            if (signalsView) signalsView.hidden = true;
+            if (chartView) chartView.hidden = true;
+            return;
+        }
+        if (tabs) tabs.hidden = false;
+        setStandardSimActiveTab(standardSimActiveTab || 'signals');
+    }
+
+    function setStandardSimActiveTab(tab) {
+        standardSimActiveTab = tab || 'signals';
+        const tabsBar = document.getElementById('standardSimTabs');
+        if (tabsBar) {
+            const tabs = tabsBar.querySelectorAll('.entries-tab');
+            tabs.forEach(t => t.classList.toggle('active', t.dataset.tab === tab));
+        }
+        const views = document.querySelectorAll('#standardSimulationModal .diamond-sim-tabview');
+        views.forEach(v => {
+            const isActive = v.getAttribute('data-view') === tab;
+            if (isActive) v.removeAttribute('hidden');
+            else v.setAttribute('hidden', '');
+        });
+    }
+
+    function setStandardSimulationLoading(isLoading, text = 'Simulando...', kind = 'simulate') {
+        const k = kind === 'optimize' ? 'optimize' : 'simulate';
+        standardSimBusyKind = isLoading ? k : null;
+        standardSimulationRunning = isLoading ? (k === 'simulate') : false;
+        standardOptimizationRunning = isLoading ? (k === 'optimize') : false;
+
+        const progress = document.getElementById('standardSimulationProgress');
+        const progressText = document.getElementById('standardSimulationProgressText');
+        if (progress) progress.style.display = isLoading ? 'flex' : 'none';
+        if (progressText) progressText.textContent = text;
+
+        const runBtn = document.getElementById('standardSimulationRunBtn');
+        const optimizeBtn = document.getElementById('standardSimulationOptimizeBtn');
+        const clearBtn = document.getElementById('standardSimulationClearBtn');
+        if (runBtn) runBtn.disabled = isLoading;
+        if (optimizeBtn) optimizeBtn.disabled = isLoading;
+        if (clearBtn) clearBtn.disabled = isLoading;
+    }
+
+    function updateStandardSimulationProgress(data) {
+        if (!standardSimulationRunning) return;
+        if (data && data.jobId && standardSimulationJobId && data.jobId !== standardSimulationJobId) return;
+        const processed = Number(data && data.processed) || 0;
+        const total = Number(data && data.total) || 0;
+        const pct = total > 0 ? Math.min(100, Math.round((processed / total) * 100)) : 0;
+        setStandardSimulationLoading(true, `Simulando... ${processed}/${total} (${pct}%)`, 'simulate');
+    }
+
+    function updateStandardOptimizationProgress(data) {
+        if (!standardOptimizationRunning) return;
+        if (data && data.jobId && standardOptimizationJobId && data.jobId !== standardOptimizationJobId) return;
+        const trial = Number(data && data.trial) || 0;
+        const total = Number(data && data.totalTrials) || 0;
+        const pct = total > 0 ? Math.min(100, Math.round((trial / total) * 100)) : 0;
+        const best = data && data.best ? data.best : null;
+        const minPct = Number(data && data.minPct) || 95;
+        const recommendedFound = !!(data && data.recommendedFound);
+        const bestText = best
+            ? (recommendedFound
+                ? ` • melhor≥${minPct}%: ${Number(best.pct || 0).toFixed(1)}% (${best.totalCycles || 0} ciclos)`
+                : ` • melhor: ${Number(best.pct || 0).toFixed(1)}% (<${minPct}%)`)
+            : '';
+        setStandardSimulationLoading(true, `Otimizando... ${trial}/${total} (${pct}%)${bestText}`, 'optimize');
+    }
+
+    function updateStandardSimPreRunSummary() {
+        const summary = document.getElementById('standardSimulationSummary');
+        if (!summary) return;
+        const preset = DIAMOND_SIM_PERIOD_PRESETS.find(p => p.id === standardSimPeriodPreset) || null;
+        const spins = preset ? preset.spins : (standardSimHistoryLimitRaw ?? standardSimHistoryLimit);
+        const approx = spins ? formatApproxHoursFromSpins(spins) : '—';
+        const periodLabel = preset ? (preset.id === '10k' ? approx : preset.label) : 'Personalizado';
+        summary.innerHTML =
+            `Selecione o período e clique em <strong>Simular</strong>.<br>` +
+            `Período: <strong>${periodLabel}</strong> • Giros: <strong>${spins || '—'}</strong> • Tempo: <strong>${approx}</strong>`;
+    }
+
+    function setStandardSimPeriodPreset(presetId, { updateSummary = true } = {}) {
+        const preset = DIAMOND_SIM_PERIOD_PRESETS.find(p => p.id === presetId) || DIAMOND_SIM_PERIOD_PRESETS[3];
+        standardSimPeriodPreset = preset.id;
+        standardSimHistoryLimit = preset.spins;
+        standardSimHistoryLimitRaw = preset.spins;
+
+        const container = document.getElementById('standardSimPeriodContainer');
+        if (container) {
+            const btns = container.querySelectorAll('.diamond-sim-period-option');
+            btns.forEach(btn => btn.classList.toggle('active', btn.dataset.preset === standardSimPeriodPreset));
+        }
+        const customInput = document.getElementById('standardSimCustomSpinsInput');
+        if (customInput) customInput.value = String(standardSimHistoryLimit);
+        if (updateSummary) updateStandardSimPreRunSummary();
+    }
+
+    function setStandardSimCustomHistoryLimit(spins, { updateSummary = true, syncInput = false } = {}) {
+        const clamped = clampDiamondSimHistoryLimit(spins);
+        if (clamped == null) return;
+        standardSimPeriodPreset = 'custom';
+        standardSimHistoryLimit = clamped;
+        standardSimHistoryLimitRaw = clamped;
+
+        const container = document.getElementById('standardSimPeriodContainer');
+        if (container) {
+            const btns = container.querySelectorAll('.diamond-sim-period-option');
+            btns.forEach(btn => btn.classList.remove('active'));
+        }
+        const customInput = document.getElementById('standardSimCustomSpinsInput');
+        if (syncInput && customInput) customInput.value = String(standardSimHistoryLimit);
+        if (updateSummary) updateStandardSimPreRunSummary();
+    }
+
+    function renderStandardSimPeriodSelector() {
+        const container = document.getElementById('standardSimPeriodContainer');
+        if (!container) return;
+        const optionsHtml = DIAMOND_SIM_PERIOD_PRESETS.map(p => {
+            const approx = formatApproxHoursFromSpins(p.spins);
+            const displayText = p.id === '10k' ? `${approx}` : `${p.label}`;
+            const title = p.id === '10k'
+                ? `Banco completo: ${p.spins} giros • ${approx}`
+                : `${p.spins} giros • ${approx}`;
+            return `<button type="button" class="diamond-sim-period-option" data-preset="${p.id}" title="${title}">${displayText}</button>`;
+        }).join('');
+
+        container.innerHTML = `
+            <div class="diamond-sim-period-title">Período da simulação</div>
+            <div class="diamond-sim-period-options">${optionsHtml}</div>
+            <div class="diamond-sim-custom-row">
+                <div class="diamond-sim-custom-label">Giros (personalizado)</div>
+                <input id="standardSimCustomSpinsInput" class="diamond-sim-custom-input" type="number" inputmode="numeric" min="10" max="10000" step="1" />
+                <div class="diamond-sim-custom-suffix">máx 10.000</div>
+            </div>
+            <div class="diamond-sim-period-note">Estimativa: ${DIAMOND_SIM_SPINS_PER_MINUTE} giros/min</div>
+        `;
+
+        if (!container.dataset.listenerAttached) {
+            container.addEventListener('click', (event) => {
+                const btn = event.target && event.target.closest ? event.target.closest('.diamond-sim-period-option') : null;
+                if (!btn) return;
+                const preset = btn.dataset.preset;
+                setStandardSimPeriodPreset(preset);
+            });
+            container.dataset.listenerAttached = '1';
+        }
+
+        const customInput = document.getElementById('standardSimCustomSpinsInput');
+        if (customInput && !customInput.dataset.listenerAttached) {
+            customInput.value = String(standardSimHistoryLimit);
+            customInput.addEventListener('input', () => {
+                const raw = String(customInput.value || '');
+                standardSimPeriodPreset = 'custom';
+                if (!raw) {
+                    standardSimHistoryLimitRaw = null;
+                    updateStandardSimPreRunSummary();
+                    return;
+                }
+                const numeric = Number(raw);
+                if (!Number.isFinite(numeric)) return;
+                standardSimHistoryLimitRaw = Math.floor(numeric);
+                updateStandardSimPreRunSummary();
+            });
+            customInput.addEventListener('blur', () => {
+                const raw = String(customInput.value || '').trim();
+                const clamped = clampDiamondSimHistoryLimit(raw);
+                if (clamped == null) {
+                    setStandardSimPeriodPreset('12h');
+                    return;
+                }
+                setStandardSimCustomHistoryLimit(clamped, { syncInput: true });
+            });
+            customInput.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    customInput.blur();
+                }
+            });
+            customInput.dataset.listenerAttached = '1';
+        }
+    }
+
+    function clearStandardSimulationResultsOnly({ cancelIfRunning = false } = {}) {
+        if (cancelIfRunning && standardSimulationRunning && standardSimulationJobId) {
+            try { chrome.runtime.sendMessage({ action: 'STANDARD_SIMULATE_CANCEL', jobId: standardSimulationJobId }); } catch (_) {}
+        }
+        if (cancelIfRunning && standardOptimizationRunning && standardOptimizationJobId) {
+            try { chrome.runtime.sendMessage({ action: 'STANDARD_OPTIMIZE_CANCEL', jobId: standardOptimizationJobId }); } catch (_) {}
+        }
+        standardSimulationJobId = null;
+        standardSimulationRunning = false;
+        standardOptimizationJobId = null;
+        standardOptimizationRunning = false;
+        standardSimBusyKind = null;
+
+        const summary = document.getElementById('standardSimulationSummary');
+        const list = document.getElementById('standardSimEntriesList');
+        const hitEl = document.getElementById('standardSimEntriesHit');
+        const progress = document.getElementById('standardSimulationProgress');
+        const progressText = document.getElementById('standardSimulationProgressText');
+        if (summary) summary.innerHTML = 'Selecione o período e clique em <strong>Simular</strong> para ver o resultado aqui.';
+        if (list) list.innerHTML = '';
+        if (hitEl) hitEl.innerHTML = '';
+        if (progress) progress.style.display = 'none';
+        if (progressText) progressText.textContent = 'Simulando...';
+
+        renderStandardSimulationChart({ wins: 0, losses: 0, totalCycles: 0, totalEntries: 0 });
+        renderStandardSimulationTickChart([]);
+        setStandardSimActiveTab('signals');
+        standardSimHasResults = false;
+        setStandardSimResultsVisible(false);
+    }
+
+    function renderStandardSimulationChart({ wins = 0, losses = 0, totalCycles = 0, totalEntries = 0 } = {}) {
+        const winFill = document.getElementById('standardSimChartWinFill');
+        const lossFill = document.getElementById('standardSimChartLossFill');
+        const winValue = document.getElementById('standardSimChartWinValue');
+        const lossValue = document.getElementById('standardSimChartLossValue');
+        const foot = document.getElementById('standardSimChartFoot');
+        const denom = totalCycles > 0 ? totalCycles : 0;
+        const winPct = denom ? (wins / denom) * 100 : 0;
+        const lossPct = denom ? (losses / denom) * 100 : 0;
+        if (winFill) winFill.style.width = `${Math.max(0, Math.min(100, winPct)).toFixed(1)}%`;
+        if (lossFill) lossFill.style.width = `${Math.max(0, Math.min(100, lossPct)).toFixed(1)}%`;
+        if (winValue) winValue.textContent = `${wins} (${winPct.toFixed(1)}%)`;
+        if (lossValue) lossValue.textContent = `${losses} (${lossPct.toFixed(1)}%)`;
+        if (foot) foot.textContent = `Entradas: ${totalEntries}`;
+    }
+
+    // Tick chart (traços) com zoom/pan — igual ao simulador Diamante, mas com IDs próprios
+    let standardSimTickZoomState = { points: 0, zoom: 1, x: 0, baseW: 1, baseH: 160 };
+    let standardSimLastEntriesForChart = [];
+
+    function attachStandardSimZoomHandlers(svg) {
+        if (!svg || svg.dataset.zoomBound === '1') return;
+        svg.addEventListener('wheel', (event) => {
+            try { event.preventDefault(); } catch (_) {}
+
+            const state = standardSimTickZoomState || { points: 0, zoom: 1, x: 0, baseW: 1, baseH: 120 };
+            const bbox = svg.getBoundingClientRect();
+            if (!bbox || bbox.width <= 0) return;
+
+            const mouseRatioX = Math.max(0, Math.min(1, (event.clientX - bbox.left) / bbox.width));
+            const mouseVx = (state.x || 0) + mouseRatioX * (state.baseW / (state.zoom || 1));
+
+            const delta = Math.sign(event.deltaY || 0);
+            const zoomFactor = delta < 0 ? 1.12 : 1 / 1.12;
+            let nextZoom = (state.zoom || 1) * zoomFactor;
+            nextZoom = Math.max(0.6, Math.min(10, nextZoom));
+
+            const nextWidth = state.baseW / nextZoom;
+            let nextX = mouseVx - mouseRatioX * nextWidth;
+            nextX = Math.max(0, Math.min(Math.max(0, state.baseW - nextWidth), nextX));
+
+            standardSimTickZoomState = { ...state, zoom: nextZoom, x: nextX };
+            renderStandardSimulationTickChart(standardSimLastEntriesForChart);
+        }, { passive: false });
+
+        let dragging = false;
+        let dragStartClientX = 0;
+        let dragStartX = 0;
+
+        const onPointerDown = (event) => {
+            if (!event || event.button !== 0) return;
+            dragging = true;
+            dragStartClientX = event.clientX;
+            dragStartX = standardSimTickZoomState?.x || 0;
+            try { svg.setPointerCapture(event.pointerId); } catch (_) {}
+            svg.style.cursor = 'grabbing';
+        };
+        const onPointerMove = (event) => {
+            if (!dragging) return;
+            const state = standardSimTickZoomState || { points: 0, zoom: 1, x: 0, baseW: 1, baseH: 120 };
+            const bbox = svg.getBoundingClientRect();
+            if (!bbox || bbox.width <= 0) return;
+            const viewW = state.baseW / (state.zoom || 1);
+            const dxPx = event.clientX - dragStartClientX;
+            const dxV = (dxPx / bbox.width) * viewW;
+            let nextX = dragStartX - dxV;
+            nextX = Math.max(0, Math.min(Math.max(0, state.baseW - viewW), nextX));
+            standardSimTickZoomState = { ...state, x: nextX };
+            renderStandardSimulationTickChart(standardSimLastEntriesForChart);
+        };
+        const onPointerUp = () => {
+            if (!dragging) return;
+            dragging = false;
+            svg.style.cursor = 'grab';
+        };
+
+        svg.addEventListener('pointerdown', onPointerDown);
+        svg.addEventListener('pointermove', onPointerMove);
+        svg.addEventListener('pointerup', onPointerUp);
+        svg.addEventListener('pointercancel', onPointerUp);
+        svg.style.cursor = 'grab';
+        svg.dataset.zoomBound = '1';
+    }
+
+    function renderStandardSimulationTickChart(entries) {
+        const balanceEl = document.getElementById('standardSimEquityBalance');
+        const lossEl = document.getElementById('standardSimEquityLoss');
+        const svg = document.getElementById('standardSimTicksSvg');
+        const baselineEl = document.getElementById('standardSimTicksBaseline');
+        const maxLineEl = document.getElementById('standardSimTicksMaxLine');
+        const minLineEl = document.getElementById('standardSimTicksMinLine');
+        const currentLineEl = document.getElementById('standardSimTicksCurrentLine');
+        const winPathEl = document.getElementById('standardSimTicksWinPath');
+        const lossPathEl = document.getElementById('standardSimTicksLossPath');
+        if (!balanceEl || !lossEl || !svg || !baselineEl || !maxLineEl || !minLineEl || !currentLineEl || !winPathEl || !lossPathEl) return;
+
+        attachStandardSimZoomHandlers(svg);
+
+        const allEntries = Array.isArray(entries) ? entries : [];
+        standardSimLastEntriesForChart = allEntries;
+        const rawConfig = (latestAnalyzerConfig && latestAnalyzerConfig.autoBetConfig) ? latestAnalyzerConfig.autoBetConfig : null;
+        const autoBetConfig = (typeof sanitizeAutoBetConfig === 'function')
+            ? sanitizeAutoBetConfig(rawConfig)
+            : (rawConfig || {});
+
+        const snapshot = computeDiamondSimulationProfitSnapshot(allEntries, autoBetConfig);
+        balanceEl.textContent = formatCurrencyBRL(snapshot.balance);
+        lossEl.textContent = formatCurrencyBRL(snapshot.loss);
+
+        const stageIndexFromEntry = (e) => getStageIndexFromEntryLike(e);
+        const resolveBetColor = (e) => {
+            const raw = e && e.patternData && e.patternData.color ? e.patternData.color : null;
+            const c = String(raw || '').toLowerCase();
+            if (c === 'red' || c === 'black' || c === 'white') return c;
+            return 'red';
+        };
+
+        const attemptsChron = allEntries
+            .filter(e => e && (e.result === 'WIN' || e.result === 'LOSS'))
+            .slice()
+            .reverse();
+
+        const vbH = 160;
+        const padY = 8;
+        const n = attemptsChron.length;
+        const vbW = Math.max(1, n - 1);
+        if (!standardSimTickZoomState || standardSimTickZoomState.points !== n || standardSimTickZoomState.baseW !== vbW) {
+            standardSimTickZoomState = { points: n, zoom: 1, x: 0, baseW: vbW, baseH: vbH };
+        } else {
+            standardSimTickZoomState = { ...standardSimTickZoomState, baseW: vbW, baseH: vbH };
+        }
+        const state = standardSimTickZoomState;
+        const viewW = state.baseW / (state.zoom || 1);
+        const viewX = Math.max(0, Math.min(Math.max(0, state.baseW - viewW), state.x || 0));
+        standardSimTickZoomState = { ...state, x: viewX };
+        svg.setAttribute('viewBox', `${viewX.toFixed(3)} 0 ${viewW.toFixed(3)} ${vbH}`);
+
+        const galeMult = Math.max(1, Number(snapshot.galeMult) || 2);
+        const baseStake = Math.max(0.01, Number(snapshot.baseStake) || 2);
+        const whitePayoutMultiplier = Math.max(2, Number(autoBetConfig.whitePayoutMultiplier ?? 14) || 14);
+
+        const deltas = attemptsChron.map(e => {
+            const stageIdx = stageIndexFromEntry(e);
+            const stake = Number((baseStake * Math.pow(galeMult, stageIdx)).toFixed(2));
+            const betColor = resolveBetColor(e);
+            const payoutMult = betColor === 'white' ? whitePayoutMultiplier : 2;
+            const delta = e.result === 'WIN'
+                ? Number((stake * (payoutMult - 1)).toFixed(2))
+                : Number((-stake).toFixed(2));
+            return { e, delta };
+        });
+
+        let yPrevValue = 0;
+        const segments = deltas.map(({ e, delta }, idx) => {
+            const yNextValue = Number((yPrevValue + delta).toFixed(2));
+            const seg = { idx, e, delta, y0: yPrevValue, y1: yNextValue };
+            yPrevValue = yNextValue;
+            return seg;
+        });
+
+        const values = [0, ...segments.map(s => s.y0), ...segments.map(s => s.y1)];
+        let minV = Math.min(...values);
+        let maxV = Math.max(...values);
+        if (!Number.isFinite(minV) || !Number.isFinite(maxV)) { minV = -1; maxV = 1; }
+        if (Math.abs(maxV - minV) < 0.01) { maxV += 1; minV -= 1; }
+        const range = maxV - minV;
+        minV -= range * 0.08;
+        maxV += range * 0.08;
+
+        const yScale = (val) => {
+            const t = (val - minV) / (maxV - minV);
+            return (vbH - padY) - (t * (vbH - padY * 2));
+        };
+
+        const yZero = yScale(0);
+        const xStart = viewX;
+        const xEnd = viewX + viewW;
+
+        baselineEl.setAttribute('d', `M ${xStart.toFixed(2)} ${yZero.toFixed(2)} L ${xEnd.toFixed(2)} ${yZero.toFixed(2)}`);
+        baselineEl.setAttribute('fill', 'none');
+        baselineEl.setAttribute('stroke', 'rgba(200,214,233,0.22)');
+        baselineEl.setAttribute('stroke-width', '0.7');
+        baselineEl.setAttribute('vector-effect', 'non-scaling-stroke');
+
+        const maxGuideVal = Math.max(...values);
+        const minGuideVal = Math.min(...values);
+        const currentGuideVal = segments.length ? segments[segments.length - 1].y1 : 0;
+        const yMax = yScale(maxGuideVal);
+        const yMin = yScale(minGuideVal);
+        const yCur = yScale(currentGuideVal);
+
+        maxLineEl.setAttribute('d', `M ${xStart.toFixed(2)} ${yMax.toFixed(2)} L ${xEnd.toFixed(2)} ${yMax.toFixed(2)}`);
+        maxLineEl.setAttribute('fill', 'none');
+        maxLineEl.setAttribute('stroke', 'rgba(34,197,94,0.55)');
+        maxLineEl.setAttribute('stroke-width', '0.55');
+        maxLineEl.setAttribute('vector-effect', 'non-scaling-stroke');
+
+        minLineEl.setAttribute('d', `M ${xStart.toFixed(2)} ${yMin.toFixed(2)} L ${xEnd.toFixed(2)} ${yMin.toFixed(2)}`);
+        minLineEl.setAttribute('fill', 'none');
+        minLineEl.setAttribute('stroke', 'rgba(239,68,68,0.55)');
+        minLineEl.setAttribute('stroke-width', '0.55');
+        minLineEl.setAttribute('vector-effect', 'non-scaling-stroke');
+
+        currentLineEl.setAttribute('d', `M ${xStart.toFixed(2)} ${yCur.toFixed(2)} L ${xEnd.toFixed(2)} ${yCur.toFixed(2)}`);
+        currentLineEl.setAttribute('fill', 'none');
+        currentLineEl.setAttribute('stroke', 'rgba(255,255,255,0.6)');
+        currentLineEl.setAttribute('stroke-width', '0.55');
+        currentLineEl.setAttribute('vector-effect', 'non-scaling-stroke');
+
+        let dWin = '';
+        let dLoss = '';
+        for (const s of segments) {
+            const x = n === 1 ? 0 : s.idx;
+            const y0 = yScale(s.y0);
+            const y1 = yScale(s.y1);
+            const pathSeg = `M ${x} ${y0.toFixed(2)} L ${x} ${y1.toFixed(2)} `;
+            if (s.delta >= 0) dWin += pathSeg;
+            else dLoss += pathSeg;
+        }
+
+        const strokeW = n > 600 ? '0.22' : (n > 300 ? '0.35' : (n > 120 ? '0.55' : '0.85'));
+        winPathEl.setAttribute('d', dWin.trim());
+        winPathEl.setAttribute('fill', 'none');
+        winPathEl.setAttribute('stroke', '#22c55e');
+        winPathEl.setAttribute('stroke-width', strokeW);
+        winPathEl.setAttribute('stroke-linecap', 'butt');
+
+        lossPathEl.setAttribute('d', dLoss.trim());
+        lossPathEl.setAttribute('fill', 'none');
+        lossPathEl.setAttribute('stroke', '#ef4444');
+        lossPathEl.setAttribute('stroke-width', strokeW);
+        lossPathEl.setAttribute('stroke-linecap', 'butt');
+
+        const layer = svg.parentElement;
+        const labelMax = layer ? layer.querySelector('#standardSimGuideMax') : null;
+        const labelMin = layer ? layer.querySelector('#standardSimGuideMin') : null;
+        const labelCur = layer ? layer.querySelector('#standardSimGuideCur') : null;
+        const dir = layer ? layer.querySelector('#standardSimGuideDir') : null;
+        if (dir) dir.textContent = 'Esquerda: Antigo • Direita: Recente';
+
+        const bbox = svg.getBoundingClientRect();
+        if (bbox && bbox.height > 0) {
+            const yToPx = (y) => (y / vbH) * bbox.height;
+            const maxBal = snapshot.initialBank + maxGuideVal;
+            const minBal = snapshot.initialBank + minGuideVal;
+            const curBal = snapshot.initialBank + currentGuideVal;
+
+            const plusText = (v) => `+${formatCurrencyBRL(Math.abs(v))}`;
+            const minusText = (v) => `-${formatCurrencyBRL(Math.abs(v))}`;
+
+            const maxTop = Math.max(0, yToPx(yMax) - 14);
+            const minTop = Math.min(bbox.height - 12, yToPx(yMin) + 4);
+            let curTop = Math.max(0, yToPx(yCur) - 14);
+            if (Math.abs(curTop - minTop) < 14) {
+                curTop = Math.max(0, minTop - 18);
+            }
+
+            if (labelMax) {
+                labelMax.textContent = `${plusText(maxGuideVal)}`;
+                labelMax.title = `Máximo: ${formatCurrencyBRL(maxBal)}`;
+                labelMax.style.top = `${maxTop}px`;
+            }
+            if (labelMin) {
+                labelMin.textContent = `${minusText(minGuideVal)}`;
+                labelMin.title = `Mínimo: ${formatCurrencyBRL(minBal)}`;
+                labelMin.style.top = `${minTop}px`;
+            }
+            if (labelCur) {
+                labelCur.textContent = `${formatCurrencyBRL(curBal)}`;
+                labelCur.title = `Atual: ${formatCurrencyBRL(curBal)}`;
+                labelCur.style.top = `${curTop}px`;
+                labelCur.style.left = 'auto';
+                labelCur.style.right = '8px';
+            }
+        }
+    }
+
+    function renderStandardSimulationEntries(entries) {
+        const list = document.getElementById('standardSimEntriesList');
+        const hitEl = document.getElementById('standardSimEntriesHit');
+        if (!list || !hitEl) return;
+
+        const allEntries = Array.isArray(entries) ? entries : [];
+        const filteredEntries = allEntries.filter(e => {
+            if (!e) return false;
+            if (e.result === 'WIN') return true;
+            if (e.result === 'LOSS') {
+                if (e.finalResult === 'RET') return true;
+                let isContinuing = false;
+                for (let key in e) {
+                    if (key.startsWith('continuingToG')) { isContinuing = true; break; }
+                }
+                if (isContinuing) return false;
+                return true;
+            }
+            return true;
+        });
+
+        const items = filteredEntries.map((e, idx) => {
+            const entryIndex = idx;
+            const time = new Date(e.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            const cls = e.color;
+            const badge = e.color === 'white' ? blazeWhiteSVG(16) : `<span>${e.number}</span>`;
+            const isWin = e.result === 'WIN';
+
+            let barClass = isWin ? 'win' : 'loss';
+            let stageText = '';
+            if (e.martingaleStage) {
+                if (isWin) {
+                    if (e.martingaleStage === 'ENTRADA' || e.wonAt === 'ENTRADA') stageText = 'WIN';
+                    else if (e.martingaleStage && e.martingaleStage.startsWith('G')) {
+                        const galeNum = e.martingaleStage.substring(1);
+                        stageText = `WIN <span style="color: white;">G${galeNum}</span>`;
+                    }
+                } else {
+                    if (e.finalResult === 'RET') {
+                        const stage = e.martingaleStage || e.phase;
+                        if (stage === 'ENTRADA' || stage === 'G0') stageText = 'LOSS';
+                        else if (stage && stage.startsWith('G')) {
+                            const galeNum = stage.substring(1);
+                            stageText = `LOSS <span style="color: white;">G${galeNum}</span>`;
+                        } else stageText = 'LOSS';
+                    } else {
+                        let isContinuing = false;
+                        let nextGale = '';
+                        for (let key in e) {
+                            if (key.startsWith('continuingToG')) {
+                                isContinuing = true;
+                                nextGale = key.substring('continuingTo'.length);
+                                break;
+                            }
+                        }
+                        stageText = isContinuing ? `LOSS ➜<span style="color: white;">${nextGale}</span>` : 'LOSS';
+                    }
+                }
+            } else {
+                const phaseDigit = e.phase === 'G1' ? '1' : (e.phase === 'G2' ? '2' : '');
+                stageText = phaseDigit ? (isWin ? `WIN <span style="color: white;">G${phaseDigit}</span>` : `LOSS <span style="color: white;">G${phaseDigit}</span>`) : (isWin ? 'WIN' : 'LOSS');
+            }
+
+            const confTop = (typeof e.confidence === 'number') ? `${e.confidence.toFixed(0)}%` : '';
+            const resultBar = `<div class="entry-result-bar ${barClass}"></div>`;
+            const stageLabel = stageText ? `<div class="entry-stage ${barClass}">${stageText}</div>` : '';
+            const title = `Giro: ${e.number} • Cor: ${e.color} • ${time} • Resultado: ${e.result}${e.martingaleStage ? ' • Estágio: '+e.martingaleStage : ''}${e.confidence? ' • Confiança: '+e.confidence.toFixed(1)+'%' : ''}`;
+
+            return `<div class="entry-item-wrap clickable-entry" title="${title}" data-entry-index="${entryIndex}">
+                ${confTop ? `<div class="entry-conf-top">${confTop}</div>` : ''}
+                ${stageLabel}
+                <div class="entry-item">
+                    <div class="entry-box ${cls}">${badge}</div>
+                    ${resultBar}
+                </div>
+                <div class="entry-time">${time}</div>
+            </div>`;
+        }).join('');
+
+        list.innerHTML = items || '<div class="no-history">Sem entradas registradas</div>';
+
+        const totalCycles = filteredEntries.length;
+        const wins = filteredEntries.filter(e => e.result === 'WIN').length;
+        const losses = totalCycles - wins;
+        const pct = totalCycles ? ((wins / totalCycles) * 100).toFixed(1) : '0.0';
+        const totalEntries = allEntries.length;
+        hitEl.innerHTML = `<span class="win-score">WIN: ${wins}</span> <span class="loss-score">LOSS: ${losses}</span> <span class="percentage">(${pct}%)</span> <span class="total-entries">• Entradas: ${totalEntries}</span>`;
+
+        renderStandardSimulationChart({ wins, losses, totalCycles, totalEntries });
+        renderStandardSimulationTickChart(allEntries);
+
+        const clickableEntries = list.querySelectorAll('.clickable-entry');
+        clickableEntries.forEach((entryEl) => {
+            entryEl.addEventListener('click', function() {
+                const entryIndex = parseInt(this.getAttribute('data-entry-index'), 10);
+                const entry = filteredEntries[entryIndex];
+                if (entry) showPatternForEntry(entry);
+            });
+        });
+    }
+
+    async function buildStandardConfigSnapshotFromUI() {
+        const storageData = await storageCompat.get(['analyzerConfig']);
+        const currentConfig = storageData.analyzerConfig || {};
+
+        const getNum = (id, fallback) => {
+            const el = document.getElementById(id);
+            if (!el) return fallback;
+            const n = Number(el.value);
+            return Number.isFinite(n) ? n : fallback;
+        };
+        const getBool = (id, fallback) => {
+            const el = document.getElementById(id);
+            if (!el) return fallback;
+            return !!el.checked;
+        };
+
+        const historyDepth = Math.max(100, Math.min(2000, Math.floor(getNum('cfgHistoryDepth', currentConfig.historyDepth ?? 500))));
+        const minOcc = Math.max(1, Math.floor(getNum('cfgMinOccurrences', currentConfig.minOccurrences ?? 2)));
+        const maxOcc = Math.max(0, Math.floor(getNum('cfgMaxOccurrences', currentConfig.maxOccurrences ?? 0)));
+        const patternInterval = Math.max(0, Math.floor(getNum('cfgPatternInterval', currentConfig.minIntervalSpins ?? 0)));
+        const minSize = Math.max(2, Math.floor(getNum('cfgMinPatternSize', currentConfig.minPatternSize ?? 3)));
+        const maxSize = Math.max(0, Math.floor(getNum('cfgMaxPatternSize', currentConfig.maxPatternSize ?? 0)));
+        const winPct = Math.max(0, Math.min(100, Math.floor(getNum('cfgWinPercentOthers', currentConfig.winPercentOthers ?? 100))));
+        const reqTrig = getBool('cfgRequireTrigger', currentConfig.requireTrigger ?? true);
+
+        // snapshot para simulação: forçar Modo Padrão
+        return {
+            ...currentConfig,
+            aiMode: false,
+            historyDepth,
+            minOccurrences: minOcc,
+            maxOccurrences: maxOcc,
+            minIntervalSpins: patternInterval,
+            minPatternSize: minSize,
+            maxPatternSize: maxSize,
+            winPercentOthers: winPct,
+            requireTrigger: reqTrig
+        };
+    }
+
+    async function startStandardSimulation() {
+        try {
+            if (standardSimulationRunning || standardOptimizationRunning) return;
+            createStandardSimulationModal();
+            setStandardSimActiveTab('signals');
+            setStandardSimResultsVisible(false);
+            setStandardSimulationLoading(true, 'Simulando...', 'simulate');
+
+            const summary = document.getElementById('standardSimulationSummary');
+            if (summary) summary.innerHTML = 'Preparando simulação...';
+
+            const cfg = await buildStandardConfigSnapshotFromUI();
+
+            standardSimulationJobId = `std-sim-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+            const resolvedHistoryLimit =
+                standardSimPeriodPreset === 'custom'
+                    ? (clampDiamondSimHistoryLimit(standardSimHistoryLimitRaw) ?? clampDiamondSimHistoryLimit(standardSimHistoryLimit) ?? 1440)
+                    : (clampDiamondSimHistoryLimit(standardSimHistoryLimit) ?? 1440);
+
+            chrome.runtime.sendMessage({
+                action: 'STANDARD_SIMULATE_PAST',
+                jobId: standardSimulationJobId,
+                historyLimit: resolvedHistoryLimit,
+                config: cfg
+            }, (response) => {
+                const err = chrome.runtime.lastError;
+                if (err) {
+                    setStandardSimulationLoading(false);
+                    standardSimulationJobId = null;
+                    if (summary) summary.innerHTML = `❌ Falha ao simular: ${err.message || err}`;
+                    return;
+                }
+                if (!response) {
+                    setStandardSimulationLoading(false);
+                    standardSimulationJobId = null;
+                    if (summary) summary.innerHTML = '❌ Falha ao simular: resposta inválida';
+                    return;
+                }
+                if (response.status === 'cancelled') {
+                    setStandardSimulationLoading(false);
+                    standardSimulationJobId = null;
+                    if (summary) summary.innerHTML = '⏹️ Simulação cancelada.';
+                    return;
+                }
+                if (response.status !== 'success') {
+                    setStandardSimulationLoading(false);
+                    standardSimulationJobId = null;
+                    if (summary) summary.innerHTML = `❌ Falha ao simular: ${response.error || 'resposta inválida'}`;
+                    return;
+                }
+
+                standardSimulationJobId = response.jobId || null;
+                const meta = response.meta || {};
+                const stats = response.stats || {};
+
+                if (summary) {
+                    const from = meta.fromTimestamp ? new Date(meta.fromTimestamp).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—';
+                    const to = meta.toTimestamp ? new Date(meta.toTimestamp).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—';
+                    const avail = Number(meta.availableHistory || 0);
+                    const req = Number(meta.requestedHistoryLimit || 0);
+                    const used = Number(meta.usedHistoryLimit || meta.totalSpins || 0);
+                    summary.innerHTML =
+                        `<strong>Simulação • Modo Premium</strong><br>` +
+                        `Giros analisados: <strong>${meta.totalSpins || 0}</strong><br>` +
+                        `Disponível: <strong>${avail || '—'}</strong> • Solicitado: <strong>${req || '—'}</strong> • Usado: <strong>${used || '—'}</strong><br>` +
+                        `Período: <strong>${from}</strong> → <strong>${to}</strong><br>` +
+                        `Sinais gerados: <strong>${meta.totalSignals || 0}</strong> • Ciclos: <strong>${stats.totalCycles || 0}</strong>`;
+                }
+
+                renderStandardSimulationEntries(response.entries || []);
+                standardSimHasResults = true;
+                setStandardSimResultsVisible(true);
+                setStandardSimulationLoading(false);
+            });
+        } catch (error) {
+            setStandardSimulationLoading(false);
+            standardSimulationJobId = null;
+            const summary = document.getElementById('standardSimulationSummary');
+            if (summary) summary.innerHTML = `❌ Falha ao simular: ${error.message || error}`;
+        }
+    }
+
+    async function startStandardOptimization() {
+        try {
+            if (standardSimulationRunning || standardOptimizationRunning) return;
+            createStandardSimulationModal();
+            setStandardSimActiveTab('signals');
+            setStandardSimResultsVisible(false);
+            setStandardSimulationLoading(true, 'Otimizando... (0/100)', 'optimize');
+
+            const summary = document.getElementById('standardSimulationSummary');
+            if (summary) summary.innerHTML = 'Preparando otimização (100 configurações)...';
+
+            const cfg = await buildStandardConfigSnapshotFromUI();
+
+            const resolvedHistoryLimit =
+                standardSimPeriodPreset === 'custom'
+                    ? (clampDiamondSimHistoryLimit(standardSimHistoryLimitRaw) ?? clampDiamondSimHistoryLimit(standardSimHistoryLimit) ?? 1440)
+                    : (clampDiamondSimHistoryLimit(standardSimHistoryLimit) ?? 1440);
+
+            standardOptimizationJobId = `std-opt-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+
+            chrome.runtime.sendMessage({
+                action: 'STANDARD_OPTIMIZE_PAST',
+                jobId: standardOptimizationJobId,
+                trials: 100,
+                historyLimit: resolvedHistoryLimit,
+                config: cfg
+            }, async (response) => {
+                const err = chrome.runtime.lastError;
+                if (err) {
+                    setStandardSimulationLoading(false);
+                    standardOptimizationJobId = null;
+                    if (summary) summary.innerHTML = `❌ Falha ao otimizar: ${err.message || err}`;
+                    return;
+                }
+                if (!response) {
+                    setStandardSimulationLoading(false);
+                    standardOptimizationJobId = null;
+                    if (summary) summary.innerHTML = '❌ Falha ao otimizar: resposta inválida';
+                    return;
+                }
+                if (response.status === 'cancelled') {
+                    setStandardSimulationLoading(false);
+                    standardOptimizationJobId = null;
+                    if (summary) summary.innerHTML = '⏹️ Otimização cancelada.';
+                    return;
+                }
+                if (response.status !== 'success') {
+                    setStandardSimulationLoading(false);
+                    standardOptimizationJobId = null;
+                    if (summary) summary.innerHTML = `❌ Falha ao otimizar: ${response.error || 'resposta inválida'}`;
+                    return;
+                }
+
+                standardOptimizationJobId = response.jobId || null;
+
+                const meta = response.meta || {};
+                const minPct = Number(response.minPct) || 95;
+                const recommendedFound = !!response.recommendedFound;
+                const recommended = response.recommended || null;
+                const bestOverall = response.bestOverall || null;
+                const bestCfg = response.config || null;
+
+                // aplicar somente os campos do modo padrão se atingir o mínimo
+                const applyStandardConfigToInputs = (cfgObj) => {
+                    if (!cfgObj) return false;
+                    const setVal = (id, value) => {
+                        const el = document.getElementById(id);
+                        if (el && value != null && value !== '') el.value = String(value);
+                    };
+                    const setCheck = (id, value) => {
+                        const el = document.getElementById(id);
+                        if (el && typeof value === 'boolean') el.checked = value;
+                    };
+                    setVal('cfgHistoryDepth', cfgObj.historyDepth);
+                    setVal('cfgMinOccurrences', cfgObj.minOccurrences);
+                    setVal('cfgMaxOccurrences', cfgObj.maxOccurrences);
+                    setVal('cfgPatternInterval', cfgObj.minIntervalSpins);
+                    setVal('cfgMinPatternSize', cfgObj.minPatternSize);
+                    setVal('cfgMaxPatternSize', cfgObj.maxPatternSize);
+                    setVal('cfgWinPercentOthers', cfgObj.winPercentOthers);
+                    setCheck('cfgRequireTrigger', !!cfgObj.requireTrigger);
+                    return true;
+                };
+
+                if (recommendedFound && bestCfg) {
+                    try { applyStandardConfigToInputs(bestCfg); } catch (_) {}
+                }
+
+                const from = meta.fromTimestamp ? new Date(meta.fromTimestamp).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—';
+                const to = meta.toTimestamp ? new Date(meta.toTimestamp).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—';
+                const avail = Number(meta.availableHistory || 0);
+                const req = Number(meta.requestedHistoryLimit || 0);
+                const used = Number(meta.usedHistoryLimit || meta.totalSpins || 0);
+
+                if (summary) {
+                    if (recommendedFound && recommended) {
+                        summary.innerHTML =
+                            `<strong>Melhor configuração (${response.trials || 100} testes) • Modo Premium</strong><br>` +
+                            `Giros analisados: <strong>${meta.totalSpins || 0}</strong><br>` +
+                            `Disponível: <strong>${avail || '—'}</strong> • Solicitado: <strong>${req || '—'}</strong> • Usado: <strong>${used || '—'}</strong><br>` +
+                            `Período: <strong>${from}</strong> → <strong>${to}</strong><br>` +
+                            `Assertividade: <strong>${Number(recommended.pct || 0).toFixed(1)}%</strong> • Ciclos: <strong>${recommended.totalCycles || 0}</strong> • Sinais: <strong>${recommended.totalSignals || 0}</strong>`;
+                    } else {
+                        const pctOverall = bestOverall ? Number(bestOverall.pct || 0) : 0;
+                        const cyclesOverall = bestOverall ? (bestOverall.totalCycles || 0) : 0;
+                        summary.innerHTML =
+                            `<strong>Nenhuma configuração atingiu ${minPct}% (${response.trials || 100} testes) • Modo Premium</strong><br>` +
+                            `Giros analisados: <strong>${meta.totalSpins || 0}</strong><br>` +
+                            `Disponível: <strong>${avail || '—'}</strong> • Solicitado: <strong>${req || '—'}</strong> • Usado: <strong>${used || '—'}</strong><br>` +
+                            `Período: <strong>${from}</strong> → <strong>${to}</strong><br>` +
+                            `Melhor encontrada: <strong>${pctOverall.toFixed(1)}%</strong> • Ciclos: <strong>${cyclesOverall}</strong><br>` +
+                            `<span style="color:#8da2bb;">(A configuração NÃO foi aplicada automaticamente porque ficou abaixo do mínimo.)</span>`;
+                    }
+                }
+
+                renderStandardSimulationEntries(response.entries || []);
+                standardSimHasResults = true;
+                setStandardSimResultsVisible(true);
+                setStandardSimulationLoading(false);
+            });
+        } catch (error) {
+            setStandardSimulationLoading(false);
+            standardOptimizationJobId = null;
+            const summary = document.getElementById('standardSimulationSummary');
+            if (summary) summary.innerHTML = `❌ Falha ao otimizar: ${error.message || error}`;
+        }
+    }
+
     // Snapshot para restaurar configurações (estado ao abrir o modal / último "Salvar")
     let diamondLevelsRestoreSnapshot = null;
     function setDiamondLevelsRestoreSnapshot(config) {
@@ -9590,6 +10741,14 @@ async function persistAnalyzerState(newState) {
                         <div class="setting-item setting-row">
                             <label class="checkbox-label"><input type="checkbox" id="cfgRequireTrigger" checked /> Exigir cor de disparo</label>
                         </div>
+                        <!-- Simulação no passado (Modo Padrão / Análise Premium) -->
+                        <div class="setting-item setting-row" id="standardSimulationContainer" style="margin-top: 10px;">
+                            <div class="hot-pattern-actions">
+                                <button id="standardSimulationBtn" class="btn-hot-pattern" type="button" title="Simular/otimizar esta configuração no passado (sem olhar o futuro)">
+                                    Simular (Premium)
+                                </button>
+                            </div>
+                        </div>
                         <div class="setting-item setting-row">
                             <span class="setting-label">Telegram Chat ID:</span>
                             <div style="display: flex; gap: 4px; flex: 1; align-items: stretch;">
@@ -13623,6 +14782,28 @@ function logModeSnapshotUI(snapshot) {
             diamondOptimizationJobId = null;
             const summary = document.getElementById('diamondSimulationSummary');
             if (summary) summary.innerHTML = '⏹️ Otimização cancelada.';
+        } else if (request.type === 'STANDARD_SIMULATION_PROGRESS') {
+            updateStandardSimulationProgress(request.data || {});
+        } else if (request.type === 'STANDARD_SIMULATION_CANCELLED') {
+            const cancelledJobId = request.data && request.data.jobId ? request.data.jobId : null;
+            if (cancelledJobId && standardSimulationJobId && cancelledJobId !== standardSimulationJobId) {
+                return;
+            }
+            setStandardSimulationLoading(false);
+            standardSimulationJobId = null;
+            const summary = document.getElementById('standardSimulationSummary');
+            if (summary) summary.innerHTML = '⏹️ Simulação cancelada.';
+        } else if (request.type === 'STANDARD_OPTIMIZATION_PROGRESS') {
+            updateStandardOptimizationProgress(request.data || {});
+        } else if (request.type === 'STANDARD_OPTIMIZATION_CANCELLED') {
+            const cancelledJobId = request.data && request.data.jobId ? request.data.jobId : null;
+            if (cancelledJobId && standardOptimizationJobId && cancelledJobId !== standardOptimizationJobId) {
+                return;
+            }
+            setStandardSimulationLoading(false);
+            standardOptimizationJobId = null;
+            const summary = document.getElementById('standardSimulationSummary');
+            if (summary) summary.innerHTML = '⏹️ Otimização cancelada.';
         }
     });
     
@@ -14690,6 +15871,11 @@ function logModeSnapshotUI(snapshot) {
         if (e.target && e.target.id === 'diamondLevelsBtn') {
             e.preventDefault();
             openDiamondLevelsModal();
+        }
+
+        if (e.target && e.target.id === 'standardSimulationBtn') {
+            e.preventDefault();
+            openStandardSimulationModal();
         }
 
         if (e.target && e.target.id === 'diamondLevelsSaveBtn') {
