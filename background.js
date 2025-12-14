@@ -22135,6 +22135,47 @@ function buildDiamondOptimizationCandidateConfig(baseConfig, levelId, rng) {
         );
         windows.n2Recent = recent;
         windows.n2Previous = prev;
+    } else if (upper === 'N3') {
+        // N3 - Alternância
+        const baseHist = clampInt(windows.n3Alternance ?? 60, 4, 400);
+        const baseThreshPct = clampInt(windows.n3ThresholdPct ?? 75, 50, 95);
+        const baseMinOcc = clampInt(windows.n3MinOccurrences ?? 1, 1, 50);
+        const baseAllowBackoff = windows.n3AllowBackoff !== undefined ? !!windows.n3AllowBackoff : false;
+        const baseIgnoreWhite = windows.n3IgnoreWhite !== undefined ? !!windows.n3IgnoreWhite : false;
+
+        const hist = clampInt(
+            randomInt(rng, Math.max(4, Math.floor(baseHist * 0.5)), Math.min(400, Math.ceil(baseHist * 1.5))),
+            4,
+            400
+        );
+        const threshPct = clampInt(
+            randomInt(rng, Math.max(50, baseThreshPct - 18), Math.min(95, baseThreshPct + 12)),
+            50,
+            95
+        );
+        const minOcc = clampInt(
+            randomInt(rng, 1, Math.min(50, Math.max(1, baseMinOcc + 4))),
+            1,
+            50
+        );
+        const allowBackoff = rng() < 0.35 ? !baseAllowBackoff : baseAllowBackoff;
+        // Branco quebra alternância; esse toggle é compatibilidade/UX — manter, mas variar pouco
+        const ignoreWhite = rng() < 0.15 ? !baseIgnoreWhite : baseIgnoreWhite;
+
+        windows.n3Alternance = hist;
+        windows.n3ThresholdPct = threshPct;
+        windows.n3MinOccurrences = minOcc;
+        windows.n3AllowBackoff = allowBackoff;
+        windows.n3IgnoreWhite = ignoreWhite;
+    } else if (upper === 'N4') {
+        // N4 - Persistência (ciclo/janela)
+        const baseW = clampInt(windows.n4Persistence ?? 20, 10, 120);
+        const w = clampInt(
+            randomInt(rng, Math.max(10, Math.floor(baseW * 0.5)), Math.min(120, Math.ceil(baseW * 1.6))),
+            10,
+            120
+        );
+        windows.n4Persistence = w;
     } else {
         // Outros níveis: não alterar nada por enquanto (evita bagunçar configurações do usuário).
     }

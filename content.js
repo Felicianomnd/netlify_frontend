@@ -2719,6 +2719,7 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
     let diamondSimBusyKind = null; // 'simulate' | 'optimize' | null
     let diamondSimCurrentMode = null;
     let diamondSimCurrentLevelId = null;
+    let diamondOptimizationActiveLevelId = null; // usado para prefixar progresso quando otimizando em lote (modo "all")
     let diamondSimMovedNodes = [];
     let diamondSimHiddenNodes = [];
     let diamondSimPeriodPreset = '12h'; // padrão: 12 horas
@@ -3075,6 +3076,10 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
             optimizeBtn.addEventListener('click', () => {
                 const mode = diamondSimCurrentMode || 'level';
                 const levelId = diamondSimCurrentLevelId || null;
+                if (mode === 'all') {
+                    startDiamondOptimizationAllActive();
+                    return;
+                }
                 if (mode !== 'level' || !levelId) {
                     showCenteredNotice('Selecione um nível (ex.: N1) para otimizar.');
                     return;
@@ -3961,7 +3966,20 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                 diamondSimHiddenNodes.push(el);
             });
         }
-        // modo "all": mantém todos os níveis visíveis e não move nada (configContainer fica vazio)
+        // modo "all": mostrar SOMENTE níveis ATIVOS (todos os níveis com toggle ligado)
+        // (quando o usuário clica em "Simular todos", ele quer "todos os ativados")
+        if (mode === 'all') {
+            const fields = body.querySelectorAll('.diamond-level-field');
+            fields.forEach(el => {
+                if (!el) return;
+                const toggle = el.querySelector('.diamond-level-toggle-input');
+                const enabled = toggle ? !!toggle.checked : !el.classList.contains('level-disabled');
+                if (!enabled) {
+                    el.classList.add('diamond-sim-hidden');
+                    diamondSimHiddenNodes.push(el);
+                }
+            });
+        }
     }
 
     function enterDiamondSimulationView({ titleText, subtitleText } = {}) {
@@ -4054,6 +4072,9 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
         if (data && data.jobId && diamondOptimizationJobId && data.jobId !== diamondOptimizationJobId) {
             return;
         }
+        const levelLabel = (data && data.levelId)
+            ? String(data.levelId).toUpperCase()
+            : (diamondOptimizationActiveLevelId ? String(diamondOptimizationActiveLevelId).toUpperCase() : '');
         const trial = Number(data && data.trial) || 0;
         const total = Number(data && data.totalTrials) || 0;
         const pct = total > 0 ? Math.min(100, Math.round((trial / total) * 100)) : 0;
@@ -4065,7 +4086,8 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                 ? ` • melhor≥${minPct}%: ${Number(best.pct || 0).toFixed(1)}% (${best.totalCycles || 0} ciclos)`
                 : ` • melhor: ${Number(best.pct || 0).toFixed(1)}% (<${minPct}%)`)
             : '';
-        setDiamondSimulationLoading(true, `Otimizando... ${trial}/${total} (${pct}%)${bestText}`, 'optimize');
+        const prefix = levelLabel ? `${levelLabel} • ` : '';
+        setDiamondSimulationLoading(true, `${prefix}Otimizando... ${trial}/${total} (${pct}%)${bestText}`, 'optimize');
     }
 
     function renderDiamondSimulationEntries(entries) {
@@ -4452,6 +4474,10 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                         const el = document.getElementById(id);
                         if (el && value != null && value !== '') el.value = String(value);
                     };
+                    const setCheck = (id, value) => {
+                        const el = document.getElementById(id);
+                        if (el && typeof value === 'boolean') el.checked = value;
+                    };
                     if (upper === 'N1') {
                         setVal('diamondN1WindowSize', windows.n1WindowSize);
                         setVal('diamondN1PrimaryRequirement', windows.n1PrimaryRequirement);
@@ -4462,6 +4488,18 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                     if (upper === 'N2') {
                         setVal('diamondN2Recent', windows.n2Recent);
                         setVal('diamondN2Previous', windows.n2Previous);
+                        return true;
+                    }
+                    if (upper === 'N3') {
+                        setVal('diamondN3Alternance', windows.n3Alternance);
+                        setVal('diamondN3ThresholdPct', windows.n3ThresholdPct);
+                        setVal('diamondN3MinOccurrences', windows.n3MinOccurrences);
+                        setCheck('diamondN3AllowBackoff', !!windows.n3AllowBackoff);
+                        setCheck('diamondN3IgnoreWhite', !!windows.n3IgnoreWhite);
+                        return true;
+                    }
+                    if (upper === 'N4') {
+                        setVal('diamondN4Persistence', windows.n4Persistence);
                         return true;
                     }
                     return false;
@@ -4520,6 +4558,203 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
             diamondOptimizationJobId = null;
             const summary = document.getElementById('diamondSimulationSummary');
             if (summary) summary.innerHTML = `❌ Falha ao otimizar: ${error.message || error}`;
+        }
+    }
+
+    async function startDiamondOptimizationAllActive() {
+        try {
+            if (diamondSimulationRunning || diamondOptimizationRunning) return;
+            ensureDiamondSimulationView();
+
+            enterDiamondSimulationView({ titleText: 'Simulação' });
+            applyDiamondSimMode('all');
+            setDiamondSimActiveTab('signals');
+            setDiamondSimResultsVisible(false);
+
+            const summary = document.getElementById('diamondSimulationSummary');
+            if (summary) summary.innerHTML = `Preparando otimização em lote...`;
+
+            const resolvedHistoryLimit =
+                diamondSimPeriodPreset === 'custom'
+                    ? (clampDiamondSimHistoryLimit(diamondSimHistoryLimitRaw) ?? clampDiamondSimHistoryLimit(diamondSimHistoryLimit) ?? 1440)
+                    : (clampDiamondSimHistoryLimit(diamondSimHistoryLimit) ?? 1440);
+
+            // Ordem fixa dos votantes (modo diamante)
+            const ordered = ['N1','N2','N3','N4','N5','N6','N7','N8'];
+            const active = ordered.filter(id => {
+                const el = document.getElementById(`diamondLevelToggle${id}`);
+                return el ? !!el.checked : false;
+            });
+
+            // Pedido atual: otimizar em lote N1..N4 (se estiverem ativos)
+            const OPTIMIZABLE = new Set(['N1','N2','N3','N4']);
+            const targets = active.filter(id => OPTIMIZABLE.has(id));
+            const skipped = active.filter(id => !OPTIMIZABLE.has(id));
+
+            if (targets.length === 0) {
+                showCenteredNotice('Nenhum nível elegível para otimização em lote.\n\nAtive pelo menos N1, N2, N3 ou N4 (em Configurar Níveis) e tente novamente.');
+                return;
+            }
+
+            setDiamondSimulationLoading(true, `Otimização em lote... (0/${targets.length})`, 'optimize');
+
+            const sendOptimize = (payload) => new Promise((resolve, reject) => {
+                try {
+                    chrome.runtime.sendMessage(payload, (resp) => {
+                        const err = chrome.runtime.lastError;
+                        if (err) reject(err);
+                        else resolve(resp);
+                    });
+                } catch (e) {
+                    reject(e);
+                }
+            });
+
+            const applyOptimizedLevelWindowsToForm = (targetLevelId, cfgObj) => {
+                if (!cfgObj || !cfgObj.diamondLevelWindows) return false;
+                const windows = cfgObj.diamondLevelWindows;
+                const upper = String(targetLevelId || '').toUpperCase();
+                const setVal = (id, value) => {
+                    const el = document.getElementById(id);
+                    if (el && value != null && value !== '') el.value = String(value);
+                };
+                const setCheck = (id, value) => {
+                    const el = document.getElementById(id);
+                    if (el && typeof value === 'boolean') el.checked = value;
+                };
+                if (upper === 'N1') {
+                    setVal('diamondN1WindowSize', windows.n1WindowSize);
+                    setVal('diamondN1PrimaryRequirement', windows.n1PrimaryRequirement);
+                    setVal('diamondN1SecondaryRequirement', windows.n1SecondaryRequirement);
+                    setVal('diamondN1MaxEntries', windows.n1MaxEntries);
+                    return true;
+                }
+                if (upper === 'N2') {
+                    setVal('diamondN2Recent', windows.n2Recent);
+                    setVal('diamondN2Previous', windows.n2Previous);
+                    return true;
+                }
+                if (upper === 'N3') {
+                    setVal('diamondN3Alternance', windows.n3Alternance);
+                    setVal('diamondN3ThresholdPct', windows.n3ThresholdPct);
+                    setVal('diamondN3MinOccurrences', windows.n3MinOccurrences);
+                    setCheck('diamondN3AllowBackoff', !!windows.n3AllowBackoff);
+                    setCheck('diamondN3IgnoreWhite', !!windows.n3IgnoreWhite);
+                    return true;
+                }
+                if (upper === 'N4') {
+                    setVal('diamondN4Persistence', windows.n4Persistence);
+                    return true;
+                }
+                return false;
+            };
+
+            const results = [];
+            let cfg = await buildDiamondConfigSnapshotFromModal();
+
+            for (let i = 0; i < targets.length; i++) {
+                const levelId = targets[i];
+                diamondOptimizationActiveLevelId = levelId;
+
+                if (summary) {
+                    summary.innerHTML = `<strong>Otimização em lote</strong><br>` +
+                        `Otimizando <strong>${String(levelId).toUpperCase()}</strong> (${i + 1}/${targets.length})...`;
+                }
+
+                diamondOptimizationJobId = `diamond-opt-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+
+                const resp = await sendOptimize({
+                    action: 'DIAMOND_OPTIMIZE_PAST',
+                    levelId,
+                    jobId: diamondOptimizationJobId,
+                    trials: 100,
+                    historyLimit: resolvedHistoryLimit,
+                    config: cfg
+                });
+
+                if (!resp || resp.status === 'cancelled') {
+                    setDiamondSimulationLoading(false);
+                    diamondOptimizationJobId = null;
+                    diamondOptimizationActiveLevelId = null;
+                    if (summary) summary.innerHTML = '⏹️ Otimização em lote cancelada.';
+                    return;
+                }
+                if (resp.status !== 'success') {
+                    setDiamondSimulationLoading(false);
+                    diamondOptimizationJobId = null;
+                    diamondOptimizationActiveLevelId = null;
+                    if (summary) summary.innerHTML = `❌ Falha ao otimizar ${String(levelId).toUpperCase()}: ${resp && resp.error ? resp.error : 'resposta inválida'}`;
+                    return;
+                }
+
+                const minPct = Number(resp.minPct) || 95;
+                const recommendedFound = !!resp.recommendedFound;
+                const bestCfg = resp.config || null;
+                const bestOverall = resp.bestOverall || null;
+                const recommended = resp.recommended || null;
+
+                let applied = false;
+                if (recommendedFound && bestCfg) {
+                    try {
+                        applied = applyOptimizedLevelWindowsToForm(levelId, bestCfg);
+                        refreshDiamondLevelToggleStates();
+                    } catch (_) {
+                        applied = false;
+                    }
+                }
+
+                results.push({
+                    levelId,
+                    minPct,
+                    recommendedFound,
+                    recommended,
+                    bestOverall,
+                    applied
+                });
+
+                // Recalcular snapshot (para o próximo nível levar em conta os campos aplicados)
+                cfg = await buildDiamondConfigSnapshotFromModal();
+            }
+
+            diamondOptimizationActiveLevelId = null;
+            setDiamondSimulationLoading(false);
+            diamondOptimizationJobId = null;
+
+            const rows = results.map(r => {
+                const lvl = String(r.levelId || '').toUpperCase();
+                const pct = r.recommendedFound && r.recommended
+                    ? Number(r.recommended.pct || 0)
+                    : (r.bestOverall ? Number(r.bestOverall.pct || 0) : 0);
+                const cycles = r.recommendedFound && r.recommended
+                    ? (r.recommended.totalCycles || 0)
+                    : (r.bestOverall ? (r.bestOverall.totalCycles || 0) : 0);
+                const status = (r.recommendedFound && r.applied)
+                    ? '✅ aplicado'
+                    : `❌ <${r.minPct}% (não aplicado)`;
+                return `<div style="display:flex; justify-content:space-between; gap:10px; padding: 4px 0;">
+                            <span><strong>${lvl}</strong></span>
+                            <span>${pct.toFixed(1)}% • ${cycles} ciclos • ${status}</span>
+                        </div>`;
+            }).join('');
+
+            const skippedText = skipped.length
+                ? `<div style="margin-top:8px; color:#8da2bb;">Ativos mas não otimizados em lote: ${skipped.join(', ')}</div>`
+                : '';
+
+            if (summary) {
+                summary.innerHTML =
+                    `<strong>Otimização em lote concluída</strong><br>` +
+                    rows +
+                    skippedText +
+                    `<div style="margin-top:10px; color:#8da2bb;">Agora clique em <strong>Simular</strong> para ver o resultado com as configurações aplicadas (somente as ≥95%).</div>`;
+            }
+        } catch (error) {
+            console.warn('⚠️ Falha ao iniciar otimização em lote:', error);
+            setDiamondSimulationLoading(false);
+            diamondOptimizationJobId = null;
+            diamondOptimizationActiveLevelId = null;
+            const summary = document.getElementById('diamondSimulationSummary');
+            if (summary) summary.innerHTML = `❌ Falha ao otimizar em lote: ${error.message || error}`;
         }
     }
 
