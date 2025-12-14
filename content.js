@@ -7386,6 +7386,9 @@ autoBetHistoryStore.init().catch(error => console.warn('AutoBetHistory: iniciali
     const autoBetManager = (() => {
         let config = { ...AUTO_BET_DEFAULTS };
         let runtime = { ...AUTO_BET_RUNTIME_DEFAULTS };
+        // ✅ snapshot do histórico de entradas (para cálculo de saldo por modo)
+        // Precisa existir ANTES do init() (init chama updateStatusUI imediatamente).
+        let autoBetEntriesSnapshot = [];
         let uiRefs = null;
         const betCardRefs = {
             red: {},
@@ -8450,8 +8453,6 @@ autoBetHistoryStore.init().catch(error => console.warn('AutoBetHistory: iniciali
                 });
             }
         }
-
-        let autoBetEntriesSnapshot = [];
 
         function getActiveAnalysisModeKey() {
             const aiModeToggle = document.querySelector('.ai-mode-toggle.active');
