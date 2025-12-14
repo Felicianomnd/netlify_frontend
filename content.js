@@ -2399,13 +2399,13 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                             <div class="diamond-level-note">
                                 Detecta alternância real (simples/dupla/tripla). O branco quebra a alternância.
                             </div>
-                            <div>
-                                <span>Histórico analisado (giros)</span>
-                                <input type="number" id="diamondN3Alternance" min="1" value="12" />
-                                <span class="diamond-level-subnote">
-                                    Recomendado: 50-80 giros (mín. 1)
-                                </span>
-                            </div>
+                <div>
+                    <span>Histórico analisado (giros)</span>
+                    <input type="number" id="diamondN3Alternance" min="1" value="12" />
+                            <span class="diamond-level-subnote">
+                        Recomendado: 50-80 giros (mín. 1)
+                            </span>
+            </div>
             <div class="diamond-level-double">
                 <div>
                     <span>Rigor mínimo (%)</span>
@@ -2606,6 +2606,9 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
         const closeModal = async () => {
             const sidebarEl = document.getElementById('blaze-double-analyzer');
             const isCompactMode = sidebarEl && sidebarEl.classList.contains('compact-mode');
+
+            // ✅ Se existir "Padrão da Entrada" aberto, fechar antes de sair
+            try { closeEntryPatternModalIfOpen(); } catch (_) {}
 
             // ✅ Se estiver saindo a partir da simulação, persistir ajustes automaticamente
             try {
@@ -3077,6 +3080,371 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
         if (foot) foot.textContent = `Entradas: ${totalEntries}`;
     }
 
+    // ═══════════════════════════════════════════════════════════════
+    // ✅ GRÁFICO NO MODO REAL (mesmos estilos do simulador)
+    // ═══════════════════════════════════════════════════════════════
+
+    function renderEntriesChart({ wins = 0, losses = 0, totalCycles = 0, totalEntries = 0 } = {}) {
+        const winFill = document.getElementById('entriesChartWinFill');
+        const lossFill = document.getElementById('entriesChartLossFill');
+        const winValue = document.getElementById('entriesChartWinValue');
+        const lossValue = document.getElementById('entriesChartLossValue');
+        const foot = document.getElementById('entriesChartFoot');
+
+        const denom = totalCycles > 0 ? totalCycles : 0;
+        const winPct = denom ? (wins / denom) * 100 : 0;
+        const lossPct = denom ? (losses / denom) * 100 : 0;
+
+        if (winFill) winFill.style.width = `${Math.max(0, Math.min(100, winPct)).toFixed(1)}%`;
+        if (lossFill) lossFill.style.width = `${Math.max(0, Math.min(100, lossPct)).toFixed(1)}%`;
+        if (winValue) winValue.textContent = `${wins} (${winPct.toFixed(1)}%)`;
+        if (lossValue) lossValue.textContent = `${losses} (${lossPct.toFixed(1)}%)`;
+        if (foot) foot.textContent = `Entradas: ${totalEntries}`;
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // ✅ Helpers: Martingale stage -> índice (0=ENTRADA/G0, 1=G1, 2=G2...)
+    //    Importante para o gráfico: algumas entradas intermediárias são inferidas via continuingToGx
+    // ═══════════════════════════════════════════════════════════════
+    function getStageIndexFromEntryLike(entry) {
+        const raw = (entry && (entry.martingaleStage || entry.wonAt || entry.phase))
+            ? String(entry.martingaleStage || entry.wonAt || entry.phase)
+            : '';
+        const s = raw.toUpperCase();
+        if (s === 'ENTRADA' || s === 'G0') return 0;
+        const m = s.match(/^G(\d+)$/);
+        if (m) {
+            const n = Number(m[1]);
+            return Number.isFinite(n) && n >= 0 ? n : 0;
+        }
+
+        // Fallback: continuingToG2=true => este LOSS ocorreu em G1 (índice 1)
+        if (entry && typeof entry === 'object') {
+            for (const key in entry) {
+                if (!Object.prototype.hasOwnProperty.call(entry, key)) continue;
+                if (!entry[key]) continue;
+                const mm = String(key).match(/^continuingToG(\d+)$/i);
+                if (mm) {
+                    const next = Number(mm[1]);
+                    if (Number.isFinite(next) && next >= 1) return Math.max(0, next - 1);
+                }
+            }
+        }
+        return 0;
+    }
+
+    function computeEntriesProfitSnapshot(allEntries, autoBetConfig) {
+        const cfg = autoBetConfig && typeof autoBetConfig === 'object' ? autoBetConfig : {};
+        const initialBank = Number(cfg.simulationBankRoll ?? 5000) || 5000;
+        const baseStake = Math.max(0.01, Number(cfg.baseStake ?? 2) || 2);
+        const galeMult = Math.max(1, Number(cfg.galeMultiplier ?? 2) || 2);
+        const whitePayoutMultiplier = Math.max(2, Number(cfg.whitePayoutMultiplier ?? 14) || 14);
+
+        const entries = Array.isArray(allEntries) ? allEntries : [];
+
+        const stageIndexFromEntry = (e) => getStageIndexFromEntryLike(e);
+        const resolveBetColor = (e) => {
+            const raw = e && e.patternData && e.patternData.color ? e.patternData.color : null;
+            const c = String(raw || '').toLowerCase();
+            if (c === 'red' || c === 'black' || c === 'white') return c;
+            return 'red';
+        };
+
+        // entries vem newest-first; calcular por ciclo em ordem cronológica para obter o saldo final
+        const cycleDeltasNewestFirst = [];
+        for (let i = 0; i < entries.length; ) {
+            const entry = entries[i];
+            if (!entry) { i++; continue; }
+            const isCycleFinal = entry.finalResult === 'WIN' || entry.finalResult === 'RET' || entry.result === 'WIN';
+            if (!isCycleFinal) { i++; continue; }
+
+            const stageIdx = stageIndexFromEntry(entry);
+            const attemptsCount = Math.max(1, stageIdx + 1);
+            const betColor = resolveBetColor(entry);
+            const payoutMult = betColor === 'white' ? whitePayoutMultiplier : 2;
+
+            const totalInvested = Array.from({ length: attemptsCount }).reduce((sum, _, idx) => {
+                const amt = baseStake * Math.pow(galeMult, idx);
+                return sum + amt;
+            }, 0);
+            const lastAmount = baseStake * Math.pow(galeMult, attemptsCount - 1);
+            const isWin = entry.finalResult === 'WIN' || entry.result === 'WIN';
+            const delta = isWin ? (lastAmount * payoutMult) - totalInvested : -totalInvested;
+            cycleDeltasNewestFirst.push(Number(delta.toFixed(2)));
+
+            i += attemptsCount;
+        }
+
+        const cycleDeltasChron = cycleDeltasNewestFirst.slice().reverse();
+        const profit = Number(cycleDeltasChron.reduce((sum, d) => sum + (Number(d) || 0), 0).toFixed(2));
+        const balance = Number((initialBank + profit).toFixed(2));
+        const loss = profit < 0 ? Math.abs(profit) : 0;
+        return { initialBank, balance, profit, loss, baseStake, galeMult };
+    }
+
+    let entriesTickZoomState = { points: 0, zoom: 1, x: 0, baseW: 1, baseH: 160 };
+    let entriesLastEntriesForChart = [];
+
+    function attachEntriesZoomHandlers(svg) {
+        if (!svg || svg.dataset.zoomBound === '1') return;
+
+        svg.addEventListener('wheel', (event) => {
+            try { event.preventDefault(); } catch (_) {}
+
+            const state = entriesTickZoomState || { points: 0, zoom: 1, x: 0, baseW: 1, baseH: 120 };
+            const bbox = svg.getBoundingClientRect();
+            if (!bbox || bbox.width <= 0) return;
+
+            const mouseRatioX = Math.max(0, Math.min(1, (event.clientX - bbox.left) / bbox.width));
+            const mouseVx = (state.x || 0) + mouseRatioX * (state.baseW / (state.zoom || 1));
+
+            const delta = Math.sign(event.deltaY || 0);
+            const zoomFactor = delta < 0 ? 1.12 : 1 / 1.12;
+            let nextZoom = (state.zoom || 1) * zoomFactor;
+            nextZoom = Math.max(0.6, Math.min(10, nextZoom));
+
+            const nextWidth = state.baseW / nextZoom;
+            let nextX = mouseVx - mouseRatioX * nextWidth;
+            nextX = Math.max(0, Math.min(Math.max(0, state.baseW - nextWidth), nextX));
+
+            entriesTickZoomState = { ...state, zoom: nextZoom, x: nextX };
+            renderEntriesTickChart(entriesLastEntriesForChart);
+        }, { passive: false });
+
+        let dragging = false;
+        let dragStartClientX = 0;
+        let dragStartX = 0;
+
+        const onPointerDown = (event) => {
+            if (!event || event.button !== 0) return;
+            dragging = true;
+            dragStartClientX = event.clientX;
+            dragStartX = entriesTickZoomState?.x || 0;
+            try { svg.setPointerCapture(event.pointerId); } catch (_) {}
+            svg.style.cursor = 'grabbing';
+        };
+        const onPointerMove = (event) => {
+            if (!dragging) return;
+            const state = entriesTickZoomState || { points: 0, zoom: 1, x: 0, baseW: 1, baseH: 120 };
+            const bbox = svg.getBoundingClientRect();
+            if (!bbox || bbox.width <= 0) return;
+            const viewW = state.baseW / (state.zoom || 1);
+            const dxPx = event.clientX - dragStartClientX;
+            const dxV = (dxPx / bbox.width) * viewW;
+            let nextX = dragStartX - dxV;
+            nextX = Math.max(0, Math.min(Math.max(0, state.baseW - viewW), nextX));
+            entriesTickZoomState = { ...state, x: nextX };
+            renderEntriesTickChart(entriesLastEntriesForChart);
+        };
+        const onPointerUp = () => {
+            if (!dragging) return;
+            dragging = false;
+            svg.style.cursor = 'grab';
+        };
+
+        svg.addEventListener('pointerdown', onPointerDown);
+        svg.addEventListener('pointermove', onPointerMove);
+        svg.addEventListener('pointerup', onPointerUp);
+        svg.addEventListener('pointercancel', onPointerUp);
+
+        svg.style.cursor = 'grab';
+        svg.dataset.zoomBound = '1';
+    }
+
+    function renderEntriesTickChart(entries) {
+        const balanceEl = document.getElementById('entriesEquityBalance');
+        const lossEl = document.getElementById('entriesEquityLoss');
+        const svg = document.getElementById('entriesTicksSvg');
+        const baselineEl = document.getElementById('entriesTicksBaseline');
+        const maxLineEl = document.getElementById('entriesTicksMaxLine');
+        const minLineEl = document.getElementById('entriesTicksMinLine');
+        const currentLineEl = document.getElementById('entriesTicksCurrentLine');
+        const winPathEl = document.getElementById('entriesTicksWinPath');
+        const lossPathEl = document.getElementById('entriesTicksLossPath');
+        if (!balanceEl || !lossEl || !svg || !baselineEl || !maxLineEl || !minLineEl || !currentLineEl || !winPathEl || !lossPathEl) return;
+
+        attachEntriesZoomHandlers(svg);
+
+        const allEntries = Array.isArray(entries) ? entries : [];
+        entriesLastEntriesForChart = allEntries;
+        const rawConfig = (latestAnalyzerConfig && latestAnalyzerConfig.autoBetConfig) ? latestAnalyzerConfig.autoBetConfig : null;
+        const autoBetConfig = (typeof sanitizeAutoBetConfig === 'function')
+            ? sanitizeAutoBetConfig(rawConfig)
+            : (rawConfig || {});
+
+        const snapshot = computeEntriesProfitSnapshot(allEntries, autoBetConfig);
+        balanceEl.textContent = formatCurrencyBRL(snapshot.balance);
+        lossEl.textContent = formatCurrencyBRL(snapshot.loss);
+
+        const stageIndexFromEntry = (e) => getStageIndexFromEntryLike(e);
+        const resolveBetColor = (e) => {
+            const raw = e && e.patternData && e.patternData.color ? e.patternData.color : null;
+            const c = String(raw || '').toLowerCase();
+            if (c === 'red' || c === 'black' || c === 'white') return c;
+            return 'red';
+        };
+
+        const attemptsChron = allEntries
+            .filter(e => e && (e.result === 'WIN' || e.result === 'LOSS'))
+            .slice()
+            .reverse();
+
+        const vbH = 160;
+        const padY = 8;
+        const n = attemptsChron.length;
+        const vbW = Math.max(1, n - 1);
+        if (!entriesTickZoomState || entriesTickZoomState.points !== n || entriesTickZoomState.baseW !== vbW) {
+            entriesTickZoomState = { points: n, zoom: 1, x: 0, baseW: vbW, baseH: vbH };
+        } else {
+            entriesTickZoomState = { ...entriesTickZoomState, baseW: vbW, baseH: vbH };
+        }
+        const state = entriesTickZoomState;
+        const viewW = state.baseW / (state.zoom || 1);
+        const viewX = Math.max(0, Math.min(Math.max(0, state.baseW - viewW), state.x || 0));
+        entriesTickZoomState = { ...state, x: viewX };
+        svg.setAttribute('viewBox', `${viewX.toFixed(3)} 0 ${viewW.toFixed(3)} ${vbH}`);
+
+        const galeMult = Math.max(1, Number(snapshot.galeMult) || 2);
+        const baseStake = Math.max(0.01, Number(snapshot.baseStake) || 2);
+        const whitePayoutMultiplier = Math.max(2, Number(autoBetConfig.whitePayoutMultiplier ?? 14) || 14);
+
+        const deltas = attemptsChron.map(e => {
+            const stageIdx = stageIndexFromEntry(e);
+            const stake = Number((baseStake * Math.pow(galeMult, stageIdx)).toFixed(2));
+            const betColor = resolveBetColor(e);
+            const payoutMult = betColor === 'white' ? whitePayoutMultiplier : 2;
+            const delta = e.result === 'WIN'
+                ? Number((stake * (payoutMult - 1)).toFixed(2))
+                : Number((-stake).toFixed(2));
+            return { e, delta };
+        });
+
+        let yPrevValue = 0;
+        const segments = deltas.map(({ e, delta }, idx) => {
+            const yNextValue = Number((yPrevValue + delta).toFixed(2));
+            const seg = { idx, e, delta, y0: yPrevValue, y1: yNextValue };
+            yPrevValue = yNextValue;
+            return seg;
+        });
+
+        const values = [0, ...segments.map(s => s.y0), ...segments.map(s => s.y1)];
+        let minV = Math.min(...values);
+        let maxV = Math.max(...values);
+        if (!Number.isFinite(minV) || !Number.isFinite(maxV)) { minV = -1; maxV = 1; }
+        if (Math.abs(maxV - minV) < 0.01) { maxV += 1; minV -= 1; }
+        const range = maxV - minV;
+        minV -= range * 0.08;
+        maxV += range * 0.08;
+
+        const yScale = (val) => {
+            const t = (val - minV) / (maxV - minV);
+            return (vbH - padY) - (t * (vbH - padY * 2));
+        };
+
+        const yZero = yScale(0);
+        const xStart = viewX;
+        const xEnd = viewX + viewW;
+
+        baselineEl.setAttribute('d', `M ${xStart.toFixed(2)} ${yZero.toFixed(2)} L ${xEnd.toFixed(2)} ${yZero.toFixed(2)}`);
+        baselineEl.setAttribute('fill', 'none');
+        baselineEl.setAttribute('stroke', 'rgba(200,214,233,0.22)');
+        baselineEl.setAttribute('stroke-width', '0.7');
+        baselineEl.setAttribute('vector-effect', 'non-scaling-stroke');
+
+        const maxGuideVal = Math.max(...values);
+        const minGuideVal = Math.min(...values);
+        const currentGuideVal = segments.length ? segments[segments.length - 1].y1 : 0;
+        const yMax = yScale(maxGuideVal);
+        const yMin = yScale(minGuideVal);
+        const yCur = yScale(currentGuideVal);
+
+        maxLineEl.setAttribute('d', `M ${xStart.toFixed(2)} ${yMax.toFixed(2)} L ${xEnd.toFixed(2)} ${yMax.toFixed(2)}`);
+        maxLineEl.setAttribute('fill', 'none');
+        maxLineEl.setAttribute('stroke', 'rgba(34,197,94,0.55)');
+        maxLineEl.setAttribute('stroke-width', '0.55');
+        maxLineEl.setAttribute('vector-effect', 'non-scaling-stroke');
+
+        minLineEl.setAttribute('d', `M ${xStart.toFixed(2)} ${yMin.toFixed(2)} L ${xEnd.toFixed(2)} ${yMin.toFixed(2)}`);
+        minLineEl.setAttribute('fill', 'none');
+        minLineEl.setAttribute('stroke', 'rgba(239,68,68,0.55)');
+        minLineEl.setAttribute('stroke-width', '0.55');
+        minLineEl.setAttribute('vector-effect', 'non-scaling-stroke');
+
+        currentLineEl.setAttribute('d', `M ${xStart.toFixed(2)} ${yCur.toFixed(2)} L ${xEnd.toFixed(2)} ${yCur.toFixed(2)}`);
+        currentLineEl.setAttribute('fill', 'none');
+        currentLineEl.setAttribute('stroke', 'rgba(255,255,255,0.6)');
+        currentLineEl.setAttribute('stroke-width', '0.55');
+        currentLineEl.setAttribute('vector-effect', 'non-scaling-stroke');
+
+        let dWin = '';
+        let dLoss = '';
+        for (const s of segments) {
+            const x = n === 1 ? 0 : s.idx;
+            const y0 = yScale(s.y0);
+            const y1 = yScale(s.y1);
+            const pathSeg = `M ${x} ${y0.toFixed(2)} L ${x} ${y1.toFixed(2)} `;
+            if (s.delta >= 0) dWin += pathSeg;
+            else dLoss += pathSeg;
+        }
+
+        const strokeW = n > 600 ? '0.22' : (n > 300 ? '0.35' : (n > 120 ? '0.55' : '0.85'));
+
+        winPathEl.setAttribute('d', dWin.trim());
+        winPathEl.setAttribute('fill', 'none');
+        winPathEl.setAttribute('stroke', '#22c55e');
+        winPathEl.setAttribute('stroke-width', strokeW);
+        winPathEl.setAttribute('stroke-linecap', 'butt');
+
+        lossPathEl.setAttribute('d', dLoss.trim());
+        lossPathEl.setAttribute('fill', 'none');
+        lossPathEl.setAttribute('stroke', '#ef4444');
+        lossPathEl.setAttribute('stroke-width', strokeW);
+        lossPathEl.setAttribute('stroke-linecap', 'butt');
+
+        const layer = svg.parentElement;
+        const labelMax = layer ? layer.querySelector('#entriesGuideMax') : null;
+        const labelMin = layer ? layer.querySelector('#entriesGuideMin') : null;
+        const labelCur = layer ? layer.querySelector('#entriesGuideCur') : null;
+        const dir = layer ? layer.querySelector('#entriesGuideDir') : null;
+        if (dir) dir.textContent = 'Esquerda: Antigo • Direita: Recente';
+
+        const bbox = svg.getBoundingClientRect();
+        if (bbox && bbox.height > 0) {
+            const yToPx = (y) => (y / vbH) * bbox.height;
+            const maxBal = snapshot.initialBank + maxGuideVal;
+            const minBal = snapshot.initialBank + minGuideVal;
+            const curBal = snapshot.initialBank + currentGuideVal;
+
+            const plusText = (v) => `+${formatCurrencyBRL(Math.abs(v))}`;
+            const minusText = (v) => `-${formatCurrencyBRL(Math.abs(v))}`;
+
+            const maxTop = Math.max(0, yToPx(yMax) - 14);
+            const minTop = Math.min(bbox.height - 12, yToPx(yMin) + 4);
+            let curTop = Math.max(0, yToPx(yCur) - 14);
+            if (Math.abs(curTop - minTop) < 14) {
+                curTop = Math.max(0, minTop - 18);
+            }
+
+            if (labelMax) {
+                labelMax.textContent = `${plusText(maxGuideVal)}`;
+                labelMax.title = `Máximo: ${formatCurrencyBRL(maxBal)}`;
+                labelMax.style.top = `${maxTop}px`;
+            }
+            if (labelMin) {
+                labelMin.textContent = `${minusText(minGuideVal)}`;
+                labelMin.title = `Mínimo: ${formatCurrencyBRL(minBal)}`;
+                labelMin.style.top = `${minTop}px`;
+            }
+            if (labelCur) {
+                labelCur.textContent = `${formatCurrencyBRL(curBal)}`;
+                labelCur.title = `Atual: ${formatCurrencyBRL(curBal)}`;
+                labelCur.style.top = `${curTop}px`;
+                labelCur.style.left = 'auto';
+                labelCur.style.right = '8px';
+            }
+        }
+    }
+
     function computeDiamondSimulationProfitSnapshot(allEntries, autoBetConfig) {
         const entries = Array.isArray(allEntries) ? allEntries : [];
         const cfg = autoBetConfig && typeof autoBetConfig === 'object' ? autoBetConfig : {};
@@ -3085,15 +3453,7 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
         const galeMult = Math.max(1, Number(cfg.galeMultiplier ?? 2) || 2);
         const whitePayoutMultiplier = Math.max(2, Number(cfg.whitePayoutMultiplier ?? 14) || 14);
 
-        const stageIndexFromEntry = (e) => {
-            const raw = (e && (e.martingaleStage || e.phase || e.wonAt)) ? String(e.martingaleStage || e.phase || e.wonAt) : 'ENTRADA';
-            const s = raw.toUpperCase();
-            if (s === 'ENTRADA' || s === 'G0') return 0;
-            const m = s.match(/^G(\d+)$/);
-            if (!m) return 0;
-            const n = Number(m[1]);
-            return Number.isFinite(n) && n >= 0 ? n : 0;
-        };
+        const stageIndexFromEntry = (e) => getStageIndexFromEntryLike(e);
         const resolveBetColor = (e) => {
             const raw = e && e.patternData && e.patternData.color ? e.patternData.color : null;
             const c = String(raw || '').toLowerCase();
@@ -3230,15 +3590,7 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
         balanceEl.textContent = formatCurrencyBRL(snapshot.balance);
         lossEl.textContent = formatCurrencyBRL(snapshot.loss);
 
-        const stageIndexFromEntry = (e) => {
-            const raw = (e && (e.martingaleStage || e.phase || e.wonAt)) ? String(e.martingaleStage || e.phase || e.wonAt) : 'ENTRADA';
-            const s = raw.toUpperCase();
-            if (s === 'ENTRADA' || s === 'G0') return 0;
-            const m = s.match(/^G(\d+)$/);
-            if (!m) return 0;
-            const n = Number(m[1]);
-            return Number.isFinite(n) && n >= 0 ? n : 0;
-        };
+        const stageIndexFromEntry = (e) => getStageIndexFromEntryLike(e);
         const resolveBetColor = (e) => {
             const raw = e && e.patternData && e.patternData.color ? e.patternData.color : null;
             const c = String(raw || '').toLowerCase();
@@ -3563,6 +3915,9 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
         const levelsModal = document.getElementById('diamondLevelsModal');
         const view = document.getElementById('diamondSimView');
         if (!levelsModal || !view) return;
+
+        // ✅ Ao sair da simulação, nunca manter o modal de "Padrão da Entrada" pendurado
+        try { closeEntryPatternModalIfOpen(); } catch (_) {}
 
         if (cancelIfRunning && diamondSimulationRunning && diamondSimulationJobId) {
             try {
@@ -4438,16 +4793,16 @@ function enforceSignalIntensityAvailability(options = {}) {
 
         if (newWindows.n2Previous <= newWindows.n2Recent) {
             if (!silent) {
-                alert('A janela anterior do Momentum (N2) deve ser maior que a janela recente.');
-                return;
+            alert('A janela anterior do Momentum (N2) deve ser maior que a janela recente.');
+            return;
             }
             newWindows.n2Previous = Math.min(200, Math.max(newWindows.n2Recent + 1, DIAMOND_LEVEL_DEFAULTS.n2Previous));
         }
 
         if (newWindows.n7HistoryWindow < newWindows.n7DecisionWindow) {
             if (!silent) {
-                alert('O histórico base do N7 deve ser maior ou igual ao número de decisões analisadas.');
-                return;
+            alert('O histórico base do N7 deve ser maior ou igual ao número de decisões analisadas.');
+            return;
             }
             newWindows.n7HistoryWindow = Math.max(newWindows.n7DecisionWindow, DIAMOND_LEVEL_DEFAULTS.n7HistoryWindow);
         }
@@ -4495,7 +4850,7 @@ function enforceSignalIntensityAvailability(options = {}) {
         } catch (err) {
             console.error('❌ Erro ao salvar configurações dos níveis diamante:', err);
             if (!silent) {
-                alert('Não foi possível salvar as configurações dos níveis. Tente novamente.');
+            alert('Não foi possível salvar as configurações dos níveis. Tente novamente.');
             }
         }
     }
@@ -8556,6 +8911,7 @@ async function persistAnalyzerState(newState) {
                     <div class="entries-tabs-bar" id="entriesTabs">
                         <button type="button" class="entries-tab active" data-tab="entries">Sinais</button>
                         <button type="button" class="entries-tab" data-tab="bets" aria-disabled="true">Apostas</button>
+                        <button type="button" class="entries-tab" data-tab="chart">Gráfico</button>
                     </div>
                 <div class="entries-header">
                     <span class="entries-hit" id="entriesHit">Acertos: 0/0 (0%)</span>
@@ -8567,6 +8923,51 @@ async function persistAnalyzerState(newState) {
                         <div class="entries-view" data-view="bets" hidden>
                             <div class="bets-container" id="betsContainer">
                                 <div class="bets-empty">Nenhuma aposta registrada ainda.</div>
+                            </div>
+                        </div>
+                        <div class="entries-view" data-view="chart" hidden>
+                            <div class="diamond-sim-chart-wrap">
+                                <div class="diamond-sim-chart-row win">
+                                    <div class="diamond-sim-chart-label">WIN</div>
+                                    <div class="diamond-sim-chart-bar">
+                                        <div class="diamond-sim-chart-fill" id="entriesChartWinFill" style="width:0%"></div>
+                                    </div>
+                                    <div class="diamond-sim-chart-value" id="entriesChartWinValue">0 (0%)</div>
+                                </div>
+                                <div class="diamond-sim-chart-row loss">
+                                    <div class="diamond-sim-chart-label">LOSS</div>
+                                    <div class="diamond-sim-chart-bar">
+                                        <div class="diamond-sim-chart-fill" id="entriesChartLossFill" style="width:0%"></div>
+                                    </div>
+                                    <div class="diamond-sim-chart-value" id="entriesChartLossValue">0 (0%)</div>
+                                </div>
+                                <div class="diamond-sim-chart-foot" id="entriesChartFoot">Entradas: 0</div>
+
+                                <div class="diamond-sim-equity-metrics">
+                                    <div class="diamond-sim-equity-metric">
+                                        <span class="label">Saldo</span>
+                                        <span class="value" id="entriesEquityBalance">R$ 0,00</span>
+                                    </div>
+                                    <div class="diamond-sim-equity-metric">
+                                        <span class="label">Perdas</span>
+                                        <span class="value" id="entriesEquityLoss">R$ 0,00</span>
+                                    </div>
+                                </div>
+
+                                <div class="diamond-sim-ticks-layer" id="entriesTicksLayer">
+                                    <svg class="diamond-sim-ticks-svg" id="entriesTicksSvg" viewBox="0 0 1000 160" preserveAspectRatio="none" aria-label="Gráfico por entrada">
+                                        <path id="entriesTicksBaseline" d="" />
+                                        <path id="entriesTicksMaxLine" d="" />
+                                        <path id="entriesTicksMinLine" d="" />
+                                        <path id="entriesTicksCurrentLine" d="" />
+                                        <path id="entriesTicksWinPath" d="" />
+                                        <path id="entriesTicksLossPath" d="" />
+                                    </svg>
+                                    <div class="diamond-sim-guide-label max" id="entriesGuideMax"></div>
+                                    <div class="diamond-sim-guide-label min" id="entriesGuideMin"></div>
+                                    <div class="diamond-sim-guide-label cur" id="entriesGuideCur"></div>
+                                    <div class="diamond-sim-direction" id="entriesGuideDir"></div>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -9442,7 +9843,7 @@ async function persistAnalyzerState(newState) {
             console.error('%c❌ ERRO ao adicionar sidebar ao DOM:', 'color: #FF0000; font-weight: bold;', error);
             return;
         }
-
+        
         // ✅ Garantir spinner imediato após reload (antes de qualquer mensagem do background)
         try {
             renderSuggestionStatus(currentAnalysisStatus || 'Aguardando análise...');
@@ -9459,13 +9860,13 @@ async function persistAnalyzerState(newState) {
         
         if (viewModeToggleBtn) {
             if (isDesktop()) {
-                viewModeToggleBtn.addEventListener('click', () => {
-                    console.log('🔄 Alternando modo de visualização (desktop)...');
-                    toggleViewMode(sidebar, viewModeLabel);
-                    setUserMenuState(false); // Fechar menu após clicar
-                });
-                console.log('✅ Event listener do botão de modo (desktop) adicionado');
-            } else {
+            viewModeToggleBtn.addEventListener('click', () => {
+                console.log('🔄 Alternando modo de visualização (desktop)...');
+                toggleViewMode(sidebar, viewModeLabel);
+                setUserMenuState(false); // Fechar menu após clicar
+            });
+            console.log('✅ Event listener do botão de modo (desktop) adicionado');
+        } else {
                 // Mobile: não faz sentido ter "Tela Cheia/Compacto" (já é um layout único)
                 const wrapper = viewModeToggleBtn.closest('.user-info-item');
                 if (wrapper) {
@@ -9966,7 +10367,21 @@ async function persistAnalyzerState(newState) {
     };
     
     // Função para mostrar padrão quando clicar na entrada
+    function closeEntryPatternModalIfOpen() {
+        const existing = document.getElementById('daEntryPatternModal');
+        if (!existing) return;
+        try {
+            if (typeof existing.__daCleanup === 'function') existing.__daCleanup();
+            else existing.remove();
+        } catch (_) {
+            try { existing.remove(); } catch (_) {}
+        }
+    }
+
     function showPatternForEntry(entry) {
+        // ✅ Modal único: sempre fechar o anterior antes de abrir outro
+        closeEntryPatternModalIfOpen();
+
         if (!entry || !entry.patternData) {
             console.log('❌ Nenhum padrão disponível para esta entrada');
             showNoPatternModal(entry);
@@ -9989,12 +10404,13 @@ async function persistAnalyzerState(newState) {
             
             // Criar modal para mostrar o padrão
             const modal = document.createElement('div');
+            modal.id = 'daEntryPatternModal';
             modal.className = 'pattern-modal';
             modal.innerHTML = `
                 <div class="pattern-modal-content">
                     <div class="pattern-modal-header modal-header-minimal">
                         <h3>Padrão da Entrada</h3>
-                        <button class="pattern-modal-close modal-header-close" type="button">Fechar</button>
+                        <button class="pattern-modal-close" type="button">Fechar</button>
                     </div>
                     <div class="pattern-modal-body">
                         <div class="entry-info">
@@ -10021,41 +10437,69 @@ async function persistAnalyzerState(newState) {
                 </div>
             `;
             
-            // Anexar o modal DENTRO da extensão para casar 100% com a largura/altura
-                const sidebar = document.getElementById('blaze-double-analyzer');
-                if (sidebar) {
-                // Garantir que o container seja relativo
-                if (getComputedStyle(sidebar).position === 'static') {
-                    sidebar.style.position = 'relative';
-                }
-                sidebar.appendChild(modal);
-            } else {
-                // Fallback raro: se não achar a sidebar, cai para body
-                document.body.appendChild(modal);
-                    }
+            // ✅ Sempre anexar na camada mais alta disponível:
+            // - Se existir um .custom-pattern-modal aberto (ex.: Simulação/Configurar níveis), anexar nele
+            //   para não ficar "por baixo" (stacking context do #blaze-double-analyzer).
+            // - Caso contrário, anexar na sidebar.
+            const openCustomModals = Array.from(document.querySelectorAll('.custom-pattern-modal'))
+                .filter(el => el && getComputedStyle(el).display !== 'none');
+            const topCustomModal = openCustomModals.length > 0 ? openCustomModals[openCustomModals.length - 1] : null;
+            // ✅ Importante: anexar no CONTENT do modal (caixa), não no wrapper tela-cheia.
+            // Assim, em modo compacto o padrão não vira tela cheia e o clique em "Fechar" não fecha o modal pai.
+            const topLayerContainer =
+                (topCustomModal && topCustomModal.querySelector('.custom-pattern-modal-content'))
+                    ? topCustomModal.querySelector('.custom-pattern-modal-content')
+                    : (document.getElementById('blaze-double-analyzer') || document.body);
+
+            if (topLayerContainer !== document.body && getComputedStyle(topLayerContainer).position === 'static') {
+                topLayerContainer.style.position = 'relative';
+            }
+            topLayerContainer.appendChild(modal);
             
             // Eventos do modal
             const closeBtn = modal.querySelector('.pattern-modal-close');
+            const contentEl = modal.querySelector('.pattern-modal-content');
             const removeModal = function() {
                 if (modal.parentElement) {
                     modal.parentElement.removeChild(modal);
                 }
                 document.removeEventListener('keydown', handleEsc);
             };
-            
-            // Fechar ao clicar no botão
-            closeBtn.onclick = removeModal;
-            
-            // Fechar ao clicar fora do conteúdo
-            modal.onclick = function(e) {
+            // Permitir remoção segura por outros cliques
+            modal.__daCleanup = removeModal;
+
+            // ✅ Evitar "click-through": NÃO usar capture no container inteiro (isso pode quebrar cliques internos).
+            // Em vez disso, paramos o bubble para não atingir o modal de simulação por trás.
+            const stopBubble = (e) => {
+                try { e.stopPropagation(); } catch (_) {}
+            };
+            if (contentEl) {
+                contentEl.addEventListener('pointerdown', stopBubble);
+                contentEl.addEventListener('click', stopBubble);
+            }
+            modal.addEventListener('pointerdown', stopBubble);
+            modal.addEventListener('click', (e) => {
+                stopBubble(e);
                 if (e.target === modal) {
+                    // clique no backdrop -> fecha só o padrão
                     removeModal();
                 }
-            };
+            });
+
+            // Fechar ao clicar no botão (fecha só este modal)
+            if (closeBtn) {
+                closeBtn.addEventListener('pointerdown', stopBubble);
+                closeBtn.addEventListener('click', (e) => {
+                    stopBubble(e);
+                    e.preventDefault();
+                    removeModal();
+                });
+            }
             
             // Fechar com ESC
             const handleEsc = function(e) {
                 if (e.key === 'Escape') {
+                    try { e.preventDefault(); e.stopPropagation(); } catch (_) {}
                     removeModal();
                 }
             };
@@ -10069,13 +10513,17 @@ async function persistAnalyzerState(newState) {
     
     // Função para mostrar modal quando não há padrão disponível
     function showNoPatternModal(entry) {
+        // ✅ Modal único: sempre fechar o anterior antes de abrir outro
+        closeEntryPatternModalIfOpen();
+
         const modal = document.createElement('div');
+        modal.id = 'daEntryPatternModal';
         modal.className = 'pattern-modal';
         modal.innerHTML = `
             <div class="pattern-modal-content">
                 <div class="pattern-modal-header modal-header-minimal">
                     <h3>Padrão Não Disponível</h3>
-                    <button class="pattern-modal-close modal-header-close" type="button">Fechar</button>
+                    <button class="pattern-modal-close" type="button">Fechar</button>
                 </div>
                 <div class="pattern-modal-body">
                     <div class="no-pattern-info">
@@ -10103,64 +10551,57 @@ async function persistAnalyzerState(newState) {
             </div>
         `;
         
-        // Adicionar ao body
-        document.body.appendChild(modal);
-        
-        // ✅ CENTRALIZAR MODAL COM BASE NA POSIÇÃO DA EXTENSÃO (com delay para renderização)
-        setTimeout(() => {
-            const sidebar = document.getElementById('blaze-double-analyzer');
-            if (sidebar) {
-                const rect = sidebar.getBoundingClientRect();
-                const modalContent = modal.querySelector('.pattern-modal-content');
-                
-                if (modalContent) {
-                    // Centralizar horizontalmente com a sidebar
-                    const sidebarCenterX = rect.left + (rect.width / 2);
-                    const modalWidth = modalContent.offsetWidth || 500;
-                    const leftPosition = sidebarCenterX - (modalWidth / 2);
-                    
-                    // Centralizar verticalmente no viewport
-                    const modalHeight = modalContent.offsetHeight || 300;
-                    const viewportHeight = window.innerHeight;
-                    const topPosition = (viewportHeight - modalHeight) / 2;
-                    
-                    // Garantir que não saia da tela (margens mínimas)
-                    const finalLeft = Math.max(20, Math.min(leftPosition, window.innerWidth - modalWidth - 20));
-                    const finalTop = Math.max(20, topPosition);
-                    
-                    modalContent.style.position = 'fixed';
-                    modalContent.style.left = `${finalLeft}px`;
-                    modalContent.style.top = `${finalTop}px`;
-                    modalContent.style.transform = 'none'; // Remove transform padrão
-                    
-                    console.log('✅ Modal "sem padrão" centralizado com a extensão:', {
-                        sidebarRect: rect,
-                        modalWidth: modalWidth,
-                        modalHeight: modalHeight,
-                        finalPosition: { left: finalLeft, top: finalTop }
-                    });
-                }
-            }
-        }, 10);
+        // ✅ Mesmo comportamento do modal principal: anexar na camada mais alta disponível
+        const openCustomModals = Array.from(document.querySelectorAll('.custom-pattern-modal'))
+            .filter(el => el && getComputedStyle(el).display !== 'none');
+        const topCustomModal = openCustomModals.length > 0 ? openCustomModals[openCustomModals.length - 1] : null;
+        const topLayerContainer =
+            (topCustomModal && topCustomModal.querySelector('.custom-pattern-modal-content'))
+                ? topCustomModal.querySelector('.custom-pattern-modal-content')
+                : (document.getElementById('blaze-double-analyzer') || document.body);
+
+        if (topLayerContainer !== document.body && getComputedStyle(topLayerContainer).position === 'static') {
+            topLayerContainer.style.position = 'relative';
+        }
+        topLayerContainer.appendChild(modal);
         
         // Eventos do modal
         const closeBtn = modal.querySelector('.pattern-modal-close');
-        closeBtn.onclick = function() {
-            document.body.removeChild(modal);
+        const contentEl = modal.querySelector('.pattern-modal-content');
+        const removeModal = function() {
+            try {
+                if (modal.parentElement) modal.parentElement.removeChild(modal);
+            } catch (_) {}
+            document.removeEventListener('keydown', handleEsc);
         };
-        
-        // Fechar ao clicar fora do modal
-        modal.onclick = function(e) {
-            if (e.target === modal) {
-                document.body.removeChild(modal);
-            }
+        modal.__daCleanup = removeModal;
+
+        const stopBubble = (e) => {
+            try { e.stopPropagation(); } catch (_) {}
         };
+        if (contentEl) {
+            contentEl.addEventListener('pointerdown', stopBubble);
+            contentEl.addEventListener('click', stopBubble);
+        }
+        modal.addEventListener('pointerdown', stopBubble);
+        modal.addEventListener('click', (e) => {
+            stopBubble(e);
+            if (e.target === modal) removeModal();
+        });
+
+        if (closeBtn) {
+            closeBtn.addEventListener('pointerdown', stopBubble);
+            closeBtn.addEventListener('click', (e) => {
+                stopBubble(e);
+                e.preventDefault();
+                removeModal();
+            });
+        }
         
         // Fechar com ESC
         const handleEsc = function(e) {
             if (e.key === 'Escape') {
-                document.body.removeChild(modal);
-                document.removeEventListener('keydown', handleEsc);
+                removeModal();
             }
         };
         document.addEventListener('keydown', handleEsc);
@@ -11132,8 +11573,8 @@ async function persistAnalyzerState(newState) {
         
         // Regra nova: se NÃO há sinal visível, sempre mostrar o spinner (sensação de análise rodando)
         // Vale para modo padrão e modo diamante.
-        suggestionColor.className = 'suggestion-color suggestion-color-box neutral loading';
-        suggestionColor.innerHTML = '<div class="spinner"></div>';
+            suggestionColor.className = 'suggestion-color suggestion-color-box neutral loading';
+            suggestionColor.innerHTML = '<div class="spinner"></div>';
         
         // Sincronizar com modo aposta
         syncBetModeView();
@@ -11391,6 +11832,14 @@ async function persistAnalyzerState(newState) {
                 clearEntriesHistory();
             });
         }
+
+        // ✅ Atualizar gráfico do modo real (usa o mesmo estilo do simulador)
+        try {
+            renderEntriesChart({ wins, losses, totalCycles, totalEntries });
+            renderEntriesTickChart(entriesByMode);
+        } catch (err) {
+            console.warn('⚠️ Falha ao atualizar gráfico do modo real:', err);
+        }
     }
 
     function initEntriesTabs() {
@@ -11414,17 +11863,21 @@ async function persistAnalyzerState(newState) {
     }
 
     function setEntriesTab(tab) {
-        if (tab !== 'entries' && tab !== 'bets') {
+        if (tab !== 'entries' && tab !== 'bets' && tab !== 'chart') {
             tab = 'entries';
         }
         activeEntriesTab = tab;
         const entriesView = document.querySelector('.entries-view[data-view="entries"]');
         const betsView = document.querySelector('.entries-view[data-view="bets"]');
+        const chartView = document.querySelector('.entries-view[data-view="chart"]');
         if (entriesView) {
             entriesView.hidden = tab !== 'entries';
         }
         if (betsView) {
             betsView.hidden = tab !== 'bets';
+        }
+        if (chartView) {
+            chartView.hidden = tab !== 'chart';
         }
         const hitEl = document.getElementById('entriesHit');
         if (hitEl) {

@@ -8735,8 +8735,9 @@ function analyzeAlternancePattern(history, options = {}) {
 
         // mínimo de blocos para "ver" alternância sem bicar:
         // simples: P-V-P (3 blocos) já permite prever V
-        // dupla/tripla: 2 blocos já identifica a alternância (mesmo se o bloco atual estiver incompleto)
-        const minBlocksFor = (g) => (g === 1 ? 3 : 2);
+        // dupla/tripla: exigir 3 blocos (ex.: RR BB RR / RRR BBB RRR) para evitar "falso positivo"
+        // (apenas 1 bloco anterior curto como "B RRR" não conta como alternância real)
+        const minBlocksFor = (g) => (g === 1 ? 3 : 3);
 
         let bestStructural = null;
         let bestPassing = null;
@@ -8761,11 +8762,13 @@ function analyzeAlternancePattern(history, options = {}) {
                 ) {
                     bestStructural = { ...det, backoffApplied: b !== maxBlocks };
                 }
-                break;
-            }
+                // Como tentamos do maior -> menor, o primeiro match é o melhor "comprimento"
+            break;
+        }
 
             // passando critérios (rigor + ocorrências)
-            for (let b of blocksToTry) {
+            const blocksToTryPassing = settings.allowBackoff ? blocksToTry : [maxBlocks];
+            for (let b of blocksToTryPassing) {
                 const det = checkAlternanceRuns(runsAll, g, b);
                 if (!det) continue;
                 const stats = computeContinuationStats(g, b);
@@ -8785,6 +8788,7 @@ function analyzeAlternancePattern(history, options = {}) {
                 ) {
                     bestPassing = candidate;
                 }
+                // Primeiro match já é o maior "comprimento" válido para esse g (tentamos do maior -> menor)
                 break;
             }
         }
@@ -8893,7 +8897,7 @@ function analyzeAlternancePattern(history, options = {}) {
         rate >= Math.max(settings.threshold + 0.1, 0.9) &&
         occurrences >= settings.minOccurrences + 1
     );
-
+    
     return {
         color: finalColor,
         pattern: `Alternância ${typeName}`,
@@ -13203,6 +13207,11 @@ async function analyzeWithPatternSystem(history) {
             const prefix = includeEmoji && meta.emoji ? `${meta.emoji} ` : '';
             if (level.disabled) {
                 return `${prefix}${meta.label} → DESATIVADO`;
+            }
+            // ✅ N9 é validador (não vota). Nunca deve aparecer como "NULO" — mostrar APROVADO/BLOQUEADO + resumo.
+            if (level.id === 'N9') {
+                const detail = level.details ? String(level.details) : 'APROVADO';
+                return `${prefix}${meta.label} → ${detail}`;
             }
             if (!level.color) {
                 return `${prefix}${meta.label} → NULO`;
@@ -22654,12 +22663,26 @@ function analyzeDiamondLevelsSimulation(history, config, simState) {
     if (alternanceBlocked && alternanceOverrideActive) {
         return null;
     }
+    let barrierDetailsText = '';
     if (n9Enabled) {
         barrierResult = validateSequenceBarrier(history, predictedColor, getDiamondWindowFromConfig(config, 'n8Barrier', historySize), {
             override: alternanceOverrideActive,
             targetRuns: nivel7 ? nivel7.alternanceTargetRuns : null,
             maxRuns: nivel7 ? nivel7.alternanceMaxRuns : null
         });
+        if (barrierResult && barrierResult.alternanceBlocked) {
+            barrierDetailsText = 'BLOQUEADO • alternância';
+        } else if (barrierResult && barrierResult.allowed) {
+            const cur = Number(barrierResult.currentStreak ?? 0);
+            const target = Number(barrierResult.targetStreak ?? 0);
+            const maxHist = Number(barrierResult.maxStreakFound ?? 0);
+            barrierDetailsText = `APROVADO • atual ${cur} • alvo ${target} • máxHist ${maxHist}`;
+        } else {
+            const cur = Number(barrierResult.currentStreak ?? 0);
+            const target = Number(barrierResult.targetStreak ?? 0);
+            const maxHist = Number(barrierResult.maxStreakFound ?? 0);
+            barrierDetailsText = `BLOQUEADO • atual ${cur} • alvo ${target} • máxHist ${maxHist}`;
+        }
         if (!barrierResult.allowed) {
             return null;
         }
@@ -22672,7 +22695,7 @@ function analyzeDiamondLevelsSimulation(history, config, simState) {
         weight: 0,
         strength: 0,
         score: 0,
-        details: n9Enabled ? (barrierResult.allowed ? 'APROVADO' : 'BLOQUEADO') : 'DESATIVADO',
+        details: n9Enabled ? (barrierDetailsText || (barrierResult.allowed ? 'APROVADO' : 'BLOQUEADO')) : 'DESATIVADO',
         disabled: !n9Enabled
     });
 
@@ -22697,7 +22720,9 @@ function analyzeDiamondLevelsSimulation(history, config, simState) {
         return null;
     }
 
-    const votingLevelsList = levelReports.filter(lvl => lvl.id !== 'N6' && lvl.id !== 'N0' && !lvl.disabled);
+    // ✅ Só níveis que VOTAM entram na conta de confiança (N9/N10 são validadores)
+    const VOTING_LEVEL_IDS = new Set(['N1','N2','N3','N4','N5','N6','N7','N8']);
+    const votingLevelsList = levelReports.filter(lvl => VOTING_LEVEL_IDS.has(lvl.id) && !lvl.disabled);
     const positiveVotingLevels = votingLevelsList.filter(lvl => lvl.color && (lvl.strength || 0) > 0);
     const negativeVotingLevels = votingLevelsList.filter(lvl => lvl.color && (lvl.strength || 0) < 0);
     const neutralVotingLevels = votingLevelsList.filter(lvl => !lvl.color || (lvl.strength || 0) === 0);
@@ -22728,11 +22753,53 @@ function analyzeDiamondLevelsSimulation(history, config, simState) {
     rawConfidence = Math.max(0, Math.min(100, rawConfidence));
     const finalConfidence = Math.max(0, Math.min(100, Math.round(rawConfidence)));
 
+    // ✅ Helper local: no modo real existe `describeLevel` (função interna daquele escopo).
+    // Na simulação precisamos de um serializer equivalente para o modal conseguir fazer parse.
+    const describeLevelLocal = (level) => {
+        const id = level?.id ? String(level.id) : 'N?';
+        const name = level?.name ? String(level.name) : 'Nível';
+        const disabled = !!level?.disabled;
+        const details = level?.details ? String(level.details) : '';
+        const color = level?.color === 'red' || level?.color === 'black' || level?.color === 'white'
+            ? level.color
+            : null;
+
+        if (disabled) {
+            return `${id} - ${name} → DESATIVADO`;
+        }
+
+        if (color) {
+            const pct = Math.max(0, Math.min(100, Number.isFinite(Number(level?.strength))
+                ? Math.abs(Number(level.strength)) * 100
+                : 0));
+            const pctText = pct > 0 ? ` (${pct.toFixed(1)}%)` : '';
+            const detailText = details ? ` • ${details}` : '';
+            // Importante: usar RED/BLACK/WHITE em inglês para o parser do `content.js` detectar o voto
+            return `${id} - ${name} → Voto: ${color.toUpperCase()}${pctText}${detailText}`;
+        }
+
+        if (details) {
+            return `${id} - ${name} → ${details}`;
+        }
+
+        return `${id} - ${name} → NULO`;
+    };
+
+    // ✅ Raciocínio completo (mesmo formato do modo real, para o modal "Padrão da Entrada")
+    const intensityLabel = signalIntensity === 'conservative' ? 'Conservador' : 'Agressivo';
+    const reasoning =
+        `${levelReports.map(level => describeLevelLocal(level)).join('\n')}\n` +
+        `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+        `Modo: ${intensityLabel}\n` +
+        `Score combinado: ${rawConfidence.toFixed(1)}%\n` +
+        `DECISÃO: ${consensusColor.toUpperCase()}\n` +
+        `Confiança: ${finalConfidence}%`;
+
     return {
         color: consensusColor,
         confidence: finalConfidence,
         probability: finalConfidence,
-        reasoning: 'Simulação Diamante (níveis)',
+        reasoning,
         patternDescription,
         safeZone: safeZoneMeta,
         meta: {
