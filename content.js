@@ -2095,6 +2095,10 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                 align-items: center;
                 cursor: pointer;
                 user-select: none;
+                /* ✅ evitar área clicável gigantesca (ex.: label ocupando a linha inteira) */
+                flex: 0 0 auto;
+                width: auto;
+                max-width: 80px;
             }
             
             .diamond-level-switch input[type="checkbox"] {
@@ -2593,7 +2597,8 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                         </div>
                     </div>
                     <div class="custom-pattern-modal-footer">
-                        <button class="btn-hot-pattern" id="diamondLevelsSaveBtn">Salvar</button>
+                        <button class="btn-hot-pattern" id="diamondLevelsRestoreBtn" type="button" title="Restaura as configurações que estavam antes de você abrir este modal">Restaurar configurações</button>
+                        <button class="btn-hot-pattern" id="diamondLevelsSaveBtn" type="button">Salvar</button>
                     </div>
                 </div>
             </div>
@@ -2644,6 +2649,16 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
         initializeDiamondSimulationControls();
     }
 
+    // Snapshot para restaurar configurações (estado ao abrir o modal / último "Salvar")
+    let diamondLevelsRestoreSnapshot = null;
+    function setDiamondLevelsRestoreSnapshot(config) {
+        try {
+            diamondLevelsRestoreSnapshot = config ? JSON.parse(JSON.stringify(config)) : {};
+        } catch (_) {
+            diamondLevelsRestoreSnapshot = config ? { ...config } : {};
+        }
+    }
+
     function updateDiamondLevelToggleVisual(toggle) {
         if (!toggle) return;
         const field = toggle.closest('.diamond-level-field');
@@ -2657,6 +2672,23 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
     }
 
     function initializeDiamondLevelToggles() {
+        // ✅ Guard: não permitir ativar/desativar clicando fora do switch
+        try {
+            const labels = document.querySelectorAll('#diamondLevelsModal .diamond-level-switch');
+            labels.forEach(label => {
+                if (!label || label.dataset.clickGuardAttached) return;
+                label.addEventListener('click', (event) => {
+                    const target = event && event.target ? event.target : null;
+                    const clickedCheckbox = target && (target.tagName === 'INPUT' || (typeof target.closest === 'function' && target.closest('input[type="checkbox"]')));
+                    if (clickedCheckbox) return; // clique em cima do switch -> ok
+                    // clique fora do switch (mas dentro do label por algum motivo) -> bloquear
+                    try { event.preventDefault(); } catch (_) {}
+                    try { event.stopPropagation(); } catch (_) {}
+                }, true);
+                label.dataset.clickGuardAttached = '1';
+            });
+        } catch (_) {}
+
         const toggles = document.querySelectorAll('.diamond-level-toggle-input');
         toggles.forEach(toggle => {
             if (!toggle.dataset.listenerAttached) {
@@ -2682,6 +2714,9 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
 
     let diamondSimulationJobId = null;
     let diamondSimulationRunning = false;
+    let diamondOptimizationJobId = null;
+    let diamondOptimizationRunning = false;
+    let diamondSimBusyKind = null; // 'simulate' | 'optimize' | null
     let diamondSimCurrentMode = null;
     let diamondSimCurrentLevelId = null;
     let diamondSimMovedNodes = [];
@@ -2985,8 +3020,9 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
             </div>
             <div class="diamond-sim-view-footer">
                 <button type="button" class="btn-hot-pattern" id="diamondSimulationClearBtn">Limpar</button>
+                <button type="button" class="btn-hot-pattern" id="diamondSimulationOptimizeBtn">Otimizar (100)</button>
                 <button type="button" class="btn-save-pattern" id="diamondSimulationRunBtn">Simular novamente</button>
-                <button type="button" class="btn-hot-pattern" id="diamondSimulationClearCloseBtn">Limpar e fechar</button>
+                <button type="button" class="btn-hot-pattern" id="diamondSimulationClearCloseBtn" title="Salva as configurações e fecha a simulação">Salvar e fechar</button>
             </div>
         `;
 
@@ -2994,6 +3030,7 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
         body.insertBefore(view, body.firstChild);
 
         const clearBtn = document.getElementById('diamondSimulationClearBtn');
+        const optimizeBtn = document.getElementById('diamondSimulationOptimizeBtn');
         const runBtn = document.getElementById('diamondSimulationRunBtn');
         const clearCloseBtn = document.getElementById('diamondSimulationClearCloseBtn');
         const cancelBtn = document.getElementById('diamondSimulationCancelBtn');
@@ -3015,7 +3052,7 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
             clearBtn.dataset.listenerAttached = '1';
         }
         if (clearCloseBtn && !clearCloseBtn.dataset.listenerAttached) {
-            // ✅ Limpar e fechar: persistir ajustes do nível (sem precisar clicar em "Salvar"), depois voltar para configurar níveis
+            // ✅ Salvar e fechar: persistir ajustes do nível (sem precisar clicar em "Salvar"), depois voltar para configurar níveis
             clearCloseBtn.addEventListener('click', async () => {
                 try { await saveDiamondLevels({ silent: true, skipSync: true }); } catch (_) {}
                 exitDiamondSimulationView({ cancelIfRunning: true, clear: true, closeModal: false });
@@ -3034,11 +3071,28 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
             });
             runBtn.dataset.listenerAttached = '1';
         }
+        if (optimizeBtn && !optimizeBtn.dataset.listenerAttached) {
+            optimizeBtn.addEventListener('click', () => {
+                const mode = diamondSimCurrentMode || 'level';
+                const levelId = diamondSimCurrentLevelId || null;
+                if (mode !== 'level' || !levelId) {
+                    showCenteredNotice('Selecione um nível (ex.: N1) para otimizar.');
+                    return;
+                }
+                startDiamondOptimization(levelId);
+            });
+            optimizeBtn.dataset.listenerAttached = '1';
+        }
         if (cancelBtn && !cancelBtn.dataset.listenerAttached) {
             cancelBtn.addEventListener('click', () => {
-                if (!diamondSimulationJobId) return;
                 try {
-                    chrome.runtime.sendMessage({ action: 'DIAMOND_SIMULATE_CANCEL', jobId: diamondSimulationJobId });
+                    if (diamondOptimizationRunning && diamondOptimizationJobId) {
+                        chrome.runtime.sendMessage({ action: 'DIAMOND_OPTIMIZE_CANCEL', jobId: diamondOptimizationJobId });
+                        return;
+                    }
+                    if (diamondSimulationJobId) {
+                        chrome.runtime.sendMessage({ action: 'DIAMOND_SIMULATE_CANCEL', jobId: diamondSimulationJobId });
+                    }
                 } catch (err) {
                     console.warn('⚠️ Falha ao cancelar simulação:', err);
                 }
@@ -3781,8 +3835,16 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                 chrome.runtime.sendMessage({ action: 'DIAMOND_SIMULATE_CANCEL', jobId: diamondSimulationJobId });
             } catch (_) {}
         }
+        if (cancelIfRunning && diamondOptimizationRunning && diamondOptimizationJobId) {
+            try {
+                chrome.runtime.sendMessage({ action: 'DIAMOND_OPTIMIZE_CANCEL', jobId: diamondOptimizationJobId });
+            } catch (_) {}
+        }
         diamondSimulationJobId = null;
         diamondSimulationRunning = false;
+        diamondOptimizationJobId = null;
+        diamondOptimizationRunning = false;
+        diamondSimBusyKind = null;
 
         const summary = document.getElementById('diamondSimulationSummary');
         const list = document.getElementById('diamondSimEntriesList');
@@ -3811,6 +3873,9 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
     function resetDiamondSimulationViewUI() {
         diamondSimulationJobId = null;
         diamondSimulationRunning = false;
+        diamondOptimizationJobId = null;
+        diamondOptimizationRunning = false;
+        diamondSimBusyKind = null;
         const summary = document.getElementById('diamondSimulationSummary');
         const list = document.getElementById('diamondSimEntriesList');
         const hitEl = document.getElementById('diamondSimEntriesHit');
@@ -3924,6 +3989,11 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                 chrome.runtime.sendMessage({ action: 'DIAMOND_SIMULATE_CANCEL', jobId: diamondSimulationJobId });
             } catch (_) {}
         }
+        if (cancelIfRunning && diamondOptimizationRunning && diamondOptimizationJobId) {
+            try {
+                chrome.runtime.sendMessage({ action: 'DIAMOND_OPTIMIZE_CANCEL', jobId: diamondOptimizationJobId });
+            } catch (_) {}
+        }
 
         levelsModal.classList.remove('diamond-sim-active');
         view.style.display = 'none';
@@ -3948,8 +4018,11 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
         }
     }
 
-    function setDiamondSimulationLoading(isLoading, text = 'Simulando...') {
-        diamondSimulationRunning = !!isLoading;
+    function setDiamondSimulationLoading(isLoading, text = 'Simulando...', kind = 'simulate') {
+        const k = kind === 'optimize' ? 'optimize' : 'simulate';
+        diamondSimBusyKind = isLoading ? k : null;
+        diamondSimulationRunning = isLoading ? (k === 'simulate') : false;
+        diamondOptimizationRunning = isLoading ? (k === 'optimize') : false;
         const progress = document.getElementById('diamondSimulationProgress');
         const progressText = document.getElementById('diamondSimulationProgressText');
         if (progress) progress.style.display = isLoading ? 'flex' : 'none';
@@ -3957,8 +4030,12 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
 
         const allBtn = document.getElementById('diamondSimulateAllBtn');
         const levelBtn = document.getElementById('diamondSimulateLevelBtn');
+        const runBtn = document.getElementById('diamondSimulationRunBtn');
+        const optimizeBtn = document.getElementById('diamondSimulationOptimizeBtn');
         if (allBtn) allBtn.disabled = isLoading;
         if (levelBtn) levelBtn.disabled = isLoading;
+        if (runBtn) runBtn.disabled = isLoading;
+        if (optimizeBtn) optimizeBtn.disabled = isLoading;
     }
 
     function updateDiamondSimulationProgress(data) {
@@ -3969,7 +4046,26 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
         const processed = Number(data && data.processed) || 0;
         const total = Number(data && data.total) || 0;
         const pct = total > 0 ? Math.min(100, Math.round((processed / total) * 100)) : 0;
-        setDiamondSimulationLoading(true, `Simulando... ${processed}/${total} (${pct}%)`);
+        setDiamondSimulationLoading(true, `Simulando... ${processed}/${total} (${pct}%)`, 'simulate');
+    }
+
+    function updateDiamondOptimizationProgress(data) {
+        if (!diamondOptimizationRunning) return;
+        if (data && data.jobId && diamondOptimizationJobId && data.jobId !== diamondOptimizationJobId) {
+            return;
+        }
+        const trial = Number(data && data.trial) || 0;
+        const total = Number(data && data.totalTrials) || 0;
+        const pct = total > 0 ? Math.min(100, Math.round((trial / total) * 100)) : 0;
+        const best = data && data.best ? data.best : null;
+        const minPct = Number(data && data.minPct) || 95;
+        const recommendedFound = !!(data && data.recommendedFound);
+        const bestText = best
+            ? (recommendedFound
+                ? ` • melhor≥${minPct}%: ${Number(best.pct || 0).toFixed(1)}% (${best.totalCycles || 0} ciclos)`
+                : ` • melhor: ${Number(best.pct || 0).toFixed(1)}% (<${minPct}%)`)
+            : '';
+        setDiamondSimulationLoading(true, `Otimizando... ${trial}/${total} (${pct}%)${bestText}`, 'optimize');
     }
 
     function renderDiamondSimulationEntries(entries) {
@@ -4182,7 +4278,7 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
 
     async function startDiamondSimulation(mode, levelId = null) {
         try {
-            if (diamondSimulationRunning) return;
+            if (diamondSimulationRunning || diamondOptimizationRunning) return;
             ensureDiamondSimulationView();
 
             const levelLabel = mode === 'level' ? String(levelId || '').toUpperCase() : 'TODOS';
@@ -4193,7 +4289,7 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
             // ✅ ao rodar novamente, evitar “vazar” o gráfico na aba Sinais
             setDiamondSimActiveTab('signals');
             setDiamondSimResultsVisible(false);
-            setDiamondSimulationLoading(true, 'Simulando...');
+            setDiamondSimulationLoading(true, 'Simulando...', 'simulate');
 
             const summary = document.getElementById('diamondSimulationSummary');
             if (summary) {
@@ -4254,9 +4350,13 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                 if (summary) {
                     const from = meta.fromTimestamp ? new Date(meta.fromTimestamp).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—';
                     const to = meta.toTimestamp ? new Date(meta.toTimestamp).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—';
+                    const avail = Number(meta.availableHistory || 0);
+                    const req = Number(meta.requestedHistoryLimit || 0);
+                    const used = Number(meta.usedHistoryLimit || meta.totalSpins || 0);
                     summary.innerHTML =
                         `<strong>${label}</strong><br>` +
                         `Giros analisados: <strong>${meta.totalSpins || 0}</strong><br>` +
+                        `Disponível: <strong>${avail || '—'}</strong> • Solicitado: <strong>${req || '—'}</strong> • Usado: <strong>${used || '—'}</strong><br>` +
                         `Período: <strong>${from}</strong> → <strong>${to}</strong><br>` +
                         `Sinais gerados: <strong>${meta.totalSignals || 0}</strong> • Ciclos: <strong>${stats.totalCycles || 0}</strong>`;
                 }
@@ -4273,6 +4373,153 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
             diamondSimulationJobId = null;
             const summary = document.getElementById('diamondSimulationSummary');
             if (summary) summary.innerHTML = `❌ Falha ao simular: ${error.message || error}`;
+        }
+    }
+
+    async function startDiamondOptimization(levelId) {
+        try {
+            if (diamondSimulationRunning || diamondOptimizationRunning) return;
+            ensureDiamondSimulationView();
+
+            enterDiamondSimulationView({ titleText: 'Simulação' });
+            applyDiamondSimMode('level', levelId);
+
+            setDiamondSimActiveTab('signals');
+            setDiamondSimResultsVisible(false);
+            setDiamondSimulationLoading(true, 'Otimizando... (0/100)', 'optimize');
+
+            const summary = document.getElementById('diamondSimulationSummary');
+            if (summary) summary.innerHTML = `Preparando otimização (100 configurações)...`;
+
+            const cfg = await buildDiamondConfigSnapshotFromModal();
+
+            const resolvedHistoryLimit =
+                diamondSimPeriodPreset === 'custom'
+                    ? (clampDiamondSimHistoryLimit(diamondSimHistoryLimitRaw) ?? clampDiamondSimHistoryLimit(diamondSimHistoryLimit) ?? 1440)
+                    : (clampDiamondSimHistoryLimit(diamondSimHistoryLimit) ?? 1440);
+
+            diamondOptimizationJobId = `diamond-opt-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+
+            chrome.runtime.sendMessage({
+                action: 'DIAMOND_OPTIMIZE_PAST',
+                levelId,
+                jobId: diamondOptimizationJobId,
+                trials: 100,
+                historyLimit: resolvedHistoryLimit,
+                config: cfg
+            }, async (response) => {
+                const err = chrome.runtime.lastError;
+                if (err) {
+                    console.warn('⚠️ Erro na otimização:', err);
+                    setDiamondSimulationLoading(false);
+                    diamondOptimizationJobId = null;
+                    if (summary) summary.innerHTML = `❌ Falha ao otimizar: ${err.message || err}`;
+                    return;
+                }
+                if (!response) {
+                    setDiamondSimulationLoading(false);
+                    diamondOptimizationJobId = null;
+                    if (summary) summary.innerHTML = `❌ Falha ao otimizar: resposta inválida`;
+                    return;
+                }
+                if (response.status === 'cancelled') {
+                    setDiamondSimulationLoading(false);
+                    diamondOptimizationJobId = null;
+                    if (summary) summary.innerHTML = '⏹️ Otimização cancelada.';
+                    return;
+                }
+                if (response.status !== 'success') {
+                    setDiamondSimulationLoading(false);
+                    diamondOptimizationJobId = null;
+                    if (summary) summary.innerHTML = `❌ Falha ao otimizar: ${response && response.error ? response.error : 'resposta inválida'}`;
+                    return;
+                }
+
+                diamondOptimizationJobId = response.jobId || null;
+
+                const meta = response.meta || {};
+                const minPct = Number(response.minPct) || 95;
+                const recommendedFound = !!response.recommendedFound;
+                const recommended = response.recommended || null;
+                const bestOverall = response.bestOverall || null;
+                const bestCfg = response.config || null;
+
+                const applyOptimizedLevelWindowsToForm = (targetLevelId, cfgObj) => {
+                    if (!cfgObj || !cfgObj.diamondLevelWindows) return false;
+                    const windows = cfgObj.diamondLevelWindows;
+                    const upper = String(targetLevelId || '').toUpperCase();
+                    const setVal = (id, value) => {
+                        const el = document.getElementById(id);
+                        if (el && value != null && value !== '') el.value = String(value);
+                    };
+                    if (upper === 'N1') {
+                        setVal('diamondN1WindowSize', windows.n1WindowSize);
+                        setVal('diamondN1PrimaryRequirement', windows.n1PrimaryRequirement);
+                        setVal('diamondN1SecondaryRequirement', windows.n1SecondaryRequirement);
+                        setVal('diamondN1MaxEntries', windows.n1MaxEntries);
+                        return true;
+                    }
+                    if (upper === 'N2') {
+                        setVal('diamondN2Recent', windows.n2Recent);
+                        setVal('diamondN2Previous', windows.n2Previous);
+                        return true;
+                    }
+                    return false;
+                };
+
+                // ✅ Só aplicar automaticamente se atingir o mínimo (>=95% por padrão)
+                if (recommendedFound && bestCfg) {
+                    try {
+                        // ⚠️ CRÍTICO: NÃO aplicar diamondLevelEnabled do simulador no formulário,
+                        // senão desativa outros níveis e bagunça as configurações do usuário.
+                        // Aqui aplicamos SOMENTE os campos do nível otimizado.
+                        applyOptimizedLevelWindowsToForm(levelId, bestCfg);
+                        refreshDiamondLevelToggleStates();
+                    } catch (e) {
+                        console.warn('⚠️ Falha ao aplicar melhor configuração no formulário:', e);
+                    }
+                }
+
+                const from = meta.fromTimestamp ? new Date(meta.fromTimestamp).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—';
+                const to = meta.toTimestamp ? new Date(meta.toTimestamp).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—';
+                const avail = Number(meta.availableHistory || 0);
+                const req = Number(meta.requestedHistoryLimit || 0);
+                const used = Number(meta.usedHistoryLimit || meta.totalSpins || 0);
+
+                if (summary) {
+                    if (recommendedFound && recommended) {
+                        summary.innerHTML =
+                            `<strong>Melhor configuração (${response.trials || 100} testes) • ${String(levelId || '').toUpperCase()}</strong><br>` +
+                            `Giros analisados: <strong>${meta.totalSpins || 0}</strong><br>` +
+                            `Disponível: <strong>${avail || '—'}</strong> • Solicitado: <strong>${req || '—'}</strong> • Usado: <strong>${used || '—'}</strong><br>` +
+                            `Período: <strong>${from}</strong> → <strong>${to}</strong><br>` +
+                            `Assertividade: <strong>${Number(recommended.pct || 0).toFixed(1)}%</strong> • Ciclos: <strong>${recommended.totalCycles || 0}</strong> • Sinais: <strong>${recommended.totalSignals || 0}</strong> • Score: <strong>${Number(recommended.score || 0).toFixed(2)}</strong>`;
+                    } else {
+                        const pctOverall = bestOverall ? Number(bestOverall.pct || 0) : 0;
+                        const cyclesOverall = bestOverall ? (bestOverall.totalCycles || 0) : 0;
+                        const scoreOverall = bestOverall ? Number(bestOverall.score || 0) : 0;
+                        summary.innerHTML =
+                            `<strong>Nenhuma configuração atingiu ${minPct}% (${response.trials || 100} testes) • ${String(levelId || '').toUpperCase()}</strong><br>` +
+                            `Giros analisados: <strong>${meta.totalSpins || 0}</strong><br>` +
+                            `Disponível: <strong>${avail || '—'}</strong> • Solicitado: <strong>${req || '—'}</strong> • Usado: <strong>${used || '—'}</strong><br>` +
+                            `Período: <strong>${from}</strong> → <strong>${to}</strong><br>` +
+                            `Melhor encontrada: <strong>${pctOverall.toFixed(1)}%</strong> • Ciclos: <strong>${cyclesOverall}</strong> • Score: <strong>${scoreOverall.toFixed(2)}</strong><br>` +
+                            `<span style="color:#8da2bb;">(A configuração NÃO foi aplicada automaticamente porque ficou abaixo do mínimo.)</span>`;
+                    }
+                }
+
+                renderDiamondSimulationEntries(response.entries || []);
+                diamondSimHasResults = true;
+                setDiamondSimResultsVisible(true);
+                updateDiamondSimRunButtonLabel();
+                setDiamondSimulationLoading(false);
+            });
+        } catch (error) {
+            console.warn('⚠️ Falha ao iniciar otimização:', error);
+            setDiamondSimulationLoading(false);
+            diamondOptimizationJobId = null;
+            const summary = document.getElementById('diamondSimulationSummary');
+            if (summary) summary.innerHTML = `❌ Falha ao otimizar: ${error.message || error}`;
         }
     }
 
@@ -4665,7 +4912,10 @@ function enforceSignalIntensityAvailability(options = {}) {
         const modal = document.getElementById('diamondLevelsModal');
         if (!modal) return;
         storageCompat.get(['analyzerConfig']).then(res => {
-            populateDiamondLevelsForm(res.analyzerConfig || {});
+            const cfg = res.analyzerConfig || {};
+            populateDiamondLevelsForm(cfg);
+            // ✅ Capturar snapshot para "Restaurar configurações"
+            setDiamondLevelsRestoreSnapshot(cfg);
             
             // ✅ Mobile: manter comportamento atual
             if (!isDesktop()) {
@@ -4831,6 +5081,8 @@ function enforceSignalIntensityAvailability(options = {}) {
 
                 await storageCompat.set({ analyzerConfig: updatedConfig });
                 latestAnalyzerConfig = updatedConfig;
+                // ✅ Atualizar snapshot do "Restaurar" para o estado recém-salvo
+                setDiamondLevelsRestoreSnapshot(updatedConfig);
                 enforceSignalIntensityAvailability();
             try {
                 chrome.runtime.sendMessage({ action: 'applyConfig' });
@@ -8931,9 +9183,9 @@ async function persistAnalyzerState(newState) {
                                     <div class="diamond-sim-chart-label">WIN</div>
                                     <div class="diamond-sim-chart-bar">
                                         <div class="diamond-sim-chart-fill" id="entriesChartWinFill" style="width:0%"></div>
-                                    </div>
+                    </div>
                                     <div class="diamond-sim-chart-value" id="entriesChartWinValue">0 (0%)</div>
-                                </div>
+                </div>
                                 <div class="diamond-sim-chart-row loss">
                                     <div class="diamond-sim-chart-label">LOSS</div>
                                     <div class="diamond-sim-chart-bar">
@@ -10453,7 +10705,7 @@ async function persistAnalyzerState(newState) {
 
             if (topLayerContainer !== document.body && getComputedStyle(topLayerContainer).position === 'static') {
                 topLayerContainer.style.position = 'relative';
-            }
+                }
             topLayerContainer.appendChild(modal);
             
             // Eventos do modal
@@ -10467,7 +10719,7 @@ async function persistAnalyzerState(newState) {
             };
             // Permitir remoção segura por outros cliques
             modal.__daCleanup = removeModal;
-
+            
             // ✅ Evitar "click-through": NÃO usar capture no container inteiro (isso pode quebrar cliques internos).
             // Em vez disso, paramos o bubble para não atingir o modal de simulação por trás.
             const stopBubble = (e) => {
@@ -12071,6 +12323,16 @@ async function persistAnalyzerState(newState) {
             chrome.storage.local.set({ entriesHistory: filteredEntries }, function() {
                 console.log(`✅ Histórico de entradas do modo ${currentMode} limpo`);
                 renderEntriesPanel(filteredEntries);
+
+                // ✅ Novo: resetar também o "simulador da banca" (autoBetRuntime),
+                // para não ficar carregando o saldo/perdas antigos após limpar.
+                try {
+                    if (autoBetManager && typeof autoBetManager.resetRuntime === 'function') {
+                        autoBetManager.resetRuntime();
+                    }
+                } catch (err) {
+                    console.warn('⚠️ Falha ao resetar autoBetRuntime após limpar entradas:', err);
+                }
                 
                 // ✅ Notificar background.js para limpar o calibrador também
                 chrome.runtime.sendMessage({ 
@@ -13111,6 +13373,17 @@ function logModeSnapshotUI(snapshot) {
             diamondSimulationJobId = null;
             const summary = document.getElementById('diamondSimulationSummary');
             if (summary) summary.innerHTML = '⏹️ Simulação cancelada.';
+        } else if (request.type === 'DIAMOND_OPTIMIZATION_PROGRESS') {
+            updateDiamondOptimizationProgress(request.data || {});
+        } else if (request.type === 'DIAMOND_OPTIMIZATION_CANCELLED') {
+            const cancelledJobId = request.data && request.data.jobId ? request.data.jobId : null;
+            if (cancelledJobId && diamondOptimizationJobId && cancelledJobId !== diamondOptimizationJobId) {
+                return;
+            }
+            setDiamondSimulationLoading(false);
+            diamondOptimizationJobId = null;
+            const summary = document.getElementById('diamondSimulationSummary');
+            if (summary) summary.innerHTML = '⏹️ Otimização cancelada.';
         }
     });
     
@@ -14172,6 +14445,17 @@ function logModeSnapshotUI(snapshot) {
         if (e.target && e.target.id === 'diamondLevelsSaveBtn') {
             e.preventDefault();
             saveDiamondLevels();
+        }
+
+        if (e.target && e.target.id === 'diamondLevelsRestoreBtn') {
+            e.preventDefault();
+            if (!diamondLevelsRestoreSnapshot) {
+                showCenteredNotice('Não há configurações anteriores para restaurar.', { title: 'Restaurar', autoHide: 3000 });
+                return;
+            }
+            populateDiamondLevelsForm(diamondLevelsRestoreSnapshot);
+            refreshDiamondLevelToggleStates();
+            showCenteredNotice('Configurações restauradas.', { title: 'Restaurar', autoHide: 2000 });
         }
         
         if (e.target && e.target.id === 'refreshBankBtn') {

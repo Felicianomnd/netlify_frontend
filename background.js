@@ -3654,7 +3654,9 @@ async function processNewSpinFromServer(spinData) {
                                     },
                                     martingaleStage: currentStage,
                                     finalResult: null,
-                                    [`continuingToG${nextGaleNumber}`]: true
+                                    [`continuingToG${nextGaleNumber}`]: true,
+                                    // ✅ IDENTIFICAR MODO DE ANÁLISE (crítico para UI filtrar corretamente no gráfico)
+                                    analysisMode: analyzerConfig.aiMode ? 'diamond' : 'standard'
                                 };
                                 
                                 entriesHistory.unshift(galeLossEntry);
@@ -8078,22 +8080,23 @@ function analyzeMomentumWithSizes(history, recentSize, previousSize) {
     const recent = history.slice(0, recentSize);
     const previous = history.slice(recentSize, recentSize + previousSize);
     
-    // Contar cores nos giros recentes
-    let recentCounts = { red: 0, black: 0 };
-    recent.forEach(spin => {
-        if (spin.color === 'red') recentCounts.red++;
-        if (spin.color === 'black') recentCounts.black++;
-    });
+    // Contar cores (branco reduz amostra efetiva)
+    const countWindow = (arr) => {
+        const counts = { red: 0, black: 0, white: 0, other: 0 };
+        arr.forEach(spin => {
+            const c = spin && spin.color ? String(spin.color).toLowerCase() : '';
+            if (c === 'red') counts.red++;
+            else if (c === 'black') counts.black++;
+            else if (c === 'white') counts.white++;
+            else counts.other++;
+        });
+        return counts;
+    };
+    const recentCounts = countWindow(recent);
+    const previousCounts = countWindow(previous);
     
-    // Contar cores nos giros anteriores
-    let previousCounts = { red: 0, black: 0 };
-    previous.forEach(spin => {
-        if (spin.color === 'red') previousCounts.red++;
-        if (spin.color === 'black') previousCounts.black++;
-    });
-    
-    const recentTotal = recentCounts.red + recentCounts.black;
-    const previousTotal = previousCounts.red + previousCounts.black;
+    const recentTotal = recentCounts.red + recentCounts.black;      // amostra efetiva (sem branco)
+    const previousTotal = previousCounts.red + previousCounts.black; // amostra efetiva (sem branco)
     
     const recentRedPercent = recentTotal > 0 ? (recentCounts.red / recentTotal * 100) : 50;
     const recentBlackPercent = recentTotal > 0 ? (recentCounts.black / recentTotal * 100) : 50;
@@ -8109,32 +8112,90 @@ function analyzeMomentumWithSizes(history, recentSize, previousSize) {
     console.log(`      🔴 Vermelhos: ${previousCounts.red} (${previousRedPercent.toFixed(1)}%)`);
     console.log(`      ⚫ Pretos: ${previousCounts.black} (${previousBlackPercent.toFixed(1)}%)`);
     
-    // Determinar momentum
+    // Determinar momentum (delta de distribuição)
     const redMomentum = recentRedPercent - previousRedPercent;
     const blackMomentum = recentBlackPercent - previousBlackPercent;
+    const deltaAbs = Math.abs(redMomentum);
     
     console.log(`   📈 MOMENTUM:`);
     console.log(`      🔴 Vermelho: ${redMomentum > 0 ? '+' : ''}${redMomentum.toFixed(1)}%`);
     console.log(`      ⚫ Preto: ${blackMomentum > 0 ? '+' : ''}${blackMomentum.toFixed(1)}%`);
-    
-    // Votar pela cor com momentum positivo
-    const voteColor = redMomentum > blackMomentum ? 'red' : 'black';
-    
-    const trendType = redMomentum > 5 ? 'accelerating_red' : blackMomentum > 5 ? 'accelerating_black' : 'stable';
-    console.log(`   🎯 Tendência: ${trendType === 'accelerating_red' ? 'VERMELHO ACELERANDO ↗️' : trendType === 'accelerating_black' ? 'PRETO ACELERANDO ↗️' : 'ESTÁVEL →'}`);
-    console.log(`   🗳️ VOTA: ${voteColor.toUpperCase()}`);
-    
+
+    // ✅ Regras de segurança (dinheiro real):
+    // - Empate (delta=0) => voto NULO (remove viés pró-preto)
+    // - Amostra efetiva mínima
+    // - Mudança mínima (delta) + significância (z-score) para reduzir ruído aleatório
+    const MIN_RECENT_EFFECTIVE = Math.max(3, Math.min(10, recentSize));   // exigir um pouco mais de amostra efetiva
+    const MIN_PREV_EFFECTIVE = Math.max(5, Math.min(30, previousSize));   // exigir um pouco mais de amostra efetiva
+    const MIN_EFFECTIVE_RATIO = 0.85; // se muito branco cair na janela, não confiar
+    const MIN_RECENT_DOMINANCE_PCT = 65; // recent precisa estar bem dominante
+    const MIN_DELTA_PCT = 18; // ✅ mais rigor: só vota se mudança >= 18pp (entre 15 e 20, como você pediu)
+    const Z_THRESHOLD = 2.58; // ✅ mais rigor: ~99% (diferença de proporções)
+
+    let voteColor = null;
+    let reason = 'nulo';
+    let zScore = 0;
+    let confidence = 0;
+
+    if (deltaAbs < 1e-9) {
+        reason = 'empate';
+    } else if (recentTotal < MIN_RECENT_EFFECTIVE || previousTotal < MIN_PREV_EFFECTIVE) {
+        reason = 'amostra insuficiente';
+    } else {
+        const recentEffectiveRatio = (recentTotal / Math.max(1, recentSize));
+        const prevEffectiveRatio = (previousTotal / Math.max(1, previousSize));
+        const recentDominance = Math.max(recentRedPercent, recentBlackPercent);
+
+        if (recentEffectiveRatio < MIN_EFFECTIVE_RATIO || prevEffectiveRatio < MIN_EFFECTIVE_RATIO) {
+            reason = `muito branco (${Math.round(Math.min(recentEffectiveRatio, prevEffectiveRatio) * 100)}% efetivo)`;
+        } else if (recentDominance < MIN_RECENT_DOMINANCE_PCT) {
+            reason = `recente fraco (<${MIN_RECENT_DOMINANCE_PCT}%)`;
+        } else {
+        // z-score da diferença de proporções (apenas histórico; NÃO usa odds do jogo)
+        const p1 = recentCounts.red / recentTotal;
+        const p2 = previousCounts.red / previousTotal;
+        const pooled = (recentCounts.red + previousCounts.red) / (recentTotal + previousTotal);
+        const se = Math.sqrt(Math.max(0, pooled * (1 - pooled)) * (1 / recentTotal + 1 / previousTotal));
+        zScore = se > 0 ? (p1 - p2) / se : 0;
+        const zAbs = Math.abs(zScore);
+
+        if (deltaAbs < MIN_DELTA_PCT) {
+            reason = `Δ<${MIN_DELTA_PCT}pp`;
+        } else if (zAbs < Z_THRESHOLD) {
+            reason = `z<${Z_THRESHOLD}`;
+        } else {
+            voteColor = redMomentum > 0 ? 'red' : 'black';
+            reason = 'ok';
+            // confiança normalizada a partir do z-score (começa em 0 no threshold e satura em z=4)
+            confidence = Math.max(0, Math.min(1, (zAbs - Z_THRESHOLD) / (4 - Z_THRESHOLD)));
+        }
+        }
+    }
+
+    const trendType = voteColor
+        ? (deltaAbs >= MIN_DELTA_PCT ? (voteColor === 'red' ? 'accelerating_red' : 'accelerating_black') : 'stable')
+        : 'neutral';
+
+    const details = voteColor
+        ? `Δ ${redMomentum.toFixed(1)}pp • z ${zScore.toFixed(2)} • amostras ${recentTotal}/${previousTotal}`
+        : `NULO • ${reason} • Δ ${redMomentum.toFixed(1)}pp • amostras ${recentTotal}/${previousTotal}`;
+
+    console.log(`   🎯 Tendência: ${trendType === 'accelerating_red' ? 'VERMELHO ACELERANDO' : trendType === 'accelerating_black' ? 'PRETO ACELERANDO' : trendType === 'stable' ? 'ESTÁVEL' : 'NULO'}`);
+    console.log(`   🗳️ VOTA: ${voteColor ? voteColor.toUpperCase() : 'NULO'} (${details})`);
+
     return {
         color: voteColor,
         recent: {
             red: recentCounts.red,
             black: recentCounts.black,
+            white: recentCounts.white,
             redPercent: recentRedPercent.toFixed(1),
             blackPercent: recentBlackPercent.toFixed(1)
         },
         previous: {
             red: previousCounts.red,
             black: previousCounts.black,
+            white: previousCounts.white,
             redPercent: previousRedPercent.toFixed(1),
             blackPercent: previousBlackPercent.toFixed(1)
         },
@@ -8142,8 +8203,12 @@ function analyzeMomentumWithSizes(history, recentSize, previousSize) {
             red: redMomentum.toFixed(1),
             black: blackMomentum.toFixed(1)
         },
-        trending: redMomentum > 5 ? 'accelerating_red' : 
-                  blackMomentum > 5 ? 'accelerating_black' : 'stable'
+        trending: trendType,
+        confidence: Number((confidence || 0).toFixed(3)),
+        confidencePct: Math.round((confidence || 0) * 100),
+        zScore: Number((zScore || 0).toFixed(3)),
+        reason,
+        details
     };
 }
 
@@ -8157,8 +8222,9 @@ function analyzeMinuteSpinBias(history, targetMinute, targetPosition, windowSize
     console.log(`%c│ 🔍 NÍVEL 5: RITMO POR GIRO (min:${String(targetMinute).padStart(2, '0')} • giro ${targetPosition}) │`, 'color: #1ABC9C; font-weight: bold;');
     console.log('%c└─────────────────────────────────────────────────────────┘', 'color: #1ABC9C; font-weight: bold;');
     
-    const MAX_WINDOW = Math.max(10, Math.min(120, windowSize));
-    const counts = { red: 0, black: 0, white: 0 };
+    // windowSize aqui representa "quantas ocorrências do mesmo minuto/posição" vamos coletar (não giros totais)
+    const MAX_WINDOW = Math.max(10, Math.min(200, windowSize));
+    const counts = { red: 0, black: 0, white: 0, other: 0 };
     const samples = [];
     
     for (let i = 0; i < history.length && samples.length < MAX_WINDOW; i++) {
@@ -8171,9 +8237,11 @@ function analyzeMinuteSpinBias(history, targetMinute, targetPosition, windowSize
         const date = new Date(spin.timestamp);
         if (date.getMinutes() !== targetMinute) continue;
         
-        if (spin.color in counts) {
-            counts[spin.color]++;
-        }
+        const c = spin && spin.color ? String(spin.color).toLowerCase() : '';
+        if (c === 'red') counts.red++;
+        else if (c === 'black') counts.black++;
+        else if (c === 'white') counts.white++;
+        else counts.other++;
         samples.push({
             color: spin.color,
             number: spin.number,
@@ -8182,12 +8250,13 @@ function analyzeMinuteSpinBias(history, targetMinute, targetPosition, windowSize
     }
     
     const totalSamples = samples.length;
-    const effectiveSamples = totalSamples - counts.white;
+    const effectiveSamples = counts.red + counts.black;
     
     console.log(`   📊 Amostras encontradas: ${totalSamples} (máx ${MAX_WINDOW})`);
     console.log(`      🔴 Vermelhos: ${counts.red}`);
     console.log(`      ⚫ Pretos: ${counts.black}`);
     console.log(`      ⚪ Brancos: ${counts.white}`);
+    if (counts.other) console.log(`      ❓ Outros: ${counts.other}`);
     
     if (totalSamples === 0 || effectiveSamples <= 0) {
         console.log('   ❌ Dados insuficientes para este minuto/giro');
@@ -8197,147 +8266,259 @@ function analyzeMinuteSpinBias(history, targetMinute, targetPosition, windowSize
             dominantPercent: 0,
             totalSamples,
             effectiveSamples,
+            reason: 'no_data',
             details: 'Sem dados suficientes para este minuto/giro'
         };
     }
     
-    const redPercent = counts.red / effectiveSamples;
-    const blackPercent = counts.black / effectiveSamples;
-    const dominantColor = redPercent > blackPercent ? 'red' : 'black';
-    const dominantPercent = dominantColor === 'red' ? redPercent : blackPercent;
-    const dominantPercentFormatted = (dominantPercent * 100).toFixed(1);
-    
-    let confidence = 0;
-    if (dominantPercent >= 0.65) {
-        confidence = 0.85;
-    } else if (dominantPercent >= 0.55) {
-        confidence = 0.65;
-    } else if (dominantPercent >= 0.52) {
-        confidence = 0.55;
-    } else {
-        console.log('   ⚠️ Percentual dominante abaixo de 52% - voto nulo');
+    // ✅ Regras de segurança (mas ajustadas para janelas pequenas):
+    // Aqui o usuário escolhe "quantas ocorrências" vamos coletar (ex.: 20).
+    // Então o rigor deve ser compatível com N pequeno.
+    const MAX_WHITE_RATIO = 0.25; // se muitos brancos, a amostra fica enviesada
+
+    // ✅ Rigor pedido: detectar viés pequeno (≈ 6–7pp) sem exigir 67% (17pp).
+    // edge = |p - 0.5|. Ex.: 56.5% vs 43.5% => edge=6.5pp
+    const MIN_EDGE = 0.065;
+
+    // ✅ Amostra mínima proporcional ao window escolhido (evita exigir 18 quando window=20)
+    const MIN_EFFECTIVE_SAMPLES = Math.max(8, Math.min(30, Math.floor(MAX_WINDOW * 0.5)));
+
+    // z-score mínimo bem mais baixo (compatível com N pequeno).
+    // Observação: isto NÃO garante que seja "estatisticamente forte"; apenas evita votar com ruído total.
+    const Z_THRESHOLD = 0.6;
+
+    const whiteRatio = totalSamples > 0 ? (counts.white / totalSamples) : 0;
+    if (effectiveSamples < MIN_EFFECTIVE_SAMPLES) {
+        return {
+            color: null,
+            confidence: 0,
+            dominantPercent: effectiveSamples > 0 ? (Math.max(counts.red, counts.black) / effectiveSamples) : 0,
+            totalSamples,
+            effectiveSamples,
+            reason: 'low_samples',
+            details: `NULO • poucas amostras úteis (${effectiveSamples}/${MIN_EFFECTIVE_SAMPLES})`
+        };
+    }
+    if (whiteRatio > MAX_WHITE_RATIO) {
+        return {
+            color: null,
+            confidence: 0,
+            dominantPercent: Math.max(counts.red, counts.black) / effectiveSamples,
+            totalSamples,
+            effectiveSamples,
+            reason: 'too_many_whites',
+            details: `NULO • muitos brancos (${Math.round(whiteRatio * 100)}%)`
+        };
+    }
+
+    // Empate => NULO (remove viés)
+    if (counts.red === counts.black) {
+        return {
+            color: null,
+            confidence: 0,
+            dominantPercent: 0.5,
+            totalSamples,
+            effectiveSamples,
+            reason: 'tie',
+            details: `NULO • empate (${counts.red}/${counts.black})`
+        };
+    }
+
+    const dominantColor = counts.red > counts.black ? 'red' : 'black';
+    const dominantCount = Math.max(counts.red, counts.black);
+    const dominantPercent = dominantCount / Math.max(1, effectiveSamples);
+    const edge = Math.abs(dominantPercent - 0.5);
+
+    // z-score para diferença de proporções contra 50/50 (sem odds, só histórico)
+    const z = (dominantPercent - 0.5) / Math.sqrt(0.25 / Math.max(1, effectiveSamples));
+    const zAbs = Math.abs(z);
+
+    if (edge < MIN_EDGE) {
         return {
             color: null,
             confidence: 0,
             dominantPercent,
             totalSamples,
             effectiveSamples,
-            details: `Nenhuma cor dominante clara (máx ${dominantPercentFormatted}%)`
+            reason: 'edge_low',
+            details: `NULO • viés < ${Math.round(MIN_EDGE * 100)}pp (${Math.round(edge * 100)}pp)`
         };
     }
-    
-    if (totalSamples < 12) {
-        const reduction = Math.max(0.35, totalSamples / 12);
-        confidence *= reduction;
-        console.log(`   ⚠️ Amostra pequena (${totalSamples}) - confiança reduzida (${(reduction * 100).toFixed(0)}%)`);
+    if (zAbs < Z_THRESHOLD) {
+        return {
+            color: null,
+            confidence: 0,
+            dominantPercent,
+            totalSamples,
+            effectiveSamples,
+            reason: 'z_low',
+            details: `NULO • z ${zAbs.toFixed(2)} < ${Z_THRESHOLD}`
+        };
     }
-    
-    if (counts.white / totalSamples >= 0.15) {
-        confidence *= 0.85;
-        console.log('   ⚠️ Muitos brancos (≥15%) - confiança reduzida em 15%');
-    }
-    
-    confidence = Math.min(1, Math.max(0, confidence));
-    
+
+    // Confiança: combina dominância com significância + fator de amostra
+    const zConf = Math.max(0, Math.min(1, (zAbs - Z_THRESHOLD) / (2.5 - Z_THRESHOLD)));
+    const edgeConf = Math.max(0, Math.min(1, (edge - MIN_EDGE) / (0.25 - MIN_EDGE))); // 25pp já seria extremo
+    const sampleConf = Math.max(0, Math.min(1, effectiveSamples / 60));
+    const confidence = Math.max(0, Math.min(1, zConf * 0.35 + edgeConf * 0.45 + sampleConf * 0.20));
+
+    const dominantPercentFormatted = (dominantPercent * 100).toFixed(1);
     console.log(`   🏆 Cor dominante: ${dominantColor.toUpperCase()} (${dominantPercentFormatted}%)`);
-    console.log(`   🗳️ Confiança final: ${(confidence * 100).toFixed(0)}%`);
-    
+    console.log(`   🗳️ Confiança final: ${(confidence * 100).toFixed(0)}% (viés ${Math.round(edge * 100)}pp • z ${zAbs.toFixed(2)} • n=${effectiveSamples})`);
+
     return {
         color: dominantColor,
         confidence,
         dominantPercent,
         totalSamples,
         effectiveSamples,
-        details: `${dominantPercentFormatted}% ${dominantColor === 'red' ? 'vermelho' : 'preto'} em ${effectiveSamples} ocorrências úteis`
+        zScore: Number(z.toFixed(3)),
+        reason: 'ok',
+        details: `${dominantPercentFormatted}% ${dominantColor === 'red' ? 'vermelho' : 'preto'} • viés ${Math.round(edge * 100)}pp • z ${zAbs.toFixed(2)} • n=${effectiveSamples}`
     };
 }
 
 function analyzeHistoricalRetracement(history, windowSize = 80, intensity = 'aggressive') {
-    const validSpins = (history || []).filter(spin => spin && (spin.color === 'red' || spin.color === 'black'));
-    if (validSpins.length < 20) {
+    const windowCap = Math.max(30, Math.min(200, Number(windowSize) || 80));
+    const rawWindow = Array.isArray(history) ? history.slice(0, Math.min(windowCap, history.length)) : [];
+
+    // ⚠️ Correção crítica: branco NÃO pode ser "ignorado" aqui.
+    // Se filtrarmos branco fora, a sequência pode "atravessar" branco e virar falsa.
+    const norm = rawWindow.map(spin => normalizeSpinColorValue(spin)); // red/black/white/null
+    const rb = norm.filter(c => c === 'red' || c === 'black');
+    const whiteCount = norm.filter(c => c === 'white').length;
+    const total = norm.filter(c => c === 'red' || c === 'black' || c === 'white').length;
+    const whiteRatio = total > 0 ? (whiteCount / total) : 0;
+
+    const MIN_EFFECTIVE = 30;
+    const MAX_WHITE_RATIO = 0.18;
+    if (rb.length < MIN_EFFECTIVE) {
         return {
             color: null,
             strength: 0,
             status: '❌ Nulo',
             ratio: 0,
-            details: 'Dados insuficientes (<20 giros válidos)'
+            reason: 'amostra_insuficiente',
+            details: `NULO • amostra útil ${rb.length}/${MIN_EFFECTIVE}`
+        };
+    }
+    if (whiteRatio > MAX_WHITE_RATIO) {
+        return {
+            color: null,
+            strength: 0,
+            status: '❌ Nulo',
+            ratio: 0,
+            reason: 'muito_branco',
+            details: `NULO • muitos brancos (${Math.round(whiteRatio * 100)}%)`
         };
     }
 
-    const window = validSpins.slice(0, Math.min(windowSize, validSpins.length));
-    const currentColor = window[0].color;
+    const first = norm[0];
+    if (first !== 'red' && first !== 'black') {
+        return {
+            color: null,
+            strength: 0,
+            status: '❌ Nulo',
+            ratio: 0,
+            reason: 'ultimo_nao_rb',
+            details: 'NULO • último giro não é vermelho/preto'
+        };
+    }
 
+    const currentColor = first;
     let currentStreak = 0;
-    for (const spin of window) {
-        if (spin.color === currentColor) {
-            currentStreak++;
-        } else {
-            break;
-        }
+    for (let i = 0; i < norm.length; i++) {
+        const c = norm[i];
+        if (c === currentColor) currentStreak++;
+        else break; // QUALQUER outra cor (inclui branco) quebra
     }
 
-    const maxStreak = { red: 0, black: 0 };
-    let streakColor = null;
-    let streakLength = 0;
-    window.forEach(spin => {
-        if (spin.color === streakColor) {
-            streakLength++;
-        } else {
-            if (streakColor) {
-                maxStreak[streakColor] = Math.max(maxStreak[streakColor], streakLength);
-            }
-            streakColor = spin.color;
-            streakLength = 1;
+    // Mapear runs dentro da janela (branco quebra)
+    const runsByColor = { red: [], black: [] };
+    for (let i = 0; i < norm.length;) {
+        const c = norm[i];
+        if (c !== 'red' && c !== 'black') {
+            i++;
+            continue;
         }
-    });
-    if (streakColor) {
-        maxStreak[streakColor] = Math.max(maxStreak[streakColor], streakLength);
+        let j = i + 1;
+        while (j < norm.length && norm[j] === c) j++;
+        runsByColor[c].push(j - i);
+        i = j;
     }
 
-    const historicalMax = Math.max(currentStreak, maxStreak[currentColor] || 0);
-    if (historicalMax <= 0) {
+    const runs = runsByColor[currentColor] || [];
+    const maxStreakFound = runs.length > 0 ? Math.max(...runs) : currentStreak;
+    const historicalMax = Math.max(1, maxStreakFound);
+    const ratioPct = Math.min(100, Math.round((currentStreak / historicalMax) * 100));
+
+    // Probabilidade empírica de continuar 1 passo (sem olhar futuro, só runs históricos da janela)
+    const MIN_AT_RISK = 5;
+    const atRisk = runs.filter(len => len >= currentStreak).length;
+    const cont = runs.filter(len => len >= (currentStreak + 1)).length;
+    const pContinue = atRisk > 0 ? (cont / atRisk) : 0;
+
+    if (atRisk < MIN_AT_RISK) {
         return {
             color: null,
             strength: 0,
             status: '❌ Nulo',
-            ratio: 0,
-            details: 'Sem histórico suficiente para calcular retração'
+            ratio: ratioPct,
+            reason: 'poucas_ocorrencias',
+            details: `NULO • poucas ocorrências (${atRisk}/${MIN_AT_RISK}) • seq ${currentStreak}/${historicalMax}`
         };
     }
-
-    const ratio = currentStreak / historicalMax;
-    const ratioPct = Math.min(100, Math.round(ratio * 100));
 
     const thresholds = {
-        aggressive: 70,
-        conservative: 85
+        aggressive: { inversion: 70, minDelta: 0.28, z: 2.33 },
+        conservative: { inversion: 85, minDelta: 0.35, z: 2.58 }
     };
-    const inversionThreshold = thresholds[intensity] ?? thresholds.aggressive;
-    const neutralThreshold = 50;
+    const t = thresholds[intensity] || thresholds.aggressive;
 
     let color = null;
     let strength = 0;
     let status = '⚖️ Neutra';
+    let reason = 'neutral';
 
-    if (ratioPct >= inversionThreshold) {
+    // Regra 1: reversão só faz sentido com sequência mínima
+    const MIN_STREAK_REV = 3;
+    const MIN_STREAK_CONT = 2;
+
+    // z-score contra 50/50 da "continuação" (aproximação binomial) para evitar ruído
+    const pHat = pContinue;
+    const se = Math.sqrt(Math.max(0, 0.25 / Math.max(1, atRisk)));
+    const z = se > 0 ? (pHat - 0.5) / se : 0;
+    const zAbs = Math.abs(z);
+
+    if (currentStreak >= MIN_STREAK_REV && ratioPct >= t.inversion && pContinue <= (0.5 - t.minDelta) && zAbs >= t.z) {
         color = currentColor === 'red' ? 'black' : 'red';
-        strength = Math.min(1, (ratioPct - inversionThreshold + 10) / 40);
+        const edge = Math.min(1, ((0.5 - t.minDelta) - pContinue) / 0.5);
+        const prox = Math.min(1, (ratioPct - t.inversion) / (100 - t.inversion));
+        strength = clamp01(edge * 0.65 + prox * 0.35);
         status = '🔄 Reversão provável';
-    } else if (ratioPct < neutralThreshold) {
+        reason = 'reversion';
+    } else if (currentStreak >= MIN_STREAK_CONT && ratioPct <= 40 && pContinue >= (0.5 + t.minDelta) && zAbs >= t.z) {
         color = currentColor;
-        strength = Math.min(1, ((neutralThreshold - ratioPct) / 50) + 0.2);
+        const edge = Math.min(1, (pContinue - (0.5 + t.minDelta)) / 0.5);
+        const room = Math.min(1, (40 - ratioPct) / 40);
+        strength = clamp01(edge * 0.7 + room * 0.3);
         status = '✅ Continuação';
+        reason = 'continuation';
     } else {
         status = '⚖️ Zona neutra';
+        reason = 'neutral_thresholds';
     }
 
-    const details = `${status} • Seq. atual ${currentStreak}/${historicalMax} (${ratioPct}%)`;
+    const details = color
+        ? `${status} • seq ${currentStreak}/${historicalMax} (${ratioPct}%) • pCont ${(pContinue * 100).toFixed(0)}% (${cont}/${atRisk}) • z ${zAbs.toFixed(2)}`
+        : `NULO • ${status} • seq ${currentStreak}/${historicalMax} (${ratioPct}%) • pCont ${(pContinue * 100).toFixed(0)}% (${cont}/${atRisk})`;
 
     return {
         color,
         strength,
         status,
         ratio: ratioPct,
+        reason,
         details
     };
 }
@@ -8440,15 +8621,16 @@ function analyzeGlobalContinuity(signalData, decisionWindow = 20, historyLimit =
     }
 
     const relevantSignals = signalData.signals
-        .slice(-historyLimit)
+        .slice(-Math.max(decisionWindow, Math.min(800, Number(historyLimit) || 100)))
         .filter(sig => sig && typeof sig.hit === 'boolean' && (sig.colorRecommended === 'red' || sig.colorRecommended === 'black'));
 
-    if (relevantSignals.length < Math.max(6, Math.min(decisionWindow, 10))) {
+    const minBase = Math.max(12, Math.min(decisionWindow, 25));
+    if (relevantSignals.length < minBase) {
         return {
             color: null,
             strength: 0,
             status: '❌ Nulo',
-            details: 'Histórico de decisões insuficiente'
+            details: `Histórico de decisões insuficiente (${relevantSignals.length}/${minBase})`
         };
     }
 
@@ -8469,61 +8651,87 @@ function analyzeGlobalContinuity(signalData, decisionWindow = 20, historyLimit =
     const totalHits = windowSignals.filter(sig => sig.hit).length;
     const overallRate = totalAttempts > 0 ? (totalHits / totalAttempts) * 100 : 0;
 
-    const dominantColor = (() => {
-        const red = colorStats.red;
-        const black = colorStats.black;
-        if (red.hits === black.hits) {
-            return red.attempts >= black.attempts ? 'red' : 'black';
-        }
-        return red.hits > black.hits ? 'red' : 'black';
-    })();
-
-    const dominantAttempts = colorStats[dominantColor].attempts;
-    const dominantHits = colorStats[dominantColor].hits;
-    const dominantRate = dominantAttempts > 0 ? (dominantHits / dominantAttempts) * 100 : 0;
-
     const thresholds = {
         aggressive: { high: 55, low: 40 },
         conservative: { high: 65, low: 50 }
     };
-    const { high, low } = thresholds[intensity] || thresholds.aggressive;
+    const { high } = thresholds[intensity] || thresholds.aggressive;
 
-    if (dominantAttempts === 0) {
+    // ✅ Se a taxa geral está baixa, esse nível NÃO deve "forçar" voto (evita ruído)
+    if (overallRate < high) {
+        return {
+            color: null,
+            strength: 0,
+            status: '⚠️ Instabilidade',
+            reason: 'overall_low',
+            details: `NULO • taxa geral ${overallRate.toFixed(1)}% < ${high}% • n=${totalAttempts}`
+        };
+    }
+
+    const rAtt = colorStats.red.attempts;
+    const bAtt = colorStats.black.attempts;
+    const rHit = colorStats.red.hits;
+    const bHit = colorStats.black.hits;
+
+    // ✅ Para comparar cores, precisamos de amostra mínima em AMBAS.
+    const MIN_PER_COLOR = 6;
+    if (rAtt < MIN_PER_COLOR || bAtt < MIN_PER_COLOR) {
         return {
             color: null,
             strength: 0,
             status: '❌ Nulo',
-            details: 'Sem decisões válidas para análise'
+            reason: 'per_color_low',
+            details: `NULO • poucas amostras por cor (R ${rAtt}/${MIN_PER_COLOR} • B ${bAtt}/${MIN_PER_COLOR})`
         };
     }
 
-    let color = null;
-    let strength = 0;
-    let status = '⚖️ Neutra';
+    const pR = rAtt > 0 ? rHit / rAtt : 0;
+    const pB = bAtt > 0 ? bHit / bAtt : 0;
+    const delta = pR - pB;
+    const deltaAbs = Math.abs(delta);
 
-    if (overallRate >= high) {
-        color = dominantColor;
-        strength = Math.min(1, ((overallRate - high + 5) / 35) + 0.2);
-        status = overallRate >= high + 5 ? '🔥 Alta confiança' : '✅ Continuidade';
-    } else if (overallRate <= low) {
-        color = dominantColor;
-        strength = -Math.min(0.7, ((low - overallRate + 5) / 40));
-        status = '⚠️ Instabilidade';
-    } else {
-        status = '⚖️ Moderada';
+    // Critério de rigor: diferença mínima (15-20pp) + significância
+    const MIN_DELTA = intensity === 'conservative' ? 0.20 : 0.15;
+    const Z_THRESHOLD = intensity === 'conservative' ? 2.58 : 2.33;
+
+    if (deltaAbs < MIN_DELTA) {
+        return {
+            color: null,
+            strength: 0,
+            status: '⚖️ Neutra',
+            reason: 'delta_low',
+            details: `NULO • Δ ${(deltaAbs * 100).toFixed(0)}pp < ${(MIN_DELTA * 100).toFixed(0)}pp • R ${(pR * 100).toFixed(0)}% • B ${(pB * 100).toFixed(0)}%`
+        };
     }
 
-    const details = [
-        status,
-        `Sinais analisados: ${totalAttempts}`,
-        `Acertos: ${totalHits}/${totalAttempts} (${overallRate.toFixed(1)}%)`,
-        `Dominante ${dominantColor.toUpperCase()}: ${dominantHits}/${dominantAttempts} (${dominantRate.toFixed(1)}%)`
-    ].join(' • ');
+    const pooled = (rHit + bHit) / Math.max(1, rAtt + bAtt);
+    const se = Math.sqrt(Math.max(0, pooled * (1 - pooled)) * (1 / rAtt + 1 / bAtt));
+    const z = se > 0 ? delta / se : 0;
+    const zAbs = Math.abs(z);
+    if (zAbs < Z_THRESHOLD) {
+        return {
+            color: null,
+            strength: 0,
+            status: '⚖️ Neutra',
+            reason: 'z_low',
+            details: `NULO • z ${zAbs.toFixed(2)} < ${Z_THRESHOLD} • Δ ${(deltaAbs * 100).toFixed(0)}pp`
+        };
+    }
+
+    const voteColor = delta > 0 ? 'red' : 'black';
+    const zConf = Math.max(0, Math.min(1, (zAbs - Z_THRESHOLD) / (4 - Z_THRESHOLD)));
+    const dConf = Math.max(0, Math.min(1, (deltaAbs - MIN_DELTA) / (0.45 - MIN_DELTA)));
+    const nConf = Math.max(0, Math.min(1, totalAttempts / 40));
+    const strength = clamp01(zConf * 0.55 + dConf * 0.35 + nConf * 0.10);
+    const status = strength >= 0.85 ? '🔥 Alta confiança' : '✅ Continuidade';
+
+    const details = `${status} • Δ ${(delta * 100).toFixed(0)}pp • z ${zAbs.toFixed(2)} • geral ${overallRate.toFixed(1)}% • R ${rHit}/${rAtt} • B ${bHit}/${bAtt}`;
 
     return {
-        color,
+        color: voteColor,
         strength,
         status,
+        reason: 'ok',
         details
     };
 }
@@ -9326,8 +9534,8 @@ function analyzePersistence(history, configuredSize = 20) {
     console.log('%c│ 🔍 NÍVEL 9: PERSISTÊNCIA (CONFIGURÁVEL)               │', 'color: #D35400; font-weight: bold;');
     console.log('%c└─────────────────────────────────────────────────────────┘', 'color: #D35400; font-weight: bold;');
     
-    // Usar o que o usuário configurou, mas com mínimo de 20 e máximo de 60
-    const effectiveSize = Math.max(20, Math.min(60, configuredSize));
+    // ✅ Usar o que o usuário configurou, mas com mínimo de 20 e máximo de 120 (compatível com UI)
+    const effectiveSize = Math.max(20, Math.min(120, configuredSize));
     const lastN = history.slice(0, Math.min(effectiveSize, history.length));
     
     console.log(`   📊 Total de giros disponíveis: ${history.length}`);
@@ -9336,15 +9544,12 @@ function analyzePersistence(history, configuredSize = 20) {
     console.log(`   📊 Analisando últimos: ${lastN.length} giros`);
     
     // ═══════════════════════════════════════════════════════════════
-    // 🔥 CRÍTICO: SE HOUVER BRANCO, DESCARTAR TUDO ANTES DELE!
+    // ⚪ Brancos: por segurança, "reiniciam" leitura recente.
+    // Mantemos o comportamento: se houve branco na janela, usamos apenas os giros MAIS recentes após o branco.
     // ═══════════════════════════════════════════════════════════════
     let validHistory = lastN;
-    
-    // Procurar o primeiro branco (mais recente)
-    const firstWhiteIndex = lastN.findIndex(spin => spin.color === 'white');
-    
+    const firstWhiteIndex = lastN.findIndex(spin => spin && spin.color === 'white');
     if (firstWhiteIndex !== -1) {
-        // ⚠️ BRANCO ENCONTRADO! Descartar tudo a partir dele (inclusive)
         validHistory = lastN.slice(0, firstWhiteIndex);
         console.log(`   ⚪ BRANCO ENCONTRADO na posição ${firstWhiteIndex}!`);
         console.log(`   🔄 RESETANDO análise! Descartando ${lastN.length - validHistory.length} giros`);
@@ -9352,112 +9557,146 @@ function analyzePersistence(history, configuredSize = 20) {
     } else {
         console.log(`   ✅ Nenhum BRANCO encontrado - analisando todos os ${validHistory.length} giros`);
     }
-    
-    if (validHistory.length < 5) {
-        console.log(`   ❌ Dados insuficientes após reset! Mínimo: 5 giros, disponível: ${validHistory.length}`);
+
+    // ✅ Rigor: não votar com pouco histórico (evitar ruído)
+    const MIN_VALID_AFTER_WHITE = 12;
+    if (validHistory.length < MIN_VALID_AFTER_WHITE) {
+        console.log(`   ❌ Dados insuficientes após reset! Mínimo: ${MIN_VALID_AFTER_WHITE} giros, disponível: ${validHistory.length}`);
         return {
             color: null,
             currentSequence: 0,
             averageSequence: 0,
             confidence: 0,
-            details: `Apenas ${validHistory.length} giros após branco (mín: 5)`
+            mode: 'neutral',
+            details: `NULO • poucos giros após branco (${validHistory.length}/${MIN_VALID_AFTER_WHITE})`
         };
     }
     
-    // Detectar todas as sequências de cada cor
-    // ✅ validHistory já não contém brancos após o reset
-    let sequences = { red: [], black: [] };
-    let currentColor = null;
-    let currentLength = 0;
-    
+    // Detectar todas as sequências (runs) de red/black
+    const sequences = { red: [], black: [] };
+    let runColor = null;
+    let runLen = 0;
+    // iterar do mais antigo -> mais recente (validHistory é most-recent-first)
     for (let i = validHistory.length - 1; i >= 0; i--) {
         const spin = validHistory[i];
-        
-        // ✅ validHistory já não contém brancos, apenas cores válidas
-        
-        if (spin.color === currentColor) {
-            currentLength++;
+        const c = spin && spin.color ? String(spin.color).toLowerCase() : '';
+        if (c !== 'red' && c !== 'black') {
+            // qualquer coisa fora do red/black quebra run
+            if (runColor && runLen > 0) sequences[runColor].push(runLen);
+            runColor = null;
+            runLen = 0;
+            continue;
+        }
+        if (c === runColor) {
+            runLen++;
         } else {
-            if (currentColor && currentLength > 0) {
-                sequences[currentColor].push(currentLength);
-            }
-            currentColor = spin.color;
-            currentLength = 1;
+            if (runColor && runLen > 0) sequences[runColor].push(runLen);
+            runColor = c;
+            runLen = 1;
         }
     }
+    if (runColor && runLen > 0) sequences[runColor].push(runLen);
     
-    // Adicionar última sequência
-    if (currentColor && currentLength > 0) {
-        sequences[currentColor].push(currentLength);
-    }
-    
-    // Calcular médias
-    const avgRed = sequences.red.length > 0 
-        ? sequences.red.reduce((a, b) => a + b, 0) / sequences.red.length 
+    // Calcular médias (apenas informativo)
+    const avgRed = sequences.red.length > 0
+        ? sequences.red.reduce((a, b) => a + b, 0) / sequences.red.length
         : 0;
-    const avgBlack = sequences.black.length > 0 
-        ? sequences.black.reduce((a, b) => a + b, 0) / sequences.black.length 
+    const avgBlack = sequences.black.length > 0
+        ? sequences.black.reduce((a, b) => a + b, 0) / sequences.black.length
         : 0;
     
-    // Determinar sequência atual
-    const lastNonWhite = validHistory[0]; // Primeiro da validHistory (mais recente)
-    if (!lastNonWhite) {
+    // Sequência atual (streak) no topo do histórico (mais recente primeiro)
+    const last = validHistory[0];
+    const lastColor = last && last.color ? String(last.color).toLowerCase() : null;
+    if (lastColor !== 'red' && lastColor !== 'black') {
         return {
             color: null,
             currentSequence: 0,
             averageSequence: 0,
             confidence: 0,
-            details: 'Nenhum giro válido encontrado'
+            mode: 'neutral',
+            details: 'NULO • último giro não é red/black'
         };
     }
-    
-    // Contar sequência atual
+
     let currentSequenceLength = 0;
     for (let i = 0; i < validHistory.length; i++) {
-        if (validHistory[i].color === lastNonWhite.color) {
-            currentSequenceLength++;
-        } else {
-            // ✅ Outra cor quebra a sequência!
-            break;
-        }
+        const c = validHistory[i] && validHistory[i].color ? String(validHistory[i].color).toLowerCase() : '';
+        if (c === lastColor) currentSequenceLength++;
+        else break;
     }
-    
-    const avgForColor = lastNonWhite.color === 'red' ? avgRed : avgBlack;
+
+    const avgForColor = lastColor === 'red' ? avgRed : avgBlack;
     
     console.log(`   📊 Sequências de VERMELHO encontradas: ${sequences.red.length} (média: ${avgRed.toFixed(1)} giros)`);
     console.log(`   📊 Sequências de PRETO encontradas: ${sequences.black.length} (média: ${avgBlack.toFixed(1)} giros)`);
-    console.log(`   📊 Última cor não-branca: ${lastNonWhite.color.toUpperCase()}`);
-    console.log(`   📊 Sequência atual de ${lastNonWhite.color.toUpperCase()}: ${currentSequenceLength} giro(s)`);
-    console.log(`   📊 Média histórica de ${lastNonWhite.color.toUpperCase()}: ${avgForColor.toFixed(1)} giros`);
-    
-    // Determinar voto
-    let voteColor = lastNonWhite.color; // SEMPRE vota na cor atual (persistência)
-    let confidence;
-    
-    if (currentSequenceLength < avgForColor) {
-        // Sequência ainda ABAIXO da média = ALTA confiança
-        confidence = 0.9;
-        console.log(`   ✅ Sequência ABAIXO da média → ALTA confiança na continuação`);
-    } else if (currentSequenceLength <= avgForColor + 1) {
-        // Sequência PRÓXIMA da média = MÉDIA confiança
-        confidence = 0.6;
-        console.log(`   ⚠️ Sequência PRÓXIMA da média → MÉDIA confiança`);
-    } else {
-        // Sequência ACIMA da média = BAIXA confiança (Nível 6 decide)
-        confidence = 0.3;
-        console.log(`   ⚠️ Sequência ACIMA da média → BAIXA confiança (Nível 6 decidirá)`);
+    console.log(`   📊 Última cor válida: ${lastColor.toUpperCase()}`);
+    console.log(`   📊 Sequência atual de ${lastColor.toUpperCase()}: ${currentSequenceLength} giro(s)`);
+    console.log(`   📊 Média histórica de ${lastColor.toUpperCase()}: ${avgForColor.toFixed(1)} giros`);
+
+    // ═══════════════════════════════════════════════════════════════
+    // ✅ MODELO MAIS SEGURO: prob. empírica de continuar vs reverter
+    // p(cont | já cheguei em L) ≈ count(len>=L+1) / count(len>=L)
+    // com suavização para evitar 0/1 com pouca amostra.
+    // ═══════════════════════════════════════════════════════════════
+    const runs = sequences[lastColor] || [];
+    const atRisk = runs.filter(len => len >= currentSequenceLength).length;
+    const contCount = runs.filter(len => len >= currentSequenceLength + 1).length;
+    const pContinue = (contCount + 1) / (atRisk + 2); // Laplace smoothing
+    const pReverse = 1 - pContinue;
+
+    // Rigor: exigir base estatística mínima para o "tamanho atual"
+    const MIN_AT_RISK = 5;
+    if (atRisk < MIN_AT_RISK) {
+        return {
+            color: null,
+            currentSequence: currentSequenceLength,
+            averageSequence: Number(avgForColor.toFixed(1)),
+            confidence: 0,
+            mode: 'neutral',
+            details: `NULO • pouca base (n=${atRisk} < ${MIN_AT_RISK}) • seq ${currentSequenceLength}`
+        };
     }
-    
-    console.log(`   🗳️ VOTA: ${voteColor.toUpperCase()} (persistência - continuar sequência)`);
+
+    // Thresholds conservadores: só votar quando a probabilidade é bem clara
+    const CONTINUE_MIN = 0.68;
+    const REVERSE_MIN = 0.68;
+
+    let voteColor = null;
+    let mode = 'neutral';
+    if (pContinue >= CONTINUE_MIN) {
+        voteColor = lastColor;
+        mode = 'continue';
+    } else if (pReverse >= REVERSE_MIN) {
+        voteColor = lastColor === 'red' ? 'black' : 'red';
+        mode = 'reverse';
+    } else {
+        voteColor = null;
+        mode = 'neutral';
+    }
+
+    // Confiança: distância de 50% ponderada por tamanho de amostra (atRisk)
+    const edge = Math.abs(pContinue - 0.5) * 2; // 0..1
+    const sampleFactor = Math.min(1, atRisk / 12);
+    const confidence = Math.max(0, Math.min(1, edge * sampleFactor));
+
+    const details = voteColor
+        ? `${mode === 'continue' ? 'CONTINUAR' : 'REVERTER'} • seq ${currentSequenceLength} ${lastColor.toUpperCase()} • Pcont ${(pContinue * 100).toFixed(0)}% (n=${atRisk})`
+        : `NULO • seq ${currentSequenceLength} ${lastColor.toUpperCase()} • Pcont ${(pContinue * 100).toFixed(0)}% (n=${atRisk})`;
+
+    console.log(`   🗳️ VOTA: ${voteColor ? voteColor.toUpperCase() : 'NULO'} (${details})`);
     
     return {
         color: voteColor,
         currentSequence: currentSequenceLength,
-        averageSequence: avgForColor.toFixed(1),
-        avgRed: avgRed.toFixed(1),
-        avgBlack: avgBlack.toFixed(1),
-        confidence: confidence,
-        details: `Seq. atual: ${currentSequenceLength} ${voteColor} (média: ${avgForColor.toFixed(1)})`
+        averageSequence: Number(avgForColor.toFixed(1)),
+        avgRed: Number(avgRed.toFixed(1)),
+        avgBlack: Number(avgBlack.toFixed(1)),
+        confidence,
+        mode,
+        pContinue: Number((pContinue).toFixed(3)),
+        sampleAtRisk: atRisk,
+        details
     };
 }
 
@@ -12465,16 +12704,30 @@ function runN8Detector(history, options = {}) {
                 : N8_DEFAULTS.confMinLive
         };
 
-        const chronologicalHistory = Array.isArray(history) ? history.slice().reverse() : [];
+        // ✅ Determinismo + ordem correta + dedup:
+        // o histórico pode vir com duplicados e fora de ordem (principalmente em cache).
+        const desiredHistory = Math.max(settings.historySize, settings.windowSize * 3);
+        const stableWindow = getStableChronologicalHistoryWindow({
+            limit: Math.min(desiredHistory, Array.isArray(history) ? history.length : 0),
+            sourceHistory: Array.isArray(history) ? history : []
+        });
+        const chronologicalHistory = stableWindow.chronological; // antigo -> recente
         const normalizedHistory = normalizeN0History(chronologicalHistory);
-        const trimmedHistory = normalizedHistory.slice(-Math.max(settings.historySize, settings.windowSize * 3));
+        const trimmedHistory = normalizedHistory.slice(-desiredHistory);
 
         if (trimmedHistory.length < settings.windowSize + 1) {
             return {
                 enabled: false,
                 summaryText: `N8 - Walk-forward → NULO (histórico insuficiente: ${trimmedHistory.length}/${settings.windowSize + 1})`,
                 code: 'insufficient_history',
-                run_summary: { run_id: runId, timestamp: runTimestamp }
+                run_summary: {
+                    run_id: runId,
+                    timestamp: runTimestamp,
+                    requested_history_size: settings.historySize,
+                    used_history_size: stableWindow.meta.usedHistoryLimit,
+                    available_history: stableWindow.meta.availableHistory,
+                    unique_history: stableWindow.meta.uniqueCount
+                }
             };
         }
 
@@ -12485,7 +12738,14 @@ function runN8Detector(history, options = {}) {
                 enabled: false,
                 summaryText: `N8 - Walk-forward → NULO (janelas úteis ${windows.length}, mínimo ${settings.minWindowsRequired})`,
                 code: 'insufficient_windows',
-                run_summary: { run_id: runId, timestamp: runTimestamp }
+                run_summary: {
+                    run_id: runId,
+                    timestamp: runTimestamp,
+                    requested_history_size: settings.historySize,
+                    used_history_size: stableWindow.meta.usedHistoryLimit,
+                    available_history: stableWindow.meta.availableHistory,
+                    unique_history: stableWindow.meta.uniqueCount
+                }
             };
         }
 
@@ -12498,7 +12758,14 @@ function runN8Detector(history, options = {}) {
                 enabled: false,
                 summaryText: `N8 - Walk-forward → NULO (treino com ${trainingWindows.length} janelas)`,
                 code: 'insufficient_training',
-                run_summary: { run_id: runId, timestamp: runTimestamp }
+                run_summary: {
+                    run_id: runId,
+                    timestamp: runTimestamp,
+                    requested_history_size: settings.historySize,
+                    used_history_size: stableWindow.meta.usedHistoryLimit,
+                    available_history: stableWindow.meta.availableHistory,
+                    unique_history: stableWindow.meta.uniqueCount
+                }
             };
         }
 
@@ -12599,7 +12866,14 @@ function runN8Detector(history, options = {}) {
                 enabled: false,
                 summaryText: 'N8 - Walk-forward → NULO (janela incompleta para previsão ao vivo)',
                 code: 'incomplete_live_window',
-                run_summary: { run_id: runId, timestamp: runTimestamp }
+                run_summary: {
+                    run_id: runId,
+                    timestamp: runTimestamp,
+                    requested_history_size: settings.historySize,
+                    used_history_size: stableWindow.meta.usedHistoryLimit,
+                    available_history: stableWindow.meta.availableHistory,
+                    unique_history: stableWindow.meta.uniqueCount
+                }
             };
         }
 
@@ -12666,7 +12940,12 @@ function runN8Detector(history, options = {}) {
         const runSummary = {
             run_id: runId,
             timestamp: runTimestamp,
-            history_size: settings.historySize,
+            requested_history_size: settings.historySize,
+            used_history_size: stableWindow.meta.usedHistoryLimit,
+            available_history: stableWindow.meta.availableHistory,
+            unique_history: stableWindow.meta.uniqueCount,
+            dropped_duplicates: stableWindow.meta.droppedDuplicates,
+            dropped_invalid_ts: stableWindow.meta.droppedInvalidTs,
             window_size: settings.windowSize,
             analyses_to_run: settings.analysesToRun,
             min_windows_required: settings.minWindowsRequired,
@@ -13121,7 +13400,7 @@ async function analyzeWithPatternSystem(history) {
         console.log(`%c   🔴 Vermelho: ${nivel5.momentum.red >= 0 ? '+' : ''}${nivel5.momentum.red}%`, 'color: #FF0000;');
         console.log(`%c   ⚫ Preto: ${nivel5.momentum.black >= 0 ? '+' : ''}${nivel5.momentum.black}%`, 'color: #FFFFFF;');
         console.log(`%c   Tendência: ${nivel5.trending === 'accelerating_red' ? '🔥 Vermelho acelerando' : nivel5.trending === 'accelerating_black' ? '🔥 Preto acelerando' : '⚖️ Estável'}`, 'color: #FFD700; font-weight: bold;');
-    console.log(`%c🗳️ NÍVEL 5 VOTA: ${nivel5.color.toUpperCase()}`, `color: ${nivel5.color === 'red' ? '#FF0000' : '#FFFFFF'}; font-weight: bold; font-size: 14px;`);
+    console.log(`%c🗳️ NÍVEL 5 VOTA: ${nivel5.color ? nivel5.color.toUpperCase() : 'NULO'}`, `color: ${nivel5.color === 'red' ? '#FF0000' : (nivel5.color === 'black' ? '#FFFFFF' : '#888888')}; font-weight: bold; font-size: 14px;`);
     
     // ⚡ NÃO EXIBIR na UI ainda (análise rápida, mostraremos depois)
         
@@ -13623,13 +13902,15 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
         const redMomentum = Number(nivel5.momentum?.red ?? 0);
         const blackMomentum = Number(nivel5.momentum?.black ?? 0);
         const diffMomentum = (isFinite(redMomentum) && isFinite(blackMomentum)) ? Math.abs(redMomentum - blackMomentum) : 0;
-        let momentumStrength = clamp01(diffMomentum / 12);
-        if (momentumStrength < 0.1) momentumStrength = momentumStrength / 2;
-        const momentumDetailsText = n2Enabled
-            ? `${nivel5.trending === 'accelerating_red' ? 'Acelerando vermelho' : nivel5.trending === 'accelerating_black' ? 'Acelerando preto' : 'Estável'} | Δ ${diffMomentum.toFixed(1)} pts`
-            : 'DESATIVADO';
-        const momentumColor = n2Enabled ? nivel5.color : null;
-        const momentumScore = n2Enabled ? directionValue(momentumColor) * momentumStrength : 0;
+        const momentumColor = n2Enabled ? (nivel5 && nivel5.color ? nivel5.color : null) : null;
+        // ✅ força do N2 deve refletir o quão "significativo" foi o momentum (não só o delta bruto)
+        let momentumStrength = (n2Enabled && momentumColor && typeof nivel5?.confidence === 'number')
+            ? clamp01(nivel5.confidence)
+            : 0;
+        const momentumDetailsText = !n2Enabled
+            ? 'DESATIVADO'
+            : (nivel5 && nivel5.details ? nivel5.details : `Δ ${diffMomentum.toFixed(1)} pts`);
+        const momentumScore = (n2Enabled && momentumColor) ? directionValue(momentumColor) * momentumStrength : 0;
         levelReports.push({
             id: 'N2',
             name: 'Momentum',
@@ -14373,7 +14654,7 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
         
         const trendLabel = nivel5.trending === 'accelerating_red' ? 'Acelerando' : nivel5.trending === 'accelerating_black' ? 'Acelerando' : 'Estável';
             if (!analyzerConfig.aiMode) {
-                sendAnalysisStatus(`⚡ N2 - Momentum → ${nivel5.color.toUpperCase()} (${trendLabel})`);
+                sendAnalysisStatus(`⚡ N2 - Momentum → ${nivel5.color ? nivel5.color.toUpperCase() : 'NULO'} (${nivel5.color ? trendLabel : (nivel5.reason || 'sem sinal')})`);
             }
         await sleep(1500);
         
@@ -14481,7 +14762,7 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
         await sleep(1500);
         
         const trendLabel3 = nivel5.trending === 'accelerating_red' ? 'Acelerando' : nivel5.trending === 'accelerating_black' ? 'Acelerando' : 'Estável';
-        sendAnalysisStatus(`⚡ N2 - Momentum → ${nivel5.color.toUpperCase()} (${trendLabel3})`);
+        sendAnalysisStatus(`⚡ N2 - Momentum → ${nivel5.color ? nivel5.color.toUpperCase() : 'NULO'} (${nivel5.color ? trendLabel3 : (nivel5.reason || 'sem sinal')})`);
         await sleep(1500);
         
         if (nivel7 && nivel7.color) {
@@ -14606,7 +14887,7 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
 		
 		const nivel2Description = !n2Enabled
             ? `N2 - Momentum: DESATIVADO`
-            : `N2 - Momentum: ${nivel5.color.toUpperCase()} (${nivel5.trending === 'accelerating_red' ? 'acelerando ↗' : nivel5.trending === 'accelerating_black' ? 'acelerando ↗' : 'estável →'})`;
+            : `N2 - Momentum: ${nivel5.color ? nivel5.color.toUpperCase() : 'NULO'} (${nivel5.color ? (nivel5.trending === 'accelerating_red' ? 'acelerando ↗' : nivel5.trending === 'accelerating_black' ? 'acelerando ↗' : 'estável →') : (nivel5.reason || 'sem sinal')})`;
 		
 		const nivel3Description = !n3Enabled
             ? `N3 - Alternância: DESATIVADO`
@@ -21679,6 +21960,368 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 const DIAMOND_SIMULATION_BATCH = 25;
+const DIAMOND_OPTIMIZATION_TRIALS_DEFAULT = 100;
+const DIAMOND_OPTIMIZATION_PROGRESS_EVERY = 1; // enviar progresso a cada tentativa (100 no total)
+const DIAMOND_OPTIMIZATION_MIN_PCT_DEFAULT = 95; // ✅ só "recomendar" config >= 95%
+const diamondOptimizationJobs = new Map(); // jobId -> { cancelled: boolean }
+
+function makeDiamondOptimizationJobId() {
+    return `diamond-opt-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function deepClonePlain(obj) {
+    try {
+        return obj ? JSON.parse(JSON.stringify(obj)) : {};
+    } catch (_) {
+        return obj ? { ...obj } : {};
+    }
+}
+
+function makeMulberry32(seed) {
+    let a = (Number(seed) || 0) >>> 0;
+    return function rng() {
+        a |= 0;
+        a = (a + 0x6D2B79F5) | 0;
+        let t = Math.imul(a ^ (a >>> 15), 1 | a);
+        t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+}
+
+function hashStringToSeed(str) {
+    const s = String(str || '');
+    let h = 2166136261 >>> 0;
+    for (let i = 0; i < s.length; i++) {
+        h ^= s.charCodeAt(i);
+        h = Math.imul(h, 16777619);
+    }
+    return h >>> 0;
+}
+
+function parseSpinTimestamp(spin) {
+    if (!spin) return NaN;
+    const raw = spin.timestamp ?? spin.created_at ?? spin.createdAt ?? spin.time ?? null;
+    if (raw == null) return NaN;
+    if (typeof raw === 'number') return raw;
+    const n = Number(raw);
+    if (Number.isFinite(n)) return n;
+    const t = Date.parse(String(raw));
+    return Number.isFinite(t) ? t : NaN;
+}
+
+function getSpinDedupKey(spin) {
+    if (!spin) return null;
+    if (spin.id != null) return `id:${String(spin.id)}`;
+    const ts = parseSpinTimestamp(spin);
+    const num = spin.number != null ? String(spin.number) : '';
+    const col = spin.color != null ? String(spin.color) : '';
+    if (Number.isFinite(ts)) return `ts:${ts}|n:${num}|c:${col}`;
+    return null;
+}
+
+function getStableChronologicalHistoryWindow({ limit, sourceHistory }) {
+    const raw = Array.isArray(sourceHistory) ? sourceHistory : [];
+    const availableHistory = raw.length;
+    const take = Math.max(0, Math.min(Number(limit) || 0, availableHistory));
+
+    // Snapshot em memória + dedup + filtro timestamp
+    const seen = new Set();
+    const unique = [];
+    let droppedDuplicates = 0;
+    let droppedInvalidTs = 0;
+
+    // raw costuma vir most-recent-first; mas pode ter duplicados / fora de ordem
+    for (let i = 0; i < raw.length; i++) {
+        const spin = raw[i];
+        if (!spin || !spin.color) continue;
+        const ts = parseSpinTimestamp(spin);
+        if (!Number.isFinite(ts)) {
+            droppedInvalidTs++;
+            continue;
+        }
+        const key = getSpinDedupKey(spin);
+        if (key && seen.has(key)) {
+            droppedDuplicates++;
+            continue;
+        }
+        if (key) seen.add(key);
+        unique.push({
+            ...spin,
+            timestamp: spin.timestamp ?? ts // garantir campo timestamp utilizável
+        });
+    }
+
+    unique.sort((a, b) => parseSpinTimestamp(a) - parseSpinTimestamp(b)); // antigo -> recente
+    const windowChron = take > 0 ? unique.slice(Math.max(0, unique.length - take)) : [];
+
+    return {
+        chronological: windowChron,
+        meta: {
+            availableHistory,
+            uniqueCount: unique.length,
+            droppedDuplicates,
+            droppedInvalidTs,
+            usedHistoryLimit: take
+        }
+    };
+}
+
+function clampInt(n, min, max) {
+    const v = Math.floor(Number(n));
+    if (!Number.isFinite(v)) return min;
+    return Math.max(min, Math.min(max, v));
+}
+
+function randomInt(rng, min, max) {
+    const a = Math.ceil(min);
+    const b = Math.floor(max);
+    if (b <= a) return a;
+    return a + Math.floor(rng() * (b - a + 1));
+}
+
+function scoreOptimizationCandidate(pct, totalCycles) {
+    const p = Number(pct) || 0;
+    const n = Math.max(0, Number(totalCycles) || 0);
+    // Combina assertividade com "cobertura" (evita 100% com 1 ciclo vencer 90% com 100 ciclos)
+    return p * Math.log10(n + 1);
+}
+
+function buildDiamondOptimizationCandidateConfig(baseConfig, levelId, rng) {
+    const cfg = deepClonePlain(baseConfig || {});
+    cfg.aiMode = true;
+    ensureMartingaleProfiles(cfg);
+    cfg.diamondLevelEnabled = buildDiamondSingleLevelEnabledMap(levelId, cfg.diamondLevelEnabled || {});
+
+    const windows = cfg.diamondLevelWindows && typeof cfg.diamondLevelWindows === 'object'
+        ? { ...cfg.diamondLevelWindows }
+        : {};
+
+    // ✅ IMPORTANTE: nunca variar campos de OUTROS níveis.
+    // O otimizador por nível deve mexer SOMENTE nos parâmetros daquele nível.
+    const upper = String(levelId || '').toUpperCase();
+    if (upper === 'N1') {
+        const baseW = Number(windows.n1WindowSize ?? SAFE_ZONE_DEFAULTS.windowSize) || SAFE_ZONE_DEFAULTS.windowSize;
+        const baseA = Number(windows.n1PrimaryRequirement ?? SAFE_ZONE_DEFAULTS.primaryRequirement) || SAFE_ZONE_DEFAULTS.primaryRequirement;
+        const baseB = Number(windows.n1SecondaryRequirement ?? SAFE_ZONE_DEFAULTS.secondaryRequirement) || SAFE_ZONE_DEFAULTS.secondaryRequirement;
+        const baseMaxE = Number(windows.n1MaxEntries ?? SAFE_ZONE_DEFAULTS.maxEntries) || SAFE_ZONE_DEFAULTS.maxEntries;
+
+        // variar em torno do valor atual (±50%), respeitando limites
+        const w = randomInt(rng, Math.max(5, Math.floor(baseW * 0.5)), Math.min(200, Math.ceil(baseW * 1.5)));
+        const aMax = Math.max(1, w - 1);
+        const a = randomInt(rng, Math.max(1, Math.floor(baseA * 0.5)), Math.min(aMax, Math.ceil(baseA * 1.5)));
+        const bMax = Math.max(1, a - 1);
+        const b = randomInt(rng, 1, Math.min(bMax, Math.max(1, Math.ceil(baseB * 1.5))));
+        const maxE = randomInt(rng, Math.max(1, Math.floor(baseMaxE * 0.5)), Math.min(20, Math.ceil(baseMaxE * 1.5)));
+
+        windows.n1WindowSize = clampInt(w, 5, 200);
+        windows.n1PrimaryRequirement = clampInt(a, 1, windows.n1WindowSize - 1);
+        windows.n1SecondaryRequirement = clampInt(b, 1, windows.n1PrimaryRequirement - 1);
+        windows.n1MaxEntries = clampInt(maxE, 1, 20);
+    } else if (upper === 'N2') {
+        // N2 - Momentum
+        const baseRecent = clampInt(windows.n2Recent ?? 5, 2, 20);
+        const basePrev = clampInt(windows.n2Previous ?? 15, 3, 200);
+
+        const recent = clampInt(
+            randomInt(rng, Math.max(2, Math.floor(baseRecent * 0.5)), Math.min(20, Math.ceil(baseRecent * 1.5))),
+            2,
+            20
+        );
+        const prevMin = Math.max(3, recent + 1);
+        const prev = clampInt(
+            randomInt(rng, Math.max(prevMin, Math.floor(basePrev * 0.5)), Math.min(200, Math.ceil(basePrev * 1.5))),
+            prevMin,
+            200
+        );
+        windows.n2Recent = recent;
+        windows.n2Previous = prev;
+    } else {
+        // Outros níveis: não alterar nada por enquanto (evita bagunçar configurações do usuário).
+    }
+
+    cfg.diamondLevelWindows = windows;
+    return cfg;
+}
+
+async function runDiamondPastOptimization({ config, levelId, senderTabId, jobId, historyLimit, trials }) {
+    const job = diamondOptimizationJobs.get(jobId);
+    const requestedLimit = Number(historyLimit);
+    const safeDefault = 1440;
+    const availableHistory = Array.isArray(cachedHistory) ? cachedHistory.length : 0;
+    const limit = (Number.isFinite(requestedLimit) && requestedLimit > 0)
+        ? Math.min(requestedLimit, 10000, availableHistory || requestedLimit)
+        : Math.min(safeDefault, availableHistory || safeDefault);
+
+    const stableWindow = getStableChronologicalHistoryWindow({ limit, sourceHistory: Array.isArray(cachedHistory) ? cachedHistory : [] });
+    const chronological = stableWindow.chronological;
+    const totalSpins = chronological.length;
+    const fromTimestamp = chronological[0]?.timestamp || null;
+    const toTimestamp = chronological[totalSpins - 1]?.timestamp || null;
+
+    const totalTrials = clampInt(trials || DIAMOND_OPTIMIZATION_TRIALS_DEFAULT, 1, 1000);
+    const minPct = DIAMOND_OPTIMIZATION_MIN_PCT_DEFAULT;
+    const baseConfig = (config && typeof config === 'object') ? deepClonePlain(config) : {};
+    baseConfig.aiMode = true;
+    ensureMartingaleProfiles(baseConfig);
+
+    // ✅ Seed determinístico: mesma config + mesma janela => mesmos 100 testes (sem "aleatoriedade do nada")
+    const seedPayload = JSON.stringify({
+        levelId: String(levelId || '').toUpperCase(),
+        usedHistoryLimit: limit,
+        fromTimestamp,
+        toTimestamp,
+        windows: baseConfig.diamondLevelWindows || {},
+        enabled: baseConfig.diamondLevelEnabled || {}
+    });
+    const seed = hashStringToSeed(seedPayload);
+    const rng = makeMulberry32(seed);
+
+    let bestOverall = null; // melhor "geral" (para referência)
+    let bestEligible = null; // melhor >= minPct (para recomendação)
+    const seen = new Set();
+
+    for (let t = 0; t < totalTrials; t++) {
+        if (job && job.cancelled) {
+            if (senderTabId != null) {
+                try { chrome.tabs.sendMessage(senderTabId, { type: 'DIAMOND_OPTIMIZATION_CANCELLED', data: { jobId } }); } catch (_) {}
+            }
+            return {
+                cancelled: true,
+                jobId,
+                totalTrials,
+                fromTimestamp,
+                toTimestamp,
+                totalSpins,
+                requestedLimit,
+                usedHistoryLimit: stableWindow.meta.usedHistoryLimit,
+                availableHistory: stableWindow.meta.availableHistory,
+                uniqueHistory: stableWindow.meta.uniqueCount,
+                droppedDuplicates: stableWindow.meta.droppedDuplicates,
+                droppedInvalidTs: stableWindow.meta.droppedInvalidTs,
+                bestEligible: null,
+                bestOverall: null
+            };
+        }
+
+        // gerar config candidata (garantir "diferentes" pelo menos por assinatura)
+        let candidateCfg = null;
+        let sig = '';
+        for (let tries = 0; tries < 30; tries++) {
+            candidateCfg = buildDiamondOptimizationCandidateConfig(baseConfig, levelId, rng);
+            const dw = candidateCfg.diamondLevelWindows || {};
+            if (String(levelId || '').toUpperCase() === 'N1') {
+                sig = `W${dw.n1WindowSize}|A${dw.n1PrimaryRequirement}|B${dw.n1SecondaryRequirement}|E${dw.n1MaxEntries}`;
+            } else {
+                sig = JSON.stringify(dw);
+            }
+            if (!seen.has(sig)) break;
+            candidateCfg = null;
+        }
+        if (!candidateCfg) {
+            // fallback: aceitar mesmo se repetiu
+            candidateCfg = buildDiamondOptimizationCandidateConfig(baseConfig, levelId, rng);
+        } else {
+            seen.add(sig);
+        }
+
+        // rodar simulação walk-forward (sem vazamento)
+        const simState = createDiamondSimulationState(candidateCfg);
+        const simHistory = [];
+        for (let i = 0; i < totalSpins; i++) {
+            const spin = chronological[i];
+            simHistory.unshift(spin);
+            if (simHistory.length > limit) simHistory.pop();
+
+            evaluatePendingAnalysisSimulation(spin, simState);
+            if (i < totalSpins - 1) {
+                maybeGenerateDiamondAnalysisSimulation(simHistory, simState);
+            }
+        }
+
+        const entries = simState.entriesHistory || [];
+        const filtered = filterFinalEntries(entries);
+        const wins = filtered.filter(e => e && e.result === 'WIN').length;
+        const totalCycles = filtered.length;
+        const losses = totalCycles - wins;
+        const pct = totalCycles ? ((wins / totalCycles) * 100) : 0;
+        const score = scoreOptimizationCandidate(pct, totalCycles);
+        const totalSignals = simState.totalSignals || 0;
+
+        const candidate = {
+            score,
+            pct: Number(pct.toFixed(2)),
+            wins,
+            losses,
+            totalCycles,
+            totalSignals,
+            config: candidateCfg,
+            entries,
+            meta: { totalSpins, fromTimestamp, toTimestamp }
+        };
+
+        const isBetterOverall = !bestOverall
+            || candidate.score > bestOverall.score
+            || (candidate.score === bestOverall.score && candidate.pct > bestOverall.pct)
+            || (candidate.score === bestOverall.score && candidate.pct === bestOverall.pct && candidate.totalCycles > bestOverall.totalCycles);
+
+        if (isBetterOverall) bestOverall = candidate;
+
+        const isEligible = candidate.totalCycles > 0 && candidate.pct >= minPct;
+        if (isEligible) {
+            const isBetterEligible = !bestEligible
+                || candidate.score > bestEligible.score
+                || (candidate.score === bestEligible.score && candidate.pct > bestEligible.pct)
+                || (candidate.score === bestEligible.score && candidate.pct === bestEligible.pct && candidate.totalCycles > bestEligible.totalCycles);
+            if (isBetterEligible) bestEligible = candidate;
+        }
+
+        if (senderTabId != null && (t % DIAMOND_OPTIMIZATION_PROGRESS_EVERY === 0 || t === totalTrials - 1)) {
+            try {
+                const pick = bestEligible || bestOverall;
+                const dw = (pick && pick.config && pick.config.diamondLevelWindows) ? pick.config.diamondLevelWindows : {};
+                const summary = String(levelId || '').toUpperCase() === 'N1'
+                    ? `W ${dw.n1WindowSize} | minA ${dw.n1PrimaryRequirement} | minB ${dw.n1SecondaryRequirement} | maxE ${dw.n1MaxEntries}`
+                    : '—';
+                chrome.tabs.sendMessage(senderTabId, {
+                    type: 'DIAMOND_OPTIMIZATION_PROGRESS',
+                    data: {
+                        jobId,
+                        trial: t + 1,
+                        totalTrials,
+                        minPct,
+                        recommendedFound: !!bestEligible,
+                        best: pick ? {
+                            pct: pick.pct,
+                            totalCycles: pick.totalCycles,
+                            totalSignals: pick.totalSignals,
+                            score: Number(pick.score.toFixed(2)),
+                            summary
+                        } : null
+                    }
+                }).catch(() => {});
+            } catch (_) {}
+            await new Promise(resolve => setTimeout(resolve, 0));
+        }
+    }
+
+    return {
+        cancelled: false,
+        jobId,
+        totalTrials,
+        fromTimestamp,
+        toTimestamp,
+        totalSpins,
+        requestedLimit,
+        usedHistoryLimit: stableWindow.meta.usedHistoryLimit,
+        availableHistory: stableWindow.meta.availableHistory,
+        uniqueHistory: stableWindow.meta.uniqueCount,
+        droppedDuplicates: stableWindow.meta.droppedDuplicates,
+        droppedInvalidTs: stableWindow.meta.droppedInvalidTs,
+        minPct,
+        bestEligible,
+        bestOverall
+    };
+}
 const diamondSimulationJobs = new Map();
 
 function makeDiamondSimulationJobId() {
@@ -22359,8 +23002,10 @@ function analyzeDiamondLevelsSimulation(history, config, simState) {
     const redMomentum = Number(nivel5?.momentum?.red ?? 0);
     const blackMomentum = Number(nivel5?.momentum?.black ?? 0);
     const diffMomentum = (isFinite(redMomentum) && isFinite(blackMomentum)) ? Math.abs(redMomentum - blackMomentum) : 0;
-    let momentumStrength = clamp01Local(diffMomentum / 12);
-    if (momentumStrength < 0.1) momentumStrength = momentumStrength / 2;
+    // ✅ Força deve refletir significância (confidence do N2)
+    let momentumStrength = (n2Enabled && momentumColor && typeof nivel5?.confidence === 'number')
+        ? clamp01Local(nivel5.confidence)
+        : 0;
     levelReports.push({
         id: 'N2',
         name: 'Momentum',
@@ -22368,7 +23013,9 @@ function analyzeDiamondLevelsSimulation(history, config, simState) {
         weight: n2Enabled ? weightFor(levelWeights.momentum) : 0,
         strength: n2Enabled ? momentumStrength : 0,
         score: n2Enabled && momentumColor ? directionValue(momentumColor) * momentumStrength : 0,
-        details: n2Enabled && nivel5 ? `${nivel5.trending} | Δ ${diffMomentum.toFixed(1)} pts` : 'DESATIVADO',
+        details: !n2Enabled
+            ? 'DESATIVADO'
+            : (nivel5 && nivel5.details ? nivel5.details : `Δ ${diffMomentum.toFixed(1)} pts`),
         disabled: !n2Enabled
     });
 
@@ -22931,12 +23578,13 @@ async function runDiamondPastSimulation({ config, mode, levelId, senderTabId, jo
     const job = diamondSimulationJobs.get(jobId);
     const requestedLimit = Number(historyLimit);
     const safeDefault = 1440; // padrão: 12h (2 giros/min)
+    const availableHistory = Array.isArray(cachedHistory) ? cachedHistory.length : 0;
     const limit = (Number.isFinite(requestedLimit) && requestedLimit > 0)
-        ? Math.min(requestedLimit, 10000, Array.isArray(cachedHistory) ? cachedHistory.length : requestedLimit)
-        : Math.min(safeDefault, Array.isArray(cachedHistory) ? cachedHistory.length : safeDefault);
+        ? Math.min(requestedLimit, 10000, availableHistory || requestedLimit)
+        : Math.min(safeDefault, availableHistory || safeDefault);
 
-    const historyMostRecentFirst = Array.isArray(cachedHistory) ? cachedHistory.slice(0, limit) : [];
-    const chronological = historyMostRecentFirst.slice().reverse().filter(spin => spin && spin.color && spin.timestamp);
+    const stableWindow = getStableChronologicalHistoryWindow({ limit, sourceHistory: Array.isArray(cachedHistory) ? cachedHistory : [] });
+    const chronological = stableWindow.chronological;
     const totalSpins = chronological.length;
 
     const simConfigBase = config && typeof config === 'object' ? { ...config } : {};
@@ -22961,7 +23609,19 @@ async function runDiamondPastSimulation({ config, mode, levelId, senderTabId, jo
             if (senderTabId != null) {
                 try { chrome.tabs.sendMessage(senderTabId, { type: 'DIAMOND_SIMULATION_CANCELLED', data: { jobId } }); } catch (_) {}
             }
-            return { cancelled: true, fromTimestamp, toTimestamp, totalSpins, simState };
+            return {
+                cancelled: true,
+                fromTimestamp,
+                toTimestamp,
+                totalSpins,
+                requestedLimit,
+                usedHistoryLimit: stableWindow.meta.usedHistoryLimit,
+                availableHistory: stableWindow.meta.availableHistory,
+                uniqueHistory: stableWindow.meta.uniqueCount,
+                droppedDuplicates: stableWindow.meta.droppedDuplicates,
+                droppedInvalidTs: stableWindow.meta.droppedInvalidTs,
+                simState
+            };
         }
 
         const spin = chronological[i];
@@ -22987,7 +23647,19 @@ async function runDiamondPastSimulation({ config, mode, levelId, senderTabId, jo
         }
     }
 
-    return { cancelled: false, fromTimestamp, toTimestamp, totalSpins, simState };
+    return {
+        cancelled: false,
+        fromTimestamp,
+        toTimestamp,
+        totalSpins,
+        requestedLimit,
+        usedHistoryLimit: stableWindow.meta.usedHistoryLimit,
+        availableHistory: stableWindow.meta.availableHistory,
+        uniqueHistory: stableWindow.meta.uniqueCount,
+        droppedDuplicates: stableWindow.meta.droppedDuplicates,
+        droppedInvalidTs: stableWindow.meta.droppedInvalidTs,
+        simState
+    };
 }
 
 // Listen for messages from popup
@@ -23102,11 +23774,102 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                         totalSpins: result.totalSpins,
                         totalSignals: result.simState.totalSignals,
                         fromTimestamp: result.fromTimestamp,
-                        toTimestamp: result.toTimestamp
+                        toTimestamp: result.toTimestamp,
+                        availableHistory: result.availableHistory,
+                        uniqueHistory: result.uniqueHistory,
+                        droppedDuplicates: result.droppedDuplicates,
+                        droppedInvalidTs: result.droppedInvalidTs,
+                        requestedHistoryLimit: result.requestedLimit,
+                        usedHistoryLimit: result.usedHistoryLimit
                     }
                 });
             } catch (e) {
                 console.error('❌ Falha na simulação Diamante (passado):', e);
+                sendResponse({ status: 'error', error: String(e) });
+            }
+        })();
+        return true;
+    } else if (request.action === 'DIAMOND_OPTIMIZE_PAST') {
+        (async () => {
+            try {
+                const senderTabId = sender && sender.tab ? sender.tab.id : null;
+                const levelId = request.levelId || null;
+                if (!levelId) {
+                    sendResponse({ status: 'error', error: 'levelId obrigatório' });
+                    return;
+                }
+                const config = request.config || {};
+                const historyLimit = request.historyLimit;
+                const trials = request.trials;
+
+                const requestedJobId = (typeof request.jobId === 'string' && request.jobId.trim())
+                    ? request.jobId.trim()
+                    : null;
+                const jobId = requestedJobId || makeDiamondOptimizationJobId();
+                diamondOptimizationJobs.set(jobId, { cancelled: false });
+
+                const result = await runDiamondPastOptimization({ config, levelId, senderTabId, jobId, historyLimit, trials });
+                diamondOptimizationJobs.delete(jobId);
+
+                if (result.cancelled) {
+                    sendResponse({ status: 'cancelled', jobId });
+                    return;
+                }
+                if (!result.bestEligible && !result.bestOverall) {
+                    sendResponse({ status: 'error', jobId, error: 'Nenhuma configuração elegível encontrada' });
+                    return;
+                }
+
+                const from = result.fromTimestamp;
+                const to = result.toTimestamp;
+                const minPct = Number(result.minPct) || DIAMOND_OPTIMIZATION_MIN_PCT_DEFAULT;
+                const recommended = result.bestEligible || null;
+                const overall = result.bestOverall || null;
+                const payloadPick = recommended || overall;
+
+                sendResponse({
+                    status: 'success',
+                    jobId,
+                    levelId,
+                    trials: result.totalTrials,
+                    minPct,
+                    recommendedFound: !!recommended,
+                    recommended: recommended ? {
+                        score: Number(recommended.score.toFixed(2)),
+                        pct: recommended.pct,
+                        wins: recommended.wins,
+                        losses: recommended.losses,
+                        totalCycles: recommended.totalCycles,
+                        totalSignals: recommended.totalSignals,
+                        config: recommended.config
+                    } : null,
+                    bestOverall: overall ? {
+                        score: Number(overall.score.toFixed(2)),
+                        pct: overall.pct,
+                        wins: overall.wins,
+                        losses: overall.losses,
+                        totalCycles: overall.totalCycles,
+                        totalSignals: overall.totalSignals,
+                        config: overall.config
+                    } : null,
+                    // ✅ para renderizar a lista/gráfico: mostra o "recomendado" se existir; senão, a melhor encontrada (abaixo do mínimo)
+                    config: payloadPick ? payloadPick.config : null,
+                    entries: payloadPick ? payloadPick.entries : [],
+                    meta: {
+                        totalSpins: result.totalSpins,
+                        totalSignals: payloadPick ? payloadPick.totalSignals : 0,
+                        fromTimestamp: from,
+                        toTimestamp: to,
+                        availableHistory: result.availableHistory,
+                        uniqueHistory: result.uniqueHistory,
+                        droppedDuplicates: result.droppedDuplicates,
+                        droppedInvalidTs: result.droppedInvalidTs,
+                        requestedHistoryLimit: result.requestedLimit,
+                        usedHistoryLimit: result.usedHistoryLimit
+                    }
+                });
+            } catch (e) {
+                console.error('❌ Falha na otimização Diamante (passado):', e);
                 sendResponse({ status: 'error', error: String(e) });
             }
         })();
@@ -23117,6 +23880,17 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             const job = diamondSimulationJobs.get(jobId);
             job.cancelled = true;
             diamondSimulationJobs.set(jobId, job);
+            sendResponse({ status: 'ok', cancelled: true });
+        } else {
+            sendResponse({ status: 'ok', cancelled: false });
+        }
+        return true;
+    } else if (request.action === 'DIAMOND_OPTIMIZE_CANCEL') {
+        const jobId = request.jobId;
+        if (jobId && diamondOptimizationJobs.has(jobId)) {
+            const job = diamondOptimizationJobs.get(jobId);
+            job.cancelled = true;
+            diamondOptimizationJobs.set(jobId, job);
             sendResponse({ status: 'ok', cancelled: true });
         } else {
             sendResponse({ status: 'ok', cancelled: false });
