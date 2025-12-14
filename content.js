@@ -8919,8 +8919,10 @@ autoBetHistoryStore.init().catch(error => console.warn('AutoBetHistory: iniciali
             // ✅ Sempre manter um snapshot para o simulador de saldo (mesmo vazio),
             // para que alternar modos e limpar histórico atualize o painel corretamente.
             autoBetEntriesSnapshot = Array.isArray(entries) ? entries : [];
+            // ✅ Atualizar UI do simulador imediatamente (saldo/lucro/perdas por modo),
+            // mesmo quando não há ciclo aberto (o histórico pode ser atualizado pelo verificador de sinais).
+            updateStatusUI();
             if (!autoBetEntriesSnapshot.length) {
-                updateStatusUI();
                 return;
             }
             if (!isAutomationActive() && !runtime.openCycle) return;
@@ -13024,6 +13026,10 @@ async function persistAnalyzerState(newState) {
         if (Object.prototype.hasOwnProperty.call(data, 'analysis')) {
             if (data.analysis) {
                 const analysis = data.analysis;
+                // ✅ UX: quando há sinal ativo, expandir o bloco "Padrão" (sem scroll interno)
+                try {
+                    patternInfo?.classList?.add('pattern-expanded');
+                } catch (_) {}
                 const confidence = analysis.confidence;
                 const phaseLabel = (analysis.phase && analysis.phase !== 'ENTRADA' && analysis.phase !== 'G0')
                     ? analysis.phase.toUpperCase()
@@ -13226,6 +13232,7 @@ async function persistAnalyzerState(newState) {
                 // ✅ LIMPAR INFORMAÇÕES DO PADRÃO (remove dados das 6 fases do Modo Diamante)
                 patternInfo.textContent = 'Nenhum padrão detectado';
                 patternInfo.title = '';
+                try { patternInfo?.classList?.remove('pattern-expanded'); } catch (_) {}
                 setSuggestionStage('');
                 // status indicator removed; entries panel shows progress
             }
@@ -13490,10 +13497,13 @@ async function persistAnalyzerState(newState) {
                 const galeNumber = lossCount;
                 
                 galeActiveIndicator = `
-                    <div class="entry-item-wrap gale-active-indicator">
+                    <div class="entry-item-wrap gale-active-indicator" title="Aguardando G${galeNumber}">
+                        <div class="entry-conf-top gale-placeholder">&nbsp;</div>
+                        <div class="entry-stage gale-placeholder">&nbsp;</div>
                         <div class="entry-item">
                             <div class="gale-pulse-circle">${galeNumber}</div>
                         </div>
+                        <div class="entry-time gale-placeholder">&nbsp;</div>
                     </div>
                 `;
             }

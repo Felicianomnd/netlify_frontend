@@ -1332,18 +1332,27 @@
    ═══════════════════════════════════════════════════════════════ */
 
 .gale-active-indicator {
+    /* ocupar o SLOT de um card (empurra os outros) e centralizar a bolinha */
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 0;
-    margin-bottom: 0;
-    position: relative;
-    padding-left: 0;
-    height: auto;
+    gap: 2px;
+    margin: 0;
+    padding: 0;
+}
+
+.gale-active-indicator .entry-item {
+    /* largura do card: caixa (36) + gap (2) + barrinha (4) */
+    width: calc((36px + 2px + 4px) * var(--icon-scale, 1));
+    height: calc(36px * var(--icon-scale, 1));
     justify-content: center;
-    min-height: calc(70px * var(--icon-scale, 1));
-    padding-top: calc(12px * var(--icon-scale, 1));
-    padding-bottom: calc(12px * var(--icon-scale, 1));
+}
+
+/* placeholders invisíveis para manter a mesma “estrutura” vertical do card */
+.gale-active-indicator .gale-placeholder {
+    opacity: 0;
+    pointer-events: none;
+    user-select: none;
 }
 
 /* Bolinha piscando */
@@ -1358,7 +1367,7 @@
         0 0 0 0 rgba(244, 67, 54, 0.7),
         0 0 4px rgba(244, 67, 54, 0.6),
         inset 0 0 2px rgba(255, 255, 255, 0.3);
-    animation: gale-pulse-dot 1.5s ease-in-out infinite;
+    animation: gale-pulse-dot 1.35s ease-in-out infinite;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -1411,7 +1420,7 @@
             inset 0 0 2px rgba(255, 255, 255, 0.3);
     }
     50% {
-        transform: scale(1.10);
+        transform: scale(1.14);
         box-shadow: 
             0 0 0 3px rgba(244, 67, 54, 0),
             0 0 6px rgba(244, 67, 54, 0.8),
@@ -1425,7 +1434,7 @@
         opacity: 1;
     }
     100% {
-        transform: translate(-50%, -50%) scale(1.5);
+        transform: translate(-50%, -50%) scale(1.75);
         opacity: 0;
     }
 }
@@ -1439,6 +1448,13 @@
     color: #e0e0e0;
     max-height: 300px;
     overflow-y: auto;
+}
+
+/* ✅ Quando há sinal ativo (análise pendente), mostrar tudo sem scroll interno.
+   Isso empurra o calibrador para baixo e usa apenas o scroll do painel principal. */
+.pattern-info.pattern-expanded {
+    max-height: none;
+    overflow-y: visible;
 }
 
 .pattern-info::-webkit-scrollbar {
@@ -3693,7 +3709,8 @@
     overflow-x: hidden;
     align-content: flex-start; 
     width: 100%;
-    padding: 4px 0;
+    /* padding horizontal evita cortar efeitos (ex.: anel da bolinha de gale) na borda esquerda */
+    padding: 4px 8px;
 }
 
 .entries-list::-webkit-scrollbar {
