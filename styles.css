@@ -6918,3 +6918,89 @@ body.da-ext-fullscreen #patternDetailsModal .bank-patterns-modal-content {
 /* MODAL COMPLETAR CADASTRO                                                        */
 /* ═══════════════════════════════════════════════════════════════════════════════ */
 
+/* ═══════════════════════════════════════════════════════════════════════════════ */
+/* 💎 SIMULAÇÃO (PASSADO) - MOBILE RESPONSIVO (iPhone/Android)                     */
+/*  - Corrige: botões do footer estourando a largura, seletor 1h/2h/5h/12h em coluna */
+/*  - Escopo: SOMENTE quando a tela de simulação está ativa                         */
+/* ═══════════════════════════════════════════════════════════════════════════════ */
+
+@media (max-width: 520px) {
+    /* Modal mais “cheio” no mobile, com scroll confortável */
+    #diamondLevelsModal.diamond-sim-active .custom-pattern-modal-content {
+        width: calc(100% - 16px) !important;
+        max-width: none !important;
+        padding: 0 !important; /* evita padding duplicado em regras antigas */
+        border-radius: 10px;
+    }
+
+    #diamondLevelsModal.diamond-sim-active .custom-pattern-modal-body {
+        padding: 14px !important;
+        max-height: 82vh !important;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    /* Presets (1h/2h/5h/12h/10k) viram “grid” para ficar bonito e clicável */
+    #diamondLevelsModal.diamond-sim-active .diamond-sim-period-options {
+        display: grid !important;
+        grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+        gap: 10px !important;
+        align-items: stretch;
+    }
+
+    #diamondLevelsModal.diamond-sim-active .diamond-sim-period-option {
+        padding: 10px 0 !important;
+        border-radius: 10px !important;
+        border: 1px solid rgba(255, 255, 255, 0.10) !important;
+        background: rgba(15, 23, 32, 0.55) !important;
+        font-weight: 800 !important;
+        text-decoration: none !important;
+        line-height: 1.1;
+    }
+
+    #diamondLevelsModal.diamond-sim-active .diamond-sim-period-option.active {
+        background: rgba(239, 68, 68, 0.16) !important;
+        border-color: rgba(239, 68, 68, 0.40) !important;
+        text-decoration: none !important;
+    }
+
+    /* “Giros personalizado” quebra para coluna e input ocupa 100% */
+    #diamondLevelsModal.diamond-sim-active .diamond-sim-custom-row {
+        flex-direction: column !important;
+        align-items: stretch !important;
+        gap: 6px !important;
+    }
+
+    #diamondLevelsModal.diamond-sim-active .diamond-sim-custom-input {
+        width: 100% !important;
+    }
+
+    /* Campos duplos (Janela A/B) não cabem bem no celular */
+    #diamondLevelsModal.diamond-sim-active .diamond-sim-config .diamond-level-double {
+        grid-template-columns: 1fr !important;
+        gap: 8px !important;
+    }
+
+    /* Footer da simulação: 2 por linha + “Simular” em linha cheia */
+    #diamondLevelsModal.diamond-sim-active .diamond-sim-view-footer {
+        flex-wrap: wrap !important;
+        gap: 10px !important;
+    }
+
+    #diamondLevelsModal.diamond-sim-active .diamond-sim-view-footer button {
+        flex: 1 1 calc(50% - 10px) !important;
+        min-width: 0 !important;
+    }
+
+    #diamondLevelsModal.diamond-sim-active #diamondSimulationRunBtn {
+        flex: 1 1 100% !important;
+        order: -1 !important;
+    }
+}
+
+@media (max-width: 360px) {
+    /* Telas muito estreitas: presets em 2 colunas */
+    #diamondLevelsModal.diamond-sim-active .diamond-sim-period-options {
+        grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    }
+}
+

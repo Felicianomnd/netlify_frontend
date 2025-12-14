@@ -53,7 +53,7 @@ function getDiamondConfigSnapshot() {
     return [
         ['N0', `Hist ${getValue('n0History', N0_DEFAULTS.historySize)} | W ${getDiamondWindow('n0Window', N0_DEFAULTS.windowSize)} | BlockAll ${analyzerConfig.n0AllowBlockAll !== false ? 'sim' : 'não'}`],
         ['N1', `W ${getDiamondWindow('n1WindowSize', SAFE_ZONE_DEFAULTS.windowSize)} | minA ${getDiamondWindow('n1PrimaryRequirement', SAFE_ZONE_DEFAULTS.primaryRequirement)} | minB ${getDiamondWindow('n1SecondaryRequirement', SAFE_ZONE_DEFAULTS.secondaryRequirement)}`],
-        ['N2', `Rec ${getDiamondWindow('n2Recent', 5)} | Ant ${getDiamondWindow('n2Previous', 15)}`],
+        ['N2', `Janela base ${getDiamondWindow('n2Recent', 10)} (auto)`],
         ['N3', `Hist ${getDiamondWindow('n3Alternance', 12)} | Rigor ${getDiamondWindow('n3ThresholdPct', 75)}% | minOcc ${getDiamondWindow('n3MinOccurrences', 1)}`],
         ['N4', `${getDiamondWindow('n4Persistence', 20)} giros`],
         ['N5', `${getDiamondWindow('n5MinuteBias', 60)} amostras`],
@@ -308,8 +308,10 @@ const DEFAULT_ANALYZER_CONFIG = {
     maxGales: 0,                  // ✅ Legado: valor do modo ativo (mantido para compatibilidade)
     n0AllowBlockAll: true,        // ✅ Permite bloqueio total pelo detector de branco (modo informativo se false)
     martingaleProfiles: {         // ✅ Perfis independentes por modo
-        standard: { maxGales: 0, consecutiveMartingale: false },
-        diamond: { maxGales: 0, consecutiveMartingale: false }
+        // consecutiveGales = quantos gales são IMEDIATOS (consecutivos) antes de passar a esperar novo sinal
+        // Ex.: maxGales=2 e consecutiveGales=1 => G1 imediato, G2 só no próximo sinal
+        standard: { maxGales: 0, consecutiveMartingale: false, consecutiveGales: 0 },
+        diamond: { maxGales: 0, consecutiveMartingale: false, consecutiveGales: 0 }
     },
     telegramChatId: '',           // Chat ID do Telegram para enviar sinais
     aiMode: false,                // Modo Diamante (true) ou Modo Padrão (false)
@@ -321,8 +323,8 @@ const DEFAULT_ANALYZER_CONFIG = {
         n1PrimaryRequirement: 15, // N1 - Zona Segura (requisito mínimo A)
         n1SecondaryRequirement: 3,// N1 - Zona Segura (requisito mínimo B)
         n1MaxEntries: 1,          // N1 - Zona Segura (entradas consecutivas permitidas)
-        n2Recent: 5,              // N2 - Momentum (janela recente)
-        n2Previous: 15,           // N2 - Momentum (janela anterior)
+        n2Recent: 10,             // N2 - Ritmo Autônomo (janela base W)
+        n2Previous: 10,           // N2 - (legado) espelha W por compatibilidade
         n3Alternance: 12,         // N3 - Alternância (histórico analisado em giros)
         n3PatternLength: 4,       // N3 - Alternância (tamanho da janela n-gram L)
         n3MinOccurrences: 1,      // N3 - Alternância (ocorrências mínimas para considerar a janela)
@@ -434,10 +436,12 @@ function analyzeSafeZone(history, options = {}) {
         result.signal = true;
         result.reason = 'zone_active_last_is_dominant';
 
-        // ✅ NOVO FILTRO (N1): evitar "continuar sequência longa" no curto prazo
-        // Regra: se a cor do sinal já saiu 4+ vezes consecutivas nos giros mais recentes,
-        // não liberar o sinal para tentar o próximo (5º, 6º, ...).
-        // (3 consecutivos ainda é permitido; o N9 decide se a sequência de 4 é viável.)
+        // ✅ NOVO FILTRO FLEXÍVEL (N1):
+        // - Permitir entradas mesmo se as últimas 2 ou 3 forem a dominante (ex.: RR ou RRR),
+        //   mas SEMPRE evitando entrar no "topo" da sequência.
+        // - A zona segura decide até onde "vai" olhando o histórico *dentro da própria janela*:
+        //   se a zona só tem sequências de até 2/3, não tentar 3→4; se tem até 4, permitir 3→4 etc.
+        // - O N9 (Barreira Final) continua sendo o veto final de viabilidade histórica global.
         const recentColor = result.dominant;
         let recentStreak = 0;
         for (let i = 0; i < history.length; i++) {
@@ -447,9 +451,31 @@ function analyzeSafeZone(history, options = {}) {
             else break;
         }
         result.recentStreak = recentStreak;
-        if (recentStreak >= 4) {
+
+        // Calcular o maior tamanho de sequência da dominante dentro da janela da zona (exclui brancos como continuidade).
+        let dominantRunMax = 0;
+        let curLen = 0;
+        for (let i = 0; i < windowSpins.length; i++) {
+            const c = windowSpins[i]?.color;
+            if (c === recentColor) {
+                curLen++;
+                if (curLen > dominantRunMax) dominantRunMax = curLen;
+            } else {
+                curLen = 0;
+            }
+        }
+        result.dominantRunMax = dominantRunMax;
+
+        // Regra principal: só sinaliza se a próxima sequência (recentStreak+1) estiver "dentro do que a zona já mostrou".
+        // Ex.: se max na zona é 3, permitir 1→2 e 2→3, mas bloquear 3→4.
+        const nextTargetStreak = recentStreak + 1;
+        result.nextTargetStreak = nextTargetStreak;
+        if (dominantRunMax < 2) {
             result.signal = false;
-            result.reason = 'recent_streak_limit';
+            result.reason = 'zone_no_pairs';
+        } else if (nextTargetStreak > dominantRunMax) {
+            result.signal = false;
+            result.reason = 'zone_run_limit';
         }
     } else {
         result.signal = false;
@@ -499,8 +525,10 @@ function describeSafeZoneReason(reason) {
             return 'Limite de entradas atingido';
         case 'zone_active_last_is_dominant':
             return 'Zona confirmada';
-        case 'recent_streak_limit':
-            return 'Bloqueado: sequência recente ≥ 4';
+        case 'zone_no_pairs':
+            return 'Zona sem duplas (max=1)';
+        case 'zone_run_limit':
+            return 'Bloqueado: topo da sequência na zona';
         case 'req_not_met':
         default:
             return 'Requisitos mínimos não atendidos';
@@ -533,6 +561,21 @@ function sanitizeMaxGales(value, fallback = 0) {
     return Math.max(0, Math.min(200, Math.floor(numeric)));
 }
 
+function getMartingaleStageNumber(stage) {
+    const s = String(stage || '').toUpperCase().trim();
+    if (!s || s === 'ENTRADA' || s === 'G0') return 0;
+    const m = s.match(/^G(\d+)$/);
+    if (!m) return 0;
+    const n = Number(m[1]);
+    return Number.isFinite(n) && n >= 0 ? n : 0;
+}
+
+function isMartingaleStageConsecutive(stage, consecutiveGales) {
+    const k = getMartingaleStageNumber(stage);
+    const limit = Math.max(0, Number(consecutiveGales) || 0);
+    return k > 0 && k <= limit;
+}
+
 function ensureMartingaleProfiles(config) {
     if (!config) return;
     const defaults = DEFAULT_ANALYZER_CONFIG.martingaleProfiles || {};
@@ -541,14 +584,27 @@ function ensureMartingaleProfiles(config) {
     }
     ['standard', 'diamond'].forEach(mode => {
         const profile = config.martingaleProfiles[mode] || {};
-        const defaultProfile = defaults[mode] || { maxGales: 0, consecutiveMartingale: false };
+        const defaultProfile = defaults[mode] || { maxGales: 0, consecutiveMartingale: false, consecutiveGales: 0 };
         const inheritedMax = profile.maxGales != null ? profile.maxGales : config.maxGales;
         const inheritedConsecutive = profile.consecutiveMartingale != null ? profile.consecutiveMartingale : config.consecutiveMartingale;
+
+        const maxGales = sanitizeMaxGales(inheritedMax, defaultProfile.maxGales);
+
+        // ✅ consecutiveGales: 0..maxGales
+        // - se vier no profile, respeitar (com clamp)
+        // - senão, compat com boolean antigo: consecutiveMartingale=true => todos os gales consecutivos
+        const rawConsecutiveGales =
+            profile.consecutiveGales != null
+                ? Number(profile.consecutiveGales)
+                : (typeof inheritedConsecutive === 'boolean' && inheritedConsecutive ? maxGales : 0);
+        const consecutiveGales = Math.max(0, Math.min(maxGales, Math.floor(Number.isFinite(rawConsecutiveGales) ? rawConsecutiveGales : 0)));
+
+        // ✅ Mantido por compatibilidade: agora significa "tem parte consecutiva"
+        const consecutiveMartingale = consecutiveGales > 0;
         config.martingaleProfiles[mode] = {
-            maxGales: sanitizeMaxGales(inheritedMax, defaultProfile.maxGales),
-            consecutiveMartingale: typeof inheritedConsecutive === 'boolean'
-                ? inheritedConsecutive
-                : defaultProfile.consecutiveMartingale
+            maxGales,
+            consecutiveGales,
+            consecutiveMartingale
         };
     });
 }
@@ -582,14 +638,17 @@ function getModeKey(config = analyzerConfig) {
 
 function getMartingaleSettings(modeKey = getModeKey(), config = analyzerConfig) {
     if (!config) {
-        return { maxGales: 0, consecutiveMartingale: false };
+        return { maxGales: 0, consecutiveMartingale: false, consecutiveGales: 0 };
     }
     ensureMartingaleProfiles(config);
     const profiles = config.martingaleProfiles || {};
-    const profile = profiles[modeKey] || { maxGales: 0, consecutiveMartingale: false };
+    const profile = profiles[modeKey] || { maxGales: 0, consecutiveMartingale: false, consecutiveGales: 0 };
+    const maxGales = sanitizeMaxGales(profile.maxGales);
+    const consecutiveGales = Math.max(0, Math.min(maxGales, Math.floor(Number(profile.consecutiveGales) || 0)));
     return {
-        maxGales: sanitizeMaxGales(profile.maxGales),
-        consecutiveMartingale: !!profile.consecutiveMartingale
+        maxGales,
+        consecutiveGales,
+        consecutiveMartingale: consecutiveGales > 0
     };
 }
 
@@ -1829,10 +1888,9 @@ async function syncInitialData() {
         if (lastSpin) {
             console.log('📤 Enviando último giro para UI:', lastSpin);
             await chrome.storage.local.set({ lastSpin: lastSpin });
-            sendMessageToContent('NEW_SPIN', { 
-                lastSpin: lastSpin,
-                history: serverGiros 
-            });
+            // ✅ NÃO enviar history aqui: o content.js já busca até 10k diretamente do servidor.
+            // Enviar history (2000) aqui sobrescrevia o buffer de 10k e fazia a UI ficar "travada em 2000".
+            sendMessageToContent('NEW_SPIN', { lastSpin: lastSpin });
             console.log('%c✅ UI atualizada com histórico do servidor', 'color: #00ff00; font-weight: bold;');
         }
     } else {
@@ -3296,6 +3354,10 @@ async function processNewSpinFromServer(spinData) {
                                 analysis: null, 
                                 pattern: null,
                                 lastBet: { status: 'win', phase: currentAnalysis.phase || 'G0', resolvedAtTimestamp: latestSpin.created_at },
+                                // ✅ Intervalo após entrada (Diamante): contar a partir do FIM DO CICLO
+                                lastCycleResolvedSpinId: latestSpin ? (latestSpin.id || null) : null,
+                                lastCycleResolvedSpinTimestamp: latestSpin ? (latestSpin.created_at || null) : null,
+                                lastCycleResolvedTimestamp: Date.now(),
                                 entriesHistory,
                                 martingaleState,  // ✅ Salvar estado do Martingale
                                 rigorLevel: 75 // RESET: Volta para 75% após WIN
@@ -3361,7 +3423,7 @@ async function processNewSpinFromServer(spinData) {
                             }
                             
                             const nextGaleNumber = currentGaleNumber + 1;
-                            const { maxGales, consecutiveMartingale } = getMartingaleSettings();
+                            const { maxGales, consecutiveGales } = getMartingaleSettings();
                             
                             console.log(`║  ❌ LOSS no ${currentStage === 'ENTRADA' ? 'ENTRADA PADRÃO' : currentStage}                                  ║`);
                             console.log(`║  ⚙️  Configuração: ${maxGales} Gale${maxGales !== 1 ? 's' : ''} permitido${maxGales !== 1 ? 's' : ''}           ║`);
@@ -3441,6 +3503,10 @@ async function processNewSpinFromServer(spinData) {
                                         analysis: null, 
                                         pattern: null,
                                         lastBet: { status: 'loss', phase: 'G0', resolvedAtTimestamp: latestSpin.created_at },
+                                        // ✅ Intervalo após entrada (Diamante): contar a partir do FIM DO CICLO (RET)
+                                        lastCycleResolvedSpinId: latestSpin ? (latestSpin.id || null) : null,
+                                        lastCycleResolvedSpinTimestamp: latestSpin ? (latestSpin.created_at || null) : null,
+                                        lastCycleResolvedTimestamp: Date.now(),
                                         entriesHistory,
                                         martingaleState
                                     });
@@ -3467,7 +3533,7 @@ async function processNewSpinFromServer(spinData) {
                                 
                                 // ✅ TEM GALES: Tentar G1
                                 console.log(`🔄 Tentando G${nextGaleNumber}...`);
-                                console.log(`⚙️ Martingale Consecutivo: ${consecutiveMartingale ? 'ATIVADO' : 'DESATIVADO'}`);
+                                console.log(`⚙️ Gales consecutivos (até): ${consecutiveGales}`);
                                 
                                 // ✅ ENVIAR MENSAGEM DE LOSS ENTRADA (vai tentar G1)
                                 await sendTelegramMartingaleLoss(
@@ -3516,7 +3582,7 @@ async function processNewSpinFromServer(spinData) {
                                 // VERIFICAR MODO DE MARTINGALE
                                 // ═══════════════════════════════════════════════════════════════
                                 
-                                if (consecutiveMartingale) {
+                                if (nextGaleNumber <= consecutiveGales) {
                                     // ✅ MODO CONSECUTIVO: Enviar G1 IMEDIATAMENTE no próximo giro
                                     console.log('🎯 MODO CONSECUTIVO: G1 será enviado no PRÓXIMO GIRO');
                                     
@@ -3544,7 +3610,7 @@ async function processNewSpinFromServer(spinData) {
                                     sendMessageToContent('ENTRIES_UPDATE', entriesHistory);
                                 } else {
                                     // ❌ MODO PADRÃO: Aguardar novo padrão para enviar G1
-                                    console.log('⏳ MODO PADRÃO: Aguardando novo padrão para enviar G1...');
+                                    console.log('⏳ MODO PRÓXIMO SINAL: Aguardando novo sinal para enviar G1...');
                                     
                                     await chrome.storage.local.set({
                                         analysis: null,
@@ -3611,6 +3677,10 @@ async function processNewSpinFromServer(spinData) {
                                         analysis: null, 
                                         pattern: null, 
                                         lastBet: { status: 'loss', phase: currentStage, resolvedAtTimestamp: latestSpin.created_at },
+                                        // ✅ Intervalo após entrada (Diamante): contar a partir do FIM DO CICLO (RET)
+                                        lastCycleResolvedSpinId: latestSpin ? (latestSpin.id || null) : null,
+                                        lastCycleResolvedSpinTimestamp: latestSpin ? (latestSpin.created_at || null) : null,
+                                        lastCycleResolvedTimestamp: Date.now(),
                                         entriesHistory,
                                         martingaleState
                                     });
@@ -3622,7 +3692,7 @@ async function processNewSpinFromServer(spinData) {
                                 
                                 // ✅ TEM GALES: Tentar próximo
                                 console.log(`🔄 Tentando G${nextGaleNumber}...`);
-                                console.log(`⚙️ Martingale Consecutivo: ${consecutiveMartingale ? 'ATIVADO' : 'DESATIVADO'}`);
+                                console.log(`⚙️ Gales consecutivos (até): ${consecutiveGales}`);
                                 
                                 // ✅ ENVIAR MENSAGEM DE LOSS (vai tentar próximo Gale)
                                 await sendTelegramMartingaleLoss(
@@ -3667,7 +3737,7 @@ async function processNewSpinFromServer(spinData) {
                                 martingaleState.lossColors.push(rollColor);
                                 
                                 // Verificar modo de Martingale
-                                if (consecutiveMartingale) {
+                                if (nextGaleNumber <= consecutiveGales) {
                                     // ✅ MODO CONSECUTIVO
                                     console.log(`🎯 MODO CONSECUTIVO: G${nextGaleNumber} será enviado no PRÓXIMO GIRO`);
                                     
@@ -3694,7 +3764,7 @@ async function processNewSpinFromServer(spinData) {
                                     sendMessageToContent('ENTRIES_UPDATE', entriesHistory);
                                 } else {
                                     // ❌ MODO PADRÃO
-                                    console.log(`⏳ MODO PADRÃO: Aguardando novo padrão para enviar G${nextGaleNumber}...`);
+                                    console.log(`⏳ MODO PRÓXIMO SINAL: Aguardando novo sinal para enviar G${nextGaleNumber}...`);
                                     
                                     await chrome.storage.local.set({
                                         analysis: null,
@@ -3713,7 +3783,7 @@ async function processNewSpinFromServer(spinData) {
                                 // ═══════════════════════════════════════════════════════════════
                                 // ✅ LOSS NO G1: Verificar modo de Martingale
                                 // ═══════════════════════════════════════════════════════════════
-                                console.log(`⚙️ Martingale Consecutivo: ${consecutiveMartingale ? 'ATIVADO' : 'DESATIVADO'}`);
+                                console.log(`⚙️ Gales consecutivos (até): ${consecutiveGales}`);
                                 
                                 // ✅ USAR SEMPRE A MESMA COR DA ENTRADA ORIGINAL
                                 const g2Color = martingaleState.entryColor;
@@ -3849,6 +3919,10 @@ async function processNewSpinFromServer(spinData) {
                                         analysis: null, 
                                         pattern: null, 
                                     lastBet: { status: 'loss', phase: 'G2', resolvedAtTimestamp: latestSpin.created_at },
+                                        // ✅ Intervalo após entrada (Diamante): contar a partir do FIM DO CICLO (RET)
+                                        lastCycleResolvedSpinId: latestSpin ? (latestSpin.id || null) : null,
+                                        lastCycleResolvedSpinTimestamp: latestSpin ? (latestSpin.created_at || null) : null,
+                                        lastCycleResolvedTimestamp: Date.now(),
                                         entriesHistory,
                                     martingaleState
                                     });
@@ -3870,9 +3944,9 @@ async function processNewSpinFromServer(spinData) {
                 }
                 
                 // Notificar content script sobre novo giro (SEMPRE usar cachedHistory - array válido!)
-                sendMessageToContent('NEW_SPIN', { 
-                    history: cachedHistory, 
-                    lastSpin: { number: rollNumber, color: rollColor, timestamp: latestSpin.created_at } 
+                // ✅ NÃO enviar history a cada giro (evita sobrescrever buffer de 10k no content.js e reduz payload)
+                sendMessageToContent('NEW_SPIN', {
+                    lastSpin: { number: rollNumber, color: rollColor, timestamp: latestSpin.created_at }
                 });
                 
                 // ✅ EXECUTAR NOVA ANÁLISE (após processar WIN/LOSS)
@@ -3955,10 +4029,8 @@ async function initializeHistoryIfNeeded() {
             if (lastSpin) {
                 console.log('📤 Enviando último giro para UI:', lastSpin);
                 await chrome.storage.local.set({ lastSpin: lastSpin });
-                sendMessageToContent('NEW_SPIN', { 
-                    lastSpin: lastSpin,
-                    history: serverGiros 
-                });
+                // ✅ NÃO enviar history aqui (ver comentário em syncInitialData)
+                sendMessageToContent('NEW_SPIN', { lastSpin: lastSpin });
                 console.log('%c✅ UI atualizada com histórico do servidor (initializeHistoryIfNeeded)', 'color: #00ff00; font-weight: bold;');
             }
             return;
@@ -8042,172 +8114,380 @@ function analyzeMinuteSum(history, currentMinute, targetPosition) {
 }
 
 /**
- * NÍVEL 2: Análise de Momentum (tendência quente vs base recente)
- * Compara os últimos 5 giros com os 15 giros imediatamente anteriores
+ * NÍVEL 2 (novo): Ritmo Autônomo (duplas e sequência)
+ * O usuário define uma janela base W e o N2 ajusta automaticamente para encolher/expandir,
+ * validando pelo histórico (ocorrências) e reiniciando após BRANCO.
  */
 function analyzeMomentum(history) {
-    const recentWindowConfigured = Math.max(2, Math.min(20, getDiamondWindow('n2Recent', 5)));
-    const previousWindowConfigured = Math.max(3, Math.min(200, getDiamondWindow('n2Previous', 15)));
+    // ✅ NOVO N2 (final): janela base única W (usuário) + liberdade do código para encolher/expandir
+    // Config: n2Recent = W (janela base)
+    const baseW = Math.max(6, Math.min(200, getDiamondWindow('n2Recent', 10)));
+
     console.log('%c┌─────────────────────────────────────────────────────────┐', 'color: #00AAFF; font-weight: bold;');
-    console.log(`%c│ 🔍 NÍVEL 2: MOMENTUM (${recentWindowConfigured} RECENTES vs ${previousWindowConfigured} ANTERIORES) │`, 'color: #00AAFF; font-weight: bold;');
+    console.log(`%c│ 🔍 N2: RITMO AUTÔNOMO (DUPLAS/SEQUÊNCIA) • W=${baseW} │`, 'color: #00AAFF; font-weight: bold;');
     console.log('%c└─────────────────────────────────────────────────────────┘', 'color: #00AAFF; font-weight: bold;');
-    
-    const totalNeeded = recentWindowConfigured + previousWindowConfigured;
-    const windowSize = Math.min(totalNeeded, history.length);
-    const windowSpins = history.slice(0, windowSize);
-    console.log(`   📊 Total de giros disponíveis: ${history.length}`);
-    console.log(`   📊 Analisando últimos: ${windowSpins.length} giros`);
-    
-    let recentSize = recentWindowConfigured;
-    let previousSize = previousWindowConfigured;
-    
-    if (windowSpins.length < totalNeeded) {
-        // Ajustar proporcionalmente mantendo prioridade nos giros recentes
-        const available = windowSpins.length;
-        recentSize = Math.max(2, Math.min(recentWindowConfigured, Math.floor(available / 3)));
-        previousSize = Math.max(1, available - recentSize);
-        console.log(`   ⚠️ Dados insuficientes! Ajustando janelas:`);
-        console.log(`      Recentes: ${recentSize} giros | Anteriores: ${previousSize} giros`);
-    } else {
-        console.log(`   📊 Janela recente: ${recentSize} últimos giros`);
-        console.log(`   📊 Janela anterior: ${previousSize} giros antes`);
-    }
-    
-    return analyzeMomentumWithSizes(windowSpins, recentSize, previousSize);
+
+    return analyzeMomentumWithSizes(history, baseW, 0);
 }
 
 function analyzeMomentumWithSizes(history, recentSize, previousSize) {
-    const recent = history.slice(0, recentSize);
-    const previous = history.slice(recentSize, recentSize + previousSize);
-    
-    // Contar cores (branco reduz amostra efetiva)
-    const countWindow = (arr) => {
-        const counts = { red: 0, black: 0, white: 0, other: 0 };
-        arr.forEach(spin => {
-            const c = spin && spin.color ? String(spin.color).toLowerCase() : '';
-            if (c === 'red') counts.red++;
-            else if (c === 'black') counts.black++;
-            else if (c === 'white') counts.white++;
-            else counts.other++;
-        });
-        return counts;
+    // ✅ NOVO N2 (ritmo autônomo): recentSize = W (janela base); previousSize ignorado
+    const clampIntLocal = (n, min, max) => {
+        const v = Math.floor(Number(n));
+        if (!Number.isFinite(v)) return min;
+        return Math.max(min, Math.min(max, v));
     };
-    const recentCounts = countWindow(recent);
-    const previousCounts = countWindow(previous);
-    
-    const recentTotal = recentCounts.red + recentCounts.black;      // amostra efetiva (sem branco)
-    const previousTotal = previousCounts.red + previousCounts.black; // amostra efetiva (sem branco)
-    
-    const recentRedPercent = recentTotal > 0 ? (recentCounts.red / recentTotal * 100) : 50;
-    const recentBlackPercent = recentTotal > 0 ? (recentCounts.black / recentTotal * 100) : 50;
-    
-    const previousRedPercent = previousTotal > 0 ? (previousCounts.red / previousTotal * 100) : 50;
-    const previousBlackPercent = previousTotal > 0 ? (previousCounts.black / previousTotal * 100) : 50;
-    
-    console.log(`   📊 JANELA RECENTE (${recentSize} giros):`);
-    console.log(`      🔴 Vermelhos: ${recentCounts.red} (${recentRedPercent.toFixed(1)}%)`);
-    console.log(`      ⚫ Pretos: ${recentCounts.black} (${recentBlackPercent.toFixed(1)}%)`);
-    
-    console.log(`   📊 JANELA ANTERIOR (${previousSize} giros):`);
-    console.log(`      🔴 Vermelhos: ${previousCounts.red} (${previousRedPercent.toFixed(1)}%)`);
-    console.log(`      ⚫ Pretos: ${previousCounts.black} (${previousBlackPercent.toFixed(1)}%)`);
-    
-    // Determinar momentum (delta de distribuição)
-    const redMomentum = recentRedPercent - previousRedPercent;
-    const blackMomentum = recentBlackPercent - previousBlackPercent;
-    const deltaAbs = Math.abs(redMomentum);
-    
-    console.log(`   📈 MOMENTUM:`);
-    console.log(`      🔴 Vermelho: ${redMomentum > 0 ? '+' : ''}${redMomentum.toFixed(1)}%`);
-    console.log(`      ⚫ Preto: ${blackMomentum > 0 ? '+' : ''}${blackMomentum.toFixed(1)}%`);
+    const clamp01Local = (v) => Math.max(0, Math.min(1, Number(v) || 0));
+    const opp = (c) => c === 'red' ? 'black' : c === 'black' ? 'red' : null;
 
-    // ✅ Regras de segurança (dinheiro real):
-    // - Empate (delta=0) => voto NULO (remove viés pró-preto)
-    // - Amostra efetiva mínima
-    // - Mudança mínima (delta) + significância (z-score) para reduzir ruído aleatório
-    const MIN_RECENT_EFFECTIVE = Math.max(3, Math.min(10, recentSize));   // exigir um pouco mais de amostra efetiva
-    const MIN_PREV_EFFECTIVE = Math.max(5, Math.min(30, previousSize));   // exigir um pouco mais de amostra efetiva
-    const MIN_EFFECTIVE_RATIO = 0.85; // se muito branco cair na janela, não confiar
-    const MIN_RECENT_DOMINANCE_PCT = 65; // recent precisa estar bem dominante
-    const MIN_DELTA_PCT = 18; // ✅ mais rigor: só vota se mudança >= 18pp (entre 15 e 20, como você pediu)
-    const Z_THRESHOLD = 2.58; // ✅ mais rigor: ~99% (diferença de proporções)
+    const W = clampIntLocal(recentSize, 6, 200);
+    const available = Array.isArray(history) ? history.length : 0;
 
-    let voteColor = null;
-    let reason = 'nulo';
-    let zScore = 0;
-    let confidence = 0;
+    const currentColor = normalizeSpinColorValue(Array.isArray(history) ? history[0] : null);
+    if (currentColor !== 'red' && currentColor !== 'black') {
+        return {
+            color: null,
+            momentum: { red: '0.0', black: '0.0' },
+            trending: 'neutral',
+            confidence: 0,
+            confidencePct: 0,
+            reason: 'ultimo_nao_rb',
+            details: 'NULO • último giro não é vermelho/preto'
+        };
+    }
 
-    if (deltaAbs < 1e-9) {
-        reason = 'empate';
-    } else if (recentTotal < MIN_RECENT_EFFECTIVE || previousTotal < MIN_PREV_EFFECTIVE) {
-        reason = 'amostra insuficiente';
-    } else {
-        const recentEffectiveRatio = (recentTotal / Math.max(1, recentSize));
-        const prevEffectiveRatio = (previousTotal / Math.max(1, previousSize));
-        const recentDominance = Math.max(recentRedPercent, recentBlackPercent);
+    if (available < 6) {
+        return {
+            color: null,
+            momentum: { red: '0.0', black: '0.0' },
+            trending: 'neutral',
+            confidence: 0,
+            confidencePct: 0,
+            reason: 'historico_insuficiente',
+            details: `NULO • histórico insuficiente (${available}/6)`
+        };
+    }
 
-        if (recentEffectiveRatio < MIN_EFFECTIVE_RATIO || prevEffectiveRatio < MIN_EFFECTIVE_RATIO) {
-            reason = `muito branco (${Math.round(Math.min(recentEffectiveRatio, prevEffectiveRatio) * 100)}% efetivo)`;
-        } else if (recentDominance < MIN_RECENT_DOMINANCE_PCT) {
-            reason = `recente fraco (<${MIN_RECENT_DOMINANCE_PCT}%)`;
-        } else {
-        // z-score da diferença de proporções (apenas histórico; NÃO usa odds do jogo)
-        const p1 = recentCounts.red / recentTotal;
-        const p2 = previousCounts.red / previousTotal;
-        const pooled = (recentCounts.red + previousCounts.red) / (recentTotal + previousTotal);
-        const se = Math.sqrt(Math.max(0, pooled * (1 - pooled)) * (1 / recentTotal + 1 / previousTotal));
-        zScore = se > 0 ? (p1 - p2) / se : 0;
-        const zAbs = Math.abs(zScore);
+    // Base histórica (para ocorrências): maior que W, mas com limite para performance
+    const historyCap = Math.min(
+        available,
+        Math.max(120, Math.min(800, Math.floor(W * 30)))
+    );
+    const baseSpins = history.slice(0, historyCap).reverse(); // antigo -> recente
+    const baseSeq = baseSpins.map(spin => normalizeSpinColorValue(spin)); // red/black/white/null
 
-        if (deltaAbs < MIN_DELTA_PCT) {
-            reason = `Δ<${MIN_DELTA_PCT}pp`;
-        } else if (zAbs < Z_THRESHOLD) {
-            reason = `z<${Z_THRESHOLD}`;
-        } else {
-            voteColor = redMomentum > 0 ? 'red' : 'black';
-            reason = 'ok';
-            // confiança normalizada a partir do z-score (começa em 0 no threshold e satura em z=4)
-            confidence = Math.max(0, Math.min(1, (zAbs - Z_THRESHOLD) / (4 - Z_THRESHOLD)));
+    const buildRuns = (seqChron) => {
+        const by = { red: [], black: [] };
+        let cur = null;
+        let len = 0;
+        for (const c of seqChron) {
+            if (c !== 'red' && c !== 'black') {
+                if (cur) {
+                    by[cur].push(len);
+                    cur = null;
+                    len = 0;
+                }
+                continue; // branco quebra
+            }
+            if (c === cur) {
+                len += 1;
+            } else {
+                if (cur) by[cur].push(len);
+                cur = c;
+                len = 1;
+            }
         }
+        if (cur) by[cur].push(len);
+        return by;
+    };
+
+    const percentile = (arr, p) => {
+        const list = Array.isArray(arr) ? arr.slice().filter(n => Number.isFinite(Number(n)) && Number(n) > 0).map(n => Number(n)) : [];
+        if (list.length === 0) return 0;
+        list.sort((a, b) => a - b);
+        const idx = Math.max(0, Math.min(list.length - 1, Math.floor((list.length - 1) * p)));
+        return list[idx];
+    };
+
+    const baseRunsBy = buildRuns(baseSeq);
+
+    const evalWindow = (w) => {
+        const windowSpins = history.slice(0, w).reverse(); // antigo -> recente
+        const seq = windowSpins.map(spin => normalizeSpinColorValue(spin)); // red/black/white/null
+
+        const minConfirm = Math.max(6, Math.floor(W * 0.6));
+
+        // ✅ Regra principal do N2 (como você descreveu):
+        // A cor-alvo só é válida se, desde o último "singleton" (run=1) COMPLETO dela,
+        // ela NÃO tiver mais aparecido sozinha (apenas em duplas+). Se sair só, reinicia dali.
+        const findLastSingletonBreak = (seqArr, targetColor) => {
+            let cur = null;
+            let len = 0;
+            let start = 0;
+            let lastBreakAt = -1;
+            for (let i = 0; i < seqArr.length; i++) {
+                const c = seqArr[i];
+                const isRB = (c === 'red' || c === 'black');
+                if (isRB) {
+                    if (c === cur) {
+                        len += 1;
+                    } else {
+                        // fechar run anterior
+                        if (cur === targetColor && len === 1) {
+                            lastBreakAt = start; // singleton confirmado (porque mudou)
+                        }
+                        cur = c;
+                        len = 1;
+                        start = i;
+                    }
+                } else {
+                    // fechar run anterior (branco/preenchimento também confirma a quebra se a run era singleton)
+                    if (cur === targetColor && len === 1) {
+                        lastBreakAt = start;
+                    }
+                    cur = null;
+                    len = 0;
+                    start = i + 1;
+                }
+            }
+            // Não marcar o último run (mais recente) como quebra: ele ainda está "em andamento"
+            return lastBreakAt;
+        };
+
+        const pairRate = (lens) => {
+            const n = lens.length;
+            if (!n) return 0;
+            const pairs = lens.filter(v => v >= 2).length;
+            return pairs / n;
+        };
+        const maxLen = (lens) => lens.length ? Math.max(...lens) : 0;
+        const singleRate = (lens) => {
+            const n = lens.length;
+            if (!n) return 0;
+            const singles = lens.filter(v => v === 1).length;
+            return singles / n;
+        };
+        const meanLen = (lens) => lens.length ? (lens.reduce((a, b) => a + b, 0) / lens.length) : 0;
+
+        const buildCandidate = (targetColor) => {
+            const lastBreakAt = findLastSingletonBreak(seq, targetColor);
+            const segment = lastBreakAt >= 0 ? seq.slice(lastBreakAt + 1) : seq;
+            const segLen = segment.filter(c => c === 'red' || c === 'black').length;
+            if (segLen < minConfirm) return null;
+
+            const runsBy = buildRuns(segment);
+            const targetRuns = runsBy[targetColor] || [];
+            const other = opp(targetColor);
+            const otherRuns = other ? (runsBy[other] || []) : [];
+
+            const rRuns = runsBy.red || [];
+            const bRuns = runsBy.black || [];
+            const totalRuns = rRuns.length + bRuns.length;
+            if (totalRuns < 4) return null;
+            if (rRuns.length < 1 || bRuns.length < 1) return null;
+
+            // ✅ “Nunca sai só”: todas as runs COMPLETAS da cor-alvo devem ser >= 2.
+            // A última run (mais recente) pode estar "em andamento" e pode ser 1 (vamos apostar no 2º).
+            const isCurrentTarget = currentColor === targetColor;
+            const completedTargetRuns = isCurrentTarget ? targetRuns.slice(0, -1) : targetRuns.slice(0);
+            if (completedTargetRuns.length === 0) return null; // sem evidência do padrão na janela atual
+            if (completedTargetRuns.some(v => v < 2)) return null; // houve singleton => deveria ter resetado, logo inválido
+
+            // Ameaça: outra cor com 3+ seguidos derruba totalmente (você pediu)
+            const otherMax = maxLen(otherRuns);
+            if (otherMax >= 3) return null;
+
+            const otherSingles = singleRate(otherRuns);
+            const completedMean = meanLen(completedTargetRuns);
+            const redPair = pairRate(rRuns);
+            const blackPair = pairRate(bRuns);
+
+            // Score: quanto mais a outra cor aparece "picada" (singles) e quanto mais a cor-alvo tem runs longas,
+            // maior a confiança do regime "duplas+".
+            const evidence = Math.min(1, completedTargetRuns.length / 6);
+            const score = clamp01Local(
+                (otherSingles * 0.45 + Math.min(1, completedMean / 6) * 0.35 + evidence * 0.20)
+            );
+
+            return {
+                windowSize: w,
+                score,
+                target: targetColor,
+                other,
+                redPair,
+                blackPair,
+                otherMax,
+                totalRuns,
+                targetRuns,
+                completedTargetRuns,
+                segmentLen: segLen,
+                lastBreakAt
+            };
+        };
+
+        const redC = buildCandidate('red');
+        const blackC = buildCandidate('black');
+        if (!redC && !blackC) return null;
+        if (redC && !blackC) return redC;
+        if (!redC && blackC) return blackC;
+        // desempate: maior score; se empatar, mais próximo do W
+        if (Math.abs((redC.score || 0) - (blackC.score || 0)) > 1e-9) {
+            return (redC.score > blackC.score) ? redC : blackC;
+        }
+        const dr = Math.abs(redC.windowSize - W);
+        const db = Math.abs(blackC.windowSize - W);
+        return dr <= db ? redC : blackC;
+    };
+
+    // Faixa de busca dinâmica ao redor de W (sem travar em 6..14)
+    const span = Math.max(6, Math.floor(W * 0.55));
+    let wMin = Math.max(6, W - span);
+    let wMax = Math.min(Math.min(200, available), W + span);
+    if (wMax < wMin) { wMin = Math.max(6, Math.min(W, available)); wMax = wMin; }
+
+    const base = W;
+    let best = null;
+    for (let w = wMin; w <= wMax; w++) {
+        const c = evalWindow(w);
+        if (!c) continue;
+        if (!best) {
+            best = c;
+            continue;
+        }
+        if (c.score > best.score + 1e-9) best = c;
+        else if (Math.abs(c.score - best.score) <= 1e-9) {
+            // tie-break: mais próximo do "meio" e mais recente (janela menor)
+            const dc = Math.abs(c.windowSize - base);
+            const db = Math.abs(best.windowSize - base);
+            if (dc < db) best = c;
+            else if (dc === db && c.windowSize < best.windowSize) best = c;
         }
     }
 
-    const trendType = voteColor
-        ? (deltaAbs >= MIN_DELTA_PCT ? (voteColor === 'red' ? 'accelerating_red' : 'accelerating_black') : 'stable')
-        : 'neutral';
+    if (!best) {
+        return {
+            color: null,
+            momentum: { red: '0.0', black: '0.0' },
+            trending: 'neutral',
+            confidence: 0,
+            confidencePct: 0,
+            reason: 'sem_ritmo',
+            details: `NULO • sem ritmo válido (W=${W} • busca ${wMin}-${wMax})`
+        };
+    }
 
-    const details = voteColor
-        ? `Δ ${redMomentum.toFixed(1)}pp • z ${zScore.toFixed(2)} • amostras ${recentTotal}/${previousTotal}`
-        : `NULO • ${reason} • Δ ${redMomentum.toFixed(1)}pp • amostras ${recentTotal}/${previousTotal}`;
+    // tamanho da sequência atual (sem atravessar branco)
+    let currentRunLen = 0;
+    for (let i = 0; i < Math.min(best.windowSize, history.length); i++) {
+        const c = normalizeSpinColorValue(history[i]);
+        if (c !== currentColor) break;
+        currentRunLen++;
+    }
 
-    console.log(`   🎯 Tendência: ${trendType === 'accelerating_red' ? 'VERMELHO ACELERANDO' : trendType === 'accelerating_black' ? 'PRETO ACELERANDO' : trendType === 'stable' ? 'ESTÁVEL' : 'NULO'}`);
-    console.log(`   🗳️ VOTA: ${voteColor ? voteColor.toUpperCase() : 'NULO'} (${details})`);
+    // O N2 só aposta na cor-alvo quando ela aparece (aposta é: "vai repetir")
+    if (currentColor !== best.target) {
+        const details = `NULO • aguardando ${best.target.toUpperCase()} • W=${W} • jan ${best.windowSize}`;
+        return {
+            color: null,
+            momentum: { red: (best.redPair * 100).toFixed(1), black: (best.blackPair * 100).toFixed(1) },
+            trending: 'neutral',
+            confidence: 0,
+            confidencePct: 0,
+            reason: 'aguardando_cor_alvo',
+            details
+        };
+    }
+
+    // Não entrar no "topo" da sequência: usa p80 para limitar
+    // Anti-topo: baseado no "regime atual" (janela após reset). Evita apostar em 2→3 quando o regime é só duplas.
+    const topoRuns = Array.isArray(best.completedTargetRuns) ? best.completedTargetRuns.slice() : [];
+    // incluir a run atual como evidência de regime (se já está em 2+)
+    if (currentColor === best.target && currentRunLen >= 2) topoRuns.push(currentRunLen);
+    const p90Seg = Math.max(1, percentile(topoRuns, 0.9) || 1);
+    const maxEnterLen = Math.max(1, p90Seg - 1);
+    if (currentRunLen > maxEnterLen) {
+        const details = `NULO • topo seq (${currentRunLen}>${maxEnterLen}) • W=${W} • jan ${best.windowSize}`;
+        return {
+            color: null,
+            momentum: { red: (best.redPair * 100).toFixed(1), black: (best.blackPair * 100).toFixed(1) },
+            trending: 'neutral',
+            confidence: 0,
+            confidencePct: 0,
+            reason: 'topo_sequencia',
+            details
+        };
+    }
+
+    // Prob. empírica de continuar 1 passo: combina base histórica + janela recente (com suavização)
+    const atRiskRecent = best.targetRuns.filter(len => len >= currentRunLen).length;
+    const contRecent = best.targetRuns.filter(len => len >= (currentRunLen + 1)).length;
+
+    // ✅ base histórica para p(continuar): usar runs da cor-alvo na BASE (últimos historyCap giros)
+    const targetBaseRuns = best.target === 'red'
+        ? (baseRunsBy.red || [])
+        : (baseRunsBy.black || []);
+    const atRiskBase = targetBaseRuns.filter(len => len >= currentRunLen).length;
+    const contBase = targetBaseRuns.filter(len => len >= (currentRunLen + 1)).length;
+
+    // Cap base para não esmagar o "momento" atual (mantém o nível adaptativo)
+    const capBase = 20;
+    const atRiskBaseC = Math.min(capBase, atRiskBase);
+    const contBaseC = Math.min(atRiskBaseC, contBase);
+
+    const atRisk = atRiskBaseC + atRiskRecent;
+    const cont = contBaseC + contRecent;
+
+    if (atRisk < 4) {
+        return {
+            color: null,
+            momentum: { red: (best.redPair * 100).toFixed(1), black: (best.blackPair * 100).toFixed(1) },
+            trending: 'neutral',
+            confidence: 0,
+            confidencePct: 0,
+            reason: 'poucas_ocorrencias',
+            details: `NULO • poucas ocorrências (n=${atRisk}) • W=${W} • jan ${best.windowSize}`
+        };
+    }
+    const pContinue = (cont + 1) / (atRisk + 2); // suavização
+
+    // Quanto mais avançado na sequência, mais rigoroso (mas o histórico dita se vale)
+    const threshold = currentRunLen <= 1 ? 0.6 : (currentRunLen === 2 ? 0.68 : 0.74);
+    if (pContinue < threshold) {
+        return {
+            color: null,
+            momentum: { red: (best.redPair * 100).toFixed(1), black: (best.blackPair * 100).toFixed(1) },
+            trending: 'neutral',
+            confidence: 0,
+            confidencePct: 0,
+            reason: 'pcontinue_baixo',
+            details: `NULO • pCont ${(pContinue * 100).toFixed(0)}% < ${(threshold * 100).toFixed(0)}% • run ${currentRunLen} • W=${W}`
+        };
+    }
+
+    // confiança: mistura força do padrão + prob. de continuar + amostra
+    const contConf = clamp01Local((pContinue - threshold) / Math.max(0.05, 1 - threshold));
+    const pairDiff = Math.abs(best.redPair - best.blackPair);
+    const pairConf = clamp01Local((Math.max(best.redPair, best.blackPair) - 0.55) / 0.45);
+    const diffConf = clamp01Local(pairDiff / 0.5);
+    const nConf = clamp01Local(best.totalRuns / 12);
+    let confidence = clamp01Local(contConf * 0.45 + pairConf * 0.25 + diffConf * 0.20 + nConf * 0.10);
+    confidence = clamp01Local(confidence * (0.9 + best.score * 0.2));
+
+    const details =
+        `Alvo ${best.target.toUpperCase()} • W=${W} • jan ${best.windowSize} • seg ${best.segmentLen} • ` +
+        `P2+ R ${(best.redPair * 100).toFixed(0)}% • B ${(best.blackPair * 100).toFixed(0)}% • ` +
+        `run ${currentRunLen}→${currentRunLen + 1} (${(pContinue * 100).toFixed(0)}%)`;
 
     return {
-        color: voteColor,
-        recent: {
-            red: recentCounts.red,
-            black: recentCounts.black,
-            white: recentCounts.white,
-            redPercent: recentRedPercent.toFixed(1),
-            blackPercent: recentBlackPercent.toFixed(1)
-        },
-        previous: {
-            red: previousCounts.red,
-            black: previousCounts.black,
-            white: previousCounts.white,
-            redPercent: previousRedPercent.toFixed(1),
-            blackPercent: previousBlackPercent.toFixed(1)
-        },
+        color: best.target,
         momentum: {
-            red: redMomentum.toFixed(1),
-            black: blackMomentum.toFixed(1)
+            red: (best.redPair * 100).toFixed(1),
+            black: (best.blackPair * 100).toFixed(1)
         },
-        trending: trendType,
-        confidence: Number((confidence || 0).toFixed(3)),
-        confidencePct: Math.round((confidence || 0) * 100),
-        zScore: Number((zScore || 0).toFixed(3)),
-        reason,
+        trending: best.target === 'red' ? 'paired_red' : 'paired_black',
+        confidence: Number(confidence.toFixed(3)),
+        confidencePct: Math.round(confidence * 100),
+        reason: 'ok',
         details
     };
 }
@@ -13045,7 +13325,7 @@ async function analyzeWithPatternSystem(history) {
         [
             'N0 - Detector de Branco · bloqueio dinâmico',
             'N1 - Zona Segura · predominância confirmada',
-            'N2 - Momentum · comparação entre janelas',
+            'N2 - Ritmo Autônomo · duplas/sequência (W único)',
             'N3 - Alternância Inteligente · n-grams configuráveis',
             'N4 - Persistência / Ciclos',
             'N5 - Ritmo por Giro (minuto alvo)',
@@ -13063,8 +13343,7 @@ async function analyzeWithPatternSystem(history) {
     const n1WindowSize = getDiamondWindow('n1WindowSize', SAFE_ZONE_DEFAULTS.windowSize);
     const n1PrimaryRequirement = getDiamondWindow('n1PrimaryRequirement', SAFE_ZONE_DEFAULTS.primaryRequirement);
     const n1SecondaryRequirement = getDiamondWindow('n1SecondaryRequirement', SAFE_ZONE_DEFAULTS.secondaryRequirement);
-    const n2RecentWindow = getDiamondWindow('n2Recent', 5);
-    const n2PreviousWindow = getDiamondWindow('n2Previous', 15);
+    const n2W = getDiamondWindow('n2Recent', 10);
     const n3Window = getDiamondWindow('n3Alternance', 12);
     const n4Window = getDiamondWindow('n4Persistence', 20);
     const n5Window = getDiamondWindow('n5MinuteBias', 60);
@@ -13092,7 +13371,7 @@ async function analyzeWithPatternSystem(history) {
     [
         ['N0', `Hist ${n0HistoryConfigured} | W ${n0WindowConfigured} | BlockAll ${analyzerConfig.n0AllowBlockAll !== false ? 'sim' : 'não'}`],
         ['N1', `Zona Segura → W ${n1WindowSize} | minA ${n1PrimaryRequirement} | minB ${n1SecondaryRequirement}`],
-        ['N2', `Recente ${n2RecentWindow} | Anterior ${n2PreviousWindow}`],
+        ['N2', `W ${n2W} (auto)`],
         ['N3', `Hist ${n3Window} | Rigor ${getDiamondWindow('n3ThresholdPct', 75)}%`],
         ['N4', `${n4Window} giros`],
         ['N5', `${n5Window} amostras`],
@@ -13109,7 +13388,7 @@ async function analyzeWithPatternSystem(history) {
     const isN1Custom = n1WindowSize !== SAFE_ZONE_DEFAULTS.windowSize ||
         n1PrimaryRequirement !== SAFE_ZONE_DEFAULTS.primaryRequirement ||
         n1SecondaryRequirement !== SAFE_ZONE_DEFAULTS.secondaryRequirement;
-    const isN2Custom = n2RecentWindow !== 5 || n2PreviousWindow !== 15;
+    const isN2Custom = n2W !== 10;
     const isN3Custom = n3Window !== 12;
     const isN4Custom = n4Window !== 20;
     const isN5Custom = n5Window !== 60;
@@ -13178,83 +13457,100 @@ async function analyzeWithPatternSystem(history) {
         console.log(`📊 Giro atual: #${history[0]?.number || 'N/A'}`);
         
         if (minIntervalSpins > 0) {
+            // ✅ IMPORTANTE (Modo Diamante):
+            // O intervalo deve ser contado a partir do FIM DO CICLO (WIN/RET), e não do momento do sinal.
             const entriesResult = await chrome.storage.local.get([
+                'lastCycleResolvedSpinId',
+                'lastCycleResolvedSpinTimestamp',
+                'lastCycleResolvedTimestamp',
+                // fallback legado:
                 'lastSignalSpinNumber',
                 'lastSignalTimestamp',
                 'lastSignalSpinId',
                 'lastSignalSpinTimestamp'
             ]);
+
+            const lastCycleResolvedSpinId = entriesResult.lastCycleResolvedSpinId || null;
+            const lastCycleResolvedSpinTimestamp = entriesResult.lastCycleResolvedSpinTimestamp || null;
+            const lastCycleResolvedTimestamp = entriesResult.lastCycleResolvedTimestamp || null;
+
             const lastSignalSpinNumber = entriesResult.lastSignalSpinNumber ?? null;
             const lastSignalTimestamp = entriesResult.lastSignalTimestamp || null;
             const lastSignalSpinId = entriesResult.lastSignalSpinId || null;
             const lastSignalSpinTimestamp = entriesResult.lastSignalSpinTimestamp || null;
-            
-            console.log(`📊 Último sinal salvo: ${lastSignalSpinNumber !== null ? '#' + lastSignalSpinNumber : 'Nenhum'}`);
-            if (lastSignalTimestamp) {
-                const tempoDecorrido = Math.round((Date.now() - lastSignalTimestamp) / 1000);
-                console.log(`   ⏱️ Registrado há ${tempoDecorrido}s`);
+
+            const usingCycleMarker = !!(lastCycleResolvedSpinId || lastCycleResolvedSpinTimestamp || lastCycleResolvedTimestamp);
+
+            if (usingCycleMarker) {
+                console.log(`📊 Último ciclo finalizado (WIN/RET): ${lastCycleResolvedSpinId ? `id ${lastCycleResolvedSpinId}` : (lastCycleResolvedSpinTimestamp ? lastCycleResolvedSpinTimestamp : 'registrado')}`);
+                if (lastCycleResolvedTimestamp) {
+                    const tempoDecorrido = Math.round((Date.now() - lastCycleResolvedTimestamp) / 1000);
+                    console.log(`   ⏱️ Registrado há ${tempoDecorrido}s`);
+                }
+            } else {
+                console.log(`📊 Último sinal salvo (fallback): ${lastSignalSpinNumber !== null ? '#' + lastSignalSpinNumber : 'Nenhum'}`);
+                if (lastSignalTimestamp) {
+                    const tempoDecorrido = Math.round((Date.now() - lastSignalTimestamp) / 1000);
+                    console.log(`   ⏱️ Registrado há ${tempoDecorrido}s`);
+                }
             }
-            
-            let spinsDesdeUltimoSinal = null;
+
+            const refSpinId = usingCycleMarker ? lastCycleResolvedSpinId : lastSignalSpinId;
+            const refSpinTimestamp = usingCycleMarker ? lastCycleResolvedSpinTimestamp : lastSignalSpinTimestamp;
+            const refTimestampMs = usingCycleMarker ? lastCycleResolvedTimestamp : lastSignalTimestamp;
+
+            let spinsSince = null;
             if (history.length > 0) {
-                if (lastSignalSpinId) {
-                    const indexById = history.findIndex(spin => spin && spin.id === lastSignalSpinId);
-                    if (indexById >= 0) {
-                        spinsDesdeUltimoSinal = indexById;
-                } else {
-                        // Sinal anterior não está mais no histórico → considerar intervalo cumprido
-                        spinsDesdeUltimoSinal = history.length;
-                    }
-                } else if (lastSignalSpinTimestamp) {
-                    const referenceTime = new Date(lastSignalSpinTimestamp).getTime();
+                if (refSpinId) {
+                    const indexById = history.findIndex(spin => spin && spin.id === refSpinId);
+                    spinsSince = indexById >= 0 ? indexById : history.length;
+                } else if (refSpinTimestamp) {
+                    const referenceTime = new Date(refSpinTimestamp).getTime();
                     if (!Number.isNaN(referenceTime)) {
                         for (let i = 0; i < history.length; i++) {
                             const spinTime = history[i]?.timestamp ? new Date(history[i].timestamp).getTime() : NaN;
                             if (!Number.isNaN(spinTime) && spinTime <= referenceTime) {
-                                spinsDesdeUltimoSinal = i;
+                                spinsSince = i;
                                 break;
                             }
                         }
-                        if (spinsDesdeUltimoSinal === null) {
-                            spinsDesdeUltimoSinal = history.length;
-                        }
+                        if (spinsSince === null) spinsSince = history.length;
                     }
                 }
             }
-            
-            if (spinsDesdeUltimoSinal !== null) {
-                console.log(`📊 Giros desde o último sinal (histórico real): ${spinsDesdeUltimoSinal}`);
-                if (spinsDesdeUltimoSinal >= minIntervalSpins) {
+
+            if (spinsSince !== null) {
+                console.log(`📊 Giros desde o ${usingCycleMarker ? 'fim do ciclo' : 'último sinal'} (histórico real): ${spinsSince}`);
+                if (spinsSince >= minIntervalSpins) {
                     console.log('✅ Intervalo de giros respeitado!');
                 } else {
-                    const girosRestantes = minIntervalSpins - spinsDesdeUltimoSinal;
+                    const remaining = minIntervalSpins - spinsSince;
                     intervalBlocked = true;
-                    intervalMessage = `⏳ Aguardando ${girosRestantes} giro(s)... ${spinsDesdeUltimoSinal}/${minIntervalSpins}`;
+                    intervalMessage = `⏳ Aguardando ${remaining} giro(s)... ${spinsSince}/${minIntervalSpins}`;
                     console.log('⚠️ Intervalo insuficiente: análise continua, mas sinal será bloqueado');
-                    console.log(`   Giros desde último sinal: ${spinsDesdeUltimoSinal}/${minIntervalSpins} (faltam ${girosRestantes})`);
                 }
-            } else if (lastSignalTimestamp && history.length > 0) {
-                const timeSinceSignal = Date.now() - lastSignalTimestamp;
-                const minutosDecorridos = timeSinceSignal / 60000;
+            } else if (refTimestampMs && history.length > 0) {
+                const timeSince = Date.now() - refTimestampMs;
+                const minutosDecorridos = timeSince / 60000;
                 const girosEstimados = Math.floor(minutosDecorridos * 2);
-                console.log(`📊 Giros estimados desde último sinal: ~${girosEstimados}`);
-                
+                console.log(`📊 Giros estimados desde o ${usingCycleMarker ? 'fim do ciclo' : 'último sinal'}: ~${girosEstimados}`);
+
                 if (girosEstimados >= minIntervalSpins) {
                     console.log('✅ Intervalo estimado suficiente (fallback temporal)');
-            } else {
-                    const girosRestantes = minIntervalSpins - girosEstimados;
+                } else {
+                    const remaining = minIntervalSpins - girosEstimados;
                     intervalBlocked = true;
-                    intervalMessage = `⏳ Aguardando ${girosRestantes} giro(s)... ${girosEstimados}/${minIntervalSpins}`;
+                    intervalMessage = `⏳ Aguardando ${remaining} giro(s)... ${girosEstimados}/${minIntervalSpins}`;
                     console.log('⚠️ Intervalo insuficiente (estimativa temporal)');
                 }
             } else {
-                console.log('✅ Nenhum sinal anterior registrado – permitido seguir');
+                console.log('✅ Nenhum ciclo anterior registrado – permitido seguir');
             }
         } else {
             console.log('✅ Sem intervalo configurado – sinais liberados sempre que houver padrão válido');
-            }
         }
-        
+        } // ✅ fim do if (analyzerConfig.aiMode)
+
         // ═══════════════════════════════════════════════════════════════
         // 💎 FLUXO ATUAL - NÍVEL DIAMANTE: 5 NÍVEIS COM PONTUAÇÃO
         // ═══════════════════════════════════════════════════════════════
@@ -13387,22 +13683,22 @@ async function analyzeWithPatternSystem(history) {
     // ⚡ NÃO EXIBIR na UI ainda (análise rápida, mostraremos depois)
         
         // ═══════════════════════════════════════════════════════════════
-        // ⚡ NÍVEL 5: MOMENTUM (30 GIROS FIXOS)
+        // ⚡ N2: RITMO AUTÔNOMO (W único + ajuste automático)
         // ═══════════════════════════════════════════════════════════════
-    console.log('%c║  ⚡ NÍVEL 2: MOMENTUM (5 vs 15 GIROS)                  ║', 'color: #00AAFF; font-weight: bold; font-size: 14px;');
-        
+        console.log('%c║  ⚡ N2: RITMO AUTÔNOMO (W único • ajuste automático)   ║', 'color: #00AAFF; font-weight: bold; font-size: 14px;');
+
         const nivel5 = analyzeMomentum(history);
-        
-        console.log('%c📊 ANÁLISE DE MOMENTUM:', 'color: #00AAFF; font-weight: bold;');
-        console.log(`%c   Últimos 10 giros: 🔴 ${nivel5.recent.red} (${nivel5.recent.redPercent}%) | ⚫ ${nivel5.recent.black} (${nivel5.recent.blackPercent}%)`, 'color: #00AAFF;');
-        console.log(`%c   20 giros anteriores: 🔴 ${nivel5.previous.red} (${nivel5.previous.redPercent}%) | ⚫ ${nivel5.previous.black} (${nivel5.previous.blackPercent}%)`, 'color: #00AAFF;');
-        console.log(`%c📈 MOMENTUM:`, 'color: #00AAFF; font-weight: bold;');
-        console.log(`%c   🔴 Vermelho: ${nivel5.momentum.red >= 0 ? '+' : ''}${nivel5.momentum.red}%`, 'color: #FF0000;');
-        console.log(`%c   ⚫ Preto: ${nivel5.momentum.black >= 0 ? '+' : ''}${nivel5.momentum.black}%`, 'color: #FFFFFF;');
-        console.log(`%c   Tendência: ${nivel5.trending === 'accelerating_red' ? '🔥 Vermelho acelerando' : nivel5.trending === 'accelerating_black' ? '🔥 Preto acelerando' : '⚖️ Estável'}`, 'color: #FFD700; font-weight: bold;');
-    console.log(`%c🗳️ NÍVEL 5 VOTA: ${nivel5.color ? nivel5.color.toUpperCase() : 'NULO'}`, `color: ${nivel5.color === 'red' ? '#FF0000' : (nivel5.color === 'black' ? '#FFFFFF' : '#888888')}; font-weight: bold; font-size: 14px;`);
-    
-    // ⚡ NÃO EXIBIR na UI ainda (análise rápida, mostraremos depois)
+        const n2Vote = nivel5 && nivel5.color ? String(nivel5.color).toUpperCase() : 'NULO';
+        const p2Red = Number(nivel5?.momentum?.red ?? 0);
+        const p2Black = Number(nivel5?.momentum?.black ?? 0);
+        const n2Details = (nivel5 && nivel5.details) ? nivel5.details : (nivel5 && nivel5.reason ? `NULO • ${nivel5.reason}` : 'N/A');
+
+        console.log('%c📊 ANÁLISE N2 (RITMO):', 'color: #00AAFF; font-weight: bold;');
+        console.log(`%c   P(2+ por run): 🔴 ${p2Red.toFixed(1)}% | ⚫ ${p2Black.toFixed(1)}%`, 'color: #00AAFF;');
+        console.log(`%c   Detalhes: ${n2Details}`, 'color: #00AAFF;');
+        console.log(`%c🗳️ N2 VOTA: ${n2Vote}`, `color: ${n2Vote === 'RED' ? '#FF0000' : (n2Vote === 'BLACK' ? '#FFFFFF' : '#888888')}; font-weight: bold; font-size: 14px;`);
+
+        // ⚡ NÃO EXIBIR na UI ainda (análise rápida, mostraremos depois)
         
         // ═══════════════════════════════════════════════════════════════
         // 🔷 N4 - PADRÃO DE ALTERNÂNCIA (CONFIGURÁVEL PELO USUÁRIO)
@@ -13467,7 +13763,7 @@ async function analyzeWithPatternSystem(history) {
             // Mantemos emoji aqui para logs internos, mas o texto exibido na UI (reasoning) NÃO usa emoji.
             N0: { emoji: '⚪', label: 'N0 - Detector de Branco' },
             N1: { emoji: '🛡️', label: 'N1 - Zona Segura' },
-            N2: { emoji: '⚡', label: 'N2 - Momentum' },
+            N2: { emoji: '⚡', label: 'N2 - Ritmo Autônomo' },
             N3: { emoji: '🔷', label: 'N3 - Alternância' },
             N4: { emoji: '🔷', label: 'N4 - Persistência' },
             N5: { emoji: '🕑', label: 'N5 - Ritmo por Giro' },
@@ -13897,23 +14193,23 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
             meta: safeZoneMeta
         });
 
-        // N2 - Momentum
+        // N2 - Ritmo Autônomo
         const n2Enabled = isLevelEnabledLocal('N2');
         const redMomentum = Number(nivel5.momentum?.red ?? 0);
         const blackMomentum = Number(nivel5.momentum?.black ?? 0);
         const diffMomentum = (isFinite(redMomentum) && isFinite(blackMomentum)) ? Math.abs(redMomentum - blackMomentum) : 0;
         const momentumColor = n2Enabled ? (nivel5 && nivel5.color ? nivel5.color : null) : null;
-        // ✅ força do N2 deve refletir o quão "significativo" foi o momentum (não só o delta bruto)
+        // ✅ força do N2 deve refletir o quão "significativo" foi o ritmo (não só a diferença bruta)
         let momentumStrength = (n2Enabled && momentumColor && typeof nivel5?.confidence === 'number')
             ? clamp01(nivel5.confidence)
             : 0;
         const momentumDetailsText = !n2Enabled
             ? 'DESATIVADO'
-            : (nivel5 && nivel5.details ? nivel5.details : `Δ ${diffMomentum.toFixed(1)} pts`);
+            : (nivel5 && nivel5.details ? nivel5.details : `Δ ${diffMomentum.toFixed(1)} pp (P2+)`);
         const momentumScore = (n2Enabled && momentumColor) ? directionValue(momentumColor) * momentumStrength : 0;
         levelReports.push({
             id: 'N2',
-            name: 'Momentum',
+            name: 'Ritmo Autônomo',
             color: momentumColor,
             weight: n2Enabled ? weightFor(levelWeights.momentum) : 0,
             strength: n2Enabled ? momentumStrength : 0,
@@ -14654,7 +14950,7 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
         
         const trendLabel = nivel5.trending === 'accelerating_red' ? 'Acelerando' : nivel5.trending === 'accelerating_black' ? 'Acelerando' : 'Estável';
             if (!analyzerConfig.aiMode) {
-                sendAnalysisStatus(`⚡ N2 - Momentum → ${nivel5.color ? nivel5.color.toUpperCase() : 'NULO'} (${nivel5.color ? trendLabel : (nivel5.reason || 'sem sinal')})`);
+                sendAnalysisStatus(`⚡ N2 - Ritmo Autônomo → ${nivel5.color ? nivel5.color.toUpperCase() : 'NULO'} (${nivel5.details || nivel5.reason || 'sem sinal'})`);
             }
         await sleep(1500);
         
@@ -14761,8 +15057,8 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
         }
         await sleep(1500);
         
-        const trendLabel3 = nivel5.trending === 'accelerating_red' ? 'Acelerando' : nivel5.trending === 'accelerating_black' ? 'Acelerando' : 'Estável';
-        sendAnalysisStatus(`⚡ N2 - Momentum → ${nivel5.color ? nivel5.color.toUpperCase() : 'NULO'} (${nivel5.color ? trendLabel3 : (nivel5.reason || 'sem sinal')})`);
+        const n2Detail = nivel5 && nivel5.details ? nivel5.details : (nivel5 && nivel5.reason ? nivel5.reason : 'sem sinal');
+        sendAnalysisStatus(`⚡ N2 - Ritmo Autônomo → ${nivel5 && nivel5.color ? nivel5.color.toUpperCase() : 'NULO'} (${n2Detail})`);
         await sleep(1500);
         
         if (nivel7 && nivel7.color) {
@@ -14886,8 +15182,8 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
 		}
 		
 		const nivel2Description = !n2Enabled
-            ? `N2 - Momentum: DESATIVADO`
-            : `N2 - Momentum: ${nivel5.color ? nivel5.color.toUpperCase() : 'NULO'} (${nivel5.color ? (nivel5.trending === 'accelerating_red' ? 'acelerando ↗' : nivel5.trending === 'accelerating_black' ? 'acelerando ↗' : 'estável →') : (nivel5.reason || 'sem sinal')})`;
+            ? `N2 - Ritmo Autônomo: DESATIVADO`
+            : `N2 - Ritmo Autônomo: ${nivel5 && nivel5.color ? nivel5.color.toUpperCase() : 'NULO'} (${nivel5 && nivel5.details ? nivel5.details : (nivel5 && nivel5.reason ? nivel5.reason : 'sem sinal')})`;
 		
 		const nivel3Description = !n3Enabled
             ? `N3 - Alternância: DESATIVADO`
@@ -15761,9 +16057,9 @@ async function runAnalysisController(history) {
 
 		emitModeSnapshotToContent('Análise em andamento', history.length);
 		
-		// ⚠️ CRÍTICO: VERIFICAR MODO CONSECUTIVO COM MARTINGALE ATIVO (APLICA PARA AMBOS OS MODOS)
-		const { consecutiveMartingale: activeConsecutiveMartingale } = getMartingaleSettings();
-		if (activeConsecutiveMartingale && martingaleState.active) {
+		// ⚠️ CRÍTICO: Em gales consecutivos (até o limite configurado), não gerar novo sinal.
+		const { consecutiveGales } = getMartingaleSettings();
+		if (martingaleState.active && isMartingaleStageConsecutive(martingaleState.stage, consecutiveGales)) {
 			logSection('⛔ Martingale ativo (modo consecutivo)');
 			logInfo('Estágio', martingaleState.stage);
 			logInfo('Cor', martingaleState.entryColor);
@@ -15801,17 +16097,27 @@ async function runAnalysisController(history) {
 		if (verifyResult) {
 		console.log('%c✅ Padrão encontrado | ' + verifyResult.color + ' (' + verifyResult.confidence + '%)', 'color: #00FF88; font-weight: bold; background: #003322; padding: 4px 8px; border-radius: 4px;');
 			
-			// ⚠️ CRÍTICO: VERIFICAR SE HÁ MARTINGALE ATIVO
-			if (martingaleState.active && martingaleState.entryColor) {
+			// ⚠️ Martingale ativo:
+			// - enquanto estiver dentro do "consecutivo até", mantém a cor do ciclo
+			// - quando estiver no modo "próximo sinal", NÃO mantém a cor (usa a cor do novo sinal)
+			if (martingaleState.active) {
+				const { consecutiveGales } = getMartingaleSettings();
 				console.log('║  🔄 MARTINGALE ATIVO DETECTADO!                          ║');
 				console.log(`║  Cor do novo padrão: ${verifyResult.color}                           ║`);
 				console.log(`║  Cor da entrada original: ${martingaleState.entryColor}                    ║`);
 				console.log(`║  Estágio atual: ${martingaleState.stage}                              ║`);
-				console.log('║  ✅ SOBRESCREVENDO COR PARA MANTER ENTRADA ORIGINAL      ║');
-				
-				// ✅ SOBRESCREVER A COR PARA USAR A COR DA ENTRADA ORIGINAL
-				verifyResult.color = martingaleState.entryColor;
+
+				// ✅ Sempre marcar o estágio (stake) do Martingale
 				verifyResult.phase = martingaleState.stage;
+
+				// ✅ Só força a cor se este estágio for consecutivo
+				if (martingaleState.entryColor && isMartingaleStageConsecutive(martingaleState.stage, consecutiveGales)) {
+					console.log('║  ✅ COR FORÇADA (estágio consecutivo)                     ║');
+					verifyResult.color = martingaleState.entryColor;
+				} else {
+					console.log('║  ✅ COR LIVRE (próximo sinal)                             ║');
+				}
+
                 verifyResult.confidence = calculateGaleConfidenceValue(verifyResult.confidence, verifyResult);
 			}
 			
@@ -15961,15 +16267,21 @@ async function runAnalysisController(history) {
 				let aiColor = aiResult.color;
 				let aiPhase = 'G0';
 				
-				if (martingaleState.active && martingaleState.entryColor) {
+				if (martingaleState.active) {
+					const { consecutiveGales } = getMartingaleSettings();
 					console.log('║  🔄 MARTINGALE ATIVO DETECTADO! (MODO IA)                ║');
 					console.log(`║  Cor da IA: ${aiColor}                                         ║`);
 					console.log(`║  Cor da entrada original: ${martingaleState.entryColor}                    ║`);
 					console.log(`║  Estágio atual: ${martingaleState.stage}                              ║`);
-					console.log('║  ✅ SOBRESCREVENDO COR PARA MANTER ENTRADA ORIGINAL      ║');
-					
-					aiColor = martingaleState.entryColor;
 					aiPhase = martingaleState.stage;
+
+					// ✅ Só força a cor se este estágio for consecutivo
+					if (martingaleState.entryColor && isMartingaleStageConsecutive(martingaleState.stage, consecutiveGales)) {
+						console.log('║  ✅ COR FORÇADA (estágio consecutivo)                     ║');
+						aiColor = martingaleState.entryColor;
+					} else {
+						console.log('║  ✅ COR LIVRE (próximo sinal)                             ║');
+					}
 				}
 				
 				// 🔥 CORREÇÃO CRÍTICA: SEMPRE usar dados REAIS do histórico
@@ -22118,23 +22430,15 @@ function buildDiamondOptimizationCandidateConfig(baseConfig, levelId, rng) {
         windows.n1SecondaryRequirement = clampInt(b, 1, windows.n1PrimaryRequirement - 1);
         windows.n1MaxEntries = clampInt(maxE, 1, 20);
     } else if (upper === 'N2') {
-        // N2 - Momentum
-        const baseRecent = clampInt(windows.n2Recent ?? 5, 2, 20);
-        const basePrev = clampInt(windows.n2Previous ?? 15, 3, 200);
-
-        const recent = clampInt(
-            randomInt(rng, Math.max(2, Math.floor(baseRecent * 0.5)), Math.min(20, Math.ceil(baseRecent * 1.5))),
-            2,
-            20
-        );
-        const prevMin = Math.max(3, recent + 1);
-        const prev = clampInt(
-            randomInt(rng, Math.max(prevMin, Math.floor(basePrev * 0.5)), Math.min(200, Math.ceil(basePrev * 1.5))),
-            prevMin,
+        // N2 - Ritmo Autônomo (W único)
+        const baseW = clampInt(windows.n2Recent ?? 10, 6, 200);
+        const w = clampInt(
+            randomInt(rng, Math.max(6, Math.floor(baseW * 0.5)), Math.min(200, Math.ceil(baseW * 1.6))),
+            6,
             200
         );
-        windows.n2Recent = recent;
-        windows.n2Previous = prev;
+        windows.n2Recent = w;
+        windows.n2Previous = w; // legado: espelha W por compatibilidade
     } else if (upper === 'N3') {
         // N3 - Alternância
         const baseHist = clampInt(windows.n3Alternance ?? 60, 4, 400);
@@ -22316,30 +22620,42 @@ async function runDiamondPastOptimization({ config, levelId, senderTabId, jobId,
             if (isBetterEligible) bestEligible = candidate;
         }
 
-        if (senderTabId != null && (t % DIAMOND_OPTIMIZATION_PROGRESS_EVERY === 0 || t === totalTrials - 1)) {
+        if (t % DIAMOND_OPTIMIZATION_PROGRESS_EVERY === 0 || t === totalTrials - 1) {
             try {
                 const pick = bestEligible || bestOverall;
                 const dw = (pick && pick.config && pick.config.diamondLevelWindows) ? pick.config.diamondLevelWindows : {};
-                const summary = String(levelId || '').toUpperCase() === 'N1'
+                const upper = String(levelId || '').toUpperCase();
+                const summary = upper === 'N1'
                     ? `W ${dw.n1WindowSize} | minA ${dw.n1PrimaryRequirement} | minB ${dw.n1SecondaryRequirement} | maxE ${dw.n1MaxEntries}`
+                    : upper === 'N2'
+                    ? `W ${dw.n2Recent}`
+                    : upper === 'N3'
+                    ? `Hist ${dw.n3Alternance} | Rigor ${dw.n3ThresholdPct}% | minOcc ${dw.n3MinOccurrences}`
+                    : upper === 'N4'
+                    ? `${dw.n4Persistence} giros`
                     : '—';
-                chrome.tabs.sendMessage(senderTabId, {
-                    type: 'DIAMOND_OPTIMIZATION_PROGRESS',
-                    data: {
-                        jobId,
-                        trial: t + 1,
-                        totalTrials,
-                        minPct,
-                        recommendedFound: !!bestEligible,
-                        best: pick ? {
-                            pct: pick.pct,
-                            totalCycles: pick.totalCycles,
-                            totalSignals: pick.totalSignals,
-                            score: Number(pick.score.toFixed(2)),
-                            summary
-                        } : null
-                    }
-                }).catch(() => {});
+
+                // ✅ Enviar via runtime (não depende de tabId). Quem não for o job atual ignora pelo jobId.
+                try {
+                    chrome.runtime.sendMessage({
+                        type: 'DIAMOND_OPTIMIZATION_PROGRESS',
+                        data: {
+                            jobId,
+                            levelId: upper,
+                            trial: t + 1,
+                            totalTrials,
+                            minPct,
+                            recommendedFound: !!bestEligible,
+                            best: pick ? {
+                                pct: pick.pct,
+                                totalCycles: pick.totalCycles,
+                                totalSignals: pick.totalSignals,
+                                score: Number(pick.score.toFixed(2)),
+                                summary
+                            } : null
+                        }
+                    });
+                } catch (_) {}
             } catch (_) {}
             await new Promise(resolve => setTimeout(resolve, 0));
         }
@@ -22444,20 +22760,9 @@ function getN0SettingsFromConfig(config) {
 }
 
 function analyzeMomentumFromConfig(history, config) {
-    const recentWindowConfigured = Math.max(2, Math.min(20, getDiamondWindowFromConfig(config, 'n2Recent', 5)));
-    const previousWindowConfigured = Math.max(3, Math.min(200, getDiamondWindowFromConfig(config, 'n2Previous', 15)));
-    const totalNeeded = recentWindowConfigured + previousWindowConfigured;
-    const windowSize = Math.min(totalNeeded, history.length);
-    const windowSpins = history.slice(0, windowSize);
-
-    let recentSize = recentWindowConfigured;
-    let previousSize = previousWindowConfigured;
-    if (windowSpins.length < totalNeeded) {
-        const available = windowSpins.length;
-        recentSize = Math.max(2, Math.min(recentWindowConfigured, Math.floor(available / 3)));
-        previousSize = Math.max(1, available - recentSize);
-    }
-    return analyzeMomentumWithSizes(windowSpins, recentSize, previousSize);
+    // ✅ NOVO N2: janela base única W (usuário) + ajuste automático
+    const baseW = Math.max(6, Math.min(200, getDiamondWindowFromConfig(config, 'n2Recent', 10)));
+    return analyzeMomentumWithSizes(history, baseW, 0);
 }
 
 function buildDiamondSingleLevelEnabledMap(levelId, baseEnabledMap = null) {
@@ -22484,16 +22789,23 @@ function computeIntervalBlockForSimulation(history, config, simState) {
         return { blocked: false, message: '' };
     }
 
+    // ✅ Intervalo após entrada (Diamante): contar a partir do FIM DO CICLO (WIN/RET) na simulação.
+    const lastCycleResolvedSpinId = simState?.lastCycleResolvedSpinId || null;
+    const lastCycleResolvedSpinTimestamp = simState?.lastCycleResolvedSpinTimestamp || null;
+    // fallback legado:
     const lastSignalSpinId = simState?.lastSignalSpinId || null;
     const lastSignalSpinTimestamp = simState?.lastSignalSpinTimestamp || null;
 
+    const refId = lastCycleResolvedSpinId || lastSignalSpinId;
+    const refTs = lastCycleResolvedSpinTimestamp || lastSignalSpinTimestamp;
+
     let spinsSince = null;
     if (Array.isArray(history) && history.length > 0) {
-        if (lastSignalSpinId) {
-            const idx = history.findIndex(spin => spin && spin.id === lastSignalSpinId);
+        if (refId) {
+            const idx = history.findIndex(spin => spin && spin.id === refId);
             spinsSince = idx >= 0 ? idx : history.length;
-        } else if (lastSignalSpinTimestamp) {
-            const referenceTime = new Date(lastSignalSpinTimestamp).getTime();
+        } else if (refTs) {
+            const referenceTime = new Date(refTs).getTime();
             if (!Number.isNaN(referenceTime)) {
                 for (let i = 0; i < history.length; i++) {
                     const spinTime = history[i]?.timestamp ? new Date(history[i].timestamp).getTime() : NaN;
@@ -22528,6 +22840,8 @@ function createDiamondSimulationState(config) {
         lastSignalSpinId: null,
         lastSignalSpinNumber: null,
         lastSignalSpinTimestamp: null,
+        lastCycleResolvedSpinId: null,
+        lastCycleResolvedSpinTimestamp: null,
         signalsHistory: { signals: [] },
         safeZoneEntryState: { signature: null, entriesUsed: 0 },
         alternanceEntryControl: {
@@ -22616,7 +22930,7 @@ function evaluatePendingAnalysisSimulation(latestSpin, simState) {
     markLastSignalResolved(simState, latestSpin, hit);
 
     const martingale = simState.martingaleState;
-    const { maxGales, consecutiveMartingale } = getMartingaleSettings('diamond', config);
+    const { maxGales, consecutiveGales } = getMartingaleSettings('diamond', config);
 
     if (hit) {
         let martingaleStage = 'ENTRADA';
@@ -22644,6 +22958,9 @@ function evaluatePendingAnalysisSimulation(latestSpin, simState) {
             simulation: true
         };
         simState.entriesHistory.unshift(winEntry);
+        // ✅ Marcar fim do ciclo (para intervalo após entrada)
+        simState.lastCycleResolvedSpinId = latestSpin?.id ?? null;
+        simState.lastCycleResolvedSpinTimestamp = latestSpin?.timestamp ?? null;
 
         // Reset ciclo
         if (martingale.active) {
@@ -22693,6 +23010,9 @@ function evaluatePendingAnalysisSimulation(latestSpin, simState) {
                 simulation: true
             };
             simState.entriesHistory.unshift(lossEntry);
+            // ✅ Marcar fim do ciclo (RET)
+            simState.lastCycleResolvedSpinId = latestSpin?.id ?? null;
+            simState.lastCycleResolvedSpinTimestamp = latestSpin?.timestamp ?? null;
             simState.martingaleState = {
                 ...simState.martingaleState,
                 active: false,
@@ -22745,7 +23065,8 @@ function evaluatePendingAnalysisSimulation(latestSpin, simState) {
             lossColors: [latestSpin.color]
         };
 
-        if (consecutiveMartingale) {
+        // ✅ Só auto-gera o próximo gale se ele estiver dentro do "consecutivo até"
+        if (nextGaleNumber <= consecutiveGales) {
             const g1Analysis = {
                 ...currentAnalysis,
                 color: currentAnalysis.color,
@@ -22783,6 +23104,9 @@ function evaluatePendingAnalysisSimulation(latestSpin, simState) {
                 simulation: true
             };
             simState.entriesHistory.unshift(retEntry);
+            // ✅ Marcar fim do ciclo (RET)
+            simState.lastCycleResolvedSpinId = latestSpin?.id ?? null;
+            simState.lastCycleResolvedSpinTimestamp = latestSpin?.timestamp ?? null;
             simState.martingaleState = {
                 ...simState.martingaleState,
                 active: false,
@@ -22829,7 +23153,7 @@ function evaluatePendingAnalysisSimulation(latestSpin, simState) {
             lossColors: [...(simState.martingaleState.lossColors || []), latestSpin.color]
         };
 
-        if (consecutiveMartingale) {
+        if (nextGaleNumber <= consecutiveGales) {
             const nextAnalysis = {
                 ...currentAnalysis,
                 color: simState.martingaleState.entryColor || currentAnalysis.color,
@@ -23036,7 +23360,7 @@ function analyzeDiamondLevelsSimulation(history, config, simState) {
         meta: safeZoneMeta
     });
 
-    // N2 - Momentum
+    // N2 - Ritmo Autônomo
     const n2Enabled = isLevelEnabledLocal('N2');
     const nivel5 = n2Enabled ? analyzeMomentumFromConfig(history, config) : null;
     const momentumColor = n2Enabled && nivel5 ? nivel5.color : null;
@@ -23049,14 +23373,14 @@ function analyzeDiamondLevelsSimulation(history, config, simState) {
         : 0;
     levelReports.push({
         id: 'N2',
-        name: 'Momentum',
+        name: 'Ritmo Autônomo',
         color: momentumColor,
         weight: n2Enabled ? weightFor(levelWeights.momentum) : 0,
         strength: n2Enabled ? momentumStrength : 0,
         score: n2Enabled && momentumColor ? directionValue(momentumColor) * momentumStrength : 0,
         details: !n2Enabled
             ? 'DESATIVADO'
-            : (nivel5 && nivel5.details ? nivel5.details : `Δ ${diffMomentum.toFixed(1)} pts`),
+            : (nivel5 && nivel5.details ? nivel5.details : `Δ ${diffMomentum.toFixed(1)} pp (P2+)`),
         disabled: !n2Enabled
     });
 
@@ -23504,9 +23828,13 @@ function createDiamondAnalysisForNextSpin(history, simState, aiResult) {
     let aiColor = aiResult.color;
     let aiPhase = 'G0';
 
-    if (simState.martingaleState.active && simState.martingaleState.entryColor) {
-        aiColor = simState.martingaleState.entryColor;
+    if (simState.martingaleState.active) {
+        const { consecutiveGales } = getMartingaleSettings('diamond', config);
         aiPhase = simState.martingaleState.stage;
+        // ✅ Só força a cor quando o estágio atual é consecutivo
+        if (simState.martingaleState.entryColor && isMartingaleStageConsecutive(simState.martingaleState.stage, consecutiveGales)) {
+            aiColor = simState.martingaleState.entryColor;
+        }
     }
 
     const aiHistorySizeUsed = Math.min(Math.max(config.aiHistorySize || 50, 20), history.length);
@@ -23549,7 +23877,7 @@ function createDiamondAnalysisForNextSpin(history, simState, aiResult) {
 
 function maybeGenerateDiamondAnalysisSimulation(history, simState) {
     const config = simState.config || {};
-    const { consecutiveMartingale } = getMartingaleSettings('diamond', config);
+    const { consecutiveGales } = getMartingaleSettings('diamond', config);
 
     // Se análise pendente, não gerar outra
     if (simState.analysis && simState.analysis.createdOnTimestamp && simState.analysis.predictedFor === 'next') {
@@ -23559,9 +23887,7 @@ function maybeGenerateDiamondAnalysisSimulation(history, simState) {
         }
     }
 
-    if (consecutiveMartingale && simState.martingaleState.active) {
-        return;
-    }
+    if (simState.martingaleState.active && isMartingaleStageConsecutive(simState.martingaleState.stage, consecutiveGales)) return;
 
     const aiResult = analyzeDiamondLevelsSimulation(history, config, simState);
     if (!aiResult) return;
@@ -23677,12 +24003,15 @@ async function runDiamondPastSimulation({ config, mode, levelId, senderTabId, jo
             maybeGenerateDiamondAnalysisSimulation(simHistory, simState);
         }
 
-        if (senderTabId != null && (i % DIAMOND_SIMULATION_BATCH === 0 || i === totalSpins - 1)) {
+        if (i % DIAMOND_SIMULATION_BATCH === 0 || i === totalSpins - 1) {
             try {
-                chrome.tabs.sendMessage(senderTabId, {
-                    type: 'DIAMOND_SIMULATION_PROGRESS',
-                    data: { jobId, processed: i + 1, total: totalSpins }
-                }).catch(() => {});
+                // ✅ Enviar via runtime (não depende de tabId). Quem não for o job atual ignora pelo jobId.
+                try {
+                    chrome.runtime.sendMessage({
+                        type: 'DIAMOND_SIMULATION_PROGRESS',
+                        data: { jobId, processed: i + 1, total: totalSpins }
+                    });
+                } catch (_) {}
             } catch (_) {}
             await new Promise(resolve => setTimeout(resolve, 0));
         }

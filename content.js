@@ -42,8 +42,9 @@
     let activeUserMenuKeyHandler = null;
 
     const MARTINGALE_PROFILE_DEFAULTS = Object.freeze({
-        standard: { maxGales: 0, consecutiveMartingale: false },
-        diamond: { maxGales: 0, consecutiveMartingale: false }
+        // consecutiveGales = quantos gales são IMEDIATOS (consecutivos) antes de aguardar novo sinal
+        standard: { maxGales: 0, consecutiveMartingale: false, consecutiveGales: 0 },
+        diamond: { maxGales: 0, consecutiveMartingale: false, consecutiveGales: 0 }
     });
 
     function clampMartingaleMax(value, fallback = 0) {
@@ -71,11 +72,16 @@
             const inheritedConsecutive = rawProfile.consecutiveMartingale != null
                 ? rawProfile.consecutiveMartingale
                 : config.consecutiveMartingale;
+            const maxGales = clampMartingaleMax(inheritedMax, fallbackProfile.maxGales);
+            const rawConsecutiveGales = rawProfile.consecutiveGales != null
+                ? Number(rawProfile.consecutiveGales)
+                : (typeof inheritedConsecutive === 'boolean' && inheritedConsecutive ? maxGales : 0);
+            const consecutiveGales = Math.max(0, Math.min(maxGales, Math.floor(Number.isFinite(rawConsecutiveGales) ? rawConsecutiveGales : 0)));
             sanitized[mode] = {
-                maxGales: clampMartingaleMax(inheritedMax, fallbackProfile.maxGales),
-                consecutiveMartingale: typeof inheritedConsecutive === 'boolean'
-                    ? inheritedConsecutive
-                    : fallbackProfile.consecutiveMartingale
+                maxGales,
+                consecutiveGales,
+                // legado: agora significa "tem parte consecutiva"
+                consecutiveMartingale: consecutiveGales > 0
             };
         });
 
@@ -98,7 +104,7 @@
         if (!config || !profiles) return;
         const profile = profiles[modeKey] || MARTINGALE_PROFILE_DEFAULTS[modeKey];
         config.maxGales = profile.maxGales;
-        config.consecutiveMartingale = profile.consecutiveMartingale;
+        config.consecutiveMartingale = !!profile.consecutiveMartingale;
     }
 
     function getAuthPageUrl() {
@@ -1222,8 +1228,9 @@ const DIAMOND_LEVEL_DEFAULTS = {
     n1PrimaryRequirement: 15,
     n1SecondaryRequirement: 3,
     n1MaxEntries: 1,
-    n2Recent: 5,
-    n2Previous: 15,
+    // N2 (novo): janela base única (W). O código ajusta automaticamente.
+    n2Recent: 10,
+    n2Previous: 10,
     n3Alternance: 12,
     n3PatternLength: 4,
     n3ThresholdPct: 75,
@@ -2270,7 +2277,7 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                                 <div class="diamond-sim-dropdown" id="diamondSimulateLevelDropdown" style="display:none;">
                                     <button type="button" class="diamond-sim-option" data-level="N0">N0 - Detector de Branco</button>
                                     <button type="button" class="diamond-sim-option" data-level="N1">N1 - Zona Segura</button>
-                                    <button type="button" class="diamond-sim-option" data-level="N2">N2 - Momentum</button>
+                                    <button type="button" class="diamond-sim-option" data-level="N2">N2 - Ritmo Autônomo</button>
                                     <button type="button" class="diamond-sim-option" data-level="N3">N3 - Alternância</button>
                                     <button type="button" class="diamond-sim-option" data-level="N4">N4 - Persistência</button>
                                     <button type="button" class="diamond-sim-option" data-level="N5">N5 - Ritmo por Giro</button>
@@ -2366,30 +2373,26 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                         </div>
                         <div class="diamond-level-field" data-level="n2">
                             <div class="diamond-level-header">
-                                <div class="diamond-level-title">N2 - Momentum</div>
+                                <div class="diamond-level-title">N2 - Ritmo Autônomo</div>
                                 <label class="diamond-level-switch checkbox-label">
                                     <input type="checkbox" class="diamond-level-toggle-input" id="diamondLevelToggleN2" checked />
                                     <span class="switch-track"></span>
                                 </label>
                             </div>
                             <div class="diamond-level-note">
-                                Detecta aceleração comparando giros recentes com anteriores. Quanto menor a diferença entre janelas, mais rápido detecta mudanças.
+                                Detecta o <strong>ritmo real do momento</strong> (duplas e sequências). Você define apenas uma <strong>janela base (W)</strong> e o N2 ajusta sozinho quando “encolhe/expande” e quando entra.
                             </div>
                             <div class="diamond-level-double">
                                 <div>
-                                    <span>Janela recente</span>
-                                    <input type="number" id="diamondN2Recent" min="2" max="20" value="5" />
+                                    <span>Janela base W (giros)</span>
+                                    <input type="number" id="diamondN2Recent" min="6" max="200" value="10" />
                                     <span class="diamond-level-subnote">
-                                        Últimos giros (recomendado: 5)
+                                        Recomendado: 10 (o N2 ajusta automaticamente para menos/mais conforme o contexto)
                                     </span>
                                 </div>
-                                <div>
-                                    <span>Janela anterior</span>
-                                    <input type="number" id="diamondN2Previous" min="3" max="200" value="15" />
-                                    <span class="diamond-level-subnote">
-                                        Base de comparação (deve ser > recente)
-                                    </span>
                                 </div>
+                            <div class="diamond-level-subnote">
+                                Branco <strong>quebra</strong> apenas quando interrompe uma cor “sozinha” (ex.: <strong>R W</strong> ou <strong>B W</strong>). Em <strong>RR W RR</strong> ele é só separador. O N2 usa base histórica de ocorrências e evita entrada no “topo” da sequência.
                             </div>
                         </div>
                         <div class="diamond-level-field" data-level="n3">
@@ -4223,6 +4226,7 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
             return !!el.checked;
         };
 
+        const n2W = getNumber('diamondN2Recent', 6, 200, DIAMOND_LEVEL_DEFAULTS.n2Recent);
         const newWindows = {
             n0History: getNumber('diamondN0History', 500, 5000, DIAMOND_LEVEL_DEFAULTS.n0History),
             n0Window: getNumber('diamondN0Window', 25, 250, DIAMOND_LEVEL_DEFAULTS.n0Window),
@@ -4230,8 +4234,9 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
             n1PrimaryRequirement: getNumber('diamondN1PrimaryRequirement', 5, 200, DIAMOND_LEVEL_DEFAULTS.n1PrimaryRequirement),
             n1SecondaryRequirement: getNumber('diamondN1SecondaryRequirement', 1, 200, DIAMOND_LEVEL_DEFAULTS.n1SecondaryRequirement),
             n1MaxEntries: getNumber('diamondN1MaxEntries', 1, 20, DIAMOND_LEVEL_DEFAULTS.n1MaxEntries),
-            n2Recent: getNumber('diamondN2Recent', 2, 20, DIAMOND_LEVEL_DEFAULTS.n2Recent),
-            n2Previous: getNumber('diamondN2Previous', 3, 200, DIAMOND_LEVEL_DEFAULTS.n2Previous),
+            // N2 (novo): janela base única (W). Mantemos n2Previous espelhado por compatibilidade.
+            n2Recent: n2W,
+            n2Previous: n2W,
             n3Alternance: getNumber('diamondN3Alternance', 1, null, DIAMOND_LEVEL_DEFAULTS.n3Alternance),
             n3ThresholdPct: getNumber('diamondN3ThresholdPct', 50, 95, DIAMOND_LEVEL_DEFAULTS.n3ThresholdPct),
             n3MinOccurrences: getNumber('diamondN3MinOccurrences', 1, 50, DIAMOND_LEVEL_DEFAULTS.n3MinOccurrences),
@@ -4250,9 +4255,7 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
             n10History: getNumber('diamondN10History', 100, 2000, DIAMOND_LEVEL_DEFAULTS.n10History)
         };
 
-        if (newWindows.n2Previous <= newWindows.n2Recent) {
-            throw new Error('A janela anterior do Momentum (N2) deve ser maior que a janela recente.');
-        }
+        // N2: n2Previous espelhado, sem validação min/max (o código ajusta automaticamente)
         if (newWindows.n7HistoryWindow < newWindows.n7DecisionWindow) {
             throw new Error('O histórico base do N7 deve ser maior ou igual ao número de decisões analisadas.');
         }
@@ -4487,7 +4490,6 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                     }
                     if (upper === 'N2') {
                         setVal('diamondN2Recent', windows.n2Recent);
-                        setVal('diamondN2Previous', windows.n2Previous);
                         return true;
                     }
                     if (upper === 'N3') {
@@ -4631,7 +4633,6 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                 }
                 if (upper === 'N2') {
                     setVal('diamondN2Recent', windows.n2Recent);
-                    setVal('diamondN2Previous', windows.n2Previous);
                     return true;
                 }
                 if (upper === 'N3') {
@@ -5096,7 +5097,6 @@ function enforceSignalIntensityAvailability(options = {}) {
         setInput('diamondN1SecondaryRequirement', getValue('n1SecondaryRequirement', DIAMOND_LEVEL_DEFAULTS.n1SecondaryRequirement));
         setInput('diamondN1MaxEntries', getValue('n1MaxEntries', DIAMOND_LEVEL_DEFAULTS.n1MaxEntries));
         setInput('diamondN2Recent', getValue('n2Recent', DIAMOND_LEVEL_DEFAULTS.n2Recent));
-        setInput('diamondN2Previous', getValue('n2Previous', DIAMOND_LEVEL_DEFAULTS.n2Previous));
         setInput('diamondN3Alternance', getValue('n3Alternance', DIAMOND_LEVEL_DEFAULTS.n3Alternance));
         setInput('diamondN3ThresholdPct', getValue('n3ThresholdPct', DIAMOND_LEVEL_DEFAULTS.n3ThresholdPct));
         setInput('diamondN3MinOccurrences', getValue('n3MinOccurrences', DIAMOND_LEVEL_DEFAULTS.n3MinOccurrences));
@@ -5224,6 +5224,7 @@ function enforceSignalIntensityAvailability(options = {}) {
             if (!el) return fallback;
             return !!el.checked;
         };
+        const n2W = getNumber('diamondN2Recent', 6, 200, DIAMOND_LEVEL_DEFAULTS.n2Recent);
         const newWindows = {
             n0History: getNumber('diamondN0History', 500, 5000, DIAMOND_LEVEL_DEFAULTS.n0History),
             n0Window: getNumber('diamondN0Window', 25, 250, DIAMOND_LEVEL_DEFAULTS.n0Window),
@@ -5231,8 +5232,9 @@ function enforceSignalIntensityAvailability(options = {}) {
             n1PrimaryRequirement: getNumber('diamondN1PrimaryRequirement', 5, 200, DIAMOND_LEVEL_DEFAULTS.n1PrimaryRequirement),
             n1SecondaryRequirement: getNumber('diamondN1SecondaryRequirement', 1, 200, DIAMOND_LEVEL_DEFAULTS.n1SecondaryRequirement),
             n1MaxEntries: getNumber('diamondN1MaxEntries', 1, 20, DIAMOND_LEVEL_DEFAULTS.n1MaxEntries),
-            n2Recent: getNumber('diamondN2Recent', 2, 20, DIAMOND_LEVEL_DEFAULTS.n2Recent),
-            n2Previous: getNumber('diamondN2Previous', 3, 200, DIAMOND_LEVEL_DEFAULTS.n2Previous),
+            // N2 (novo): janela base única (W). Mantemos n2Previous espelhado por compatibilidade.
+            n2Recent: n2W,
+            n2Previous: n2W,
             n3Alternance: getNumber('diamondN3Alternance', 1, null, DIAMOND_LEVEL_DEFAULTS.n3Alternance),
             n3ThresholdPct: getNumber('diamondN3ThresholdPct', 50, 95, DIAMOND_LEVEL_DEFAULTS.n3ThresholdPct),
             n3MinOccurrences: getNumber('diamondN3MinOccurrences', 1, 50, DIAMOND_LEVEL_DEFAULTS.n3MinOccurrences),
@@ -5276,13 +5278,7 @@ function enforceSignalIntensityAvailability(options = {}) {
             n10: getToggleValue('diamondLevelToggleN10', DIAMOND_LEVEL_ENABLE_DEFAULTS.n10)
         };
 
-        if (newWindows.n2Previous <= newWindows.n2Recent) {
-            if (!silent) {
-            alert('A janela anterior do Momentum (N2) deve ser maior que a janela recente.');
-            return;
-            }
-            newWindows.n2Previous = Math.min(200, Math.max(newWindows.n2Recent + 1, DIAMOND_LEVEL_DEFAULTS.n2Previous));
-        }
+        // N2: n2Previous espelhado, sem validação min/max (o código ajusta automaticamente)
 
         if (newWindows.n7HistoryWindow < newWindows.n7DecisionWindow) {
             if (!silent) {
@@ -9760,15 +9756,23 @@ async function persistAnalyzerState(newState) {
                             <label class="mode-toggle" style="margin:0;">
                                 <input type="checkbox" id="cfgConsecutiveMartingale" />
                                 <div class="mode-toggle-content">
-                                    <span class="mode-toggle-label">Martingale consecutivo</span>
+                                    <span class="mode-toggle-label">Ativar gales consecutivos</span>
                                     <span class="mode-toggle-switch"></span>
                                 </div>
                             </label>
+                            <div class="auto-bet-field">
+                                <span>Consecutivo até (G)</span>
+                                <input type="number" id="cfgConsecutiveGales" min="0" max="200" value="0" />
+                            </div>
                             <div class="auto-bet-field">
                                 <span>Quantidade de Gales (0-200)</span>
                                 <input type="number" id="cfgMaxGales" min="0" max="200" value="0" />
                             </div>
                         </div>
+                        <p class="mode-toggle-hint" style="margin-top: 6px;">
+                            Ex.: <strong>Consecutivo até = 1</strong> → G1 imediato (mesma cor).<br>
+                            A partir do G2, entra apenas no <strong>próximo sinal</strong> (cor pode mudar).
+                        </p>
                         <label class="mode-toggle" style="margin-top: 8px;">
                             <input type="checkbox" id="autoBetWhiteProtection" />
                             <div class="mode-toggle-content">
@@ -14113,6 +14117,7 @@ function logModeSnapshotUI(snapshot) {
                 const winPct = document.getElementById('cfgWinPercentOthers');
                 const reqTrig = document.getElementById('cfgRequireTrigger');
                 const consecutiveMartingale = document.getElementById('cfgConsecutiveMartingale');
+                const consecutiveGales = document.getElementById('cfgConsecutiveGales');
                 const maxGales = document.getElementById('cfgMaxGales');
                 const tgChatId = document.getElementById('cfgTgChatId');
                 if (histDepth) histDepth.value = cfg.historyDepth != null ? cfg.historyDepth : 2000;
@@ -14130,6 +14135,7 @@ function logModeSnapshotUI(snapshot) {
                 if (winPct) winPct.value = cfg.winPercentOthers != null ? cfg.winPercentOthers : 25;
                 if (reqTrig) reqTrig.checked = cfg.requireTrigger != null ? cfg.requireTrigger : true;
                 if (consecutiveMartingale) consecutiveMartingale.checked = activeMartingaleProfile.consecutiveMartingale;
+                if (consecutiveGales) consecutiveGales.value = activeMartingaleProfile.consecutiveGales != null ? activeMartingaleProfile.consecutiveGales : 0;
                 if (maxGales) maxGales.value = activeMartingaleProfile.maxGales;
                 if (tgChatId) tgChatId.value = cfg.telegramChatId || '';
                 const setAutoBetInput = (id, value, isCheckbox = false) => {
@@ -14245,6 +14251,7 @@ function logModeSnapshotUI(snapshot) {
                 const winPct = Math.max(0, Math.min(100, parseInt(getElementValue('cfgWinPercentOthers', '25'), 10)));
                 const reqTrig = getElementValue('cfgRequireTrigger', false, true);
                 const consecutiveMartingaleSelected = getElementValue('cfgConsecutiveMartingale', false, true);
+                const consecutiveGalesRaw = parseInt(getElementValue('cfgConsecutiveGales', '0'), 10);
                 const autoBetWhiteProtectionValue = getElementValue('autoBetWhiteProtection', AUTO_BET_DEFAULTS.whiteProtection, true);
                 const tgChatId = String(getElementValue('cfgTgChatId', '')).trim();
                 
@@ -14324,11 +14331,19 @@ function logModeSnapshotUI(snapshot) {
                 const activeModeKey = tabSpecificAIMode ? 'diamond' : 'standard';
                 const maxGalesInput = parseInt(getElementValue('cfgMaxGales', String(martingaleProfiles[activeModeKey].maxGales)), 10);
                 const maxGales = clampMartingaleMax(maxGalesInput, martingaleProfiles[activeModeKey].maxGales);
+                let consecutiveGales = Math.max(0, Math.min(maxGales, Number.isFinite(consecutiveGalesRaw) ? consecutiveGalesRaw : 0));
+                if (!consecutiveMartingaleSelected) {
+                    consecutiveGales = 0;
+                } else if (maxGales > 0) {
+                    // Checkbox ligado: mínimo 1
+                    consecutiveGales = Math.max(1, consecutiveGales);
+                }
                 const updatedProfiles = {
                     ...martingaleProfiles,
                     [activeModeKey]: {
                         maxGales,
-                        consecutiveMartingale: consecutiveMartingaleSelected
+                        consecutiveGales,
+                        consecutiveMartingale: consecutiveGales > 0
                     }
                 };
                 
