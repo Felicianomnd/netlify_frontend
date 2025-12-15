@@ -955,6 +955,13 @@
                     console.log(`🔄 Re-renderizando entradas para modo ${newAIMode ? 'DIAMANTE' : 'PADRÃO'}...`);
                     console.log(`   Total de entradas no histórico: ${res.entriesHistory.length}`);
                     renderEntriesPanel(res.entriesHistory);
+                    // ✅ Atualizar também o painel de saldo (Simulador) ao trocar de modo,
+                    // mesmo que não chegue uma nova ENTRIES_UPDATE naquele instante.
+                    try {
+                        if (autoBetManager && typeof autoBetManager.handleEntriesUpdate === 'function') {
+                            autoBetManager.handleEntriesUpdate(res.entriesHistory);
+                        }
+                    } catch (_) {}
                     console.log('✅ Entradas filtradas e exibidas!');
                 }
             });
@@ -1294,6 +1301,10 @@ const AUTO_BET_RUNTIME_DEFAULTS = Object.freeze({
     blockedReason: null,
     lastProcessedEntryTimestamp: null,
     openCycle: null,
+    // ✅ Saldo por entrada: valor “pendente” (entrada feita e aguardando resultado), separado por modo.
+    // - diamante: pendente do modo Diamante
+    // - standard: pendente do modo Premium/Padrão
+    pendingExposureByMode: { diamond: 0, standard: 0 },
     simulationBalanceBase: AUTO_BET_DEFAULTS.simulationBankRoll,
     simulationBalance: AUTO_BET_DEFAULTS.simulationBankRoll,
     inverseNextBaseFactor: 1,
@@ -2675,6 +2686,59 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
     let standardSimHasResults = false;
     let standardSimActiveTab = 'signals';
     let standardSimMovedNodes = [];
+    let standardSimResizeHandler = null;
+    let standardSimWasFittedToCompactSidebar = false;
+
+    function fitStandardSimModalToCompactSidebar(modal) {
+        try {
+            if (!modal) return;
+            const sidebarEl = document.getElementById('blaze-double-analyzer');
+            const isCompactMode = sidebarEl && sidebarEl.classList.contains('compact-mode');
+            const isDesktopEnv = typeof isDesktop === 'function' ? isDesktop() : (window.innerWidth > 768);
+            if (!isDesktopEnv || !isCompactMode || !sidebarEl) return;
+            if (sidebarEl.classList.contains('fullscreen-mode')) return;
+
+            const content = modal.querySelector('.custom-pattern-modal-content');
+            if (!content) return;
+
+            const rect = sidebarEl.getBoundingClientRect();
+            content.style.position = 'fixed';
+            content.style.left = `${rect.left}px`;
+            content.style.top = `${rect.top}px`;
+            content.style.width = `${rect.width}px`;
+            content.style.height = `${rect.height}px`;
+            content.style.maxWidth = 'none';
+            content.style.maxHeight = 'none';
+            content.style.transform = 'none';
+            content.style.margin = '0';
+            content.style.borderRadius = '0';
+            content.style.zIndex = '1000002';
+
+            standardSimWasFittedToCompactSidebar = true;
+        } catch (_) {}
+    }
+
+    function resetStandardSimModalSizing(modal) {
+        try {
+            if (!modal) return;
+            const content = modal.querySelector('.custom-pattern-modal-content');
+            if (!content) return;
+            if (!standardSimWasFittedToCompactSidebar) return;
+
+            content.style.left = '';
+            content.style.top = '';
+            content.style.width = '';
+            content.style.height = '';
+            content.style.maxWidth = '';
+            content.style.maxHeight = '';
+            content.style.transform = '';
+            content.style.margin = '';
+            content.style.position = '';
+            content.style.borderRadius = '';
+            content.style.zIndex = '';
+        } catch (_) {}
+        standardSimWasFittedToCompactSidebar = false;
+    }
 
     function createStandardSimulationModal() {
         if (document.getElementById('standardSimulationModal')) return;
@@ -2839,6 +2903,13 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                 const container = document.getElementById('standardSimConfigContainer');
                 if (container) container.dataset.moved = '0';
             } catch (_) {}
+            try {
+                if (standardSimResizeHandler) {
+                    window.removeEventListener('resize', standardSimResizeHandler);
+                    standardSimResizeHandler = null;
+                }
+            } catch (_) {}
+            try { resetStandardSimModalSizing(modal); } catch (_) {}
             modal.style.display = 'none';
         };
 
@@ -2910,6 +2981,16 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
         if (!modal) return;
 
         modal.style.display = 'flex';
+
+        // ✅ Desktop + modo compacto: abrir no exato tamanho do painel compactado (sem modal “menorzinho”)
+        fitStandardSimModalToCompactSidebar(modal);
+        if (!standardSimResizeHandler) {
+            standardSimResizeHandler = () => {
+                fitStandardSimModalToCompactSidebar(modal);
+            };
+            window.addEventListener('resize', standardSimResizeHandler);
+        }
+
         // mover os campos do modo padrão pra dentro do modal (igual ao fluxo do Diamante)
         try {
             const container = document.getElementById('standardSimConfigContainer');
@@ -4365,45 +4446,63 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
         const whitePayoutMultiplier = Math.max(2, Number(cfg.whitePayoutMultiplier ?? 14) || 14);
 
         const entries = Array.isArray(allEntries) ? allEntries : [];
-
         const stageIndexFromEntry = (e) => getStageIndexFromEntryLike(e);
+
+        // ⚠️ Importante: usar a cor APOSTADA (análise), não a cor do giro.
+        // A cor do giro pode ser white e isso não significa que a aposta foi no branco.
         const resolveBetColor = (e) => {
-            const raw = e && e.patternData && e.patternData.color ? e.patternData.color : null;
+            const raw =
+                (e && e.analysis && e.analysis.color) ? e.analysis.color
+                : (e && e.patternData && e.patternData.color) ? e.patternData.color
+                : (e && e.betColor) ? e.betColor
+                : null;
             const c = String(raw || '').toLowerCase();
             if (c === 'red' || c === 'black' || c === 'white') return c;
+            // compat PT-BR
+            if (c === 'vermelho') return 'red';
+            if (c === 'preto') return 'black';
+            if (c === 'branco') return 'white';
             return 'red';
         };
 
-        // entries vem newest-first; calcular por ciclo em ordem cronológica para obter o saldo final
-        const cycleDeltasNewestFirst = [];
-        for (let i = 0; i < entries.length; ) {
-            const entry = entries[i];
-            if (!entry) { i++; continue; }
-            const isCycleFinal = entry.finalResult === 'WIN' || entry.finalResult === 'RET' || entry.result === 'WIN';
-            if (!isCycleFinal) { i++; continue; }
+        // ✅ Cálculo POR ENTRADA (por aposta):
+        // - LOSS (inclui intermediário): desconta stake do estágio
+        // - WIN: soma apenas o lucro do estágio (stake * (payout-1))
+        // O "saldo pendente" (quando você já entrou e ainda não saiu) é tratado separadamente em updateStatusUI via pendingExposure.
+        const attemptsChron = entries
+            .filter(e => e && (e.result === 'WIN' || e.result === 'LOSS'))
+            .slice()
+            .reverse(); // cronológico
 
-            const stageIdx = stageIndexFromEntry(entry);
-            const attemptsCount = Math.max(1, stageIdx + 1);
-            const betColor = resolveBetColor(entry);
+        let profitNet = 0;
+        let profitEarned = 0;
+        let lossSpent = 0;
+
+        for (const e of attemptsChron) {
+            const stageIdx = stageIndexFromEntry(e);
+            const stake = Number((baseStake * Math.pow(galeMult, stageIdx)).toFixed(2));
+            const betColor = resolveBetColor(e);
             const payoutMult = betColor === 'white' ? whitePayoutMultiplier : 2;
+            const delta = e.result === 'WIN'
+                ? Number((stake * (payoutMult - 1)).toFixed(2))
+                : Number((-stake).toFixed(2));
 
-            const totalInvested = Array.from({ length: attemptsCount }).reduce((sum, _, idx) => {
-                const amt = baseStake * Math.pow(galeMult, idx);
-                return sum + amt;
-            }, 0);
-            const lastAmount = baseStake * Math.pow(galeMult, attemptsCount - 1);
-            const isWin = entry.finalResult === 'WIN' || entry.result === 'WIN';
-            const delta = isWin ? (lastAmount * payoutMult) - totalInvested : -totalInvested;
-            cycleDeltasNewestFirst.push(Number(delta.toFixed(2)));
-
-            i += attemptsCount;
+            profitNet = Number((profitNet + delta).toFixed(2));
+            if (delta > 0) profitEarned = Number((profitEarned + delta).toFixed(2));
+            else if (delta < 0) lossSpent = Number((lossSpent + Math.abs(delta)).toFixed(2));
         }
 
-        const cycleDeltasChron = cycleDeltasNewestFirst.slice().reverse();
-        const profit = Number(cycleDeltasChron.reduce((sum, d) => sum + (Number(d) || 0), 0).toFixed(2));
-        const balance = Number((initialBank + profit).toFixed(2));
-        const loss = profit < 0 ? Math.abs(profit) : 0;
-        return { initialBank, balance, profit, loss, baseStake, galeMult };
+        const balance = Number((initialBank + profitNet).toFixed(2));
+        return {
+            initialBank,
+            balance,
+            profit: profitNet,          // lucro líquido (WIN - LOSS)
+            profitEarned,               // soma dos ganhos
+            loss: lossSpent,            // soma das perdas
+            lossSpent,
+            baseStake,
+            galeMult
+        };
     }
 
     let entriesTickZoomState = { points: 0, zoom: 1, x: 0, baseW: 1, baseH: 160 };
@@ -4681,43 +4780,55 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
         const whitePayoutMultiplier = Math.max(2, Number(cfg.whitePayoutMultiplier ?? 14) || 14);
 
         const stageIndexFromEntry = (e) => getStageIndexFromEntryLike(e);
+
         const resolveBetColor = (e) => {
-            const raw = e && e.patternData && e.patternData.color ? e.patternData.color : null;
+            const raw =
+                (e && e.analysis && e.analysis.color) ? e.analysis.color
+                : (e && e.patternData && e.patternData.color) ? e.patternData.color
+                : (e && e.betColor) ? e.betColor
+                : null;
             const c = String(raw || '').toLowerCase();
             if (c === 'red' || c === 'black' || c === 'white') return c;
+            if (c === 'vermelho') return 'red';
+            if (c === 'preto') return 'black';
+            if (c === 'branco') return 'white';
             return 'red';
         };
 
-        // entries vem newest-first; calcular por ciclo em ordem cronológica para obter o saldo final
-        const cycleDeltasNewestFirst = [];
-        for (let i = 0; i < entries.length; ) {
-            const entry = entries[i];
-            if (!entry) { i++; continue; }
-            const isCycleFinal = entry.finalResult === 'WIN' || entry.finalResult === 'RET' || entry.result === 'WIN';
-            if (!isCycleFinal) { i++; continue; }
+        const attemptsChron = entries
+            .filter(e => e && (e.result === 'WIN' || e.result === 'LOSS'))
+            .slice()
+            .reverse();
 
-            const stageIdx = stageIndexFromEntry(entry);
-            const attemptsCount = Math.max(1, stageIdx + 1);
-            const betColor = resolveBetColor(entry);
+        let profitNet = 0;
+        let profitEarned = 0;
+        let lossSpent = 0;
+
+        for (const e of attemptsChron) {
+            const stageIdx = stageIndexFromEntry(e);
+            const stake = Number((baseStake * Math.pow(galeMult, stageIdx)).toFixed(2));
+            const betColor = resolveBetColor(e);
             const payoutMult = betColor === 'white' ? whitePayoutMultiplier : 2;
+            const delta = e.result === 'WIN'
+                ? Number((stake * (payoutMult - 1)).toFixed(2))
+                : Number((-stake).toFixed(2));
 
-            const totalInvested = Array.from({ length: attemptsCount }).reduce((sum, _, idx) => {
-                const amt = baseStake * Math.pow(galeMult, idx);
-                return sum + amt;
-            }, 0);
-            const lastAmount = baseStake * Math.pow(galeMult, attemptsCount - 1);
-            const isWin = entry.finalResult === 'WIN' || entry.result === 'WIN';
-            const delta = isWin ? (lastAmount * payoutMult) - totalInvested : -totalInvested;
-            cycleDeltasNewestFirst.push(Number(delta.toFixed(2)));
-
-            i += attemptsCount;
+            profitNet = Number((profitNet + delta).toFixed(2));
+            if (delta > 0) profitEarned = Number((profitEarned + delta).toFixed(2));
+            else if (delta < 0) lossSpent = Number((lossSpent + Math.abs(delta)).toFixed(2));
         }
 
-        const cycleDeltasChron = cycleDeltasNewestFirst.slice().reverse();
-        const profit = Number(cycleDeltasChron.reduce((sum, d) => sum + (Number(d) || 0), 0).toFixed(2));
-        const balance = Number((initialBank + profit).toFixed(2));
-        const loss = profit < 0 ? Math.abs(profit) : 0;
-        return { initialBank, balance, profit, loss, baseStake, galeMult };
+        const balance = Number((initialBank + profitNet).toFixed(2));
+        return {
+            initialBank,
+            balance,
+            profit: profitNet,
+            profitEarned,
+            loss: lossSpent,
+            lossSpent,
+            baseStake,
+            galeMult
+        };
     }
 
     let diamondSimTickZoomState = { points: 0, zoom: 1, x: 0, baseW: 1, baseH: 160 };
@@ -8465,6 +8576,30 @@ autoBetHistoryStore.init().catch(error => console.warn('AutoBetHistory: iniciali
             return aiModeToggle ? 'diamond' : 'standard';
         }
 
+        // ✅ Saldo por entrada (pendente) separado por modo (Diamante vs Premium)
+        function ensurePendingExposureShape() {
+            const cur = runtime && typeof runtime === 'object' ? runtime.pendingExposureByMode : null;
+            if (!cur || typeof cur !== 'object') {
+                runtime.pendingExposureByMode = { diamond: 0, standard: 0 };
+                return;
+            }
+            if (!Number.isFinite(Number(cur.diamond))) cur.diamond = 0;
+            if (!Number.isFinite(Number(cur.standard))) cur.standard = 0;
+            runtime.pendingExposureByMode = cur;
+        }
+
+        function setPendingExposureForMode(modeKey, value) {
+            ensurePendingExposureShape();
+            const k = modeKey === 'diamond' ? 'diamond' : 'standard';
+            runtime.pendingExposureByMode[k] = Math.max(0, Number(value) || 0);
+        }
+
+        function addPendingExposureForMode(modeKey, delta) {
+            ensurePendingExposureShape();
+            const k = modeKey === 'diamond' ? 'diamond' : 'standard';
+            runtime.pendingExposureByMode[k] = Math.max(0, Number(runtime.pendingExposureByMode[k] || 0) + (Number(delta) || 0));
+        }
+
         function filterEntriesSnapshotByMode(allEntries, modeKey) {
             const entriesArr = Array.isArray(allEntries) ? allEntries : [];
             const hasExplicitMode = entriesArr.some(e => e && (e.analysisMode === 'diamond' || e.analysisMode === 'standard'));
@@ -8479,7 +8614,9 @@ autoBetHistoryStore.init().catch(error => console.warn('AutoBetHistory: iniciali
 
         function updateStatusUI(message) {
             if (!uiRefs) return;
-            const shouldDisplayBalances = !!config.simulationOnly || !!config.enabled;
+            // ✅ Mostrar saldo sempre que houver histórico (mesmo se autoaposta estiver desativada),
+            // porque o simulador é por entrada (WIN/LOSS) e não depende do modo de execução.
+            const shouldDisplayBalances = !!config.simulationOnly || !!config.enabled || (Array.isArray(autoBetEntriesSnapshot) && autoBetEntriesSnapshot.length > 0);
             
             const statusText = (() => {
                 if (message) return message;
@@ -8502,14 +8639,19 @@ autoBetHistoryStore.init().catch(error => console.warn('AutoBetHistory: iniciali
                 : [];
             const profitSnapshot = shouldDisplayBalances
                 ? computeEntriesProfitSnapshot(modeEntries, config)
-                : { profit: 0 };
-            const realizedProfit = shouldDisplayBalances ? Number(profitSnapshot.profit || 0) : 0;
+                : { profit: 0, profitEarned: 0, loss: 0 };
+            const realizedProfitNet = shouldDisplayBalances ? Number(profitSnapshot.profit || 0) : 0;
+            const realizedProfitEarned = shouldDisplayBalances ? Number(profitSnapshot.profitEarned || 0) : 0;
+            const realizedLossSpent = shouldDisplayBalances ? Number(profitSnapshot.loss || 0) : 0;
 
-            const pendingExposure = shouldDisplayBalances && runtime.openCycle && (runtime.openCycle.mode || activeMode) === activeMode
-                ? (getColorExposure() + getWhiteExposure())
+            // ✅ Pendente: entrada feita e aguardando resultado (desconta no saldo atual imediatamente),
+            // separado por modo e sem misturar com realizado.
+            ensurePendingExposureShape();
+            const pendingExposure = shouldDisplayBalances
+                ? Number(runtime?.pendingExposureByMode?.[activeMode] || 0)
                 : 0;
-            const profitValue = realizedProfit > 0 ? realizedProfit : 0;
-            const lossValue = shouldDisplayBalances ? Math.max(0, -(realizedProfit)) : 0;
+            const profitValue = shouldDisplayBalances ? Math.max(0, realizedProfitEarned) : 0;
+            const lossValue = shouldDisplayBalances ? Math.max(0, realizedLossSpent) : 0;
             if (uiRefs.profit) {
                 uiRefs.profit.textContent = formatCurrency(profitValue);
             }
@@ -8522,7 +8664,7 @@ autoBetHistoryStore.init().catch(error => console.warn('AutoBetHistory: iniciali
             }
             if (uiRefs.currentBalance) {
                 const currentBalanceValue = shouldDisplayBalances
-                    ? initialBalance + realizedProfit - pendingExposure
+                    ? initialBalance + realizedProfitNet - pendingExposure
                     : 0;
                 const balanceDelta = currentBalanceValue - initialBalance;
                 const balanceClass = balanceDelta > 0
@@ -8858,6 +9000,8 @@ autoBetHistoryStore.init().catch(error => console.warn('AutoBetHistory: iniciali
 
         function markIntermediateLoss() {
             if (!runtime.openCycle || !runtime.openCycle.bets || !runtime.openCycle.bets.length) return;
+            // ✅ LOSS intermediário: não pode “segurar” pendente; o realizado já está no histórico.
+            setPendingExposureForMode(runtime.openCycle.mode || getActiveAnalysisModeKey(), 0);
             const lostBet = runtime.openCycle.bets[runtime.openCycle.bets.length - 1];
             const lostAmount = Number(lostBet.amount || 0);
             if (lostAmount > 0) {
@@ -8925,17 +9069,27 @@ autoBetHistoryStore.init().catch(error => console.warn('AutoBetHistory: iniciali
             // ✅ Sempre manter um snapshot para o simulador de saldo (mesmo vazio),
             // para que alternar modos e limpar histórico atualize o painel corretamente.
             autoBetEntriesSnapshot = Array.isArray(entries) ? entries : [];
-            // ✅ Atualizar UI do simulador imediatamente (saldo/lucro/perdas por modo),
-            // mesmo quando não há ciclo aberto (o histórico pode ser atualizado pelo verificador de sinais).
-            updateStatusUI();
             if (!autoBetEntriesSnapshot.length) {
+                updateStatusUI();
                 return;
             }
-            if (!isAutomationActive() && !runtime.openCycle) return;
+            if (!isAutomationActive() && !runtime.openCycle) {
+                updateStatusUI();
+                return;
+            }
             const latest = autoBetEntriesSnapshot[0];
-            if (!latest || runtime.lastProcessedEntryTimestamp === latest.timestamp) return;
+            if (!latest || runtime.lastProcessedEntryTimestamp === latest.timestamp) {
+                updateStatusUI();
+                return;
+            }
             runtime.lastProcessedEntryTimestamp = latest.timestamp;
-            if (!runtime.openCycle) return;
+            if (!runtime.openCycle) {
+                updateStatusUI();
+                return;
+            }
+            
+            // ✅ Resultado chegou → a entrada pendente desse modo deve zerar (agora vira WIN/LOSS realizado no histórico)
+            setPendingExposureForMode(runtime.openCycle.mode || getActiveAnalysisModeKey(), 0);
             const isWin = latest.result === 'WIN';
             const isFinalLoss = latest.result === 'LOSS' && (latest.finalResult === 'RET' || !hasContinuationFlag(latest));
             if (isWin) {
@@ -8945,6 +9099,7 @@ autoBetHistoryStore.init().catch(error => console.warn('AutoBetHistory: iniciali
             } else {
                 markIntermediateLoss();
                 persistRuntime(true);
+                updateStatusUI();
             }
         }
 
@@ -9003,6 +9158,9 @@ autoBetHistoryStore.init().catch(error => console.warn('AutoBetHistory: iniciali
                 color,
                 timestamp: Date.now()
             });
+            // ✅ Entrada feita → descontar imediatamente no saldo atual (pendente) do modo correspondente.
+            // Lucro/Perdas só mudam quando o resultado sair (WIN/LOSS no histórico).
+            setPendingExposureForMode(runtime.openCycle.mode || getActiveAnalysisModeKey(), amount);
             recordCycleStage(stageInfo, amount, color);
             persistRuntime(true);
             updateStatusUI();
@@ -9157,6 +9315,8 @@ autoBetHistoryStore.init().catch(error => console.warn('AutoBetHistory: iniciali
                 amount,
                 timestamp: Date.now()
             });
+            // ✅ Proteção no branco faz parte da mesma entrada pendente (somar no pendente do modo).
+            addPendingExposureForMode(runtime.openCycle.mode || getActiveAnalysisModeKey(), amount);
             recordWhiteProtectionAmount(amount);
             persistRuntime(true);
             updateStatusUI();
@@ -9297,12 +9457,18 @@ autoBetHistoryStore.init().catch(error => console.warn('AutoBetHistory: iniciali
             if (!runtime.openCycle || !runtime.openCycle.bets || !runtime.openCycle.bets.length) {
                 cancelPendingHistoryRecord('cancelled');
                 runtime.openCycle = null;
+                // ✅ Segurança: ao finalizar/resetar, não deixar pendentes “vazando” entre modos.
+                if (runtime && typeof runtime === 'object') {
+                    runtime.pendingExposureByMode = { diamond: 0, standard: 0 };
+                }
                 updateSimulationSnapshots();
                 persistRuntime(true);
                 updateStatusUI();
                 resetActiveBetCards(config.whiteProtection);
                 return;
             }
+            // ✅ Ciclo finalizado → pendente do modo atual deve zerar.
+            setPendingExposureForMode(runtime.openCycle.mode || getActiveAnalysisModeKey(), 0);
             const bets = runtime.openCycle.bets;
             const whiteBets = runtime.openCycle.whiteBets || [];
             const totalColorInvested = bets.reduce((sum, bet) => sum + Number(bet.amount || 0), 0);
