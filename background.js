@@ -570,6 +570,65 @@ function getMartingaleStageNumber(stage) {
     return Number.isFinite(n) && n >= 0 ? n : 0;
 }
 
+function roundMoney(value) {
+    const n = Number(value);
+    return Number.isFinite(n) ? Number(n.toFixed(2)) : 0;
+}
+
+function snapshotAutoBetConfig(config = analyzerConfig) {
+    try {
+        return sanitizeAutoBetConfig(config && config.autoBetConfig ? config.autoBetConfig : null);
+    } catch (_) {
+        return sanitizeAutoBetConfig(null);
+    }
+}
+
+function getPayoutMultiplierForBetColor(betColor, autoBetCfg) {
+    const c = String(betColor || '').toLowerCase();
+    if (c === 'white' || c === 'branco') {
+        const wm = Number(autoBetCfg && autoBetCfg.whitePayoutMultiplier);
+        return Math.max(2, Number.isFinite(wm) ? wm : 14);
+    }
+    return 2;
+}
+
+function calcStakeForStage(stageLabel, autoBetCfg) {
+    const cfg = autoBetCfg && typeof autoBetCfg === 'object' ? autoBetCfg : snapshotAutoBetConfig();
+    const base = Math.max(0.01, Number(cfg.baseStake) || 0.01);
+    const mult = Math.max(1, Number(cfg.galeMultiplier) || 1);
+    const k = getMartingaleStageNumber(stageLabel);
+    return roundMoney(base * Math.pow(mult, k));
+}
+
+function calcTotalInvestedThroughStage(stageLabel, autoBetCfg) {
+    const cfg = autoBetCfg && typeof autoBetCfg === 'object' ? autoBetCfg : snapshotAutoBetConfig();
+    const base = Math.max(0.01, Number(cfg.baseStake) || 0.01);
+    const mult = Math.max(1, Number(cfg.galeMultiplier) || 1);
+    const k = getMartingaleStageNumber(stageLabel);
+    let sum = 0;
+    for (let i = 0; i <= k; i++) {
+        sum += base * Math.pow(mult, i);
+    }
+    return roundMoney(sum);
+}
+
+function ensureMartingaleCycleConfig(autoBetCfg) {
+    try {
+        const cfg = autoBetCfg && typeof autoBetCfg === 'object' ? autoBetCfg : snapshotAutoBetConfig();
+        if (!martingaleState || typeof martingaleState !== 'object') return cfg;
+        if (!martingaleState.cycleAutoBetConfig || typeof martingaleState.cycleAutoBetConfig !== 'object') {
+            martingaleState.cycleAutoBetConfig = {
+                baseStake: Number(cfg.baseStake) || 0,
+                galeMultiplier: Number(cfg.galeMultiplier) || 0,
+                whitePayoutMultiplier: Number(cfg.whitePayoutMultiplier) || 14
+            };
+        }
+        return martingaleState.cycleAutoBetConfig;
+    } catch (_) {
+        return snapshotAutoBetConfig();
+    }
+}
+
 function isMartingaleStageConsecutive(stage, consecutiveGales) {
     const k = getMartingaleStageNumber(stage);
     const limit = Math.max(0, Number(consecutiveGales) || 0);
@@ -3241,6 +3300,18 @@ async function processNewSpinFromServer(spinData) {
                             console.log(`🔑 Padrão: ${patternKey}`);
                             
                             // WIN: registrar entrada com informações de Martingale
+                            // ✅ Fix: gravar valores financeiros da entrada no momento (para não “mudar o passado” ao alterar config)
+                            const cycleAutoBetCfg = martingaleState && martingaleState.active
+                                ? ensureMartingaleCycleConfig(snapshotAutoBetConfig(analyzerConfig))
+                                : snapshotAutoBetConfig(analyzerConfig);
+                            const betColor = currentAnalysis.color;
+                            const payoutMultiplier = getPayoutMultiplierForBetColor(betColor, cycleAutoBetCfg);
+                            const stakeAmount = calcStakeForStage(martingaleStage, cycleAutoBetCfg);
+                            const cycleId = (martingaleState && martingaleState.active && martingaleState.entryTimestamp)
+                                ? martingaleState.entryTimestamp
+                                : (currentAnalysis.createdOnTimestamp || latestSpin.created_at || Date.now());
+                            const cycleTotalInvested = calcTotalInvestedThroughStage(martingaleStage, cycleAutoBetCfg);
+                            const cycleNetProfit = roundMoney((stakeAmount * payoutMultiplier) - cycleTotalInvested);
                             const winEntry = {
                                 timestamp: latestSpin.created_at,
                                 number: rollNumber,
@@ -3259,7 +3330,16 @@ async function processNewSpinFromServer(spinData) {
                                 wonAt: martingaleStage,             // Onde ganhou
                                 finalResult: 'WIN',                 // Resultado final do ciclo
                                 // ✅ NOVO: IDENTIFICAR MODO DE ANÁLISE
-                                analysisMode: analyzerConfig.aiMode ? 'diamond' : 'standard' // 'diamond' | 'standard'
+                                analysisMode: analyzerConfig.aiMode ? 'diamond' : 'standard', // 'diamond' | 'standard'
+                                // ✅ FINANCEIRO (fixo no tempo)
+                                cycleId,
+                                betColor,
+                                stakeAmount,
+                                baseStakeSnapshot: Number(cycleAutoBetCfg.baseStake) || 0,
+                                galeMultiplierSnapshot: Number(cycleAutoBetCfg.galeMultiplier) || 0,
+                                payoutMultiplier,
+                                cycleTotalInvested,
+                                cycleNetProfit
                             };
                             
                             console.log('%c║  📝 DEBUG COMPLETO: SALVANDO ENTRADA WIN                                    ║', 'color: #00FF00; font-weight: bold; font-size: 14px;');
@@ -3442,6 +3522,15 @@ async function processNewSpinFromServer(spinData) {
                                     // ❌ SEM GALES: Registrar LOSS direto
                                     console.log('⛔ CONFIGURAÇÃO: 0 Gales - Registrando LOSS direto');
                                     
+                                    // ✅ Fix financeiro: congelar config e calcular valores do ciclo (RET)
+                                    const cycleAutoBetCfg = snapshotAutoBetConfig(analyzerConfig);
+                                    const betColor = currentAnalysis.color;
+                                    const payoutMultiplier = getPayoutMultiplierForBetColor(betColor, cycleAutoBetCfg);
+                                    const stakeAmount = calcStakeForStage('ENTRADA', cycleAutoBetCfg);
+                                    const cycleId = currentAnalysis.createdOnTimestamp || latestSpin.created_at || Date.now();
+                                    const cycleTotalInvested = calcTotalInvestedThroughStage('ENTRADA', cycleAutoBetCfg);
+                                    const cycleNetProfit = roundMoney(-cycleTotalInvested);
+                                    
                                     const lossEntry = {
                                         timestamp: latestSpin.created_at,
                                         number: rollNumber,
@@ -3458,7 +3547,16 @@ async function processNewSpinFromServer(spinData) {
                                         martingaleStage: 'ENTRADA',
                                         finalResult: 'RET',
                                         // ✅ NOVO: IDENTIFICAR MODO DE ANÁLISE
-                                        analysisMode: analyzerConfig.aiMode ? 'diamond' : 'standard'
+                                        analysisMode: analyzerConfig.aiMode ? 'diamond' : 'standard',
+                                        // ✅ FINANCEIRO (fixo no tempo)
+                                        cycleId,
+                                        betColor,
+                                        stakeAmount,
+                                        baseStakeSnapshot: Number(cycleAutoBetCfg.baseStake) || 0,
+                                        galeMultiplierSnapshot: Number(cycleAutoBetCfg.galeMultiplier) || 0,
+                                        payoutMultiplier,
+                                        cycleTotalInvested,
+                                        cycleNetProfit
                                     };
                                     
                                     console.log('%c║  📝 DEBUG COMPLETO: SALVANDO ENTRADA LOSS (SEM GALES)                      ║', 'color: #FF0000; font-weight: bold; font-size: 14px;');
@@ -3545,6 +3643,12 @@ async function processNewSpinFromServer(spinData) {
                                 const g1Color = currentAnalysis.color;
                                 
                                 // ⚠️ CRÍTICO: Registrar LOSS da ENTRADA antes de tentar G1
+                                // ✅ Fix financeiro: congelar config do ciclo na primeira entrada
+                                const cycleAutoBetCfg = ensureMartingaleCycleConfig(snapshotAutoBetConfig(analyzerConfig));
+                                const betColor = currentAnalysis.color;
+                                const payoutMultiplier = getPayoutMultiplierForBetColor(betColor, cycleAutoBetCfg);
+                                const stakeAmount = calcStakeForStage('ENTRADA', cycleAutoBetCfg);
+                                const cycleId = currentAnalysis.createdOnTimestamp || latestSpin.created_at || Date.now();
                                 const entradaLossEntry = {
                             timestamp: latestSpin.created_at,
                             number: rollNumber,
@@ -3562,7 +3666,14 @@ async function processNewSpinFromServer(spinData) {
                                     finalResult: null,  // Ainda não é final, vai tentar G1
                                     continuingToG1: true,  // Flag indicando que continuará
                                     // ✅ NOVO: IDENTIFICAR MODO DE ANÁLISE
-                                    analysisMode: analyzerConfig.aiMode ? 'diamond' : 'standard'
+                                    analysisMode: analyzerConfig.aiMode ? 'diamond' : 'standard',
+                                    // ✅ FINANCEIRO (fixo no tempo)
+                                    cycleId,
+                                    betColor,
+                                    stakeAmount,
+                                    baseStakeSnapshot: Number(cycleAutoBetCfg.baseStake) || 0,
+                                    galeMultiplierSnapshot: Number(cycleAutoBetCfg.galeMultiplier) || 0,
+                                    payoutMultiplier
                                 };
                                 
                                 entriesHistory.unshift(entradaLossEntry);
@@ -3633,6 +3744,17 @@ async function processNewSpinFromServer(spinData) {
                                     // ❌ LIMITE ATINGIDO: Registrar RET
                                     console.log(`⛔ Limite de Gales atingido (${currentGaleNumber}/${maxGales}) - Registrando RET`);
                                     
+                                    // ✅ Fix financeiro: usar config do ciclo (congelada) e calcular net do RET
+                                    const cycleAutoBetCfg = ensureMartingaleCycleConfig(snapshotAutoBetConfig(analyzerConfig));
+                                    const betColor = (martingaleState && martingaleState.entryColor) ? martingaleState.entryColor : currentAnalysis.color;
+                                    const payoutMultiplier = getPayoutMultiplierForBetColor(betColor, cycleAutoBetCfg);
+                                    const stakeAmount = calcStakeForStage(currentStage, cycleAutoBetCfg);
+                                    const cycleId = (martingaleState && martingaleState.entryTimestamp)
+                                        ? martingaleState.entryTimestamp
+                                        : (currentAnalysis.createdOnTimestamp || latestSpin.created_at || Date.now());
+                                    const cycleTotalInvested = calcTotalInvestedThroughStage(currentStage, cycleAutoBetCfg);
+                                    const cycleNetProfit = roundMoney(-cycleTotalInvested);
+                                    
                                     const retEntry = {
                                         timestamp: latestSpin.created_at,
                                         number: rollNumber,
@@ -3649,7 +3771,16 @@ async function processNewSpinFromServer(spinData) {
                                         martingaleStage: currentStage,
                                         finalResult: 'RET',
                                         // ✅ NOVO: IDENTIFICAR MODO DE ANÁLISE
-                                        analysisMode: analyzerConfig.aiMode ? 'diamond' : 'standard'
+                                        analysisMode: analyzerConfig.aiMode ? 'diamond' : 'standard',
+                                        // ✅ FINANCEIRO (fixo no tempo)
+                                        cycleId,
+                                        betColor,
+                                        stakeAmount,
+                                        baseStakeSnapshot: Number(cycleAutoBetCfg.baseStake) || 0,
+                                        galeMultiplierSnapshot: Number(cycleAutoBetCfg.galeMultiplier) || 0,
+                                        payoutMultiplier,
+                                        cycleTotalInvested,
+                                        cycleNetProfit
                                     };
                                     
                                     entriesHistory.unshift(retEntry);
@@ -3865,6 +3996,17 @@ async function processNewSpinFromServer(spinData) {
                                 // ❌ LOSS NO G2: RET (Loss Final)
                                 console.log('⛔ LOSS no G2 - RET');
                                 
+                                // ✅ Fix financeiro: usar config do ciclo (congelada) e calcular net do RET
+                                const cycleAutoBetCfg = ensureMartingaleCycleConfig(snapshotAutoBetConfig(analyzerConfig));
+                                const betColor = (martingaleState && martingaleState.entryColor) ? martingaleState.entryColor : currentAnalysis.color;
+                                const payoutMultiplier = getPayoutMultiplierForBetColor(betColor, cycleAutoBetCfg);
+                                const stakeAmount = calcStakeForStage('G2', cycleAutoBetCfg);
+                                const cycleId = (martingaleState && martingaleState.entryTimestamp)
+                                    ? martingaleState.entryTimestamp
+                                    : (currentAnalysis.createdOnTimestamp || latestSpin.created_at || Date.now());
+                                const cycleTotalInvested = calcTotalInvestedThroughStage('G2', cycleAutoBetCfg);
+                                const cycleNetProfit = roundMoney(-cycleTotalInvested);
+                                
                                 const retEntry = {
                                     timestamp: latestSpin.created_at,
                                     number: rollNumber,
@@ -3881,7 +4023,16 @@ async function processNewSpinFromServer(spinData) {
                                     martingaleStage: 'G2',
                                     finalResult: 'RET',
                                     // ✅ NOVO: IDENTIFICAR MODO DE ANÁLISE
-                                    analysisMode: analyzerConfig.aiMode ? 'diamond' : 'standard'
+                                    analysisMode: analyzerConfig.aiMode ? 'diamond' : 'standard',
+                                    // ✅ FINANCEIRO (fixo no tempo)
+                                    cycleId,
+                                    betColor,
+                                    stakeAmount,
+                                    baseStakeSnapshot: Number(cycleAutoBetCfg.baseStake) || 0,
+                                    galeMultiplierSnapshot: Number(cycleAutoBetCfg.galeMultiplier) || 0,
+                                    payoutMultiplier,
+                                    cycleTotalInvested,
+                                    cycleNetProfit
                                 };
                                 
                                 entriesHistory.unshift(retEntry);
@@ -9233,16 +9384,22 @@ function analyzeAlternancePattern(history, options = {}) {
         const runs = runsNewestFirst.slice(0, neededBlocks);
         if (runs.length < 2) return null;
 
-        // todas as runs precisam ser <= groupSize (já garantido na construção), e cores alternam (já garantido por serem runs)
-        // regra extra: runs internas devem ser exatamente groupSize (para duplas/triplas não virarem bagunça)
-        if (groupSize > 1 && runs.length > 2) {
-            for (let i = 1; i < runs.length - 1; i++) {
-                if (runs[i].len !== groupSize) return null;
+        // ✅ REGRA CRÍTICA (pedido do usuário):
+        // Alternância só existe quando está CONCRETIZADA (blocos completos), ex:
+        // - Simples:  R B R B  (g=1)
+        // - Dupla:    RR BB    (g=2)
+        // - Tripla:   RRR BBB  (g=3)
+        // Se um bloco quebra antes de completar (len < groupSize), NÃO é alternância (ainda não formou).
+        // Branco já quebra antes (buildRunsBackward para em branco).
+        if (groupSize > 1) {
+            for (const r of runs) {
+                if (r.len !== groupSize) return null;
             }
         }
 
         const newest = runs[0];
-        const expectedNext = newest.len < groupSize ? newest.color : oppositeRB(newest.color);
+        // ✅ Após completar o ciclo (bloco cheio), a próxima "cabeça" é sempre a cor oposta.
+        const expectedNext = oppositeRB(newest.color);
         if (!isRB(expectedNext)) return null;
 
         const spinsUsed = runs.reduce((acc, r) => acc + (r.len || 0), 0);
@@ -9262,11 +9419,10 @@ function analyzeAlternancePattern(history, options = {}) {
 
         const groupSizes = [3, 2, 1];
 
-        // mínimo de blocos para "ver" alternância sem bicar:
-        // simples: P-V-P (3 blocos) já permite prever V
-        // dupla/tripla: exigir 3 blocos (ex.: RR BB RR / RRR BBB RRR) para evitar "falso positivo"
-        // (apenas 1 bloco anterior curto como "B RRR" não conta como alternância real)
-        const minBlocksFor = (g) => (g === 1 ? 3 : 3);
+        // ✅ Pedido do usuário: só considerar alternância quando o padrão já FORMOU (ciclo completo).
+        // - simples: precisa de 4 blocos (R B R B)
+        // - dupla/tripla: precisa de 2 blocos completos (RR BB / RRR BBB)
+        const minBlocksFor = (g) => (g === 1 ? 4 : 2);
 
         let bestStructural = null;
         let bestPassing = null;
@@ -9282,9 +9438,11 @@ function analyzeAlternancePattern(history, options = {}) {
             for (let b = maxBlocks; b >= minBlocks; b--) blocksToTry.push(b);
 
             // estrutural (apenas para dizer "existe alternância")
+            let structuralBlocksForG = null;
             for (let b of blocksToTry) {
                 const det = checkAlternanceRuns(runsAll, g, b);
                 if (!det) continue;
+                structuralBlocksForG = b;
                 if (!bestStructural ||
                     det.groupSize > bestStructural.groupSize ||
                     (det.groupSize === bestStructural.groupSize && det.blocks > bestStructural.blocks)
@@ -9296,7 +9454,11 @@ function analyzeAlternancePattern(history, options = {}) {
         }
 
             // passando critérios (rigor + ocorrências)
-            const blocksToTryPassing = settings.allowBackoff ? blocksToTry : [maxBlocks];
+            // - se allowBackoff=false, usamos o MAIOR comprimento estrutural válido (não o maxBlocks bruto),
+            //   porque maxBlocks pode incluir um bloco quebrado que invalida a alternância.
+            const blocksToTryPassing = settings.allowBackoff
+                ? blocksToTry
+                : (structuralBlocksForG ? [structuralBlocksForG] : []);
             for (let b of blocksToTryPassing) {
                 const det = checkAlternanceRuns(runsAll, g, b);
                 if (!det) continue;
