@@ -184,7 +184,8 @@ let forceLogoutTabOpened = false;
 // ═══════════════════════════════════════════════════════════════════════════════
 // 💾 CACHE EM MEMÓRIA (não persiste após recarregar)
 // ═══════════════════════════════════════════════════════════════════════════════
-let cachedHistory = [];  // Histórico de giros em memória (até 2000)
+const REALTIME_HISTORY_CAP = 10000;
+let cachedHistory = [];  // Histórico de giros em memória (até 10k)
 let historyInitialized = false;  // Flag de inicialização
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -198,7 +199,7 @@ let memoriaAtiva = {
     ultimaAtualizacao: null,
     versao: 1,
     
-    // 📜 HISTÓRICO (2000 giros)
+    // 📜 HISTÓRICO (mín. 2000 • até 10k conforme configuração)
     giros: [],
     ultimos20: [],
     
@@ -295,7 +296,7 @@ let memoriaAtivaInicializando = false;  // Flag para evitar inicializações sim
 // Runtime analyzer configuration (overridable via chrome.storage.local)
 // ✅ CONFIGURAÇÕES PADRÃO OTIMIZADAS (Modo de Análise Padrão do Sistema)
 const DEFAULT_ANALYZER_CONFIG = {
-    historyDepth: 500,            // ✅ profundidade de análise em giros (100-2000) - MODO PADRÃO
+    historyDepth: 500,            // ✅ profundidade de análise em giros (100-10000) - MODO PADRÃO
     minOccurrences: 2,            // ✅ quantidade mínima de WINS exigida (padrão: 2) - MODO PADRÃO
     maxOccurrences: 0,            // ✅ quantidade MÁXIMA de ocorrências (0 = sem limite)
     minIntervalSpins: 2,          // ✅ intervalo mínimo em GIROS entre OCORRÊNCIAS do MESMO padrão (modo padrão)
@@ -1806,21 +1807,25 @@ async function checkAPIStatus() {
 }
 
 // Buscar giros do servidor
-async function fetchGirosFromAPI() {
+// - Default: REALTIME_HISTORY_CAP (uso do modo real / cache em memória)
+// - Para simulações/otimizações: pode pedir até REALTIME_HISTORY_CAP sob demanda
+async function fetchGirosFromAPI(limit = REALTIME_HISTORY_CAP, timeoutMs = 20000) {
     if (!API_CONFIG.enabled) {
         console.log('⚠️ API_CONFIG.enabled = false - não buscará giros do servidor');
         return null;
     }
     
     try {
+        const resolvedLimit = clampInt(limit, 1, REALTIME_HISTORY_CAP);
+        const resolvedTimeout = Number.isFinite(Number(timeoutMs)) ? Math.max(5000, Math.floor(Number(timeoutMs))) : 20000;
         console.log('📥 INICIANDO BUSCA DE GIROS DO SERVIDOR...');
-        console.log('   URL:', `${API_CONFIG.baseURL}/api/giros?limit=2000`);
-        console.log('   Timeout: 20 segundos');
+        console.log('   URL:', `${API_CONFIG.baseURL}/api/giros?limit=${resolvedLimit}`);
+        console.log('   Timeout:', `${Math.round(resolvedTimeout / 1000)} segundos`);
         
         const startTime = Date.now();
         
-        // Usar timeout maior para busca inicial de 2000 giros (20s)
-        const response = await fetchWithTimeout(`${API_CONFIG.baseURL}/api/giros?limit=2000`, {}, 20000);
+        // Para 10k, pode demorar mais (especialmente em cold start / conexão lenta)
+        const response = await fetchWithTimeout(`${API_CONFIG.baseURL}/api/giros?limit=${resolvedLimit}`, {}, resolvedTimeout);
         
         const elapsedTime = ((Date.now() - startTime) / 1000).toFixed(2);
         console.log(`⏱️ Tempo de resposta: ${elapsedTime}s`);
@@ -1860,6 +1865,45 @@ async function fetchGirosFromAPI() {
         }
     }
     return null;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 📦 HISTÓRICO PARA SIMULAÇÃO/OTIMIZAÇÃO (até 10k, sob demanda)
+// ═══════════════════════════════════════════════════════════════════════════════
+// Reutiliza cachedHistory do modo real quando suficiente; busca do servidor apenas se o usuário
+// pedir mais do que temos em memória (ex.: cache ainda não alcançou o limite).
+const SIMULATION_SERVER_HISTORY_CAP = REALTIME_HISTORY_CAP;
+const SIMULATION_SERVER_HISTORY_TIMEOUT_MS = 45000; // 45s: tolera cold start / payload maior
+const SIMULATION_HISTORY_CACHE_TTL_MS = 15000;      // 15s: evita re-fetch em cliques seguidos
+let simulationHistoryCache = { ts: 0, history: null };
+
+async function getServerHistoryForSimulation() {
+    if (!API_CONFIG.enabled) return null;
+    const now = Date.now();
+    if (simulationHistoryCache.history && (now - simulationHistoryCache.ts) < SIMULATION_HISTORY_CACHE_TTL_MS) {
+        return simulationHistoryCache.history;
+    }
+    const serverGiros = await fetchGirosFromAPI(SIMULATION_SERVER_HISTORY_CAP, SIMULATION_SERVER_HISTORY_TIMEOUT_MS);
+    if (Array.isArray(serverGiros) && serverGiros.length > 0) {
+        simulationHistoryCache = { ts: now, history: serverGiros };
+        return serverGiros;
+    }
+    return null;
+}
+
+async function getHistorySourceForPastRuns(requestedLimit) {
+    const localHistory = Array.isArray(cachedHistory) ? cachedHistory : [];
+    const localLen = localHistory.length || 0;
+    const req = Number(requestedLimit);
+
+    const wantsMoreThanLocal = Number.isFinite(req) && req > localLen;
+    if (wantsMoreThanLocal) {
+        const serverHistory = await getServerHistoryForSimulation();
+        if (Array.isArray(serverHistory) && serverHistory.length > 0) {
+            return serverHistory;
+        }
+    }
+    return localHistory;
 }
 
 // Salvar giros no servidor
@@ -1924,10 +1968,10 @@ async function syncInitialData() {
     
     // Buscar giros do servidor e popular cache em memória
     console.log('📥 Baixando histórico de giros para cache em memória...');
-    const serverGiros = await fetchGirosFromAPI();
+    const serverGiros = await fetchGirosFromAPI(REALTIME_HISTORY_CAP);
     if (serverGiros && serverGiros.length > 0) {
         // Popular cache em memória (SEM salvar em chrome.storage.local)
-        cachedHistory = [...serverGiros].slice(0, 2000);
+        cachedHistory = [...serverGiros].slice(0, REALTIME_HISTORY_CAP);
         historyInitialized = true;
         console.log(`%c✅ Cache em memória populado: ${cachedHistory.length} giros`, 'color: #00ff00; font-weight: bold;');
         
@@ -1948,7 +1992,7 @@ async function syncInitialData() {
             console.log('📤 Enviando último giro para UI:', lastSpin);
             await chrome.storage.local.set({ lastSpin: lastSpin });
             // ✅ NÃO enviar history aqui: o content.js já busca até 10k diretamente do servidor.
-            // Enviar history (2000) aqui sobrescrevia o buffer de 10k e fazia a UI ficar "travada em 2000".
+            // Enviar history aqui sobrescrevia o buffer do content.js e fazia a UI ficar "travada" em um valor menor.
             sendMessageToContent('NEW_SPIN', { lastSpin: lastSpin });
             console.log('%c✅ UI atualizada com histórico do servidor', 'color: #00ff00; font-weight: bold;');
         }
@@ -2886,7 +2930,7 @@ async function startDataCollection() {
     console.log('║  🚀 BLAZE ANALYZER - INICIANDO                            ║');
     console.log('║  📡 Modo: SERVIDOR (coleta do Render.com)                 ║');
     console.log('║  ⚡ Atualização: TEMPO REAL via WebSocket                 ║');
-    console.log('║  📊 Limite: 2000 giros | 5000 padrões                     ║');
+    console.log('║  📊 Limite: 10000 giros | 5000 padrões                    ║');
     console.log('║  💾 Cache: Em memória (não persiste após recarregar)      ║');
     
     // ✅ EXIBIR CONFIGURAÇÕES ATIVAS AO INICIAR
@@ -2923,7 +2967,7 @@ async function startDataCollection() {
     // 3. Sincronizar dados com servidor primeiro (popula cache em memória)
     await syncInitialData().catch(e => console.warn('Falha ao sincronizar com servidor:', e));
     
-    // 4. Inicializar histórico completo (até 2000) uma vez ao iniciar
+    // 4. Inicializar histórico completo (até 10k) uma vez ao iniciar
     await initializeHistoryIfNeeded().catch(e => console.warn('Falha ao inicializar histórico completo:', e));
     
     // 5. Busca de padrões agora é MANUAL (usuário clica no botão)
@@ -3092,8 +3136,8 @@ async function processNewSpinFromServer(spinData) {
             
             // ⚡ ATUALIZAR CACHE IMEDIATAMENTE (operação síncrona, super rápida!)
             cachedHistory.unshift(newGiro);
-            if (cachedHistory.length > 2000) {
-                cachedHistory = cachedHistory.slice(0, 2000);
+            if (cachedHistory.length > REALTIME_HISTORY_CAP) {
+                cachedHistory.pop(); // manter cap sem custo de slice
             }
             
             console.log(`⚡ Cache atualizado! ${cachedHistory.length} giros`);
@@ -4148,19 +4192,19 @@ function processNewSpin(spinData) {
     return processNewSpinFromServer(spinData);
 }
 
-// Tenta carregar os últimos 2000 giros de uma vez do SERVIDOR e popular cache em memória
+// Tenta carregar os últimos 10k giros de uma vez do SERVIDOR e popular cache em memória
 async function initializeHistoryIfNeeded() {
     if (historyInitialized) return; // já inicializado nesta sessão
 
     try {
         // Buscar giros do SERVIDOR primeiro
         console.log('📥 Buscando histórico inicial do servidor para cache em memória...');
-        const serverGiros = await fetchGirosFromAPI();
+        const serverGiros = await fetchGirosFromAPI(REALTIME_HISTORY_CAP);
         
         if (serverGiros && serverGiros.length > 0) {
             console.log(`✅ ${serverGiros.length} giros recebidos do servidor!`);
             // ✅ Popular CACHE EM MEMÓRIA (não salvar em chrome.storage.local)
-            cachedHistory = [...serverGiros].slice(0, 2000);
+            cachedHistory = [...serverGiros].slice(0, REALTIME_HISTORY_CAP);
             historyInitialized = true;
             console.log(`📊 Cache em memória inicializado: ${cachedHistory.length} giros`);
             
@@ -6923,7 +6967,7 @@ function analyzeLast20Temperature(last20Spins, activePattern) {
                 console.log(`%c   ✅ Ainda há espaço para crescer!`, 'color: #00FF88;');
             }
             // ✅ REMOVIDAS: TODAS as penalizações artificiais (-15%, -10%)
-            // Os dados históricos de 2000 giros já incluem essas probabilidades!
+            // Os dados históricos já incluem essas probabilidades!
         } else {
             console.log(`%c   ℹ️ Nenhuma sequência similar encontrada nos últimos 20 giros`, 'color: #888;');
             console.log(`%c   Não há dados recentes para comparação`, 'color: #888;');
@@ -6990,6 +7034,20 @@ function analyzeLast20Temperature(last20Spins, activePattern) {
 // 🧠 FUNÇÕES DE MEMÓRIA ATIVA - SISTEMA INCREMENTAL
 // ═══════════════════════════════════════════════════════════════
 
+function getMemoriaAtivaHistoryCap() {
+    // Mantém o comportamento histórico (2000) como mínimo seguro,
+    // mas permite crescer até 10k quando o usuário ajustar N0 (diamondLevelWindows.n0History).
+    try {
+        const windows = analyzerConfig && analyzerConfig.diamondLevelWindows ? analyzerConfig.diamondLevelWindows : {};
+        const raw = Number(windows.n0History);
+        const desired = Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : 2000;
+        const minSafe = 2000;
+        return clampInt(Math.max(minSafe, desired), minSafe, REALTIME_HISTORY_CAP);
+    } catch (_) {
+        return Math.min(2000, REALTIME_HISTORY_CAP);
+    }
+}
+
 /**
  * 🔧 INICIALIZAR MEMÓRIA ATIVA
  * Analisa todo o histórico UMA VEZ e armazena em memória
@@ -7010,7 +7068,8 @@ async function inicializarMemoriaAtiva(history) {
     try {
         // 1. COPIAR HISTÓRICO
         console.log('%c📊 ETAPA 1/5: Copiando histórico...', 'color: #00CED1; font-weight: bold;');
-        memoriaAtiva.giros = [...history].slice(0, 2000);
+        const cap = getMemoriaAtivaHistoryCap();
+        memoriaAtiva.giros = [...history].slice(0, cap);
         memoriaAtiva.ultimos20 = memoriaAtiva.giros.slice(0, 20);
         memoriaAtiva.estatisticas.totalGiros = memoriaAtiva.giros.length;
         console.log(`%c   ✅ ${memoriaAtiva.giros.length} giros copiados`, 'color: #00FF88;');
@@ -7132,8 +7191,9 @@ function atualizarMemoriaIncrementalmente(novoGiro) {
         // 1. ADICIONAR NOVO GIRO NO INÍCIO
         memoriaAtiva.giros.unshift(novoGiro);
         
-        // 2. REMOVER O MAIS ANTIGO (manter 2000)
-        if (memoriaAtiva.giros.length > 2000) {
+        // 2. REMOVER O MAIS ANTIGO (manter cap dinâmico)
+        const cap = getMemoriaAtivaHistoryCap();
+        if (memoriaAtiva.giros.length > cap) {
             const removido = memoriaAtiva.giros.pop();
             
             // Atualizar distribuição (decrementar cor removida)
@@ -11898,7 +11958,7 @@ function getN0SettingsFromAnalyzerConfig() {
     const historySize = Number.isFinite(historySizeRaw) && historySizeRaw > 0 ? Math.floor(historySizeRaw) : N0_DEFAULTS.historySize;
     const windowSize = Number.isFinite(windowSizeRaw) && windowSizeRaw > 0 ? Math.floor(windowSizeRaw) : N0_DEFAULTS.windowSize;
     return {
-        historySize: Math.max(200, Math.min(5000, historySize)),
+        historySize: Math.max(200, Math.min(REALTIME_HISTORY_CAP, historySize)),
         windowSize: Math.max(25, Math.min(250, windowSize)),
         allowBlockAll: analyzerConfig && analyzerConfig.n0AllowBlockAll !== false
     };
@@ -14768,7 +14828,7 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
                 memoriaAtiva.inicializada = true;
                 memoriaAtiva.ultimaAtualizacao = Date.now();
                 memoriaAtiva.totalAtualizacoes = 1;
-                memoriaAtiva.giros = history.slice(0, 2000);
+                memoriaAtiva.giros = history.slice(0, getMemoriaAtivaHistoryCap());
                 console.log('%c✅ Memória Ativa marcada como INICIALIZADA!', 'color: #00FF00; font-weight: bold;');
             } else {
                 memoriaAtiva.totalAtualizacoes++;
@@ -15100,7 +15160,7 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
             memoriaAtiva.inicializada = true;
             memoriaAtiva.ultimaAtualizacao = Date.now();
             memoriaAtiva.totalAtualizacoes = 1;
-            memoriaAtiva.giros = history.slice(0, 2000);
+            memoriaAtiva.giros = history.slice(0, getMemoriaAtivaHistoryCap());
             console.log('%c✅ Memória Ativa marcada como INICIALIZADA!', 'color: #00FF00; font-weight: bold;');
         } else {
             memoriaAtiva.totalAtualizacoes++;
@@ -15498,7 +15558,7 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
             memoriaAtiva.inicializada = true;
             memoriaAtiva.ultimaAtualizacao = Date.now();
             memoriaAtiva.totalAtualizacoes = 1;
-            memoriaAtiva.giros = history.slice(0, 2000);
+            memoriaAtiva.giros = history.slice(0, getMemoriaAtivaHistoryCap());
             console.log('%c✅ Memória Ativa marcada como INICIALIZADA!', 'color: #00FF00; font-weight: bold;');
         } else {
             memoriaAtiva.totalAtualizacoes++;
@@ -16257,6 +16317,20 @@ async function runAnalysisController(history) {
 			mergeAnalyzerConfig(storageResult.analyzerConfig);
 			logInfo('Configuração', 'Recarregada do storage');
 		}
+
+        // ✅ Respeitar profundidade configurada no modo padrão:
+        // ter 10k "disponível" não significa varrer 10k quando o usuário pediu 100/500.
+        if (!analyzerConfig.aiMode) {
+            const configuredDepth = clampInt(
+                analyzerConfig.historyDepth ?? DEFAULT_ANALYZER_CONFIG.historyDepth,
+                50,
+                REALTIME_HISTORY_CAP
+            );
+            const effectiveDepth = Math.min(configuredDepth, history.length);
+            if (effectiveDepth > 0 && effectiveDepth < history.length) {
+                history = history.slice(0, effectiveDepth);
+            }
+        }
 
 		emitModeSnapshotToContent('Análise em andamento', history.length);
 		
@@ -17135,7 +17209,11 @@ async function verifyWithSavedPatterns(history, dbOverride = null) {
 
 		// Reconstruir ocorrências com números e horários a partir do histórico
 	// ✅ APLICAR PROFUNDIDADE DE ANÁLISE CONFIGURADA PELO USUÁRIO
-	const configuredDepth = analyzerConfig.historyDepth || 2000;
+	const configuredDepth = clampInt(
+		analyzerConfig.historyDepth ?? DEFAULT_ANALYZER_CONFIG.historyDepth,
+		50,
+		REALTIME_HISTORY_CAP
+	);
 	const searchDepth = Math.min(configuredDepth, history.length);
 	const minIntervalSpins = analyzerConfig.minIntervalSpins || 0;
 	
@@ -17200,7 +17278,7 @@ async function verifyWithSavedPatterns(history, dbOverride = null) {
 	let totalOccurrences = 0;
 	let lastAcceptedIndexForStats = null;
 	
-		for (let i = need; i < history.length; i++) {
+		for (let i = need; i < searchDepth; i++) {
 			const seq = history.slice(i, i + need);
 			if (seq.length < need) break;
 			const seqColors = seq.map(s => s.color);
@@ -18112,7 +18190,11 @@ function analyzeColorPatternsWithTrigger(history) {
     }
     
     // ✅ APLICAR PROFUNDIDADE DE ANÁLISE CONFIGURADA PELO USUÁRIO (historyDepth)
-    const configuredDepth = analyzerConfig.historyDepth || 2000;
+    const configuredDepth = clampInt(
+        analyzerConfig.historyDepth ?? DEFAULT_ANALYZER_CONFIG.historyDepth,
+        50,
+        REALTIME_HISTORY_CAP
+    );
     const effectiveDepth = Math.min(configuredDepth, history.length);
     const limitedHistory = history.slice(0, effectiveDepth);
     
@@ -22580,12 +22662,13 @@ async function runStandardPastSimulation({ config, senderTabId, jobId, historyLi
     const job = standardSimulationJobs.get(jobId);
     const requestedLimit = Number(historyLimit);
     const safeDefault = 1440;
-    const availableHistory = Array.isArray(cachedHistory) ? cachedHistory.length : 0;
+    const sourceHistory = await getHistorySourceForPastRuns(requestedLimit);
+    const availableHistory = Array.isArray(sourceHistory) ? sourceHistory.length : 0;
     const limit = (Number.isFinite(requestedLimit) && requestedLimit > 0)
         ? Math.min(requestedLimit, 10000, availableHistory || requestedLimit)
         : Math.min(safeDefault, availableHistory || safeDefault);
 
-    const stableWindow = getStableChronologicalHistoryWindow({ limit, sourceHistory: Array.isArray(cachedHistory) ? cachedHistory : [] });
+    const stableWindow = getStableChronologicalHistoryWindow({ limit, sourceHistory: Array.isArray(sourceHistory) ? sourceHistory : [] });
     const chronological = stableWindow.chronological;
     const totalSpins = chronological.length;
     const fromTimestamp = chronological[0]?.timestamp || null;
@@ -22662,7 +22745,7 @@ async function runStandardPastSimulation({ config, senderTabId, jobId, historyLi
 function buildStandardOptimizationCandidateConfig(baseConfig, rng) {
     const cfg = normalizeStandardConfigForSimulation(baseConfig);
     // variar em torno do valor atual (faixas seguras)
-    const baseDepth = clampInt(cfg.historyDepth ?? 500, 100, 2000);
+    const baseDepth = clampInt(cfg.historyDepth ?? 500, 100, REALTIME_HISTORY_CAP);
     const baseMinOcc = clampInt(cfg.minOccurrences ?? 2, 1, 20);
     const baseMaxOcc = clampInt(cfg.maxOccurrences ?? 0, 0, 60);
     const baseInterval = clampInt(cfg.minIntervalSpins ?? 0, 0, 30);
@@ -22671,7 +22754,15 @@ function buildStandardOptimizationCandidateConfig(baseConfig, rng) {
     const baseWinPct = clampInt(cfg.winPercentOthers ?? 100, 0, 100);
     const baseReqTrig = cfg.requireTrigger !== undefined ? !!cfg.requireTrigger : true;
 
-    const depth = clampInt(randomInt(rng, Math.max(100, Math.floor(baseDepth * 0.6)), Math.min(2000, Math.ceil(baseDepth * 1.4))), 100, 2000);
+    const depth = clampInt(
+        randomInt(
+            rng,
+            Math.max(100, Math.floor(baseDepth * 0.6)),
+            Math.min(REALTIME_HISTORY_CAP, Math.ceil(baseDepth * 1.4))
+        ),
+        100,
+        REALTIME_HISTORY_CAP
+    );
     const minOcc = clampInt(randomInt(rng, Math.max(1, baseMinOcc - 2), Math.min(20, baseMinOcc + 4)), 1, 20);
     const maxOccChoices = [0, clampInt(randomInt(rng, minOcc, Math.min(60, Math.max(minOcc, baseMaxOcc || 20))), minOcc, 60)];
     const maxOcc = maxOccChoices[Math.floor(rng() * maxOccChoices.length)];
@@ -22698,12 +22789,13 @@ async function runStandardPastOptimization({ config, senderTabId, jobId, history
     const job = standardOptimizationJobs.get(jobId);
     const requestedLimit = Number(historyLimit);
     const safeDefault = 1440;
-    const availableHistory = Array.isArray(cachedHistory) ? cachedHistory.length : 0;
+    const sourceHistory = await getHistorySourceForPastRuns(requestedLimit);
+    const availableHistory = Array.isArray(sourceHistory) ? sourceHistory.length : 0;
     const limit = (Number.isFinite(requestedLimit) && requestedLimit > 0)
         ? Math.min(requestedLimit, 10000, availableHistory || requestedLimit)
         : Math.min(safeDefault, availableHistory || safeDefault);
 
-    const stableWindow = getStableChronologicalHistoryWindow({ limit, sourceHistory: Array.isArray(cachedHistory) ? cachedHistory : [] });
+    const stableWindow = getStableChronologicalHistoryWindow({ limit, sourceHistory: Array.isArray(sourceHistory) ? sourceHistory : [] });
     const chronological = stableWindow.chronological;
     const totalSpins = chronological.length;
     const fromTimestamp = chronological[0]?.timestamp || null;
@@ -23057,12 +23149,13 @@ async function runDiamondPastOptimization({ config, levelId, senderTabId, jobId,
     const job = diamondOptimizationJobs.get(jobId);
     const requestedLimit = Number(historyLimit);
     const safeDefault = 1440;
-    const availableHistory = Array.isArray(cachedHistory) ? cachedHistory.length : 0;
+    const sourceHistory = await getHistorySourceForPastRuns(requestedLimit);
+    const availableHistory = Array.isArray(sourceHistory) ? sourceHistory.length : 0;
     const limit = (Number.isFinite(requestedLimit) && requestedLimit > 0)
         ? Math.min(requestedLimit, 10000, availableHistory || requestedLimit)
         : Math.min(safeDefault, availableHistory || safeDefault);
 
-    const stableWindow = getStableChronologicalHistoryWindow({ limit, sourceHistory: Array.isArray(cachedHistory) ? cachedHistory : [] });
+    const stableWindow = getStableChronologicalHistoryWindow({ limit, sourceHistory: Array.isArray(sourceHistory) ? sourceHistory : [] });
     const chronological = stableWindow.chronological;
     const totalSpins = chronological.length;
     const fromTimestamp = chronological[0]?.timestamp || null;
@@ -23318,7 +23411,7 @@ function getN0SettingsFromConfig(config) {
     const historySize = Number.isFinite(historySizeRaw) && historySizeRaw > 0 ? Math.floor(historySizeRaw) : N0_DEFAULTS.historySize;
     const windowSize = Number.isFinite(windowSizeRaw) && windowSizeRaw > 0 ? Math.floor(windowSizeRaw) : N0_DEFAULTS.windowSize;
     return {
-        historySize: Math.max(200, Math.min(5000, historySize)),
+        historySize: Math.max(200, Math.min(REALTIME_HISTORY_CAP, historySize)),
         windowSize: Math.max(25, Math.min(250, windowSize)),
         allowBlockAll: config && config.n0AllowBlockAll !== false
     };
@@ -24510,12 +24603,13 @@ async function runDiamondPastSimulation({ config, mode, levelId, senderTabId, jo
     const job = diamondSimulationJobs.get(jobId);
     const requestedLimit = Number(historyLimit);
     const safeDefault = 1440; // padrão: 12h (2 giros/min)
-    const availableHistory = Array.isArray(cachedHistory) ? cachedHistory.length : 0;
+    const sourceHistory = await getHistorySourceForPastRuns(requestedLimit);
+    const availableHistory = Array.isArray(sourceHistory) ? sourceHistory.length : 0;
     const limit = (Number.isFinite(requestedLimit) && requestedLimit > 0)
         ? Math.min(requestedLimit, 10000, availableHistory || requestedLimit)
         : Math.min(safeDefault, availableHistory || safeDefault);
 
-    const stableWindow = getStableChronologicalHistoryWindow({ limit, sourceHistory: Array.isArray(cachedHistory) ? cachedHistory : [] });
+    const stableWindow = getStableChronologicalHistoryWindow({ limit, sourceHistory: Array.isArray(sourceHistory) ? sourceHistory : [] });
     const chronological = stableWindow.chronological;
     const totalSpins = chronological.length;
 
@@ -24996,7 +25090,12 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                 }
                 await enforceProfileGateOnAIMode('applyConfig');
                 console.log('%c⚙️ Nova configuração aplicada via UI:', 'color: #00D4FF; font-weight: bold;');
-                console.log('%c📊 Profundidade de Análise: ' + (analyzerConfig.historyDepth || 2000) + ' giros', 'color: #00FF88; font-weight: bold; background: #003322; padding: 4px 8px; border-radius: 4px;');
+                const depthLog = clampInt(
+                    analyzerConfig.historyDepth ?? DEFAULT_ANALYZER_CONFIG.historyDepth,
+                    50,
+                    REALTIME_HISTORY_CAP
+                );
+                console.log('%c📊 Profundidade de Análise: ' + depthLog + ' giros', 'color: #00FF88; font-weight: bold; background: #003322; padding: 4px 8px; border-radius: 4px;');
                 logActiveConfiguration();
                 
                 // ⚠️ SÓ REANALISAR SE MODO IA ESTIVER ATIVO E HOUVER HISTÓRICO SUFICIENTE
@@ -25238,7 +25337,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                 
                 if (!historyToAnalyze || historyToAnalyze.length < 50) {
                     console.log('📥 Cache vazio, buscando histórico do servidor...');
-                    const serverGiros = await fetchGirosFromAPI();
+                    const serverGiros = await fetchGirosFromAPI(REALTIME_HISTORY_CAP);
                     
                     if (!serverGiros || serverGiros.length < 50) {
                         sendResponse({ status: 'insufficient_data', message: `Histórico insuficiente (<50 giros). Atual: ${serverGiros ? serverGiros.length : 0}` });
@@ -25250,7 +25349,11 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                 }
                 
                 // ✅ APLICAR PROFUNDIDADE DE ANÁLISE CONFIGURADA PELO USUÁRIO
-                const configuredDepth = analyzerConfig.historyDepth || 2000;
+                const configuredDepth = clampInt(
+                    analyzerConfig.historyDepth ?? DEFAULT_ANALYZER_CONFIG.historyDepth,
+                    50,
+                    REALTIME_HISTORY_CAP
+                );
                 const actualDepth = Math.min(configuredDepth, historyToAnalyze.length);
                 historyToAnalyze = historyToAnalyze.slice(0, actualDepth);
                 

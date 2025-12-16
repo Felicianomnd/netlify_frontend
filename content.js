@@ -2320,9 +2320,9 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                             <div class="diamond-level-double">
                                 <div>
                                     <span>Histórico analisado (N)</span>
-                                    <input type="number" id="diamondN0History" min="500" max="5000" value="2000" />
+                                    <input type="number" id="diamondN0History" min="500" max="10000" value="2000" />
                                     <span class="diamond-level-subnote">
-                                        Recomendado: 2000 giros (mín. 500 • máx. 5000)
+                                        Recomendado: 2000 giros (mín. 500 • máx. 10000)
                                     </span>
                                 </div>
                                 <div>
@@ -2544,9 +2544,9 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                             <div class="diamond-level-double">
                                 <div>
                                     <span>Histórico base (giros)</span>
-                                    <input type="number" id="diamondN10History" min="100" max="2000" value="500" />
+                                    <input type="number" id="diamondN10History" min="100" max="10000" value="500" />
                                     <span class="diamond-level-subnote">
-                                        Total de giros usados no walk-forward (ex.: 500, 1000, 2000)
+                                        Total de giros usados no walk-forward (ex.: 500, 1000, 2000, 5000, 10000)
                                     </span>
                                 </div>
                                 <div>
@@ -3661,7 +3661,7 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
             return !!el.checked;
         };
 
-        const historyDepth = Math.max(100, Math.min(2000, Math.floor(getNum('cfgHistoryDepth', currentConfig.historyDepth ?? 500))));
+        const historyDepth = Math.max(100, Math.min(10000, Math.floor(getNum('cfgHistoryDepth', currentConfig.historyDepth ?? 500))));
         const minOcc = Math.max(1, Math.floor(getNum('cfgMinOccurrences', currentConfig.minOccurrences ?? 2)));
         const maxOcc = Math.max(0, Math.floor(getNum('cfgMaxOccurrences', currentConfig.maxOccurrences ?? 0)));
         const patternInterval = Math.max(0, Math.floor(getNum('cfgPatternInterval', currentConfig.minIntervalSpins ?? 0)));
@@ -5487,7 +5487,7 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
 
         const n2W = getNumber('diamondN2Recent', 6, 200, DIAMOND_LEVEL_DEFAULTS.n2Recent);
         const newWindows = {
-            n0History: getNumber('diamondN0History', 500, 5000, DIAMOND_LEVEL_DEFAULTS.n0History),
+            n0History: getNumber('diamondN0History', 500, 10000, DIAMOND_LEVEL_DEFAULTS.n0History),
             n0Window: getNumber('diamondN0Window', 25, 250, DIAMOND_LEVEL_DEFAULTS.n0Window),
             n1WindowSize: getNumber('diamondN1WindowSize', 5, 120, DIAMOND_LEVEL_DEFAULTS.n1WindowSize),
             n1PrimaryRequirement: getNumber('diamondN1PrimaryRequirement', 5, 200, DIAMOND_LEVEL_DEFAULTS.n1PrimaryRequirement),
@@ -5511,7 +5511,7 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
             n9NullThreshold: getNumber('diamondN9NullThreshold', 2, 20, DIAMOND_LEVEL_DEFAULTS.n9NullThreshold),
             n9PriorStrength: getNumber('diamondN9PriorStrength', 0.2, 5, DIAMOND_LEVEL_DEFAULTS.n9PriorStrength),
             n10Window: getNumber('diamondN10Window', 5, 50, DIAMOND_LEVEL_DEFAULTS.n10Window),
-            n10History: getNumber('diamondN10History', 100, 2000, DIAMOND_LEVEL_DEFAULTS.n10History)
+            n10History: getNumber('diamondN10History', 100, 10000, DIAMOND_LEVEL_DEFAULTS.n10History)
         };
 
         // N2: n2Previous espelhado, sem validação min/max (o código ajusta automaticamente)
@@ -6485,7 +6485,7 @@ function enforceSignalIntensityAvailability(options = {}) {
         };
         const n2W = getNumber('diamondN2Recent', 6, 200, DIAMOND_LEVEL_DEFAULTS.n2Recent);
         const newWindows = {
-            n0History: getNumber('diamondN0History', 500, 5000, DIAMOND_LEVEL_DEFAULTS.n0History),
+            n0History: getNumber('diamondN0History', 500, 10000, DIAMOND_LEVEL_DEFAULTS.n0History),
             n0Window: getNumber('diamondN0Window', 25, 250, DIAMOND_LEVEL_DEFAULTS.n0Window),
             n1WindowSize: getNumber('diamondN1WindowSize', 5, 120, DIAMOND_LEVEL_DEFAULTS.n1WindowSize),
             n1PrimaryRequirement: getNumber('diamondN1PrimaryRequirement', 5, 200, DIAMOND_LEVEL_DEFAULTS.n1PrimaryRequirement),
@@ -6509,7 +6509,7 @@ function enforceSignalIntensityAvailability(options = {}) {
             n9NullThreshold: getNumber('diamondN9NullThreshold', 2, 20, DIAMOND_LEVEL_DEFAULTS.n9NullThreshold),
             n9PriorStrength: getNumber('diamondN9PriorStrength', 0.2, 5, DIAMOND_LEVEL_DEFAULTS.n9PriorStrength),
             n10Window: getNumber('diamondN10Window', 5, 50, DIAMOND_LEVEL_DEFAULTS.n10Window),
-            n10History: getNumber('diamondN10History', 100, 2000, DIAMOND_LEVEL_DEFAULTS.n10History)
+            n10History: getNumber('diamondN10History', 100, 10000, DIAMOND_LEVEL_DEFAULTS.n10History)
         };
         if (newWindows.n1WindowSize < 5) {
             newWindows.n1WindowSize = 5;
@@ -10920,7 +10920,7 @@ async function persistAnalyzerState(newState) {
                     <div class="settings-grid">
                         <div class="setting-item" id="historyDepthSetting">
                             <span class="setting-label">Profundidade de Análise (giros):</span>
-                            <input type="number" id="cfgHistoryDepth" min="100" max="2000" value="500" title="Quantidade de giros para análise e busca de padrões (100-2000) - VÁLIDO APENAS NO MODO PADRÃO" placeholder="Ex: 500 giros" />
+                            <input type="number" id="cfgHistoryDepth" min="100" max="10000" value="500" title="Quantidade de giros para análise e busca de padrões (100-10000) - VÁLIDO APENAS NO MODO PADRÃO" placeholder="Ex: 500 giros" />
                         </div>
                         <div class="setting-item">
                             <span class="setting-label">Ocorrências mínima:</span>
@@ -15687,7 +15687,7 @@ function logModeSnapshotUI(snapshot) {
                     return isCheckbox ? !!el.checked : (el.value || defaultValue);
                 };
                 
-                const historyDepth = Math.max(100, Math.min(2000, parseInt(getElementValue('cfgHistoryDepth', '2000'), 10)));
+                const historyDepth = Math.max(100, Math.min(10000, parseInt(getElementValue('cfgHistoryDepth', '2000'), 10)));
                 const minOcc = Math.max(parseInt(getElementValue('cfgMinOccurrences', '1'), 10), 1);
                 const maxOcc = Math.max(parseInt(getElementValue('cfgMaxOccurrences', '0'), 10), 0);
                 const patternInterval = Math.max(parseInt(getElementValue('cfgPatternInterval', '0'), 10), 0);
@@ -16364,6 +16364,12 @@ function logModeSnapshotUI(snapshot) {
     let isWebSocketConnected = true; // Assume conectado inicialmente
     let historyPollingInterval = null; // Intervalo de polling para histórico
     
+    // ✅ Fallback LEVE (anti-travamento):
+    // Quando o WebSocket cai, NÃO puxar 10k giros em loop (isso congela o navegador).
+    // Em vez disso, usamos /api/giros/latest (payload mínimo) apenas como redundância.
+    let isPollingLatestSpin = false;
+    let lastPolledSpinKey = null;
+    
     // Buscar giros do servidor (até 10.000 para análise)
     async function fetchHistoryFromServer() {
         if (isUpdatingHistory) return;
@@ -16407,6 +16413,72 @@ function logModeSnapshotUI(snapshot) {
         }
     }
     
+    // Buscar APENAS o último giro do servidor (fallback leve)
+    async function fetchLatestSpinFromServer() {
+        try {
+            const response = await fetch(`${API_URL}/api/giros/latest`, {
+                signal: AbortSignal.timeout(5000)
+            });
+            
+            if (!response.ok) {
+                throw new Error(`Servidor offline - Status ${response.status}`);
+            }
+            
+            const data = await response.json();
+            
+            if (data && data.success && data.data) {
+                return data.data;
+            }
+            
+            return null;
+        } catch (error) {
+            // Silencioso (não spammar o console a cada tick)
+            return null;
+        }
+    }
+    
+    function normalizeSpinFromServer(rawSpin) {
+        if (!rawSpin || typeof rawSpin !== 'object') return null;
+        
+        const number = (rawSpin.number !== undefined && rawSpin.number !== null) ? rawSpin.number : rawSpin.roll;
+        const color = rawSpin.color || rawSpin.rollColor || rawSpin.roll_color || rawSpin.colour || null;
+        const timestamp = rawSpin.timestamp || rawSpin.created_at || rawSpin.createdAt || rawSpin.time || null;
+        
+        if (number === undefined || number === null) return null;
+        if (!color) return null;
+        if (!timestamp) return null;
+        
+        return { number, color, timestamp };
+    }
+    
+    async function pollLatestSpinAndUpdateUI() {
+        if (isPollingLatestSpin) return;
+        isPollingLatestSpin = true;
+        
+        try {
+            const raw = await fetchLatestSpinFromServer();
+            const latestSpin = normalizeSpinFromServer(raw);
+            if (!latestSpin) return;
+            
+            const key = latestSpin.timestamp || `${latestSpin.number}-${latestSpin.color}`;
+            if (lastPolledSpinKey && key === lastPolledSpinKey) return;
+            lastPolledSpinKey = key;
+            
+            // Atualizar UI incrementalmente (sem re-render pesado do histórico completo)
+            try {
+                updateSidebar({ lastSpin: latestSpin });
+            } catch (_) {}
+            
+            requestAnimationFrame(() => {
+                try {
+                    updateHistoryUIInstant(latestSpin);
+                } catch (_) {}
+            });
+        } finally {
+            isPollingLatestSpin = false;
+        }
+    }
+    
     // ═══════════════════════════════════════════════════════════════
     // 🚀 ATUALIZAÇÃO INSTANTÂNEA DO HISTÓRICO (SEM REQUISIÇÃO HTTP)
     // ═══════════════════════════════════════════════════════════════
@@ -16415,18 +16487,40 @@ function logModeSnapshotUI(snapshot) {
         
         // ✅ ADICIONAR NOVO GIRO NO INÍCIO DO HISTÓRICO LOCAL
         if (currentHistoryData.length > 0) {
-            // Verificar se já existe (evitar duplicatas)
-            const exists = currentHistoryData.some(spin => 
-                spin.timestamp === newSpin.timestamp || 
-                (spin.number === newSpin.number && Math.abs(new Date(spin.timestamp) - new Date(newSpin.timestamp)) < 2000)
-            );
+            // Verificar duplicata apenas na "janela recente" (novo giro sempre entra no topo)
+            const maxCheck = Math.min(currentHistoryData.length, 60);
+            const newTs = newSpin.timestamp;
+            const newNum = newSpin.number;
+            const newTime = newTs ? new Date(newTs).getTime() : NaN;
             
-            if (!exists) {
-                currentHistoryData.unshift(newSpin);
-                // ✅ [OTIMIZAÇÃO] Manter no máximo 10.000 giros - remover apenas o último (mais eficiente que slice)
-                if (currentHistoryData.length > GIROS_HISTORY_LIMIT) {
-                    currentHistoryData.pop(); // Remove apenas o último (O(1) vs O(n) do slice)
+            let exists = false;
+            for (let i = 0; i < maxCheck; i++) {
+                const spin = currentHistoryData[i];
+                if (!spin) continue;
+                
+                if (spin.timestamp === newTs) {
+                    exists = true;
+                    break;
                 }
+                
+                if (spin.number === newNum) {
+                    const spinTime = spin.timestamp ? new Date(spin.timestamp).getTime() : NaN;
+                    if (Number.isFinite(spinTime) && Number.isFinite(newTime) && Math.abs(spinTime - newTime) < 2000) {
+                        exists = true;
+                        break;
+                    }
+                }
+            }
+            
+            // Se já existe, NÃO re-renderizar (evita custo alto em duplicatas/loops)
+            if (exists) {
+                return;
+            }
+            
+            currentHistoryData.unshift(newSpin);
+            // ✅ [OTIMIZAÇÃO] Manter no máximo 10.000 giros - remover apenas o último (mais eficiente que slice)
+            if (currentHistoryData.length > GIROS_HISTORY_LIMIT) {
+                currentHistoryData.pop(); // Remove apenas o último (O(1) vs O(n) do slice)
             }
         } else {
             // 🆕 Se não há histórico ainda, inicializar com o novo giro
@@ -16662,17 +16756,18 @@ function logModeSnapshotUI(snapshot) {
         
         console.log('');
         console.log('%c╔═══════════════════════════════════════════════════════════╗', 'color: #FF6B00; font-weight: bold;');
-        console.log('%c║  🔄 POLLING DE HISTÓRICO ATIVADO                         ║', 'color: #FF6B00; font-weight: bold;');
-        console.log('%c║  WebSocket desconectado - atualizando via HTTP          ║', 'color: #FF6B00; font-weight: bold;');
-        console.log('%c║  Frequência: a cada 2 segundos                          ║', 'color: #FF6B00; font-weight: bold;');
+        console.log('%c║  🔄 POLLING DE HISTÓRICO (LEVE) ATIVADO                  ║', 'color: #FF6B00; font-weight: bold;');
+        console.log('%c║  WebSocket desconectado - fallback via /latest          ║', 'color: #FF6B00; font-weight: bold;');
+        console.log('%c║  Frequência: a cada 5 segundos                          ║', 'color: #FF6B00; font-weight: bold;');
         console.log('%c╚═══════════════════════════════════════════════════════════╝', 'color: #FF6B00; font-weight: bold;');
         console.log('');
         
-        // ✅ Atualizar histórico a cada 2 segundos via HTTP
+        // ✅ Fallback leve: polling do /latest (payload mínimo) – sem puxar 10k em loop
+        // Rodar uma vez imediatamente e depois em intervalo
+        pollLatestSpinAndUpdateUI();
         historyPollingInterval = setInterval(() => {
-            console.log('🔄 Atualizando histórico via HTTP (WebSocket offline)...');
-            updateHistoryUIFromServer();
-        }, 2000); // A cada 2 segundos
+            pollLatestSpinAndUpdateUI();
+        }, 5000);
     }
     
     function stopHistoryPolling() {
