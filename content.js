@@ -11930,6 +11930,13 @@ async function persistAnalyzerState(newState) {
                     if (autoBetManager && typeof autoBetManager.resetRuntime === 'function') {
                         autoBetManager.resetRuntime();
                     }
+                    // ✅ Resetar ciclo deve limpar o saldo imediatamente (saldo é derivado do entriesHistory do modo ativo)
+                    // Reaproveita a mesma lógica do botão "Limpar" do painel de entradas (sem precisar recarregar a página).
+                    try {
+                        clearEntriesHistory();
+                    } catch (err) {
+                        console.warn('⚠️ Falha ao limpar histórico ao resetar ciclo:', err);
+                    }
                 } finally {
                     setTimeout(() => setButtonBusyState(autoBetResetRuntimeModalBtn, false), 450);
                 }
@@ -13977,6 +13984,16 @@ async function persistAnalyzerState(newState) {
                     }
                 } catch (err) {
                     console.warn('⚠️ Falha ao resetar autoBetRuntime após limpar entradas:', err);
+                }
+
+                // ✅ CRÍTICO: atualizar snapshot interno do AutoBet (autoBetEntriesSnapshot)
+                // Sem isso o painel de saldo fica "preso" até recarregar a página.
+                try {
+                    if (autoBetManager && typeof autoBetManager.handleEntriesUpdate === 'function') {
+                        autoBetManager.handleEntriesUpdate(filteredEntries);
+                    }
+                } catch (err) {
+                    console.warn('⚠️ Falha ao sincronizar saldo após limpar entradas:', err);
                 }
                 
                 // ✅ Notificar background.js para limpar o calibrador também
