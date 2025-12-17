@@ -15,8 +15,8 @@
     "https://blaze1.space/*",
     "https://blaze-1.com/*",
     "https://blaze-bet.com/*",
-    "https://blaze-analyzer-api-v2-z8s3.onrender.com/*",
-    "https://blaze-giros-api-v2-sx14.onrender.com/*"
+    "https://blaze-analyzer-api-v2.onrender.com/*",
+    "https://blaze-giros-api-v2-1.onrender.com/*"
   ],
   "content_scripts": [
     {
