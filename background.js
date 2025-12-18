@@ -1197,76 +1197,116 @@ let martingaleState = {
 };
 
 function calculateGaleConfidenceValue(baseConfidence = 0, analysis = null, state = martingaleState) {
+    const round1 = (value) => Math.round(Number(value) * 10) / 10;
+    const clampPct = (value, min = 0, max = 95) => {
+        const n = Number(value);
+        if (!Number.isFinite(n)) return min;
+        return Math.max(min, Math.min(max, n));
+    };
+    const normColor = (value) => String(value || '').toLowerCase().trim();
+
+    const numericBase = Number.isFinite(Number(baseConfidence)) ? Number(baseConfidence) : 0;
+
+    // Fora de martingale: manter comportamento original
     if (!state || !state.active) {
-        return Number.isFinite(baseConfidence) ? Math.round(baseConfidence * 10) / 10 : 0;
+        return round1(clampPct(numericBase, 0, 95));
     }
 
-    const lossCount = Number(state.lossCount || 0);
-    const lossColors = Array.isArray(state.lossColors) ? state.lossColors : [];
-    const targetColor = state.entryColor || analysis?.color || null;
-    const numericBase = Number(baseConfidence) || 0;
+    const stageLabel = String(analysis?.phase || state.stage || '').toUpperCase().trim();
+    const stageNumber = Math.max(0, getMartingaleStageNumber(stageLabel) || Number(state.lossCount || 0));
+    const targetColor = normColor(state.entryColor || analysis?.color);
+    const whiteAsWin = !!analyzerConfig.whiteProtectionAsWin;
 
-    const baseWeight = 0.30;
-    const consecutiveWeight = 0.25;
-    const colorWeight = 0.25;
-    const patternWeight = 0.20;
-
-    let weightedConfidence = numericBase * baseWeight;
-
-    let consecutiveBonus = 0;
-    if (lossCount === 1) {
-        consecutiveBonus = 10;
-    } else if (lossCount === 2) {
-        consecutiveBonus = 15;
-    } else if (lossCount >= 3) {
-        consecutiveBonus = 20;
+    // Se não temos cor alvo ou não estamos em G1+ -> devolve base (sem “piso fixo”)
+    if (!targetColor || stageNumber <= 0) {
+        return round1(clampPct(numericBase, 0, 95));
     }
-    weightedConfidence += consecutiveBonus * consecutiveWeight;
 
-    let colorBonus = 0;
-    if (targetColor) {
-        const recentColors = lossColors.slice(-5);
-        const targetHits = recentColors.filter(color => color === targetColor).length;
-        if (targetHits === 0) {
-            colorBonus = 12;
-        } else if (targetHits === 1) {
-            colorBonus = 5;
-        } else {
-            colorBonus = 2;
+    const computeWinProbFromCounts = (counts) => {
+        if (!counts || typeof counts !== 'object') return null;
+        const red = Number(counts.red || 0);
+        const black = Number(counts.black || 0);
+        const white = Number(counts.white || 0);
+        const total = red + black + white;
+        if (!Number.isFinite(total) || total <= 0) return null;
+
+        let wins = 0;
+        if (targetColor === 'red') wins = red;
+        else if (targetColor === 'black') wins = black;
+        else if (targetColor === 'white') wins = white;
+        else wins = 0;
+
+        // Proteção no branco: branco conta como WIN quando apostamos em red/black
+        if (whiteAsWin && (targetColor === 'red' || targetColor === 'black')) {
+            wins += white;
         }
-    }
-    weightedConfidence += colorBonus * colorWeight;
 
-    let patternBonus = 0;
-    if (analysis && analysis.patternDescription) {
-        try {
-            let patternObj = analysis.patternDescription;
-            if (typeof patternObj === 'string') {
-                patternObj = JSON.parse(patternObj);
-            }
-            if (patternObj && typeof patternObj === 'object' && patternObj.type !== 'AI_ANALYSIS') {
-                const occurrences = Number(patternObj.occurrences || patternObj.ocorrencias || 0);
-                if (occurrences >= 3) {
-                    patternBonus += 3;
-                }
-            }
-        } catch (_) {
-            // Ignorar erros de parse
+        const pct = (wins / total) * 100;
+        return { pct, wins, total };
+    };
+
+    const pickBucketForStage = (historyObj) => {
+        if (!historyObj || typeof historyObj !== 'object') return null;
+        if (stageNumber === 1) return historyObj.after1Loss || null;
+        if (stageNumber === 2) return historyObj.after2Loss || null;
+        return null; // hoje rastreamos estatística real apenas até 2 LOSS (G1/G2)
+    };
+
+    // 1) Probabilidade real por histórico de GALE (padrão específico e global)
+    const patternKey = state.patternKey || null;
+    const candidates = [];
+    if (patternKey && hotColorsHistory && hotColorsHistory[patternKey]) {
+        candidates.push({ key: patternKey, bucket: pickBucketForStage(hotColorsHistory[patternKey]) });
+    }
+    if (hotColorsHistory && hotColorsHistory.__global__) {
+        candidates.push({ key: '__global__', bucket: pickBucketForStage(hotColorsHistory.__global__) });
+    }
+
+    const bucketStats = candidates
+        .map((c) => ({ key: c.key, stats: computeWinProbFromCounts(c.bucket) }))
+        .filter((c) => c.stats && c.stats.total > 0)
+        .sort((a, b) => b.stats.total - a.stats.total)[0] || null;
+
+    const p_afterLoss = bucketStats ? clampPct(bucketStats.stats.pct, 0, 95) : null;
+    const afterLossSamples = bucketStats ? bucketStats.stats.total : 0;
+
+    // 2) Fallback real: frequência recente no histórico (evita número “fixo”)
+    const recentWindow = 200;
+    let p_recent = null;
+    try {
+        const recent = Array.isArray(cachedHistory) ? cachedHistory.slice(0, Math.min(recentWindow, cachedHistory.length)) : [];
+        if (recent.length > 0) {
+            const counts = { red: 0, black: 0, white: 0 };
+            recent.forEach((s) => {
+                const c = normColor(s && s.color);
+                if (c === 'red' || c === 'black' || c === 'white') counts[c]++;
+            });
+            const stats = computeWinProbFromCounts(counts);
+            if (stats) p_recent = clampPct(stats.pct, 0, 95);
         }
-    }
-    weightedConfidence += patternBonus * patternWeight;
-
-    let finalConfidence = weightedConfidence;
-    if (finalConfidence < 45) finalConfidence = 45;
-    if (finalConfidence > 95) finalConfidence = 95;
-
-    if (lossCount >= 4) {
-        finalConfidence *= 0.85;
-    } else if (lossCount >= 3) {
-        finalConfidence *= 0.90;
+    } catch (_) {
+        // ignore
     }
 
-    return Math.round(finalConfidence * 10) / 10;
+    // 3) Combinar (peso cresce com amostra real de GALE)
+    // - se temos muitos exemplos reais após LOSS, confiamos mais neles
+    // - senão, usamos principalmente frequência recente (e um pouco da confiança base)
+    const w_after = p_afterLoss != null ? Math.min(0.75, afterLossSamples / (afterLossSamples + 25)) : 0;
+    const w_recent = (1 - w_after) * 0.70;
+    const w_base = (1 - w_after) * 0.30;
+
+    const baseAdj = clampPct(numericBase, 0, 95);
+    const recentAdj = p_recent != null ? p_recent : baseAdj;
+    const afterAdj = p_afterLoss != null ? p_afterLoss : 0;
+
+    let finalConfidence = (afterAdj * w_after) + (recentAdj * w_recent) + (baseAdj * w_base);
+
+    // Penalizar estágios muito altos (quando configurado >2) para não inflar confiança sem estatística suficiente
+    if (stageNumber >= 3) finalConfidence *= 0.92;
+    if (stageNumber >= 5) finalConfidence *= 0.88;
+
+    // ✅ Sem piso fixo. Apenas clamp e arredondamento.
+    return round1(clampPct(finalConfidence, 0, 95));
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -1361,25 +1401,40 @@ async function updateHotColorsHistory(patternKey, lossSequence) {
     console.log(`📊 Atualizando histórico de cores quentes para padrão: ${patternKey}`);
     console.log('   Sequência de LOSS:', lossSequence);
     
-    // Inicializar estrutura se não existir
-    if (!hotColorsHistory[patternKey]) {
-        hotColorsHistory[patternKey] = {
-            after1Loss: { red: 0, black: 0, white: 0 },
-            after2Loss: { red: 0, black: 0, white: 0 }
-        };
-    }
+    const ensureKey = (key) => {
+        if (!hotColorsHistory[key]) {
+            hotColorsHistory[key] = {
+                after1Loss: { red: 0, black: 0, white: 0 },
+                after2Loss: { red: 0, black: 0, white: 0 }
+            };
+        } else {
+            // compat: garantir campos e cores
+            hotColorsHistory[key].after1Loss = hotColorsHistory[key].after1Loss || { red: 0, black: 0, white: 0 };
+            hotColorsHistory[key].after2Loss = hotColorsHistory[key].after2Loss || { red: 0, black: 0, white: 0 };
+            ['red', 'black', 'white'].forEach((c) => {
+                if (hotColorsHistory[key].after1Loss[c] == null) hotColorsHistory[key].after1Loss[c] = 0;
+                if (hotColorsHistory[key].after2Loss[c] == null) hotColorsHistory[key].after2Loss[c] = 0;
+            });
+        }
+    };
+
+    // Inicializar/normalizar o padrão e um bucket global (para IA/padrões sem chave estável)
+    ensureKey(patternKey);
+    ensureKey('__global__');
     
     // Atualizar após 1 LOSS (se tiver pelo menos 2 entradas: LOSS + resultado)
     if (lossSequence.length >= 2) {
         const colorAfter1Loss = lossSequence[1].color;  // Cor que saiu após 1º LOSS
-        hotColorsHistory[patternKey].after1Loss[colorAfter1Loss]++;
+        if (hotColorsHistory[patternKey].after1Loss[colorAfter1Loss] != null) hotColorsHistory[patternKey].after1Loss[colorAfter1Loss]++;
+        if (hotColorsHistory.__global__.after1Loss[colorAfter1Loss] != null) hotColorsHistory.__global__.after1Loss[colorAfter1Loss]++;
         console.log(`   ✅ Cor após 1 LOSS: ${colorAfter1Loss}`);
     }
     
     // Atualizar após 2 LOSS (se tiver pelo menos 3 entradas: 2 LOSS + resultado)
     if (lossSequence.length >= 3) {
         const colorAfter2Loss = lossSequence[2].color;  // Cor que saiu após 2º LOSS
-        hotColorsHistory[patternKey].after2Loss[colorAfter2Loss]++;
+        if (hotColorsHistory[patternKey].after2Loss[colorAfter2Loss] != null) hotColorsHistory[patternKey].after2Loss[colorAfter2Loss]++;
+        if (hotColorsHistory.__global__.after2Loss[colorAfter2Loss] != null) hotColorsHistory.__global__.after2Loss[colorAfter2Loss]++;
         console.log(`   ✅ Cor após 2 LOSS: ${colorAfter2Loss}`);
     }
     
@@ -3419,7 +3474,8 @@ async function processNewSpinFromServer(spinData) {
                                 { color: rollColor, number: rollNumber, timestamp: latestSpin.created_at },
                                 filteredWins,
                                 filteredLosses,
-                                currentMode
+                                currentMode,
+                                currentAnalysis.confidence
                             );
                             
                             // Registrar no observador inteligente
@@ -3631,7 +3687,7 @@ async function processNewSpinFromServer(spinData) {
                                     
                                     // ✅ ENVIAR MENSAGEM DE RET AO TELEGRAM (sem Gales)
                                     console.log('📤 Enviando mensagem de RET ao Telegram (0 Gales configurados)...');
-                                    await sendTelegramMartingaleRET(filteredWins, filteredLosses, currentMode);
+                                    await sendTelegramMartingaleRET(filteredWins, filteredLosses, currentMode, currentAnalysis.confidence);
                                     
                                     resetMartingaleState();
                                     
@@ -3680,7 +3736,8 @@ async function processNewSpinFromServer(spinData) {
                                 // ✅ ENVIAR MENSAGEM DE LOSS ENTRADA (vai tentar G1)
                                 await sendTelegramMartingaleLoss(
                                     currentStage,
-                                    { color: rollColor, number: rollNumber, timestamp: latestSpin.created_at }
+                                    { color: rollColor, number: rollNumber, timestamp: latestSpin.created_at },
+                                    currentAnalysis.confidence
                                 );
                                 
                                 // ✅ USAR SEMPRE A MESMA COR DA ENTRADA ORIGINAL
@@ -3740,9 +3797,7 @@ async function processNewSpinFromServer(spinData) {
                                 if (nextGaleNumber <= consecutiveGales) {
                                     // ✅ MODO CONSECUTIVO: Enviar G1 IMEDIATAMENTE no próximo giro
                                     console.log('🎯 MODO CONSECUTIVO: G1 será enviado no PRÓXIMO GIRO');
-                                    
-                                    await sendTelegramMartingaleG1(g1Color, null);
-                                    
+
                                     // Criar análise G1 com timestamp do próximo giro
                                     const g1Analysis = {
                                         ...currentAnalysis,
@@ -3763,6 +3818,13 @@ async function processNewSpinFromServer(spinData) {
                                     
                                     emitAnalysisToContent(g1Analysis, analyzerConfig.aiMode ? 'diamond' : 'standard');
                                     sendMessageToContent('ENTRIES_UPDATE', entriesHistory);
+
+                                    // ✅ Telegram com confiança REAL do G1
+                                    await sendTelegramMartingaleG1(
+                                        g1Color,
+                                        g1Analysis.confidence,
+                                        { color: rollColor, number: rollNumber, timestamp: latestSpin.created_at }
+                                    );
                                 } else {
                                     // ❌ MODO PADRÃO: Aguardar novo padrão para enviar G1
                                     console.log('⏳ MODO PRÓXIMO SINAL: Aguardando novo sinal para enviar G1...');
@@ -3836,7 +3898,7 @@ async function processNewSpinFromServer(spinData) {
                                     console.log(`📊 Placar total: ${calculateCycleScore(entriesHistory).totalWins} wins / ${calculateCycleScore(entriesHistory).totalLosses} losses`);
                                     console.log(`📊 Placar ${currentMode}: ${filteredWins} wins / ${filteredLosses} losses`);
                                     
-                                    await sendTelegramMartingaleRET(filteredWins, filteredLosses, currentMode);
+                                    await sendTelegramMartingaleRET(filteredWins, filteredLosses, currentMode, currentAnalysis.confidence);
                                     
                                     // ✅ ATUALIZAR HISTÓRICO DE CORES QUENTES
                                     const colorSequence = [];
@@ -3872,7 +3934,8 @@ async function processNewSpinFromServer(spinData) {
                                 // ✅ ENVIAR MENSAGEM DE LOSS (vai tentar próximo Gale)
                                 await sendTelegramMartingaleLoss(
                                     currentStage,
-                                    { color: rollColor, number: rollNumber, timestamp: latestSpin.created_at }
+                                    { color: rollColor, number: rollNumber, timestamp: latestSpin.created_at },
+                                    currentAnalysis.confidence
                                 );
                                 
                                 // ✅ USAR SEMPRE A MESMA COR DA ENTRADA ORIGINAL
@@ -3915,9 +3978,7 @@ async function processNewSpinFromServer(spinData) {
                                 if (nextGaleNumber <= consecutiveGales) {
                                     // ✅ MODO CONSECUTIVO
                                     console.log(`🎯 MODO CONSECUTIVO: G${nextGaleNumber} será enviado no PRÓXIMO GIRO`);
-                                    
-                                    await sendTelegramMartingaleGale(nextGaleNumber, nextGaleColor, null);
-                                    
+
                                     const nextGaleAnalysis = {
                                         ...currentAnalysis,
                                         color: nextGaleColor,
@@ -3937,6 +3998,14 @@ async function processNewSpinFromServer(spinData) {
                                     
                                     emitAnalysisToContent(nextGaleAnalysis, analyzerConfig.aiMode ? 'diamond' : 'standard');
                                     sendMessageToContent('ENTRIES_UPDATE', entriesHistory);
+
+                                    // ✅ Telegram com confiança REAL do Gale
+                                    await sendTelegramMartingaleGale(
+                                        nextGaleNumber,
+                                        nextGaleColor,
+                                        nextGaleAnalysis.confidence,
+                                        { color: rollColor, number: rollNumber, timestamp: latestSpin.created_at }
+                                    );
                                 } else {
                                     // ❌ MODO PADRÃO
                                     console.log(`⏳ MODO PRÓXIMO SINAL: Aguardando novo sinal para enviar G${nextGaleNumber}...`);
@@ -22348,7 +22417,7 @@ async function sendTelegramLossConfirmation(wins, losses) {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 // Enviar sinal de LOSS (ENTRADA, G1 ou G2)
-async function sendTelegramMartingaleLoss(stage, resultSpin) {
+async function sendTelegramMartingaleLoss(stage, resultSpin, confidencePct = null) {
     console.log(`❌ Enviando confirmação de LOSS ${stage} ao Telegram...`);
     
     // ✅ Determinar próximo Gale baseado no estágio atual
@@ -22367,9 +22436,12 @@ async function sendTelegramMartingaleLoss(stage, resultSpin) {
     // ✅ Simplificar nome do estágio (remover "ENTRADA" se for entrada)
     const stageName = stage === 'ENTRADA' ? '' : ` ${stage}`;
     
+    const pctNumber = Number(confidencePct);
+    const confidenceText = Number.isFinite(pctNumber) ? `${pctNumber.toFixed(1)}%` : 'N/A';
+    
     const message = `
 ❌ <b>LOSS${stageName}</b>
-📊 Confiança: 91.2%
+📊 Confiança: ${confidenceText}
 🎲 Último: ${resultSpin.color === 'red' ? '🔴' : resultSpin.color === 'black' ? '⚫' : '⚪'} ${resultSpin.color === 'red' ? 'Vermelho' : resultSpin.color === 'black' ? 'Preto' : 'Branco'} (${resultSpin.number})
 ${nextGale}
 ⏰ ${new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
@@ -22383,11 +22455,21 @@ ${nextGale}
 // ═══════════════════════════════════════════════════════════════════════════════
 // 🆕 FUNÇÃO GENÉRICA: Enviar sinal de qualquer Gale (G1, G2, G3... G200)
 // ═══════════════════════════════════════════════════════════════════════════════
-async function sendTelegramMartingaleGale(galeNumber, color, percentage) {
+async function sendTelegramMartingaleGale(galeNumber, color, percentage = null, lastSpin = null) {
     console.log(`🔄 Enviando sinal de G${galeNumber} ao Telegram...`);
     
     const colorEmoji = color === 'red' ? '🔴' : color === 'black' ? '⚫' : '⚪';
     const colorText = color === 'red' ? 'VERMELHO' : color === 'black' ? 'PRETO' : 'BRANCO';
+
+    const pctNumber = Number(percentage);
+    const confidenceText = Number.isFinite(pctNumber) ? `${pctNumber.toFixed(1)}%` : 'N/A';
+    const lastSpinEmoji = lastSpin && lastSpin.color
+        ? (lastSpin.color === 'red' ? '🔴' : lastSpin.color === 'black' ? '⚫' : '⚪')
+        : '🎲';
+    const lastSpinColorText = lastSpin && lastSpin.color
+        ? (lastSpin.color === 'red' ? 'Vermelho' : lastSpin.color === 'black' ? 'Preto' : 'Branco')
+        : 'N/A';
+    const lastSpinNumberText = lastSpin && typeof lastSpin.number !== 'undefined' ? ` (${lastSpin.number})` : '';
     
     // Determinar texto de alerta baseado no número do Gale
     let warningText = '';
@@ -22402,8 +22484,8 @@ async function sendTelegramMartingaleGale(galeNumber, color, percentage) {
     const message = `
 🔄 <b>GALE ${galeNumber}</b>
 ${colorEmoji} <b>${colorText}</b>
-📊 Confiança: ${galeNumber === 1 ? '82.1' : '88.5'}%
-🎲 Último: ⚫ Preto (5)
+📊 Confiança: ${confidenceText}
+🎲 Último: ${lastSpinEmoji} ${lastSpinColorText}${lastSpinNumberText}${warningText}
 ⏰ ${new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
     `.trim();
     
@@ -22413,49 +22495,17 @@ ${colorEmoji} <b>${colorText}</b>
 }
 
 // Enviar sinal de G1 (Martingale 1)
-async function sendTelegramMartingaleG1(color, hotColorPercentage) {
-    console.log('🔄 Enviando sinal de G1 ao Telegram...');
-    
-    const colorEmoji = color === 'red' ? '🔴' : color === 'black' ? '⚫' : '⚪';
-    const colorText = color === 'red' ? 'VERMELHO' : color === 'black' ? 'PRETO' : 'BRANCO';
-    
-    // ✅ Nova lógica: mesma cor da entrada (não mostra porcentagem de histórico)
-    const message = `
-🔄 <b>GALE 1</b>
-${colorEmoji} <b>${colorText}</b>
-📊 Confiança: 82.1%
-🎲 Último: ⚫ Preto (5)
-⏰ ${new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
-    `.trim();
-    
-    const result = await sendTelegramMessage(message);
-    console.log('📬 Resultado do envio G1:', result ? '✅ Sucesso' : '❌ Falha');
-    return result;
+async function sendTelegramMartingaleG1(color, confidencePct = null, lastSpin = null) {
+    return sendTelegramMartingaleGale(1, color, confidencePct, lastSpin);
 }
 
 // Enviar sinal de G2 (Martingale 2)
-async function sendTelegramMartingaleG2(color, hotColorPercentage) {
-    console.log('🔄 Enviando sinal de G2 ao Telegram...');
-    
-    const colorEmoji = color === 'red' ? '🔴' : color === 'black' ? '⚫' : '⚪';
-    const colorText = color === 'red' ? 'VERMELHO' : color === 'black' ? 'PRETO' : 'BRANCO';
-    
-    // ✅ Nova lógica: mesma cor da entrada (não mostra porcentagem de histórico)
-    const message = `
-🔄 <b>GALE 2</b>
-${colorEmoji} <b>${colorText}</b>
-📊 Confiança: 88.5%
-🎲 Último: ⚫ Preto (5)
-⏰ ${new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
-    `.trim();
-    
-    const result = await sendTelegramMessage(message);
-    console.log('📬 Resultado do envio G2:', result ? '✅ Sucesso' : '❌ Falha');
-    return result;
+async function sendTelegramMartingaleG2(color, confidencePct = null, lastSpin = null) {
+    return sendTelegramMartingaleGale(2, color, confidencePct, lastSpin);
 }
 
 // Enviar sinal de WIN no Martingale
-async function sendTelegramMartingaleWin(stage, resultSpin, wins, losses, analysisMode = 'standard') {
+async function sendTelegramMartingaleWin(stage, resultSpin, wins, losses, analysisMode = 'standard', confidencePct = null) {
     console.log(`✅ Enviando confirmação de WIN ${stage} ao Telegram...`);
     console.log(`   Modo de análise: ${analysisMode}`);
     
@@ -22480,11 +22530,14 @@ async function sendTelegramMartingaleWin(stage, resultSpin, wins, losses, analys
         stageMessage = `💰💰💰💰💰💰💰 <b>WIN G${galeNum}</b> 💰💰💰💰💰💰💰`;
     }
     
+    const pctNumber = Number(confidencePct);
+    const confidenceText = Number.isFinite(pctNumber) ? `${pctNumber.toFixed(1)}%` : 'N/A';
+    
     const message = `
 ${stageMessage}
 ${spinEmoji} <b>${spinColor}</b>
 ${modeIcon} <b>${modeName}</b>
-📊 Confiança: 88.5%
+📊 Confiança: ${confidenceText}
 📈 Placar (${modeName}): WIN: ${wins} | LOSS: ${losses}
 ⏰ ${new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
     `.trim();
@@ -22495,7 +22548,7 @@ ${modeIcon} <b>${modeName}</b>
 }
 
 // Enviar sinal de RET (Loss Final)
-async function sendTelegramMartingaleRET(wins, losses, analysisMode = 'standard') {
+async function sendTelegramMartingaleRET(wins, losses, analysisMode = 'standard', confidencePct = null) {
     console.log('⛔ Enviando sinal de RET ao Telegram...');
     console.log(`   Modo de análise: ${analysisMode}`);
     
@@ -22506,11 +22559,14 @@ async function sendTelegramMartingaleRET(wins, losses, analysisMode = 'standard'
     const modeIcon = analysisMode === 'diamond' ? '💎' : '⚙️';
     const modeName = analysisMode === 'diamond' ? 'Modo Diamante' : 'Modo Padrão';
     
+    const pctNumber = Number(confidencePct);
+    const confidenceText = Number.isFinite(pctNumber) ? `${pctNumber.toFixed(1)}%` : 'N/A';
+    
     const message = `
 ❌❌❌❌❌❌❌ <b>LOSS NÃO PAGOU</b> ❌❌❌❌❌❌❌
 🔴 <b>Vermelho</b>
 ${modeIcon} <b>${modeName}</b>
-📊 Confiança: 91.2%
+📊 Confiança: ${confidenceText}
 📈 Placar (${modeName}): WIN: ${wins} | LOSS: ${losses}
 ⏰ ${new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
     `.trim();
