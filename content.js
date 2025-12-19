@@ -1008,9 +1008,10 @@
         diamondOnlyFields.forEach(fieldId => {
             const field = document.getElementById(fieldId);
             if (field) {
-                const settingItem = field.closest('.setting-item');
-                if (settingItem) {
-                    settingItem.style.display = isAIMode ? '' : 'none';
+                // Pode estar na tela principal (setting-item) ou dentro do modal do simulador (auto-bet-field)
+                const wrapper = field.closest('.setting-item') || field.closest('.auto-bet-field');
+                if (wrapper) {
+                    wrapper.style.display = isAIMode ? '' : 'none';
                 }
             }
         });
@@ -1245,7 +1246,7 @@ const DIAMOND_LEVEL_DEFAULTS = {
     n2Recent: 10,
     n2Previous: 10,
     n3Alternance: 12,
-    n3PatternLength: 4,
+    n3PatternLength: 10,
     n3ThresholdPct: 75,
     n3MinOccurrences: 1,
     n3AllowBackoff: false,
@@ -2423,26 +2424,35 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                             <div class="diamond-level-note">
                                 Detecta alternância real (simples/dupla/tripla). O branco quebra a alternância.
                             </div>
-                <div>
-                    <span>Histórico analisado (giros)</span>
-                    <input type="number" id="diamondN3Alternance" min="1" value="12" />
-                            <span class="diamond-level-subnote">
-                        Recomendado: 50-80 giros (mín. 1)
-                            </span>
-            </div>
+                            <div class="diamond-level-double">
+                                <div>
+                                    <span>Janela anterior (giros)</span>
+                                    <input type="number" id="diamondN3PatternLength" min="1" max="200" value="10" />
+                                    <span class="diamond-level-subnote">
+                                        Giros ANTES da alternância (não inclui os giros da formação). Ex.: em <strong>RR BB</strong>, analisa os giros anteriores ao <strong>RR</strong>.
+                                    </span>
+                                </div>
+                                <div>
+                                    <span>Histórico analisado (giros)</span>
+                                    <input type="number" id="diamondN3Alternance" min="4" max="400" value="12" />
+                                    <span class="diamond-level-subnote">
+                                        Recomendado: 50-80 giros (mín. 4)
+                                    </span>
+                                </div>
+                            </div>
             <div class="diamond-level-double">
                 <div>
                     <span>Rigor mínimo (%)</span>
                     <input type="number" id="diamondN3ThresholdPct" min="50" max="95" value="75" />
                     <span class="diamond-level-subnote">
-                        Probabilidade mínima exigida para votar
+                        Probabilidade mínima (Entrada + G1) para a alternância continuar, usando a janela anterior
                     </span>
                 </div>
                 <div>
                     <span>Ocorrências mínimas</span>
                     <input type="number" id="diamondN3MinOccurrences" min="1" max="50" value="1" />
                     <span class="diamond-level-subnote">
-                        Janela precisa aparecer pelo menos N vezes
+                        A mesma janela anterior precisa aparecer pelo menos N vezes
                     </span>
                 </div>
             </div>
@@ -2667,6 +2677,7 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
         initializeDiamondLevelToggles();
         ensureDiamondSimulationView();
         initializeDiamondSimulationControls();
+        initDiamondLevelsAccordion();
     }
 
     // ═══════════════════════════════════════════════════════════════════════════════
@@ -3954,6 +3965,143 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
         toggles.forEach(updateDiamondLevelToggleVisual);
     }
 
+    // ═══════════════════════════════════════════════════════════════════════
+    // ✅ ACCORDION: organizar níveis dentro do modal "Configurar Níveis"
+    // - Ao abrir: tudo fechado
+    // - Clicar no nível abre/fecha, e abre um fechando os demais
+    // - Clique no switch NÃO abre/fecha (apenas ativa/desativa)
+    // ═══════════════════════════════════════════════════════════════════════
+    function initDiamondLevelsAccordion() {
+        try {
+            const modal = document.getElementById('diamondLevelsModal');
+            if (!modal) return;
+            const body = modal.querySelector('.custom-pattern-modal-body');
+            if (!body) return;
+            if (modal.dataset.diamondLevelsAccordionInit === '1') return;
+            modal.dataset.diamondLevelsAccordionInit = '1';
+
+            const fields = Array.from(modal.querySelectorAll('.diamond-level-field'));
+            if (!fields.length) return;
+
+            // ✅ Preparar estrutura (header + body wrapper) e caret
+            fields.forEach((field) => {
+                if (!field || field.querySelector('.diamond-level-acc-body')) return;
+                const header = field.querySelector('.diamond-level-header');
+                if (!header) return;
+
+                header.classList.add('diamond-level-acc-header');
+                header.setAttribute('role', 'button');
+                header.setAttribute('tabindex', '0');
+                header.setAttribute('aria-expanded', 'false');
+
+                const levelKey = field.getAttribute('data-level') || '';
+                const bodyId = levelKey ? `diamondLevelAccBody-${levelKey}` : '';
+
+                const bodyWrap = document.createElement('div');
+                bodyWrap.className = 'diamond-level-acc-body';
+                if (bodyId) bodyWrap.id = bodyId;
+                if (bodyWrap.id) header.setAttribute('aria-controls', bodyWrap.id);
+
+                // ✅ Caret como item separado no header (igual ao accordion do simulador)
+                try {
+                    const existing = header.querySelector('.diamond-level-acc-caret');
+                    if (existing) existing.remove();
+                } catch (_) {}
+                const caret = document.createElement('span');
+                caret.className = 'diamond-level-acc-caret';
+                caret.setAttribute('aria-hidden', 'true');
+                caret.textContent = '▾';
+                // Header original é: [title] [switch]. Colocar caret por último (à direita).
+                // (Se o switch não existir por algum motivo, ainda assim adiciona no fim)
+                const sw = header.querySelector('.diamond-level-switch');
+                if (sw && sw.parentNode === header) {
+                    header.insertBefore(caret, sw.nextSibling);
+                } else {
+                    header.appendChild(caret);
+                }
+
+                // mover todo conteúdo (exceto header) para dentro do body wrapper
+                const toMove = Array.from(field.children).filter((el) => el !== header);
+                toMove.forEach((el) => bodyWrap.appendChild(el));
+                field.appendChild(bodyWrap);
+            });
+
+            const setAllClosed = () => {
+                fields.forEach((field) => {
+                    if (!field) return;
+                    field.classList.remove('is-open');
+                    const header = field.querySelector('.diamond-level-header');
+                    if (header) header.setAttribute('aria-expanded', 'false');
+                });
+            };
+
+            const setOpenField = (targetField) => {
+                fields.forEach((field) => {
+                    if (!field) return;
+                    const isTarget = field === targetField;
+                    field.classList.toggle('is-open', isTarget);
+                    const header = field.querySelector('.diamond-level-header');
+                    if (header) header.setAttribute('aria-expanded', isTarget ? 'true' : 'false');
+                });
+            };
+
+            const toggleField = (field) => {
+                if (!field) return;
+                const isOpen = field.classList.contains('is-open');
+                if (isOpen) setAllClosed();
+                else setOpenField(field);
+            };
+
+            const isSwitchClick = (event) => {
+                const target = event && event.target ? event.target : null;
+                if (!target) return false;
+                if (typeof target.closest === 'function' && target.closest('.diamond-level-switch')) return true;
+                if (typeof target.closest === 'function' && target.closest('input[type="checkbox"]')) return true;
+                return false;
+            };
+
+            fields.forEach((field) => {
+                const header = field ? field.querySelector('.diamond-level-header') : null;
+                if (!header || header.dataset.accordionAttached === '1') return;
+
+                header.addEventListener('click', (event) => {
+                    if (isSwitchClick(event)) return;
+                    try { event.preventDefault(); } catch (_) {}
+                    toggleField(field);
+                });
+
+                header.addEventListener('keydown', (event) => {
+                    if (!event) return;
+                    if (event.key !== 'Enter' && event.key !== ' ') return;
+                    if (isSwitchClick(event)) return;
+                    try { event.preventDefault(); } catch (_) {}
+                    toggleField(field);
+                });
+
+                header.dataset.accordionAttached = '1';
+            });
+
+            // ✅ Modal inicia com tudo fechado
+            setAllClosed();
+        } catch (err) {
+            console.warn('⚠️ Falha ao iniciar accordion do configurar níveis:', err);
+        }
+    }
+
+    function resetDiamondLevelsAccordionClosed() {
+        try {
+            const modal = document.getElementById('diamondLevelsModal');
+            if (!modal) return;
+            const fields = Array.from(modal.querySelectorAll('.diamond-level-field'));
+            fields.forEach((field) => {
+                if (!field) return;
+                field.classList.remove('is-open');
+                const header = field.querySelector('.diamond-level-header');
+                if (header) header.setAttribute('aria-expanded', 'false');
+            });
+        } catch (_) {}
+    }
+
     // ═══════════════════════════════════════════════════════════════════════════════
     // 💎 SIMULAÇÃO NO PASSADO (BACKTEST) - MODO DIAMANTE (SEM MISTURAR COM O REAL)
     // ═══════════════════════════════════════════════════════════════════════════════
@@ -5215,6 +5363,12 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
             const key = String(levelId).toLowerCase(); // N1 -> n1
             const field = body.querySelector(`.diamond-level-field[data-level="${key}"]`);
             if (field) {
+                // ✅ Na simulação, manter o nível aberto para o usuário ver/editar os campos
+                try {
+                    field.classList.add('is-open');
+                    const header = field.querySelector('.diamond-level-header');
+                    if (header) header.setAttribute('aria-expanded', 'true');
+                } catch (_) {}
                 diamondSimMovedNodes.push({ node: field, parent: field.parentNode, nextSibling: field.nextSibling });
                 configContainer.appendChild(field);
             }
@@ -5497,6 +5651,7 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
             n2Recent: n2W,
             n2Previous: n2W,
             n3Alternance: getNumber('diamondN3Alternance', 1, null, DIAMOND_LEVEL_DEFAULTS.n3Alternance),
+            n3PatternLength: getNumber('diamondN3PatternLength', 1, 200, DIAMOND_LEVEL_DEFAULTS.n3PatternLength),
             n3ThresholdPct: getNumber('diamondN3ThresholdPct', 50, 95, DIAMOND_LEVEL_DEFAULTS.n3ThresholdPct),
             n3MinOccurrences: getNumber('diamondN3MinOccurrences', 1, 50, DIAMOND_LEVEL_DEFAULTS.n3MinOccurrences),
             n3AllowBackoff: getCheckboxValue('diamondN3AllowBackoff', DIAMOND_LEVEL_DEFAULTS.n3AllowBackoff),
@@ -5753,6 +5908,7 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                     }
                     if (upper === 'N3') {
                         setVal('diamondN3Alternance', windows.n3Alternance);
+                        setVal('diamondN3PatternLength', windows.n3PatternLength);
                         setVal('diamondN3ThresholdPct', windows.n3ThresholdPct);
                         setVal('diamondN3MinOccurrences', windows.n3MinOccurrences);
                         setCheck('diamondN3AllowBackoff', !!windows.n3AllowBackoff);
@@ -5896,6 +6052,7 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                 }
                 if (upper === 'N3') {
                     setVal('diamondN3Alternance', windows.n3Alternance);
+                    setVal('diamondN3PatternLength', windows.n3PatternLength);
                     setVal('diamondN3ThresholdPct', windows.n3ThresholdPct);
                     setVal('diamondN3MinOccurrences', windows.n3MinOccurrences);
                     setCheck('diamondN3AllowBackoff', !!windows.n3AllowBackoff);
@@ -6357,6 +6514,7 @@ function enforceSignalIntensityAvailability(options = {}) {
         setInput('diamondN1MaxEntries', getValue('n1MaxEntries', DIAMOND_LEVEL_DEFAULTS.n1MaxEntries));
         setInput('diamondN2Recent', getValue('n2Recent', DIAMOND_LEVEL_DEFAULTS.n2Recent));
         setInput('diamondN3Alternance', getValue('n3Alternance', DIAMOND_LEVEL_DEFAULTS.n3Alternance));
+        setInput('diamondN3PatternLength', getValue('n3PatternLength', DIAMOND_LEVEL_DEFAULTS.n3PatternLength));
         setInput('diamondN3ThresholdPct', getValue('n3ThresholdPct', DIAMOND_LEVEL_DEFAULTS.n3ThresholdPct));
         setInput('diamondN3MinOccurrences', getValue('n3MinOccurrences', DIAMOND_LEVEL_DEFAULTS.n3MinOccurrences));
         setCheckbox('diamondN3AllowBackoff', getBoolean('n3AllowBackoff', DIAMOND_LEVEL_DEFAULTS.n3AllowBackoff));
@@ -6423,6 +6581,12 @@ function enforceSignalIntensityAvailability(options = {}) {
             }
             
             modal.style.display = 'flex';
+
+            // ✅ Sempre abrir com todos os níveis fechados (accordion)
+            try {
+                initDiamondLevelsAccordion();
+                resetDiamondLevelsAccordionClosed();
+            } catch (_) {}
             
             const sidebarEl = document.getElementById('blaze-double-analyzer');
             const isCompactMode = sidebarEl && sidebarEl.classList.contains('compact-mode');
@@ -6446,6 +6610,12 @@ function enforceSignalIntensityAvailability(options = {}) {
             }
             
             modal.style.display = 'flex';
+
+            // ✅ Sempre abrir com todos os níveis fechados (accordion)
+            try {
+                initDiamondLevelsAccordion();
+                resetDiamondLevelsAccordionClosed();
+            } catch (_) {}
             
             const sidebarEl = document.getElementById('blaze-double-analyzer');
             const isCompactMode = sidebarEl && sidebarEl.classList.contains('compact-mode');
@@ -6495,6 +6665,7 @@ function enforceSignalIntensityAvailability(options = {}) {
             n2Recent: n2W,
             n2Previous: n2W,
             n3Alternance: getNumber('diamondN3Alternance', 1, null, DIAMOND_LEVEL_DEFAULTS.n3Alternance),
+            n3PatternLength: getNumber('diamondN3PatternLength', 1, 200, DIAMOND_LEVEL_DEFAULTS.n3PatternLength),
             n3ThresholdPct: getNumber('diamondN3ThresholdPct', 50, 95, DIAMOND_LEVEL_DEFAULTS.n3ThresholdPct),
             n3MinOccurrences: getNumber('diamondN3MinOccurrences', 1, 50, DIAMOND_LEVEL_DEFAULTS.n3MinOccurrences),
             n3AllowBackoff: getCheckboxValue('diamondN3AllowBackoff', DIAMOND_LEVEL_DEFAULTS.n3AllowBackoff),
@@ -10915,139 +11086,6 @@ async function persistAnalyzerState(newState) {
                     <button id="refreshObserverBtn" class="refresh-observer-btn">🔄 Atualizar</button>
                 </div>
                 
-                <div class="settings-section">
-                    <h4>Configurações</h4>
-                    <div class="settings-grid">
-                        <div class="setting-item" id="historyDepthSetting">
-                            <span class="setting-label">Profundidade de Análise (giros):</span>
-                            <input type="number" id="cfgHistoryDepth" min="100" max="10000" value="500" title="Quantidade de giros para análise e busca de padrões (100-10000) - VÁLIDO APENAS NO MODO PADRÃO" placeholder="Ex: 500 giros" />
-                        </div>
-                        <div class="setting-item">
-                            <span class="setting-label">Ocorrências mínima:</span>
-                            <input type="number" id="cfgMinOccurrences" min="1" value="2" />
-                        </div>
-                        <div class="setting-item">
-                            <span class="setting-label">Ocorrências MÁXIMAS (0 = sem limite):</span>
-                            <input type="number" id="cfgMaxOccurrences" min="0" value="0" placeholder="0 = sem limite" />
-                        </div>
-                        <div class="setting-item">
-                            <span class="setting-label">Intervalo entre padrões (giros):</span>
-                            <input
-                                type="number"
-                                id="cfgPatternInterval"
-                                min="0"
-                                value="2"
-                                title="Quantidade mínima de giros entre OCORRÊNCIAS do MESMO padrão (0 = não limita, considera todas as ocorrências). Padrões diferentes podem aparecer em sequência normalmente."
-                                placeholder="Ex: 2 giros (0 = sem intervalo entre ocorrências do mesmo padrão)" />
-                        </div>
-                        <div class="setting-item">
-                            <span class="setting-label">Intervalo após entrada (giros):</span>
-                            <input
-                                type="number"
-                                id="cfgMinInterval"
-                                min="0"
-                                value="2"
-                                title="Quantidade mínima de giros entre ENTRADAS/SINAIS consecutivos no Modo Diamante (0 = pode enviar sinal em qualquer giro)."
-                                placeholder="Ex: 2 giros (0 = sem intervalo mínimo entre entradas)" />
-                        </div>
-                        <div class="setting-item">
-                            <span class="setting-label">Tamanho MÍNIMO do padrão (giros):</span>
-                            <input type="number" id="cfgMinPatternSize" min="2" value="2" />
-                        </div>
-                        <div class="setting-item">
-                            <span class="setting-label">Tamanho MÁXIMO do padrão (0 = sem limite):</span>
-                            <input type="number" id="cfgMaxPatternSize" min="0" value="0" placeholder="0 = sem limite" />
-                        </div>
-                        <div class="setting-item">
-                            <span class="setting-label">WIN% das demais ocorrências:</span>
-                            <input type="number" id="cfgWinPercentOthers" min="0" max="100" value="100" />
-                        </div>
-                        <div class="setting-item setting-row">
-                            <label class="checkbox-label"><input type="checkbox" id="cfgRequireTrigger" checked /> Exigir cor de disparo</label>
-                        </div>
-                        <!-- Simulação no passado (Modo Padrão / Análise Premium) -->
-                        <div class="setting-item setting-row" id="standardSimulationContainer" style="margin-top: 10px;">
-                            <div class="hot-pattern-actions">
-                                <button id="standardSimulationBtn" class="btn-hot-pattern btn-standard-test-config" type="button" title="Simular/otimizar esta configuração no passado (sem olhar o futuro)">
-                                    Testar configurações
-                                </button>
-                            </div>
-                        </div>
-                        <div class="setting-item setting-row">
-                            <span class="setting-label">Telegram Chat ID:</span>
-                            <div style="display: flex; gap: 4px; flex: 1; align-items: stretch;">
-                                <input type="password" id="cfgTgChatId" placeholder="Digite seu Chat ID" style="flex: 1;" />
-                                <button type="button" id="toggleTgId" class="toggle-visibility-btn" title="Mostrar/Ocultar">
-                                    <svg class="eye-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                        <path d="M12 5C7 5 2.73 8.11 1 12.5C2.73 16.89 7 20 12 20C17 20 21.27 16.89 23 12.5C21.27 8.11 17 5 12 5Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                                        <circle cx="12" cy="12.5" r="3.5" stroke="currentColor" stroke-width="2"/>
-                                    </svg>
-                                    <svg class="eye-off-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style="display: none;">
-                                        <path d="M3 3L21 21M10.5 10.7C9.8 11.5 9.5 12.5 10 13.5C10.5 14.5 11.5 15 12.5 15C13.3 15 14.1 14.6 14.7 14M17 17C15.5 18.5 13.8 19.5 12 19.5C7 19.5 2.73 16.39 1 12C2.1 9.6 3.8 7.6 6 6.3M12 5.5C17 5.5 21.27 8.61 23 13C22.4 14.4 21.5 15.7 20.4 16.8" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                                    </svg>
-                                </button>
-                            </div>
-                        </div>
-                        
-                        <!-- ═══════════════════════════════════════════════════════ -->
-                        <!-- MODELOS CUSTOMIZADOS DE ANÁLISE (NÍVEL DIAMANTE) -->
-                        <!-- ═══════════════════════════════════════════════════════ -->
-                        <div class="setting-item setting-row" id="customPatternsContainer" style="margin-top: 20px; padding-top: 15px; border-top: 1px solid #333;">
-                            <div class="hot-pattern-actions">
-                                <button id="diamondLevelsBtn" class="btn-hot-pattern btn-diamond-levels">
-                                    Configurar Níveis
-                                </button>
-                            </div>
-                        </div>
-                        
-                        <!-- ═══════════════════════════════════════════════════════ -->
-                        <!-- INTENSIDADE DE SINAIS (NÍVEL DIAMANTE) -->
-                        <!-- ═══════════════════════════════════════════════════════ -->
-                        <div class="setting-item setting-row" id="signalIntensityContainer" style="margin-top: 15px;">
-                            <div style="width: 100%; display: flex; flex-direction: column; gap: 8px;">
-                                <label style="font-size: 13px; color: #ffffff; font-weight: 600; text-align: center;">
-                                    Intensidade de Sinais
-                                </label>
-                                <!-- Select real fica oculto (usado para persistência/config), UI é um dropdown custom -->
-                                <select id="signalIntensitySelect" style="display:none">
-                                    <option value="aggressive" selected>Agressivo</option>
-                                    <option value="conservative">Conservador</option>
-                                </select>
-                                <div class="signal-intensity-select-wrapper">
-                                    <button type="button" id="signalIntensitySelectUi" class="signal-intensity-select-ui" aria-haspopup="listbox" aria-expanded="false">
-                                        <span id="signalIntensitySelectedLabel">Agressivo</span>
-                                        <span class="signal-intensity-caret">▾</span>
-                                    </button>
-                                    <div id="signalIntensityDropdown" class="signal-intensity-dropdown" role="listbox" style="display:none;">
-                                        <button type="button" class="signal-intensity-option" data-value="aggressive" role="option" aria-selected="true">
-                                            <div class="opt-title">Agressivo</div>
-                                        </button>
-                                        <button type="button" class="signal-intensity-option" data-value="conservative" role="option" aria-selected="false">
-                                            <div class="opt-title">Conservador</div>
-                                            <div class="opt-hint" id="signalIntensityConservativeHint" style="display:none;">
-                                                <div class="opt-divider"></div>
-                                                <div class="opt-hint-text" id="signalIntensityConservativeHintText"></div>
-                                            </div>
-                                        </button>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                        
-                        <!-- Opção de sincronização com a conta -->
-                        <div class="setting-item setting-row" style="margin-top: 20px; padding-top: 15px; border-top: 1px solid #333;">
-                            <label class="checkbox-label" style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
-                                <input type="checkbox" id="syncConfigToAccount" checked style="cursor: pointer;">
-                                <span style="font-size: 13px; color: #00d4ff;">
-                                    ☁️ Sincronizar configurações
-                                </span>
-                            </label>
-                        </div>
-                        
-                    </div>
-                    <button id="cfgSaveBtn" class="cfg-save-btn">Salvar</button>
-                </div>
-                
                 <div class="stats-section">
                     <h4>Histórico de Giros</h4>
                     <div class="stats-grid">
@@ -11097,102 +11135,300 @@ async function persistAnalyzerState(newState) {
                         </button>
                     </div>
                     <div class="auto-bet-modal-body">
-                        <div class="auto-bet-mode-layout">
-                            <div class="auto-bet-mode-card simulation-mode">
-                                <div>
-                                    <div class="mode-card-title">Simulador</div>
-                                    <p class="mode-card-subtitle">Acompanhe resultados sem apostar</p>
-                                </div>
-                                <label class="mode-toggle">
-                                    <input type="checkbox" id="autoBetSimulationOnly" checked />
-                                    <div class="mode-toggle-content">
-                                        <span class="mode-toggle-label">Simular entradas</span>
-                                        <span class="mode-toggle-switch"></span>
+                        <div class="auto-bet-accordion" id="autoBetAccordion">
+                            <!-- 1) CONFIGURAÇÃO DO MODO -->
+                            <div class="auto-bet-acc-section" data-acc-key="mode">
+                                <button type="button" class="auto-bet-acc-header" aria-expanded="false" aria-controls="autoBetAccBody-mode">
+                                    <span class="auto-bet-acc-title">Configuração do modo</span>
+                                    <span class="auto-bet-acc-caret" aria-hidden="true">▾</span>
+                                </button>
+                                <div class="auto-bet-acc-body auto-bet-acc-body--no-pad" id="autoBetAccBody-mode">
+                                    <!-- ✅ Mover o container inteiro de Configurações para dentro do modal (ambos os modos) -->
+                                    <div class="settings-section settings-section-highlight" style="margin-top: 0;">
+                                        <h4>Configurações</h4>
+                                        <div class="settings-grid">
+                                            <div class="setting-item">
+                                                <span class="setting-label">Intervalo após entrada (giros):</span>
+                                                <input
+                                                    type="number"
+                                                    id="cfgMinInterval"
+                                                    min="0"
+                                                    value="2"
+                                                    title="Quantidade mínima de giros entre ENTRADAS/SINAIS consecutivos no Modo Diamante (0 = pode enviar sinal em qualquer giro)."
+                                                    placeholder="Ex: 2 giros (0 = sem intervalo mínimo entre entradas)" />
+                                            </div>
+                                            <div class="setting-item" id="historyDepthSetting">
+                                                <span class="setting-label">Profundidade de Análise (giros):</span>
+                                                <input type="number" id="cfgHistoryDepth" min="100" max="10000" value="500" title="Quantidade de giros para análise e busca de padrões (100-10000) - VÁLIDO APENAS NO MODO PADRÃO" placeholder="Ex: 500 giros" />
+                                            </div>
+                                            <div class="setting-item">
+                                                <span class="setting-label">Ocorrências mínima:</span>
+                                                <input type="number" id="cfgMinOccurrences" min="1" value="2" />
+                                            </div>
+                                            <div class="setting-item">
+                                                <span class="setting-label">Ocorrências MÁXIMAS (0 = sem limite):</span>
+                                                <input type="number" id="cfgMaxOccurrences" min="0" value="0" placeholder="0 = sem limite" />
+                                            </div>
+                                            <div class="setting-item">
+                                                <span class="setting-label">Intervalo entre padrões (giros):</span>
+                                                <input
+                                                    type="number"
+                                                    id="cfgPatternInterval"
+                                                    min="0"
+                                                    value="2"
+                                                    title="Quantidade mínima de giros entre OCORRÊNCIAS do MESMO padrão (0 = não limita, considera todas as ocorrências). Padrões diferentes podem aparecer em sequência normalmente."
+                                                    placeholder="Ex: 2 giros (0 = sem intervalo entre ocorrências do mesmo padrão)" />
+                                            </div>
+                                            <div class="setting-item">
+                                                <span class="setting-label">Tamanho MÍNIMO do padrão (giros):</span>
+                                                <input type="number" id="cfgMinPatternSize" min="2" value="2" />
+                                            </div>
+                                            <div class="setting-item">
+                                                <span class="setting-label">Tamanho MÁXIMO do padrão (0 = sem limite):</span>
+                                                <input type="number" id="cfgMaxPatternSize" min="0" value="0" placeholder="0 = sem limite" />
+                                            </div>
+                                            <div class="setting-item">
+                                                <span class="setting-label">WIN% das demais ocorrências:</span>
+                                                <input type="number" id="cfgWinPercentOthers" min="0" max="100" value="100" />
+                                            </div>
+                                            <div class="setting-item setting-row">
+                                                <label class="checkbox-label"><input type="checkbox" id="cfgRequireTrigger" checked /> Exigir cor de disparo</label>
+                                            </div>
+                                            <!-- Simulação no passado (Modo Padrão / Análise Premium) -->
+                                            <div class="setting-item setting-row" id="standardSimulationContainer" style="margin-top: 10px;">
+                                                <div class="hot-pattern-actions">
+                                                    <button id="standardSimulationBtn" class="btn-hot-pattern btn-standard-test-config" type="button" title="Simular/otimizar esta configuração no passado (sem olhar o futuro)">
+                                                        Testar configurações
+                                                    </button>
+                                                </div>
+                                            </div>
+                                            <div class="setting-item setting-row">
+                                                <span class="setting-label">Telegram Chat ID:</span>
+                                                <div style="display: flex; gap: 4px; flex: 1; align-items: stretch;">
+                                                    <input type="password" id="cfgTgChatId" placeholder="Digite seu Chat ID" style="flex: 1;" />
+                                                    <button type="button" id="toggleTgId" class="toggle-visibility-btn" title="Mostrar/Ocultar">
+                                                        <svg class="eye-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                                            <path d="M12 5C7 5 2.73 8.11 1 12.5C2.73 16.89 7 20 12 20C17 20 21.27 16.89 23 12.5C21.27 8.11 17 5 12 5Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                                                            <circle cx="12" cy="12.5" r="3.5" stroke="currentColor" stroke-width="2"/>
+                                                        </svg>
+                                                        <svg class="eye-off-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style="display: none;">
+                                                            <path d="M3 3L21 21M10.5 10.7C9.8 11.5 9.5 12.5 10 13.5C10.5 14.5 11.5 15 12.5 15C13.3 15 14.1 14.6 14.7 14M17 17C15.5 18.5 13.8 19.5 12 19.5C7 19.5 2.73 16.39 1 12C2.1 9.6 3.8 7.6 6 6.3M12 5.5C17 5.5 21.27 8.61 23 13C22.4 14.4 21.5 15.7 20.4 16.8" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                                                        </svg>
+                                                    </button>
+                                                </div>
+                                            </div>
+                                            
+                                            <!-- ═══════════════════════════════════════════════════════ -->
+                                            <!-- MODELOS CUSTOMIZADOS DE ANÁLISE (NÍVEL DIAMANTE) -->
+                                            <!-- ═══════════════════════════════════════════════════════ -->
+                                            <div class="setting-item setting-row" id="customPatternsContainer" style="margin-top: 20px; padding-top: 15px; border-top: 1px solid #333;">
+                                                <div class="hot-pattern-actions">
+                                                    <button id="diamondLevelsBtn" class="btn-hot-pattern btn-diamond-levels">
+                                                        Configurar Níveis
+                                                    </button>
+                                                </div>
+                                            </div>
+                                            
+                                            <!-- ═══════════════════════════════════════════════════════ -->
+                                            <!-- INTENSIDADE DE SINAIS (NÍVEL DIAMANTE) -->
+                                            <!-- ═══════════════════════════════════════════════════════ -->
+                                            <div class="setting-item setting-row" id="signalIntensityContainer" style="margin-top: 15px;">
+                                                <div style="width: 100%; display: flex; flex-direction: column; gap: 8px;">
+                                                    <label style="font-size: 13px; color: #ffffff; font-weight: 600; text-align: center;">
+                                                        Intensidade de Sinais
+                                                    </label>
+                                                    <!-- Select real fica oculto (usado para persistência/config), UI é um dropdown custom -->
+                                                    <select id="signalIntensitySelect" style="display:none">
+                                                        <option value="aggressive" selected>Agressivo</option>
+                                                        <option value="conservative">Conservador</option>
+                                                    </select>
+                                                    <div class="signal-intensity-select-wrapper">
+                                                        <button type="button" id="signalIntensitySelectUi" class="signal-intensity-select-ui" aria-haspopup="listbox" aria-expanded="false">
+                                                            <span id="signalIntensitySelectedLabel">Agressivo</span>
+                                                            <span class="signal-intensity-caret">▾</span>
+                                                        </button>
+                                                        <div id="signalIntensityDropdown" class="signal-intensity-dropdown" role="listbox" style="display:none;">
+                                                            <button type="button" class="signal-intensity-option" data-value="aggressive" role="option" aria-selected="true">
+                                                                <div class="opt-title">Agressivo</div>
+                                                            </button>
+                                                            <button type="button" class="signal-intensity-option" data-value="conservative" role="option" aria-selected="false">
+                                                                <div class="opt-title">Conservador</div>
+                                                                <div class="opt-hint" id="signalIntensityConservativeHint" style="display:none;">
+                                                                    <div class="opt-divider"></div>
+                                                                    <div class="opt-hint-text" id="signalIntensityConservativeHintText"></div>
+                                                                </div>
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            
+                                            <!-- Opção de sincronização com a conta -->
+                                            <div class="setting-item setting-row" style="margin-top: 20px; padding-top: 15px; border-top: 1px solid #333;">
+                                                <label class="checkbox-label" style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                                                    <input type="checkbox" id="syncConfigToAccount" checked style="cursor: pointer;">
+                                                    <span style="font-size: 13px; color: #00d4ff;">
+                                                        ☁️ Sincronizar configurações
+                                                    </span>
+                                                </label>
+                                            </div>
+                                            
+                                        </div>
+                                        <button id="cfgSaveBtn" class="cfg-save-btn">Salvar</button>
                                     </div>
-                                </label>
-                                <div class="auto-bet-field">
-                                    <span>Banca para simulação (R$)</span>
-                                    <input type="number" id="autoBetSimulationBank" min="0" step="1" value="5000" />
+                                </div>
+                            </div>
+
+                            <!-- 2) MARTINGALE -->
+                            <div class="auto-bet-acc-section" data-acc-key="martingale">
+                                <button type="button" class="auto-bet-acc-header" aria-expanded="false" aria-controls="autoBetAccBody-martingale">
+                                    <span class="auto-bet-acc-title">Martingale</span>
+                                    <span class="auto-bet-acc-caret" aria-hidden="true">▾</span>
+                                </button>
+                                <div class="auto-bet-acc-body" id="autoBetAccBody-martingale">
+                                    <div class="auto-bet-section-title">Estratégia de Martingale</div>
+                                    <div class="auto-bet-martingale-settings">
+                                        <div class="auto-bet-field">
+                                            <span>Quantidade de Gales (0-200)</span>
+                                            <input type="number" id="cfgMaxGales" min="0" max="200" value="0" />
+                                            <div class="mode-toggle-hint" style="margin-left: 0;">
+                                                Quantos gales tentar no ciclo. <strong>0</strong> = sem gales.
+                                            </div>
+                                        </div>
+
+                                        <div class="auto-bet-martingale-row">
+                                            <div class="auto-bet-martingale-text">
+                                                <div class="auto-bet-martingale-title">Gales consecutivos</div>
+                                                <div class="mode-toggle-hint" style="margin: 0;">
+                                                    Quando ativado, o próximo Gale é enviado no <strong>próximo giro</strong> (mesma cor), sem esperar novo sinal.
+                                                </div>
+                                            </div>
+                                            <label class="mode-toggle auto-bet-toggle-compact" style="margin:0;">
+                                                <input type="checkbox" id="cfgConsecutiveMartingale" />
+                                                <div class="mode-toggle-content">
+                                                    <span class="mode-toggle-label">Ativar</span>
+                                                    <span class="mode-toggle-switch"></span>
+                                                </div>
+                                            </label>
+                                        </div>
+
+                                        <div id="consecutiveGalesWrapper" class="auto-bet-martingale-dependent">
+                                            <div class="auto-bet-field">
+                                                <span>Consecutivo até (G)</span>
+                                                <input type="number" id="cfgConsecutiveGales" min="0" max="200" value="0" />
+                                                <div class="mode-toggle-hint" style="margin-left: 0;">
+                                                    Ex.: <strong>1</strong> = G1 imediato • <strong>2</strong> = G1 e G2 imediatos
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- 3) SIMULADOR DE BANCA -->
+                            <div class="auto-bet-acc-section" data-acc-key="bank">
+                                <button type="button" class="auto-bet-acc-header" aria-expanded="false" aria-controls="autoBetAccBody-bank">
+                                    <span class="auto-bet-acc-title">Simulador de banca</span>
+                                    <span class="auto-bet-acc-caret" aria-hidden="true">▾</span>
+                                </button>
+                                <div class="auto-bet-acc-body" id="autoBetAccBody-bank">
+                                    <div class="auto-bet-mode-layout">
+                                        <div class="auto-bet-mode-card simulation-mode">
+                                            <div>
+                                                <div class="mode-card-title">Simulador</div>
+                                                <p class="mode-card-subtitle">Acompanhe resultados sem apostar</p>
+                                            </div>
+                                            <label class="mode-toggle">
+                                                <input type="checkbox" id="autoBetSimulationOnly" checked />
+                                                <div class="mode-toggle-content">
+                                                    <span class="mode-toggle-label">Simular entradas</span>
+                                                    <span class="mode-toggle-switch"></span>
+                                                </div>
+                                            </label>
+                                            <div class="auto-bet-field">
+                                                <span>Banca para simulação (R$)</span>
+                                                <input type="number" id="autoBetSimulationBank" min="0" step="1" value="5000" />
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="auto-bet-shared-grid">
+                                        <div class="auto-bet-field">
+                                            <span>Entrada base (R$)</span>
+                                            <input type="number" id="autoBetBaseStake" min="0.01" step="0.01" value="2" />
+                                        </div>
+                                        <div class="auto-bet-field">
+                                            <span>Multiplicador por Gale</span>
+                                            <input type="number" id="autoBetGaleMultiplier" min="1" step="0.1" value="2" />
+                                        </div>
+                                        <div class="auto-bet-field">
+                                            <span>Stop WIN (R$)</span>
+                                            <input type="number" id="autoBetStopWin" min="0" step="1" value="0" />
+                                        </div>
+                                        <div class="auto-bet-field">
+                                            <span>Stop LOSS (R$)</span>
+                                            <input type="number" id="autoBetStopLoss" min="0" step="1" value="0" />
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- 4) PROTEÇÃO NO BRANCO -->
+                            <div class="auto-bet-acc-section" data-acc-key="whiteProtection">
+                                <button type="button" class="auto-bet-acc-header" aria-expanded="false" aria-controls="autoBetAccBody-whiteProtection">
+                                    <span class="auto-bet-acc-title">Proteção no branco</span>
+                                    <span class="auto-bet-acc-caret" aria-hidden="true">▾</span>
+                                </button>
+                                <div class="auto-bet-acc-body" id="autoBetAccBody-whiteProtection">
+                                    <label class="mode-toggle" style="margin-top: 0;">
+                                        <input type="checkbox" id="autoBetWhiteProtection" />
+                                        <div class="mode-toggle-content">
+                                            <span class="mode-toggle-label">Proteção no branco</span>
+                                            <span class="mode-toggle-switch"></span>
+                                        </div>
+                                    </label>
+                                    <div class="white-protection-mode white-mode-disabled" id="whiteProtectionModeWrapper" aria-disabled="true">
+                                        <div class="white-mode-header">
+                                            <span>Modo da proteção no branco</span>
+                                            <span>Escolha sua estratégia</span>
+                                        </div>
+                                        <div class="white-mode-options" role="group" aria-label="Modo da proteção no branco">
+                                            <button type="button" class="white-mode-btn active" data-white-mode="profit" aria-pressed="true">
+                                                <span class="white-mode-title">Lucro igual à cor</span>
+                                                <span class="white-mode-subtitle">Branco cobre as perdas e mantém o lucro do estágio.</span>
+                                            </button>
+                                            <button type="button" class="white-mode-btn" data-white-mode="neutral" aria-pressed="false">
+                                                <span class="white-mode-title">Somente cobrir perdas</span>
+                                                <span class="white-mode-subtitle">Branco devolve tudo que foi apostado, sem lucro.</span>
+                                            </button>
+                                        </div>
+                                        <p class="white-mode-description" id="whiteProtectionModeDescription">
+                                            O branco cobre todas as perdas acumuladas e ainda entrega o mesmo lucro do estágio atual.
+                                        </p>
+                                        <input type="hidden" id="autoBetWhiteMode" value="profit" />
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- 5) MODO INVERSO -->
+                            <div class="auto-bet-acc-section" data-acc-key="inverseMode">
+                                <button type="button" class="auto-bet-acc-header" aria-expanded="false" aria-controls="autoBetAccBody-inverseMode">
+                                    <span class="auto-bet-acc-title">Modo inverso</span>
+                                    <span class="auto-bet-acc-caret" aria-hidden="true">▾</span>
+                                </button>
+                                <div class="auto-bet-acc-body" id="autoBetAccBody-inverseMode">
+                                    <label class="mode-toggle" style="margin-top: 0;">
+                                        <input type="checkbox" id="autoBetInverseMode" />
+                                        <div class="mode-toggle-content">
+                                            <span class="mode-toggle-label">Modo inverso (G1 plano)</span>
+                                            <span class="mode-toggle-switch"></span>
+                                        </div>
+                                    </label>
+                                    <p class="mode-toggle-hint">
+                                        Mantém G1 com o mesmo valor da entrada base e dobra apenas no G2. Após cada WIN, o próximo sinal inicia dobrado.
+                                    </p>
                                 </div>
                             </div>
                         </div>
-                        <div class="auto-bet-shared-grid">
-                            <div class="auto-bet-field">
-                                <span>Entrada base (R$)</span>
-                                <input type="number" id="autoBetBaseStake" min="0.01" step="0.01" value="2" />
-                            </div>
-                            <div class="auto-bet-field">
-                                <span>Multiplicador por Gale</span>
-                                <input type="number" id="autoBetGaleMultiplier" min="1" step="0.1" value="2" />
-                            </div>
-                            <div class="auto-bet-field">
-                                <span>Stop WIN (R$)</span>
-                                <input type="number" id="autoBetStopWin" min="0" step="1" value="0" />
-                            </div>
-                            <div class="auto-bet-field">
-                                <span>Stop LOSS (R$)</span>
-                                <input type="number" id="autoBetStopLoss" min="0" step="1" value="0" />
-                            </div>
-                        </div>
-                        <div class="auto-bet-section-title">Estratégia de Martingale</div>
-                        <div class="auto-bet-martingale-grid">
-                            <label class="mode-toggle" style="margin:0;">
-                                <input type="checkbox" id="cfgConsecutiveMartingale" />
-                                <div class="mode-toggle-content">
-                                    <span class="mode-toggle-label">Ativar gales consecutivos</span>
-                                    <span class="mode-toggle-switch"></span>
-                                </div>
-                            </label>
-                            <div class="auto-bet-field">
-                                <span>Consecutivo até (G)</span>
-                                <input type="number" id="cfgConsecutiveGales" min="0" max="200" value="0" />
-                            </div>
-                            <div class="auto-bet-field">
-                                <span>Quantidade de Gales (0-200)</span>
-                                <input type="number" id="cfgMaxGales" min="0" max="200" value="0" />
-                            </div>
-                        </div>
-                        <p class="mode-toggle-hint" style="margin-top: 6px;">
-                            Ex.: <strong>Consecutivo até = 1</strong> → G1 imediato (mesma cor).<br>
-                            A partir do G2, entra apenas no <strong>próximo sinal</strong> (cor pode mudar).
-                        </p>
-                        <label class="mode-toggle" style="margin-top: 8px;">
-                            <input type="checkbox" id="autoBetWhiteProtection" />
-                            <div class="mode-toggle-content">
-                                <span class="mode-toggle-label">Proteção no branco</span>
-                                <span class="mode-toggle-switch"></span>
-                            </div>
-                        </label>
-                        <div class="white-protection-mode white-mode-disabled" id="whiteProtectionModeWrapper" aria-disabled="true">
-                            <div class="white-mode-header">
-                                <span>Modo da proteção no branco</span>
-                                <span>Escolha sua estratégia</span>
-                            </div>
-                            <div class="white-mode-options" role="group" aria-label="Modo da proteção no branco">
-                                <button type="button" class="white-mode-btn active" data-white-mode="profit" aria-pressed="true">
-                                    <span class="white-mode-title">Lucro igual à cor</span>
-                                    <span class="white-mode-subtitle">Branco cobre as perdas e mantém o lucro do estágio.</span>
-                                </button>
-                                <button type="button" class="white-mode-btn" data-white-mode="neutral" aria-pressed="false">
-                                    <span class="white-mode-title">Somente cobrir perdas</span>
-                                    <span class="white-mode-subtitle">Branco devolve tudo que foi apostado, sem lucro.</span>
-                                </button>
-                            </div>
-                            <p class="white-mode-description" id="whiteProtectionModeDescription">
-                                O branco cobre todas as perdas acumuladas e ainda entrega o mesmo lucro do estágio atual.
-                            </p>
-                            <input type="hidden" id="autoBetWhiteMode" value="profit" />
-                        </div>
-                        <label class="mode-toggle" style="margin-top: 12px;">
-                            <input type="checkbox" id="autoBetInverseMode" />
-                            <div class="mode-toggle-content">
-                                <span class="mode-toggle-label">Modo inverso (G1 plano)</span>
-                                <span class="mode-toggle-switch"></span>
-                            </div>
-                        </label>
-                        <p class="mode-toggle-hint">
-                            Mantém G1 com o mesmo valor da entrada base e dobra apenas no G2. Após cada WIN, o próximo sinal inicia dobrado.
-                        </p>
                     </div>
                     <div class="auto-bet-modal-footer">
                         <button type="button" class="auto-bet-reset" id="autoBetResetRuntimeModal"><span class="button-label">Resetar ciclo</span></button>
@@ -11781,6 +12017,88 @@ async function persistAnalyzerState(newState) {
         let autoBetModalEscHandler = null;
         let autoBetModalResizeHandler = null;
 
+        // ═══════════════════════════════════════════════════════════════════════
+        // ✅ ACCORDION: organizar setores dentro do modal "Configurar Simulador"
+        // - Clicar em um setor abre e fecha os demais (sempre 1 aberto)
+        // ═══════════════════════════════════════════════════════════════════════
+        const initAutoBetAccordion = () => {
+            try {
+                if (!autoBetModal) return;
+                const accordion = autoBetModal.querySelector('#autoBetAccordion');
+                if (!accordion || accordion.dataset.initialized === '1') return;
+                accordion.dataset.initialized = '1';
+
+                const sections = Array.from(accordion.querySelectorAll('.auto-bet-acc-section'));
+                if (!sections.length) return;
+
+                const setAllClosed = () => {
+                    sections.forEach((section) => {
+                        section.classList.remove('is-open');
+                        const header = section.querySelector('.auto-bet-acc-header');
+                        if (header) {
+                            header.setAttribute('aria-expanded', 'false');
+                        }
+                    });
+                };
+
+                const setOpenSection = (targetSection) => {
+                    sections.forEach((section) => {
+                        const isTarget = section === targetSection;
+                        section.classList.toggle('is-open', isTarget);
+                        const header = section.querySelector('.auto-bet-acc-header');
+                        if (header) {
+                            header.setAttribute('aria-expanded', isTarget ? 'true' : 'false');
+                        }
+                    });
+                };
+
+                sections.forEach((section) => {
+                    const header = section.querySelector('.auto-bet-acc-header');
+                    if (!header) return;
+                    header.addEventListener('click', (event) => {
+                        event.preventDefault();
+                        // ✅ Pode fechar o que já está aberto. Caso contrário, abre e fecha os demais.
+                        const isOpen = section.classList.contains('is-open');
+                        if (isOpen) {
+                            setAllClosed();
+                        } else {
+                            setOpenSection(section);
+                        }
+                    });
+                });
+
+                // ✅ Ao abrir o modal, iniciar com tudo fechado (usuário escolhe o que abrir)
+                setAllClosed();
+            } catch (err) {
+                console.warn('⚠️ Falha ao iniciar accordion do simulador:', err);
+            }
+        };
+
+        const initConsecutiveMartingaleUI = () => {
+            try {
+                const toggle = document.getElementById('cfgConsecutiveMartingale');
+                const wrapper = document.getElementById('consecutiveGalesWrapper');
+                const input = document.getElementById('cfgConsecutiveGales');
+                if (!toggle || !wrapper) return;
+
+                const apply = () => {
+                    const enabled = !!toggle.checked;
+                    wrapper.style.display = enabled ? '' : 'none';
+                    if (input) {
+                        input.disabled = !enabled;
+                    }
+                };
+
+                toggle.addEventListener('change', apply);
+                apply();
+            } catch (err) {
+                console.warn('⚠️ Falha ao iniciar UI de gales consecutivos:', err);
+            }
+        };
+
+        initAutoBetAccordion();
+        initConsecutiveMartingaleUI();
+
         const triggerButtonFeedback = (button) => {
             if (!button) return;
             button.classList.add('btn-pressed');
@@ -11852,6 +12170,19 @@ async function persistAnalyzerState(newState) {
             
             autoBetModal.style.display = 'flex';
             document.body.classList.add('auto-bet-modal-open');
+
+            // ✅ Sempre abrir com tudo fechado (usuário escolhe o setor)
+            try {
+                const accordion = autoBetModal.querySelector('#autoBetAccordion');
+                if (accordion) {
+                    const sections = Array.from(accordion.querySelectorAll('.auto-bet-acc-section'));
+                    sections.forEach((section) => {
+                        section.classList.remove('is-open');
+                        const header = section.querySelector('.auto-bet-acc-header');
+                        if (header) header.setAttribute('aria-expanded', 'false');
+                    });
+                }
+            } catch (_) {}
             
             const sidebarEl = document.getElementById('blaze-double-analyzer');
             const isCompactMode = sidebarEl && sidebarEl.classList.contains('compact-mode');
@@ -15583,6 +15914,17 @@ function logModeSnapshotUI(snapshot) {
                 if (consecutiveGales) consecutiveGales.value = activeMartingaleProfile.consecutiveGales != null ? activeMartingaleProfile.consecutiveGales : 0;
                 if (maxGales) maxGales.value = activeMartingaleProfile.maxGales;
                 if (tgChatId) tgChatId.value = cfg.telegramChatId || '';
+
+                // ✅ UI: esconder/mostrar "Consecutivo até (G)" quando o toggle estiver desligado
+                try {
+                    const wrapper = document.getElementById('consecutiveGalesWrapper');
+                    const input = document.getElementById('cfgConsecutiveGales');
+                    if (wrapper && consecutiveMartingale) {
+                        const enabled = !!consecutiveMartingale.checked;
+                        wrapper.style.display = enabled ? '' : 'none';
+                        if (input) input.disabled = !enabled;
+                    }
+                } catch (_) {}
                 const setAutoBetInput = (id, value, isCheckbox = false) => {
                     const el = document.getElementById(id);
                     if (!el) return;
