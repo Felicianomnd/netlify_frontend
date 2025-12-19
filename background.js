@@ -54,8 +54,8 @@ function getDiamondConfigSnapshot() {
         ['N0', `Hist ${getValue('n0History', N0_DEFAULTS.historySize)} | W ${getDiamondWindow('n0Window', N0_DEFAULTS.windowSize)} | BlockAll ${analyzerConfig.n0AllowBlockAll !== false ? 'sim' : 'não'}`],
         ['N1', `W ${getDiamondWindow('n1WindowSize', SAFE_ZONE_DEFAULTS.windowSize)} | minA ${getDiamondWindow('n1PrimaryRequirement', SAFE_ZONE_DEFAULTS.primaryRequirement)} | minB ${getDiamondWindow('n1SecondaryRequirement', SAFE_ZONE_DEFAULTS.secondaryRequirement)}`],
         ['N2', `Janela base ${getDiamondWindow('n2Recent', 10)} (auto)`],
-        ['N3', `Janela ${getDiamondWindow('n3PatternLength', 10)} | Hist ${getDiamondWindow('n3Alternance', 12)} | Rigor ${getDiamondWindow('n3ThresholdPct', 75)}% | minOcc ${getDiamondWindow('n3MinOccurrences', 1)}`],
-        ['N4', `${getDiamondWindow('n4Persistence', 20)} giros`],
+        ['N3', `Janela ${getDiamondWindow('n3PatternLength', 10)} | Hist ${getDiamondWindow('n3Alternance', 12)} | Rigor ${getDiamondWindow('n3BaseThresholdPct', 60)}% | Jan ${getDiamondWindow('n3ThresholdPct', 75)}% | minOcc ${getDiamondWindow('n3MinOccurrences', 1)}`],
+        ['N4', `Hist ${getDiamondWindow('n4Persistence', DEFAULT_ANALYZER_CONFIG.diamondLevelWindows.n4Persistence)}`],
         ['N5', `${getDiamondWindow('n5MinuteBias', 60)} amostras`],
         ['N6', `${getDiamondWindow('n6RetracementWindow', 80)} giros`],
         ['N7', `Dec ${getDiamondWindow('n7DecisionWindow', 20)} | Hist ${getDiamondWindow('n7HistoryWindow', 100)}`],
@@ -71,7 +71,7 @@ function logModeSnapshot(contextLabel = 'Contexto atual', historyLength = cached
     logSection(`[${contextLabel}] ${modeLabel}`);
     logInfo('Giros disponíveis', historyLength || 'N/A');
     logInfo('Controle de gale', getGaleSummary());
-    logInfo('Proteção no Branco', analyzerConfig.whiteProtectionAsWin ? 'Conta como WIN' : 'Conta como LOSS');
+    logInfo('Proteção no Branco', analyzerConfig.whiteProtectionAsWin ? 'Ativa' : 'Desativada');
     if (analyzerConfig.aiMode) {
         if (memoriaAtiva.inicializada) {
             const tempoDecorrido = Math.round((Date.now() - memoriaAtiva.ultimaAtualizacao) / 1000);
@@ -317,7 +317,7 @@ const DEFAULT_ANALYZER_CONFIG = {
     telegramChatId: '',           // Chat ID do Telegram para enviar sinais
     aiMode: false,                // Modo Diamante (true) ou Modo Padrão (false)
     signalIntensity: 'aggressive',  // Intensidade de sinais: 'aggressive' ou 'conservative'
-    whiteProtectionAsWin: false,  // Proteção no Branco: conta branco como WIN (default: conta como LOSS)
+    whiteProtectionAsWin: false,  // Proteção no Branco (autoaposta): ativa/desativada (NÃO conta como acerto da previsão)
     autoBetConfig: DEFAULT_AUTOBET_CONFIG,
     diamondLevelWindows: {        // Configuração dos níveis do modo Diamante
         n1WindowSize: 20,         // N1 - Zona Segura (tamanho da janela)
@@ -329,10 +329,11 @@ const DEFAULT_ANALYZER_CONFIG = {
         n3Alternance: 12,         // N3 - Alternância (histórico analisado em giros)
         n3PatternLength: 10,      // N3 - Alternância (janela ANTERIOR em giros para validar continuidade; NÃO inclui a formação)
         n3MinOccurrences: 1,      // N3 - Alternância (ocorrências mínimas para considerar a janela)
-        n3ThresholdPct: 75,       // N3 - Alternância (probabilidade mínima, em %)
+        n3BaseThresholdPct: 60,   // N3 - Alternância (rigor do N3/normal: probabilidade mínima global, em %)
+        n3ThresholdPct: 75,       // N3 - Alternância (rigor da janela: probabilidade mínima considerando janela anterior, em %)
         n3AllowBackoff: false,    // N3 - Alternância (tentar janelas menores se não houver dados)
         n3IgnoreWhite: false,     // N3 - Alternância (ignorar previsões de branco)
-        n4Persistence: 20,        // N4 - Persistência / Ciclos
+        n4Persistence: 2000,      // N4 - Autointeligente (histórico analisado em giros)
         n5MinuteBias: 60,         // N5 - Ritmo por Giro / Minuto
         n6RetracementWindow: 80,  // N6 - Retração Histórica (janela de análise)
         n7DecisionWindow: 20,     // N7 - Continuidade Global (decisões analisadas)
@@ -1188,6 +1189,7 @@ let martingaleState = {
     stage: 'ENTRADA',                 // 'ENTRADA' | 'G1' | 'G2'
     patternKey: null,                 // Identificador do padrão atual
     entryColor: null,                 // Cor da entrada inicial (aposta)
+    currentColor: null,               // Cor atual do ciclo (pode mudar em G1/G2 quando permitido)
     entryColorResult: null,           // Cor que realmente saiu na entrada
     entryTimestamp: null,             // Timestamp da entrada inicial
     analysisData: null,               // Dados completos da análise
@@ -1215,12 +1217,6 @@ function calculateGaleConfidenceValue(baseConfidence = 0, analysis = null, state
     const stageLabel = String(analysis?.phase || state.stage || '').toUpperCase().trim();
     const stageNumber = Math.max(0, getMartingaleStageNumber(stageLabel) || Number(state.lossCount || 0));
     const targetColor = normColor(state.entryColor || analysis?.color);
-    const whiteAsWin = (options && typeof options.whiteProtectionAsWin === 'boolean')
-        ? !!options.whiteProtectionAsWin
-        : ((typeof analyzerConfig !== 'undefined' && analyzerConfig && typeof analyzerConfig.whiteProtectionAsWin === 'boolean')
-            ? !!analyzerConfig.whiteProtectionAsWin
-            : false);
-
     // Se não temos cor alvo ou não estamos em G1+ -> devolve base (sem “piso fixo”)
     if (!targetColor || stageNumber <= 0) {
         return round1(clampPct(numericBase, 0, 95));
@@ -1239,11 +1235,6 @@ function calculateGaleConfidenceValue(baseConfidence = 0, analysis = null, state
         else if (targetColor === 'black') wins = black;
         else if (targetColor === 'white') wins = white;
         else wins = 0;
-
-        // Proteção no branco: branco conta como WIN quando apostamos em red/black
-        if (whiteAsWin && (targetColor === 'red' || targetColor === 'black')) {
-            wins += white;
-        }
 
         const pct = (wins / total) * 100;
         return { pct, wins, total };
@@ -1264,7 +1255,7 @@ function calculateGaleConfidenceValue(baseConfidence = 0, analysis = null, state
     }
     if (hotColorsHistory && hotColorsHistory.__global__) {
         candidates.push({ key: '__global__', bucket: pickBucketForStage(hotColorsHistory.__global__) });
-    }
+            }
 
     const bucketStats = candidates
         .map((c) => ({ key: c.key, stats: computeWinProbFromCounts(c.bucket) }))
@@ -1287,8 +1278,8 @@ function calculateGaleConfidenceValue(baseConfidence = 0, analysis = null, state
             });
             const stats = computeWinProbFromCounts(counts);
             if (stats) p_recent = clampPct(stats.pct, 0, 95);
-        }
-    } catch (_) {
+            }
+        } catch (_) {
         // ignore
     }
 
@@ -1408,9 +1399,9 @@ async function updateHotColorsHistory(patternKey, lossSequence) {
     const ensureKey = (key) => {
         if (!hotColorsHistory[key]) {
             hotColorsHistory[key] = {
-                after1Loss: { red: 0, black: 0, white: 0 },
-                after2Loss: { red: 0, black: 0, white: 0 }
-            };
+            after1Loss: { red: 0, black: 0, white: 0 },
+            after2Loss: { red: 0, black: 0, white: 0 }
+        };
         } else {
             // compat: garantir campos e cores
             hotColorsHistory[key].after1Loss = hotColorsHistory[key].after1Loss || { red: 0, black: 0, white: 0 };
@@ -1454,6 +1445,7 @@ function resetMartingaleState() {
         stage: 'ENTRADA',
         patternKey: null,
         entryColor: null,
+        currentColor: null,
         entryColorResult: null,
         entryTimestamp: null,
         analysisData: null,
@@ -2330,7 +2322,7 @@ function logActiveConfiguration() {
         console.log(`║     • WIN% demais ocorrências: ${config.winPercentOthers.toString().padEnd(20)}%     ║`);
         
         console.log('║  ⚪ PROTEÇÃO NO BRANCO:                                    ║');
-        const whiteProtectionText = config.whiteProtectionAsWin ? 'Conta como WIN' : 'Conta como LOSS';
+        const whiteProtectionText = config.whiteProtectionAsWin ? 'Ativa' : 'Desativada';
         console.log(`║     • ${`Branco → ${whiteProtectionText}`.padEnd(49)}║`);
         
         // COR DE DISPARO
@@ -3353,17 +3345,13 @@ async function processNewSpinFromServer(spinData) {
                         // ✅ CORREÇÃO CRÍTICA: Comparação robusta de cores
                         const expectedColor = String(currentAnalysis.color || '').toLowerCase().trim();
                         const actualColor = String(rollColor || '').toLowerCase().trim();
-                        const whiteProtectionWin = !!analyzerConfig.whiteProtectionAsWin
-                            && actualColor === 'white'
-                            && (expectedColor === 'red' || expectedColor === 'black');
-                        const hit = whiteProtectionWin || (expectedColor === actualColor);
+
+                        // ✅ WIN = acerto da cor prevista. Branco NÃO pode virar WIN quando a previsão foi red/black.
+                        const hit = (expectedColor === actualColor);
                     
                     console.log('   🔍 VERIFICAÇÃO FINAL DE WIN/LOSS:');
                     console.log('   Esperado (processado):', expectedColor);
                     console.log('   Real (processado):', actualColor);
-                    if (whiteProtectionWin) {
-                        console.log('   Proteção no Branco ativa? SIM → branco considerado WIN');
-                    }
                     console.log('   São iguais?', hit);
                     console.log('   Resultado FINAL:', hit ? '✅ WIN!' : '❌ LOSS!');
                     
@@ -3744,8 +3732,18 @@ async function processNewSpinFromServer(spinData) {
                                     currentAnalysis.confidence
                                 );
                                 
-                                // ✅ USAR SEMPRE A MESMA COR DA ENTRADA ORIGINAL
-                                const g1Color = currentAnalysis.color;
+                                // ✅ N4 (Autointeligente): permitir re-análise no Gale (G1) quando estiver rodando "só N4"
+                                let g1Color = currentAnalysis.color;
+                                if (shouldUseN4DynamicGalesForConfig(analyzerConfig)) {
+                                    const picked = pickN4DynamicGaleColor({
+                                        history: cachedHistory,
+                                        config: analyzerConfig,
+                                        stageNumber: 1,
+                                        maxGales,
+                                        forcePick: true
+                                    });
+                                    if (picked) g1Color = picked;
+                                }
                                 
                                 // ⚠️ CRÍTICO: Registrar LOSS da ENTRADA antes de tentar G1
                                 // ✅ Fix financeiro: congelar config do ciclo na primeira entrada
@@ -3788,6 +3786,7 @@ async function processNewSpinFromServer(spinData) {
                                 martingaleState.stage = 'G1';
                                 martingaleState.patternKey = patternKey;
                                 martingaleState.entryColor = currentAnalysis.color;
+                                martingaleState.currentColor = g1Color;
                                 martingaleState.entryColorResult = rollColor;  // ✅ Cor que realmente saiu
                                 martingaleState.entryTimestamp = currentAnalysis.createdOnTimestamp;
                                 martingaleState.analysisData = currentAnalysis;
@@ -3801,7 +3800,7 @@ async function processNewSpinFromServer(spinData) {
                                 if (nextGaleNumber <= consecutiveGales) {
                                     // ✅ MODO CONSECUTIVO: Enviar G1 IMEDIATAMENTE no próximo giro
                                     console.log('🎯 MODO CONSECUTIVO: G1 será enviado no PRÓXIMO GIRO');
-
+                                    
                                     // Criar análise G1 com timestamp do próximo giro
                                     const g1Analysis = {
                                         ...currentAnalysis,
@@ -3942,11 +3941,22 @@ async function processNewSpinFromServer(spinData) {
                                     currentAnalysis.confidence
                                 );
                                 
-                                // ✅ USAR SEMPRE A MESMA COR DA ENTRADA ORIGINAL
+                                // ✅ N4 (Autointeligente): permitir re-análise no Gale (G2...) quando estiver rodando "só N4"
                                 console.log(`║  martingaleState.entryColor: ${martingaleState.entryColor}                   ║`);
+                                console.log(`║  martingaleState.currentColor: ${martingaleState.currentColor || '-'}                   ║`);
                                 console.log(`║  currentAnalysis.color: ${currentAnalysis.color}                        ║`);
-                                
-                                const nextGaleColor = martingaleState.entryColor;
+
+                                let nextGaleColor = martingaleState.currentColor || martingaleState.entryColor || currentAnalysis.color;
+                                if (shouldUseN4DynamicGalesForConfig(analyzerConfig)) {
+                                    const picked = pickN4DynamicGaleColor({
+                                        history: cachedHistory,
+                                        config: analyzerConfig,
+                                        stageNumber: nextGaleNumber,
+                                        maxGales,
+                                        forcePick: true
+                                    });
+                                    if (picked) nextGaleColor = picked;
+                                }
                                 
                                 console.log(`🎯 COR CONFIRMADA PARA G${nextGaleNumber}: ${nextGaleColor}`);
                                 
@@ -3975,6 +3985,7 @@ async function processNewSpinFromServer(spinData) {
                                 
                                 // Atualizar estado do Martingale
                                 martingaleState.stage = `G${nextGaleNumber}`;
+                                martingaleState.currentColor = nextGaleColor;
                                 martingaleState.lossCount = nextGaleNumber;
                                 martingaleState.lossColors.push(rollColor);
                                 
@@ -3982,7 +3993,7 @@ async function processNewSpinFromServer(spinData) {
                                 if (nextGaleNumber <= consecutiveGales) {
                                     // ✅ MODO CONSECUTIVO
                                     console.log(`🎯 MODO CONSECUTIVO: G${nextGaleNumber} será enviado no PRÓXIMO GIRO`);
-
+                                    
                                     const nextGaleAnalysis = {
                                         ...currentAnalysis,
                                         color: nextGaleColor,
@@ -9400,10 +9411,23 @@ function validateSequenceBarrier(history, predictedColor, configuredSize, altern
     console.log(`   📊 Maior sequência de ${predictedColor.toUpperCase()} encontrada: ${maxStreakFound} giro(s)`);
     
     let allowed = targetStreak <= maxStreakFound;
+
+    // ✅ Ajuste para WHITE:
+    // - Se estamos tentando apenas "1 WHITE" (targetStreak=1), não faz sentido bloquear só porque a janela recente
+    //   não teve WHITE (maxStreakFound=0). WHITE é raro e o N4 pode votar nele mesmo assim.
+    if (!allowed && predictedColor === 'white' && targetStreak === 1) {
+        allowed = true;
+    }
+
     let alternanceBlocked = false;
-    let reasonText = allowed
-        ? `✅ Sequência de ${targetStreak} ${predictedColor} já aconteceu ${maxStreakFound >= targetStreak ? 'antes' : ''}`
-        : `❌ Sequência de ${targetStreak} ${predictedColor} NUNCA aconteceu (máx: ${maxStreakFound})`;
+    let reasonText;
+    if (allowed) {
+        reasonText = (predictedColor === 'white' && targetStreak === 1 && maxStreakFound === 0)
+            ? `✅ Sequência de 1 ${predictedColor} permitida (sem precedente na janela)`
+            : `✅ Sequência de ${targetStreak} ${predictedColor} já aconteceu ${maxStreakFound >= targetStreak ? 'antes' : ''}`;
+    } else {
+        reasonText = `❌ Sequência de ${targetStreak} ${predictedColor} NUNCA aconteceu (máx: ${maxStreakFound})`;
+    }
     
     if (allowed) {
         console.log(`   ✅ APROVADO! Sequência de ${targetStreak} é historicamente viável`);
@@ -9455,7 +9479,8 @@ function validateSequenceBarrier(history, predictedColor, configuredSize, altern
  * - historySize: janela analisada (giros)
  * - contextWindowSize: janela ANTERIOR em giros (fora da alternância formada) para validar se a alternância tende a continuar
  * - minOccurrences: mínimo de ocorrências históricas no recorte
- * - threshold: rigor mínimo (taxa de continuação do padrão) no recorte
+ * - baseThreshold: rigor do N3 (modo normal) — taxa global mínima (Entrada+G1) para o N3 votar
+ * - contextThreshold: rigor da janela — taxa mínima (Entrada+G1) considerando a janela anterior
  * - WIN considerado até G1 (entrada ou G1). WIN em G2 não conta (alto risco).
  */
 function analyzeAlternancePattern(history, options = {}) {
@@ -9464,7 +9489,8 @@ function analyzeAlternancePattern(history, options = {}) {
     const defaultSettings = {
         historySize: 60,
         contextWindowSize: 10, // ✅ janela ANTERIOR (fora da alternância formada) para validar continuidade
-        threshold: 0.75,
+        baseThreshold: 0.60,
+        contextThreshold: 0.75,
         minOccurrences: 1,
         allowBackoff: false,
         ignoreWhite: false // mantido por compatibilidade, mas branco sempre quebra alternância
@@ -9475,7 +9501,10 @@ function analyzeAlternancePattern(history, options = {}) {
         contextWindowSize: Number(options.contextWindowSize ?? options.patternLength ?? options.contextSize) > 0
             ? Number(options.contextWindowSize ?? options.patternLength ?? options.contextSize)
             : defaultSettings.contextWindowSize,
-        threshold: typeof options.threshold === 'number' ? options.threshold : defaultSettings.threshold,
+        baseThreshold: (typeof options.baseThreshold === 'number')
+            ? options.baseThreshold
+            : (typeof options.threshold === 'number' ? options.threshold : defaultSettings.baseThreshold),
+        contextThreshold: typeof options.contextThreshold === 'number' ? options.contextThreshold : defaultSettings.contextThreshold,
         minOccurrences: Number(options.minOccurrences) > 0 ? Number(options.minOccurrences) : defaultSettings.minOccurrences,
         allowBackoff: !!options.allowBackoff,
         ignoreWhite: !!options.ignoreWhite
@@ -9485,7 +9514,8 @@ function analyzeAlternancePattern(history, options = {}) {
     // ✅ contextWindowSize: "janela deslizante" ANTES da formação (não inclui a alternância formada)
     settings.historySize = Math.max(4, Math.floor(Math.max(1, settings.historySize)));
     settings.contextWindowSize = Math.max(1, Math.min(200, Math.floor(Math.max(1, settings.contextWindowSize))));
-    settings.threshold = clamp01(settings.threshold);
+    settings.baseThreshold = clamp01(settings.baseThreshold);
+    settings.contextThreshold = clamp01(settings.contextThreshold);
     settings.minOccurrences = Math.max(1, Math.min(100, Math.floor(settings.minOccurrences)));
 
     const trimmedHistory = Array.isArray(history) ? history.slice(0, settings.historySize) : [];
@@ -9495,11 +9525,6 @@ function analyzeAlternancePattern(history, options = {}) {
 
     const isRB = (c) => c === 'red' || c === 'black';
     const oppositeRB = (c) => (c === 'red' ? 'black' : (c === 'black' ? 'red' : null));
-    // ✅ Respeitar config do modo/otimizador quando fornecida
-    const whiteAsWin = (typeof options.whiteProtectionAsWin === 'boolean')
-        ? !!options.whiteProtectionAsWin
-        : !!analyzerConfig.whiteProtectionAsWin;
-
     // 🔎 Janela deslizante (contexto ANTES da alternância formada)
     const tokenFor = (c) => (c === 'red' ? 'R' : (c === 'black' ? 'B' : (c === 'white' ? 'W' : '_')));
     const tokenSeq = seq.map(tokenFor).join('');
@@ -9517,14 +9542,7 @@ function analyzeAlternancePattern(history, options = {}) {
 
     const getContextKeyForPatternEnd = (patternEndIdx, spinsUsed) =>
         getContextKeyForPatternEndWithSize(patternEndIdx, spinsUsed, settings.contextWindowSize);
-    const isWinColor = (actualColor, expectedColor) => {
-        if (actualColor === expectedColor) return true;
-        // ✅ Se proteção no branco estiver ativa, branco conta como WIN quando apostamos em red/black
-        if (whiteAsWin && actualColor === 'white' && (expectedColor === 'red' || expectedColor === 'black')) {
-            return true;
-        }
-        return false;
-    };
+    const isWinColor = (actualColor, expectedColor) => (actualColor === expectedColor);
 
     const buildRunsBackward = (endIdx, groupSize) => {
         if (endIdx < 0 || endIdx >= seq.length) return null;
@@ -9633,21 +9651,26 @@ function analyzeAlternancePattern(history, options = {}) {
             for (let b of blocksToTryPassing) {
                 const det = checkAlternanceRuns(runsAll, g, b);
                 if (!det) continue;
-                const stats = computeStatsWithContextBackoff(g, b, det.spinsUsed);
-                if (stats && stats.missingContext) continue;
-                if (stats.occurrences < settings.minOccurrences) continue;
-                if (stats.rate < settings.threshold) continue;
+                const baseStats = computeBaseContinuationStats(g, b);
+                const contextStats = computeStatsWithContextBackoff(g, b, det.spinsUsed);
+                if (contextStats && contextStats.missingContext) continue;
+                if ((contextStats.occurrences || 0) < settings.minOccurrences) continue;
+                if ((contextStats.rate || 0) < settings.contextThreshold) continue;
+                if ((baseStats.rate || 0) < settings.baseThreshold) continue;
+
+                const score = clamp01(((baseStats.rate || 0) * 0.6) + ((contextStats.rate || 0) * 0.4));
 
                 const candidate = {
                     ...det,
                     backoffApplied: b !== maxBlocks,
-                    stats
+                    stats: { base: baseStats, context: contextStats },
+                    score
                 };
 
                 if (!bestPassing ||
                     candidate.groupSize > bestPassing.groupSize ||
                     (candidate.groupSize === bestPassing.groupSize && candidate.blocks > bestPassing.blocks) ||
-                    (candidate.groupSize === bestPassing.groupSize && candidate.blocks === bestPassing.blocks && (candidate.stats.rate > bestPassing.stats.rate))
+                    (candidate.groupSize === bestPassing.groupSize && candidate.blocks === bestPassing.blocks && ((candidate.score || 0) > (bestPassing.score || 0)))
                 ) {
                     bestPassing = candidate;
                 }
@@ -9669,6 +9692,26 @@ function analyzeAlternancePattern(history, options = {}) {
         const runsAll = buildRunsBackward(idx, groupSize);
         if (!runsAll) return null;
         return checkAlternanceRuns(runsAll, groupSize, neededBlocks);
+    };
+
+    const computeBaseContinuationStats = (groupSize, neededBlocks) => {
+        // ✅ Taxa GLOBAL (modo normal): não filtra pela janela anterior; apenas conta ocorrências do padrão no histórico
+        // ✅ WIN considerado até G1 (entrada ou G1). WIN em G2 não conta.
+        let occurrences = 0;
+        let hits = 0;
+        for (let i = 0; i < seq.length - 1; i++) {
+            const det = detectAtIndex(i, groupSize, neededBlocks);
+            if (!det) continue;
+            occurrences += 1;
+            const expected = det.expectedNext;
+            const next1 = seq[i + 1];
+            const next2 = (i + 2 < seq.length) ? seq[i + 2] : null;
+            if (isWinColor(next1, expected) || isWinColor(next2, expected)) {
+                hits += 1;
+            }
+        }
+        const rate = occurrences > 0 ? hits / occurrences : 0;
+        return { occurrences, hits, rate };
     };
 
     const computeContinuationStats = (groupSize, neededBlocks, requiredContextKey, windowSizeUsed) => {
@@ -9727,7 +9770,7 @@ function analyzeAlternancePattern(history, options = {}) {
     };
 
     console.log(`   📊 Total de giros disponíveis: ${Array.isArray(history) ? history.length : 0}`);
-    console.log(`   ⚙️ Config → histórico: ${settings.historySize} | janela anterior: ${settings.contextWindowSize} | rigor: ${(settings.threshold * 100).toFixed(0)}% | min occ: ${settings.minOccurrences} | WIN até G1`);
+    console.log(`   ⚙️ Config → histórico: ${settings.historySize} | janela anterior: ${settings.contextWindowSize} | rigor N3: ${(settings.baseThreshold * 100).toFixed(0)}% | rigor janela: ${(settings.contextThreshold * 100).toFixed(0)}% | min occ: ${settings.minOccurrences} | WIN até G1`);
     console.log(`   ⚙️ Branco sempre quebra alternância (ignorar branco = irrelevante)`);
 
     if (seq.length < 4) {
@@ -9773,59 +9816,92 @@ function analyzeAlternancePattern(history, options = {}) {
     const typeName = current.groupSize === 1 ? 'Simples' : (current.groupSize === 2 ? 'Dupla' : 'Tripla');
 
     // se kind === 'pass', já temos stats; senão calcular stats apenas para exibir (não votar)
-    const stats = current.kind === 'pass' && current.stats
-        ? current.stats
+    const baseStats = (current.kind === 'pass' && current.stats && current.stats.base)
+        ? current.stats.base
+        : computeBaseContinuationStats(current.groupSize, current.blocks);
+    const contextStats = (current.kind === 'pass' && current.stats && current.stats.context)
+        ? current.stats.context
         : computeStatsWithContextBackoff(current.groupSize, current.blocks, current.spinsUsed);
-    const occurrences = stats.occurrences || 0;
-    const hits = stats.hits || 0;
-    const rate = stats.rate || 0;
-    const pct = (rate * 100);
+
+    const baseOccurrences = baseStats && baseStats.occurrences ? baseStats.occurrences : 0;
+    const baseHits = baseStats && baseStats.hits ? baseStats.hits : 0;
+    const baseRate = baseStats && typeof baseStats.rate === 'number' ? baseStats.rate : 0;
+    const basePct = baseRate * 100;
+
+    const occurrences = contextStats && contextStats.occurrences ? contextStats.occurrences : 0; // (janela) - mantém compatibilidade com UI
+    const hits = contextStats && contextStats.hits ? contextStats.hits : 0;
+    const rate = contextStats && typeof contextStats.rate === 'number' ? contextStats.rate : 0;
+    const pct = rate * 100;
+    const windowUsed = (contextStats && contextStats.windowSizeUsed) ? contextStats.windowSizeUsed : settings.contextWindowSize;
 
     const meetsOcc = occurrences >= settings.minOccurrences;
-    const meetsThreshold = rate >= settings.threshold;
+    const meetsBaseThreshold = baseRate >= settings.baseThreshold;
+    const meetsContextThreshold = rate >= settings.contextThreshold;
 
-    const hasContext = !(stats && stats.missingContext);
-    const allowVote = current.kind === 'pass' && hasContext && meetsOcc && meetsThreshold;
+    const hasContext = !(contextStats && contextStats.missingContext);
+    const allowVote = current.kind === 'pass' && hasContext && meetsOcc && meetsBaseThreshold && meetsContextThreshold;
     const finalColor = allowVote ? current.expectedNext : null;
 
     const occBoost = occurrences > 0 ? Math.min(1, occurrences / Math.max(settings.minOccurrences + 2, 3)) : 0;
-    const finalConfidence = allowVote ? clamp01((rate * 0.8) + (occBoost * 0.2)) : 0;
+    const finalConfidence = allowVote
+        ? clamp01((baseRate * 0.65) + (rate * 0.25) + (occBoost * 0.10))
+        : 0;
 
     const details = [
         `Alt ${typeName}`,
         `blocos ${current.blocks}`,
-        `janela ${(stats && stats.windowSizeUsed) ? stats.windowSizeUsed : settings.contextWindowSize}`,
+        `janela ${windowUsed}`,
         `fase ${current.currentRunLen}/${current.groupSize}`,
-        `rigor ${pct.toFixed(1)}% (E+G1 ${hits}/${occurrences})`,
+        `base ${basePct.toFixed(1)}% (${baseHits}/${baseOccurrences})`,
+        `jan ${pct.toFixed(1)}% (${hits}/${occurrences})`,
+        `rigor ${Math.round(settings.baseThreshold * 100)}/${Math.round(settings.contextThreshold * 100)}%`,
         current.backoffApplied ? 'backoff' : null
     ].filter(Boolean).join(' • ');
 
     const overrideActive = Boolean(
         allowVote &&
-        rate >= Math.max(settings.threshold + 0.1, 0.9) &&
+        baseRate >= Math.max(settings.baseThreshold + 0.05, 0.85) &&
+        rate >= Math.max(settings.contextThreshold + 0.1, 0.9) &&
         occurrences >= settings.minOccurrences + 1
     );
     
     return {
         color: finalColor,
         pattern: `Alternância ${typeName}`,
-        alternationRate: pct.toFixed(1),
+        alternationRate: basePct.toFixed(1),
+        baseRate,
+        baseRatePct: basePct.toFixed(1),
+        baseOccurrences,
+        baseHits,
+        contextRate: rate,
+        contextRatePct: pct.toFixed(1),
+        contextOccurrences: occurrences,
+        contextHits: hits,
+        contextWindowUsed: windowUsed,
         alternationSize: current.blocks,
         confidence: finalConfidence,
-        probability: rate,
-        probabilityPct: pct.toFixed(1),
+        probability: baseRate,
+        probabilityPct: basePct.toFixed(1),
         occurrences,
         window: null,
         windowLabel: null,
-        threshold: settings.threshold,
-        thresholdPct: (settings.threshold * 100).toFixed(1),
+        threshold: settings.baseThreshold,
+        thresholdPct: (settings.baseThreshold * 100).toFixed(1),
+        contextThreshold: settings.contextThreshold,
+        contextThresholdPct: (settings.contextThreshold * 100).toFixed(1),
         minOccurrences: settings.minOccurrences,
         allowBackoff: settings.allowBackoff,
         ignoreWhite: settings.ignoreWhite,
         historyUsed: totalAvailable,
         historyConfigured: settings.historySize,
         details,
-        reason: allowVote ? null : (!hasContext ? 'context_window_insufficient' : (!meetsOcc ? 'min_occ_not_met' : 'threshold_not_met')),
+        reason: allowVote
+            ? null
+            : (!hasContext
+                ? 'context_window_insufficient'
+                : (!meetsOcc
+                    ? 'min_occ_not_met'
+                    : (!meetsBaseThreshold ? 'base_threshold_not_met' : 'context_threshold_not_met'))),
         backoffApplied: current.backoffApplied,
         override: overrideActive,
         alternanceRuns: current.blocks,
@@ -10224,178 +10300,437 @@ function analyzeWhiteRadar(fullHistory) {
     };
 }
 
+function shouldUseN4DynamicGalesForConfig(config = analyzerConfig) {
+    try {
+        if (!config || !config.aiMode) return false;
+        const enabledIds = DIAMOND_LEVEL_IDS.filter(id => isDiamondLevelEnabled(id, config));
+        // N9 é "barreira/veto" (validador), não um nível de voto.
+        // Permitir N4-only mesmo com N9 ativo, para não matar a reanálise dinâmica em setups comuns.
+        const voteIds = enabledIds.filter(id => id !== 'N9');
+        return voteIds.length === 1 && voteIds[0] === 'N4';
+    } catch (_) {
+        return false;
+    }
+}
+
+function pickN4DynamicGaleColor({ history, config, stageNumber, maxGales, forcePick = true }) {
+    try {
+        if (!shouldUseN4DynamicGalesForConfig(config)) return null;
+        const historyRef = Array.isArray(history) ? history : [];
+        if (!historyRef.length) return null;
+
+        const overallMax = Math.max(0, Math.floor(Number(maxGales) || 0));
+        const remaining = Math.max(0, Math.min(2, overallMax - Math.max(0, Math.floor(stageNumber))));
+        const n4Window = (config === analyzerConfig)
+            ? getDiamondWindow('n4Persistence', DEFAULT_ANALYZER_CONFIG.diamondLevelWindows.n4Persistence)
+            : getDiamondWindowFromConfig(config, 'n4Persistence', DEFAULT_ANALYZER_CONFIG.diamondLevelWindows.n4Persistence);
+
+        const n4 = analyzeAutointeligente(historyRef, {
+            historySize: n4Window,
+            maxGales: remaining,
+            signalIntensity: (config && config.signalIntensity) || 'aggressive',
+            whiteProtectionAsWin: !!(config && config.whiteProtectionAsWin),
+            forcePick: !!forcePick
+        });
+        return n4 && n4.color ? n4.color : null;
+    } catch (_) {
+        return null;
+    }
+}
+
 /**
- * NÍVEL 9: Análise de Ciclos e Persistência
- * Detecta ciclos de persistência e vota pela CONTINUAÇÃO da sequência
- * Analisa conforme configuração do usuário (aiHistorySize), mínimo 20 giros
+ * N4: Autointeligente (aprendizado direto do histórico cru)
+ *
+ * Objetivo:
+ * - Decidir RED / BLACK / WHITE / NULO
+ * - Prioridade: acertar a Entrada (próximo giro), mas já "nascendo" com base para G1/G2 (se o usuário usar)
+ *
+ * Estratégia (sem depender dos níveis atuais):
+ * - Modelo n-gram (Markov de ordem variável) com peso por recência (exponential decay)
+ * - Política de abstenção (NULO) por thresholds de risco (prioriza acertar cedo e reduzir LOSS em G2)
+ * - Probabilidades por horizonte (Entrada, até G1, até G2) para refletir cenário de Martingale do usuário
  */
-function analyzePersistence(history, configuredSize = 20) {
-    console.log('%c┌─────────────────────────────────────────────────────────┐', 'color: #D35400; font-weight: bold;');
-    console.log('%c│ 🔍 NÍVEL 9: PERSISTÊNCIA (CONFIGURÁVEL)               │', 'color: #D35400; font-weight: bold;');
-    console.log('%c└─────────────────────────────────────────────────────────┘', 'color: #D35400; font-weight: bold;');
-    
-    // ✅ Usar o que o usuário configurou, mas com mínimo de 20 e máximo de 120 (compatível com UI)
-    const effectiveSize = Math.max(20, Math.min(120, configuredSize));
-    const lastN = history.slice(0, Math.min(effectiveSize, history.length));
-    
-    console.log(`   📊 Total de giros disponíveis: ${history.length}`);
-    console.log(`   ⚙️ Histórico configurado pelo usuário: ${configuredSize} giros`);
-    console.log(`   📊 Tamanho efetivo (20-60): ${effectiveSize} giros`);
-    console.log(`   📊 Analisando últimos: ${lastN.length} giros`);
-    
-    // ═══════════════════════════════════════════════════════════════
-    // ⚪ Brancos: por segurança, "reiniciam" leitura recente.
-    // Mantemos o comportamento: se houve branco na janela, usamos apenas os giros MAIS recentes após o branco.
-    // ═══════════════════════════════════════════════════════════════
-    let validHistory = lastN;
-    const firstWhiteIndex = lastN.findIndex(spin => spin && spin.color === 'white');
-    if (firstWhiteIndex !== -1) {
-        validHistory = lastN.slice(0, firstWhiteIndex);
-        console.log(`   ⚪ BRANCO ENCONTRADO na posição ${firstWhiteIndex}!`);
-        console.log(`   🔄 RESETANDO análise! Descartando ${lastN.length - validHistory.length} giros`);
-        console.log(`   ✅ Giros válidos após o reset: ${validHistory.length}`);
-    } else {
-        console.log(`   ✅ Nenhum BRANCO encontrado - analisando todos os ${validHistory.length} giros`);
-    }
-    
-    // ✅ Rigor: não votar com pouco histórico (evitar ruído)
-    const MIN_VALID_AFTER_WHITE = 12;
-    if (validHistory.length < MIN_VALID_AFTER_WHITE) {
-        console.log(`   ❌ Dados insuficientes após reset! Mínimo: ${MIN_VALID_AFTER_WHITE} giros, disponível: ${validHistory.length}`);
+function analyzeAutointeligente(history, options = {}) {
+    const clamp01 = (v) => Math.max(0, Math.min(1, Number(v) || 0));
+    const clampIntLocal = (v, min, max) => {
+        const n = Math.floor(Number(v));
+        if (!Number.isFinite(n)) return min;
+        return Math.max(min, Math.min(max, n));
+    };
+
+    const normalizeHistorySize = (raw) => {
+        const n = Number(raw);
+        if (!Number.isFinite(n) || n <= 0) return 2000;
+        // ✅ compatibilidade com N4 antigo (20..120): promover para escala de giros reais
+        if (n <= 120) return clampIntLocal(n * 100, 200, REALTIME_HISTORY_CAP);
+        return clampIntLocal(n, 200, REALTIME_HISTORY_CAP);
+    };
+
+    const historySizeConfigured = normalizeHistorySize(options.historySize ?? 2000);
+    const maxOrder = clampIntLocal(options.maxOrder ?? 6, 1, 10);
+    const maxGalesConfigured = clampIntLocal(options.maxGales ?? 0, 0, 2); // apenas até G2 importa aqui
+    const signalIntensity = (options && options.signalIntensity === 'conservative') ? 'conservative' : 'aggressive';
+
+    const rawHistory = Array.isArray(history) ? history.slice(0, Math.min(historySizeConfigured, history.length)) : [];
+    const chronological = rawHistory.slice().reverse();
+    const tokens = chronological
+        .map(spin => normalizeSpinColorValue(spin))
+        .filter(c => c === 'red' || c === 'black' || c === 'white')
+        .map(c => (c === 'red' ? 'R' : (c === 'black' ? 'B' : 'W')));
+
+    if (tokens.length < 80) {
         return {
             color: null,
-            currentSequence: 0,
-            averageSequence: 0,
             confidence: 0,
-            mode: 'neutral',
-            details: `NULO • poucos giros após branco (${validHistory.length}/${MIN_VALID_AFTER_WHITE})`
+            details: `NULO • histórico insuficiente (${tokens.length}/80)`,
+            historyUsed: tokens.length,
+            historyConfigured: historySizeConfigured
         };
     }
-    
-    // Detectar todas as sequências (runs) de red/black
-    const sequences = { red: [], black: [] };
-    let runColor = null;
-    let runLen = 0;
-    // iterar do mais antigo -> mais recente (validHistory é most-recent-first)
-    for (let i = validHistory.length - 1; i >= 0; i--) {
-        const spin = validHistory[i];
-        const c = spin && spin.color ? String(spin.color).toLowerCase() : '';
-        if (c !== 'red' && c !== 'black') {
-            // qualquer coisa fora do red/black quebra run
-            if (runColor && runLen > 0) sequences[runColor].push(runLen);
-            runColor = null;
-            runLen = 0;
-            continue;
+
+    // meia-vida dinâmica: dá mais peso ao momento sem ignorar o contexto
+    const decayHalfLife = clampIntLocal(
+        options.decayHalfLife ?? Math.max(120, Math.min(900, Math.floor(tokens.length * 0.35))),
+        40,
+        2000
+    );
+    const decayLambda = Math.log(2) / decayHalfLife;
+    const alpha = 0.6; // suavização (Laplace fracionária)
+    const minSupport = 1.2; // peso mínimo para usar um contexto
+
+    const countsByOrder = Array.from({ length: maxOrder + 1 }, () => new Map());
+    const global = { R: 0, B: 0, W: 0, total: 0 };
+
+    const bump = (map, key, nextTok, weight) => {
+        let bucket = map.get(key);
+        if (!bucket) {
+            bucket = { R: 0, B: 0, W: 0, total: 0 };
+            map.set(key, bucket);
         }
-        if (c === runColor) {
-            runLen++;
-        } else {
-            if (runColor && runLen > 0) sequences[runColor].push(runLen);
-            runColor = c;
-            runLen = 1;
+        bucket[nextTok] += weight;
+        bucket.total += weight;
+    };
+
+    for (let i = 0; i < tokens.length - 1; i++) {
+        const distFromEnd = (tokens.length - 2) - i; // 0 = transição mais recente
+        const w = Math.exp(-decayLambda * distFromEnd);
+        const nextTok = tokens[i + 1];
+        global[nextTok] += w;
+        global.total += w;
+
+        for (let order = 1; order <= maxOrder; order++) {
+            const start = i - order + 1;
+            if (start < 0) break;
+            const ctx = tokens.slice(start, i + 1).join('');
+            bump(countsByOrder[order], ctx, nextTok, w);
         }
     }
-    if (runColor && runLen > 0) sequences[runColor].push(runLen);
-    
-    // Calcular médias (apenas informativo)
-    const avgRed = sequences.red.length > 0 
-        ? sequences.red.reduce((a, b) => a + b, 0) / sequences.red.length 
-        : 0;
-    const avgBlack = sequences.black.length > 0 
-        ? sequences.black.reduce((a, b) => a + b, 0) / sequences.black.length 
-        : 0;
-    
-    // Sequência atual (streak) no topo do histórico (mais recente primeiro)
-    const last = validHistory[0];
-    const lastColor = last && last.color ? String(last.color).toLowerCase() : null;
-    if (lastColor !== 'red' && lastColor !== 'black') {
+
+    const baseDist = () => {
+        const denom = global.total + 3 * alpha;
         return {
-            color: null,
-            currentSequence: 0,
-            averageSequence: 0,
-            confidence: 0,
-            mode: 'neutral',
-            details: 'NULO • último giro não é red/black'
+            R: (global.R + alpha) / denom,
+            B: (global.B + alpha) / denom,
+            W: (global.W + alpha) / denom
         };
+    };
+
+    const normalizeDist = (d) => {
+        const sum = (d.R || 0) + (d.B || 0) + (d.W || 0);
+        if (!sum) return { R: 1 / 3, B: 1 / 3, W: 1 / 3 };
+        return { R: d.R / sum, B: d.B / sum, W: d.W / sum };
+    };
+
+    const predict = (ctxTokens) => {
+        const ctxArr = Array.isArray(ctxTokens) ? ctxTokens : [];
+        let dist = baseDist();
+
+        for (let order = 1; order <= maxOrder; order++) {
+            if (ctxArr.length < order) continue;
+            const key = ctxArr.slice(ctxArr.length - order).join('');
+            const bucket = countsByOrder[order].get(key);
+            if (!bucket || bucket.total < minSupport) continue;
+
+            const denom = bucket.total + 3 * alpha;
+            const local = {
+                R: (bucket.R + alpha) / denom,
+                B: (bucket.B + alpha) / denom,
+                W: (bucket.W + alpha) / denom
+            };
+
+            // peso cresce com suporte e com ordem
+            const supportFactor = Math.min(1, bucket.total / 8);
+            const orderFactor = 0.55 + 0.45 * (order / maxOrder);
+            const w = supportFactor * orderFactor;
+
+            dist = {
+                R: dist.R * (1 - w) + local.R * w,
+                B: dist.B * (1 - w) + local.B * w,
+                W: dist.W * (1 - w) + local.W * w
+            };
+        }
+
+        return normalizeDist(dist);
+    };
+
+    const TOKENS = ['R', 'B', 'W'];
+    const shiftCtx = (ctx, nextTok) => {
+        const next = ctx.concat(nextTok);
+        return next.slice(-maxOrder);
+    };
+
+    const pHit2 = (ctx, targetTok) => {
+        const d1 = predict(ctx);
+        let p = d1[targetTok] || 0;
+        for (const t1 of TOKENS) {
+            if (t1 === targetTok) continue;
+            const d2 = predict(shiftCtx(ctx, t1));
+            p += (d1[t1] || 0) * (d2[targetTok] || 0);
+        }
+        return clamp01(p);
+    };
+
+    const pHit3 = (ctx, targetTok) => {
+        const d1 = predict(ctx);
+        let p = d1[targetTok] || 0;
+        for (const t1 of TOKENS) {
+            if (t1 === targetTok) continue;
+            const ctx2 = shiftCtx(ctx, t1);
+            const d2 = predict(ctx2);
+            // acerto no 2º giro (G1)
+            p += (d1[t1] || 0) * (d2[targetTok] || 0);
+            // acerto no 3º giro (G2), condicionado a errar no 2º
+            for (const t2 of TOKENS) {
+                if (t2 === targetTok) continue;
+                const ctx3 = shiftCtx(ctx2, t2);
+                const d3 = predict(ctx3);
+                p += (d1[t1] || 0) * (d2[t2] || 0) * (d3[targetTok] || 0);
+            }
+        }
+        return clamp01(p);
+    };
+
+    // ✅ Entrada-first (auto-suficiente): escolher a cor com melhor evidência para o PRÓXIMO GIRO.
+    // - Não depende de outros níveis.
+    // - NÃO considera branco como acerto quando a previsão foi red/black.
+    // - Usa limite inferior (LCB) da probabilidade de acerto para evitar overfit por pouca amostra.
+    // - Combina evidências de múltiplas profundidades de contexto (ordens) em um único posterior
+    //   (reduz viés de "escolher o melhor contexto" e melhora generalização).
+    const tokToColor = { R: 'red', B: 'black', W: 'white' };
+    const candidateList = ['R', 'B', 'W'];
+
+    const base = baseDist(); // baseline global (com suavização)
+    const priorStrength = signalIntensity === 'conservative' ? 18 : 12; // prior mais forte => mais conservador
+    const z = signalIntensity === 'conservative' ? 1.645 : 1.282;       // ~95% / ~90% (aprox normal)
+
+    const betaPosterior = (success, attempts, priorP) => {
+        const p0 = clamp01(priorP);
+        const a0 = Math.max(1e-6, p0 * priorStrength);
+        const b0 = Math.max(1e-6, (1 - p0) * priorStrength);
+        const a = a0 + Math.max(0, Number(success) || 0);
+        const b = b0 + Math.max(0, (Number(attempts) || 0) - (Number(success) || 0));
+        const mean = a / (a + b);
+        const variance = (a * b) / (((a + b) * (a + b)) * (a + b + 1));
+        const lcb = mean - z * Math.sqrt(Math.max(0, variance));
+        return { mean: clamp01(mean), lcb: clamp01(lcb) };
+    };
+
+    // fallback para forcePick (gales): usa distribuição blended (predict)
+    const ctxTail = tokens.slice(-Math.min(maxOrder, tokens.length));
+    const forcedDist = predict(ctxTail);
+    const forcedTok = candidateList.reduce((acc, tok) => ((forcedDist[tok] || 0) > (forcedDist[acc] || 0) ? tok : acc), 'R');
+
+    // Combinar evidências dos buckets (ordens) com peso parecido com o `predict()`
+    // para evitar "winner's curse" de escolher uma ordem isolada.
+    const evidence = { R: 0, B: 0, W: 0, total: 0 };
+    let bestEvidenceOrder = 0;
+    let bestEvidenceW = 0;
+    for (let order = 1; order <= maxOrder; order++) {
+        if (tokens.length < order + 1) continue;
+        const key = tokens.slice(tokens.length - order).join('');
+        const bucket = countsByOrder[order].get(key);
+        if (!bucket || !Number.isFinite(bucket.total) || bucket.total < minSupport) continue;
+
+        const supportFactor = Math.min(1, bucket.total / 8);
+        const orderFactor = 0.55 + 0.45 * (order / maxOrder);
+        const w = supportFactor * orderFactor;
+
+        evidence.R += w * Number(bucket.R || 0);
+        evidence.B += w * Number(bucket.B || 0);
+        evidence.W += w * Number(bucket.W || 0);
+        evidence.total += w * Number(bucket.total || 0);
+
+        if (w > bestEvidenceW) {
+            bestEvidenceW = w;
+            bestEvidenceOrder = order;
+        }
     }
-    
-    let currentSequenceLength = 0;
-    for (let i = 0; i < validHistory.length; i++) {
-        const c = validHistory[i] && validHistory[i].color ? String(validHistory[i].color).toLowerCase() : '';
-        if (c === lastColor) currentSequenceLength++;
-        else break;
+
+    const alphaR = (base.R * priorStrength) + evidence.R;
+    const alphaB = (base.B * priorStrength) + evidence.B;
+    const alphaW = (base.W * priorStrength) + evidence.W;
+    const alphaTotal = alphaR + alphaB + alphaW;
+
+    const scored = candidateList.map((tok) => {
+        const priorP = Number(base[tok] || 0);
+        const a = tok === 'R' ? alphaR : (tok === 'B' ? alphaB : alphaW);
+        const b = Math.max(1e-9, alphaTotal - a);
+        const mean = clamp01(a / (a + b));
+        const variance = (a * b) / (((a + b) * (a + b)) * (a + b + 1));
+        const lcb = clamp01(mean - z * Math.sqrt(Math.max(0, variance)));
+        const edgeLcb = Math.max(0, lcb - priorP);
+        return { tok, color: tokToColor[tok], mean, lcb, priorP, edgeLcb };
+    }).sort((a, b) => (b.lcb - a.lcb) || (b.mean - a.mean));
+
+    const bestPick = scored[0] || null;
+    const secondPick = scored[1] || null;
+    const marginLcb = bestPick && secondPick ? Math.max(0, (bestPick.lcb - secondPick.lcb)) : (bestPick ? bestPick.lcb : 0);
+
+    // ✅ Ajuste de VOLUME (pedido do usuário):
+    // Limiar fixo alto derruba o número de sinais. Aqui usamos um limiar adaptativo por percentil
+    // (top X% dos melhores momentos), mantendo filtros mínimos para não virar "cara ou coroa".
+    const volumeProfile = signalIntensity === 'conservative'
+        ? { targetRate: 0.08, scoreFloor: 0.46, minMargin: 0.006, minSupport: 10, minEdge: 0.002, minWhiteLCB: 0.18 }
+        : { targetRate: 0.12, scoreFloor: 0.44, minMargin: 0.004, minSupport: 7,  minEdge: 0.001, minWhiteLCB: 0.16 };
+
+    const computeScore = (best, second) => {
+        if (!best) return { score: -1, margin: 0, edge: 0 };
+        const margin = second ? Math.max(0, (best.lcb - second.lcb)) : Math.max(0, best.lcb);
+        const edge = Math.max(0, best.edgeLcb || 0);
+        // Score principal: LCB com bônus leve de margem/edge (não domina o LCB).
+        let score = (best.lcb || 0) + (margin * 0.35) + (edge * 0.25);
+        // White: mais raro/mais caro — exigir evidência extra (penalizar score).
+        if (best.tok === 'W') score -= 0.03;
+        return { score, margin, edge };
+    };
+
+    // Threshold adaptativo (percentil) usando histórico recente para manter volume de entradas.
+    const computeAdaptiveScoreThreshold = () => {
+        try {
+            const end = tokens.length - 2; // último índice com contexto completo (evita borda)
+            if (end < 10) return volumeProfile.scoreFloor;
+            const lookback = Math.max(250, Math.min(1500, end)); // 250..1500
+            const start = Math.max(maxOrder, end - lookback);
+            const span = Math.max(1, end - start + 1);
+            const sampleCount = Math.max(80, Math.min(220, span));
+            const step = Math.max(1, Math.floor(span / sampleCount));
+
+            const scores = [];
+            for (let idx = start; idx <= end; idx += step) {
+                // montar evidência combinada para o contexto que termina em idx
+                const ev = { R: 0, B: 0, W: 0, total: 0 };
+                for (let order = 1; order <= maxOrder; order++) {
+                    const ctxStart = idx - order + 1;
+                    if (ctxStart < 0) break;
+                    const key = tokens.slice(ctxStart, idx + 1).join('');
+                    const bucket = countsByOrder[order].get(key);
+                    if (!bucket || !Number.isFinite(bucket.total) || bucket.total < minSupport) continue;
+                    const supportFactor = Math.min(1, bucket.total / 8);
+                    const orderFactor = 0.55 + 0.45 * (order / maxOrder);
+                    const w = supportFactor * orderFactor;
+                    ev.R += w * Number(bucket.R || 0);
+                    ev.B += w * Number(bucket.B || 0);
+                    ev.W += w * Number(bucket.W || 0);
+                    ev.total += w * Number(bucket.total || 0);
+                }
+                if (ev.total <= 0) continue;
+
+                const aR = (base.R * priorStrength) + ev.R;
+                const aB = (base.B * priorStrength) + ev.B;
+                const aW = (base.W * priorStrength) + ev.W;
+                const aT = aR + aB + aW;
+                if (!Number.isFinite(aT) || aT <= 0) continue;
+
+                const localScored = candidateList.map((tok) => {
+                    const priorP = Number(base[tok] || 0);
+                    const a = tok === 'R' ? aR : (tok === 'B' ? aB : aW);
+                    const b = Math.max(1e-9, aT - a);
+                    const mean = clamp01(a / (a + b));
+                    const variance = (a * b) / (((a + b) * (a + b)) * (a + b + 1));
+                    const lcb = clamp01(mean - z * Math.sqrt(Math.max(0, variance)));
+                    const edgeLcb = Math.max(0, lcb - priorP);
+                    return { tok, lcb, edgeLcb };
+                }).sort((x, y) => (y.lcb - x.lcb));
+
+                const b0 = localScored[0] || null;
+                const b1 = localScored[1] || null;
+                if (!b0) continue;
+                const bestObj = { tok: b0.tok, lcb: b0.lcb, edgeLcb: b0.edgeLcb };
+                const secondObj = b1 ? { tok: b1.tok, lcb: b1.lcb, edgeLcb: b1.edgeLcb } : null;
+                const s = computeScore(bestObj, secondObj).score;
+                if (Number.isFinite(s)) scores.push(s);
+            }
+
+            if (scores.length < 30) return volumeProfile.scoreFloor;
+            scores.sort((a, b) => a - b);
+            const q = Math.max(0, Math.min(1, 1 - volumeProfile.targetRate));
+            const idx = Math.max(0, Math.min(scores.length - 1, Math.floor(q * (scores.length - 1))));
+            const quantile = scores[idx];
+            return Math.max(volumeProfile.scoreFloor, Number.isFinite(quantile) ? quantile : volumeProfile.scoreFloor);
+        } catch (_) {
+            return volumeProfile.scoreFloor;
+        }
+    };
+
+    const adaptiveScoreMin = computeAdaptiveScoreThreshold();
+    const requiredPHit = adaptiveScoreMin; // compat: exibimos o limiar usado
+
+    const currentScore = computeScore(bestPick, secondPick);
+
+    let allowed = !!bestPick
+        && (currentScore.score >= adaptiveScoreMin)
+        && (currentScore.margin >= volumeProfile.minMargin)
+        && (evidence.total >= volumeProfile.minSupport)
+        && (currentScore.edge >= volumeProfile.minEdge);
+
+    if (allowed && bestPick && bestPick.tok === 'W' && bestPick.lcb < volumeProfile.minWhiteLCB) {
+        allowed = false;
     }
 
-    const avgForColor = lastColor === 'red' ? avgRed : avgBlack;
-    
-    console.log(`   📊 Sequências de VERMELHO encontradas: ${sequences.red.length} (média: ${avgRed.toFixed(1)} giros)`);
-    console.log(`   📊 Sequências de PRETO encontradas: ${sequences.black.length} (média: ${avgBlack.toFixed(1)} giros)`);
-    console.log(`   📊 Última cor válida: ${lastColor.toUpperCase()}`);
-    console.log(`   📊 Sequência atual de ${lastColor.toUpperCase()}: ${currentSequenceLength} giro(s)`);
-    console.log(`   📊 Média histórica de ${lastColor.toUpperCase()}: ${avgForColor.toFixed(1)} giros`);
+    const forcePick = !!(options && options.forcePick);
 
-    // ═══════════════════════════════════════════════════════════════
-    // ✅ MODELO MAIS SEGURO: prob. empírica de continuar vs reverter
-    // p(cont | já cheguei em L) ≈ count(len>=L+1) / count(len>=L)
-    // com suavização para evitar 0/1 com pouca amostra.
-    // ═══════════════════════════════════════════════════════════════
-    const runs = sequences[lastColor] || [];
-    const atRisk = runs.filter(len => len >= currentSequenceLength).length;
-    const contCount = runs.filter(len => len >= currentSequenceLength + 1).length;
-    const pContinue = (contCount + 1) / (atRisk + 2); // Laplace smoothing
-    const pReverse = 1 - pContinue;
+    const chosenTok = allowed ? (bestPick ? bestPick.tok : null) : (forcePick ? forcedTok : null);
+    const chosenColor = chosenTok ? tokToColor[chosenTok] : null;
 
-    // Rigor: exigir base estatística mínima para o "tamanho atual"
-    const MIN_AT_RISK = 5;
-    if (atRisk < MIN_AT_RISK) {
-        return {
-            color: null,
-            currentSequence: currentSequenceLength,
-            averageSequence: Number(avgForColor.toFixed(1)),
-            confidence: 0,
-            mode: 'neutral',
-            details: `NULO • pouca base (n=${atRisk} < ${MIN_AT_RISK}) • seq ${currentSequenceLength}`
-        };
-    }
+    const p1 = chosenTok
+        ? (allowed ? (bestPick?.mean || 0) : (forcedDist[chosenTok] || 0))
+        : 0;
+    const p2 = chosenTok ? clamp01(1 - Math.pow(1 - p1, 2)) : 0;
+    const p3 = chosenTok ? clamp01(1 - Math.pow(1 - p1, 3)) : 0;
 
-    // Thresholds conservadores: só votar quando a probabilidade é bem clara
-    const CONTINUE_MIN = 0.68;
-    const REVERSE_MIN = 0.68;
+    const confidence = chosenTok ? clamp01(p1) : 0;
+    const lossProb = chosenTok ? clamp01(1 - p1) : 1;
+    const margin = allowed ? Number(marginLcb || 0) : 0;
 
-    let voteColor = null;
-    let mode = 'neutral';
-    if (pContinue >= CONTINUE_MIN) {
-        voteColor = lastColor;
-        mode = 'continue';
-    } else if (pReverse >= REVERSE_MIN) {
-        voteColor = lastColor === 'red' ? 'black' : 'red';
-        mode = 'reverse';
-    } else {
-        voteColor = null;
-        mode = 'neutral';
-    }
+    const ctxLabel = bestEvidenceOrder ? `ctx O${bestEvidenceOrder} w${evidence.total.toFixed(1)}` : 'ctx n/d';
+    const edge = allowed ? Number(bestPick?.edgeLcb || 0) : 0;
+    const lcb1 = allowed ? Number(bestPick?.lcb || 0) : 0;
 
-    // Confiança: distância de 50% ponderada por tamanho de amostra (atRisk)
-    const edge = Math.abs(pContinue - 0.5) * 2; // 0..1
-    const sampleFactor = Math.min(1, atRisk / 12);
-    const confidence = Math.max(0, Math.min(1, edge * sampleFactor));
+    const details = chosenTok && allowed
+        ? `P1 ${(p1 * 100).toFixed(1)}% • LCB ${(lcb1 * 100).toFixed(1)}% • Loss(Entrada) ${(lossProb * 100).toFixed(1)}% • Score ${(currentScore.score * 100).toFixed(1)}≥${(adaptiveScoreMin * 100).toFixed(1)} • ΔLCB ${(margin * 100).toFixed(1)}pp • Edge ${(edge * 100).toFixed(1)}pp • ${ctxLabel} • ${signalIntensity}`
+        : chosenTok && forcePick
+        ? `FORCE • P1 ${(p1 * 100).toFixed(1)}% • ${ctxLabel} • ${signalIntensity}`
+        : `NULO • ${bestPick ? `Score ${(currentScore.score * 100).toFixed(1)} < ${(adaptiveScoreMin * 100).toFixed(1)} • LCB ${(bestPick.lcb * 100).toFixed(1)}% • ΔLCB ${(marginLcb * 100).toFixed(1)}pp • Edge ${(bestPick.edgeLcb * 100).toFixed(1)}pp • ${ctxLabel}` : 'sem contexto útil'} • ${signalIntensity}`;
 
-    const details = voteColor
-        ? `${mode === 'continue' ? 'CONTINUAR' : 'REVERTER'} • seq ${currentSequenceLength} ${lastColor.toUpperCase()} • Pcont ${(pContinue * 100).toFixed(0)}% (n=${atRisk})`
-        : `NULO • seq ${currentSequenceLength} ${lastColor.toUpperCase()} • Pcont ${(pContinue * 100).toFixed(0)}% (n=${atRisk})`;
-
-    console.log(`   🗳️ VOTA: ${voteColor ? voteColor.toUpperCase() : 'NULO'} (${details})`);
-    
     return {
-        color: voteColor,
-        currentSequence: currentSequenceLength,
-        averageSequence: Number(avgForColor.toFixed(1)),
-        avgRed: Number(avgRed.toFixed(1)),
-        avgBlack: Number(avgBlack.toFixed(1)),
+        color: chosenColor,
         confidence,
-        mode,
-        pContinue: Number((pContinue).toFixed(3)),
-        sampleAtRisk: atRisk,
+        p1: Number(p1.toFixed(4)),
+        p2: Number(p2.toFixed(4)),
+        p3: Number(p3.toFixed(4)),
+        pHit: Number(p1.toFixed(4)),
+        lossProb: Number(lossProb.toFixed(4)),
+        margin: Number(margin.toFixed(4)),
+        requiredPHit: Number(requiredPHit.toFixed(4)),
+        lcb1: Number(lcb1.toFixed(4)),
+        edgeLcb: Number(edge.toFixed(4)),
+        pickedOrder: bestEvidenceOrder || null,
+        support: Number((evidence.total || 0).toFixed(2)),
+        maxOrder,
+        decayHalfLife,
+        maxGalesConsidered: maxGalesConfigured,
+        historyUsed: tokens.length,
+        historyConfigured: historySizeConfigured,
         details
     };
 }
@@ -13747,7 +14082,7 @@ async function analyzeWithPatternSystem(history) {
             'N1 - Zona Segura · predominância confirmada',
             'N2 - Ritmo Autônomo · duplas/sequência (W único)',
             'N3 - Alternância Inteligente · n-grams configuráveis',
-            'N4 - Persistência / Ciclos',
+            'N4 - Autointeligente · leitura do momento (n-grams adaptativos)',
             'N5 - Ritmo por Giro (minuto alvo)',
             'N6 - Retração Histórica',
             'N7 - Continuidade Global',
@@ -13765,7 +14100,7 @@ async function analyzeWithPatternSystem(history) {
     const n1SecondaryRequirement = getDiamondWindow('n1SecondaryRequirement', SAFE_ZONE_DEFAULTS.secondaryRequirement);
     const n2W = getDiamondWindow('n2Recent', 10);
     const n3Window = getDiamondWindow('n3Alternance', 12);
-    const n4Window = getDiamondWindow('n4Persistence', 20);
+    const n4Window = getDiamondWindow('n4Persistence', DEFAULT_ANALYZER_CONFIG.diamondLevelWindows.n4Persistence);
     const n5Window = getDiamondWindow('n5MinuteBias', 60);
     const n6Window = getDiamondWindow('n6RetracementWindow', 80);
     const n7DecisionWindow = getDiamondWindow('n7DecisionWindow', 20);
@@ -13792,8 +14127,8 @@ async function analyzeWithPatternSystem(history) {
         ['N0', `Hist ${n0HistoryConfigured} | W ${n0WindowConfigured} | BlockAll ${analyzerConfig.n0AllowBlockAll !== false ? 'sim' : 'não'}`],
         ['N1', `Zona Segura → W ${n1WindowSize} | minA ${n1PrimaryRequirement} | minB ${n1SecondaryRequirement}`],
         ['N2', `W ${n2W} (auto)`],
-        ['N3', `Janela ${getDiamondWindow('n3PatternLength', 10)} | Hist ${n3Window} | Rigor ${getDiamondWindow('n3ThresholdPct', 75)}%`],
-        ['N4', `${n4Window} giros`],
+        ['N3', `Janela ${getDiamondWindow('n3PatternLength', 10)} | Hist ${n3Window} | Rigor ${getDiamondWindow('n3BaseThresholdPct', 60)}% | Jan ${getDiamondWindow('n3ThresholdPct', 75)}%`],
+        ['N4', `Hist ${n4Window}`],
         ['N5', `${n5Window} amostras`],
         ['N6', `${n6Window} giros`],
         ['N7', `Decisões ${n7DecisionWindow} | Histórico ${n7HistoryWindow}`],
@@ -13810,7 +14145,7 @@ async function analyzeWithPatternSystem(history) {
         n1SecondaryRequirement !== SAFE_ZONE_DEFAULTS.secondaryRequirement;
     const isN2Custom = n2W !== 10;
     const isN3Custom = n3Window !== 12;
-    const isN4Custom = n4Window !== 20;
+    const isN4Custom = n4Window !== DEFAULT_ANALYZER_CONFIG.diamondLevelWindows.n4Persistence;
     const isN5Custom = n5Window !== 60;
     const isN6Custom = n6Window !== 80;
     const isN7Custom = n7DecisionWindow !== 20 || n7HistoryWindow !== 100;
@@ -14129,14 +14464,16 @@ async function analyzeWithPatternSystem(history) {
             1,
             Math.min(200, getDiamondWindow('n3PatternLength', DEFAULT_ANALYZER_CONFIG.diamondLevelWindows.n3PatternLength))
         );
-        const n3ThresholdPctConfigured = Math.max(50, Math.min(95, getDiamondWindow('n3ThresholdPct', 75)));
+        const n3BaseThresholdPctConfigured = Math.max(50, Math.min(95, getDiamondWindow('n3BaseThresholdPct', 60)));
+        const n3WindowThresholdPctConfigured = Math.max(50, Math.min(95, getDiamondWindow('n3ThresholdPct', 75)));
         const n3MinOccurrencesConfigured = Math.max(1, Math.min(100, getDiamondWindow('n3MinOccurrences', 1)));
         const n3AllowBackoffConfigured = getDiamondBoolean('n3AllowBackoff', DEFAULT_ANALYZER_CONFIG.diamondLevelWindows.n3AllowBackoff);
         const n3IgnoreWhiteConfigured = getDiamondBoolean('n3IgnoreWhite', DEFAULT_ANALYZER_CONFIG.diamondLevelWindows.n3IgnoreWhite);
         const nivel7 = analyzeAlternancePattern(history, {
             historySize: n3HistoryWindow,
             contextWindowSize: n3ContextWindowSizeConfigured,
-            threshold: n3ThresholdPctConfigured / 100,
+            baseThreshold: n3BaseThresholdPctConfigured / 100,
+            contextThreshold: n3WindowThresholdPctConfigured / 100,
             minOccurrences: n3MinOccurrencesConfigured,
             allowBackoff: n3AllowBackoffConfigured,
             ignoreWhite: n3IgnoreWhiteConfigured,
@@ -14146,7 +14483,10 @@ async function analyzeWithPatternSystem(history) {
         console.log('%c📊 ANÁLISE DE PADRÃO:', 'color: #8E44AD; font-weight: bold;');
         console.log(`%c   Histórico analisado: ${nivel7.historyUsed || n3HistoryWindow}/${n3HistoryWindow} giros`, 'color: #8E44AD;');
         console.log(`%c   Alternância detectada: ${nivel7.pattern || 'N/A'} • ${nivel7.details || 'N/A'}`, 'color: #8E44AD;');
-        console.log(`%c   Probabilidade: ${nivel7.alternationRate || '0.0'}% (limiar ${n3ThresholdPctConfigured}%)`, 'color: #8E44AD;');
+        console.log(
+            `%c   Probabilidade: base ${nivel7.baseRatePct || nivel7.alternationRate || '0.0'}% (limiar ${n3BaseThresholdPctConfigured}%) • janela ${nivel7.contextRatePct || '0.0'}% (limiar ${n3WindowThresholdPctConfigured}%)`,
+            'color: #8E44AD;'
+        );
         console.log(`%c   Ocorrências históricas: ${nivel7.occurrences != null ? nivel7.occurrences : 0}`, 'color: #8E44AD;');
         console.log(`%c   Detalhes: ${nivel7.details}`, 'color: #8E44AD;');
         
@@ -14157,17 +14497,28 @@ async function analyzeWithPatternSystem(history) {
         }
         
         // ═══════════════════════════════════════════════════════════════
-        // 🔷 N4 - PERSISTÊNCIA E CICLOS (CONFIGURÁVEL PELO USUÁRIO)
+        // 🔷 N4 - AUTOINTELIGENTE (CONFIGURÁVEL PELO USUÁRIO)
         // ═══════════════════════════════════════════════════════════════
-        console.log('%c║  🔷 N4 - PERSISTÊNCIA E CICLOS (CONFIGURÁVEL)          ║', 'color: #D35400; font-weight: bold; font-size: 14px;');
+        console.log('%c║  🔷 N4 - AUTOINTELIGENTE (CONFIGURÁVEL)                ║', 'color: #D35400; font-weight: bold; font-size: 14px;');
         
-        const nivel9 = analyzePersistence(history, getDiamondWindow('n4Persistence', historySize));
+        const { maxGales: n4MaxGalesConfigured } = getMartingaleSettings('diamond', analyzerConfig);
+        const n4HistoryWindow = getDiamondWindow('n4Persistence', DEFAULT_ANALYZER_CONFIG.diamondLevelWindows.n4Persistence);
+        const nivel9 = analyzeAutointeligente(history, {
+            historySize: n4HistoryWindow,
+            maxGales: n4MaxGalesConfigured,
+            signalIntensity: analyzerConfig.signalIntensity || 'aggressive',
+            whiteProtectionAsWin: !!analyzerConfig.whiteProtectionAsWin
+        });
         
-        console.log('%c📊 ANÁLISE DE PERSISTÊNCIA:', 'color: #D35400; font-weight: bold;');
-        console.log(`%c   Histórico analisado: ${Math.max(20, Math.min(60, historySize))} giros (configurável)`, 'color: #D35400;');
-        console.log(`%c   Sequência atual: ${nivel9.currentSequence} ${nivel9.color ? nivel9.color : 'N/A'}`, 'color: #D35400; font-weight: bold;');
-        console.log(`%c   Média histórica: ${nivel9.averageSequence} giros`, 'color: #D35400;');
-        console.log(`%c   Detalhes: ${nivel9.details}`, 'color: #D35400;');
+        const n4Decision = nivel9 && nivel9.color ? String(nivel9.color).toUpperCase() : 'NULO';
+        const n4p1 = (nivel9 && typeof nivel9.p1 === 'number') ? `${(nivel9.p1 * 100).toFixed(1)}%` : 'n/d';
+        const n4p2 = (nivel9 && typeof nivel9.p2 === 'number') ? `${(nivel9.p2 * 100).toFixed(1)}%` : 'n/d';
+        const n4p3 = (nivel9 && typeof nivel9.p3 === 'number') ? `${(nivel9.p3 * 100).toFixed(1)}%` : 'n/d';
+        console.log('%c📊 ANÁLISE N4 (AUTOINTELIGENTE):', 'color: #D35400; font-weight: bold;');
+        console.log(`%c   Histórico: ${nivel9 && nivel9.historyUsed != null ? nivel9.historyUsed : 0}/${n4HistoryWindow} giros`, 'color: #D35400;');
+        console.log(`%c   Decisão: ${n4Decision}`, 'color: #D35400; font-weight: bold;');
+        console.log(`%c   P1 ${n4p1} • P2 ${n4p2} • P3 ${n4p3}`, 'color: #D35400;');
+        console.log(`%c   Detalhes: ${nivel9 && nivel9.details ? nivel9.details : '—'}`, 'color: #D35400;');
         
         // ═══════════════════════════════════════════════════════════════
         // 🧮 CONSOLIDAÇÃO DOS NÍVEIS (PONTUAÇÃO CONTÍNUA)
@@ -14191,7 +14542,7 @@ async function analyzeWithPatternSystem(history) {
             N1: { emoji: '🛡️', label: 'N1 - Zona Segura' },
             N2: { emoji: '⚡', label: 'N2 - Ritmo Autônomo' },
             N3: { emoji: '🔷', label: 'N3 - Alternância' },
-            N4: { emoji: '🔷', label: 'N4 - Persistência' },
+            N4: { emoji: '🔷', label: 'N4 - Autointeligente' },
             N5: { emoji: '🕑', label: 'N5 - Ritmo por Giro' },
             N6: { emoji: '📉', label: 'N6 - Retração Histórica' },
             N7: { emoji: '📈', label: 'N7 - Continuidade Global' },
@@ -14675,23 +15026,28 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
             disabled: !n3Enabled
         });
 
-        // N4 - Persistência
+        // N4 - Autointeligente
         const n4Enabled = isLevelEnabledLocal('N4');
-        const persistenceColor = n4Enabled && nivel9 && nivel9.color ? nivel9.color : null;
-        let persistenceStrength = 0;
-        let persistenceDetailsText = n4Enabled ? 'NULO' : 'DESATIVADO';
-        if (n4Enabled && persistenceColor) {
-            persistenceStrength = clamp01(nivel9.confidence ?? 0.5);
-            persistenceDetailsText = `Seq ${nivel9.currentSequence} • média ${nivel9.averageSequence} (${Math.round(persistenceStrength * 100)}%)`;
+        const autoColor = n4Enabled && nivel9 && nivel9.color ? nivel9.color : null;
+        let autoStrength = 0;
+        let autoDetailsText = n4Enabled ? 'NULO' : 'DESATIVADO';
+        if (n4Enabled && autoColor) {
+            autoStrength = clamp01(nivel9.confidence ?? 0);
+            const p1Label = (typeof nivel9.p1 === 'number') ? `${(nivel9.p1 * 100).toFixed(1)}%` : `${Math.round(autoStrength * 100)}%`;
+            const p2Label = (typeof nivel9.p2 === 'number') ? `${(nivel9.p2 * 100).toFixed(1)}%` : 'n/d';
+            const p3Label = (typeof nivel9.p3 === 'number') ? `${(nivel9.p3 * 100).toFixed(1)}%` : 'n/d';
+            autoDetailsText = `P1 ${p1Label} • P2 ${p2Label} • P3 ${p3Label}`;
+        } else if (n4Enabled && nivel9 && nivel9.details) {
+            autoDetailsText = nivel9.details;
         }
         levelReports.push({
             id: 'N4',
-            name: 'Persistência',
-            color: persistenceColor,
+            name: 'Autointeligente',
+            color: autoColor,
             weight: n4Enabled ? weightFor(levelWeights.persistence) : 0,
-            strength: n4Enabled ? persistenceStrength : 0,
-            score: n4Enabled ? directionValue(persistenceColor) * persistenceStrength : 0,
-            details: persistenceDetailsText,
+            strength: n4Enabled ? autoStrength : 0,
+            score: n4Enabled && autoColor ? directionValue(autoColor) * autoStrength : 0,
+            details: autoDetailsText,
             disabled: !n4Enabled
         });
 
@@ -15011,9 +15367,28 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
         if (n0SoftBlockActive) {
             console.log('%c⚠️ Soft block ativo: pesos dos níveis reduzidos em 50% para este giro', 'color: #FFAA00; font-weight: bold;');
         }
-        let predictedColor = scoreWithoutBarrier === 0
+
+        // ✅ Para a Barreira (N9), usar a cor líder da votação (incluindo WHITE) quando houver liderança clara.
+        // Isso evita validar RED/BLACK quando o N4 estiver votando WHITE sozinho.
+        const preVoteCounts = { red: 0, black: 0, white: 0 };
+        levelReports.forEach(lvl => {
+            if (!lvl || lvl.disabled) return;
+            if (lvl.id === 'N0' || lvl.id === 'N9' || lvl.id === 'N10') return;
+            if (!lvl.color || (lvl.strength || 0) <= 0) return;
+            if (lvl.color === 'red') preVoteCounts.red++;
+            if (lvl.color === 'black') preVoteCounts.black++;
+            if (lvl.color === 'white') preVoteCounts.white++;
+        });
+        const orderedPreVotes = Object.entries(preVoteCounts).sort(([, a], [, b]) => b - a);
+        const preLeader = orderedPreVotes[0] || ['red', 0];
+        const preSecond = orderedPreVotes[1] || ['black', 0];
+        const hasPreLeader = preLeader[1] > 0 && preLeader[1] !== preSecond[1];
+
+        let predictedColor = hasPreLeader
+            ? preLeader[0]
+            : (scoreWithoutBarrier === 0
             ? (minuteBiasColor || momentumColor || patternColor || 'red')
-            : (scoreWithoutBarrier >= 0 ? 'red' : 'black');
+                : (scoreWithoutBarrier >= 0 ? 'red' : 'black'));
 
         if (alternanceOverride) {
             predictedColor = alternanceColor;
@@ -15152,7 +15527,7 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
         if (alternanceOverride) {
             normalizedScore = directionValue(alternanceColor);
         }
-        const scoreMagnitude = Math.abs(normalizedScore);
+        let scoreMagnitude = Math.abs(normalizedScore);
 
         let signalIntensity = analyzerConfig.signalIntensity === 'conservative' ? 'conservative' : 'aggressive';
         const votingLevelIds = ['N1','N2','N3','N4','N5','N6','N7','N8'];
@@ -15178,13 +15553,14 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
 		const negativeVotingLevels = votingLevelsList.filter(lvl => lvl.color && (lvl.strength || 0) < 0);
 		const neutralVotingLevels = votingLevelsList.filter(lvl => !lvl.color || (lvl.strength || 0) === 0);
 
-        const voteCounts = { red: 0, black: 0 };
+        const voteCounts = { red: 0, black: 0, white: 0 };
         positiveVotingLevels.forEach(lvl => {
             if (lvl.color === 'red') voteCounts.red++;
             if (lvl.color === 'black') voteCounts.black++;
+            if (lvl.color === 'white') voteCounts.white++;
         });
 
-        const totalVotes = voteCounts.red + voteCounts.black;
+        const totalVotes = voteCounts.red + voteCounts.black + voteCounts.white;
         if (totalVotes === 0) {
             console.log('%c❌ Nenhum voto válido dos níveis votantes. Sinal cancelado.', 'color: #FF6666; font-weight: bold;');
             sendAnalysisStatus('❌ Sem votos válidos (N1-N8)');
@@ -15193,15 +15569,26 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
             return null;
         }
 
-        if (voteCounts.red === voteCounts.black) {
+        const orderedVotes = Object.entries(voteCounts).sort(([, a], [, b]) => b - a);
+        const consensusColor = orderedVotes[0] ? orderedVotes[0][0] : null;
+        const consensusVotes = orderedVotes[0] ? orderedVotes[0][1] : 0;
+        const secondVotes = orderedVotes[1] ? orderedVotes[1][1] : 0;
+
+        if (!consensusColor || consensusVotes === 0) {
+            console.log('%c❌ Nenhum voto válido (contagem zerada). Sinal cancelado.', 'color: #FF6666; font-weight: bold;');
+            sendAnalysisStatus('❌ Sem votos válidos (N1-N8)');
+            await sleep(2000);
+            await restoreIAStatus();
+            return null;
+        }
+
+        if (consensusVotes === secondVotes) {
             console.log('%c⚠️ Empate entre as cores. Sinal anulado.', 'color: #FFAA00; font-weight: bold;');
             sendAnalysisStatus('❌ Empate entre cores');
             await sleep(2000);
             await restoreIAStatus();
             return null;
         }
-
-        let consensusColor = voteCounts.red > voteCounts.black ? 'red' : 'black';
 
         if (signalIntensity === 'conservative') {
             if (voteCounts[consensusColor] < 5) {
@@ -15242,15 +15629,27 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
         predictedColor = finalColor;
 
         const maxVotingSlots = votingLevelsList.length;
-        const winningVotes = voteCounts[finalColor];
+        const winningVotes = voteCounts[finalColor] || 0;
+
+        // ✅ WHITE não cabe no eixo red(+)/black(-). Para WHITE, usamos "magnitude" baseada no consenso (votos).
+        if (finalColor === 'white') {
+            normalizedScore = 0;
+            scoreMagnitude = maxVotingSlots > 0 ? (winningVotes / maxVotingSlots) : 0;
+        } else {
+            scoreMagnitude = Math.abs(normalizedScore);
+        }
+        const scoreCombinedLabel = finalColor === 'white'
+            ? (scoreMagnitude * 100).toFixed(1)
+            : (normalizedScore * 100).toFixed(1);
         const voteTotals = {
             red: voteCounts.red,
             black: voteCounts.black,
+            white: voteCounts.white,
             neutral: neutralVotingLevels.length,
             negative: negativeVotingLevels.length
         };
 
-        console.log(`%c🗳️ Contagem de votos → 🔴 ${voteCounts.red} | ⚫ ${voteCounts.black}`, 'color: #9C27B0; font-weight: bold;');
+        console.log(`%c🗳️ Contagem de votos → 🔴 ${voteCounts.red} | ⚫ ${voteCounts.black} | ⚪ ${voteCounts.white}`, 'color: #9C27B0; font-weight: bold;');
 
         let rawConfidence = Math.round((winningVotes / Math.max(1, maxVotingSlots)) * 100);
         rawConfidence = Math.max(0, Math.min(100, rawConfidence));
@@ -15263,7 +15662,7 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
             console.log(`%c${describeLevel(level)} • contribuição ${(contribution >= 0 ? '+' : '')}${contribution.toFixed(3)}`, 'color: #FFD700;');
         });
         console.log(`%c🎯 COR FINAL: ${finalColor.toUpperCase()}`, `color: ${finalColor === 'red' ? '#FF0000' : '#FFFFFF'}; font-weight: bold; font-size: 16px;`);
-        console.log(`%c📈 Score normalizado: ${(normalizedScore * 100).toFixed(1)}%`, 'color: #00FFFF; font-weight: bold;');
+        console.log(`%c📈 Score combinado: ${scoreCombinedLabel}%`, 'color: #00FFFF; font-weight: bold;');
         console.log(`%c📊 Confiança bruta: ${rawConfidence}% • calibrada: ${finalConfidence}%`, 'color: #FFD700; font-weight: bold;');
 
         if (analyzerConfig.aiMode) {
@@ -15287,7 +15686,7 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
             `${levelReports.map(level => describeLevel(level, { includeEmoji: false })).join('\n')}\n` +
             `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
             `Modo: ${intensityLabel}\n` +
-            `Score combinado: ${(normalizedScore * 100).toFixed(1)}%\n` +
+            `Score combinado: ${scoreCombinedLabel}%\n` +
             `DECISÃO: ${finalColor.toUpperCase()}\n` +
             `Confiança: ${finalConfidence}%`;
 
@@ -15394,11 +15793,11 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
         
             if (!analyzerConfig.aiMode) {
             if (!n4Enabled) {
-                sendAnalysisStatus(`🔷 N4 - Persistência → DESATIVADO`);
+                sendAnalysisStatus(`🔷 N4 - Autointeligente → DESATIVADO`);
             } else if (nivel9 && nivel9.color) {
-                sendAnalysisStatus(`🔷 N4 - Persistência → ${nivel9.color.toUpperCase()}`);
+                sendAnalysisStatus(`🔷 N4 - Autointeligente → ${nivel9.color.toUpperCase()}`);
         } else {
-                sendAnalysisStatus(`🔷 N4 - Persistência → NULO`);
+                sendAnalysisStatus(`🔷 N4 - Autointeligente → NULO`);
             }
         }
         await sleep(1500);
@@ -15496,9 +15895,9 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
         await sleep(1500);
         
         if (nivel9 && nivel9.color) {
-            sendAnalysisStatus(`🔷 N4 - Persistência → ${nivel9.color.toUpperCase()}`);
+            sendAnalysisStatus(`🔷 N4 - Autointeligente → ${nivel9.color.toUpperCase()}`);
         } else {
-            sendAnalysisStatus(`🔷 N4 - Persistência → NULO`);
+            sendAnalysisStatus(`🔷 N4 - Autointeligente → NULO`);
         }
         await sleep(1500);
         
@@ -15618,10 +16017,10 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
 			: `N3 - Alternância: ${nivel7 && nivel7.details ? nivel7.details : 'NULO'}`;
 		
 		const nivel4Description = !n4Enabled
-            ? `N4 - Persistência: DESATIVADO`
-            : nivel9 && nivel9.color ? 
-			`N4 - Persistência: ${nivel9.color.toUpperCase()} (seq. ${nivel9.currentSequence})`
-            : `N4 - Persistência: NULO`;
+            ? `N4 - Autointeligente: DESATIVADO`
+            : (nivel9 && nivel9.color)
+                ? `N4 - Autointeligente: ${nivel9.color.toUpperCase()} (${nivel9.details || 'ok'})`
+                : `N4 - Autointeligente: ${nivel9 && nivel9.details ? nivel9.details : 'NULO'}`;
 		
 		const nivel5Description = !n5Enabled
             ? `N5 - Ritmo por Giro: DESATIVADO`
@@ -16716,9 +17115,10 @@ async function runAnalysisController(history) {
 					aiPhase = martingaleState.stage;
 					
 					// ✅ Só força a cor se este estágio for consecutivo
-					if (martingaleState.entryColor && isMartingaleStageConsecutive(martingaleState.stage, consecutiveGales)) {
+					const forcedColor = martingaleState.currentColor || martingaleState.entryColor;
+					if (forcedColor && isMartingaleStageConsecutive(martingaleState.stage, consecutiveGales)) {
 						console.log('║  ✅ COR FORÇADA (estágio consecutivo)                     ║');
-					aiColor = martingaleState.entryColor;
+					aiColor = forcedColor;
 					} else {
 						console.log('║  ✅ COR LIVRE (próximo sinal)                             ║');
 					}
@@ -16875,15 +17275,16 @@ async function runAnalysisController(history) {
 			const analysis = await performPatternAnalysis(history);
 			if (analysis) {
 				// ⚠️ CRÍTICO: VERIFICAR SE HÁ MARTINGALE ATIVO
-				if (martingaleState.active && martingaleState.entryColor) {
+				const forcedColor = martingaleState.currentColor || martingaleState.entryColor;
+				if (martingaleState.active && forcedColor) {
 					console.log('║  🔄 MARTINGALE ATIVO DETECTADO! (DESCOBERTA)             ║');
 					console.log(`║  Cor do novo padrão: ${analysis.color}                           ║`);
-					console.log(`║  Cor da entrada original: ${martingaleState.entryColor}                    ║`);
+					console.log(`║  Cor atual do ciclo: ${forcedColor}                    ║`);
 					console.log(`║  Estágio atual: ${martingaleState.stage}                              ║`);
 					console.log('║  ✅ SOBRESCREVENDO COR PARA MANTER ENTRADA ORIGINAL      ║');
 					
-					// ✅ SOBRESCREVER A COR PARA USAR A COR DA ENTRADA ORIGINAL
-					analysis.color = martingaleState.entryColor;
+					// ✅ SOBRESCREVER A COR PARA USAR A COR ATUAL DO CICLO
+					analysis.color = forcedColor;
 					analysis.phase = martingaleState.stage;
 					analysis.confidence = calculateGaleConfidenceValue(analysis.confidence, analysis);
 				}
@@ -22779,8 +23180,9 @@ async function maybeGenerateStandardAnalysisSimulation(history, simState, patter
 
     if (simState.martingaleState && simState.martingaleState.active) {
         analysis.phase = simState.martingaleState.stage;
-        if (simState.martingaleState.entryColor && isMartingaleStageConsecutive(simState.martingaleState.stage, consecutiveGales)) {
-            analysis.color = simState.martingaleState.entryColor;
+        const forcedColor = simState.martingaleState.currentColor || simState.martingaleState.entryColor;
+        if (forcedColor && isMartingaleStageConsecutive(simState.martingaleState.stage, consecutiveGales)) {
+            analysis.color = forcedColor;
         }
         analysis.confidence = calculateGaleConfidenceValue(analysis.confidence, analysis, simState.martingaleState);
     }
@@ -22856,7 +23258,7 @@ async function runStandardPastSimulation({ config, senderTabId, jobId, historyLi
             if (simHistory.length > limit) simHistory.pop();
 
             // 1) avaliar análise pendente no giro atual
-            evaluatePendingAnalysisSimulation(spin, simState, 'standard');
+            evaluatePendingAnalysisSimulation(spin, simState, simHistory, 'standard');
 
             // 2) gerar sinal para o próximo giro (sem ver o futuro)
             if (i < totalSpins - 1) {
@@ -22987,7 +23389,7 @@ async function runStandardPastOptimization({ config, senderTabId, jobId, history
             const spin = chronological[i];
             simHistory.unshift(spin);
             if (simHistory.length > limit) simHistory.pop();
-            evaluatePendingAnalysisSimulation(spin, simState, 'standard');
+            evaluatePendingAnalysisSimulation(spin, simState, simHistory, 'standard');
             if (i < totalSpins - 1) {
                 await maybeGenerateStandardAnalysisSimulation(simHistory, simState, patternDB);
             }
@@ -23250,7 +23652,8 @@ function buildDiamondOptimizationCandidateConfig(baseConfig, levelId, rng) {
         // N3 - Alternância
         const baseHist = clampInt(windows.n3Alternance ?? 60, 4, 400);
         const baseCtx = clampInt(windows.n3PatternLength ?? 10, 1, 200);
-        const baseThreshPct = clampInt(windows.n3ThresholdPct ?? 75, 50, 95);
+        const baseGlobalThreshPct = clampInt(windows.n3BaseThresholdPct ?? 60, 50, 95);
+        const baseWindowThreshPct = clampInt(windows.n3ThresholdPct ?? 75, 50, 95);
         const baseMinOcc = clampInt(windows.n3MinOccurrences ?? 1, 1, 50);
         const baseAllowBackoff = windows.n3AllowBackoff !== undefined ? !!windows.n3AllowBackoff : false;
         const baseIgnoreWhite = windows.n3IgnoreWhite !== undefined ? !!windows.n3IgnoreWhite : false;
@@ -23265,8 +23668,13 @@ function buildDiamondOptimizationCandidateConfig(baseConfig, levelId, rng) {
             1,
             200
         );
-        const threshPct = clampInt(
-            randomInt(rng, Math.max(50, baseThreshPct - 18), Math.min(95, baseThreshPct + 12)),
+        const globalThreshPct = clampInt(
+            randomInt(rng, Math.max(50, baseGlobalThreshPct - 18), Math.min(95, baseGlobalThreshPct + 12)),
+            50,
+            95
+        );
+        const windowThreshPct = clampInt(
+            randomInt(rng, Math.max(50, baseWindowThreshPct - 18), Math.min(95, baseWindowThreshPct + 12)),
             50,
             95
         );
@@ -23281,17 +23689,18 @@ function buildDiamondOptimizationCandidateConfig(baseConfig, levelId, rng) {
 
         windows.n3Alternance = hist;
         windows.n3PatternLength = ctx;
-        windows.n3ThresholdPct = threshPct;
+        windows.n3BaseThresholdPct = globalThreshPct;
+        windows.n3ThresholdPct = windowThreshPct;
         windows.n3MinOccurrences = minOcc;
         windows.n3AllowBackoff = allowBackoff;
         windows.n3IgnoreWhite = ignoreWhite;
     } else if (upper === 'N4') {
-        // N4 - Persistência (ciclo/janela)
-        const baseW = clampInt(windows.n4Persistence ?? 20, 10, 120);
+        // N4 - Autointeligente (histórico analisado)
+        const baseW = clampInt(windows.n4Persistence ?? DEFAULT_ANALYZER_CONFIG.diamondLevelWindows.n4Persistence, 200, REALTIME_HISTORY_CAP);
         const w = clampInt(
-            randomInt(rng, Math.max(10, Math.floor(baseW * 0.5)), Math.min(120, Math.ceil(baseW * 1.6))),
-            10,
-            120
+            randomInt(rng, Math.max(200, Math.floor(baseW * 0.5)), Math.min(REALTIME_HISTORY_CAP, Math.ceil(baseW * 1.6))),
+            200,
+            REALTIME_HISTORY_CAP
         );
         windows.n4Persistence = w;
     } else {
@@ -23392,7 +23801,7 @@ async function runDiamondPastOptimization({ config, levelId, senderTabId, jobId,
             simHistory.unshift(spin);
             if (simHistory.length > limit) simHistory.pop();
 
-            evaluatePendingAnalysisSimulation(spin, simState, 'diamond');
+            evaluatePendingAnalysisSimulation(spin, simState, simHistory, 'diamond');
             if (i < totalSpins - 1) {
                 maybeGenerateDiamondAnalysisSimulation(simHistory, simState);
             }
@@ -23445,9 +23854,9 @@ async function runDiamondPastOptimization({ config, levelId, senderTabId, jobId,
                     : upper === 'N2'
                     ? `W ${dw.n2Recent}`
                     : upper === 'N3'
-                    ? `Hist ${dw.n3Alternance} | Rigor ${dw.n3ThresholdPct}% | minOcc ${dw.n3MinOccurrences}`
+                    ? `Hist ${dw.n3Alternance} | R ${dw.n3BaseThresholdPct ?? 60}% | Jan ${dw.n3ThresholdPct ?? 75}% | minOcc ${dw.n3MinOccurrences}`
                     : upper === 'N4'
-                    ? `${dw.n4Persistence} giros`
+                    ? `Hist ${dw.n4Persistence}`
                     : '—';
 
                 // ✅ Enviar via runtime (não depende de tabId). Quem não for o job atual ignora pelo jobId.
@@ -23675,6 +24084,7 @@ function createDiamondSimulationState(config) {
             stage: 'ENTRADA',
             patternKey: null,
             entryColor: null,
+            currentColor: null,
             entryColorResult: null,
             entryTimestamp: null,
             analysisData: null,
@@ -23724,7 +24134,7 @@ function markLastSignalResolved(simState, newSpin, hit) {
     updateAlternanceControlAfterSignal(simState, !!hit);
 }
 
-function evaluatePendingAnalysisSimulation(latestSpin, simState, modeKey = 'diamond') {
+function evaluatePendingAnalysisSimulation(latestSpin, simState, history, modeKey = 'diamond') {
     const config = simState.config || {};
     const currentAnalysis = simState.analysis;
     if (!currentAnalysis || !currentAnalysis.createdOnTimestamp || currentAnalysis.predictedFor !== 'next') {
@@ -23736,16 +24146,47 @@ function evaluatePendingAnalysisSimulation(latestSpin, simState, modeKey = 'diam
 
     const expectedColor = String(currentAnalysis.color || '').toLowerCase().trim();
     const actualColor = String(latestSpin.color || '').toLowerCase().trim();
-    const whiteProtectionWin = !!config.whiteProtectionAsWin
-        && actualColor === 'white'
-        && (expectedColor === 'red' || expectedColor === 'black');
-    const hit = whiteProtectionWin || (expectedColor === actualColor);
+
+    // ✅ WIN = acerto da cor prevista. Branco NÃO pode virar WIN quando a previsão foi red/black.
+    const hit = (expectedColor === actualColor);
 
     // Atualizar signalsHistory (N7) + alternance control
     markLastSignalResolved(simState, latestSpin, hit);
 
     const martingale = simState.martingaleState;
     const { maxGales, consecutiveGales } = getMartingaleSettings(modeKey, config);
+
+    const historyRef = Array.isArray(history) ? history : [];
+    const shouldUseN4DynamicGales = (() => {
+        try {
+            // ✅ Só aplicar quando estiver "só N4" (evita mudar comportamento do consenso multi-níveis).
+            const enabledIds = DIAMOND_LEVEL_IDS.filter(id => isDiamondLevelEnabled(id, config));
+            const voteIds = enabledIds.filter(id => id !== 'N9');
+            return voteIds.length === 1 && voteIds[0] === 'N4';
+        } catch (_) {
+            return false;
+        }
+    })();
+
+    const pickN4GaleColor = (stageNumber) => {
+        if (!shouldUseN4DynamicGales) return null;
+        try {
+            const n4Window = getDiamondWindowFromConfig(config, 'n4Persistence', DEFAULT_ANALYZER_CONFIG.diamondLevelWindows.n4Persistence);
+            const overallMax = Math.max(0, Math.floor(Number(maxGales) || 0));
+            // remaining: quantos gales ainda existem depois do stage atual (0=>só Entrada, 1=>Entrada+G1, 2=>Entrada+G1+G2)
+            const remaining = Math.max(0, Math.min(2, overallMax - Math.max(0, Math.floor(stageNumber))));
+            const n4 = analyzeAutointeligente(historyRef, {
+                historySize: n4Window,
+                maxGales: remaining,
+                signalIntensity: config.signalIntensity || 'aggressive',
+                whiteProtectionAsWin: !!config.whiteProtectionAsWin,
+                forcePick: true
+            });
+            return n4 && n4.color ? n4.color : null;
+        } catch (_) {
+            return null;
+        }
+    };
 
     if (hit) {
         let martingaleStage = 'ENTRADA';
@@ -23834,6 +24275,7 @@ function evaluatePendingAnalysisSimulation(latestSpin, simState, modeKey = 'diam
                 stage: 'ENTRADA',
                 patternKey: null,
                 entryColor: null,
+                currentColor: null,
                 entryColorResult: null,
                 entryTimestamp: null,
                 analysisData: null,
@@ -23867,12 +24309,14 @@ function evaluatePendingAnalysisSimulation(latestSpin, simState, modeKey = 'diam
         simState.entriesHistory.unshift(entradaLossEntry);
 
         const patternKey = martingale.active ? martingale.patternKey : createPatternKey(currentAnalysis);
+        const g1Color = shouldUseN4DynamicGales ? (pickN4GaleColor(1) || currentAnalysis.color) : currentAnalysis.color;
         simState.martingaleState = {
             ...simState.martingaleState,
             active: true,
             stage: 'G1',
             patternKey,
             entryColor: currentAnalysis.color,
+            currentColor: g1Color,
             entryColorResult: latestSpin.color,
             entryTimestamp: currentAnalysis.createdOnTimestamp,
             analysisData: currentAnalysis,
@@ -23884,7 +24328,7 @@ function evaluatePendingAnalysisSimulation(latestSpin, simState, modeKey = 'diam
         if (nextGaleNumber <= consecutiveGales) {
             const g1Analysis = {
                 ...currentAnalysis,
-                color: currentAnalysis.color,
+                color: g1Color,
                 phase: 'G1',
                 predictedFor: 'next',
                 createdOnTimestamp: latestSpin.timestamp
@@ -23960,10 +24404,15 @@ function evaluatePendingAnalysisSimulation(latestSpin, simState, modeKey = 'diam
         };
         simState.entriesHistory.unshift(lossEntry);
 
+        const nextColor = shouldUseN4DynamicGales
+            ? (pickN4GaleColor(nextGaleNumber) || simState.martingaleState.currentColor || simState.martingaleState.entryColor || currentAnalysis.color)
+            : (simState.martingaleState.entryColor || currentAnalysis.color);
+
         simState.martingaleState = {
             ...simState.martingaleState,
             active: true,
             stage: nextStage,
+            currentColor: nextColor,
             lossCount: nextGaleNumber,
             lossColors: [...(simState.martingaleState.lossColors || []), latestSpin.color]
         };
@@ -23971,7 +24420,7 @@ function evaluatePendingAnalysisSimulation(latestSpin, simState, modeKey = 'diam
         if (nextGaleNumber <= consecutiveGales) {
             const nextAnalysis = {
                 ...currentAnalysis,
-                color: simState.martingaleState.entryColor || currentAnalysis.color,
+                color: nextColor,
                 phase: nextStage,
                 predictedFor: 'next',
                 createdOnTimestamp: latestSpin.timestamp
@@ -24206,7 +24655,8 @@ function analyzeDiamondLevelsSimulation(history, config, simState) {
         1,
         Math.min(200, getDiamondWindowFromConfig(config, 'n3PatternLength', DEFAULT_ANALYZER_CONFIG.diamondLevelWindows.n3PatternLength))
     );
-    const n3ThresholdPctConfigured = Math.max(50, Math.min(95, getDiamondWindowFromConfig(config, 'n3ThresholdPct', 75)));
+    const n3BaseThresholdPctConfigured = Math.max(50, Math.min(95, getDiamondWindowFromConfig(config, 'n3BaseThresholdPct', 60)));
+    const n3WindowThresholdPctConfigured = Math.max(50, Math.min(95, getDiamondWindowFromConfig(config, 'n3ThresholdPct', 75)));
     const n3MinOccurrencesConfigured = Math.max(1, Math.min(100, getDiamondWindowFromConfig(config, 'n3MinOccurrences', 1)));
     const n3AllowBackoffConfigured = getDiamondBooleanFromConfig(config, 'n3AllowBackoff', DEFAULT_ANALYZER_CONFIG.diamondLevelWindows.n3AllowBackoff);
     const n3IgnoreWhiteConfigured = getDiamondBooleanFromConfig(config, 'n3IgnoreWhite', DEFAULT_ANALYZER_CONFIG.diamondLevelWindows.n3IgnoreWhite);
@@ -24214,7 +24664,8 @@ function analyzeDiamondLevelsSimulation(history, config, simState) {
     const nivel7 = n3Enabled ? analyzeAlternancePattern(history, {
         historySize: n3HistoryWindow,
         contextWindowSize: n3ContextWindowSizeConfigured,
-        threshold: n3ThresholdPctConfigured / 100,
+        baseThreshold: n3BaseThresholdPctConfigured / 100,
+        contextThreshold: n3WindowThresholdPctConfigured / 100,
         minOccurrences: n3MinOccurrencesConfigured,
         allowBackoff: n3AllowBackoffConfigured,
         ignoreWhite: n3IgnoreWhiteConfigured,
@@ -24241,19 +24692,29 @@ function analyzeDiamondLevelsSimulation(history, config, simState) {
         disabled: !n3Enabled
     });
 
-    // N4 - Persistência
+    // N4 - Autointeligente
     const n4Enabled = isLevelEnabledLocal('N4');
-    const nivel9 = n4Enabled ? analyzePersistence(history, getDiamondWindowFromConfig(config, 'n4Persistence', historySize)) : null;
-    const persistenceColor = n4Enabled && nivel9 && nivel9.color ? nivel9.color : null;
-    const persistenceStrength = n4Enabled && nivel9 && nivel9.color ? clamp01Local(nivel9.confidence ?? 0.5) : 0;
+    const { maxGales: n4MaxGalesConfigured } = getMartingaleSettings('diamond', config);
+    const n4HistoryWindow = getDiamondWindowFromConfig(config, 'n4Persistence', DEFAULT_ANALYZER_CONFIG.diamondLevelWindows.n4Persistence);
+    const nivel9 = n4Enabled ? analyzeAutointeligente(history, {
+        historySize: n4HistoryWindow,
+        maxGales: n4MaxGalesConfigured,
+        signalIntensity: config.signalIntensity || 'aggressive',
+        whiteProtectionAsWin: !!config.whiteProtectionAsWin
+    }) : null;
+    const autoColor = n4Enabled && nivel9 && nivel9.color ? nivel9.color : null;
+    const autoStrength = n4Enabled && nivel9 && nivel9.color ? clamp01Local(nivel9.confidence ?? 0) : 0;
+    const autoDetails = n4Enabled
+        ? (nivel9 && nivel9.details ? nivel9.details : 'NULO')
+        : 'DESATIVADO';
     levelReports.push({
         id: 'N4',
-        name: 'Persistência',
-        color: persistenceColor,
+        name: 'Autointeligente',
+        color: autoColor,
         weight: n4Enabled ? weightFor(levelWeights.persistence) : 0,
-        strength: n4Enabled ? persistenceStrength : 0,
-        score: n4Enabled && persistenceColor ? directionValue(persistenceColor) * persistenceStrength : 0,
-        details: n4Enabled && nivel9 && nivel9.color ? `Seq ${nivel9.currentSequence} • média ${nivel9.averageSequence}` : (n4Enabled ? 'NULO' : 'DESATIVADO'),
+        strength: n4Enabled ? autoStrength : 0,
+        score: n4Enabled && autoColor ? directionValue(autoColor) * autoStrength : 0,
+        details: autoDetails,
         disabled: !n4Enabled
     });
 
@@ -24484,9 +24945,27 @@ function analyzeDiamondLevelsSimulation(history, config, simState) {
 
     // Score preliminar e barreira
     const scoreWithoutBarrier = levelReports.reduce((sum, lvl) => sum + (lvl.score * (lvl.weight || 0)), 0);
-    let predictedColor = scoreWithoutBarrier === 0
+
+    // ✅ Para a Barreira (N9), usar a cor líder da votação (incluindo WHITE) quando houver liderança clara.
+    const preVoteCounts = { red: 0, black: 0, white: 0 };
+    levelReports.forEach(lvl => {
+        if (!lvl || lvl.disabled) return;
+        if (lvl.id === 'N0' || lvl.id === 'N9' || lvl.id === 'N10') return;
+        if (!lvl.color || (lvl.strength || 0) <= 0) return;
+        if (lvl.color === 'red') preVoteCounts.red++;
+        if (lvl.color === 'black') preVoteCounts.black++;
+        if (lvl.color === 'white') preVoteCounts.white++;
+    });
+    const orderedPreVotes = Object.entries(preVoteCounts).sort(([, a], [, b]) => b - a);
+    const preLeader = orderedPreVotes[0] || ['red', 0];
+    const preSecond = orderedPreVotes[1] || ['black', 0];
+    const hasPreLeader = preLeader[1] > 0 && preLeader[1] !== preSecond[1];
+
+    let predictedColor = hasPreLeader
+        ? preLeader[0]
+        : (scoreWithoutBarrier === 0
         ? (minuteBiasColor || momentumColor || patternColor || 'red')
-        : (scoreWithoutBarrier >= 0 ? 'red' : 'black');
+            : (scoreWithoutBarrier >= 0 ? 'red' : 'black'));
     if (alternanceOverride) {
         predictedColor = alternanceColor;
     }
@@ -24560,17 +25039,23 @@ function analyzeDiamondLevelsSimulation(history, config, simState) {
     const negativeVotingLevels = votingLevelsList.filter(lvl => lvl.color && (lvl.strength || 0) < 0);
     const neutralVotingLevels = votingLevelsList.filter(lvl => !lvl.color || (lvl.strength || 0) === 0);
 
-    const voteCounts = { red: 0, black: 0 };
+    const voteCounts = { red: 0, black: 0, white: 0 };
     positiveVotingLevels.forEach(lvl => {
         if (lvl.color === 'red') voteCounts.red++;
         if (lvl.color === 'black') voteCounts.black++;
+        if (lvl.color === 'white') voteCounts.white++;
     });
 
-    const totalVotes = voteCounts.red + voteCounts.black;
+    const totalVotes = voteCounts.red + voteCounts.black + voteCounts.white;
     if (totalVotes === 0) return null;
-    if (voteCounts.red === voteCounts.black) return null;
 
-    const consensusColor = voteCounts.red > voteCounts.black ? 'red' : 'black';
+    const orderedVotes = Object.entries(voteCounts).sort(([, a], [, b]) => b - a);
+    const consensusColor = orderedVotes[0] ? orderedVotes[0][0] : null;
+    const consensusVotes = orderedVotes[0] ? orderedVotes[0][1] : 0;
+    const secondVotes = orderedVotes[1] ? orderedVotes[1][1] : 0;
+
+    if (!consensusColor || consensusVotes === 0) return null;
+    if (consensusVotes === secondVotes) return null;
 
     if (signalIntensity === 'conservative') {
         if (voteCounts[consensusColor] < 5) return null;
@@ -24653,8 +25138,9 @@ function createDiamondAnalysisForNextSpin(history, simState, aiResult) {
         const { consecutiveGales } = getMartingaleSettings('diamond', config);
         aiPhase = simState.martingaleState.stage;
         // ✅ Só força a cor quando o estágio atual é consecutivo
-        if (simState.martingaleState.entryColor && isMartingaleStageConsecutive(simState.martingaleState.stage, consecutiveGales)) {
-            aiColor = simState.martingaleState.entryColor;
+        const forcedColor = simState.martingaleState.currentColor || simState.martingaleState.entryColor;
+        if (forcedColor && isMartingaleStageConsecutive(simState.martingaleState.stage, consecutiveGales)) {
+            aiColor = forcedColor;
         }
     }
 
@@ -24818,7 +25304,7 @@ async function runDiamondPastSimulation({ config, mode, levelId, senderTabId, jo
         if (simHistory.length > limit) simHistory.pop();
 
         // 1) Avaliar análise pendente (giro atual resolve o sinal anterior)
-        evaluatePendingAnalysisSimulation(spin, simState, 'diamond');
+        evaluatePendingAnalysisSimulation(spin, simState, simHistory, 'diamond');
 
         // 2) Gerar sinal para o PRÓXIMO giro (sem ver o futuro)
         if (i < totalSpins - 1) {

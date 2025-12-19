@@ -407,46 +407,38 @@
         })();
     </script>
     
-    <!-- 1️⃣ CHROME SHIM - Simula APIs do Chrome -->
+    <!-- ✅ LOADER SEQUENCIAL (evita race/truncamento em arquivos grandes) -->
     <script>
-        const script1 = document.createElement('script');
-        script1.src = 'chrome-shim.js?v=' + Date.now();
-        document.currentScript.parentNode.insertBefore(script1, document.currentScript.nextSibling);
-    </script>
+        (function loadWebScriptsSequentially() {
+            const files = [
+                'chrome-shim.js',
+                'background.js',
+                'web-init.js',
+                'web-bridge.js',
+                'remote-browser-ui.js',
+                'content.js'
+            ];
 
-    <!-- 2️⃣ BACKGROUND.JS - Lógica principal (SEM ALTERAÇÕES) -->
-    <script>
-        const script2 = document.createElement('script');
-        script2.src = 'background.js?v=' + Date.now();
-        document.currentScript.parentNode.insertBefore(script2, document.currentScript.nextSibling);
-    </script>
+            const loadNext = (idx) => {
+                if (idx >= files.length) {
+                    console.log('%c✅ Scripts carregados em ordem (web)', 'color: #00FF88; font-weight: bold;');
+                    return;
+                }
 
-    <!-- 3️⃣ WEB-INIT.JS - Inicialização do background (NOVO) -->
-    <script>
-        const script3 = document.createElement('script');
-        script3.src = 'web-init.js?v=' + Date.now();
-        document.currentScript.parentNode.insertBefore(script3, document.currentScript.nextSibling);
-    </script>
+                const src = files[idx] + '?v=' + Date.now();
+                const s = document.createElement('script');
+                s.src = src;
+                // Garantir ordem de execução
+                s.async = false;
+                s.onload = () => loadNext(idx + 1);
+                s.onerror = (e) => {
+                    console.error('❌ Falha ao carregar script:', src, e);
+                };
+                document.body.appendChild(s);
+            };
 
-    <!-- 4️⃣ WEB-BRIDGE.JS - Ponte de comunicação (NOVO) -->
-    <script>
-        const script4 = document.createElement('script');
-        script4.src = 'web-bridge.js?v=' + Date.now();
-        document.currentScript.parentNode.insertBefore(script4, document.currentScript.nextSibling);
-    </script>
-
-    <!-- 5️⃣ REMOTE BROWSER UI - Controle remoto do navegador -->
-    <script>
-        const script5 = document.createElement('script');
-        script5.src = 'remote-browser-ui.js?v=' + Date.now();
-        document.currentScript.parentNode.insertBefore(script5, document.currentScript.nextSibling);
-    </script>
-
-    <!-- 6️⃣ CONTENT.JS - Sidebar completa -->
-    <script>
-        const script6 = document.createElement('script');
-        script6.src = 'content.js?v=' + Date.now();
-        document.currentScript.parentNode.insertBefore(script6, document.currentScript.nextSibling);
+            loadNext(0);
+        })();
     </script>
 
     <!-- 7️⃣ Inicialização -->

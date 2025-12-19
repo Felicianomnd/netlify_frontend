@@ -977,6 +977,19 @@
     // FUNÇÃO: Mostrar/Ocultar campos baseado no modo (IA ou Padrão)
     // ═══════════════════════════════════════════════════════════════════════════════
     function toggleAIConfigFields(isAIMode) {
+        // ✅ Atualizar título/destaque do setor principal no modal "Configurar Simulador"
+        // IA (Diamante) vs Premium (Padrão)
+        try {
+            const modeSection = document.querySelector('#autoBetAccordion .auto-bet-acc-section[data-acc-key="mode"]');
+            const titleEl = modeSection ? modeSection.querySelector('.auto-bet-acc-title') : null;
+            if (titleEl) {
+                titleEl.textContent = isAIMode ? 'CONFIGURAÇÃO DO MODO IA' : 'CONFIGURAÇÃO DO MODO PREMIUM';
+            }
+            if (modeSection) {
+                modeSection.setAttribute('data-mode', isAIMode ? 'ia' : 'premium');
+            }
+        } catch (_) {}
+
         // ✅ CAMPOS DO MODO PADRÃO: Ocultar quando IA está ativa
         const standardModeFields = [
             'cfgHistoryDepth',       // ✅ Profundidade de Análise (giros) - VÁLIDO APENAS NO MODO PADRÃO
@@ -1247,11 +1260,14 @@ const DIAMOND_LEVEL_DEFAULTS = {
     n2Previous: 10,
     n3Alternance: 12,
     n3PatternLength: 10,
+    // ✅ Rigor do N3 (modo normal): probabilidade mínima global (Entrada+G1) para votar
+    n3BaseThresholdPct: 60,
+    // ✅ Rigor da janela (janela deslizante): probabilidade mínima (Entrada+G1) considerando a janela anterior
     n3ThresholdPct: 75,
     n3MinOccurrences: 1,
     n3AllowBackoff: false,
     n3IgnoreWhite: false,
-    n4Persistence: 20,
+    n4Persistence: 2000,
     n5MinuteBias: 60,
     n6RetracementWindow: 80,
     n7DecisionWindow: 20,
@@ -2297,7 +2313,7 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                                     <button type="button" class="diamond-sim-option" data-level="N1">N1 - Zona Segura</button>
                                     <button type="button" class="diamond-sim-option" data-level="N2">N2 - Ritmo Autônomo</button>
                                     <button type="button" class="diamond-sim-option" data-level="N3">N3 - Alternância</button>
-                                    <button type="button" class="diamond-sim-option" data-level="N4">N4 - Persistência</button>
+                                    <button type="button" class="diamond-sim-option" data-level="N4">N4 - Autointeligente</button>
                                     <button type="button" class="diamond-sim-option" data-level="N5">N5 - Ritmo por Giro</button>
                                     <button type="button" class="diamond-sim-option" data-level="N6">N6 - Retração Histórica</button>
                                     <button type="button" class="diamond-sim-option" data-level="N7">N7 - Continuidade Global</button>
@@ -2431,53 +2447,64 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                                     <span class="diamond-level-subnote">
                                         Giros ANTES da alternância (não inclui os giros da formação). Ex.: em <strong>RR BB</strong>, analisa os giros anteriores ao <strong>RR</strong>.
                                     </span>
-                                </div>
-                                <div>
-                                    <span>Histórico analisado (giros)</span>
-                                    <input type="number" id="diamondN3Alternance" min="4" max="400" value="12" />
-                                    <span class="diamond-level-subnote">
-                                        Recomendado: 50-80 giros (mín. 4)
-                                    </span>
-                                </div>
                             </div>
+                <div>
+                    <span>Histórico analisado (giros)</span>
+                                    <input type="number" id="diamondN3Alternance" min="4" max="400" value="12" />
+                            <span class="diamond-level-subnote">
+                                        Recomendado: 50-80 giros (mín. 4)
+                            </span>
+                                </div>
+            </div>
             <div class="diamond-level-double">
                 <div>
-                    <span>Rigor mínimo (%)</span>
-                    <input type="number" id="diamondN3ThresholdPct" min="50" max="95" value="75" />
+                    <span>Rigor do N3 (%)</span>
+                    <input type="number" id="diamondN3BaseThresholdPct" min="50" max="95" value="60" />
                     <span class="diamond-level-subnote">
-                        Probabilidade mínima (Entrada + G1) para a alternância continuar, usando a janela anterior
+                        Probabilidade mínima global (Entrada + G1) no histórico analisado, para o N3 votar
                     </span>
                 </div>
                 <div>
-                    <span>Ocorrências mínimas</span>
-                    <input type="number" id="diamondN3MinOccurrences" min="1" max="50" value="1" />
+                    <span>Rigor da janela (%)</span>
+                    <input type="number" id="diamondN3ThresholdPct" min="50" max="95" value="75" />
                     <span class="diamond-level-subnote">
-                        A mesma janela anterior precisa aparecer pelo menos N vezes
+                        Probabilidade mínima (Entrada + G1) usando a janela anterior (janela deslizante)
                     </span>
                 </div>
             </div>
-            <label class="checkbox-label" style="margin-top: 6px;">
+            <div class="diamond-level-double">
+                <div>
+                    <span>Ocorrências mínimas (janela)</span>
+                    <input type="number" id="diamondN3MinOccurrences" min="1" max="50" value="1" />
+                    <span class="diamond-level-subnote">
+                        A janela anterior precisa aparecer pelo menos N vezes (para validar a janela)
+                    </span>
+                </div>
+                <div>
+                    <label class="checkbox-label" style="margin-top: 18px;">
                 <input type="checkbox" id="diamondN3AllowBackoff" />
                 Permitir backoff (tentar padrões menores quando faltar histórico)
             </label>
             <div class="diamond-level-subnote" style="margin-top: 6px;">
                 Observação: branco sempre quebra a alternância (não é considerado dentro do padrão).
+                    </div>
+                </div>
             </div>
                         </div>
                         <div class="diamond-level-field" data-level="n4">
                             <div class="diamond-level-header">
-                                <div class="diamond-level-title">N4 - Persistência / Ciclos (janela)</div>
+                                <div class="diamond-level-title">N4 - Autointeligente (histórico)</div>
                                 <label class="diamond-level-switch checkbox-label">
                                     <input type="checkbox" class="diamond-level-toggle-input" id="diamondLevelToggleN4" checked />
                                     <span class="switch-track"></span>
                                 </label>
                             </div>
                             <div class="diamond-level-note">
-                                Analisa sequências consecutivas da mesma cor para prever continuação ou reversão. Janelas maiores = análise de ciclos mais longos.
+                                Aprende do histórico cru (n-grams adaptativos) e decide RED/BLACK/WHITE ou NULO. Histórico maior = mais contexto; menor = mais sensível ao momento.
                             </div>
-                            <input type="number" id="diamondN4Persistence" min="20" max="120" value="20" />
+                            <input type="number" id="diamondN4Persistence" min="200" max="10000" value="2000" />
                             <span class="diamond-level-subnote">
-                                Recomendado: 20-40 giros para detectar padrões de persistência
+                                Recomendado: 2000 giros (mín. 200 • máx. 10000)
                             </span>
                         </div>
                         <div class="diamond-level-field" data-level="n5">
@@ -4139,6 +4166,72 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
         return Math.max(10, Math.min(10000, Math.floor(n)));
     }
 
+    function resolveDiamondSimHistoryLimitFromUI(fallback = 1440) {
+        const resolved =
+            diamondSimPeriodPreset === 'custom'
+                ? (clampDiamondSimHistoryLimit(diamondSimHistoryLimitRaw) ?? clampDiamondSimHistoryLimit(diamondSimHistoryLimit))
+                : clampDiamondSimHistoryLimit(diamondSimHistoryLimit);
+        return resolved ?? fallback;
+    }
+
+    function readDiamondSimNumberInput(id) {
+        const el = document.getElementById(id);
+        if (!el) return null;
+        const n = Number(el.value);
+        if (!Number.isFinite(n)) return null;
+        return Math.floor(n);
+    }
+
+    function ensureDiamondSimHistoryLimitAtLeast(minSpins) {
+        const required = clampDiamondSimHistoryLimit(minSpins);
+        if (required == null) return resolveDiamondSimHistoryLimitFromUI();
+        const current = resolveDiamondSimHistoryLimitFromUI();
+        if (current < required) {
+            // ✅ torna o período "custom" e sincroniza o input superior
+            setDiamondSimCustomHistoryLimit(required, { syncInput: true });
+            return required;
+        }
+        return current;
+    }
+
+    function bindDiamondSimPeriodToLevelHistory(levelId) {
+        const upper = String(levelId || '').toUpperCase();
+        // IDs que representam "Histórico analisado (giros)" (campos que exigem mais giros no topo)
+        const ids =
+            upper === 'N0' ? ['diamondN0History']
+            : upper === 'N3' ? ['diamondN3Alternance']
+            : upper === 'N4' ? ['diamondN4Persistence']
+            : upper === 'N7' ? ['diamondN7HistoryWindow']
+            : upper === 'N8' ? ['diamondN10History']
+            : upper === 'N10' ? ['diamondN9History']
+            : [];
+
+        if (!ids.length) return;
+
+        const syncFromField = () => {
+            // pegar o maior valor entre os ids mapeados (caso exista mais de 1)
+            let max = null;
+            ids.forEach((id) => {
+                const v = readDiamondSimNumberInput(id);
+                if (Number.isFinite(v)) {
+                    max = max == null ? v : Math.max(max, v);
+                }
+            });
+            if (max != null) ensureDiamondSimHistoryLimitAtLeast(max);
+        };
+
+        ids.forEach((id) => {
+            const el = document.getElementById(id);
+            if (!el || el.dataset.diamondSimPeriodSyncAttached === '1') return;
+            el.addEventListener('change', syncFromField);
+            el.addEventListener('blur', syncFromField);
+            el.dataset.diamondSimPeriodSyncAttached = '1';
+        });
+
+        // ✅ sincronizar imediatamente ao abrir o nível na simulação
+        syncFromField();
+    }
+
     function formatApproxHoursFromSpins(spins) {
         const s = Math.max(0, Number(spins) || 0);
         if (!s) return '0h';
@@ -4414,7 +4507,6 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                 </div>
             </div>
             <div class="diamond-sim-view-footer">
-                <button type="button" class="btn-hot-pattern" id="diamondSimulationClearBtn">Limpar</button>
                 <button type="button" class="btn-hot-pattern" id="diamondSimulationOptimizeBtn">Otimizar (100)</button>
                 <button type="button" class="btn-save-pattern" id="diamondSimulationRunBtn">Simular novamente</button>
                 <button type="button" class="btn-hot-pattern" id="diamondSimulationClearCloseBtn" title="Salva as configurações e fecha a simulação">Salvar e fechar</button>
@@ -4424,7 +4516,6 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
         // Inserir no topo do body
         body.insertBefore(view, body.firstChild);
 
-        const clearBtn = document.getElementById('diamondSimulationClearBtn');
         const optimizeBtn = document.getElementById('diamondSimulationOptimizeBtn');
         const runBtn = document.getElementById('diamondSimulationRunBtn');
         const clearCloseBtn = document.getElementById('diamondSimulationClearCloseBtn');
@@ -4441,11 +4532,6 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
             tabsBar.dataset.listenerAttached = '1';
         }
 
-        if (clearBtn && !clearBtn.dataset.listenerAttached) {
-            // ✅ Limpar: apenas limpar os RESULTADOS e manter os CAMPOS na tela
-            clearBtn.addEventListener('click', () => clearDiamondSimulationResultsOnly({ cancelIfRunning: true }));
-            clearBtn.dataset.listenerAttached = '1';
-        }
         if (clearCloseBtn && !clearCloseBtn.dataset.listenerAttached) {
             // ✅ Salvar e fechar: persistir ajustes do nível (sem precisar clicar em "Salvar"), depois voltar para configurar níveis
             clearCloseBtn.addEventListener('click', async () => {
@@ -5371,6 +5457,10 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                 } catch (_) {}
                 diamondSimMovedNodes.push({ node: field, parent: field.parentNode, nextSibling: field.nextSibling });
                 configContainer.appendChild(field);
+
+                // ✅ Se o usuário configurar "Histórico analisado (giros)" no nível (ex.: N3=2000),
+                // automaticamente elevar o período superior para não exigir duplicidade.
+                try { bindDiamondSimPeriodToLevelHistory(levelId); } catch (_) {}
             }
 
             // esconder os demais níveis para focar no nível selecionado
@@ -5640,6 +5730,13 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
         };
 
         const n2W = getNumber('diamondN2Recent', 6, 200, DIAMOND_LEVEL_DEFAULTS.n2Recent);
+        // ✅ Migração N4: versões antigas usavam 20-120 como "janela". Agora é "Histórico".
+        // Para não quebrar configs antigas: 20 => 2000, 60 => 6000, 120 => 10000 (clamp).
+        let n4History = getNumber('diamondN4Persistence', null, null, DIAMOND_LEVEL_DEFAULTS.n4Persistence);
+        if (Number.isFinite(n4History) && n4History > 0 && n4History <= 120) {
+            n4History = n4History * 100;
+        }
+        n4History = Math.max(200, Math.min(10000, Math.floor(Number.isFinite(n4History) ? n4History : DIAMOND_LEVEL_DEFAULTS.n4Persistence)));
         const newWindows = {
             n0History: getNumber('diamondN0History', 500, 10000, DIAMOND_LEVEL_DEFAULTS.n0History),
             n0Window: getNumber('diamondN0Window', 25, 250, DIAMOND_LEVEL_DEFAULTS.n0Window),
@@ -5652,11 +5749,12 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
             n2Previous: n2W,
             n3Alternance: getNumber('diamondN3Alternance', 1, null, DIAMOND_LEVEL_DEFAULTS.n3Alternance),
             n3PatternLength: getNumber('diamondN3PatternLength', 1, 200, DIAMOND_LEVEL_DEFAULTS.n3PatternLength),
+            n3BaseThresholdPct: getNumber('diamondN3BaseThresholdPct', 50, 95, DIAMOND_LEVEL_DEFAULTS.n3BaseThresholdPct),
             n3ThresholdPct: getNumber('diamondN3ThresholdPct', 50, 95, DIAMOND_LEVEL_DEFAULTS.n3ThresholdPct),
             n3MinOccurrences: getNumber('diamondN3MinOccurrences', 1, 50, DIAMOND_LEVEL_DEFAULTS.n3MinOccurrences),
             n3AllowBackoff: getCheckboxValue('diamondN3AllowBackoff', DIAMOND_LEVEL_DEFAULTS.n3AllowBackoff),
             n3IgnoreWhite: getCheckboxValue('diamondN3IgnoreWhite', DIAMOND_LEVEL_DEFAULTS.n3IgnoreWhite),
-            n4Persistence: getNumber('diamondN4Persistence', 20, 120, DIAMOND_LEVEL_DEFAULTS.n4Persistence),
+            n4Persistence: n4History,
             n5MinuteBias: getNumber('diamondN5MinuteBias', 10, 200, DIAMOND_LEVEL_DEFAULTS.n5MinuteBias),
             n6RetracementWindow: getNumber('diamondN6Retracement', 30, 120, DIAMOND_LEVEL_DEFAULTS.n6RetracementWindow),
             n7DecisionWindow: getNumber('diamondN7DecisionWindow', 10, 50, DIAMOND_LEVEL_DEFAULTS.n7DecisionWindow),
@@ -5736,13 +5834,33 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
             }
             const cfg = await buildDiamondConfigSnapshotFromModal();
 
+            // ✅ Simular: o "Período da simulação" deve cobrir automaticamente o maior histórico exigido
+            // dentre os níveis ATIVOS (evita o usuário ter que configurar em dois lugares).
+            try {
+                const windows = cfg && cfg.diamondLevelWindows ? cfg.diamondLevelWindows : {};
+                const enabled = cfg && cfg.diamondLevelEnabled ? cfg.diamondLevelEnabled : {};
+                const requiredHistory = Math.max(
+                    enabled.n0 ? (Number(windows.n0History) || 0) : 0,
+                    enabled.n3 ? (Number(windows.n3Alternance) || 0) : 0,
+                    enabled.n4 ? (Number(windows.n4Persistence) || 0) : 0,
+                    enabled.n7 ? (Number(windows.n7HistoryWindow) || 0) : 0,
+                    enabled.n8 ? (Number(windows.n10History) || 0) : 0,
+                    enabled.n10 ? (Number(windows.n9History) || 0) : 0
+                );
+                if (requiredHistory > 0) {
+                    ensureDiamondSimHistoryLimitAtLeast(requiredHistory);
+                }
+            } catch (_) {}
+
             // ✅ Permite cancelar durante a execução (jobId definido ANTES do request)
             diamondSimulationJobId = `diamond-sim-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
-            const resolvedHistoryLimit =
-                diamondSimPeriodPreset === 'custom'
-                    ? (clampDiamondSimHistoryLimit(diamondSimHistoryLimitRaw) ?? clampDiamondSimHistoryLimit(diamondSimHistoryLimit) ?? 1440)
-                    : (clampDiamondSimHistoryLimit(diamondSimHistoryLimit) ?? 1440);
+            // ✅ Simulação respeita o período do usuário, mas precisa ser compatível com o "Histórico analisado" do nível.
+            // Ex.: se o N3 estiver com histórico 2000 e o período estiver 200, elevamos para 2000 automaticamente.
+            if (mode === 'level' && levelId) {
+                try { bindDiamondSimPeriodToLevelHistory(levelId); } catch (_) {}
+            }
+            const resolvedHistoryLimit = resolveDiamondSimHistoryLimitFromUI(1440);
 
             const requestPayload = {
                 action: 'DIAMOND_SIMULATE_PAST',
@@ -5831,11 +5949,9 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
             if (summary) summary.innerHTML = `Preparando otimização (100 configurações)...`;
 
             const cfg = await buildDiamondConfigSnapshotFromModal();
-
-            const resolvedHistoryLimit =
-                diamondSimPeriodPreset === 'custom'
-                    ? (clampDiamondSimHistoryLimit(diamondSimHistoryLimitRaw) ?? clampDiamondSimHistoryLimit(diamondSimHistoryLimit) ?? 1440)
-                    : (clampDiamondSimHistoryLimit(diamondSimHistoryLimit) ?? 1440);
+            // ✅ Otimização NÃO deve depender do "Período da simulação" (usuário).
+            // Use o máximo possível (até 10k) para encontrar a melhor configuração.
+            const resolvedHistoryLimit = 10000;
 
             diamondOptimizationJobId = `diamond-opt-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
@@ -5909,6 +6025,7 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                     if (upper === 'N3') {
                         setVal('diamondN3Alternance', windows.n3Alternance);
                         setVal('diamondN3PatternLength', windows.n3PatternLength);
+                        setVal('diamondN3BaseThresholdPct', windows.n3BaseThresholdPct);
                         setVal('diamondN3ThresholdPct', windows.n3ThresholdPct);
                         setVal('diamondN3MinOccurrences', windows.n3MinOccurrences);
                         setCheck('diamondN3AllowBackoff', !!windows.n3AllowBackoff);
@@ -5991,10 +6108,9 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
             const summary = document.getElementById('diamondSimulationSummary');
             if (summary) summary.innerHTML = `Preparando otimização em lote...`;
 
-            const resolvedHistoryLimit =
-                diamondSimPeriodPreset === 'custom'
-                    ? (clampDiamondSimHistoryLimit(diamondSimHistoryLimitRaw) ?? clampDiamondSimHistoryLimit(diamondSimHistoryLimit) ?? 1440)
-                    : (clampDiamondSimHistoryLimit(diamondSimHistoryLimit) ?? 1440);
+            // ✅ Otimização em lote NÃO deve depender do "Período da simulação" (usuário).
+            // Use o máximo possível (até 10k) para encontrar a melhor configuração.
+            const resolvedHistoryLimit = 10000;
 
             // Ordem fixa dos votantes (modo diamante)
             const ordered = ['N1','N2','N3','N4','N5','N6','N7','N8'];
@@ -6053,6 +6169,7 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                 if (upper === 'N3') {
                     setVal('diamondN3Alternance', windows.n3Alternance);
                     setVal('diamondN3PatternLength', windows.n3PatternLength);
+                    setVal('diamondN3BaseThresholdPct', windows.n3BaseThresholdPct);
                     setVal('diamondN3ThresholdPct', windows.n3ThresholdPct);
                     setVal('diamondN3MinOccurrences', windows.n3MinOccurrences);
                     setCheck('diamondN3AllowBackoff', !!windows.n3AllowBackoff);
@@ -6515,11 +6632,21 @@ function enforceSignalIntensityAvailability(options = {}) {
         setInput('diamondN2Recent', getValue('n2Recent', DIAMOND_LEVEL_DEFAULTS.n2Recent));
         setInput('diamondN3Alternance', getValue('n3Alternance', DIAMOND_LEVEL_DEFAULTS.n3Alternance));
         setInput('diamondN3PatternLength', getValue('n3PatternLength', DIAMOND_LEVEL_DEFAULTS.n3PatternLength));
+        setInput('diamondN3BaseThresholdPct', getValue('n3BaseThresholdPct', DIAMOND_LEVEL_DEFAULTS.n3BaseThresholdPct));
         setInput('diamondN3ThresholdPct', getValue('n3ThresholdPct', DIAMOND_LEVEL_DEFAULTS.n3ThresholdPct));
         setInput('diamondN3MinOccurrences', getValue('n3MinOccurrences', DIAMOND_LEVEL_DEFAULTS.n3MinOccurrences));
         setCheckbox('diamondN3AllowBackoff', getBoolean('n3AllowBackoff', DIAMOND_LEVEL_DEFAULTS.n3AllowBackoff));
         setCheckbox('diamondN3IgnoreWhite', getBoolean('n3IgnoreWhite', DIAMOND_LEVEL_DEFAULTS.n3IgnoreWhite));
-        setInput('diamondN4Persistence', getValue('n4Persistence', DIAMOND_LEVEL_DEFAULTS.n4Persistence));
+        // ✅ Migração N4: versões antigas usavam 20-120 como "janela". Agora é "Histórico".
+        // Para não quebrar configs antigas: 20 => 2000, 60 => 6000, 120 => 10000 (clamp).
+        const n4LegacyRaw = getValue('n4Persistence', DIAMOND_LEVEL_DEFAULTS.n4Persistence);
+        const n4Normalized = (() => {
+            const v = Number(n4LegacyRaw);
+            if (!Number.isFinite(v) || v <= 0) return DIAMOND_LEVEL_DEFAULTS.n4Persistence;
+            const scaled = v <= 120 ? (v * 100) : v;
+            return Math.max(200, Math.min(10000, Math.floor(scaled)));
+        })();
+        setInput('diamondN4Persistence', n4Normalized);
         setInput('diamondN5MinuteBias', getValue('n5MinuteBias', DIAMOND_LEVEL_DEFAULTS.n5MinuteBias));
         setInput('diamondN6Retracement', getValue('n6RetracementWindow', DIAMOND_LEVEL_DEFAULTS.n6RetracementWindow));
         setInput('diamondN7DecisionWindow', getValue('n7DecisionWindow', DIAMOND_LEVEL_DEFAULTS.n7DecisionWindow));
@@ -6654,6 +6781,13 @@ function enforceSignalIntensityAvailability(options = {}) {
             return !!el.checked;
         };
         const n2W = getNumber('diamondN2Recent', 6, 200, DIAMOND_LEVEL_DEFAULTS.n2Recent);
+        // ✅ Migração N4: versões antigas usavam 20-120 como "janela". Agora é "Histórico".
+        // Para não quebrar configs antigas: 20 => 2000, 60 => 6000, 120 => 10000 (clamp).
+        let n4History = getNumber('diamondN4Persistence', null, null, DIAMOND_LEVEL_DEFAULTS.n4Persistence);
+        if (Number.isFinite(n4History) && n4History > 0 && n4History <= 120) {
+            n4History = n4History * 100;
+        }
+        n4History = Math.max(200, Math.min(10000, Math.floor(Number.isFinite(n4History) ? n4History : DIAMOND_LEVEL_DEFAULTS.n4Persistence)));
         const newWindows = {
             n0History: getNumber('diamondN0History', 500, 10000, DIAMOND_LEVEL_DEFAULTS.n0History),
             n0Window: getNumber('diamondN0Window', 25, 250, DIAMOND_LEVEL_DEFAULTS.n0Window),
@@ -6666,11 +6800,12 @@ function enforceSignalIntensityAvailability(options = {}) {
             n2Previous: n2W,
             n3Alternance: getNumber('diamondN3Alternance', 1, null, DIAMOND_LEVEL_DEFAULTS.n3Alternance),
             n3PatternLength: getNumber('diamondN3PatternLength', 1, 200, DIAMOND_LEVEL_DEFAULTS.n3PatternLength),
+            n3BaseThresholdPct: getNumber('diamondN3BaseThresholdPct', 50, 95, DIAMOND_LEVEL_DEFAULTS.n3BaseThresholdPct),
             n3ThresholdPct: getNumber('diamondN3ThresholdPct', 50, 95, DIAMOND_LEVEL_DEFAULTS.n3ThresholdPct),
             n3MinOccurrences: getNumber('diamondN3MinOccurrences', 1, 50, DIAMOND_LEVEL_DEFAULTS.n3MinOccurrences),
             n3AllowBackoff: getCheckboxValue('diamondN3AllowBackoff', DIAMOND_LEVEL_DEFAULTS.n3AllowBackoff),
             n3IgnoreWhite: getCheckboxValue('diamondN3IgnoreWhite', DIAMOND_LEVEL_DEFAULTS.n3IgnoreWhite),
-            n4Persistence: getNumber('diamondN4Persistence', 20, 120, DIAMOND_LEVEL_DEFAULTS.n4Persistence),
+            n4Persistence: n4History,
             n5MinuteBias: getNumber('diamondN5MinuteBias', 10, 200, DIAMOND_LEVEL_DEFAULTS.n5MinuteBias),
             n6RetracementWindow: getNumber('diamondN6Retracement', 30, 120, DIAMOND_LEVEL_DEFAULTS.n6RetracementWindow),
             n7DecisionWindow: getNumber('diamondN7DecisionWindow', 10, 50, DIAMOND_LEVEL_DEFAULTS.n7DecisionWindow),
@@ -10737,12 +10872,12 @@ async function persistAnalyzerState(newState) {
 
                 <!-- 2. Center: Simple Controls -->
                 <div class="da-controls-group">
-                    <button type="button" class="header-link" id="autoBetShowBtn" title="Abrir Simulador">
+                    <button type="button" class="header-link" id="autoBetShowBtn" title="Abrir Painel">
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                             <rect x="2" y="6" width="20" height="12" rx="2"></rect>
                             <path d="M6 12h4m-2-2v4m7-3h.01m3-2h.01"></path>
                         </svg>
-                        <span>Simulador</span>
+                        <span>Painel</span>
                     </button>
 
                     <button type="button" class="header-link ai-mode-toggle" id="aiModeToggle" title="Ativar/Desativar IA">
@@ -10865,7 +11000,7 @@ async function persistAnalyzerState(newState) {
             <div class="analyzer-default-view" id="analyzerDefaultView">
             <div class="auto-bet-summary" id="autoBetSummary">
                 <div class="auto-bet-summary-header">
-                    <span class="auto-bet-summary-title">Simulador</span>
+                    <span class="auto-bet-summary-title">Painel</span>
                     </div>
                 <div class="auto-bet-summary-body">
                     <div class="auto-bet-summary-metrics">
@@ -11129,7 +11264,7 @@ async function persistAnalyzerState(newState) {
                 <div class="auto-bet-modal-overlay"></div>
                 <div class="auto-bet-modal-content">
                 <div class="auto-bet-modal-header modal-header-minimal">
-                        <h3>Configurar Simulador</h3>
+                        <h3>Configurações ativas</h3>
                     <button type="button" class="auto-bet-modal-close modal-header-close" id="closeAutoBetModal">
                             Fechar
                         </button>
@@ -11145,8 +11280,8 @@ async function persistAnalyzerState(newState) {
                                 <div class="auto-bet-acc-body auto-bet-acc-body--no-pad" id="autoBetAccBody-mode">
                                     <!-- ✅ Mover o container inteiro de Configurações para dentro do modal (ambos os modos) -->
                                     <div class="settings-section settings-section-highlight" style="margin-top: 0;">
-                                        <h4>Configurações</h4>
-                                        <div class="settings-grid">
+                    <h4>Configurações</h4>
+                    <div class="settings-grid">
                                             <div class="setting-item">
                                                 <span class="setting-label">Intervalo após entrada (giros):</span>
                                                 <input
@@ -11157,127 +11292,127 @@ async function persistAnalyzerState(newState) {
                                                     title="Quantidade mínima de giros entre ENTRADAS/SINAIS consecutivos no Modo Diamante (0 = pode enviar sinal em qualquer giro)."
                                                     placeholder="Ex: 2 giros (0 = sem intervalo mínimo entre entradas)" />
                                             </div>
-                                            <div class="setting-item" id="historyDepthSetting">
-                                                <span class="setting-label">Profundidade de Análise (giros):</span>
-                                                <input type="number" id="cfgHistoryDepth" min="100" max="10000" value="500" title="Quantidade de giros para análise e busca de padrões (100-10000) - VÁLIDO APENAS NO MODO PADRÃO" placeholder="Ex: 500 giros" />
+                        <div class="setting-item" id="historyDepthSetting">
+                            <span class="setting-label">Profundidade de Análise (giros):</span>
+                            <input type="number" id="cfgHistoryDepth" min="100" max="10000" value="500" title="Quantidade de giros para análise e busca de padrões (100-10000) - VÁLIDO APENAS NO MODO PADRÃO" placeholder="Ex: 500 giros" />
+                        </div>
+                        <div class="setting-item">
+                            <span class="setting-label">Ocorrências mínima:</span>
+                            <input type="number" id="cfgMinOccurrences" min="1" value="2" />
+                        </div>
+                        <div class="setting-item">
+                            <span class="setting-label">Ocorrências MÁXIMAS (0 = sem limite):</span>
+                            <input type="number" id="cfgMaxOccurrences" min="0" value="0" placeholder="0 = sem limite" />
+                        </div>
+                        <div class="setting-item">
+                            <span class="setting-label">Intervalo entre padrões (giros):</span>
+                            <input
+                                type="number"
+                                id="cfgPatternInterval"
+                                min="0"
+                                value="2"
+                                title="Quantidade mínima de giros entre OCORRÊNCIAS do MESMO padrão (0 = não limita, considera todas as ocorrências). Padrões diferentes podem aparecer em sequência normalmente."
+                                placeholder="Ex: 2 giros (0 = sem intervalo entre ocorrências do mesmo padrão)" />
+                        </div>
+                        <div class="setting-item">
+                            <span class="setting-label">Tamanho MÍNIMO do padrão (giros):</span>
+                            <input type="number" id="cfgMinPatternSize" min="2" value="2" />
+                        </div>
+                        <div class="setting-item">
+                            <span class="setting-label">Tamanho MÁXIMO do padrão (0 = sem limite):</span>
+                            <input type="number" id="cfgMaxPatternSize" min="0" value="0" placeholder="0 = sem limite" />
+                        </div>
+                        <div class="setting-item">
+                            <span class="setting-label">WIN% das demais ocorrências:</span>
+                            <input type="number" id="cfgWinPercentOthers" min="0" max="100" value="100" />
+                        </div>
+                        <div class="setting-item setting-row">
+                            <label class="checkbox-label"><input type="checkbox" id="cfgRequireTrigger" checked /> Exigir cor de disparo</label>
+                        </div>
+                        <!-- Simulação no passado (Modo Padrão / Análise Premium) -->
+                        <div class="setting-item setting-row" id="standardSimulationContainer" style="margin-top: 10px;">
+                            <div class="hot-pattern-actions">
+                                <button id="standardSimulationBtn" class="btn-hot-pattern btn-standard-test-config" type="button" title="Simular/otimizar esta configuração no passado (sem olhar o futuro)">
+                                    Testar configurações
+                                </button>
+                            </div>
+                        </div>
+                        <div class="setting-item setting-row">
+                            <span class="setting-label">Telegram Chat ID:</span>
+                            <div style="display: flex; gap: 4px; flex: 1; align-items: stretch;">
+                                <input type="password" id="cfgTgChatId" placeholder="Digite seu Chat ID" style="flex: 1;" />
+                                <button type="button" id="toggleTgId" class="toggle-visibility-btn" title="Mostrar/Ocultar">
+                                    <svg class="eye-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                        <path d="M12 5C7 5 2.73 8.11 1 12.5C2.73 16.89 7 20 12 20C17 20 21.27 16.89 23 12.5C21.27 8.11 17 5 12 5Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                                        <circle cx="12" cy="12.5" r="3.5" stroke="currentColor" stroke-width="2"/>
+                                    </svg>
+                                    <svg class="eye-off-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style="display: none;">
+                                        <path d="M3 3L21 21M10.5 10.7C9.8 11.5 9.5 12.5 10 13.5C10.5 14.5 11.5 15 12.5 15C13.3 15 14.1 14.6 14.7 14M17 17C15.5 18.5 13.8 19.5 12 19.5C7 19.5 2.73 16.39 1 12C2.1 9.6 3.8 7.6 6 6.3M12 5.5C17 5.5 21.27 8.61 23 13C22.4 14.4 21.5 15.7 20.4 16.8" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                                    </svg>
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <!-- ═══════════════════════════════════════════════════════ -->
+                        <!-- MODELOS CUSTOMIZADOS DE ANÁLISE (NÍVEL DIAMANTE) -->
+                        <!-- ═══════════════════════════════════════════════════════ -->
+                        <div class="setting-item setting-row" id="customPatternsContainer" style="margin-top: 20px; padding-top: 15px; border-top: 1px solid #333;">
+                            <div class="hot-pattern-actions">
+                                <button id="diamondLevelsBtn" class="btn-hot-pattern btn-diamond-levels">
+                                    Configurar Níveis
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <!-- ═══════════════════════════════════════════════════════ -->
+                        <!-- INTENSIDADE DE SINAIS (NÍVEL DIAMANTE) -->
+                        <!-- ═══════════════════════════════════════════════════════ -->
+                        <div class="setting-item setting-row" id="signalIntensityContainer" style="margin-top: 15px;">
+                            <div style="width: 100%; display: flex; flex-direction: column; gap: 8px;">
+                                <label style="font-size: 13px; color: #ffffff; font-weight: 600; text-align: center;">
+                                    Intensidade de Sinais
+                                </label>
+                                <!-- Select real fica oculto (usado para persistência/config), UI é um dropdown custom -->
+                                <select id="signalIntensitySelect" style="display:none">
+                                    <option value="aggressive" selected>Agressivo</option>
+                                    <option value="conservative">Conservador</option>
+                                </select>
+                                <div class="signal-intensity-select-wrapper">
+                                    <button type="button" id="signalIntensitySelectUi" class="signal-intensity-select-ui" aria-haspopup="listbox" aria-expanded="false">
+                                        <span id="signalIntensitySelectedLabel">Agressivo</span>
+                                        <span class="signal-intensity-caret">▾</span>
+                                    </button>
+                                    <div id="signalIntensityDropdown" class="signal-intensity-dropdown" role="listbox" style="display:none;">
+                                        <button type="button" class="signal-intensity-option" data-value="aggressive" role="option" aria-selected="true">
+                                            <div class="opt-title">Agressivo</div>
+                                        </button>
+                                        <button type="button" class="signal-intensity-option" data-value="conservative" role="option" aria-selected="false">
+                                            <div class="opt-title">Conservador</div>
+                                            <div class="opt-hint" id="signalIntensityConservativeHint" style="display:none;">
+                                                <div class="opt-divider"></div>
+                                                <div class="opt-hint-text" id="signalIntensityConservativeHintText"></div>
                                             </div>
-                                            <div class="setting-item">
-                                                <span class="setting-label">Ocorrências mínima:</span>
-                                                <input type="number" id="cfgMinOccurrences" min="1" value="2" />
-                                            </div>
-                                            <div class="setting-item">
-                                                <span class="setting-label">Ocorrências MÁXIMAS (0 = sem limite):</span>
-                                                <input type="number" id="cfgMaxOccurrences" min="0" value="0" placeholder="0 = sem limite" />
-                                            </div>
-                                            <div class="setting-item">
-                                                <span class="setting-label">Intervalo entre padrões (giros):</span>
-                                                <input
-                                                    type="number"
-                                                    id="cfgPatternInterval"
-                                                    min="0"
-                                                    value="2"
-                                                    title="Quantidade mínima de giros entre OCORRÊNCIAS do MESMO padrão (0 = não limita, considera todas as ocorrências). Padrões diferentes podem aparecer em sequência normalmente."
-                                                    placeholder="Ex: 2 giros (0 = sem intervalo entre ocorrências do mesmo padrão)" />
-                                            </div>
-                                            <div class="setting-item">
-                                                <span class="setting-label">Tamanho MÍNIMO do padrão (giros):</span>
-                                                <input type="number" id="cfgMinPatternSize" min="2" value="2" />
-                                            </div>
-                                            <div class="setting-item">
-                                                <span class="setting-label">Tamanho MÁXIMO do padrão (0 = sem limite):</span>
-                                                <input type="number" id="cfgMaxPatternSize" min="0" value="0" placeholder="0 = sem limite" />
-                                            </div>
-                                            <div class="setting-item">
-                                                <span class="setting-label">WIN% das demais ocorrências:</span>
-                                                <input type="number" id="cfgWinPercentOthers" min="0" max="100" value="100" />
-                                            </div>
-                                            <div class="setting-item setting-row">
-                                                <label class="checkbox-label"><input type="checkbox" id="cfgRequireTrigger" checked /> Exigir cor de disparo</label>
-                                            </div>
-                                            <!-- Simulação no passado (Modo Padrão / Análise Premium) -->
-                                            <div class="setting-item setting-row" id="standardSimulationContainer" style="margin-top: 10px;">
-                                                <div class="hot-pattern-actions">
-                                                    <button id="standardSimulationBtn" class="btn-hot-pattern btn-standard-test-config" type="button" title="Simular/otimizar esta configuração no passado (sem olhar o futuro)">
-                                                        Testar configurações
-                                                    </button>
-                                                </div>
-                                            </div>
-                                            <div class="setting-item setting-row">
-                                                <span class="setting-label">Telegram Chat ID:</span>
-                                                <div style="display: flex; gap: 4px; flex: 1; align-items: stretch;">
-                                                    <input type="password" id="cfgTgChatId" placeholder="Digite seu Chat ID" style="flex: 1;" />
-                                                    <button type="button" id="toggleTgId" class="toggle-visibility-btn" title="Mostrar/Ocultar">
-                                                        <svg class="eye-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                                            <path d="M12 5C7 5 2.73 8.11 1 12.5C2.73 16.89 7 20 12 20C17 20 21.27 16.89 23 12.5C21.27 8.11 17 5 12 5Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                                                            <circle cx="12" cy="12.5" r="3.5" stroke="currentColor" stroke-width="2"/>
-                                                        </svg>
-                                                        <svg class="eye-off-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style="display: none;">
-                                                            <path d="M3 3L21 21M10.5 10.7C9.8 11.5 9.5 12.5 10 13.5C10.5 14.5 11.5 15 12.5 15C13.3 15 14.1 14.6 14.7 14M17 17C15.5 18.5 13.8 19.5 12 19.5C7 19.5 2.73 16.39 1 12C2.1 9.6 3.8 7.6 6 6.3M12 5.5C17 5.5 21.27 8.61 23 13C22.4 14.4 21.5 15.7 20.4 16.8" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                                                        </svg>
-                                                    </button>
-                                                </div>
-                                            </div>
-                                            
-                                            <!-- ═══════════════════════════════════════════════════════ -->
-                                            <!-- MODELOS CUSTOMIZADOS DE ANÁLISE (NÍVEL DIAMANTE) -->
-                                            <!-- ═══════════════════════════════════════════════════════ -->
-                                            <div class="setting-item setting-row" id="customPatternsContainer" style="margin-top: 20px; padding-top: 15px; border-top: 1px solid #333;">
-                                                <div class="hot-pattern-actions">
-                                                    <button id="diamondLevelsBtn" class="btn-hot-pattern btn-diamond-levels">
-                                                        Configurar Níveis
-                                                    </button>
-                                                </div>
-                                            </div>
-                                            
-                                            <!-- ═══════════════════════════════════════════════════════ -->
-                                            <!-- INTENSIDADE DE SINAIS (NÍVEL DIAMANTE) -->
-                                            <!-- ═══════════════════════════════════════════════════════ -->
-                                            <div class="setting-item setting-row" id="signalIntensityContainer" style="margin-top: 15px;">
-                                                <div style="width: 100%; display: flex; flex-direction: column; gap: 8px;">
-                                                    <label style="font-size: 13px; color: #ffffff; font-weight: 600; text-align: center;">
-                                                        Intensidade de Sinais
-                                                    </label>
-                                                    <!-- Select real fica oculto (usado para persistência/config), UI é um dropdown custom -->
-                                                    <select id="signalIntensitySelect" style="display:none">
-                                                        <option value="aggressive" selected>Agressivo</option>
-                                                        <option value="conservative">Conservador</option>
-                                                    </select>
-                                                    <div class="signal-intensity-select-wrapper">
-                                                        <button type="button" id="signalIntensitySelectUi" class="signal-intensity-select-ui" aria-haspopup="listbox" aria-expanded="false">
-                                                            <span id="signalIntensitySelectedLabel">Agressivo</span>
-                                                            <span class="signal-intensity-caret">▾</span>
-                                                        </button>
-                                                        <div id="signalIntensityDropdown" class="signal-intensity-dropdown" role="listbox" style="display:none;">
-                                                            <button type="button" class="signal-intensity-option" data-value="aggressive" role="option" aria-selected="true">
-                                                                <div class="opt-title">Agressivo</div>
-                                                            </button>
-                                                            <button type="button" class="signal-intensity-option" data-value="conservative" role="option" aria-selected="false">
-                                                                <div class="opt-title">Conservador</div>
-                                                                <div class="opt-hint" id="signalIntensityConservativeHint" style="display:none;">
-                                                                    <div class="opt-divider"></div>
-                                                                    <div class="opt-hint-text" id="signalIntensityConservativeHintText"></div>
-                                                                </div>
-                                                            </button>
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                            
-                                            <!-- Opção de sincronização com a conta -->
-                                            <div class="setting-item setting-row" style="margin-top: 20px; padding-top: 15px; border-top: 1px solid #333;">
-                                                <label class="checkbox-label" style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
-                                                    <input type="checkbox" id="syncConfigToAccount" checked style="cursor: pointer;">
-                                                    <span style="font-size: 13px; color: #00d4ff;">
-                                                        ☁️ Sincronizar configurações
-                                                    </span>
-                                                </label>
-                                            </div>
-                                            
-                                        </div>
-                                        <button id="cfgSaveBtn" class="cfg-save-btn">Salvar</button>
+                                        </button>
                                     </div>
                                 </div>
                             </div>
+                        </div>
+                        
+                        <!-- Opção de sincronização com a conta -->
+                        <div class="setting-item setting-row" style="margin-top: 20px; padding-top: 15px; border-top: 1px solid #333;">
+                            <label class="checkbox-label" style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                                <input type="checkbox" id="syncConfigToAccount" checked style="cursor: pointer;">
+                                <span style="font-size: 13px; color: #00d4ff;">
+                                    ☁️ Sincronizar configurações
+                                </span>
+                            </label>
+                        </div>
+                        
+                    </div>
+                    <button id="cfgSaveBtn" class="cfg-save-btn">Salvar</button>
+                </div>
+                        </div>
+                        </div>
 
                             <!-- 2) MARTINGALE -->
                             <div class="auto-bet-acc-section" data-acc-key="martingale">
@@ -11293,24 +11428,24 @@ async function persistAnalyzerState(newState) {
                                             <input type="number" id="cfgMaxGales" min="0" max="200" value="0" />
                                             <div class="mode-toggle-hint" style="margin-left: 0;">
                                                 Quantos gales tentar no ciclo. <strong>0</strong> = sem gales.
-                                            </div>
-                                        </div>
+                    </div>
+                </div>
 
                                         <div class="auto-bet-martingale-row">
                                             <div class="auto-bet-martingale-text">
                                                 <div class="auto-bet-martingale-title">Gales consecutivos</div>
                                                 <div class="mode-toggle-hint" style="margin: 0;">
                                                     Quando ativado, o próximo Gale é enviado no <strong>próximo giro</strong> (mesma cor), sem esperar novo sinal.
-                                                </div>
-                                            </div>
+            </div>
+                    </div>
                                             <label class="mode-toggle auto-bet-toggle-compact" style="margin:0;">
                                                 <input type="checkbox" id="cfgConsecutiveMartingale" />
                                                 <div class="mode-toggle-content">
                                                     <span class="mode-toggle-label">Ativar</span>
                                                     <span class="mode-toggle-switch"></span>
-                                                </div>
+                    </div>
                                             </label>
-                                        </div>
+                </div>
 
                                         <div id="consecutiveGalesWrapper" class="auto-bet-martingale-dependent">
                                             <div class="auto-bet-field">
@@ -11318,10 +11453,10 @@ async function persistAnalyzerState(newState) {
                                                 <input type="number" id="cfgConsecutiveGales" min="0" max="200" value="0" />
                                                 <div class="mode-toggle-hint" style="margin-left: 0;">
                                                     Ex.: <strong>1</strong> = G1 imediato • <strong>2</strong> = G1 e G2 imediatos
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </div>
+                        </div>
+                    </div>
+                </div>
+                    </div>
                                 </div>
                             </div>
 
@@ -11332,43 +11467,43 @@ async function persistAnalyzerState(newState) {
                                     <span class="auto-bet-acc-caret" aria-hidden="true">▾</span>
                                 </button>
                                 <div class="auto-bet-acc-body" id="autoBetAccBody-bank">
-                                    <div class="auto-bet-mode-layout">
-                                        <div class="auto-bet-mode-card simulation-mode">
-                                            <div>
-                                                <div class="mode-card-title">Simulador</div>
-                                                <p class="mode-card-subtitle">Acompanhe resultados sem apostar</p>
-                                            </div>
-                                            <label class="mode-toggle">
-                                                <input type="checkbox" id="autoBetSimulationOnly" checked />
-                                                <div class="mode-toggle-content">
-                                                    <span class="mode-toggle-label">Simular entradas</span>
-                                                    <span class="mode-toggle-switch"></span>
-                                                </div>
-                                            </label>
-                                            <div class="auto-bet-field">
-                                                <span>Banca para simulação (R$)</span>
-                                                <input type="number" id="autoBetSimulationBank" min="0" step="1" value="5000" />
-                                            </div>
-                                        </div>
+                        <div class="auto-bet-mode-layout">
+                            <div class="auto-bet-mode-card simulation-mode">
+                                <div>
+                                    <div class="mode-card-title">Simulador</div>
+                                    <p class="mode-card-subtitle">Acompanhe resultados sem apostar</p>
+                                </div>
+                                <label class="mode-toggle">
+                                    <input type="checkbox" id="autoBetSimulationOnly" checked />
+                                    <div class="mode-toggle-content">
+                                        <span class="mode-toggle-label">Simular entradas</span>
+                                        <span class="mode-toggle-switch"></span>
                                     </div>
-                                    <div class="auto-bet-shared-grid">
-                                        <div class="auto-bet-field">
-                                            <span>Entrada base (R$)</span>
-                                            <input type="number" id="autoBetBaseStake" min="0.01" step="0.01" value="2" />
-                                        </div>
-                                        <div class="auto-bet-field">
-                                            <span>Multiplicador por Gale</span>
-                                            <input type="number" id="autoBetGaleMultiplier" min="1" step="0.1" value="2" />
-                                        </div>
-                                        <div class="auto-bet-field">
-                                            <span>Stop WIN (R$)</span>
-                                            <input type="number" id="autoBetStopWin" min="0" step="1" value="0" />
-                                        </div>
-                                        <div class="auto-bet-field">
-                                            <span>Stop LOSS (R$)</span>
-                                            <input type="number" id="autoBetStopLoss" min="0" step="1" value="0" />
-                                        </div>
-                                    </div>
+                                </label>
+                                <div class="auto-bet-field">
+                                    <span>Banca para simulação (R$)</span>
+                                    <input type="number" id="autoBetSimulationBank" min="0" step="1" value="5000" />
+                                </div>
+                            </div>
+                        </div>
+                        <div class="auto-bet-shared-grid">
+                            <div class="auto-bet-field">
+                                <span>Entrada base (R$)</span>
+                                <input type="number" id="autoBetBaseStake" min="0.01" step="0.01" value="2" />
+                            </div>
+                            <div class="auto-bet-field">
+                                <span>Multiplicador por Gale</span>
+                                <input type="number" id="autoBetGaleMultiplier" min="1" step="0.1" value="2" />
+                            </div>
+                            <div class="auto-bet-field">
+                                <span>Stop WIN (R$)</span>
+                                <input type="number" id="autoBetStopWin" min="0" step="1" value="0" />
+                            </div>
+                            <div class="auto-bet-field">
+                                <span>Stop LOSS (R$)</span>
+                                <input type="number" id="autoBetStopLoss" min="0" step="1" value="0" />
+                            </div>
+                        </div>
                                 </div>
                             </div>
 
@@ -11380,32 +11515,32 @@ async function persistAnalyzerState(newState) {
                                 </button>
                                 <div class="auto-bet-acc-body" id="autoBetAccBody-whiteProtection">
                                     <label class="mode-toggle" style="margin-top: 0;">
-                                        <input type="checkbox" id="autoBetWhiteProtection" />
-                                        <div class="mode-toggle-content">
-                                            <span class="mode-toggle-label">Proteção no branco</span>
-                                            <span class="mode-toggle-switch"></span>
-                                        </div>
-                                    </label>
-                                    <div class="white-protection-mode white-mode-disabled" id="whiteProtectionModeWrapper" aria-disabled="true">
-                                        <div class="white-mode-header">
-                                            <span>Modo da proteção no branco</span>
-                                            <span>Escolha sua estratégia</span>
-                                        </div>
-                                        <div class="white-mode-options" role="group" aria-label="Modo da proteção no branco">
-                                            <button type="button" class="white-mode-btn active" data-white-mode="profit" aria-pressed="true">
-                                                <span class="white-mode-title">Lucro igual à cor</span>
-                                                <span class="white-mode-subtitle">Branco cobre as perdas e mantém o lucro do estágio.</span>
-                                            </button>
-                                            <button type="button" class="white-mode-btn" data-white-mode="neutral" aria-pressed="false">
-                                                <span class="white-mode-title">Somente cobrir perdas</span>
-                                                <span class="white-mode-subtitle">Branco devolve tudo que foi apostado, sem lucro.</span>
-                                            </button>
-                                        </div>
-                                        <p class="white-mode-description" id="whiteProtectionModeDescription">
-                                            O branco cobre todas as perdas acumuladas e ainda entrega o mesmo lucro do estágio atual.
-                                        </p>
-                                        <input type="hidden" id="autoBetWhiteMode" value="profit" />
-                                    </div>
+                            <input type="checkbox" id="autoBetWhiteProtection" />
+                            <div class="mode-toggle-content">
+                                <span class="mode-toggle-label">Proteção no branco</span>
+                                <span class="mode-toggle-switch"></span>
+                            </div>
+                        </label>
+                        <div class="white-protection-mode white-mode-disabled" id="whiteProtectionModeWrapper" aria-disabled="true">
+                            <div class="white-mode-header">
+                                <span>Modo da proteção no branco</span>
+                                <span>Escolha sua estratégia</span>
+                            </div>
+                            <div class="white-mode-options" role="group" aria-label="Modo da proteção no branco">
+                                <button type="button" class="white-mode-btn active" data-white-mode="profit" aria-pressed="true">
+                                    <span class="white-mode-title">Lucro igual à cor</span>
+                                    <span class="white-mode-subtitle">Branco cobre as perdas e mantém o lucro do estágio.</span>
+                                </button>
+                                <button type="button" class="white-mode-btn" data-white-mode="neutral" aria-pressed="false">
+                                    <span class="white-mode-title">Somente cobrir perdas</span>
+                                    <span class="white-mode-subtitle">Branco devolve tudo que foi apostado, sem lucro.</span>
+                                </button>
+                            </div>
+                            <p class="white-mode-description" id="whiteProtectionModeDescription">
+                                O branco cobre todas as perdas acumuladas e ainda entrega o mesmo lucro do estágio atual.
+                            </p>
+                            <input type="hidden" id="autoBetWhiteMode" value="profit" />
+                        </div>
                                 </div>
                             </div>
 
@@ -11417,15 +11552,15 @@ async function persistAnalyzerState(newState) {
                                 </button>
                                 <div class="auto-bet-acc-body" id="autoBetAccBody-inverseMode">
                                     <label class="mode-toggle" style="margin-top: 0;">
-                                        <input type="checkbox" id="autoBetInverseMode" />
-                                        <div class="mode-toggle-content">
-                                            <span class="mode-toggle-label">Modo inverso (G1 plano)</span>
-                                            <span class="mode-toggle-switch"></span>
-                                        </div>
-                                    </label>
-                                    <p class="mode-toggle-hint">
-                                        Mantém G1 com o mesmo valor da entrada base e dobra apenas no G2. Após cada WIN, o próximo sinal inicia dobrado.
-                                    </p>
+                            <input type="checkbox" id="autoBetInverseMode" />
+                            <div class="mode-toggle-content">
+                                <span class="mode-toggle-label">Modo inverso (G1 plano)</span>
+                                <span class="mode-toggle-switch"></span>
+                            </div>
+                        </label>
+                        <p class="mode-toggle-hint">
+                            Mantém G1 com o mesmo valor da entrada base e dobra apenas no G2. Após cada WIN, o próximo sinal inicia dobrado.
+                        </p>
                                 </div>
                             </div>
                         </div>
@@ -15028,7 +15163,7 @@ function logFullModeSnapshot(snapshot) {
     originalConsoleLog(`%c   • Histórico analisado: ${snapshot.historyAvailable || 0} giros`, `color: ${headerColor};`);
     originalConsoleLog(`%c   • Intensidade: ${snapshot.signalIntensity || 'moderate'}`, `color: ${headerColor};`);
     originalConsoleLog(`%c   • Martingale: ${snapshot.galeSummary} (máx ${snapshot.galeSettings?.maxGales || 0} | consecutivo ${snapshot.galeSettings?.consecutiveMartingale ? 'sim' : 'não'})`, `color: ${headerColor};`);
-    originalConsoleLog(`%c   • Proteção no Branco: ${snapshot.whiteProtectionAsWin ? 'Conta como WIN' : 'Conta como LOSS'}`, `color: ${headerColor};`);
+    originalConsoleLog(`%c   • Proteção no Branco: ${snapshot.whiteProtectionAsWin ? 'Ativa' : 'Desativada'}`, `color: ${headerColor};`);
 
     if (snapshot.aiMode) {
         const status = snapshot.memoriaAtiva || {};
@@ -15089,7 +15224,7 @@ function logModeSnapshotUI(snapshot) {
         pushChange('Histórico analisado', prev.historyAvailable, snapshot.historyAvailable, v => `${v || 0} giros`);
         pushChange('Intensidade', prev.signalIntensity, snapshot.signalIntensity);
         pushChange('Martingale', prev.galeSummary, snapshot.galeSummary);
-        pushChange('Proteção no Branco', prev.whiteProtectionAsWin, snapshot.whiteProtectionAsWin, v => v ? 'Conta como WIN' : 'Conta como LOSS');
+        pushChange('Proteção no Branco', prev.whiteProtectionAsWin, snapshot.whiteProtectionAsWin, v => v ? 'Ativa' : 'Desativada');
 
         if (snapshot.aiMode) {
             const prevMem = prev.memoriaAtiva || {};
