@@ -13949,6 +13949,142 @@ async function persistAnalyzerState(newState) {
         // Atualizar visual do modo aposta (usa mesma cor/estágio)
         syncBetModeView();
     }
+
+    // ═══════════════════════════════════════════════════════════════
+    // 📊 ADMIN TRACKING (SERVER): Snapshot de Sinais/Gráfico + Histórico de "Limpar"
+    // ═══════════════════════════════════════════════════════════════
+    // Objetivo: enviar para a API os dados mínimos para o admin acompanhar:
+    // - WIN/LOSS/%/Entradas
+    // - deltas do gráfico (tick chart)
+    // - evento quando o usuário clica em "Limpar"
+
+    let lastSignalPanelSnapshotKey = '';
+    let lastSignalPanelSnapshotSentAt = 0;
+    let signalPanelSnapshotInFlight = false;
+
+    async function getAuthTokenForServerSync() {
+        // 1) localStorage (web)
+        try {
+            const token = localStorage.getItem('authToken');
+            if (token) return token;
+        } catch (_) {}
+
+        // 2) chrome.storage.local (extensão / web-shim)
+        try {
+            if (typeof chrome !== 'undefined' && chrome.storage?.local?.get) {
+                const data = await new Promise((resolve) => {
+                    chrome.storage.local.get(['authToken'], (result) => {
+                        if (chrome.runtime?.lastError) {
+                            resolve({});
+                        } else {
+                            resolve(result || {});
+                        }
+                    });
+                });
+                if (data && data.authToken) return data.authToken;
+            }
+        } catch (_) {}
+
+        return null;
+    }
+
+    function getTimeoutSignal(ms) {
+        try {
+            return AbortSignal.timeout(ms);
+        } catch (_) {
+            return undefined;
+        }
+    }
+
+    function computeSignalPanelChartDeltas(entries, autoBetConfig) {
+        const allEntries = Array.isArray(entries) ? entries : [];
+        const cfg = autoBetConfig && typeof autoBetConfig === 'object' ? autoBetConfig : {};
+        const galeMult = Math.max(1, Number(cfg.galeMultiplier ?? 2) || 2);
+        const baseStake = Math.max(0.01, Number(cfg.baseStake ?? 2) || 2);
+        const whitePayoutMultiplier = Math.max(2, Number(cfg.whitePayoutMultiplier ?? 14) || 14);
+
+        const attemptsChron = allEntries
+            .filter(e => e && (e.result === 'WIN' || e.result === 'LOSS'))
+            .slice()
+            .reverse();
+
+        const deltas = attemptsChron.map(e => {
+            const stageIdx = (typeof getStageIndexFromEntryLike === 'function') ? getStageIndexFromEntryLike(e) : 0;
+            const stake = Number(e?.stakeAmount) || Number((baseStake * Math.pow(galeMult, stageIdx)).toFixed(2));
+            const betColor = String(e?.betColor || (e?.patternData?.color ?? '')).toLowerCase();
+            const payoutMult = Math.max(2, Number(e?.payoutMultiplier) || (betColor === 'white' ? whitePayoutMultiplier : 2));
+            const delta = e.result === 'WIN'
+                ? Number((stake * (payoutMult - 1)).toFixed(2))
+                : Number((-stake).toFixed(2));
+            return delta;
+        });
+
+        // limitar para evitar payload infinito
+        return deltas.slice(-800);
+    }
+
+    async function postSignalPanelSnapshotToServer(payload) {
+        try {
+            const token = await getAuthTokenForServerSync();
+            if (!token) return;
+
+            const API_URL = getApiUrl();
+            await fetch(`${API_URL}/api/auth/signal-panel/snapshot`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify(payload || {}),
+                signal: getTimeoutSignal(6000)
+            });
+        } catch (_) {
+            // silencioso (não poluir console do usuário)
+        }
+    }
+
+    function queueSignalPanelSnapshotToServer(payload) {
+        try {
+            const now = Date.now();
+            const key = JSON.stringify(payload || {});
+            // throttle:
+            // - se NÃO mudou: enviar no máximo a cada 60s (suficiente pro admin acompanhar)
+            // - se mudou: permitir envio mais rápido (8s) para refletir entradas recentes
+            const samePayload = key === lastSignalPanelSnapshotKey;
+            const minIntervalMs = samePayload ? 60000 : 8000;
+            if ((now - lastSignalPanelSnapshotSentAt) < minIntervalMs) return;
+            if (signalPanelSnapshotInFlight) return;
+
+            lastSignalPanelSnapshotKey = key;
+            lastSignalPanelSnapshotSentAt = now;
+            signalPanelSnapshotInFlight = true;
+            Promise.resolve(postSignalPanelSnapshotToServer(payload))
+                .finally(() => { signalPanelSnapshotInFlight = false; });
+        } catch (_) {}
+    }
+
+    async function postSignalPanelClearEventToServer(mode) {
+        try {
+            const token = await getAuthTokenForServerSync();
+            if (!token) return;
+
+            const API_URL = getApiUrl();
+            await fetch(`${API_URL}/api/auth/signal-panel/clear`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify({
+                    mode: mode === 'diamond' ? 'diamond' : 'standard',
+                    clearedAt: new Date().toISOString()
+                }),
+                signal: getTimeoutSignal(6000)
+            });
+        } catch (_) {
+            // silencioso
+        }
+    }
     
     // Render de lista de entradas (WIN/LOSS)
     function renderEntriesPanel(entries) {
@@ -14210,6 +14346,30 @@ async function persistAnalyzerState(newState) {
         } catch (err) {
             console.warn('⚠️ Falha ao atualizar gráfico do modo real:', err);
         }
+
+        // ✅ Enviar snapshot para o servidor (Admin acompanhar) - somente resumo + deltas do gráfico
+        try {
+            const rawConfig = (latestAnalyzerConfig && latestAnalyzerConfig.autoBetConfig) ? latestAnalyzerConfig.autoBetConfig : null;
+            const autoBetConfig = (typeof sanitizeAutoBetConfig === 'function')
+                ? sanitizeAutoBetConfig(rawConfig)
+                : (rawConfig || {});
+            const initialBank = Number(autoBetConfig?.simulationBankRoll ?? 5000) || 5000;
+            const deltas = computeSignalPanelChartDeltas(chartAttempts, autoBetConfig);
+            const pctNum = Number(pct);
+            queueSignalPanelSnapshotToServer({
+                mode: currentMode,
+                stats: {
+                    wins,
+                    losses,
+                    entries: totalEntries,
+                    pct: Number.isFinite(pctNum) ? pctNum : 0
+                },
+                chart: {
+                    initialBank,
+                    deltas
+                }
+            });
+        } catch (_) {}
     }
 
     function initEntriesTabs() {
@@ -14440,6 +14600,11 @@ async function persistAnalyzerState(newState) {
             
             chrome.storage.local.set({ entriesHistory: filteredEntries }, function() {
                 console.log(`✅ Histórico de entradas do modo ${currentMode} limpo`);
+
+                // 📌 Registrar evento de "Limpar" no servidor (admin acompanhar)
+                // (não bloquear UX; silencioso)
+                try { postSignalPanelClearEventToServer(currentMode); } catch (_) {}
+
                 renderEntriesPanel(filteredEntries);
 
                 // ✅ Novo: resetar também o "simulador da banca" (autoBetRuntime),
