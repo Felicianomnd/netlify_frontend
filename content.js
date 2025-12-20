@@ -14347,14 +14347,27 @@ async function persistAnalyzerState(newState) {
             console.warn('⚠️ Falha ao atualizar gráfico do modo real:', err);
         }
 
-        // ✅ Enviar snapshot para o servidor (Admin acompanhar) - somente resumo + deltas do gráfico
+        // ✅ Enviar snapshot para o servidor (Admin acompanhar)
+        // Agora inclui também "Saldo" e "Perdas" (igual ao gráfico exibido para o usuário).
         try {
             const rawConfig = (latestAnalyzerConfig && latestAnalyzerConfig.autoBetConfig) ? latestAnalyzerConfig.autoBetConfig : null;
             const autoBetConfig = (typeof sanitizeAutoBetConfig === 'function')
                 ? sanitizeAutoBetConfig(rawConfig)
                 : (rawConfig || {});
-            const initialBank = Number(autoBetConfig?.simulationBankRoll ?? 5000) || 5000;
+            const equity = (typeof computeEntriesProfitSnapshot === 'function')
+                ? computeEntriesProfitSnapshot(chartAttempts, autoBetConfig)
+                : null;
+            const initialBank = Number(equity?.initialBank ?? autoBetConfig?.simulationBankRoll ?? 5000) || 5000;
             const deltas = computeSignalPanelChartDeltas(chartAttempts, autoBetConfig);
+            const fallbackProfit = deltas.reduce((acc, v) => acc + (Number.isFinite(Number(v)) ? Number(v) : 0), 0);
+            const balanceRaw = Number(equity?.balance);
+            const lossRaw = Number(equity?.loss);
+            const balance = Number.isFinite(balanceRaw)
+                ? balanceRaw
+                : Number((initialBank + fallbackProfit).toFixed(2));
+            const lossMoney = Number.isFinite(lossRaw)
+                ? Math.max(0, lossRaw)
+                : (fallbackProfit < 0 ? Number(Math.abs(fallbackProfit).toFixed(2)) : 0);
             const pctNum = Number(pct);
             queueSignalPanelSnapshotToServer({
                 mode: currentMode,
@@ -14366,6 +14379,8 @@ async function persistAnalyzerState(newState) {
                 },
                 chart: {
                     initialBank,
+                    balance,
+                    loss: lossMoney,
                     deltas
                 }
             });
