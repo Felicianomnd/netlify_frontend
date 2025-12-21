@@ -1296,6 +1296,7 @@
     font-weight: bold;
     background: #252736;
     color: #fff;
+    position: relative;
 }
 .suggestion-color-box.red { background: #F44336; color: #fff; }
 .suggestion-color-box.black { background: #21222D; color: #fff; }
@@ -1324,6 +1325,47 @@
 .suggestion-stage.visible {
     opacity: 1;
     max-width: 50px;
+}
+
+/* ✅ Novo: indicador G1/G2 dentro do quadrado do sinal (data-gale) */
+.suggestion-color-box[data-gale]::after {
+    content: attr(data-gale);
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    font-weight: 900;
+    letter-spacing: 0.4px;
+    color: #ffffff;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.55);
+    pointer-events: none;
+    z-index: 2;
+}
+.suggestion-color-box.white[data-gale]::after {
+    color: #111827;
+    text-shadow: none;
+}
+
+/* ✅ Spinner estilo "Apostas" dentro do quadrado aguardando resultado */
+.suggestion-color-box .pending-indicator {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 22px;
+    height: 22px;
+    border: 3px solid rgba(255, 255, 255, 0.35);
+    border-top-color: #00ffa3;
+    border-radius: 50%;
+    animation: spinCentered 1s linear infinite;
+    pointer-events: none;
+    z-index: 1;
+}
+.suggestion-color-box.white .pending-indicator {
+    border: 3px solid rgba(17, 24, 39, 0.25);
+    border-top-color: #00d4ff;
 }
 
 /* ✅ WRAPPER DO INDICADOR DE GALE */
@@ -2894,6 +2936,12 @@
     100% { transform: rotate(360deg); }
 }
 
+/* Spinner que preserva translate(-50%, -50%) */
+@keyframes spinCentered {
+    0% { transform: translate(-50%, -50%) rotate(0deg); }
+    100% { transform: translate(-50%, -50%) rotate(360deg); }
+}
+
 /* Estilos modernos para exibição de padrão igual ao histórico de giros */
 .pattern-spin {
     display: inline-block;
@@ -3875,6 +3923,104 @@
   color: rgba(255, 255, 255, 0.7);
 }
 
+/* ═══════════════════════════════════════════════════════════════
+   👑 SINAL MESTRE - OVERLAY (sem backdrop; usa a paleta do painel)
+   ═══════════════════════════════════════════════════════════════ */
+
+.master-signal-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-secondary);
+  border: 1px solid rgba(239, 68, 68, 0.55);
+  border-radius: 0;
+}
+
+.master-signal-content {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+}
+
+.master-signal-left {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.master-signal-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  color: #ef4444;
+}
+
+.master-signal-action {
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--text-primary);
+}
+
+.master-signal-meta {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.master-signal-right {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.master-signal-color-box {
+  width: 86px;
+  height: 56px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.master-signal-color-box.red {
+  background: #f44336;
+}
+
+.master-signal-color-box.black {
+  background: #21222d;
+}
+
+.master-signal-color-box.white {
+  background: #ffffff;
+}
+
+.master-signal-color-box.neutral {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.master-signal-color-label {
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: #ffffff;
+}
+
+.master-signal-color-box.white .master-signal-color-label {
+  color: #f44336;
+}
+
 .bet-status-win td {
   color: #b2ffcc;
 }
@@ -3969,6 +4115,61 @@
   border: 2px solid #fff;
   opacity: 0.9;
   z-index: 1;
+}
+
+/* ✅ Pendente: girar o ANEL (não criar spinner separado por dentro) */
+.entry-box.pending-ring::after {
+  border-color: rgba(255, 255, 255, 0.22);
+  border-top-color: #ffffff;
+  opacity: 1;
+  animation: spinCentered 1s linear infinite;
+}
+.entry-box.white.pending-ring::after {
+  border-color: rgba(244, 67, 54, 0.22);
+  border-top-color: #F44336;
+  opacity: 1;
+  animation: spinCentered 1s linear infinite;
+}
+
+/* ✅ Indicador G1/G2 dentro do quadrado (para IA/Sinais pendentes) */
+.entry-box[data-gale]::before {
+  content: attr(data-gale);
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: calc(11px * var(--font-scale, 1));
+  font-weight: 900;
+  letter-spacing: 0.4px;
+  color: #ffffff;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.55);
+  pointer-events: none;
+  z-index: 3;
+}
+.entry-box.white[data-gale]::before {
+  color: #111827;
+  text-shadow: none;
+}
+
+/* ✅ Spinner aguardando resultado dentro do quadrado (estilo Apostas) */
+.entry-box .pending-indicator {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: calc(18px * var(--icon-scale, 1));
+  height: calc(18px * var(--icon-scale, 1));
+  border: 3px solid rgba(255, 255, 255, 0.35);
+  border-top-color: #00ffa3;
+  border-radius: 50%;
+  animation: spinCentered 1s linear infinite;
+  pointer-events: none;
+  z-index: 2;
+}
+.entry-box.white .pending-indicator {
+  border: 3px solid rgba(17, 24, 39, 0.25);
+  border-top-color: #00d4ff;
 }
 .entry-box.red { background:#F44336; color:#fff; border-color:#fff; }
 .entry-box.black { background:#21222D; color:#fff; border-color:#fff; }

@@ -962,6 +962,8 @@
                             autoBetManager.handleEntriesUpdate(res.entriesHistory);
                         }
                     } catch (_) {}
+                    // ✅ Atualizar card dos Sinais de entrada ao trocar de modo (Premium/Diamante)
+                    try { scheduleMasterSignalStatsRefresh(0); } catch (_) {}
                     console.log('✅ Entradas filtradas e exibidas!');
                 }
             });
@@ -1340,7 +1342,72 @@ let cachedAutoBetAvailability = { hasReal: false, hasSimulation: false };
 let entriesTabsReady = false;
 let entriesTabsBound = false;
 let activeEntriesTab = 'entries';
+let masterEntriesBackfillLock = false;
 let autoBetHistoryUnsubscribe = null;
+
+// ═══════════════════════════════════════════════════════════════
+// 👑 SINAIS DE ENTRADA: "Limpar" não deve apagar a aba IA.
+// Implementação: cutoff por modo (standard/diamond) para esconder do painel Sinais/Gráfico,
+// mantendo o histórico completo em entriesHistory (usado pela aba IA).
+// ═══════════════════════════════════════════════════════════════
+const MASTER_CLEAR_CUTOFF_KEY = 'masterEntriesClearCutoffByMode';
+let masterEntriesClearCutoffByMode = { standard: 0, diamond: 0 };
+
+// ✅ IA: cutoff próprio para o botão "Limpar" da aba IA (não afetar Sinais/Gráfico)
+const ENTRIES_CLEAR_CUTOFF_KEY = 'entriesClearCutoffByMode';
+let entriesClearCutoffByMode = { standard: 0, diamond: 0 };
+
+function loadMasterEntriesClearCutoff() {
+    try {
+        chrome.storage.local.get([MASTER_CLEAR_CUTOFF_KEY], (res) => {
+            const raw = res && res[MASTER_CLEAR_CUTOFF_KEY] ? res[MASTER_CLEAR_CUTOFF_KEY] : null;
+            if (raw && typeof raw === 'object') {
+                masterEntriesClearCutoffByMode = {
+                    standard: Number(raw.standard) || 0,
+                    diamond: Number(raw.diamond) || 0
+                };
+            }
+        });
+    } catch (_) {}
+}
+
+function loadEntriesClearCutoff() {
+    try {
+        chrome.storage.local.get([ENTRIES_CLEAR_CUTOFF_KEY], (res) => {
+            const raw = res && res[ENTRIES_CLEAR_CUTOFF_KEY] ? res[ENTRIES_CLEAR_CUTOFF_KEY] : null;
+            if (raw && typeof raw === 'object') {
+                entriesClearCutoffByMode = {
+                    standard: Number(raw.standard) || 0,
+                    diamond: Number(raw.diamond) || 0
+                };
+            }
+        });
+    } catch (_) {}
+}
+
+function getMasterEntriesCutoffMs(modeKey) {
+    const key = modeKey === 'diamond' ? 'diamond' : 'standard';
+    return Number(masterEntriesClearCutoffByMode && masterEntriesClearCutoffByMode[key]) || 0;
+}
+
+function getEntriesCutoffMs(modeKey) {
+    const key = modeKey === 'diamond' ? 'diamond' : 'standard';
+    return Number(entriesClearCutoffByMode && entriesClearCutoffByMode[key]) || 0;
+}
+
+function getEntryTimestampMs(entry) {
+    try {
+        const t = entry && entry.timestamp != null ? entry.timestamp : null;
+        const ms = (typeof t === 'number') ? t : Date.parse(String(t));
+        return Number.isFinite(ms) ? ms : 0;
+    } catch (_) {
+        return 0;
+    }
+}
+
+// Carregar cutoff uma vez (best-effort)
+loadMasterEntriesClearCutoff();
+loadEntriesClearCutoff();
 
 function formatCurrencyBRL(value) {
     const numeric = Number(value);
@@ -2806,7 +2873,7 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                             </div>
 
                             <div class="entries-tabs-bar" id="standardSimTabs" style="margin-top: 8px;" hidden>
-                                <button type="button" class="entries-tab active" data-tab="signals">Sinais</button>
+                                <button type="button" class="entries-tab active" data-tab="signals">IA</button>
                                 <button type="button" class="entries-tab" data-tab="chart">Gráfico</button>
                             </div>
 
@@ -3592,7 +3659,7 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
             if (!e) return false;
             if (e.result === 'WIN') return true;
             if (e.result === 'LOSS') {
-                if (e.finalResult === 'RET') return true;
+                if (e.finalResult === 'RED' || e.finalResult === 'RET') return true;
                 let isContinuing = false;
                 for (let key in e) {
                     if (key.startsWith('continuingToG')) { isContinuing = true; break; }
@@ -3620,7 +3687,7 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                         stageText = `WIN <span style="color: white;">G${galeNum}</span>`;
                     }
                 } else {
-                    if (e.finalResult === 'RET') {
+                    if (e.finalResult === 'RED' || e.finalResult === 'RET') {
                         const stage = e.martingaleStage || e.phase;
                         if (stage === 'ENTRADA' || stage === 'G0') stageText = 'LOSS';
                         else if (stage && stage.startsWith('G')) {
@@ -4449,7 +4516,7 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                 </div>
 
                 <div class="entries-tabs-bar" id="diamondSimTabs" style="margin-top: 8px;" hidden>
-                    <button type="button" class="entries-tab active" data-tab="signals">Sinais</button>
+                    <button type="button" class="entries-tab active" data-tab="signals">IA</button>
                     <button type="button" class="entries-tab" data-tab="chart">Gráfico</button>
                 </div>
 
@@ -4484,7 +4551,11 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                                 <span class="value" id="diamondSimEquityBalance">R$ 0,00</span>
                             </div>
                             <div class="diamond-sim-equity-metric">
-                                <span class="label">Perdas</span>
+                                <span class="label">Lucro</span>
+                                <span class="value" id="diamondSimEquityProfit">R$ 0,00</span>
+                            </div>
+                            <div class="diamond-sim-equity-metric">
+                                <span class="label">Perdas (bruto)</span>
                                 <span class="value" id="diamondSimEquityLoss">R$ 0,00</span>
                             </div>
                         </div>
@@ -4678,10 +4749,10 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
         const entries = Array.isArray(allEntries) ? allEntries : [];
 
         // ✅ Regra do painel:
-        // - Lucro/Perdas = resultado LÍQUIDO de ciclos finalizados (WIN/RET)
+        // - Lucro/Perdas = resultado LÍQUIDO de ciclos finalizados (WIN/RED)
         // - Perdas intermediárias (G0/G1...) NÃO contam como "perda" se o ciclo fechou WIN.
         // - Não recalcular passado com config atual: preferir campos gravados no entry (stake/cycleNetProfit).
-        const finals = entries.filter(e => e && (e.finalResult === 'WIN' || e.finalResult === 'RET'));
+        const finals = entries.filter(e => e && (e.finalResult === 'WIN' || e.finalResult === 'RED' || e.finalResult === 'RET'));
 
         const inferNetFromSnapshots = (e) => {
             const base = Math.max(0.01, Number(e?.baseStakeSnapshot ?? cfg.baseStake ?? 2) || 2);
@@ -5119,6 +5190,7 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
 
     function renderDiamondSimulationTickChart(entries) {
         const balanceEl = document.getElementById('diamondSimEquityBalance');
+        const profitEl = document.getElementById('diamondSimEquityProfit');
         const lossEl = document.getElementById('diamondSimEquityLoss');
         const svg = document.getElementById('diamondSimTicksSvg');
         const baselineEl = document.getElementById('diamondSimTicksBaseline');
@@ -5127,7 +5199,7 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
         const currentLineEl = document.getElementById('diamondSimTicksCurrentLine');
         const winPathEl = document.getElementById('diamondSimTicksWinPath');
         const lossPathEl = document.getElementById('diamondSimTicksLossPath');
-        if (!balanceEl || !lossEl || !svg || !baselineEl || !maxLineEl || !minLineEl || !currentLineEl || !winPathEl || !lossPathEl) return;
+        if (!balanceEl || !profitEl || !lossEl || !svg || !baselineEl || !maxLineEl || !minLineEl || !currentLineEl || !winPathEl || !lossPathEl) return;
 
         attachDiamondSimZoomHandlers(svg);
 
@@ -5140,6 +5212,9 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
 
         const snapshot = computeDiamondSimulationProfitSnapshot(allEntries, autoBetConfig);
         balanceEl.textContent = formatCurrencyBRL(snapshot.balance);
+        profitEl.textContent = snapshot.profit >= 0
+            ? `+${formatCurrencyBRL(snapshot.profit)}`
+            : formatCurrencyBRL(snapshot.profit);
         lossEl.textContent = formatCurrencyBRL(snapshot.loss);
 
         const stageIndexFromEntry = (e) => getStageIndexFromEntryLike(e);
@@ -5606,7 +5681,7 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
             if (!e) return false;
             if (e.result === 'WIN') return true;
             if (e.result === 'LOSS') {
-                if (e.finalResult === 'RET') return true;
+                if (e.finalResult === 'RED' || e.finalResult === 'RET') return true;
                 let isContinuing = false;
                 for (let key in e) {
                     if (key.startsWith('continuingToG')) {
@@ -5638,7 +5713,7 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                         stageText = `WIN <span style="color: white;">G${galeNum}</span>`;
                     }
                 } else {
-                    if (e.finalResult === 'RET') {
+                    if (e.finalResult === 'RED' || e.finalResult === 'RET') {
                         const stage = e.martingaleStage || e.phase;
                         if (stage === 'ENTRADA' || stage === 'G0') {
                             stageText = 'LOSS';
@@ -5910,12 +5985,26 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                     const avail = Number(meta.availableHistory || 0);
                     const req = Number(meta.requestedHistoryLimit || 0);
                     const used = Number(meta.usedHistoryLimit || meta.totalSpins || 0);
+                    const baseline = meta.baseline || null;
+                    let baselineText = '';
+                    if (baseline && baseline.freq && baseline.steps) {
+                        const pBest = Number(baseline.pBest || 0);
+                        const steps = Number(baseline.steps || 1);
+                        const pCycle = Number(baseline.pCycle || 0);
+                        const breakEven = (baseline.breakEvenPcycle != null) ? Number(baseline.breakEvenPcycle) : null;
+                        const bestColor = baseline.bestColor ? String(baseline.bestColor).toUpperCase() : 'RB';
+                        baselineText =
+                            `<br>` +
+                            `Baseline (histórico): <strong>${bestColor}</strong> ~ <strong>${(pBest * 100).toFixed(1)}%</strong> • BaseP(ciclo ${steps} tent.) <strong>${(pCycle * 100).toFixed(1)}%</strong>` +
+                            (breakEven != null ? ` • Break-even (martingale 2x): <strong>${(breakEven * 100).toFixed(1)}%</strong>` : '');
+                    }
                     summary.innerHTML =
                         `<strong>${label}</strong><br>` +
                         `Giros analisados: <strong>${meta.totalSpins || 0}</strong><br>` +
                         `Disponível: <strong>${avail || '—'}</strong> • Solicitado: <strong>${req || '—'}</strong> • Usado: <strong>${used || '—'}</strong><br>` +
                         `Período: <strong>${from}</strong> → <strong>${to}</strong><br>` +
-                        `Sinais gerados: <strong>${meta.totalSignals || 0}</strong> • Ciclos: <strong>${stats.totalCycles || 0}</strong>`;
+                        `Sinais gerados: <strong>${meta.totalSignals || 0}</strong> • Ciclos: <strong>${stats.totalCycles || 0}</strong>` +
+                        baselineText;
                 }
 
                 renderDiamondSimulationEntries(response.entries || []);
@@ -8932,16 +9021,19 @@ autoBetHistoryStore.init().catch(error => console.warn('AutoBetHistory: iniciali
                 uiRefs.configBtn.setAttribute('aria-label', `Configurar autoaposta • ${statusText}`);
             }
             // ✅ Importante: separar saldo do simulador por modo (Diamante vs Premium).
-            // Em vez de usar runtime.profit global (que mistura os modos),
-            // calculamos o lucro/perda do modo ativo a partir do entriesHistory.
+            // A partir desta atualização, "Apostas" opera APENAS com SINAIS DE ENTRADA,
+            // então o resultado realizado vem do autoBetHistory (que agora registra somente mestres).
             const activeMode = getActiveAnalysisModeKey();
-            const modeEntries = shouldDisplayBalances
-                ? filterEntriesSnapshotByMode(autoBetEntriesSnapshot, activeMode)
+            const historyRecords = shouldDisplayBalances ? autoBetHistoryStore.getAll() : [];
+            const finalized = shouldDisplayBalances
+                ? historyRecords.filter(r => r && r.isMaster && (r.mode || 'standard') === activeMode && (r.status === 'win' || r.status === 'loss'))
                 : [];
-            const profitSnapshot = shouldDisplayBalances
-                ? computeEntriesProfitSnapshot(modeEntries, config)
-                : { profit: 0, profitEarned: 0, loss: 0 };
-            const realizedProfitNet = shouldDisplayBalances ? Number(profitSnapshot.profit || 0) : 0;
+            let realizedProfitNet = 0;
+            for (const r of finalized) {
+                const delta = Number(r && r.profit);
+                if (!Number.isFinite(delta)) continue;
+                realizedProfitNet = Number((realizedProfitNet + delta).toFixed(2));
+            }
             // ✅ Exibição: "Lucro" e "Perdas" são o resultado líquido.
             // Se ainda está positivo, Perdas deve ficar 0 (perdas apenas quando abaixo do saldo inicial).
             const realizedProfitEarned = shouldDisplayBalances ? Math.max(0, realizedProfitNet) : 0;
@@ -9007,6 +9099,7 @@ autoBetHistoryStore.init().catch(error => console.warn('AutoBetHistory: iniciali
                 color: runtime.openCycle.color,
                 confidence: extractAnalysisConfidence(analysis),
                 mode: runtime.openCycle.mode,
+                isMaster: !!(analysis && analysis.masterSignal && analysis.masterSignal.active),
                 status: 'pending',
                 stages: [],
                 executionMode: config.enabled ? 'real' : 'simulation',
@@ -9347,6 +9440,10 @@ autoBetHistoryStore.init().catch(error => console.warn('AutoBetHistory: iniciali
         function handleAnalysis(analysis) {
             if (!isAutomationActive() || runtime.blockedReason) return;
             if (!analysis || !analysis.color) return;
+            // ✅ NOVO: só executar autoaposta/simulação em SINAL DE ENTRADA
+            if (!(analysis && analysis.masterSignal && analysis.masterSignal.active)) {
+                return;
+            }
             const normalizedColor = normalizeColor(analysis.color);
             if (!normalizedColor) return;
             const stageInfo = normalizeStage(analysis.phase);
@@ -9393,7 +9490,7 @@ autoBetHistoryStore.init().catch(error => console.warn('AutoBetHistory: iniciali
             }
             
             const isWin = latest.result === 'WIN';
-            const isFinalLoss = latest.result === 'LOSS' && (latest.finalResult === 'RET' || !hasContinuationFlag(latest));
+            const isFinalLoss = latest.result === 'LOSS' && ((latest.finalResult === 'RED' || latest.finalResult === 'RET') || !hasContinuationFlag(latest));
             if (isWin) {
                 finalizeCycle('WIN', latest);
             } else if (isFinalLoss) {
@@ -9557,7 +9654,7 @@ autoBetHistoryStore.init().catch(error => console.warn('AutoBetHistory: iniciali
                         delete updatedEntry[key];
                     }
                 });
-                updatedEntry.finalResult = 'RET';
+                updatedEntry.finalResult = 'RED';
                 updatedEntry.stopReason = reasonTag;
                 entries[targetIndex] = updatedEntry;
                 await storageCompat.set({ entriesHistory: entries });
@@ -11040,7 +11137,7 @@ async function persistAnalyzerState(newState) {
                 
             <div class="analysis-lastspin-row">
                  <div class="analysis-section highlight-panel">
-                     <h4 id="analysisModeTitle">Aguardando Análise</h4>
+                     <h4 id="analysisModeTitle">Aguardando sinal</h4>
                     <div class="analysis-card">
                      <div class="confidence-meter">
                          <div class="confidence-bar">
@@ -11073,14 +11170,19 @@ async function persistAnalyzerState(newState) {
             <div class="entries-section">
             <div class="entries-panel" id="entriesPanel">
                     <div class="entries-tabs-bar" id="entriesTabs">
-                        <button type="button" class="entries-tab active" data-tab="entries">Sinais</button>
+                        <button type="button" class="entries-tab" data-tab="master">Sinais</button>
+                        <button type="button" class="entries-tab active" data-tab="entries">IA</button>
                         <button type="button" class="entries-tab" data-tab="bets" aria-disabled="true">Apostas</button>
                         <button type="button" class="entries-tab" data-tab="chart">Gráfico</button>
                     </div>
                 <div class="entries-header">
                     <span class="entries-hit" id="entriesHit">Acertos: 0/0 (0%)</span>
+                    <span class="entries-hit" id="masterEntriesHit" style="display:none;">Sinais de entrada: 0/0 (0%)</span>
                 </div>
                     <div class="entries-content">
+                        <div class="entries-view" data-view="master" hidden>
+                            <div class="entries-list" id="masterEntriesList"></div>
+                        </div>
                         <div class="entries-view" data-view="entries">
                 <div class="entries-list" id="entriesList"></div>
                         </div>
@@ -11186,39 +11288,39 @@ async function persistAnalyzerState(newState) {
                 </div>
                 
                 <div class="observer-section">
-                    <h4>Calibrador de porcentagens</h4>
+                    <h4>Sinais de entrada</h4>
                     <div class="observer-stats" id="observerStats">
                         <div class="observer-loading">Carregando...</div>
                     </div>
                     <div class="observer-calibration">
-                        <div class="calibration-label">Fator de Calibração:</div>
-                        <div class="calibration-value" id="calibrationFactor">100%</div>
+                        <div class="calibration-label">Próximo sinal:</div>
+                        <div class="calibration-value" id="calibrationFactor">—</div>
                     </div>
                     <div class="observer-accuracy">
                         <div class="accuracy-item">
-                            <span class="accuracy-label">Total monitorado:</span>
+                            <span class="accuracy-label">Sinais analisados:</span>
                             <span class="accuracy-value" id="observerTotal">0</span>
                         </div>
                         <div class="accuracy-item">
-                            <span class="accuracy-label">Taxa real:</span>
+                            <span class="accuracy-label">Alvos/Distâncias:</span>
                             <span class="accuracy-value" id="observerWinRate">0%</span>
                         </div>
                     </div>
                     <div class="observer-by-confidence">
                         <div class="obs-conf-item">
-                            <span class="obs-conf-label">Alta (≥80%):</span>
-                            <span class="obs-conf-stat" id="obsHigh">Prev: -- | Real: --</span>
+                            <span class="obs-conf-label">Entrada:</span>
+                            <span class="obs-conf-stat" id="obsHigh">—</span>
                         </div>
                         <div class="obs-conf-item">
-                            <span class="obs-conf-label">Média (60-79%):</span>
-                            <span class="obs-conf-stat" id="obsMedium">Prev: -- | Real: --</span>
+                            <span class="obs-conf-label">G1:</span>
+                            <span class="obs-conf-stat" id="obsMedium">—</span>
                         </div>
                         <div class="obs-conf-item">
-                            <span class="obs-conf-label">Baixa (<60%):</span>
-                            <span class="obs-conf-stat" id="obsLow">Prev: -- | Real: --</span>
+                            <span class="obs-conf-label">G2:</span>
+                            <span class="obs-conf-stat" id="obsLow">—</span>
                         </div>
                     </div>
-                    <button id="refreshObserverBtn" class="refresh-observer-btn">🔄 Atualizar</button>
+                    <!-- Atualização é automática (debounce). Botão removido. -->
                 </div>
                 
                 <div class="stats-section">
@@ -13640,6 +13742,10 @@ async function persistAnalyzerState(newState) {
     }
     // Update sidebar with new data
     function updateSidebar(data) {
+        // ═══════════════════════════════════════════════════════════════
+        // 👑 SINAL DE ENTRADA - OVERLAY NO TOPO DO PAINEL (Saldo/Lucro/Perdas...)
+        // ═══════════════════════════════════════════════════════════════
+        // Nota: funções/estado ficam fora para evitar recriar a cada updateSidebar
         const lastSpinNumber = document.getElementById('lastSpinNumber');
         const confidenceFill = document.getElementById('confidenceFill');
         const confidenceText = document.getElementById('confidenceText');
@@ -13678,39 +13784,36 @@ async function persistAnalyzerState(newState) {
                     patternInfo?.classList?.add('pattern-expanded');
                 } catch (_) {}
                 const confidence = analysis.confidence;
+                const isEntrySignal = !!(analysis && analysis.masterSignal && analysis.masterSignal.active);
                 const phaseLabel = (analysis.phase && analysis.phase !== 'ENTRADA' && analysis.phase !== 'G0')
                     ? analysis.phase.toUpperCase()
                     : '';
                 
                 // Só atualiza UI se a análise mudou (evita flutuação a cada 2s)
-                const analysisSig = `${analysis.suggestion}|${analysis.color}|${confidence.toFixed(2)}|${phaseLabel}|${analysis.createdOnTimestamp || analysis.timestamp || ''}`;
+                const analysisSig = `${isEntrySignal ? 'ENTRY' : 'RAW'}|${analysis.color}|${confidence.toFixed(2)}|${phaseLabel}|${analysis.createdOnTimestamp || analysis.timestamp || ''}`;
                 if (analysisSig !== lastAnalysisSignature) {
                     lastAnalysisSignature = analysisSig;
-                    // Update confidence meter
-                    confidenceFill.style.width = `${confidence}%`;
-                    confidenceText.textContent = `${confidence.toFixed(1)}%`;
                     
-                    // Update suggestion
-                    // ✅ VERIFICAR SE É ANÁLISE DIAMANTE
-                    const isDiamondMode = analysis.patternDescription && 
-                                          (analysis.patternDescription.includes('NÍVEL DIAMANTE') || 
-                                           analysis.patternDescription.includes('5 Níveis'));
-                    const suggestionTitle = isDiamondMode ? 'Análise por IA' : analysis.suggestion;
-                    if (suggestionColor) {
-                        suggestionColor.setAttribute('title', suggestionTitle || '');
-                    }
-                    // Cor sugerida com o mesmo estilo do histórico (quadrado com anel)
-                    suggestionColor.className = `suggestion-color suggestion-color-box ${analysis.color}`;
-                    
-                    // Conteúdo do círculo de cor
-                    if (analysis.color === 'white') {
-                        suggestionColor.innerHTML = blazeWhiteSVG(20);
+                    if (isEntrySignal) {
+                        // ✅ Mostrar SOMENTE o sinal que o usuário vai entrar (Sinal de entrada)
+                        confidenceFill.style.width = `${confidence}%`;
+                        confidenceText.textContent = `${confidence.toFixed(1)}%`;
+
+                        if (suggestionColor) {
+                            suggestionColor.removeAttribute('data-gale');
+                            suggestionColor.className = `suggestion-color suggestion-color-box ${analysis.color}`;
+                            suggestionColor.setAttribute('title', 'Sinal de entrada');
+                            // Estilo "Apostas": anel girando aguardando resultado
+                            suggestionColor.innerHTML = `<span class="pending-indicator"></span>`;
+                        }
                     } else {
-                        suggestionColor.innerHTML = ''; // Vazio para vermelho/preto (o círculo vem do CSS)
+                        // ❌ Não exibir sinal bruto (IA/Padrão) aqui em cima
+                        confidenceFill.style.width = '0%';
+                        confidenceText.textContent = '0%';
+                        renderSuggestionStatus(currentAnalysisStatus);
+                        setSuggestionStage('');
                     }
-                    
-                    console.log('📊 Cor sugerida atualizada:', analysis.color);
-                    
+
                     // Sincronizar visual do modo aposta
                     syncBetModeView();
                 }
@@ -13783,17 +13886,7 @@ async function persistAnalyzerState(newState) {
                             }
                         }
                         
-                        // ✅ ATUALIZAR TÍTULO DO MODO DE ANÁLISE
-                        const analysisModeTitle = document.getElementById('analysisModeTitle');
-                        if (analysisModeTitle) {
-                            if (isAIAnalysis) {
-                                analysisModeTitle.textContent = 'Análise por Inteligência Artificial';
-                            } else {
-                                analysisModeTitle.textContent = 'Análise por Sistema Padrão';
-                            }
-                            // Atualizar título do modo aposta
-                            syncBetModeView();
-                        }
+                        // ✅ Não atualizar título aqui (agora o topo exibe apenas Sinal de entrada)
                         console.log('✅ Padrão processado com sucesso!');
                         console.log('🔍 =====================================');
                         console.log('');
@@ -13813,13 +13906,24 @@ async function persistAnalyzerState(newState) {
                 } else {
                     renderSafeZoneStatus(null);
                 }
+
+                // ✅ Overlay removido: agora o Sinal de entrada aparece destacado AQUI em cima.
+                try { hideMasterSignalOverlay(); } catch (_) {}
+
+                // ✅ Título do bloco superior: agora é sinal (não análise)
+                try {
+                    const analysisModeTitle = document.getElementById('analysisModeTitle');
+                    if (analysisModeTitle) {
+                        analysisModeTitle.textContent = isEntrySignal ? 'Sinal de entrada' : 'Aguardando sinal';
+                    }
+                } catch (_) {}
                 
                 // ✅ Update G1 status - LÓGICA CORRETA baseada no Martingale
                 // Verificar estado do Martingale para mostrar o indicador correto
                 storageCompat.get(['martingaleState']).then((result = {}) => {
                     const martingaleState = result.martingaleState;
                     
-                    if (martingaleState && martingaleState.active) {
+                    if (isEntrySignal && martingaleState && martingaleState.active) {
                         // ✅ LÓGICA CORRETA BASEADA NO NÚMERO DE LOSSES:
                         // - G1 = 1 LOSS anterior
                         // - G2 = 2 LOSSes anteriores  
@@ -13866,10 +13970,10 @@ async function persistAnalyzerState(newState) {
                 confidenceFill.style.width = '0%';
                 confidenceText.textContent = '0%';
                 
-                // ✅ RESETAR TÍTULO DO MODO DE ANÁLISE
+                // ✅ RESETAR TÍTULO DO BLOCO (agora é sinal)
                 const analysisModeTitle = document.getElementById('analysisModeTitle');
                 if (analysisModeTitle) {
-                    analysisModeTitle.textContent = 'Aguardando Análise';
+                    analysisModeTitle.textContent = 'Aguardando sinal';
                 }
                 // Resetar também o resumo do modo aposta
                 syncBetModeView();
@@ -13881,6 +13985,8 @@ async function persistAnalyzerState(newState) {
                 patternInfo.title = '';
                 try { patternInfo?.classList?.remove('pattern-expanded'); } catch (_) {}
                 setSuggestionStage('');
+                // ✅ Encerrar overlay do Sinal de entrada imediatamente quando não há análise
+                try { hideMasterSignalOverlay(); } catch (_) {}
                 // status indicator removed; entries panel shows progress
             }
         }
@@ -13916,6 +14022,115 @@ async function persistAnalyzerState(newState) {
                 historyContainer.style.opacity = '1';
         }
     }
+
+    // ═══════════════════════════════════════════════════════════════
+    // 👑 SINAL DE ENTRADA - OVERLAY (aparece sobre o topo do painel)
+    // ═══════════════════════════════════════════════════════════════
+    let masterSignalOverlayEl = null;
+    let masterSignalOverlaySignature = null;
+
+    function getMasterSignalOverlayTarget() {
+        const primary = document.getElementById('autoBetSummary');
+        if (primary && primary.offsetParent !== null) return primary;
+        const collapsed = document.getElementById('autoBetSummaryCollapsed');
+        if (collapsed && collapsed.offsetParent !== null) return collapsed;
+        return primary || collapsed || null;
+    }
+
+    function normalizeOverlayPhaseLabel(phase) {
+        const p = String(phase || '').toUpperCase().trim();
+        if (!p || p === 'G0' || p === 'ENTRADA') return 'ENTRADA';
+        return p;
+    }
+
+    function normalizeOverlayColor(color) {
+        const c = String(color || '').toLowerCase().trim();
+        if (c === 'red' || c === 'black' || c === 'white') return c;
+        return 'neutral';
+    }
+
+    function ensureMasterSignalOverlay() {
+        const target = getMasterSignalOverlayTarget();
+        if (!target) return null;
+
+        if (!masterSignalOverlayEl || !masterSignalOverlayEl.isConnected) {
+            masterSignalOverlayEl = document.createElement('div');
+            masterSignalOverlayEl.id = 'masterSignalOverlay';
+            masterSignalOverlayEl.className = 'master-signal-overlay';
+            masterSignalOverlayEl.style.display = 'none';
+            // Não bloquear clique dos controles (toggle/config) por baixo
+            masterSignalOverlayEl.style.pointerEvents = 'none';
+
+            // Garantir contexto de posicionamento
+            try {
+                const pos = window.getComputedStyle(target).position;
+                if (!pos || pos === 'static') {
+                    target.style.position = 'relative';
+                }
+            } catch (_) {}
+
+            target.appendChild(masterSignalOverlayEl);
+        } else if (masterSignalOverlayEl.parentElement !== target) {
+            // Se alternou modo compacto/colapsado, mover overlay para o container certo
+            try { masterSignalOverlayEl.remove(); } catch (_) {}
+            masterSignalOverlayEl = null;
+            masterSignalOverlaySignature = null;
+            return ensureMasterSignalOverlay();
+        }
+
+        return masterSignalOverlayEl;
+    }
+
+    function showMasterSignalOverlay(analysis) {
+        const overlay = ensureMasterSignalOverlay();
+        if (!overlay) return;
+
+        const color = normalizeOverlayColor(analysis?.color);
+        const phaseLabel = normalizeOverlayPhaseLabel(analysis?.phase);
+        const confidence = (typeof analysis?.confidence === 'number') ? Number(analysis.confidence) : null;
+        const ms = analysis && typeof analysis === 'object' ? analysis.masterSignal : null;
+        const diamondSrc = (ms && ms.diamondSourceLevel) ? ms.diamondSourceLevel : (analysis ? analysis.diamondSourceLevel : null);
+        const diamondId = diamondSrc && diamondSrc.id ? String(diamondSrc.id) : '';
+        const diamondStats = (ms && ms.diamondSourceLevelStats) ? ms.diamondSourceLevelStats : null;
+        const diamondPct = (diamondStats && typeof diamondStats.hitRate === 'number')
+            ? (diamondStats.hitRate * 100).toFixed(1)
+            : '';
+
+        const sig = `${analysis?.createdOnTimestamp || analysis?.timestamp || ''}|${color}|${phaseLabel}|${confidence != null ? confidence.toFixed(1) : ''}|${diamondId}|${diamondPct}`;
+        if (sig === masterSignalOverlaySignature && overlay.style.display !== 'none') {
+            return;
+        }
+        masterSignalOverlaySignature = sig;
+
+        const colorLabel = color === 'red' ? 'VERMELHO' : color === 'black' ? 'PRETO' : color === 'white' ? 'BRANCO' : '—';
+        const confText = confidence != null ? `${confidence.toFixed(1)}%` : '—';
+        const levelText = diamondId
+            ? ` • Nível: <b>${diamondId}</b>${diamondPct ? ` (${diamondPct}%)` : ''}`
+            : '';
+
+        overlay.innerHTML = `
+            <div class="master-signal-content">
+                <div class="master-signal-left">
+                    <div class="master-signal-badge">SINAL DE ENTRADA</div>
+                    <div class="master-signal-action">ENTRAR AGORA</div>
+                    <div class="master-signal-meta">Fase: <b>${phaseLabel}</b> • Confiança: <b>${confText}</b>${levelText}</div>
+                </div>
+                <div class="master-signal-right">
+                    <div class="master-signal-color-box ${color}" aria-label="${colorLabel}" title="${colorLabel}">
+                        <div class="master-signal-color-label">${colorLabel}</div>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        overlay.style.display = 'flex';
+    }
+
+    function hideMasterSignalOverlay() {
+        if (!masterSignalOverlayEl) return;
+        masterSignalOverlayEl.style.display = 'none';
+        masterSignalOverlaySignature = null;
+    }
     
     function renderSuggestionStatus(statusText) {
         const suggestionColor = document.getElementById('suggestionColor');
@@ -13935,15 +14150,21 @@ async function persistAnalyzerState(newState) {
     function setSuggestionStage(label) {
         const suggestionStage = document.getElementById('suggestionStage');
         const wrapper = suggestionStage?.closest('.suggestion-color-wrapper');
-        if (!suggestionStage) return;
-        if (label) {
-            suggestionStage.textContent = label;
-            suggestionStage.classList.add('visible');
-            if (wrapper) wrapper.classList.add('has-stage');
-        } else {
+        // ✅ Novo: indicador fica DENTRO do quadrado da cor (como no visual de "Apostas")
+        // O elemento lateral (suggestionStage) não é mais usado.
+        if (suggestionStage) {
             suggestionStage.textContent = '';
             suggestionStage.classList.remove('visible');
-            if (wrapper) wrapper.classList.remove('has-stage');
+        }
+        if (wrapper) wrapper.classList.remove('has-stage');
+
+        const suggestionColor = document.getElementById('suggestionColor');
+        if (suggestionColor) {
+            if (label) {
+                suggestionColor.setAttribute('data-gale', String(label));
+            } else {
+                suggestionColor.removeAttribute('data-gale');
+            }
         }
         
         // Atualizar visual do modo aposta (usa mesma cor/estágio)
@@ -14125,9 +14346,19 @@ async function persistAnalyzerState(newState) {
             const entryMode = resolveEntryMode(e);
             return entryMode === currentMode;
         });
+
+        // ✅ Cutoff da aba IA: quando o usuário clica "Limpar" na IA, esconder TUDO que está na IA (inclui mestres),
+        // mas sem afetar Sinais/Gráfico/Apostas (que usam outro cutoff).
+        const entriesCutoffMs = getEntriesCutoffMs(currentMode);
+        const entriesByModeForIA = entriesByMode.filter(e => getEntryTimestampMs(e) >= entriesCutoffMs);
+        
+        // ✅ IA (Fase 1) deve mostrar TAMBÉM os sinais mestre.
+        // A limpeza da aba Sinais/Gráfico é feita via cutoff, sem apagar entriesHistory.
+        const masterCutoffMs = getMasterEntriesCutoffMs(currentMode);
+        const entriesByModeMaster = entriesByMode.filter(e => !!(e && e.isMaster) && getEntryTimestampMs(e) >= masterCutoffMs);
         
         console.log(`   Total de entradas: ${entries.length}`);
-        console.log(`   Entradas do modo ${currentMode}: ${entriesByMode.length}`);
+        console.log(`   Entradas do modo ${currentMode}: ${entriesByMode.length} (IA>=cutoff=${entriesByModeForIA.length} | Sinais>=cutoff=${entriesByModeMaster.length})`);
         
         // ═══════════════════════════════════════════════════════════════
         // ✅ FILTRAR ENTRADAS - MOSTRAR APENAS RESULTADOS FINAIS
@@ -14135,16 +14366,16 @@ async function persistAnalyzerState(newState) {
         // REGRA DE EXIBIÇÃO:
         // - WIN (qualquer estágio) → SEMPRE MOSTRAR
         // - LOSS intermediário (continuando para próximo Gale) → NUNCA MOSTRAR
-        // - LOSS final (RET ou fim de ciclo) → SEMPRE MOSTRAR
+        // - LOSS final (RED ou fim de ciclo) → SEMPRE MOSTRAR
         
-        const filteredEntries = entriesByMode.filter(e => {
+        const filteredEntries = entriesByModeForIA.filter(e => {
             // ✅ Sempre mostrar WINs (qualquer estágio)
             if (e.result === 'WIN') return true;
             
             // ✅ Para LOSSes, verificar se é FINAL ou INTERMEDIÁRIO
             if (e.result === 'LOSS') {
-                // Se tem finalResult === 'RET', é LOSS FINAL → MOSTRAR
-                if (e.finalResult === 'RET') return true;
+                // Se tem finalResult === 'RED' (ou legado 'RET'), é LOSS FINAL → MOSTRAR
+                if (e.finalResult === 'RED' || e.finalResult === 'RET') return true;
                 
                 // Verificar se está continuando para próximo Gale
                 let isContinuing = false;
@@ -14166,7 +14397,7 @@ async function persistAnalyzerState(newState) {
             return true;
         });
         
-        console.log(`📊 Entradas: ${entries.length} total | ${entriesByMode.length} do modo ${currentMode} | ${filteredEntries.length} exibidas (${entriesByMode.length - filteredEntries.length} LOSSes intermediários ocultos)`);
+        console.log(`📊 Entradas: ${entries.length} total | IA ${entriesByModeForIA.length} do modo ${currentMode} | ${filteredEntries.length} exibidas (${entriesByModeForIA.length - filteredEntries.length} LOSSes intermediários ocultos)`);
         
         // Renderizar apenas as entradas filtradas
         const items = filteredEntries.map((e, idx) => {
@@ -14197,8 +14428,8 @@ async function persistAnalyzerState(newState) {
                     }
                 } else {
                     // LOSS - mostrar tipo
-                    if (e.finalResult === 'RET') {
-                        // LOSS FINAL (RET) - mostrar em qual Gale perdeu
+                    if (e.finalResult === 'RED' || e.finalResult === 'RET') {
+                        // LOSS FINAL (RED) - mostrar em qual Gale perdeu
                         const stage = e.martingaleStage || e.phase;
                         if (stage === 'ENTRADA' || stage === 'G0') {
                             stageText = 'LOSS'; // Perdeu na entrada sem Gales
@@ -14240,7 +14471,10 @@ async function persistAnalyzerState(newState) {
                 }
             }
             
-            const title = `Giro: ${e.number} • Cor: ${e.color} • ${time} • Resultado: ${e.result}${e.martingaleStage ? ' • Estágio: '+e.martingaleStage : ''}${e.confidence? ' • Confiança: '+e.confidence.toFixed(1)+'%' : ''}`;
+            const title = `Giro: ${e.number} • Cor: ${e.color} • ${time} • Resultado: ${e.result}` +
+                `${e.martingaleStage ? ' • Estágio: '+e.martingaleStage : ''}` +
+                `${e.confidence? ' • Confiança: '+e.confidence.toFixed(1)+'%' : ''}` +
+                `${e.isMaster ? ' • SINAL DE ENTRADA' : ''}`;
             
             // CORREÇÃO: Sempre usar a confidence original que foi exibida no sinal
             const confTop = (typeof e.confidence === 'number') ? `${e.confidence.toFixed(0)}%` : '';
@@ -14263,36 +14497,76 @@ async function persistAnalyzerState(newState) {
         }).join('');
         
         // ═══════════════════════════════════════════════════════════════
-        // ✅ INDICADOR DE GALE ATIVO (BOLINHA PISCANDO NO TOPO)
+        // ✅ INDICADOR DE ENTRADA PENDENTE / GALE ATIVO (NO TOPO)
+        // Agora mostra a COR recomendada (estilo Apostas) + spinner,
+        // e o G1/G2 aparece DENTRO da cor (data-gale).
         // ═══════════════════════════════════════════════════════════════
         storageCompat.get(['martingaleState', 'analysis']).then((result = {}) => {
             const martingaleState = result.martingaleState;
             const analysis = result.analysis;
-            
-            let galeActiveIndicator = '';
-            
-            // Verificar se há Martingale ativo
-            if (martingaleState && martingaleState.active) {
-                // ✅ CORREÇÃO: Criar um item de entrada fake para a bolinha pulsante
-                // Isso fará ela ocupar o lugar padrão do último sinal
-                // Determinar o número do Gale baseado no lossCount
-                const lossCount = martingaleState.lossCount || 0;
-                const galeNumber = lossCount;
-                
-                galeActiveIndicator = `
-                    <div class="entry-item-wrap gale-active-indicator" title="Aguardando G${galeNumber}">
-                        <div class="entry-conf-top gale-placeholder">&nbsp;</div>
-                        <div class="entry-stage gale-placeholder">&nbsp;</div>
-                        <div class="entry-item">
-                            <div class="gale-pulse-circle">${galeNumber}</div>
+
+            const normColor = (value) => {
+                const raw = String(value || '').toLowerCase().trim();
+                if (raw === 'red' || raw === 'vermelho') return 'red';
+                if (raw === 'black' || raw === 'preto') return 'black';
+                if (raw === 'white' || raw === 'branco') return 'white';
+                return null;
+            };
+            const isDiamondAnalysis = (a) => {
+                try {
+                    const desc = a && a.patternDescription ? String(a.patternDescription) : '';
+                    if (a && a.diamondSourceLevel) return true;
+                    return desc.includes('NÍVEL DIAMANTE') || desc.includes('5 Níveis');
+                } catch (_) {
+                    return false;
+                }
+            };
+            const resolveAnalysisMode = (a) => (isDiamondAnalysis(a) ? 'diamond' : 'standard');
+            const isEntrySignal = (a) => !!(a && a.masterSignal && a.masterSignal.active);
+
+            let pendingIndicator = '';
+
+            // 1) Se existe análise PENDENTE (ENTRADA) do modo atual e NÃO é "Sinal de entrada",
+            // exibir já a cor aqui (antes mesmo de ir para G1).
+            const analysisMode = analysis ? resolveAnalysisMode(analysis) : null;
+            const shouldShowPendingEntry = !!(analysis && analysisMode === currentMode && !isEntrySignal(analysis));
+
+            // 2) Se existe Martingale ativo do modo atual e NÃO é ciclo de "Sinal de entrada",
+            // exibir a cor do GALE (currentColor) + G1/G2 dentro.
+            const cycleAnalysis = martingaleState && martingaleState.analysisData ? martingaleState.analysisData : null;
+            const cycleMode = cycleAnalysis ? resolveAnalysisMode(cycleAnalysis) : currentMode;
+            const shouldShowPendingGale = !!(martingaleState && martingaleState.active && cycleMode === currentMode && !isEntrySignal(cycleAnalysis));
+
+            if (shouldShowPendingGale || shouldShowPendingEntry) {
+                const color = shouldShowPendingGale
+                    ? normColor(martingaleState.currentColor || martingaleState.entryColor)
+                    : normColor(analysis?.color);
+                const stage = shouldShowPendingGale
+                    ? String(martingaleState.stage || '').toUpperCase().trim()
+                    : String(analysis?.phase || '').toUpperCase().trim();
+                const galeLabel = shouldShowPendingGale
+                    ? (stage && stage.startsWith('G') ? stage : (martingaleState.lossCount ? `G${martingaleState.lossCount}` : ''))
+                    : (stage && stage.startsWith('G') && stage !== 'G0' ? stage : '');
+
+                if (color) {
+                    const galeAttr = galeLabel ? ` data-gale="${galeLabel}"` : '';
+                    const title = galeLabel ? `IA • Aguardando resultado (${galeLabel})` : 'IA • Aguardando resultado';
+                    pendingIndicator = `
+                        <div class="entry-item-wrap gale-active-indicator" title="${title}">
+                            <div class="entry-conf-top gale-placeholder">&nbsp;</div>
+                            <div class="entry-stage gale-placeholder">&nbsp;</div>
+                            <div class="entry-item">
+                                <div class="entry-box ${color} pending-ring"${galeAttr}></div>
+                                <div class="entry-result-bar win" style="opacity:0;"></div>
+                            </div>
+                            <div class="entry-time gale-placeholder">&nbsp;</div>
                         </div>
-                        <div class="entry-time gale-placeholder">&nbsp;</div>
-                    </div>
-                `;
+                    `;
+                }
             }
-            
+
             // Inserir indicador no TOPO + itens
-            list.innerHTML = galeActiveIndicator + (items || '<div class="no-history">Sem entradas registradas</div>');
+            list.innerHTML = pendingIndicator + (items || '<div class="no-history">Sem entradas registradas</div>');
             
             // ✅ CORREÇÃO: Adicionar evento de clique para mostrar padrão usando o array filtrado correto
             const clickableEntries = list.querySelectorAll('.clickable-entry');
@@ -14312,20 +14586,45 @@ async function persistAnalyzerState(newState) {
         });
         
         // ═══════════════════════════════════════════════════════════════
-        // ✅ CALCULAR ESTATÍSTICAS DOS CICLOS COMPLETOS E TOTAL DE ENTRADAS
+        // ✅ ESTATÍSTICAS (IA) — permanece para a aba IA
         // ═══════════════════════════════════════════════════════════════
         const totalCycles = filteredEntries.length;
         const wins = filteredEntries.filter(e => e.result === 'WIN').length;
         const losses = totalCycles - wins;
         const pct = totalCycles ? ((wins / totalCycles) * 100).toFixed(1) : '0.0';
 
-        // ✅ “Entradas” (contador) deve representar CICLOS FINALIZADOS (o que você vê em Sinais).
+        // ✅ “Entradas” (contador) deve representar CICLOS FINALIZADOS (o que você vê em IA).
         const totalEntries = totalCycles;
 
-        // ✅ Para o gráfico (tick chart), precisamos das TENTATIVAS do ciclo (ENTRADA/G1/G2…),
-        // senão um WIN em G2 aparece como “+20” sem mostrar os 2 LOSS anteriores.
-        // Mantém o placar/contador por ciclo, mas desenha o gráfico por tentativa.
-        const chartAttempts = entriesByMode;
+        // ═══════════════════════════════════════════════════════════════
+        // ✅ GRÁFICO — deve mostrar APENAS os Sinais de entrada (o que o usuário entra)
+        // ═══════════════════════════════════════════════════════════════
+        // entriesByModeMaster já foi calculado acima (aba Sinais/Apostas/Gráfico)
+
+        // Reaproveitar a mesma regra de "só finais" para contar ciclos no gráfico
+        const filteredMasterFinals = entriesByModeMaster.filter(e => {
+            if (!e) return false;
+            if (e.result === 'WIN') return true;
+            if (e.result === 'LOSS') {
+                if (e.finalResult === 'RED' || e.finalResult === 'RET') return true;
+                let isContinuing = false;
+                for (let key in e) {
+                    if (key.startsWith('continuingToG')) { isContinuing = true; break; }
+                }
+                if (isContinuing) return false;
+                return true;
+            }
+            return false;
+        });
+
+        const chartTotalCycles = filteredMasterFinals.length;
+        const chartWins = filteredMasterFinals.filter(e => e.result === 'WIN').length;
+        const chartLosses = chartTotalCycles - chartWins;
+        const chartPct = chartTotalCycles ? ((chartWins / chartTotalCycles) * 100).toFixed(1) : '0.0';
+
+        // Para o tick chart precisamos das TENTATIVAS do ciclo (ENTRADA/G1/G2…),
+        // então aqui passamos o histórico completo APENAS dos Sinais de entrada.
+        const chartAttempts = entriesByModeMaster;
         
         // Mostrar placar WIN/LOSS com porcentagem e total de entradas
         const clearButtonHTML = `<button type="button" class="clear-entries-btn" id="clearEntriesBtn" title="Limpar histórico">Limpar</button>`;
@@ -14341,7 +14640,7 @@ async function persistAnalyzerState(newState) {
 
         // ✅ Atualizar gráfico do modo real (usa o mesmo estilo do simulador)
         try {
-            renderEntriesChart({ wins, losses, totalCycles, totalEntries });
+            renderEntriesChart({ wins: chartWins, losses: chartLosses, totalCycles: chartTotalCycles, totalEntries: chartTotalCycles });
             renderEntriesTickChart(chartAttempts);
         } catch (err) {
             console.warn('⚠️ Falha ao atualizar gráfico do modo real:', err);
@@ -14368,13 +14667,13 @@ async function persistAnalyzerState(newState) {
             const lossMoney = Number.isFinite(lossRaw)
                 ? Math.max(0, lossRaw)
                 : (fallbackProfit < 0 ? Number(Math.abs(fallbackProfit).toFixed(2)) : 0);
-            const pctNum = Number(pct);
+            const pctNum = Number(chartPct);
             queueSignalPanelSnapshotToServer({
                 mode: currentMode,
                 stats: {
-                    wins,
-                    losses,
-                    entries: totalEntries,
+                    wins: chartWins,
+                    losses: chartLosses,
+                    entries: chartTotalCycles,
                     pct: Number.isFinite(pctNum) ? pctNum : 0
                 },
                 chart: {
@@ -14385,6 +14684,213 @@ async function persistAnalyzerState(newState) {
                 }
             });
         } catch (_) {}
+
+        // ✅ Sempre manter painel "Sinais" sincronizado (sem depender do usuário trocar de aba)
+        try { renderMasterEntriesPanel(entries); } catch (_) {}
+    }
+
+        // Render de lista de entradas (apenas Sinais de entrada)
+    function renderMasterEntriesPanel(entries) {
+        const list = document.getElementById('masterEntriesList');
+        const hitEl = document.getElementById('masterEntriesHit');
+        if (!list || !hitEl) return;
+
+        // Detectar modo ativo (Premium vs Diamante)
+        const aiModeToggle = document.querySelector('.ai-mode-toggle.active');
+        const isDiamondMode = !!aiModeToggle;
+        const currentMode = isDiamondMode ? 'diamond' : 'standard';
+
+        let entriesArr = Array.isArray(entries) ? entries : [];
+        const hasExplicitMode = entriesArr.some(e => e && (e.analysisMode === 'diamond' || e.analysisMode === 'standard'));
+        const resolveEntryMode = (e) => {
+            const m = e && typeof e.analysisMode === 'string' ? e.analysisMode : null;
+            if (m === 'diamond' || m === 'standard') return m;
+            return hasExplicitMode ? 'legacy' : 'standard';
+        };
+
+        // ✅ Backfill: se já houve apostas (autoBetHistory) em Sinal de entrada, marcar isMaster no entriesHistory
+        // Isso permite renderizar "Sinais" mesmo para históricos antigos (antes do campo isMaster existir).
+        try {
+            if (!masterEntriesBackfillLock && autoBetHistoryStore && typeof autoBetHistoryStore.getAll === 'function') {
+                const history = autoBetHistoryStore.getAll();
+                const masterIds = new Set(
+                    (Array.isArray(history) ? history : [])
+                        .filter(r => r && r.isMaster && (r.mode || 'standard') === currentMode && r.id != null)
+                        .map(r => String(r.id))
+                );
+                if (masterIds.size) {
+                    let didPatch = false;
+                    const patched = entriesArr.map(e => {
+                        if (!e || typeof e !== 'object') return e;
+                        if (e.isMaster) return e;
+                        const mode = resolveEntryMode(e);
+                        if (mode !== currentMode) return e;
+                        const key = (e.cycleId != null ? e.cycleId : (e.patternData && e.patternData.createdOnTimestamp != null ? e.patternData.createdOnTimestamp : null));
+                        if (key != null && masterIds.has(String(key))) {
+                            didPatch = true;
+                            return { ...e, isMaster: true };
+                        }
+                        return e;
+                    });
+                    if (didPatch) {
+                        masterEntriesBackfillLock = true;
+                        try {
+                            chrome.storage.local.set({ entriesHistory: patched }, function() {
+                                masterEntriesBackfillLock = false;
+                            });
+                        } catch (_) {
+                            masterEntriesBackfillLock = false;
+                        }
+                        entriesArr = patched;
+                    }
+                }
+            }
+        } catch (_) {}
+
+        // Filtrar por modo + somente SINAL DE ENTRADA (respeitando cutoff)
+        const entriesByMode = entriesArr.filter(e => resolveEntryMode(e) === currentMode);
+        const cutoffMs = getMasterEntriesCutoffMs(currentMode);
+        const entriesMaster = entriesByMode.filter(e => !!(e && e.isMaster) && getEntryTimestampMs(e) >= cutoffMs);
+
+        // Filtrar somente resultados finais (mesma regra do painel IA)
+        const filteredEntries = entriesMaster.filter(e => {
+            if (e.result === 'WIN') return true;
+            if (e.result === 'LOSS') {
+                if (e.finalResult === 'RED' || e.finalResult === 'RET') return true;
+                let isContinuing = false;
+                for (let key in e) {
+                    if (key.startsWith('continuingToG')) { isContinuing = true; break; }
+                }
+                if (isContinuing) return false;
+                return true;
+            }
+            return true;
+        });
+
+        const items = filteredEntries.map((e, idx) => {
+            const entryIndex = idx;
+            const time = new Date(e.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            const cls = e.color;
+            const badge = e.color === 'white' ? blazeWhiteSVG(16) : `<span>${e.number}</span>`;
+            const isWin = e.result === 'WIN';
+
+            let barClass = isWin ? 'win' : 'loss';
+            let stageText = '';
+
+            if (e.martingaleStage) {
+                if (isWin) {
+                    if (e.martingaleStage === 'ENTRADA' || e.wonAt === 'ENTRADA') {
+                        stageText = 'WIN';
+                    } else if (e.martingaleStage && e.martingaleStage.startsWith('G')) {
+                        const galeNum = e.martingaleStage.substring(1);
+                        stageText = `WIN <span style="color: white;">G${galeNum}</span>`;
+                    }
+                } else {
+                    if (e.finalResult === 'RED' || e.finalResult === 'RET') {
+                        const stage = e.martingaleStage || e.phase;
+                        if (stage === 'ENTRADA' || stage === 'G0') {
+                            stageText = 'LOSS';
+                        } else if (stage && stage.startsWith('G')) {
+                            const galeNum = stage.substring(1);
+                            stageText = `LOSS <span style="color: white;">G${galeNum}</span>`;
+                        } else {
+                            stageText = 'LOSS';
+                        }
+                    } else {
+                        let isContinuing = false;
+                        let nextGale = '';
+                        for (let key in e) {
+                            if (key.startsWith('continuingToG')) {
+                                isContinuing = true;
+                                nextGale = key.substring('continuingTo'.length);
+                                break;
+                            }
+                        }
+                        stageText = isContinuing
+                            ? `LOSS ➜<span style="color: white;">${nextGale}</span>`
+                            : 'LOSS';
+                    }
+                }
+            } else {
+                const phaseDigit = e.phase === 'G1' ? '1' : (e.phase === 'G2' ? '2' : '');
+                if (phaseDigit) {
+                    stageText = isWin ? `WIN <span style="color: white;">G${phaseDigit}</span>` : `LOSS <span style="color: white;">G${phaseDigit}</span>`;
+                } else {
+                    stageText = isWin ? 'WIN' : 'LOSS';
+                }
+            }
+
+            const title = `Sinal de entrada • Giro: ${e.number} • Cor: ${e.color} • ${time} • Resultado: ${e.result}${e.martingaleStage ? ' • Estágio: ' + e.martingaleStage : ''}${e.confidence ? ' • Confiança: ' + e.confidence.toFixed(1) + '%' : ''}`;
+            const confTop = (typeof e.confidence === 'number') ? `${e.confidence.toFixed(0)}%` : '';
+            const resultBar = `<div class="entry-result-bar ${barClass}"></div>`;
+            const stageLabel = stageText ? `<div class="entry-stage ${barClass}">${stageText}</div>` : '';
+
+            return `<div class="entry-item-wrap clickable-entry" title="${title}" data-entry-index="${entryIndex}">
+                ${confTop ? `<div class="entry-conf-top">${confTop}</div>` : ''}
+                ${stageLabel}
+                <div class="entry-item">
+                    <div class="entry-box ${cls}">${badge}</div>
+                    ${resultBar}
+                </div>
+                <div class="entry-time">${time}</div>
+            </div>`;
+        }).join('');
+
+        // Gale ativo: mostrar somente se o ciclo atual também for Sinal de entrada
+        storageCompat.get(['martingaleState', 'analysis']).then((result = {}) => {
+            const martingaleState = result.martingaleState;
+            const analysis = result.analysis;
+            let galeActiveIndicator = '';
+            const isMasterCycleActive = !!(analysis && analysis.masterSignal && analysis.masterSignal.active);
+            if (martingaleState && martingaleState.active && isMasterCycleActive) {
+                const lossCount = martingaleState.lossCount || 0;
+                const galeNumber = lossCount;
+                const stage = String(martingaleState.stage || '').toUpperCase().trim();
+                const galeLabel = stage && stage.startsWith('G') ? stage : `G${galeNumber}`;
+                const color = String(martingaleState.currentColor || martingaleState.entryColor || analysis?.color || '').toLowerCase().trim();
+                const normalizedColor = (color === 'red' || color === 'black' || color === 'white') ? color : 'neutral';
+                galeActiveIndicator = `
+                    <div class="entry-item-wrap gale-active-indicator" title="Sinal de entrada • Aguardando resultado (${galeLabel})">
+                        <div class="entry-conf-top gale-placeholder">&nbsp;</div>
+                        <div class="entry-stage gale-placeholder">&nbsp;</div>
+                        <div class="entry-item">
+                            <div class="entry-box ${normalizedColor} pending-ring" data-gale="${galeLabel}"></div>
+                            <div class="entry-result-bar win" style="opacity:0;"></div>
+                        </div>
+                        <div class="entry-time gale-placeholder">&nbsp;</div>
+                    </div>
+                `;
+            }
+
+            list.innerHTML = galeActiveIndicator + (items || '<div class="no-history">Nenhum sinal de entrada registrado ainda</div>');
+            const clickableEntries = list.querySelectorAll('.clickable-entry');
+            clickableEntries.forEach((entryEl) => {
+                entryEl.addEventListener('click', function() {
+                    const entryIndex = parseInt(this.getAttribute('data-entry-index'), 10);
+                    const entry = filteredEntries[entryIndex];
+                    if (entry) showPatternForEntry(entry);
+                });
+            });
+        }).catch(() => {
+            list.innerHTML = items || '<div class="no-history">Nenhum sinal de entrada registrado ainda</div>';
+        });
+
+        const totalCycles = filteredEntries.length;
+        const wins = filteredEntries.filter(e => e.result === 'WIN').length;
+        const losses = totalCycles - wins;
+        const pct = totalCycles ? ((wins / totalCycles) * 100).toFixed(1) : '0.0';
+        const totalEntries = totalCycles;
+
+        const clearButtonHTML = `<button type="button" class="clear-entries-btn" id="clearMasterEntriesBtn" title="Limpar histórico de sinais de entrada">Limpar</button>`;
+        hitEl.innerHTML = `<span class="win-score">WIN: ${wins}</span> <span class="loss-score">LOSS: ${losses}</span> <span class="percentage">(${pct}%)</span> <span class="total-entries">• Entradas: ${totalEntries} ${clearButtonHTML}</span>`;
+        const inlineClearBtn = document.getElementById('clearMasterEntriesBtn');
+        if (inlineClearBtn) {
+            inlineClearBtn.addEventListener('click', function(event) {
+                event.preventDefault();
+                event.stopPropagation();
+                clearMasterEntriesHistory();
+            });
+        }
     }
 
     function initEntriesTabs() {
@@ -14408,13 +14914,17 @@ async function persistAnalyzerState(newState) {
     }
 
     function setEntriesTab(tab) {
-        if (tab !== 'entries' && tab !== 'bets' && tab !== 'chart') {
+        if (tab !== 'master' && tab !== 'entries' && tab !== 'bets' && tab !== 'chart') {
             tab = 'entries';
         }
         activeEntriesTab = tab;
+        const masterView = document.querySelector('.entries-view[data-view="master"]');
         const entriesView = document.querySelector('.entries-view[data-view="entries"]');
         const betsView = document.querySelector('.entries-view[data-view="bets"]');
         const chartView = document.querySelector('.entries-view[data-view="chart"]');
+        if (masterView) {
+            masterView.hidden = tab !== 'master';
+        }
         if (entriesView) {
             entriesView.hidden = tab !== 'entries';
         }
@@ -14425,14 +14935,16 @@ async function persistAnalyzerState(newState) {
             chartView.hidden = tab !== 'chart';
         }
         const hitEl = document.getElementById('entriesHit');
-        if (hitEl) {
-            hitEl.style.display = tab === 'entries' ? 'inline-flex' : 'none';
-        }
+        const masterHitEl = document.getElementById('masterEntriesHit');
+        if (hitEl) hitEl.style.display = tab === 'entries' ? 'inline-flex' : 'none';
+        if (masterHitEl) masterHitEl.style.display = tab === 'master' ? 'inline-flex' : 'none';
         const entriesHeader = document.querySelector('.entries-header');
         if (entriesHeader) {
-            entriesHeader.style.display = tab === 'entries' ? 'flex' : 'none';
+            entriesHeader.style.display = (tab === 'entries' || tab === 'master') ? 'flex' : 'none';
         }
-        document.querySelectorAll('.entries-tab').forEach((button) => {
+        const tabsContainer = document.getElementById('entriesTabs');
+        const scope = tabsContainer || document;
+        scope.querySelectorAll('.entries-tab').forEach((button) => {
             button.classList.toggle('active', button.dataset.tab === tab);
         });
     }
@@ -14459,11 +14971,13 @@ async function persistAnalyzerState(newState) {
             return;
         }
         const data = Array.isArray(history) ? history : autoBetHistoryStore.getAll();
-        if (!data.length) {
-            container.innerHTML = `<div class="bets-empty">Nenhuma aposta registrada ainda.</div>`;
+        // ✅ Exibir APENAS ciclos de SINAL DE ENTRADA (entradas reais)
+        const masterOnly = (Array.isArray(data) ? data : []).filter(r => r && r.isMaster);
+        if (!masterOnly.length) {
+            container.innerHTML = `<div class="bets-empty">Nenhum sinal de entrada registrado ainda.</div>`;
             return;
         }
-        const rows = data.map(renderBetHistoryRow).join('');
+        const rows = masterOnly.map(renderBetHistoryRow).join('');
         container.innerHTML = `
             <div class="bets-table-wrapper">
                 <table class="bets-table">
@@ -14585,80 +15099,87 @@ async function persistAnalyzerState(newState) {
     
     // Clear entries history function
     function clearEntriesHistory() {
-        // ✅ NOVO: Limpar APENAS entradas do modo ativo
         chrome.storage.local.get(['entriesHistory'], function(result) {
             const allEntries = result.entriesHistory || [];
-            
+
             // Detectar qual modo está ativo
             const aiModeToggle = document.querySelector('.ai-mode-toggle.active');
             const isDiamondMode = !!aiModeToggle;
             const currentMode = isDiamondMode ? 'diamond' : 'standard';
-            
-            console.log(`🗑️ Limpando entradas do modo: ${currentMode.toUpperCase()}`);
-            console.log(`   Total de entradas antes: ${allEntries.length}`);
-            
-            // ✅ FILTRAR: Remover entradas do modo atual, manter de outros modos
-            const filteredEntries = allEntries.filter(e => {
-                // ✅ Entradas antigas sem analysisMode → tratar como MODO PADRÃO
-                const entryMode = e.analysisMode || 'standard';
-                
-                // Manter apenas se for de OUTRO modo
-                const shouldKeep = entryMode !== currentMode;
-                
-                console.log(`      Entrada: ${e.result} ${e.color || ''} | Modo: ${entryMode} | ${shouldKeep ? 'MANTER ✅' : 'REMOVER ❌'}`);
-                
-                return shouldKeep;
-            });
-            
-            console.log(`   Total de entradas depois: ${filteredEntries.length}`);
-            console.log(`   Entradas removidas: ${allEntries.length - filteredEntries.length}`);
-            
-            chrome.storage.local.set({ entriesHistory: filteredEntries }, function() {
-                console.log(`✅ Histórico de entradas do modo ${currentMode} limpo`);
 
-                // 📌 Registrar evento de "Limpar" no servidor (admin acompanhar)
-                // (não bloquear UX; silencioso)
-                try { postSignalPanelClearEventToServer(currentMode); } catch (_) {}
+            console.log(`🗑️ Limpando ABA IA (modo ${currentMode.toUpperCase()}) via cutoff — sem afetar Sinais/Gráfico`);
 
-                renderEntriesPanel(filteredEntries);
+            const now = Date.now();
+            entriesClearCutoffByMode = {
+                standard: Number(entriesClearCutoffByMode.standard) || 0,
+                diamond: Number(entriesClearCutoffByMode.diamond) || 0
+            };
+            entriesClearCutoffByMode[currentMode] = now;
 
-                // ✅ Novo: resetar também o "simulador da banca" (autoBetRuntime),
-                // para não ficar carregando o saldo/perdas antigos após limpar.
-                try {
-                    if (autoBetManager && typeof autoBetManager.resetRuntime === 'function') {
-                        autoBetManager.resetRuntime();
-                    }
-                } catch (err) {
-                    console.warn('⚠️ Falha ao resetar autoBetRuntime após limpar entradas:', err);
-                }
-
-                // ✅ CRÍTICO: atualizar snapshot interno do AutoBet (autoBetEntriesSnapshot)
-                // Sem isso o painel de saldo fica "preso" até recarregar a página.
-                try {
-                    if (autoBetManager && typeof autoBetManager.handleEntriesUpdate === 'function') {
-                        autoBetManager.handleEntriesUpdate(filteredEntries);
-                    }
-                } catch (err) {
-                    console.warn('⚠️ Falha ao sincronizar saldo após limpar entradas:', err);
-                }
-                
-                // ✅ Notificar background.js para limpar o calibrador também
-                chrome.runtime.sendMessage({ 
-                    action: 'clearEntriesAndObserver' 
-                }, function(response) {
-                    if (response && response.status === 'success') {
-                        console.log('✅ Calibrador sincronizado após limpar entradas');
-                        // Atualizar UI do calibrador
-                        loadObserverStats();
-                    }
+            try {
+                chrome.storage.local.set({ [ENTRIES_CLEAR_CUTOFF_KEY]: entriesClearCutoffByMode }, function() {
+                    console.log('✅ Cutoff salvo para aba IA:', entriesClearCutoffByMode);
                 });
+            } catch (_) {}
 
-                // ✅ Novo: limpar também o histórico da aba de apostas
+            // Re-renderizar IA com cutoff aplicado (Sinais/Gráfico continuam usando seu próprio cutoff)
+            renderEntriesPanel(allEntries);
+
+            // Atualizar card "Sinais de entrada" (Fase 2) e recomputar masterSignal do analysis atual
+            // (agora a Fase 2 respeita o cutoff da IA).
+            try { scheduleMasterSignalStatsRefresh(0); } catch (_) {}
+            try { chrome.runtime.sendMessage({ action: 'RECOMPUTE_MASTER_SIGNAL', mode: currentMode }, function() {}); } catch (_) {}
+        });
+    }
+
+        // Limpar histórico APENAS dos Sinais de entrada (modo ativo)
+    function clearMasterEntriesHistory() {
+        chrome.storage.local.get(['entriesHistory'], function(result) {
+            const allEntries = result.entriesHistory || [];
+
+            const aiModeToggle = document.querySelector('.ai-mode-toggle.active');
+            const isDiamondMode = !!aiModeToggle;
+            const currentMode = isDiamondMode ? 'diamond' : 'standard';
+
+            console.log(`🗑️ Limpando ABA SINAIS (modo ${currentMode.toUpperCase()}) via cutoff — mantendo histórico da IA`);
+
+            // 1) Setar cutoff por modo (não apagar entriesHistory)
+            const now = Date.now();
+            masterEntriesClearCutoffByMode = {
+                standard: Number(masterEntriesClearCutoffByMode.standard) || 0,
+                diamond: Number(masterEntriesClearCutoffByMode.diamond) || 0
+            };
+            masterEntriesClearCutoffByMode[currentMode] = now;
+
+            try {
+                chrome.storage.local.set({ [MASTER_CLEAR_CUTOFF_KEY]: masterEntriesClearCutoffByMode }, function() {
+                    console.log('✅ Cutoff salvo para aba Sinais/Gráfico:', masterEntriesClearCutoffByMode);
+                });
+            } catch (_) {}
+
+            // 📌 Registrar evento de "Limpar" no servidor (admin acompanhar) — este é o "Limpar" de Sinais/Gráfico.
+            // (não bloquear UX; silencioso)
+            try { postSignalPanelClearEventToServer(currentMode); } catch (_) {}
+
+            // 2) Resetar autoBet (mestre-only) e limpar histórico de apostas (mestre-only)
+            try {
+                if (autoBetManager && typeof autoBetManager.resetRuntime === 'function') {
+                    autoBetManager.resetRuntime();
+                }
+            } catch (err) {
+                console.warn('⚠️ Falha ao resetar autoBetRuntime após limpar Sinais:', err);
+            }
+
+            try {
                 if (autoBetHistoryStore && typeof autoBetHistoryStore.clear === 'function') {
                     autoBetHistoryStore.clear();
                     renderAutoBetHistoryPanel([]);
                 }
-            });
+            } catch (_) {}
+
+            // 3) Re-renderizar UI mantendo entriesHistory intacto (IA não pode ser afetada)
+            try { renderEntriesPanel(allEntries); } catch (_) {}
+            try { scheduleMasterSignalStatsRefresh(0); } catch (_) {}
         });
     }
     
@@ -14891,7 +15412,6 @@ async function persistAnalyzerState(newState) {
                 // Clona apenas o quadrado de cor, removendo qualquer texto como "Cor indicada"
                 const cloned = colorSource.cloneNode(true);
                 cloned.id = 'betModeSuggestionColor';
-                cloned.textContent = '';
                 suggestionTarget.appendChild(cloned);
             } else {
                 // Sem cor válida → não exibir nada
@@ -15514,6 +16034,8 @@ function logModeSnapshotUI(snapshot) {
             if (autoBetManager && typeof autoBetManager.handleAnalysis === 'function') {
                 autoBetManager.handleAnalysis(request.data);
             }
+            // ✅ Atualizar card dos Sinais de entrada (pode mudar status/contador)
+            try { scheduleMasterSignalStatsRefresh(); } catch (_) {}
         } else if (request.type === 'NEW_SPIN') {
             console.log('%c⚡ NOVO GIRO!', 'color: #00ff88; font-weight: bold;');
             
@@ -15613,14 +16135,12 @@ function logModeSnapshotUI(snapshot) {
             if (autoBetManager && typeof autoBetManager.handleEntriesUpdate === 'function') {
                 autoBetManager.handleEntriesUpdate(request.data);
             }
+            // ✅ Atualizar card dos Sinais de entrada (Fase 2)
+            try { scheduleMasterSignalStatsRefresh(); } catch (_) {}
         } else if (request.type === 'OBSERVER_UPDATE') {
-            // Atualizar Calibrador de porcentagens automaticamente
-            console.log('╔═══════════════════════════════════════════════════════════╗');
-            console.log('║  📊 OBSERVER_UPDATE RECEBIDO!                            ║');
-            console.log('╚═══════════════════════════════════════════════════════════╝');
-            console.log('📊 Dados recebidos:', request.data);
-            updateObserverUI(request.data);
-            console.log('✅ updateObserverUI executado!');
+            // ✅ Compat: OBSERVER_UPDATE antigo pode continuar chegando.
+            // O card agora mostra dados do SINAL DE ENTRADA, então fazemos refresh via action dedicada.
+            try { scheduleMasterSignalStatsRefresh(); } catch (_) {}
         } else if (request.type === 'WEBSOCKET_STATUS') {
             // ✅ GERENCIAR STATUS DO WEBSOCKET
             isWebSocketConnected = request.data.connected;
@@ -15730,10 +16250,32 @@ function logModeSnapshotUI(snapshot) {
     // Load initial data (com retry safe) - SEM histórico (vem do servidor)
     function loadInitialData() {
         try {
-            chrome.storage.local.get(['lastSpin', 'analysis', 'pattern', 'entriesHistory'], function(result) {
+            chrome.storage.local.get(['lastSpin', 'analysis', 'pattern', 'entriesHistory', MASTER_CLEAR_CUTOFF_KEY, ENTRIES_CLEAR_CUTOFF_KEY], function(result) {
                 // Só chama updateSidebar se a extensão não foi invalidada/descarregada
                 if (chrome && chrome.runtime && chrome.runtime.id) {
                     console.log('Dados iniciais carregados:', result);
+
+                    // ✅ Garantir que o cutoff do "Limpar" da aba Sinais/Gráfico esteja carregado antes do primeiro render
+                    try {
+                        const raw = result && result[MASTER_CLEAR_CUTOFF_KEY] ? result[MASTER_CLEAR_CUTOFF_KEY] : null;
+                        if (raw && typeof raw === 'object') {
+                            masterEntriesClearCutoffByMode = {
+                                standard: Number(raw.standard) || 0,
+                                diamond: Number(raw.diamond) || 0
+                            };
+                        }
+                    } catch (_) {}
+
+                    // ✅ Cutoff da aba IA (para o botão "Limpar" da IA)
+                    try {
+                        const raw = result && result[ENTRIES_CLEAR_CUTOFF_KEY] ? result[ENTRIES_CLEAR_CUTOFF_KEY] : null;
+                        if (raw && typeof raw === 'object') {
+                            entriesClearCutoffByMode = {
+                                standard: Number(raw.standard) || 0,
+                                diamond: Number(raw.diamond) || 0
+                            };
+                        }
+                    } catch (_) {}
                     
                     // Atualizar sidebar com análise e último giro
                     updateSidebar(result);
@@ -16408,7 +16950,7 @@ function logModeSnapshotUI(snapshot) {
                         };
 
                         const patched = entries.map((e) => {
-                            if (!e || (e.finalResult !== 'WIN' && e.finalResult !== 'RET')) return e;
+                            if (!e || (e.finalResult !== 'WIN' && e.finalResult !== 'RED' && e.finalResult !== 'RET')) return e;
                             // Se já está “congelado”, não mexer
                             if (Number.isFinite(Number(e.cycleNetProfit)) && Number.isFinite(Number(e.baseStakeSnapshot)) && Number.isFinite(Number(e.galeMultiplierSnapshot))) {
                                 return e;
@@ -16780,19 +17322,83 @@ function logModeSnapshotUI(snapshot) {
         
         // Limpar loading
         observerStats.innerHTML = '';
-        
-        // ✅ Verificar se está em modo de coleta (< 10 entradas)
-        const isCollecting = stats.total < 10;
-        
-        // Atualizar calibração
+
+        const safe = stats && typeof stats === 'object' ? stats : {};
+        const totalCycles = Number.isFinite(Number(safe.totalCycles)) ? Number(safe.totalCycles) : 0;
+        const wins = Number.isFinite(Number(safe.wins)) ? Number(safe.wins) : 0;
+        const rets = Number.isFinite(Number(safe.rets)) ? Number(safe.rets) : 0;
+        const cycleWinRate = Number.isFinite(Number(safe.cycleWinRate)) ? Number(safe.cycleWinRate) : 0;
+        const minCycles = Number.isFinite(Number(safe.minCycles)) ? Number(safe.minCycles) : 10;
+        const nextIsMaster = !!safe.nextIsMaster;
+        const hasCurrentSignal = !!safe.hasCurrentSignal;
+        const decisionWindowCycles = Number.isFinite(Number(safe.decisionWindowCycles)) ? Number(safe.decisionWindowCycles) : null;
+        const entryTargets = Array.isArray(safe.entryTargets) ? safe.entryTargets.map(Number).filter(n => Number.isFinite(n) && n > 0) : [];
+        const g1Targets = Array.isArray(safe.g1Targets) ? safe.g1Targets.map(Number).filter(n => Number.isFinite(n) && n > 0) : [];
+        const g2Targets = Array.isArray(safe.g2Targets) ? safe.g2Targets.map(Number).filter(n => Number.isFinite(n) && n > 0) : [];
+        const retTargets = Array.isArray(safe.retTargets) ? safe.retTargets.map(Number).filter(n => Number.isFinite(n) && n > 0) : [];
+        const entryTargetWindow = Number.isFinite(Number(safe.entryTargetWindow)) ? Number(safe.entryTargetWindow) : 0;
+        const sinceEntrada = Number.isFinite(Number(safe.sinceEntrada)) ? Number(safe.sinceEntrada) : null;
+        const sinceRet = Number.isFinite(Number(safe.sinceRet)) ? Number(safe.sinceRet) : null;
+        const neededToStart = Number.isFinite(Number(safe.neededToStart)) ? Number(safe.neededToStart) : Math.max(0, minCycles - totalCycles);
+        const distanceSinceLastRet = Number.isFinite(Number(safe.distanceSinceLastRet)) ? Number(safe.distanceSinceLastRet) : null;
+        const modeLabel = safe.mode === 'diamond' ? 'Diamante' : 'Premium';
+
+        const isCollecting = totalCycles < minCycles;
+
+        // Bloco informativo (motivo + distância)
+        const reasonText = safe.reason ? String(safe.reason) : (isCollecting ? 'Coletando dados...' : '—');
+        const distText = distanceSinceLastRet === null ? 'n/d' : String(distanceSinceLastRet);
+        const fmtList = (arr) => (Array.isArray(arr) && arr.length ? arr.join(',') : '—');
+        const windowText = decisionWindowCycles != null ? ` (janela=${decisionWindowCycles} • prioriza recente)` : '';
+        const streaks = safe.streaks && typeof safe.streaks === 'object' ? safe.streaks : null;
+        const streakText = (() => {
+            if (!streaks) return '';
+            const minSamples = Number.isFinite(Number(streaks.minSamples)) ? Number(streaks.minSamples) : 0;
+            const parts = [];
+            const red = streaks.red || null;
+            if (red && Number.isFinite(Number(red.samples)) && red.samples >= minSamples && red.continueProb != null) {
+                const p = Math.max(0, Math.min(1, Number(red.continueProb))) * 100;
+                parts.push(`REDx${Number(red.current) || 0} → P(próx RED|≥${Number(red.k) || 1}RED)=${p.toFixed(0)}% (${Number(red.hits) || 0}/${Number(red.samples) || 0})`);
+            }
+            const g1 = streaks.g1 || null;
+            if (g1 && Number.isFinite(Number(g1.samples)) && g1.samples >= minSamples && g1.nextWinProb != null) {
+                const p = Math.max(0, Math.min(1, Number(g1.nextWinProb))) * 100;
+                parts.push(`G1x${Number(g1.current) || 0} → P(WIN|≥${Number(g1.k) || 1}xG1)=${p.toFixed(0)}% (${Number(g1.hits) || 0}/${Number(g1.samples) || 0})`);
+            }
+            const g2 = streaks.g2 || null;
+            if (g2 && Number.isFinite(Number(g2.samples)) && g2.samples >= minSamples && g2.nextWinProb != null) {
+                const p = Math.max(0, Math.min(1, Number(g2.nextWinProb))) * 100;
+                parts.push(`G2+x${Number(g2.current) || 0} → P(WIN|≥${Number(g2.k) || 1}xG2+)=${p.toFixed(0)}% (${Number(g2.hits) || 0}/${Number(g2.samples) || 0})`);
+            }
+            if (!parts.length) return '';
+            return parts.join(' • ');
+        })();
+        observerStats.innerHTML = `
+            <div class="observer-loading" style="padding:0; text-align:left;">
+                <div><b>Modo:</b> ${modeLabel}</div>
+                <div><b>Distância do último LOSS:</b> ${distText}</div>
+                <div><b>WIN (ciclo):</b> ${totalCycles > 0 ? `${cycleWinRate.toFixed(1)}% (${wins}/${totalCycles})` : '—'}</div>
+                <div><b>LOSS (RED):</b> ${totalCycles > 0 ? `${rets}/${totalCycles}` : '—'}</div>
+                <div><b>Distâncias (gaps reais)</b>${windowText}: ENTR [${fmtList(entryTargets)}] • G1 [${fmtList(g1Targets)}] • G2 [${fmtList(g2Targets)}] • RED [${fmtList(retTargets)}]</div>
+                ${streakText ? `<div><b>Sequências (streaks):</b> ${streakText}</div>` : ''}
+                <div><b>Status:</b> ${reasonText}</div>
+            </div>
+        `;
+
+        // Atualizar "Próximo sinal"
         const calibrationFactor = document.getElementById('calibrationFactor');
         if (calibrationFactor) {
             if (isCollecting) {
-                calibrationFactor.textContent = '100.0% (coletando dados)';
+                calibrationFactor.textContent = `Coletando ${totalCycles}/${minCycles}`;
                 calibrationFactor.style.color = '#ffa500'; // Laranja
             } else {
-                calibrationFactor.textContent = (stats.calibrationFactor * 100).toFixed(1) + '%';
-                calibrationFactor.style.color = ''; // Cor padrão
+                if (!hasCurrentSignal) {
+                    calibrationFactor.textContent = 'Aguardando';
+                    calibrationFactor.style.color = '#cdd6e8';
+                } else {
+                    calibrationFactor.textContent = nextIsMaster ? 'Sinal liberado' : 'Normal';
+                    calibrationFactor.style.color = nextIsMaster ? '#00ff88' : '#ef5350';
+                }
             }
         }
         
@@ -16800,60 +17406,61 @@ function logModeSnapshotUI(snapshot) {
         const observerTotal = document.getElementById('observerTotal');
         if (observerTotal) {
             if (isCollecting) {
-                observerTotal.textContent = `${stats.total}/10`;
+                observerTotal.textContent = `${totalCycles}/${minCycles}`;
                 observerTotal.style.color = '#ffa500'; // Laranja
             } else {
-                observerTotal.textContent = stats.total;
+                observerTotal.textContent = String(totalCycles);
                 observerTotal.style.color = ''; // Cor padrão
             }
         }
         
         const observerWinRate = document.getElementById('observerWinRate');
         if (observerWinRate) {
-            observerWinRate.textContent = stats.winRate.toFixed(1) + '%';
             if (isCollecting) {
-                observerWinRate.style.color = '#ffa500'; // Laranja
+                observerWinRate.textContent = `${neededToStart} sinal(is) p/ iniciar`;
+                observerWinRate.style.color = '#ffa500';
             } else {
-                observerWinRate.style.color = ''; // Cor padrão
+                const entPart = (sinceEntrada != null) ? `ENTR atual=${sinceEntrada} alvo(s)=${fmtList(entryTargets)}${entryTargetWindow ? `±${entryTargetWindow}` : ''}` : 'ENTR —';
+                const retPart = (sinceRet != null) ? `RED atual=${sinceRet} evitar=${fmtList(retTargets)}` : 'RED —';
+                observerWinRate.textContent = `${entPart} • ${retPart}`;
+                observerWinRate.style.color = '#cdd6e8';
             }
         }
         
-        // Atualizar por faixa de confiança
+        // Atualizar probabilidades por estágio (ciclo)
         const obsHigh = document.getElementById('obsHigh');
         if (obsHigh) {
-            const high = stats.byConfidence.high;
-            if (high.total > 0) {
-                obsHigh.textContent = `Prev: ${high.predicted.toFixed(0)}% | Real: ${high.actual.toFixed(0)}%`;
-            } else {
-                obsHigh.textContent = 'Sem dados';
-            }
+            const pct = Number.isFinite(Number(safe.entryWinPct)) ? Number(safe.entryWinPct) : 0;
+            const count = Number.isFinite(Number(safe.entryWinCount)) ? Number(safe.entryWinCount) : 0;
+            obsHigh.textContent = totalCycles > 0
+                ? `${pct.toFixed(1)}% (${count}/${totalCycles}) • Δ ${fmtList(entryTargets)}`
+                : '—';
         }
         
         const obsMedium = document.getElementById('obsMedium');
         if (obsMedium) {
-            const medium = stats.byConfidence.medium;
-            if (medium.total > 0) {
-                obsMedium.textContent = `Prev: ${medium.predicted.toFixed(0)}% | Real: ${medium.actual.toFixed(0)}%`;
-            } else {
-                obsMedium.textContent = 'Sem dados';
-            }
+            const pct = Number.isFinite(Number(safe.g1WinPct)) ? Number(safe.g1WinPct) : 0;
+            const count = Number.isFinite(Number(safe.g1WinCount)) ? Number(safe.g1WinCount) : 0;
+            obsMedium.textContent = totalCycles > 0
+                ? `${pct.toFixed(1)}% (${count}/${totalCycles}) • Δ ${fmtList(g1Targets)}`
+                : '—';
         }
         
         const obsLow = document.getElementById('obsLow');
         if (obsLow) {
-            const low = stats.byConfidence.low;
-            if (low.total > 0) {
-                obsLow.textContent = `Prev: ${low.predicted.toFixed(0)}% | Real: ${low.actual.toFixed(0)}%`;
-            } else {
-                obsLow.textContent = 'Sem dados';
-            }
+            const pct = Number.isFinite(Number(safe.g2WinPct)) ? Number(safe.g2WinPct) : 0;
+            const count = Number.isFinite(Number(safe.g2WinCount)) ? Number(safe.g2WinCount) : 0;
+            obsLow.textContent = totalCycles > 0
+                ? `${pct.toFixed(1)}% (${count}/${totalCycles}) • Δ ${fmtList(g2Targets)}`
+                : '—';
         }
     }
     
     // Função para carregar dados do observador
     function loadObserverStats() {
-        console.log('📡 Enviando mensagem: getObserverStats...');
-        chrome.runtime.sendMessage({ action: 'getObserverStats' }, function(response) {
+        const currentMode = document.querySelector('.ai-mode-toggle.active') ? 'diamond' : 'standard';
+        console.log('📡 Enviando mensagem: getMasterSignalStats...', currentMode);
+        chrome.runtime.sendMessage({ action: 'getMasterSignalStats', mode: currentMode }, function(response) {
             console.log('📡 Resposta recebida:', response);
             if (response && response.status === 'success') {
                 console.log('✅ Stats do observador recebidas:', response.stats);
@@ -16862,6 +17469,23 @@ function logModeSnapshotUI(snapshot) {
                 console.error('❌ Erro ao carregar stats do observador:', response);
             }
         });
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // 👑 SINAL DE ENTRADA - Refresh com debounce (não spammar runtime)
+    // ═══════════════════════════════════════════════════════════════
+    // ⚠️ Usar var para evitar TDZ caso mensagens cheguem antes do fim do carregamento do content.js
+    var masterStatsRefreshTimer = null;
+    function scheduleMasterSignalStatsRefresh(delayMs = 250) {
+        try {
+            if (masterStatsRefreshTimer) {
+                clearTimeout(masterStatsRefreshTimer);
+            }
+            masterStatsRefreshTimer = setTimeout(() => {
+                masterStatsRefreshTimer = null;
+                loadObserverStats();
+            }, Math.max(0, Number(delayMs) || 0));
+        } catch (_) {}
     }
     
     // Event listener para botão de atualizar
@@ -16919,28 +17543,6 @@ function logModeSnapshotUI(snapshot) {
                         btn.disabled = false;
                     }, 2000);
                 }
-            });
-        }
-        
-        if (e.target && e.target.id === 'refreshObserverBtn') {
-            e.preventDefault();
-            const btn = e.target;
-            btn.textContent = '⚙️ Calibrando...';
-            btn.disabled = true;
-            
-            // ✅ Recalibrar observador manualmente
-            chrome.runtime.sendMessage({ action: 'recalibrateObserver' }, function(response) {
-                if (response && response.status === 'success') {
-                    console.log('✅ Observador recalibrado manualmente!');
-                    updateObserverUI(response.stats);
-                } else {
-                    console.error('❌ Erro ao recalibrar observador');
-                }
-                
-                setTimeout(function() {
-                    btn.textContent = '🔄 Atualizar';
-                    btn.disabled = false;
-                }, 500);
             });
         }
         

@@ -368,6 +368,44 @@ const DEFAULT_ANALYZER_CONFIG = {
 
 const DIAMOND_LEVEL_IDS = Object.freeze(['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9', 'N10']);
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// 👑 SINAL DE ENTRADA (FASE 2) - CUT OFF
+// A UI usa cutoffs para "Limpar" sem apagar fisicamente o entriesHistory:
+// - entriesClearCutoffByMode: Limpar da ABA IA (base histórica)  ✅ ESTE é o que afeta a FASE 2
+// - masterEntriesClearCutoffByMode: Limpar da ABA SINAIS (apenas visual/lista/graph/bets) ❌ não deve afetar a FASE 2
+// ═══════════════════════════════════════════════════════════════════════════════
+const ENTRIES_CLEAR_CUTOFF_KEY = 'entriesClearCutoffByMode';
+
+function getEntryTimestampMsForHistory(entry) {
+    try {
+        const t = entry && entry.timestamp != null ? entry.timestamp : null;
+        if (t == null) return 0;
+        const ms = (typeof t === 'number') ? t : Date.parse(String(t));
+        return Number.isFinite(ms) ? ms : 0;
+    } catch (_) {
+        return 0;
+    }
+}
+
+function getMasterCutoffMsForMode(cutoffByModeRaw, modeRaw) {
+    const mode = String(modeRaw || '').toLowerCase().trim() === 'diamond' ? 'diamond' : 'standard';
+    const obj = cutoffByModeRaw && typeof cutoffByModeRaw === 'object' ? cutoffByModeRaw : null;
+    if (!obj) return 0;
+    const raw = obj[mode];
+    const ms = Number(raw);
+    return Number.isFinite(ms) ? ms : 0;
+}
+
+function filterEntriesHistoryByCutoff(entriesHistoryRaw, cutoffMs) {
+    const list = Array.isArray(entriesHistoryRaw) ? entriesHistoryRaw : [];
+    const c = Number(cutoffMs);
+    if (!Number.isFinite(c) || c <= 0) return list;
+    return list.filter(e => {
+        const ts = getEntryTimestampMsForHistory(e);
+        return ts >= c;
+    });
+}
+
 const SAFE_ZONE_DEFAULTS = Object.freeze({
     windowSize: DEFAULT_ANALYZER_CONFIG.diamondLevelWindows.n1WindowSize,
     primaryRequirement: DEFAULT_ANALYZER_CONFIG.diamondLevelWindows.n1PrimaryRequirement,
@@ -3422,6 +3460,10 @@ async function processNewSpinFromServer(spinData) {
                                 finalResult: 'WIN',                 // Resultado final do ciclo
                                 // ✅ NOVO: IDENTIFICAR MODO DE ANÁLISE
                                 analysisMode: analyzerConfig.aiMode ? 'diamond' : 'standard', // 'diamond' | 'standard'
+                                // ✅ NOVO: marcar se este ciclo era SINAL DE ENTRADA
+                                isMaster: !!(currentAnalysis && currentAnalysis.masterSignal && currentAnalysis.masterSignal.active),
+                                // ✅ NOVO (Diamante): qual nível "mandou" o sinal (origem)
+                                diamondSourceLevel: currentAnalysis && currentAnalysis.diamondSourceLevel ? currentAnalysis.diamondSourceLevel : null,
                                 // ✅ FINANCEIRO (fixo no tempo)
                                 cycleId,
                                 betColor,
@@ -3567,7 +3609,7 @@ async function processNewSpinFromServer(spinData) {
                             console.log(`🔑 Padrão: ${patternKey}`);
                             console.log(`🎲 Esperado: ${currentAnalysis.color}, Real: ${rollColor}`);
                             
-                            // ✅ VERIFICAR SE É O ÚLTIMO GALE (vai virar RET) ou se ainda tem mais Gales
+                            // ✅ VERIFICAR SE É O ÚLTIMO GALE (vai virar RED) ou se ainda tem mais Gales
                             // NÃO ENVIAR MENSAGEM AQUI - será enviada dentro da lógica abaixo
                             
                             // ✅ REGISTRAR NO CALIBRADOR DE PORCENTAGENS
@@ -3600,7 +3642,7 @@ async function processNewSpinFromServer(spinData) {
                             console.log(`║  ❌ LOSS no ${currentStage === 'ENTRADA' ? 'ENTRADA PADRÃO' : currentStage}                                  ║`);
                             console.log(`║  ⚙️  Configuração: ${maxGales} Gale${maxGales !== 1 ? 's' : ''} permitido${maxGales !== 1 ? 's' : ''}           ║`);
                             console.log(`║  📊 Atual: Gale ${currentGaleNumber} (${currentStage})                        ║`);
-                            console.log(`║  🎯 Próximo: ${nextGaleNumber <= maxGales ? `Tentar G${nextGaleNumber}` : 'RET (limite atingido)'}                  ║`);
+                            console.log(`║  🎯 Próximo: ${nextGaleNumber <= maxGales ? `Tentar G${nextGaleNumber}` : 'RED (limite atingido)'}                  ║`);
                             
                             // Verificar se ainda pode tentar mais Gales
                             const canTryNextGale = nextGaleNumber <= maxGales;
@@ -3614,7 +3656,7 @@ async function processNewSpinFromServer(spinData) {
                                     // ❌ SEM GALES: Registrar LOSS direto
                                     console.log('⛔ CONFIGURAÇÃO: 0 Gales - Registrando LOSS direto');
                                     
-                                    // ✅ Fix financeiro: congelar config e calcular valores do ciclo (RET)
+                                    // ✅ Fix financeiro: congelar config e calcular valores do ciclo (RED)
                                     const cycleAutoBetCfg = snapshotAutoBetConfig(analyzerConfig);
                                     const betColor = currentAnalysis.color;
                                     const payoutMultiplier = getPayoutMultiplierForBetColor(betColor, cycleAutoBetCfg);
@@ -3637,9 +3679,13 @@ async function processNewSpinFromServer(spinData) {
                                             createdOnTimestamp: currentAnalysis.createdOnTimestamp
                                         },
                                         martingaleStage: 'ENTRADA',
-                                        finalResult: 'RET',
+                                        finalResult: 'RED',
                                         // ✅ NOVO: IDENTIFICAR MODO DE ANÁLISE
                                         analysisMode: analyzerConfig.aiMode ? 'diamond' : 'standard',
+                                        // ✅ NOVO: marcar se este ciclo era SINAL DE ENTRADA
+                                        isMaster: !!(currentAnalysis && currentAnalysis.masterSignal && currentAnalysis.masterSignal.active),
+                                        // ✅ NOVO (Diamante): qual nível "mandou" o sinal (origem)
+                                        diamondSourceLevel: currentAnalysis && currentAnalysis.diamondSourceLevel ? currentAnalysis.diamondSourceLevel : null,
                                         // ✅ FINANCEIRO (fixo no tempo)
                                         cycleId,
                                         betColor,
@@ -3677,8 +3723,8 @@ async function processNewSpinFromServer(spinData) {
                                     console.log(`📊 Placar total: ${calculateCycleScore(entriesHistory).totalWins} wins / ${calculateCycleScore(entriesHistory).totalLosses} losses`);
                                     console.log(`📊 Placar ${currentMode}: ${filteredWins} wins / ${filteredLosses} losses`);
                                     
-                                    // ✅ ENVIAR MENSAGEM DE RET AO TELEGRAM (sem Gales)
-                                    console.log('📤 Enviando mensagem de RET ao Telegram (0 Gales configurados)...');
+                                    // ✅ ENVIAR MENSAGEM DE RED AO TELEGRAM (sem Gales)
+                                    console.log('📤 Enviando mensagem de RED ao Telegram (0 Gales configurados)...');
                                     await sendTelegramMartingaleRET(filteredWins, filteredLosses, currentMode, currentAnalysis.confidence);
                                     
                                     resetMartingaleState();
@@ -3693,7 +3739,7 @@ async function processNewSpinFromServer(spinData) {
                                         analysis: null, 
                                         pattern: null,
                                         lastBet: { status: 'loss', phase: 'G0', resolvedAtTimestamp: latestSpin.created_at },
-                                        // ✅ Intervalo após entrada (Diamante): contar a partir do FIM DO CICLO (RET)
+                                        // ✅ Intervalo após entrada (Diamante): contar a partir do FIM DO CICLO (RED)
                                         lastCycleResolvedSpinId: latestSpin ? (latestSpin.id || null) : null,
                                         lastCycleResolvedSpinTimestamp: latestSpin ? (latestSpin.created_at || null) : null,
                                         lastCycleResolvedTimestamp: Date.now(),
@@ -3770,6 +3816,10 @@ async function processNewSpinFromServer(spinData) {
                                     continuingToG1: true,  // Flag indicando que continuará
                                     // ✅ NOVO: IDENTIFICAR MODO DE ANÁLISE
                                     analysisMode: analyzerConfig.aiMode ? 'diamond' : 'standard',
+                                    // ✅ NOVO: marcar se este ciclo era SINAL DE ENTRADA
+                                    isMaster: !!(currentAnalysis && currentAnalysis.masterSignal && currentAnalysis.masterSignal.active),
+                                    // ✅ NOVO (Diamante): qual nível "mandou" o sinal (origem)
+                                    diamondSourceLevel: currentAnalysis && currentAnalysis.diamondSourceLevel ? currentAnalysis.diamondSourceLevel : null,
                                     // ✅ FINANCEIRO (fixo no tempo)
                                     cycleId,
                                     betColor,
@@ -3850,10 +3900,10 @@ async function processNewSpinFromServer(spinData) {
                                 // ═══════════════════════════════════════════════════════════════
                                 
                                 if (!canTryNextGale) {
-                                    // ❌ LIMITE ATINGIDO: Registrar RET
-                                    console.log(`⛔ Limite de Gales atingido (${currentGaleNumber}/${maxGales}) - Registrando RET`);
+                                    // ❌ LIMITE ATINGIDO: Registrar RED
+                                    console.log(`⛔ Limite de Gales atingido (${currentGaleNumber}/${maxGales}) - Registrando RED`);
                                     
-                                    // ✅ Fix financeiro: usar config do ciclo (congelada) e calcular net do RET
+                                    // ✅ Fix financeiro: usar config do ciclo (congelada) e calcular net do RED
                                     const cycleAutoBetCfg = ensureMartingaleCycleConfig(snapshotAutoBetConfig(analyzerConfig));
                                     const betColor = (martingaleState && martingaleState.entryColor) ? martingaleState.entryColor : currentAnalysis.color;
                                     const payoutMultiplier = getPayoutMultiplierForBetColor(betColor, cycleAutoBetCfg);
@@ -3878,9 +3928,11 @@ async function processNewSpinFromServer(spinData) {
                                             createdOnTimestamp: currentAnalysis.createdOnTimestamp
                                         },
                                         martingaleStage: currentStage,
-                                        finalResult: 'RET',
+                                        finalResult: 'RED',
                                         // ✅ NOVO: IDENTIFICAR MODO DE ANÁLISE
                                         analysisMode: analyzerConfig.aiMode ? 'diamond' : 'standard',
+                                        // ✅ NOVO: marcar se este ciclo era SINAL DE ENTRADA
+                                        isMaster: !!(currentAnalysis && currentAnalysis.masterSignal && currentAnalysis.masterSignal.active),
                                         // ✅ FINANCEIRO (fixo no tempo)
                                         cycleId,
                                         betColor,
@@ -3917,7 +3969,7 @@ async function processNewSpinFromServer(spinData) {
                                         analysis: null, 
                                         pattern: null, 
                                         lastBet: { status: 'loss', phase: currentStage, resolvedAtTimestamp: latestSpin.created_at },
-                                        // ✅ Intervalo após entrada (Diamante): contar a partir do FIM DO CICLO (RET)
+                                        // ✅ Intervalo após entrada (Diamante): contar a partir do FIM DO CICLO (RED)
                                         lastCycleResolvedSpinId: latestSpin ? (latestSpin.id || null) : null,
                                         lastCycleResolvedSpinTimestamp: latestSpin ? (latestSpin.created_at || null) : null,
                                         lastCycleResolvedTimestamp: Date.now(),
@@ -3978,7 +4030,9 @@ async function processNewSpinFromServer(spinData) {
                                     finalResult: null,
                                     [`continuingToG${nextGaleNumber}`]: true,
                                     // ✅ IDENTIFICAR MODO DE ANÁLISE (crítico para UI filtrar corretamente no gráfico)
-                                    analysisMode: analyzerConfig.aiMode ? 'diamond' : 'standard'
+                                    analysisMode: analyzerConfig.aiMode ? 'diamond' : 'standard',
+                                    // ✅ NOVO: marcar se este ciclo era SINAL DE ENTRADA
+                                    isMaster: !!(currentAnalysis && currentAnalysis.masterSignal && currentAnalysis.masterSignal.active)
                                 };
                                 
                                 entriesHistory.unshift(galeLossEntry);
@@ -4121,10 +4175,10 @@ async function processNewSpinFromServer(spinData) {
                                 }
                                 
                             } else if (currentStage === 'G2') {
-                                // ❌ LOSS NO G2: RET (Loss Final)
-                                console.log('⛔ LOSS no G2 - RET');
+                                // ❌ LOSS NO G2: RED (Loss Final)
+                                console.log('⛔ LOSS no G2 - RED');
                                 
-                                // ✅ Fix financeiro: usar config do ciclo (congelada) e calcular net do RET
+                                // ✅ Fix financeiro: usar config do ciclo (congelada) e calcular net do RED
                                 const cycleAutoBetCfg = ensureMartingaleCycleConfig(snapshotAutoBetConfig(analyzerConfig));
                                 const betColor = (martingaleState && martingaleState.entryColor) ? martingaleState.entryColor : currentAnalysis.color;
                                 const payoutMultiplier = getPayoutMultiplierForBetColor(betColor, cycleAutoBetCfg);
@@ -4149,9 +4203,11 @@ async function processNewSpinFromServer(spinData) {
                                         createdOnTimestamp: currentAnalysis.createdOnTimestamp
                                     },
                                     martingaleStage: 'G2',
-                                    finalResult: 'RET',
+                                    finalResult: 'RED',
                                     // ✅ NOVO: IDENTIFICAR MODO DE ANÁLISE
                                     analysisMode: analyzerConfig.aiMode ? 'diamond' : 'standard',
+                                    // ✅ NOVO: marcar se este ciclo era SINAL DE ENTRADA
+                                    isMaster: !!(currentAnalysis && currentAnalysis.masterSignal && currentAnalysis.masterSignal.active),
                                     // ✅ FINANCEIRO (fixo no tempo)
                                     cycleId,
                                     betColor,
@@ -4175,7 +4231,7 @@ async function processNewSpinFromServer(spinData) {
                                 await sendTelegramMartingaleRET(filteredWins, filteredLosses, currentMode);
                                 
                                 // ✅ ATUALIZAR HISTÓRICO DE CORES QUENTES
-                                console.log('📊 Atualizando histórico de cores quentes após RET...');
+                                console.log('📊 Atualizando histórico de cores quentes após RED...');
                                 
                                 // Construir sequência de cores DOS GIROS (não das apostas!)
                                 const colorSequence = [];
@@ -4198,7 +4254,7 @@ async function processNewSpinFromServer(spinData) {
                                         analysis: null, 
                                         pattern: null, 
                                     lastBet: { status: 'loss', phase: 'G2', resolvedAtTimestamp: latestSpin.created_at },
-                                        // ✅ Intervalo após entrada (Diamante): contar a partir do FIM DO CICLO (RET)
+                                        // ✅ Intervalo após entrada (Diamante): contar a partir do FIM DO CICLO (RED)
                                         lastCycleResolvedSpinId: latestSpin ? (latestSpin.id || null) : null,
                                         lastCycleResolvedSpinTimestamp: latestSpin ? (latestSpin.created_at || null) : null,
                                         lastCycleResolvedTimestamp: Date.now(),
@@ -4261,7 +4317,7 @@ function calculateCycleScore(entriesHistory) {
         if (entry.finalResult === 'WIN') {
             totalWins++;
             console.log(`  ✅ WIN (${entry.martingaleStage || entry.phase})`);
-        } else if (entry.finalResult === 'RET') {
+        } else if (entry.finalResult === 'RED' || entry.finalResult === 'RET') {
             totalLosses++;
             console.log(`  ❌ LOSS (${entry.martingaleStage || entry.phase} - Não pagou)`);
         }
@@ -10398,6 +10454,48 @@ function analyzeAutointeligente(history, options = {}) {
     const alpha = 0.6; // suavização (Laplace fracionária)
     const minSupport = 1.2; // peso mínimo para usar um contexto
 
+    // ✅ P1-only (maxGales=0): no Double real, sem vazamento de futuro, não existe "80%" no próximo giro.
+    // Se o usuário quer testar apenas 1 entrada, o N4 deve no mínimo NÃO ser pior que o baseline do próprio histórico.
+    // Estratégia: escolher a cor RB mais frequente (inclui WHITE como perda) e retornar sempre essa cor.
+    // Isso evita o caso do print (ficar abaixo do baseline por ruído de contexto).
+    if (maxGalesConfigured === 0) {
+        const plainCounts = { R: 0, B: 0, W: 0 };
+        for (const t of tokens) {
+            if (t === 'R') plainCounts.R++;
+            else if (t === 'B') plainCounts.B++;
+            else if (t === 'W') plainCounts.W++;
+        }
+        const total = plainCounts.R + plainCounts.B + plainCounts.W;
+        const denom = (total > 0 ? total : tokens.length) + (3 * alpha);
+        const pR = (plainCounts.R + alpha) / denom;
+        const pB = (plainCounts.B + alpha) / denom;
+        const pW = (plainCounts.W + alpha) / denom;
+        const bestTokRB = (pB >= pR) ? 'B' : 'R';
+        const bestP1 = bestTokRB === 'B' ? pB : pR;
+        const bestColor = bestTokRB === 'B' ? 'black' : 'red';
+        return {
+            color: bestColor,
+            confidence: clamp01(bestP1),
+            p1: Number(clamp01(bestP1).toFixed(4)),
+            p2: Number(clamp01(1 - Math.pow(1 - bestP1, 2)).toFixed(4)),
+            p3: Number(clamp01(1 - Math.pow(1 - bestP1, 3)).toFixed(4)),
+            pHit: Number(clamp01(bestP1).toFixed(4)),
+            lossProb: Number(clamp01(1 - bestP1).toFixed(4)),
+            margin: 0,
+            requiredPHit: 0,
+            lcb1: 0,
+            edgeLcb: 0,
+            pickedOrder: null,
+            support: 0,
+            maxOrder,
+            decayHalfLife,
+            maxGalesConsidered: 0,
+            historyUsed: tokens.length,
+            historyConfigured: historySizeConfigured,
+            details: `P1-only • Best ${bestColor.toUpperCase()} ${(bestP1 * 100).toFixed(1)}% • dist R ${(pR * 100).toFixed(1)}% / B ${(pB * 100).toFixed(1)}% / W ${(pW * 100).toFixed(1)}%`
+        };
+    }
+
     const countsByOrder = Array.from({ length: maxOrder + 1 }, () => new Map());
     const global = { R: 0, B: 0, W: 0, total: 0 };
 
@@ -10421,7 +10519,14 @@ function analyzeAutointeligente(history, options = {}) {
         for (let order = 1; order <= maxOrder; order++) {
             const start = i - order + 1;
             if (start < 0) break;
-            const ctx = tokens.slice(start, i + 1).join('');
+            // ✅ WHITE quebra o contexto (reset), mas é um evento válido:
+            // - Não permitir "W no meio" (cruza a fronteira)
+            // - Permitir contextos que COMEÇAM com W (ex.: "W", "WR", "WRB"), pois representam o segmento após o branco.
+            const ctxArr = tokens.slice(start, i + 1);
+            const firstW = ctxArr.indexOf('W');
+            if (firstW > 0) continue; // W no meio (ou no fim) => cruza fronteira
+            if (firstW === 0 && ctxArr.lastIndexOf('W') !== 0) continue; // mais de um W no contexto
+            const ctx = ctxArr.join('');
             bump(countsByOrder[order], ctx, nextTok, w);
         }
     }
@@ -10517,9 +10622,27 @@ function analyzeAutointeligente(history, options = {}) {
     // - Combina evidências de múltiplas profundidades de contexto (ordens) em um único posterior
     //   (reduz viés de "escolher o melhor contexto" e melhora generalização).
     const tokToColor = { R: 'red', B: 'black', W: 'white' };
-    const candidateList = ['R', 'B', 'W'];
 
     const base = baseDist(); // baseline global (com suavização)
+    // ✅ WHITE: o N4 pode recomendar WHITE, mas só deve fazê-lo quando houver evidência forte.
+    // (o filtro minWhiteLCB continua sendo o guardrail principal)
+    const allowWhite = (options && Object.prototype.hasOwnProperty.call(options, 'allowWhite'))
+        ? !!options.allowWhite
+        : true;
+    const candidateList = (allowWhite ? ['R', 'B', 'W'] : ['R', 'B'])
+        .slice()
+        // remover viés de desempate: priorizar a cor mais provável no baseline
+        .sort((a, b) => (Number(base[b] || 0) - Number(base[a] || 0)));
+
+    const baseBestTokRB = (() => {
+        const r = Number(base.R || 0);
+        const b = Number(base.B || 0);
+        return b > r ? 'B' : 'R';
+    })();
+    const baseBestPRB = Number(base[baseBestTokRB] || 0);
+    const stepsToWin = Math.max(1, Math.min(3, maxGalesConfigured + 1)); // Entrada(1) + até G2(3)
+    const baselinePcycle = clamp01(1 - Math.pow(1 - baseBestPRB, stepsToWin));
+
     const priorStrength = signalIntensity === 'conservative' ? 18 : 12; // prior mais forte => mais conservador
     const z = signalIntensity === 'conservative' ? 1.645 : 1.282;       // ~95% / ~90% (aprox normal)
 
@@ -10536,9 +10659,67 @@ function analyzeAutointeligente(history, options = {}) {
     };
 
     // fallback para forcePick (gales): usa distribuição blended (predict)
-    const ctxTail = tokens.slice(-Math.min(maxOrder, tokens.length));
+    // ✅ Contexto: usar somente a "cauda" após o último WHITE (white quebra sequências e distorce n-grams)
+    const buildTailAfterWhite = (arr) => {
+        const limit = Math.min(maxOrder, arr.length);
+        const raw = arr.slice(-limit);
+        const lastW = raw.lastIndexOf('W');
+        // incluir o W como "marcador de fronteira" quando ele estiver dentro da cauda
+        if (lastW >= 0) return raw.slice(lastW);
+        return raw;
+    };
+    const ctxTail = buildTailAfterWhite(tokens);
+
+    const pickTokByPredict = (ctxTokens) => {
+        const d = predict(ctxTokens);
+        return candidateList.reduce(
+            (acc, tok) => ((d[tok] || 0) > (d[acc] || 0) ? tok : acc),
+            candidateList[0] || 'R'
+        );
+    };
+
     const forcedDist = predict(ctxTail);
-    const forcedTok = candidateList.reduce((acc, tok) => ((forcedDist[tok] || 0) > (forcedDist[acc] || 0) ? tok : acc), 'R');
+    const forcedTok = pickTokByPredict(ctxTail);
+
+    const estimateWinWithinPolicyFirst = (ctxTokens, steps, firstTok) => {
+        try {
+            const s = Math.max(1, Math.min(3, Math.floor(Number(steps) || 1)));
+            const first = firstTok && candidateList.includes(firstTok) ? firstTok : pickTokByPredict(ctxTokens);
+            const memo = new Map();
+            const keyOf = (ctxArr, remaining, firstPick) => `${ctxArr.join('')}|${remaining}|${firstPick || ''}`;
+
+            const rec = (ctxArr, remaining, firstPick) => {
+                const ctxSafe = buildTailAfterWhite(Array.isArray(ctxArr) ? ctxArr : []);
+                const rem = Math.max(1, Math.min(3, remaining));
+                const pick = firstPick && candidateList.includes(firstPick) ? firstPick : pickTokByPredict(ctxSafe);
+                const k = keyOf(ctxSafe, rem, pick);
+                if (memo.has(k)) return memo.get(k);
+
+                const d = predict(ctxSafe);
+                let p = clamp01(d[pick] || 0);
+                if (rem === 1) {
+                    memo.set(k, p);
+                    return p;
+                }
+
+                for (const outTok of TOKENS) {
+                    if (outTok === pick) continue;
+                    const pOut = clamp01(d[outTok] || 0);
+                    if (!pOut) continue;
+                    const nextCtx = buildTailAfterWhite(shiftCtx(ctxSafe, outTok));
+                    const nextPick = pickTokByPredict(nextCtx);
+                    p += pOut * rec(nextCtx, rem - 1, nextPick);
+                }
+                p = clamp01(p);
+                memo.set(k, p);
+                return p;
+            };
+
+            return rec(ctxTokens, s, first);
+        } catch (_) {
+            return 0;
+        }
+    };
 
     // Combinar evidências dos buckets (ordens) com peso parecido com o `predict()`
     // para evitar "winner's curse" de escolher uma ordem isolada.
@@ -10546,8 +10727,8 @@ function analyzeAutointeligente(history, options = {}) {
     let bestEvidenceOrder = 0;
     let bestEvidenceW = 0;
     for (let order = 1; order <= maxOrder; order++) {
-        if (tokens.length < order + 1) continue;
-        const key = tokens.slice(tokens.length - order).join('');
+        if (ctxTail.length < order) continue;
+        const key = ctxTail.slice(ctxTail.length - order).join('');
         const bucket = countsByOrder[order].get(key);
         if (!bucket || !Number.isFinite(bucket.total) || bucket.total < minSupport) continue;
 
@@ -10579,19 +10760,45 @@ function analyzeAutointeligente(history, options = {}) {
         const variance = (a * b) / (((a + b) * (a + b)) * (a + b + 1));
         const lcb = clamp01(mean - z * Math.sqrt(Math.max(0, variance)));
         const edgeLcb = Math.max(0, lcb - priorP);
-        return { tok, color: tokToColor[tok], mean, lcb, priorP, edgeLcb };
-    }).sort((a, b) => (b.lcb - a.lcb) || (b.mean - a.mean));
+        const edgeMean = mean - priorP;
+        return { tok, color: tokToColor[tok], mean, lcb, priorP, edgeLcb, edgeMean };
+    }).sort((a, b) => (b.lcb - a.lcb) || (b.mean - a.mean) || (b.priorP - a.priorP));
 
-    const bestPick = scored[0] || null;
+    // ✅ Guardrail: evitar escolher uma cor com média condicional pior que o "baseline RB" (remove viés e piora artificial).
+    const bestPickRaw = scored[0] || null;
     const secondPick = scored[1] || null;
+    const baseBestObj = scored.find(s => s && s.tok === baseBestTokRB) || null;
+    let bestPick = (bestPickRaw && baseBestObj && bestPickRaw.mean < baseBestPRB)
+        ? baseBestObj
+        : bestPickRaw;
+
+    // ✅ Modo 1 entrada (sem gales):
+    // Em dados reais (sem edge), alternar RED/BLACK por contexto costuma só adicionar ruído e piorar o P1.
+    // Aqui travamos no melhor RB marginal do recorte, e só deixamos WHITE passar quando for MUITO forte.
+    if (stepsToWin === 1) {
+        if (bestPickRaw && bestPickRaw.tok === 'W') {
+            const whiteMean = Number(bestPickRaw.mean || 0);
+            const whiteLcb = Number(bestPickRaw.lcb || 0);
+            const baselineWhite = Number(base.W || 0);
+            const strongWhite = (whiteLcb >= 0.18) && (whiteMean >= Math.max(0.10, baselineWhite + 0.05));
+            bestPick = strongWhite ? bestPickRaw : (baseBestObj || bestPick);
+        } else {
+            bestPick = baseBestObj || bestPick;
+        }
+    }
     const marginLcb = bestPick && secondPick ? Math.max(0, (bestPick.lcb - secondPick.lcb)) : (bestPick ? bestPick.lcb : 0);
 
     // ✅ Ajuste de VOLUME (pedido do usuário):
     // Limiar fixo alto derruba o número de sinais. Aqui usamos um limiar adaptativo por percentil
     // (top X% dos melhores momentos), mantendo filtros mínimos para não virar "cara ou coroa".
+    // ✅ PERFIL DE VOLUME:
+    // - conservative: mantém filtros fortes (poucas entradas, mais seletivo)
+    // - aggressive: volume alto (pedido do usuário: não ficar "2 dias" esperando sinal)
+    //   Observação: o LCB já é um freio estatístico. Exigir "edge LCB > prior" + margem mínima derrubava quase tudo.
     const volumeProfile = signalIntensity === 'conservative'
-        ? { targetRate: 0.08, scoreFloor: 0.46, minMargin: 0.006, minSupport: 10, minEdge: 0.002, minWhiteLCB: 0.18 }
-        : { targetRate: 0.12, scoreFloor: 0.44, minMargin: 0.004, minSupport: 7,  minEdge: 0.001, minWhiteLCB: 0.16 };
+        ? { targetRate: 0.08, scoreFloor: 0.46, minMargin: 0.006, minSupport: 10, minEdge: 0.002, minWhiteLCB: 0.18, minP1Mean: 0.50 }
+        // aggressive: mais volume (pedido do usuário) sem liberar WHITE "fácil"
+        : { targetRate: 0.50, scoreFloor: 0.40, minMargin: 0.000, minSupport: 1,  minEdge: 0.000, minWhiteLCB: 0.18, minP1Mean: 0.48 };
 
     const computeScore = (best, second) => {
         if (!best) return { score: -1, margin: 0, edge: 0 };
@@ -10604,10 +10811,23 @@ function analyzeAutointeligente(history, options = {}) {
         return { score, margin, edge };
     };
 
-    // Threshold adaptativo (percentil) usando histórico recente para manter volume de entradas.
+    const passesNonScoreFilters = (bestObj, secondObj, supportTotal) => {
+        if (!bestObj) return false;
+        const margin = secondObj ? Math.max(0, (bestObj.lcb - secondObj.lcb)) : Math.max(0, bestObj.lcb);
+        const edge = Math.max(0, bestObj.edgeLcb || 0);
+        if (margin < volumeProfile.minMargin) return false;
+        if (edge < volumeProfile.minEdge) return false;
+        if (Number(supportTotal || 0) < volumeProfile.minSupport) return false;
+        if (bestObj.tok === 'W' && bestObj.lcb < volumeProfile.minWhiteLCB) return false;
+        return true;
+    };
+
+    // Threshold adaptativo (calibrado por HIT real no histórico) para manter volume + qualidade.
+    // ✅ A partir daqui, HIT = "ganha o ciclo em até stepsToWin tentativas (Entrada+G1+G2)",
+    // simulando re-pick (gales dinâmicos) com base no `predict()`.
     const computeAdaptiveScoreThreshold = () => {
         try {
-            const end = tokens.length - 2; // último índice com contexto completo (evita borda)
+            const end = tokens.length - 1 - stepsToWin; // precisa ter futuro suficiente para simular até G2
             if (end < 10) return volumeProfile.scoreFloor;
             const lookback = Math.max(250, Math.min(1500, end)); // 250..1500
             const start = Math.max(maxOrder, end - lookback);
@@ -10615,14 +10835,41 @@ function analyzeAutointeligente(history, options = {}) {
             const sampleCount = Math.max(80, Math.min(220, span));
             const step = Math.max(1, Math.floor(span / sampleCount));
 
-            const scores = [];
+            const ctxForIndex = (idx) => {
+                const from = Math.max(0, idx - maxOrder + 1);
+                const ctxArr = tokens.slice(from, idx + 1);
+                return buildTailAfterWhite(ctxArr);
+            };
+
+            const simulateCycleHit = (idx, firstTok) => {
+                try {
+                    let ctx = ctxForIndex(idx);
+                    let betTok = firstTok && candidateList.includes(firstTok) ? firstTok : pickTokByPredict(ctx);
+                    for (let s = 1; s <= stepsToWin; s++) {
+                        const actualTok = tokens[idx + s];
+                        if (!actualTok) return false;
+                        if (actualTok === betTok) return true;
+                        ctx = buildTailAfterWhite(shiftCtx(ctx, actualTok));
+                        betTok = pickTokByPredict(ctx);
+                    }
+                    return false;
+                } catch (_) {
+                    return false;
+                }
+            };
+
+            const samples = [];
             for (let idx = start; idx <= end; idx += step) {
                 // montar evidência combinada para o contexto que termina em idx
                 const ev = { R: 0, B: 0, W: 0, total: 0 };
                 for (let order = 1; order <= maxOrder; order++) {
                     const ctxStart = idx - order + 1;
                     if (ctxStart < 0) break;
-                    const key = tokens.slice(ctxStart, idx + 1).join('');
+                    const ctxArr = tokens.slice(ctxStart, idx + 1);
+                    const firstW = ctxArr.indexOf('W');
+                    if (firstW > 0) continue;
+                    if (firstW === 0 && ctxArr.lastIndexOf('W') !== 0) continue;
+                    const key = ctxArr.join('');
                     const bucket = countsByOrder[order].get(key);
                     if (!bucket || !Number.isFinite(bucket.total) || bucket.total < minSupport) continue;
                     const supportFactor = Math.min(1, bucket.total / 8);
@@ -10633,8 +10880,6 @@ function analyzeAutointeligente(history, options = {}) {
                     ev.W += w * Number(bucket.W || 0);
                     ev.total += w * Number(bucket.total || 0);
                 }
-                if (ev.total <= 0) continue;
-
                 const aR = (base.R * priorStrength) + ev.R;
                 const aB = (base.B * priorStrength) + ev.B;
                 const aW = (base.W * priorStrength) + ev.W;
@@ -10650,23 +10895,58 @@ function analyzeAutointeligente(history, options = {}) {
                     const lcb = clamp01(mean - z * Math.sqrt(Math.max(0, variance)));
                     const edgeLcb = Math.max(0, lcb - priorP);
                     return { tok, lcb, edgeLcb };
-                }).sort((x, y) => (y.lcb - x.lcb));
+                }).sort((x, y) => (y.lcb - x.lcb) || (Number(base[y.tok] || 0) - Number(base[x.tok] || 0)));
 
                 const b0 = localScored[0] || null;
                 const b1 = localScored[1] || null;
                 if (!b0) continue;
                 const bestObj = { tok: b0.tok, lcb: b0.lcb, edgeLcb: b0.edgeLcb };
                 const secondObj = b1 ? { tok: b1.tok, lcb: b1.lcb, edgeLcb: b1.edgeLcb } : null;
+                if (!passesNonScoreFilters(bestObj, secondObj, ev.total)) continue;
                 const s = computeScore(bestObj, secondObj).score;
-                if (Number.isFinite(s)) scores.push(s);
+                if (!Number.isFinite(s)) continue;
+                const hit = simulateCycleHit(idx, bestObj.tok);
+                samples.push({ score: s, hit: !!hit });
             }
 
-            if (scores.length < 30) return volumeProfile.scoreFloor;
-            scores.sort((a, b) => a - b);
-            const q = Math.max(0, Math.min(1, 1 - volumeProfile.targetRate));
-            const idx = Math.max(0, Math.min(scores.length - 1, Math.floor(q * (scores.length - 1))));
-            const quantile = scores[idx];
-            return Math.max(volumeProfile.scoreFloor, Number.isFinite(quantile) ? quantile : volumeProfile.scoreFloor);
+            if (samples.length < 40) return volumeProfile.scoreFloor;
+
+            // ordenar por score (maior primeiro) e escolher um corte que maximize HIT (LCB) sem fugir muito do targetRate
+            samples.sort((a, b) => b.score - a.score);
+            const n = samples.length;
+            const targetRate = Math.max(0.02, Math.min(0.90, Number(volumeProfile.targetRate) || 0.25));
+            // ✅ permitir o calibrador "apertar" bem mais se necessário para reduzir RET
+            const minRate = signalIntensity === 'conservative'
+                ? Math.max(0.02, Math.min(0.90, targetRate * 0.70))
+                : Math.max(0.05, Math.min(0.90, targetRate * 0.85));
+            const maxRate = signalIntensity === 'conservative'
+                ? Math.max(minRate, Math.min(0.90, targetRate * 1.35))
+                : Math.max(minRate, Math.min(0.90, targetRate * 1.15));
+            const kMin = Math.max(25, Math.floor(minRate * n));
+            const kMax = Math.max(kMin, Math.min(n, Math.ceil(maxRate * n)));
+            // ✅ agressivo: penalizar mais desvio do target (para realmente entregar volume)
+            const penalty = signalIntensity === 'conservative' ? 0.18 : 0.28;
+
+            let hits = 0;
+            let bestCut = null;
+            let bestObjective = -Infinity;
+            for (let i = 0; i < n; i++) {
+                hits += samples[i].hit ? 1 : 0;
+                const k = i + 1;
+                if (k < kMin || k > kMax) continue;
+                const p = hits / k;
+                const se = Math.sqrt(Math.max(0, p * (1 - p)) / k);
+                const lcb = p - z * se;
+                const rate = k / n;
+                const objective = lcb - penalty * Math.abs(rate - targetRate);
+                if (objective > bestObjective) {
+                    bestObjective = objective;
+                    bestCut = { threshold: samples[i].score, rate, lcb, p, k };
+                }
+            }
+
+            if (!bestCut || !Number.isFinite(bestCut.threshold)) return volumeProfile.scoreFloor;
+            return Math.max(volumeProfile.scoreFloor, bestCut.threshold);
         } catch (_) {
             return volumeProfile.scoreFloor;
         }
@@ -10678,14 +10958,9 @@ function analyzeAutointeligente(history, options = {}) {
     const currentScore = computeScore(bestPick, secondPick);
 
     let allowed = !!bestPick
+        && passesNonScoreFilters(bestPick, secondPick, evidence.total)
         && (currentScore.score >= adaptiveScoreMin)
-        && (currentScore.margin >= volumeProfile.minMargin)
-        && (evidence.total >= volumeProfile.minSupport)
-        && (currentScore.edge >= volumeProfile.minEdge);
-
-    if (allowed && bestPick && bestPick.tok === 'W' && bestPick.lcb < volumeProfile.minWhiteLCB) {
-        allowed = false;
-    }
+        && (Number(bestPick.mean || 0) >= volumeProfile.minP1Mean);
 
     const forcePick = !!(options && options.forcePick);
 
@@ -10695,8 +10970,8 @@ function analyzeAutointeligente(history, options = {}) {
     const p1 = chosenTok
         ? (allowed ? (bestPick?.mean || 0) : (forcedDist[chosenTok] || 0))
         : 0;
-    const p2 = chosenTok ? clamp01(1 - Math.pow(1 - p1, 2)) : 0;
-    const p3 = chosenTok ? clamp01(1 - Math.pow(1 - p1, 3)) : 0;
+    const p2 = chosenTok ? (stepsToWin >= 2 ? estimateWinWithinPolicyFirst(ctxTail, 2, chosenTok) : p1) : 0;
+    const p3 = chosenTok ? (stepsToWin >= 3 ? estimateWinWithinPolicyFirst(ctxTail, 3, chosenTok) : p2) : 0;
 
     const confidence = chosenTok ? clamp01(p1) : 0;
     const lossProb = chosenTok ? clamp01(1 - p1) : 1;
@@ -10707,10 +10982,10 @@ function analyzeAutointeligente(history, options = {}) {
     const lcb1 = allowed ? Number(bestPick?.lcb || 0) : 0;
 
     const details = chosenTok && allowed
-        ? `P1 ${(p1 * 100).toFixed(1)}% • LCB ${(lcb1 * 100).toFixed(1)}% • Loss(Entrada) ${(lossProb * 100).toFixed(1)}% • Score ${(currentScore.score * 100).toFixed(1)}≥${(adaptiveScoreMin * 100).toFixed(1)} • ΔLCB ${(margin * 100).toFixed(1)}pp • Edge ${(edge * 100).toFixed(1)}pp • ${ctxLabel} • ${signalIntensity}`
+        ? `P1 ${(p1 * 100).toFixed(1)}% • P${stepsToWin}est ${(p3 * 100).toFixed(1)}% • BaseP${stepsToWin} ${(baselinePcycle * 100).toFixed(1)}% • LCB ${(lcb1 * 100).toFixed(1)}% • Score ${(currentScore.score * 100).toFixed(1)}≥${(adaptiveScoreMin * 100).toFixed(1)} • ${ctxLabel} • ${signalIntensity}`
         : chosenTok && forcePick
         ? `FORCE • P1 ${(p1 * 100).toFixed(1)}% • ${ctxLabel} • ${signalIntensity}`
-        : `NULO • ${bestPick ? `Score ${(currentScore.score * 100).toFixed(1)} < ${(adaptiveScoreMin * 100).toFixed(1)} • LCB ${(bestPick.lcb * 100).toFixed(1)}% • ΔLCB ${(marginLcb * 100).toFixed(1)}pp • Edge ${(bestPick.edgeLcb * 100).toFixed(1)}pp • ${ctxLabel}` : 'sem contexto útil'} • ${signalIntensity}`;
+        : `NULO • ${bestPick ? `Score ${(currentScore.score * 100).toFixed(1)} < ${(adaptiveScoreMin * 100).toFixed(1)} • LCB ${(bestPick.lcb * 100).toFixed(1)}% • BaseP${stepsToWin} ${(baselinePcycle * 100).toFixed(1)}% • ${ctxLabel}` : 'sem contexto útil'} • ${signalIntensity}`;
 
     return {
         color: chosenColor,
@@ -14199,7 +14474,11 @@ async function analyzeWithPatternSystem(history) {
         // ═══════════════════════════════════════════════════════════════
         // ⏱️ VERIFICAÇÃO DE INTERVALO MÍNIMO ENTRE SINAIS (APENAS MODO DIAMANTE)
         // ═══════════════════════════════════════════════════════════════
-        const minIntervalSpins = (analyzerConfig.minSignalIntervalSpins ?? analyzerConfig.minIntervalSpins) || 0;
+        let minIntervalSpins = (analyzerConfig.minSignalIntervalSpins ?? analyzerConfig.minIntervalSpins) || 0;
+        // ✅ N4-only (com N9 opcional): o usuário quer volume alto, então não aplicar cooldown entre sinais.
+        if (shouldUseN4DynamicGalesForConfig(analyzerConfig)) {
+            minIntervalSpins = 0;
+        }
         
         // ✅ FLAG: Guardar se intervalo está bloqueado (MAS CONTINUAR ANÁLISE)
         let intervalBlocked = false;
@@ -15302,6 +15581,7 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
                 contribution: Number(((level.score || 0) * (level.weight || 0)).toFixed(3)),
                 details: level.details
             }));
+            const diamondSourceLevel = pickDiamondSourceLevel(scoreSummary, 'white');
 
             const bestMetrics = n0Result && n0Result.best_metrics ? n0Result.best_metrics : {};
             const blockMetrics = n0Result && n0Result.blocking_metrics ? n0Result.blocking_metrics : {};
@@ -15329,6 +15609,7 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
                 rawConfidence: whiteConfidencePct,
                 finalConfidence: whiteConfidencePct,
                 levelBreakdown: scoreSummary,
+                sourceLevel: diamondSourceLevel,
                 reasoning,
                 verified: false,
                 colorThatCame: null,
@@ -15359,7 +15640,8 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
                 confidence: whiteConfidencePct,
                 probability: whiteConfidencePct,
                 reasoning,
-                patternDescription: 'Detector de Branco (N0)'
+                patternDescription: 'Detector de Branco (N0)',
+                diamondSourceLevel
             };
         }
 
@@ -15680,6 +15962,7 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
             contribution: Number((level.score * level.weight).toFixed(3)),
             details: level.details
         }));
+        const diamondSourceLevel = pickDiamondSourceLevel(scoreSummary, finalColor);
 
         const intensityLabel = signalIntensity === 'conservative' ? 'Conservador' : 'Agressivo';
         const reasoning =
@@ -15704,6 +15987,7 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
             rawConfidence,
             finalConfidence,
             levelBreakdown: scoreSummary,
+            sourceLevel: diamondSourceLevel,
             reasoning,
             verified: false,
             colorThatCame: null,
@@ -15735,7 +16019,8 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
             probability: finalConfidence,
             reasoning: reasoning,
             patternDescription: patternDescription,
-            safeZone: safeZoneMeta
+            safeZone: safeZoneMeta,
+            diamondSourceLevel
         };
 
         /* LEGACY VOTING BLOCK (COMENTADO)
@@ -17142,6 +17427,7 @@ async function runAnalysisController(history) {
 					type: 'AI_ANALYSIS',
 					color: aiColor,
 					confidence: aiResult.confidence,
+                    diamondSourceLevel: aiResult.diamondSourceLevel || null,
 					last10Spins: last10SpinsForDescription,
 					last5Spins: last10SpinsForDescription ? last10SpinsForDescription.slice(0, 10) : [], // ✅ Mostrando últimos 10 giros
 					reasoning: aiResult.reasoning || aiResult.patternDescription || 'Análise baseada nos últimos ' + aiHistorySizeUsed + ' giros do histórico.',
@@ -17162,6 +17448,7 @@ async function runAnalysisController(history) {
 				const analysis = {
 					color: aiColor,
 					confidence: aiResult.confidence,
+                    diamondSourceLevel: aiResult.diamondSourceLevel || null,
 					patternDescription: aiDescription,
 					last10Spins: last10SpinsForDescription, // ✅ INCLUIR DIRETAMENTE para facilitar acesso
 					last5Spins: last10SpinsForDescription ? last10SpinsForDescription.slice(0, 10) : [], // ✅ Mostrando últimos 10 giros
@@ -22615,8 +22902,1147 @@ function attachLatestSpinsSnapshot(analysis) {
     }
 }
 
-function emitAnalysisToContent(analysis, mode) {
-    const payload = analysis ? { ...attachLatestSpinsSnapshot(analysis) } : {};
+// ═══════════════════════════════════════════════════════════════════════════════
+// 🧩 FASE 2 - SINAL DE ENTRADA (APURAÇÃO POR HISTÓRICO DE ENTRADAS)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// ───────────────────────────────────────────────────────────────────────────────
+// 💎 DIAMANTE: identificar qual nível "mandou" o sinal (nível de origem)
+// Regra: maior contribuição para a cor vencedora; se nenhum votou na cor, pega o maior geral.
+// ───────────────────────────────────────────────────────────────────────────────
+function pickDiamondSourceLevel(levelsRaw, winningColorRaw) {
+    const winningColor = String(winningColorRaw || '').toLowerCase().trim();
+    const levels = Array.isArray(levelsRaw) ? levelsRaw : [];
+    if (!levels.length) return null;
+
+    const normalize = (lvl) => {
+        const id = lvl && lvl.id ? String(lvl.id) : null;
+        const name = lvl && lvl.name ? String(lvl.name) : null;
+        const color = lvl && lvl.color ? String(lvl.color).toLowerCase().trim() : null;
+        const contribution = Number.isFinite(Number(lvl.contribution))
+            ? Number(lvl.contribution)
+            : (Number.isFinite(Number(lvl.score)) && Number.isFinite(Number(lvl.weight))
+                ? Number(lvl.score) * Number(lvl.weight)
+                : 0);
+        const strength = Number.isFinite(Number(lvl.strength)) ? Number(lvl.strength) : null;
+        const weight = Number.isFinite(Number(lvl.weight)) ? Number(lvl.weight) : null;
+        return { id, name, color, contribution, strength, weight };
+    };
+
+    const normalized = levels.map(normalize).filter(x => x && x.id);
+    if (!normalized.length) return null;
+
+    const candidates = (winningColor === 'red' || winningColor === 'black' || winningColor === 'white')
+        ? normalized.filter(l => l.color === winningColor)
+        : normalized;
+
+    const pool = candidates.length ? candidates : normalized;
+    pool.sort((a, b) => (b.contribution || 0) - (a.contribution || 0));
+    const top = pool[0];
+    if (!top) return null;
+    return {
+        id: top.id,
+        name: top.name || top.id,
+        color: top.color || null,
+        contribution: Number.isFinite(Number(top.contribution)) ? Number(top.contribution.toFixed(3)) : 0,
+        strength: top.strength != null ? Number(top.strength.toFixed(3)) : null,
+        weight: top.weight != null ? Number(top.weight.toFixed(3)) : null
+    };
+}
+
+function computeDiamondEntryHitRatesFromEntries(entriesHistoryRaw) {
+    const entries = Array.isArray(entriesHistoryRaw) ? entriesHistoryRaw : [];
+    const byLevel = new Map();
+    let overallWins = 0;
+    let overallLosses = 0;
+
+    const ensure = (id) => {
+        if (!byLevel.has(id)) byLevel.set(id, { wins: 0, losses: 0, total: 0, hitRate: 0 });
+        return byLevel.get(id);
+    };
+
+    for (const entry of entries) {
+        if (!entry || typeof entry !== 'object') continue;
+        if (entry.analysisMode !== 'diamond') continue;
+        const stage = String(entry.martingaleStage || entry.wonAt || entry.phase || '').toUpperCase().trim();
+        if (stage !== 'ENTRADA' && stage !== 'G0') continue;
+        const res = String(entry.result || '').toUpperCase().trim();
+        if (res !== 'WIN' && res !== 'LOSS') continue;
+
+        const src = entry.diamondSourceLevel
+            || (entry.patternData && entry.patternData.diamondSourceLevel)
+            || null;
+        const srcId = src && src.id ? String(src.id) : null;
+        if (!srcId) continue;
+
+        const bucket = ensure(srcId);
+        if (res === 'WIN') { bucket.wins++; overallWins++; }
+        else { bucket.losses++; overallLosses++; }
+        bucket.total = bucket.wins + bucket.losses;
+        bucket.hitRate = bucket.total ? bucket.wins / bucket.total : 0;
+    }
+
+    const overallTotal = overallWins + overallLosses;
+    return {
+        byLevel,
+        overall: {
+            wins: overallWins,
+            losses: overallLosses,
+            total: overallTotal,
+            hitRate: overallTotal ? overallWins / overallTotal : 0
+        }
+    };
+}
+
+function computeDiamondEntryHitRatesFromSignalsHistory() {
+    const list = signalsHistory && Array.isArray(signalsHistory.signals) ? signalsHistory.signals : [];
+    const byLevel = new Map();
+    let overallWins = 0;
+    let overallLosses = 0;
+
+    const ensure = (id) => {
+        if (!byLevel.has(id)) byLevel.set(id, { wins: 0, losses: 0, total: 0, hitRate: 0 });
+        return byLevel.get(id);
+    };
+
+    for (const sig of list) {
+        if (!sig || typeof sig !== 'object') continue;
+        if (sig.patternType !== 'nivel-diamante') continue;
+        if (typeof sig.hit !== 'boolean') continue;
+        if (sig.verified !== true) continue;
+
+        const colorRecommended = String(sig.colorRecommended || '').toLowerCase().trim();
+        if (colorRecommended !== 'red' && colorRecommended !== 'black' && colorRecommended !== 'white') continue;
+
+        const src = sig.sourceLevel || pickDiamondSourceLevel(sig.levelBreakdown, colorRecommended);
+        const srcId = src && src.id ? String(src.id) : null;
+        if (!srcId) continue;
+
+        const bucket = ensure(srcId);
+        if (sig.hit) { bucket.wins++; overallWins++; }
+        else { bucket.losses++; overallLosses++; }
+        bucket.total = bucket.wins + bucket.losses;
+        bucket.hitRate = bucket.total ? bucket.wins / bucket.total : 0;
+    }
+
+    const overallTotal = overallWins + overallLosses;
+    return {
+        byLevel,
+        overall: {
+            wins: overallWins,
+            losses: overallLosses,
+            total: overallTotal,
+            hitRate: overallTotal ? overallWins / overallTotal : 0
+        }
+    };
+}
+
+const MASTER_SIGNAL_CONFIG = Object.freeze({
+    enabled: true,
+    // ✅ Regra do usuário: só começar após ter base suficiente (ciclos com resultado)
+    minCycles: 10,
+    // ✅ Performance: não analisar histórico infinito
+    maxCyclesForStats: 200,
+    // ✅ Segurança: quantidade mínima de eventos para calcular distâncias (ex.: 2 WINS na Entrada)
+    minEventsForDistance: 2,
+    // ✅ Adaptativo: calcular distâncias com janela RECENTE (evita "média global" que cai em cima de LOSS)
+    decisionWindowCycles: 90,
+    // ✅ Alvos discretos (valores reais) para a ENTRADA: usar os gaps mais frequentes no histórico recente
+    entryGapTopN: 4,
+    entryGapMinSupport: 0.10, // 10%+
+    entryGapMinCount: 2,
+    // ✅ Janela de oportunidade: não exigir bater "no número exato" (senão trava demais)
+    // Ex.: alvo(s) [2,3] com window=1 => aceita 1..4
+    entryTargetWindow: 1,
+    // ✅ QUALIDADE (FASE 2): não usa a "confidence" da FASE 1.
+    // Em vez disso, exige que o ponto atual seja estatisticamente forte no histórico real (hazard da ENTRADA).
+    // hazardEntrada(d) = P(gap=d | gap >= d), calculado sobre gaps de vitórias na ENTRADA.
+    minEntryHazard: 0.20,
+    // ✅ Se o histórico está MUITO bom (winrate alto), relaxar o gate da ENTRADA
+    // (evita mandar poucos sinais quando há ampla margem entre REDs)
+    relaxEntryGate: Object.freeze({
+        // ⚠️ Importante: relax NÃO pode virar "libera tudo".
+        // Ele só deve, no máximo, relaxar levemente a janela do alvo.
+        enabled: false,
+        minCycles: 40,
+        winRateAbove: 0.84
+    }),
+    // ✅ Sequências (streaks): regras de qualidade por CONTEXTO, como você descreveu:
+    // - após 2 RED seguidos: qual a chance de vir o 3º?
+    // - após 3 vitórias seguidas em G1/G2: qual a chance de vir WIN no próximo ciclo?
+    streakGates: Object.freeze({
+        enabled: true,
+        maxK: 6,          // calcular k=1..6
+        minSamples: 12,   // mínimo de exemplos históricos para confiar na estatística
+        red: Object.freeze({
+            minLen: 2,
+            // Se P(próximo=RED | ≥minLen RED seguidos) for BAIXA, isso vira um gatilho forte (ponto alto).
+            maxContinueProb: 0.12,
+            // Se o histórico diz que 3º RED é raro, permitir entrada mesmo "logo após" o RED (bypass do cooldown).
+            bypassPostLossCooldown: true
+        }),
+        g1: Object.freeze({
+            minLen: 3,
+            // Se P(próximo ciclo ser WIN | ≥minLen vitórias em G1 seguidas) for ALTA, isso vira gatilho.
+            minNextWinProb: 0.78
+        }),
+        g2: Object.freeze({
+            minLen: 3,
+            minNextWinProb: 0.78
+        })
+    }),
+    // ✅ Proteção pós-LOSS: nunca liberar mestre “logo depois” de um RED
+    // sinceRed = 1 significa "próximo sinal após o RED" → bloqueado
+    minSignalsAfterRet: 2,
+    // ✅ Alvos discretos (valores reais) para RED: zonas mais frequentes entre um RED e outro
+    retGapTopN: 4,
+    retGapMinSupport: 0.15, // 15%+
+    retGapMinCount: 2,
+    // ✅ Evitar zona de LOSS: evitar cair exatamente no alvo típico de RED
+    // (0 = somente o ponto exato; evita travar demais)
+    retAvoidWindow: 0,
+    // ✅ Verificação do countdown: risco estimado de RED acontecer antes do mestre (0..1)
+    // Se risco alto, NÃO prometer "mestre em N sinais" (porque pode vir LOSS no meio).
+    maxRetRiskInCountdown: 0.45,
+    // ✅ Regras do mestre (base = WIN na ENTRADA)
+    // - Master só nasce quando a ENTRADA está “no ponto” (distância >= alvo)
+    // - E não pode coincidir com o ponto típico de RED (se houver base para isso)
+    avoidLossExactCoincidence: true,
+    // ✅ Diamante: usar assertividade do nível que "mandou" o sinal para aumentar/desconfiar
+    diamondLevelTrust: Object.freeze({
+        enabled: true,
+        // mínimo de amostras para confiar no winrate do nível
+        minSamples: 10,
+        // se o nível estiver abaixo disso, marcar como nível fraco (reduz confiança)
+        blockBelowHitRate: 0.60,
+        // bloqueio REAL só se estiver muito ruim
+        hardBlockBelowHitRate: 0.45,
+        // se estiver acima disso, marcar como nível forte (só informativo)
+        strongAboveHitRate: 0.85
+    })
+});
+
+function normalizeMasterMode(mode) {
+    const m = String(mode || '').toLowerCase().trim();
+    return m === 'diamond' ? 'diamond' : 'standard';
+}
+
+function hasContinuationFlagMaster(entry) {
+    try {
+        const obj = entry && typeof entry === 'object' ? entry : null;
+        if (!obj) return false;
+        return Object.keys(obj).some((k) => k && k.startsWith('continuingToG') && !!obj[k]);
+    } catch (_) {
+        return false;
+    }
+}
+
+function isFinalCycleMaster(entry) {
+    if (!entry || typeof entry !== 'object') return false;
+    if (entry.finalResult === 'WIN' || entry.finalResult === 'RED' || entry.finalResult === 'RET') return true;
+    if (entry.result === 'WIN') return true; // legado
+    if (entry.result === 'LOSS') {
+        if (entry.finalResult === 'RED' || entry.finalResult === 'RET') return true;
+        // LOSS intermediário (vai para G1/G2) NÃO é ciclo final
+        if (hasContinuationFlagMaster(entry)) return false;
+        // LOSS sem flags (config sem gales) -> tratar como ciclo final
+        return true;
+    }
+    return false;
+}
+
+function resolveEntryModeMaster(entry, hasExplicitMode) {
+    const m = entry && typeof entry.analysisMode === 'string' ? entry.analysisMode : null;
+    if (m === 'diamond' || m === 'standard') return m;
+    // Se já existem entradas modernas com analysisMode explícito, ignorar legado para não misturar.
+    return hasExplicitMode ? 'legacy' : 'standard';
+}
+
+function resolveWinStageMaster(entry) {
+    const raw = entry && (entry.martingaleStage || entry.wonAt || entry.phase)
+        ? String(entry.martingaleStage || entry.wonAt || entry.phase)
+        : '';
+    const s = raw.toUpperCase().trim();
+    if (s === 'ENTRADA' || s === 'G0') return 'ENTRADA';
+    const m = s.match(/^G(\d+)$/);
+    if (m) return `G${m[1]}`;
+    return 'ENTRADA';
+}
+
+// ✅ Helper compartilhado: "Evitar" RED com sensibilidade (mistura recente + histórico completo)
+function pickTopGapsWeightedMaster(recentGapsArr, allGapsArr, topN, minCount, minSupport) {
+    const clean = (arr) => (Array.isArray(arr)
+        ? arr.map(Number).filter(n => Number.isFinite(n) && n > 0).map(n => Math.round(n))
+        : []);
+
+    const recent = clean(recentGapsArr);
+    const all = clean(allGapsArr);
+    if (!recent.length && !all.length) return [];
+
+    const countMap = (arr) => {
+        const m = new Map();
+        for (const v of arr) {
+            m.set(v, (m.get(v) || 0) + 1);
+        }
+        return m;
+    };
+
+    const mr = countMap(recent);
+    const ma = countMap(all);
+    const nR = recent.length;
+    const nA = all.length;
+
+    // Peso do recente cresce conforme aumenta amostra recente (com limites).
+    const wRecent = Math.max(0.35, Math.min(0.85, nR / (nR + 20)));
+
+    const keys = new Set([...mr.keys(), ...ma.keys()]);
+    const items = Array.from(keys).map((gap) => {
+        const cr = mr.get(gap) || 0;
+        const ca = ma.get(gap) || 0;
+        const sr = nR ? (cr / nR) : 0;
+        const sa = nA ? (ca / nA) : 0;
+        const score = (wRecent * sr) + ((1 - wRecent) * sa);
+        return { gap, score, count: cr + ca };
+    }).sort((a, b) => (b.score - a.score) || (b.count - a.count) || (a.gap - b.gap));
+
+    const filtered = items.filter(it =>
+        it.count >= Math.max(1, minCount) &&
+        it.score >= Math.max(0, minSupport)
+    );
+    const chosen = filtered.length ? filtered : items;
+    return chosen.slice(0, Math.max(1, topN)).map(it => it.gap);
+}
+
+function computeTailStreakMaster(cycles, predicate) {
+    if (!Array.isArray(cycles) || !cycles.length || typeof predicate !== 'function') return 0;
+    let len = 0;
+    for (let i = cycles.length - 1; i >= 0; i--) {
+        if (predicate(cycles[i])) len++;
+        else break;
+    }
+    return len;
+}
+
+// Estatística: P(próximo satisfazer nextPredicate | já estou em uma streak de k satisfazendo statePredicate)
+function computeStreakContinuationMaster(cycles, statePredicate, nextPredicate, maxK = 6) {
+    const K = Math.max(1, Math.min(20, Math.floor(Number(maxK) || 0)));
+    const samples = Array(K + 1).fill(0);
+    const hits = Array(K + 1).fill(0);
+    if (!Array.isArray(cycles) || cycles.length < 2) {
+        return { K, samples, hits };
+    }
+    let streak = 0;
+    for (let i = 0; i < cycles.length - 1; i++) {
+        if (statePredicate(cycles[i])) streak++;
+        else streak = 0;
+        if (streak <= 0) continue;
+        const nextHit = !!nextPredicate(cycles[i + 1]);
+        const cap = Math.min(streak, K);
+        for (let k = 1; k <= cap; k++) {
+            samples[k]++;
+            if (nextHit) hits[k]++;
+        }
+    }
+    return { K, samples, hits };
+}
+
+function computeMasterSignalDecision(entriesHistoryRaw, analysisModeRaw, analysis) {
+    const cfg = MASTER_SIGNAL_CONFIG;
+    const analysisMode = normalizeMasterMode(analysisModeRaw);
+    // computedAt deve ser estável por análise (evita flutuação e writes constantes)
+    const nowTs = (() => {
+        try {
+            const raw = analysis && (analysis.createdOnTimestamp || analysis.timestamp) ? (analysis.createdOnTimestamp || analysis.timestamp) : null;
+            if (raw == null) return Date.now();
+            const ms = (typeof raw === 'number') ? raw : Date.parse(String(raw));
+            return Number.isFinite(ms) ? ms : Date.now();
+        } catch (_) {
+            return Date.now();
+        }
+    })();
+
+    const entriesHistory = Array.isArray(entriesHistoryRaw) ? entriesHistoryRaw : [];
+    const hasExplicitMode = entriesHistory.some(e => e && (e.analysisMode === 'diamond' || e.analysisMode === 'standard'));
+
+    // 1) Filtrar por modo (Premium vs Diamante) e por ciclos finais (WIN/RET)
+    const byMode = entriesHistory.filter(e => resolveEntryModeMaster(e, hasExplicitMode) === analysisMode);
+    const finalsRecentFirst = byMode.filter(isFinalCycleMaster);
+    const cycles = [...finalsRecentFirst.slice(0, Math.max(0, cfg.maxCyclesForStats))].reverse(); // cronológico
+
+    const totalCycles = cycles.length;
+    if (!cfg.enabled) {
+        return { active: false, mode: analysisMode, computedAt: nowTs, reason: 'Desativado por configuração' };
+    }
+    if (totalCycles < cfg.minCycles) {
+        return { active: false, mode: analysisMode, computedAt: nowTs, reason: `Base insuficiente: ${totalCycles}/${cfg.minCycles} ciclos` };
+    }
+
+    const isRet = (e) => {
+        if (!e || typeof e !== 'object') return false;
+        if (e.finalResult === 'RED' || e.finalResult === 'RET') return true;
+        if (e.result === 'LOSS' && ((e.finalResult === 'RED' || e.finalResult === 'RET') || !hasContinuationFlagMaster(e))) return true;
+        return false;
+    };
+    const isWin = (e) => {
+        if (!e || typeof e !== 'object') return false;
+        if (e.finalResult === 'WIN') return true;
+        if (e.result === 'WIN') return true;
+        return false;
+    };
+
+    // 2) Classificar ciclos e coletar índices (para distâncias)
+    const idxEntrada = [];
+    const idxG1 = [];
+    const idxG2 = [];
+    const idxRet = [];
+
+    for (let i = 0; i < cycles.length; i++) {
+        const c = cycles[i];
+        if (isRet(c)) {
+            idxRet.push(i);
+            continue;
+        }
+        if (!isWin(c)) continue;
+        const stage = resolveWinStageMaster(c); // ENTRADA | G1 | G2 | G3...
+        if (stage === 'ENTRADA') idxEntrada.push(i);
+        else if (stage === 'G1') idxG1.push(i);
+        else idxG2.push(i); // G2 ou acima
+    }
+
+    const gaps = (indices) => {
+        const out = [];
+        for (let i = 1; i < indices.length; i++) {
+            out.push(Number(indices[i]) - Number(indices[i - 1]));
+        }
+        return out.filter(n => Number.isFinite(n) && n > 0);
+    };
+
+    const pickTopGaps = (gapsArr, topN, minCount, minSupport) => {
+        const g = Array.isArray(gapsArr) ? gapsArr.map(Number).filter(n => Number.isFinite(n) && n > 0) : [];
+        if (!g.length) return [];
+        const h = new Map();
+        for (const v of g) {
+            const k = Math.round(v);
+            h.set(k, (h.get(k) || 0) + 1);
+        }
+        const total = g.length;
+        const items = Array.from(h.entries())
+            .map(([gap, count]) => ({ gap, count, support: total ? count / total : 0 }))
+            .sort((a, b) => (b.count - a.count) || (a.gap - b.gap));
+        const filtered = items.filter(it => it.count >= Math.max(1, minCount) && it.support >= Math.max(0, minSupport));
+        return filtered.slice(0, Math.max(1, topN)).map(it => it.gap);
+    };
+
+    // 3) Distâncias “desde o último” (para o PRÓXIMO sinal)
+    const nextIndex = cycles.length;
+    const last = (arr) => (Array.isArray(arr) && arr.length ? arr[arr.length - 1] : null);
+    const lastEntrada = last(idxEntrada);
+    const lastRet = last(idxRet);
+    const sinceEntrada = lastEntrada === null ? null : (nextIndex - lastEntrada);
+    const sinceRet = lastRet === null ? null : (nextIndex - lastRet);
+
+    // 4) Alvos DISCRETOS (valores reais) com janela recente (adaptativo)
+    const decisionWindowCycles = Math.max(cfg.minCycles, Math.floor(Number(cfg.decisionWindowCycles) || 0) || totalCycles);
+    const decisionCycles = cycles.slice(Math.max(0, cycles.length - decisionWindowCycles));
+    const idxEntradaDec = [];
+    const idxG1Dec = [];
+    const idxG2Dec = [];
+    const idxRetDec = [];
+    for (let i = 0; i < decisionCycles.length; i++) {
+        const c = decisionCycles[i];
+        if (isRet(c)) {
+            idxRetDec.push(i);
+            continue;
+        }
+        if (!isWin(c)) continue;
+        const stage = resolveWinStageMaster(c);
+        if (stage === 'ENTRADA') idxEntradaDec.push(i);
+        else if (stage === 'G1') idxG1Dec.push(i);
+        else idxG2Dec.push(i);
+    }
+
+    const entryGapsAll = gaps(idxEntrada);
+    const g1GapsAll = gaps(idxG1);
+    const g2GapsAll = gaps(idxG2);
+    const retGapsAll = gaps(idxRet);
+
+    const entryGapsDecision = gaps(idxEntradaDec);
+    const g1GapsDecision = gaps(idxG1Dec);
+    const g2GapsDecision = gaps(idxG2Dec);
+    const retGapsDecision = gaps(idxRetDec);
+
+    const entryGapsUse = entryGapsDecision.length ? entryGapsDecision : entryGapsAll;
+    const g1GapsUse = g1GapsDecision.length ? g1GapsDecision : g1GapsAll;
+    const g2GapsUse = g2GapsDecision.length ? g2GapsDecision : g2GapsAll;
+    const retGapsUse = retGapsDecision.length ? retGapsDecision : retGapsAll;
+
+    const entryTargetsStrict = pickTopGaps(
+        entryGapsUse,
+        cfg.entryGapTopN,
+        cfg.entryGapMinCount,
+        cfg.entryGapMinSupport
+    );
+    const entryTargetsFallback = pickTopGaps(entryGapsUse, 1, 1, 0);
+    const entryTargets = entryTargetsStrict.length ? entryTargetsStrict : entryTargetsFallback;
+
+    // ✅ "Evitar" RED com sensibilidade: mistura histórico inteiro + recente (janela) com peso maior no recente
+    const retTargets = pickTopGapsWeightedMaster(
+        retGapsDecision,
+        retGapsAll,
+        cfg.retGapTopN,
+        cfg.retGapMinCount,
+        cfg.retGapMinSupport
+    );
+
+    const topG1Gaps = pickTopGaps(g1GapsUse, cfg.entryGapTopN, cfg.entryGapMinCount, cfg.entryGapMinSupport);
+    const topG2Gaps = pickTopGaps(g2GapsUse, cfg.entryGapTopN, cfg.entryGapMinCount, cfg.entryGapMinSupport);
+
+    // 5) Decisão do próximo sinal: mestre ou não?
+    // - Base: entrar quando "bater" em um dos alvos reais (gaps) de WIN na ENTRADA
+    // - Proteção: cooldown pós-LOSS + evitar zona típica de RET
+    if (idxEntrada.length < cfg.minEventsForDistance || sinceEntrada === null || !entryTargets.length) {
+        return {
+            active: false,
+            mode: analysisMode,
+            computedAt: nowTs,
+            reason: 'Base insuficiente para calcular distâncias reais da ENTRADA',
+            meta: { totalCycles, entryWins: idxEntrada.length, decisionWindowCycles: decisionCycles.length }
+        };
+    }
+
+    const minSignalsAfterRet = Math.max(1, Math.floor(Number(cfg.minSignalsAfterRet) || 2));
+    const retAvoidWindow = Math.max(0, Math.floor(Number(cfg.retAvoidWindow) || 0));
+    const maxRetRiskNow = Math.max(0, Math.min(1, Number(cfg.maxRetRiskInCountdown) || 0));
+
+    // Probabilidade estimada de RED acontecer "agora" (hazard discreto):
+    // hazard(d) = P(gap = d | gap >= d)
+    // ✅ Importante: se NÃO há gaps >= d, isso NÃO significa 100%.
+    // Aí a gente cai para a taxa real de RED (ou null) para evitar alarme falso.
+    const computeGapHazardNow = (d, recentGaps, allGaps, baseRate) => {
+        const distance = Number.isFinite(Number(d)) ? Math.max(1, Math.round(Number(d))) : null;
+        if (distance == null) return null;
+        const clean = (arr) => (Array.isArray(arr) ? arr.map(Number).filter(n => Number.isFinite(n) && n > 0).map(n => Math.round(n)) : []);
+        const r = clean(recentGaps);
+        const a = clean(allGaps);
+
+        const hazardAt = (arr) => {
+            if (!arr.length) return null;
+            const denom = arr.filter(x => x >= distance).length;
+            if (denom <= 0) return null;
+            const num = arr.filter(x => x === distance).length;
+            return num / denom;
+        };
+
+        const hRecent = hazardAt(r);
+        const hAll = hazardAt(a);
+
+        // Peso adaptativo: quanto mais amostras recentes, mais peso nelas (capado).
+        const nRecent = r.length;
+        const wRecent = Math.max(0.2, Math.min(0.85, nRecent / (nRecent + 20)));
+
+        if (hRecent == null && hAll == null) {
+            const br = Number.isFinite(Number(baseRate)) ? Math.max(0, Math.min(1, Number(baseRate))) : null;
+            return br;
+        }
+        if (hRecent == null) return hAll;
+        if (hAll == null) return hRecent;
+        return (wRecent * hRecent) + ((1 - wRecent) * hAll);
+    };
+
+    // 6) Decidir APENAS quando um sinal real existe (t=0).
+    // ✅ Não exigir "ponto exato": usar janela em torno dos gaps reais mais frequentes da ENTRADA.
+    const entryWindow = Math.max(0, Math.floor(Number(cfg.entryTargetWindow) || 0));
+    const entryDueStrict = entryTargets.some(t => Math.abs(Number(sinceEntrada) - Number(t)) <= entryWindow);
+    const cycleWinsLocal = cycles.filter(isWin).length;
+    const cycleWinRateLocal = totalCycles ? (cycleWinsLocal / totalCycles) : 0;
+    const relaxCfg = cfg && cfg.relaxEntryGate ? cfg.relaxEntryGate : null;
+    const relaxEntryGateEnabled = !!(relaxCfg && relaxCfg.enabled);
+    const relaxMinCycles = Math.max(cfg.minCycles, Math.floor(Number(relaxCfg && relaxCfg.minCycles) || 0));
+    const relaxWinRateAbove = Math.max(0, Math.min(1, Number(relaxCfg && relaxCfg.winRateAbove) || 1));
+    const relaxEntryGate = !!(relaxEntryGateEnabled && totalCycles >= relaxMinCycles && cycleWinRateLocal >= relaxWinRateAbove);
+
+    // ✅ Se relaxEntryGate estiver ativo, ele apenas RELAXA a janela (±1), nunca vira "libera tudo".
+    const relaxedWindow = relaxEntryGate ? (entryWindow + 1) : entryWindow;
+    const entryDueRelaxed = relaxEntryGate
+        ? entryTargets.some(t => Math.abs(Number(sinceEntrada) - Number(t)) <= relaxedWindow)
+        : entryDueStrict;
+
+    const sRetNow = (sinceRet != null && Number.isFinite(Number(sinceRet))) ? Number(sinceRet) : null;
+    let postLossOk = sRetNow == null ? true : (sRetNow >= minSignalsAfterRet);
+    // ⚠️ "Zona de RED" pode ficar muito agressiva quando o histórico muda (ex.: fase boa vs fase ruim).
+    // Em vez de bloquear por proximidade do alvo, usamos somente o risco real (hazard) calculado abaixo.
+    // Só faz sentido evitar "pontos críticos" depois do cooldown
+    const retTargetsAfterCooldown = Array.isArray(retTargets)
+        ? retTargets.map(Number).filter(n => Number.isFinite(n) && n > minSignalsAfterRet)
+        : [];
+    const nearRedTarget = (sRetNow != null && (cfg.avoidLossExactCoincidence || retAvoidWindow > 0) && retTargetsAfterCooldown.length)
+        ? retTargetsAfterCooldown.some(t => Math.abs(sRetNow - Number(t)) <= Math.max(0, retAvoidWindow))
+        : false;
+
+    // Risco de RED "agora" (hazard discreto), usando TODO histórico + priorizando recente
+    const redBaseRate = totalCycles ? (idxRet.length / totalCycles) : null;
+    const retRiskNow = (sRetNow != null)
+        ? computeGapHazardNow(sRetNow, retGapsDecision, retGapsAll, redBaseRate)
+        : null;
+    // ✅ Regra: usar risco como proteção leve (pode ser ajustado via config).
+    const retRiskOk = (retRiskNow == null || maxRetRiskNow <= 0) ? true : (retRiskNow <= maxRetRiskNow);
+
+    // ✅ QUALIDADE (FASE 2): força estatística do ponto atual para vitórias na ENTRADA (hazard)
+    const entryBaseRate = totalCycles ? (idxEntrada.length / totalCycles) : null;
+    const entryHazardNow = (sinceEntrada != null)
+        ? computeGapHazardNow(sinceEntrada, entryGapsDecision, entryGapsAll, entryBaseRate)
+        : null;
+    const minEntryHazard = Math.max(0, Math.min(1, Number(cfg.minEntryHazard) || 0));
+    const entryHazardOk = (entryHazardNow != null && minEntryHazard > 0) ? (entryHazardNow >= minEntryHazard) : true;
+
+    // ✅ Sequências (streaks) — estatísticas condicionais do tipo:
+    // - P(RED no próximo | ≥2 RED seguidos)
+    // - P(WIN no próximo | ≥3 vitórias em G1 seguidas)
+    const streakCfg = cfg && cfg.streakGates ? cfg.streakGates : null;
+    let streakInfo = null;
+    let streakGateOk = false;
+    let postLossBypassed = false;
+    try {
+        if (streakCfg && streakCfg.enabled && totalCycles >= cfg.minCycles) {
+            const K = Math.max(1, Math.min(20, Math.floor(Number(streakCfg.maxK) || 6)));
+            const minSamples = Math.max(1, Math.floor(Number(streakCfg.minSamples) || 0));
+            const isWinG1 = (c) => isWin(c) && resolveWinStageMaster(c) === 'G1';
+            const isWinG2 = (c) => isWin(c) && (() => {
+                const s = resolveWinStageMaster(c);
+                return s !== 'ENTRADA' && s !== 'G1';
+            })();
+
+            const redStreakNow = computeTailStreakMaster(cycles, isRet);
+            const g1StreakNow = computeTailStreakMaster(cycles, isWinG1);
+            const g2StreakNow = computeTailStreakMaster(cycles, isWinG2);
+
+            const redCont = computeStreakContinuationMaster(cycles, isRet, isRet, K);
+            const g1Cont = computeStreakContinuationMaster(cycles, isWinG1, isWin, K);
+            const g2Cont = computeStreakContinuationMaster(cycles, isWinG2, isWin, K);
+
+            const pick = (stats, k) => {
+                const kk = Math.max(1, Math.min(stats && stats.K ? stats.K : K, Math.floor(Number(k) || 1)));
+                const n = stats && Array.isArray(stats.samples) ? Number(stats.samples[kk] || 0) : 0;
+                const h = stats && Array.isArray(stats.hits) ? Number(stats.hits[kk] || 0) : 0;
+                const prob = n > 0 ? (h / n) : null;
+                return { k: kk, samples: n, hits: h, prob };
+            };
+
+            const redRule = streakCfg.red || {};
+            const g1Rule = streakCfg.g1 || {};
+            const g2Rule = streakCfg.g2 || {};
+
+            const redPick = pick(redCont, redStreakNow || 1);
+            const g1Pick = pick(g1Cont, g1StreakNow || 1);
+            const g2Pick = pick(g2Cont, g2StreakNow || 1);
+
+            const safeAfterRedStreak = (redStreakNow >= Math.max(2, Math.floor(Number(redRule.minLen) || 2))) &&
+                (redPick.samples >= minSamples) &&
+                (redPick.prob != null) &&
+                (redPick.prob <= Math.max(0, Math.min(1, Number(redRule.maxContinueProb) || 0)));
+
+            const goodAfterG1Streak = (g1StreakNow >= Math.max(2, Math.floor(Number(g1Rule.minLen) || 3))) &&
+                (g1Pick.samples >= minSamples) &&
+                (g1Pick.prob != null) &&
+                (g1Pick.prob >= Math.max(0, Math.min(1, Number(g1Rule.minNextWinProb) || 1)));
+
+            const goodAfterG2Streak = (g2StreakNow >= Math.max(2, Math.floor(Number(g2Rule.minLen) || 3))) &&
+                (g2Pick.samples >= minSamples) &&
+                (g2Pick.prob != null) &&
+                (g2Pick.prob >= Math.max(0, Math.min(1, Number(g2Rule.minNextWinProb) || 1)));
+
+            streakGateOk = !!(safeAfterRedStreak || goodAfterG1Streak || goodAfterG2Streak);
+
+            // Se 2+ RED seguidos historicamente NÃO costuma virar 3º, permitir entrada mesmo logo após RED (bypass cooldown)
+            if (!postLossOk && safeAfterRedStreak && !!redRule.bypassPostLossCooldown) {
+                postLossOk = true;
+                postLossBypassed = true;
+            }
+
+            streakInfo = {
+                red: {
+                    current: redStreakNow,
+                    k: redPick.k,
+                    samples: redPick.samples,
+                    hits: redPick.hits,
+                    continueProb: redPick.prob
+                },
+                g1: {
+                    current: g1StreakNow,
+                    k: g1Pick.k,
+                    samples: g1Pick.samples,
+                    hits: g1Pick.hits,
+                    nextWinProb: g1Pick.prob
+                },
+                g2: {
+                    current: g2StreakNow,
+                    k: g2Pick.k,
+                    samples: g2Pick.samples,
+                    hits: g2Pick.hits,
+                    nextWinProb: g2Pick.prob
+                },
+                used: {
+                    safeAfterRedStreak: !!safeAfterRedStreak,
+                    goodAfterG1Streak: !!goodAfterG1Streak,
+                    goodAfterG2Streak: !!goodAfterG2Streak,
+                    postLossBypassed: !!postLossBypassed
+                }
+            };
+        }
+    } catch (_) {}
+
+    const entryDueOk = !!(entryDueStrict && entryHazardOk);
+    const entryDueRelaxedOk = !!(relaxEntryGate && entryDueRelaxed && entryHazardOk);
+    const entryGateOk = !!(entryDueOk || entryDueRelaxedOk || streakGateOk);
+
+    // ✅ Sinal de entrada (FASE 2) = gate ENTRADA (alvo/relax/streak) + proteção pós-RED + NÃO cair no ponto crítico de RED + risco de RED agora aceitável
+    let active = !!(entryGateOk && postLossOk && !nearRedTarget && retRiskOk);
+
+    // Texto "humano" para UI/Status
+    let chosenReason = '';
+    if (!entryHazardOk && entryHazardNow != null) {
+        chosenReason = `Bloqueado: ponto fraco (hazardEntrada≈${(entryHazardNow * 100).toFixed(0)}% < ${(minEntryHazard * 100).toFixed(0)}%)`;
+    } else if (!postLossOk && sRetNow != null) {
+        chosenReason = `Pós-LOSS: aguarde ${Math.max(0, minSignalsAfterRet - sRetNow)} sinal(is)`;
+    } else if (nearRedTarget && sRetNow != null) {
+        const rt = retTargetsAfterCooldown.length ? retTargetsAfterCooldown.join(',') : (Array.isArray(retTargets) ? retTargets.join(',') : '—');
+        chosenReason = `Bloqueado: ponto crítico de RED (${sRetNow} em [${rt}])`;
+    } else if (!retRiskOk && retRiskNow != null) {
+        chosenReason = `Risco de LOSS alto: ${(retRiskNow * 100).toFixed(0)}% (limite ${(maxRetRiskNow * 100).toFixed(0)}%)`;
+    } else if (!entryGateOk) {
+        const et = Array.isArray(entryTargets) ? entryTargets.join(',') : '—';
+        chosenReason = `Entrada: alvo(s)=${et}±${entryWindow} atual=${sinceEntrada}`;
+        if (streakInfo && streakInfo.red && streakInfo.red.current >= 2 && streakInfo.red.samples > 0 && streakInfo.red.continueProb != null) {
+            chosenReason += ` • streakRED=${streakInfo.red.current} P(RED)≈${(streakInfo.red.continueProb * 100).toFixed(0)}%`;
+        }
+        if (relaxEntryGate && entryDueRelaxed && !entryDueStrict) {
+            chosenReason += ` • relax(winrate ${(cycleWinRateLocal * 100).toFixed(1)}%)`;
+        }
+    } else {
+        const et = Array.isArray(entryTargets) ? entryTargets.join(',') : '—';
+        const rt = Array.isArray(retTargets) ? retTargets.join(',') : '—';
+        const gateLabel = entryDueOk
+            ? `alvo`
+            : (streakInfo && streakInfo.used && (streakInfo.used.safeAfterRedStreak || streakInfo.used.goodAfterG1Streak || streakInfo.used.goodAfterG2Streak))
+                ? `streak`
+                : (relaxEntryGate && entryDueRelaxed ? 'relax' : 'gate');
+        chosenReason = `SINAL DE ENTRADA: OK • gate=${gateLabel}` +
+            (entryDueOk ? ` • Entrada ${sinceEntrada} em [${et}]±${entryWindow}` : '') +
+            (streakInfo && streakInfo.used && streakInfo.used.safeAfterRedStreak && streakInfo.red && streakInfo.red.continueProb != null
+                ? ` • pós-${streakInfo.red.current}RED P(RED)≈${(streakInfo.red.continueProb * 100).toFixed(0)}%`
+                : '') +
+            (streakInfo && streakInfo.used && streakInfo.used.goodAfterG1Streak && streakInfo.g1 && streakInfo.g1.nextWinProb != null
+                ? ` • pós-${streakInfo.g1.current}xG1 P(WIN)≈${(streakInfo.g1.nextWinProb * 100).toFixed(0)}%`
+                : '') +
+            (streakInfo && streakInfo.used && streakInfo.used.goodAfterG2Streak && streakInfo.g2 && streakInfo.g2.nextWinProb != null
+                ? ` • pós-${streakInfo.g2.current}xG2+ P(WIN)≈${(streakInfo.g2.nextWinProb * 100).toFixed(0)}%`
+                : '') +
+            (postLossBypassed ? ` • bypass pós-LOSS` : '') +
+            (relaxEntryGate && entryDueRelaxed && !entryDueStrict ? ` • relax(winrate ${(cycleWinRateLocal * 100).toFixed(1)}%)` : '') +
+            (sRetNow != null ? ` • RED ${sRetNow} evitar [${rt}]` : '') +
+            (retRiskNow != null ? ` • riscoRED≈${(retRiskNow * 100).toFixed(0)}%` : '');
+    }
+
+    const signalsUntilMaster = null;
+    const pickedRisk = retRiskNow;
+    const pickedWhy = null;
+
+    // 7) Diamante: levar em conta QUAL NÍVEL "MANDOU" o sinal + assertividade histórica desse nível
+    let diamondSourceLevel = null;
+    let diamondSourceLevelStats = null;
+    try {
+        const trustCfg = cfg && cfg.diamondLevelTrust ? cfg.diamondLevelTrust : null;
+        const src = (analysisMode === 'diamond' && analysis && typeof analysis === 'object')
+            ? (analysis.diamondSourceLevel || null)
+            : null;
+        const srcId = src && src.id ? String(src.id) : null;
+        if (analysisMode === 'diamond' && trustCfg && trustCfg.enabled && srcId) {
+            diamondSourceLevel = {
+                id: srcId,
+                name: src && src.name ? String(src.name) : srcId
+            };
+
+            // Preferir entriesHistory (entrada real); fallback para signalsHistory (hit no próximo giro)
+            const fromEntries = computeDiamondEntryHitRatesFromEntries(entriesHistoryRaw);
+            let stats = fromEntries && fromEntries.byLevel ? fromEntries.byLevel.get(srcId) : null;
+            let source = 'entries';
+            if (!stats || stats.total < Number(trustCfg.minSamples || 0)) {
+                const fromSignals = computeDiamondEntryHitRatesFromSignalsHistory();
+                const stats2 = fromSignals && fromSignals.byLevel ? fromSignals.byLevel.get(srcId) : null;
+                if (stats2 && (!stats || (stats2.total > stats.total))) {
+                    stats = stats2;
+                    source = 'signals';
+                }
+            }
+
+            if (stats && Number.isFinite(Number(stats.total)) && stats.total > 0) {
+                const hitRate = Number.isFinite(Number(stats.hitRate)) ? Number(stats.hitRate) : (stats.wins / stats.total);
+                diamondSourceLevelStats = {
+                    wins: stats.wins || 0,
+                    losses: stats.losses || 0,
+                    total: stats.total || 0,
+                    hitRate,
+                    source
+                };
+
+                // Aplicar “desconfiança” apenas quando o sinal já estaria como sinal de entrada.
+                if (active && stats.total >= Number(trustCfg.minSamples || 0)) {
+                    const warnBelow = Number(trustCfg.blockBelowHitRate || 0);
+                    const hardBlockBelow = Number(trustCfg.hardBlockBelowHitRate || 0);
+                    const strongAbove = Number(trustCfg.strongAboveHitRate || 1);
+                    const pct = (hitRate * 100);
+
+                    if (hardBlockBelow > 0 && hitRate < hardBlockBelow) {
+                        active = false;
+                        chosenReason = `Bloqueado (nível muito fraco): ${srcId} ${pct.toFixed(1)}% (${stats.wins}/${stats.total})`;
+                    } else if (hitRate >= strongAbove) {
+                        chosenReason = `${chosenReason} • Nível forte: ${srcId} ${pct.toFixed(1)}% (${stats.wins}/${stats.total})`;
+                    } else if (warnBelow > 0 && hitRate < warnBelow) {
+                        // ✅ Não bloquear aqui (para não "travar" o volume). Apenas avisar/reduzir confiança (informativo).
+                        chosenReason = `${chosenReason} • Nível fraco: ${srcId} ${pct.toFixed(1)}% (${stats.wins}/${stats.total})`;
+                    } else {
+                        chosenReason = `${chosenReason} • Nível: ${srcId} ${pct.toFixed(1)}% (${stats.wins}/${stats.total})`;
+                    }
+                }
+            }
+        }
+    } catch (_) {}
+
+    const master = {
+        active,
+        mode: analysisMode,
+        computedAt: nowTs,
+        cyclesUsed: totalCycles,
+        pickedPlan: pickedWhy || null,
+        retRiskInCountdown: pickedRisk,
+        diamondSourceLevel,
+        diamondSourceLevelStats,
+        // Contadores (para debug/telemetria)
+        counts: {
+            entradaWins: idxEntrada.length,
+            g1Wins: idxG1.length,
+            g2Wins: idxG2.length,
+            rets: idxRet.length
+        },
+        // Distâncias e alvos (o que você pediu como “soma”)
+        distances: {
+            decisionWindowCycles: decisionCycles.length,
+            entryTargets,
+            entryTargetWindow: entryWindow,
+            entryGateRelaxed: relaxEntryGate && entryDueRelaxed && !entryDueStrict,
+            entryHazardNow,
+            minEntryHazard,
+            entryHazardOk,
+            cycleWinRate: cycleWinRateLocal,
+            sinceEntrada,
+            g1Targets: topG1Gaps,
+            g2Targets: topG2Gaps,
+            retTargets,
+            sinceRet,
+            redRiskNow: retRiskNow,
+            nearRedTarget,
+            streaks: streakInfo
+        },
+        signalsUntilMaster,
+        reason: chosenReason
+    };
+
+    if (analysis && typeof analysis === 'object') {
+        master.cycleId = analysis.createdOnTimestamp || analysis.timestamp || null;
+    }
+
+    return master;
+}
+
+// Retorna estatísticas para o card "Sinais de entrada" (UI)
+function computeMasterSignalStats(entriesHistoryRaw, analysisModeRaw, currentAnalysisRaw = null) {
+    const cfg = MASTER_SIGNAL_CONFIG;
+    const analysisMode = normalizeMasterMode(analysisModeRaw);
+    const entriesHistory = Array.isArray(entriesHistoryRaw) ? entriesHistoryRaw : [];
+    const hasExplicitMode = entriesHistory.some(e => e && (e.analysisMode === 'diamond' || e.analysisMode === 'standard'));
+
+    const byMode = entriesHistory.filter(e => resolveEntryModeMaster(e, hasExplicitMode) === analysisMode);
+    const finalsRecentFirst = byMode.filter(isFinalCycleMaster);
+    const cycles = [...finalsRecentFirst.slice(0, Math.max(0, cfg.maxCyclesForStats))].reverse(); // cronológico
+
+    const totalCycles = cycles.length;
+    const isWin = (e) => {
+        if (!e || typeof e !== 'object') return false;
+        if (e.finalResult === 'WIN') return true;
+        if (e.result === 'WIN') return true;
+        return false;
+    };
+    const isRet = (e) => {
+        if (!e || typeof e !== 'object') return false;
+        if (e.finalResult === 'RED' || e.finalResult === 'RET') return true;
+        if (e.result === 'LOSS' && ((e.finalResult === 'RED' || e.finalResult === 'RET') || !hasContinuationFlagMaster(e))) return true;
+        return false;
+    };
+
+    const wins = cycles.filter(isWin).length;
+    const rets = cycles.filter(isRet).length;
+    const cycleWinRate = totalCycles ? (wins / totalCycles) * 100 : 0;
+
+    // WIN por estágio (probabilidade por ciclo)
+    let entryWinCount = 0;
+    let g1WinCount = 0;
+    let g2WinCount = 0; // inclui G2+ (G2, G3, ...)
+    for (const c of cycles) {
+        if (!isWin(c)) continue;
+        const stage = resolveWinStageMaster(c);
+        if (stage === 'ENTRADA') entryWinCount++;
+        else if (stage === 'G1') g1WinCount++;
+        else g2WinCount++;
+    }
+
+    const entryWinPct = totalCycles ? (entryWinCount / totalCycles) * 100 : 0;
+    const g1WinPct = totalCycles ? (g1WinCount / totalCycles) * 100 : 0;
+    const g2WinPct = totalCycles ? (g2WinCount / totalCycles) * 100 : 0;
+
+    const collecting = totalCycles < cfg.minCycles;
+    const neededToStart = collecting ? Math.max(0, cfg.minCycles - totalCycles) : 0;
+
+    // Distâncias entre ocorrências (o que você pediu: "distância de um para o outro")
+    const idxEntrada = [];
+    const idxG1 = [];
+    const idxG2 = [];
+    const idxRet = [];
+    for (let i = 0; i < cycles.length; i++) {
+        const c = cycles[i];
+        if (isRet(c)) {
+            idxRet.push(i);
+            continue;
+        }
+        if (!isWin(c)) continue;
+        const stage = resolveWinStageMaster(c);
+        if (stage === 'ENTRADA') idxEntrada.push(i);
+        else if (stage === 'G1') idxG1.push(i);
+        else idxG2.push(i);
+    }
+    const gaps = (indices) => {
+        const out = [];
+        for (let i = 1; i < indices.length; i++) {
+            const d = Number(indices[i]) - Number(indices[i - 1]);
+            if (Number.isFinite(d) && d > 0) out.push(d);
+        }
+        return out;
+    };
+    const pickTopGaps = (gapsArr, topN, minCount, minSupport) => {
+        const g = Array.isArray(gapsArr) ? gapsArr.map(Number).filter(n => Number.isFinite(n) && n > 0) : [];
+        if (!g.length) return [];
+        const h = new Map();
+        for (const v of g) {
+            const k = Math.round(v);
+            h.set(k, (h.get(k) || 0) + 1);
+        }
+        const total = g.length;
+        const items = Array.from(h.entries())
+            .map(([gap, count]) => ({ gap, count, support: total ? count / total : 0 }))
+            .sort((a, b) => (b.count - a.count) || (a.gap - b.gap));
+        const filtered = items.filter(it => it.count >= Math.max(1, minCount) && it.support >= Math.max(0, minSupport));
+        return filtered.slice(0, Math.max(1, topN)).map(it => it.gap);
+    };
+
+    const entryGapsAll = gaps(idxEntrada);
+    const g1GapsAll = gaps(idxG1);
+    const g2GapsAll = gaps(idxG2);
+    const retGapsAll = gaps(idxRet);
+
+    const decisionWindowCycles = Math.max(cfg.minCycles, Math.floor(Number(cfg.decisionWindowCycles) || 0) || totalCycles);
+    const decisionCycles = cycles.slice(Math.max(0, cycles.length - decisionWindowCycles));
+    const idxEntradaDec = [];
+    const idxG1Dec = [];
+    const idxG2Dec = [];
+    const idxRetDec = [];
+    for (let i = 0; i < decisionCycles.length; i++) {
+        const c = decisionCycles[i];
+        if (isRet(c)) {
+            idxRetDec.push(i);
+            continue;
+        }
+        if (!isWin(c)) continue;
+        const stage = resolveWinStageMaster(c);
+        if (stage === 'ENTRADA') idxEntradaDec.push(i);
+        else if (stage === 'G1') idxG1Dec.push(i);
+        else idxG2Dec.push(i);
+    }
+
+    const entryGapsDecision = gaps(idxEntradaDec);
+    const g1GapsDecision = gaps(idxG1Dec);
+    const g2GapsDecision = gaps(idxG2Dec);
+    const retGapsDecision = gaps(idxRetDec);
+
+    const entryGapsUse = entryGapsDecision.length ? entryGapsDecision : entryGapsAll;
+    const g1GapsUse = g1GapsDecision.length ? g1GapsDecision : g1GapsAll;
+    const g2GapsUse = g2GapsDecision.length ? g2GapsDecision : g2GapsAll;
+    const retGapsUse = retGapsDecision.length ? retGapsDecision : retGapsAll;
+
+    const entryTargetsStrict = pickTopGaps(entryGapsUse, cfg.entryGapTopN, cfg.entryGapMinCount, cfg.entryGapMinSupport);
+    const entryTargetsFallback = pickTopGaps(entryGapsUse, 1, 1, 0);
+    const entryTargets = entryTargetsStrict.length ? entryTargetsStrict : entryTargetsFallback;
+
+    // ✅ "Evitar" RED com sensibilidade: mistura histórico inteiro + recente (janela) com peso maior no recente
+    const retTargets = pickTopGapsWeightedMaster(retGapsDecision, retGapsAll, cfg.retGapTopN, cfg.retGapMinCount, cfg.retGapMinSupport);
+
+    const g1Targets = pickTopGaps(g1GapsUse, cfg.entryGapTopN, cfg.entryGapMinCount, cfg.entryGapMinSupport);
+    const g2Targets = pickTopGaps(g2GapsUse, cfg.entryGapTopN, cfg.entryGapMinCount, cfg.entryGapMinSupport);
+
+    const nextIndex = cycles.length;
+    const last = (arr) => (Array.isArray(arr) && arr.length ? arr[arr.length - 1] : null);
+    const lastEntrada = last(idxEntrada);
+    const lastRet = last(idxRet);
+    const sinceEntrada = lastEntrada == null ? null : (nextIndex - lastEntrada);
+    const sinceRet = lastRet == null ? null : (nextIndex - lastRet);
+
+    // ✅ "Próximo sinal" (Entrada/Normal) deve ser calculado somente quando existir um sinal real pendente
+    let hasCurrentSignal = false;
+    let nextIsMaster = false;
+    let reason = collecting ? `Coletando dados (${totalCycles}/${cfg.minCycles})` : 'Aguardando sinal...';
+    try {
+        const currentAnalysis = currentAnalysisRaw && typeof currentAnalysisRaw === 'object' ? currentAnalysisRaw : null;
+        const msExisting = currentAnalysis && currentAnalysis.masterSignal && typeof currentAnalysis.masterSignal.active === 'boolean'
+            ? currentAnalysis.masterSignal
+            : null;
+        const msMode = msExisting && msExisting.mode ? String(msExisting.mode) : null;
+        if (currentAnalysis && msMode === analysisMode) {
+            hasCurrentSignal = true;
+            nextIsMaster = !!msExisting.active;
+            reason = msExisting && msExisting.reason ? String(msExisting.reason) : (nextIsMaster ? 'ENTRADA' : 'Normal');
+        }
+    } catch (_) {}
+
+    const distanceSinceLastRet = sinceRet != null && Number.isFinite(Number(sinceRet)) ? Number(sinceRet) : null;
+
+    // ✅ Sequências (streaks) para transparência na UI
+    let streaks = null;
+    try {
+        const streakCfg = cfg && cfg.streakGates ? cfg.streakGates : null;
+        if (streakCfg && streakCfg.enabled && totalCycles >= cfg.minCycles) {
+            const K = Math.max(1, Math.min(20, Math.floor(Number(streakCfg.maxK) || 6)));
+            const minSamples = Math.max(1, Math.floor(Number(streakCfg.minSamples) || 0));
+            const isWinG1 = (c) => isWin(c) && resolveWinStageMaster(c) === 'G1';
+            const isWinG2 = (c) => isWin(c) && (() => {
+                const s = resolveWinStageMaster(c);
+                return s !== 'ENTRADA' && s !== 'G1';
+            })();
+
+            const redStreakNow = computeTailStreakMaster(cycles, isRet);
+            const g1StreakNow = computeTailStreakMaster(cycles, isWinG1);
+            const g2StreakNow = computeTailStreakMaster(cycles, isWinG2);
+
+            const redCont = computeStreakContinuationMaster(cycles, isRet, isRet, K);
+            const g1Cont = computeStreakContinuationMaster(cycles, isWinG1, isWin, K);
+            const g2Cont = computeStreakContinuationMaster(cycles, isWinG2, isWin, K);
+
+            const pick = (stats, k) => {
+                const kk = Math.max(1, Math.min(stats && stats.K ? stats.K : K, Math.floor(Number(k) || 1)));
+                const n = stats && Array.isArray(stats.samples) ? Number(stats.samples[kk] || 0) : 0;
+                const h = stats && Array.isArray(stats.hits) ? Number(stats.hits[kk] || 0) : 0;
+                const prob = n > 0 ? (h / n) : null;
+                return { k: kk, samples: n, hits: h, prob };
+            };
+
+            const redPick = pick(redCont, redStreakNow || 1);
+            const g1Pick = pick(g1Cont, g1StreakNow || 1);
+            const g2Pick = pick(g2Cont, g2StreakNow || 1);
+
+            // Só expor se houver base mínima — evita números “noisy”
+            streaks = {
+                minSamples,
+                red: {
+                    current: redStreakNow,
+                    k: redPick.k,
+                    samples: redPick.samples,
+                    hits: redPick.hits,
+                    continueProb: redPick.prob
+                },
+                g1: {
+                    current: g1StreakNow,
+                    k: g1Pick.k,
+                    samples: g1Pick.samples,
+                    hits: g1Pick.hits,
+                    nextWinProb: g1Pick.prob
+                },
+                g2: {
+                    current: g2StreakNow,
+                    k: g2Pick.k,
+                    samples: g2Pick.samples,
+                    hits: g2Pick.hits,
+                    nextWinProb: g2Pick.prob
+                }
+            };
+        }
+    } catch (_) {}
+
+    return {
+        mode: analysisMode,
+        minCycles: cfg.minCycles,
+        decisionWindowCycles: decisionCycles.length,
+        totalCycles,
+        wins,
+        rets,
+        cycleWinRate,
+        entryWinCount,
+        entryWinPct,
+        g1WinCount,
+        g1WinPct,
+        g2WinCount,
+        g2WinPct,
+        entryTargets,
+        g1Targets,
+        g2Targets,
+        retTargets,
+        sinceEntrada,
+        sinceRet,
+        hasCurrentSignal,
+        nextIsMaster,
+        signalsUntilMaster: null,
+        neededToStart,
+        distanceSinceLastRet,
+        reason,
+        streaks
+    };
+}
+
+async function attachMasterSignalToAnalysis(analysis, mode) {
+    try {
+        if (!analysis || typeof analysis !== 'object') return analysis;
+
+        const phase = String(analysis.phase || 'G0').toUpperCase().trim();
+        const isEntryPhase = !phase || phase === 'G0' || phase === 'ENTRADA';
+        if (!isEntryPhase) {
+            // Se não é entrada e não tem masterSignal, herdar do ciclo (Martingale) se disponível
+            try {
+                if (martingaleState && martingaleState.analysisData && martingaleState.analysisData.masterSignal) {
+                    return { ...analysis, masterSignal: martingaleState.analysisData.masterSignal };
+                }
+            } catch (_) {}
+            return analysis;
+        }
+
+        const stored = await chrome.storage.local.get(['entriesHistory', ENTRIES_CLEAR_CUTOFF_KEY]);
+        const entriesHistoryAll = stored && Array.isArray(stored.entriesHistory) ? stored.entriesHistory : [];
+        const cutoffMs = getMasterCutoffMsForMode(stored ? stored[ENTRIES_CLEAR_CUTOFF_KEY] : null, mode);
+        const entriesHistory = filterEntriesHistoryByCutoff(entriesHistoryAll, cutoffMs);
+        const masterSignal = computeMasterSignalDecision(entriesHistory, mode, analysis);
+
+        const updated = { ...analysis, masterSignal };
+
+        // ✅ Persistir também no storage para reload/aba nova renderizar corretamente
+        try {
+            await chrome.storage.local.set({ analysis: updated });
+        } catch (_) {}
+
+        return updated;
+    } catch (error) {
+        console.warn('⚠️ Falha ao anexar masterSignal na análise:', error);
+        return analysis;
+    }
+}
+
+async function emitAnalysisToContent(analysis, mode) {
+    const annotated = await attachMasterSignalToAnalysis(analysis, mode);
+    const payload = annotated ? { ...attachLatestSpinsSnapshot(annotated) } : {};
     if (mode) {
         payload.analysisMode = mode;
     }
@@ -22848,10 +24274,10 @@ function calculateFilteredScore(entriesHistory, analysisMode) {
         return entryMode === analysisMode;
     });
     
-    // Filtrar apenas ciclos completos (WIN ou RET)
+    // Filtrar apenas ciclos completos (WIN ou RED)
     const completeCycles = filteredEntries.filter(e => {
         if (e.result === 'WIN') return true;
-        if (e.result === 'LOSS' && e.finalResult === 'RET') return true;
+        if (e.result === 'LOSS' && (e.finalResult === 'RED' || e.finalResult === 'RET')) return true;
         return false;
     });
     
@@ -23042,9 +24468,9 @@ ${modeIcon} <b>${modeName}</b>
     return result;
 }
 
-// Enviar sinal de RET (Loss Final)
+// Enviar sinal de RED (Loss Final)
 async function sendTelegramMartingaleRET(wins, losses, analysisMode = 'standard', confidencePct = null) {
-    console.log('⛔ Enviando sinal de RET ao Telegram...');
+    console.log('⛔ Enviando sinal de RED ao Telegram...');
     console.log(`   Modo de análise: ${analysisMode}`);
     
     const total = wins + losses;
@@ -23067,7 +24493,7 @@ ${modeIcon} <b>${modeName}</b>
     `.trim();
     
     const result = await sendTelegramMessage(message);
-    console.log('📬 Resultado do envio RET:', result ? '✅ Sucesso' : '❌ Falha');
+    console.log('📬 Resultado do envio RED:', result ? '✅ Sucesso' : '❌ Falha');
     return result;
 }
 
@@ -24012,6 +25438,10 @@ function computeIntervalBlockForSimulation(history, config, simState) {
     if (!config?.aiMode || minIntervalSpins <= 0) {
         return { blocked: false, message: '' };
     }
+    // ✅ N4-only (com N9 opcional): não aplicar cooldown entre sinais na simulação.
+    if (shouldUseN4DynamicGalesForConfig(config)) {
+        return { blocked: false, message: '' };
+    }
 
     // ✅ Intervalo após entrada (Diamante): contar a partir do FIM DO CICLO (WIN/RET) na simulação.
     const lastCycleResolvedSpinId = simState?.lastCycleResolvedSpinId || null;
@@ -24211,6 +25641,7 @@ function evaluatePendingAnalysisSimulation(latestSpin, simState, history, modeKe
             wonAt: martingaleStage,
             finalResult: 'WIN',
             analysisMode: modeKey,
+            isMaster: !!(currentAnalysis && currentAnalysis.masterSignal && currentAnalysis.masterSignal.active),
             simulation: true
         };
         simState.entriesHistory.unshift(winEntry);
@@ -24261,12 +25692,13 @@ function evaluatePendingAnalysisSimulation(latestSpin, simState, history, modeKe
                     createdOnTimestamp: currentAnalysis.createdOnTimestamp
                 },
                 martingaleStage: 'ENTRADA',
-                finalResult: 'RET',
+                finalResult: 'RED',
                 analysisMode: modeKey,
+                isMaster: !!(currentAnalysis && currentAnalysis.masterSignal && currentAnalysis.masterSignal.active),
                 simulation: true
             };
             simState.entriesHistory.unshift(lossEntry);
-            // ✅ Marcar fim do ciclo (RET)
+            // ✅ Marcar fim do ciclo (RED)
             simState.lastCycleResolvedSpinId = latestSpin?.id ?? null;
             simState.lastCycleResolvedSpinTimestamp = latestSpin?.timestamp ?? null;
             simState.martingaleState = {
@@ -24304,6 +25736,7 @@ function evaluatePendingAnalysisSimulation(latestSpin, simState, history, modeKe
             finalResult: null,
             continuingToG1: true,
             analysisMode: modeKey,
+            isMaster: !!(currentAnalysis && currentAnalysis.masterSignal && currentAnalysis.masterSignal.active),
             simulation: true
         };
         simState.entriesHistory.unshift(entradaLossEntry);
@@ -24358,12 +25791,13 @@ function evaluatePendingAnalysisSimulation(latestSpin, simState, history, modeKe
                     createdOnTimestamp: currentAnalysis.createdOnTimestamp
                 },
                 martingaleStage: currentStage,
-                finalResult: 'RET',
+                finalResult: 'RED',
                     analysisMode: modeKey,
+                isMaster: !!(currentAnalysis && currentAnalysis.masterSignal && currentAnalysis.masterSignal.active),
                 simulation: true
             };
             simState.entriesHistory.unshift(retEntry);
-            // ✅ Marcar fim do ciclo (RET)
+            // ✅ Marcar fim do ciclo (RED)
             simState.lastCycleResolvedSpinId = latestSpin?.id ?? null;
             simState.lastCycleResolvedSpinTimestamp = latestSpin?.timestamp ?? null;
             simState.martingaleState = {
@@ -24400,6 +25834,7 @@ function evaluatePendingAnalysisSimulation(latestSpin, simState, history, modeKe
             finalResult: null,
             [`continuingTo${nextStage}`]: true,
             analysisMode: modeKey,
+            isMaster: !!(currentAnalysis && currentAnalysis.masterSignal && currentAnalysis.masterSignal.active),
             simulation: true
         };
         simState.entriesHistory.unshift(lossEntry);
@@ -25233,7 +26668,7 @@ function filterFinalEntries(entriesHistory) {
         if (!e) return false;
         if (e.result === 'WIN') return true;
         if (e.result === 'LOSS') {
-            if (e.finalResult === 'RET') return true;
+            if (e.finalResult === 'RED' || e.finalResult === 'RET') return true;
             let isContinuing = false;
             for (let key in e) {
                 if (key.startsWith('continuingToG')) {
@@ -25279,6 +26714,62 @@ async function runDiamondPastSimulation({ config, mode, levelId, senderTabId, jo
     const fromTimestamp = chronological[0]?.timestamp || null;
     const toTimestamp = chronological[totalSpins - 1]?.timestamp || null;
 
+    // ✅ Baseline do jogo (para debug/educação no modal de simulação)
+    // Ajuda a entender quando a estratégia está colada no "esperado do jogo" (ex.: 85% até G2),
+    // e por que Martingale pode ficar negativo mesmo com alta taxa de acerto.
+    const baseline = (() => {
+        try {
+            const counts = { red: 0, black: 0, white: 0, other: 0 };
+            for (const spin of chronological) {
+                const c = String(spin?.color || '').toLowerCase().trim();
+                if (c === 'red' || c === 'vermelho') counts.red++;
+                else if (c === 'black' || c === 'preto') counts.black++;
+                else if (c === 'white' || c === 'branco') counts.white++;
+                else counts.other++;
+            }
+            const total = counts.red + counts.black + counts.white;
+            const freq = total > 0
+                ? {
+                    red: counts.red / total,
+                    black: counts.black / total,
+                    white: counts.white / total
+                }
+                : { red: 0, black: 0, white: 0 };
+
+            const bestColor = freq.black > freq.red ? 'black' : 'red';
+            const pBest = Math.max(freq.red, freq.black);
+
+            const { maxGales } = getMartingaleSettings('diamond', simConfig);
+            const steps = Math.max(1, Math.min(50, Math.floor(Number(maxGales) || 0) + 1));
+            const pCycle = 1 - Math.pow(1 - pBest, steps);
+
+            const autoBetCfg = sanitizeAutoBetConfig(simConfig && simConfig.autoBetConfig ? simConfig.autoBetConfig : null);
+            const galeMult = Number(autoBetCfg.galeMultiplier) || 2;
+            const payoutRB = 2;
+
+            // Break-even (apenas para o martingale clássico) quando:
+            // - payoutRB=2
+            // - galeMultiplier=2 (dobro)
+            // - objetivo é recuperar perdas e ganhar +1 unidade base por ciclo
+            const breakEvenPcycle = (payoutRB === 2 && galeMult === 2)
+                ? (1 - (1 / Math.pow(2, steps)))
+                : null;
+
+            return {
+                counts,
+                freq,
+                bestColor,
+                pBest,
+                steps,
+                pCycle,
+                breakEvenPcycle,
+                assumptions: { payoutRB, galeMultiplier: galeMult }
+            };
+        } catch (_) {
+            return null;
+        }
+    })();
+
     for (let i = 0; i < totalSpins; i++) {
         if (job && job.cancelled) {
             if (senderTabId != null) {
@@ -25295,6 +26786,7 @@ async function runDiamondPastSimulation({ config, mode, levelId, senderTabId, jo
                 uniqueHistory: stableWindow.meta.uniqueCount,
                 droppedDuplicates: stableWindow.meta.droppedDuplicates,
                 droppedInvalidTs: stableWindow.meta.droppedInvalidTs,
+                baseline,
                 simState
             };
         }
@@ -25336,6 +26828,7 @@ async function runDiamondPastSimulation({ config, mode, levelId, senderTabId, jo
         uniqueHistory: stableWindow.meta.uniqueCount,
         droppedDuplicates: stableWindow.meta.droppedDuplicates,
         droppedInvalidTs: stableWindow.meta.droppedInvalidTs,
+        baseline,
         simState
     };
 }
@@ -25587,7 +27080,8 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                         droppedDuplicates: result.droppedDuplicates,
                         droppedInvalidTs: result.droppedInvalidTs,
                         requestedHistoryLimit: result.requestedLimit,
-                        usedHistoryLimit: result.usedHistoryLimit
+                        usedHistoryLimit: result.usedHistoryLimit,
+                        baseline: result.baseline || null
                     }
                 });
             } catch (e) {
@@ -25788,6 +27282,46 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         // Enviar estatísticas do observador inteligente
         const stats = getObserverStats();
         sendResponse({ status: 'success', stats: stats });
+        return true;
+    } else if (request.action === 'getMasterSignalStats') {
+        // ✅ Enviar estatísticas do SINAL DE ENTRADA (Fase 2) para a UI
+        (async () => {
+            try {
+                const mode = request && request.mode ? request.mode : (analyzerConfig && analyzerConfig.aiMode ? 'diamond' : 'standard');
+                const stored = await chrome.storage.local.get(['entriesHistory', 'analysis', ENTRIES_CLEAR_CUTOFF_KEY]);
+                const entriesHistoryAll = stored && Array.isArray(stored.entriesHistory) ? stored.entriesHistory : [];
+                const cutoffMs = getMasterCutoffMsForMode(stored ? stored[ENTRIES_CLEAR_CUTOFF_KEY] : null, mode);
+                const entriesHistory = filterEntriesHistoryByCutoff(entriesHistoryAll, cutoffMs);
+                const currentAnalysis = stored && stored.analysis ? stored.analysis : null;
+                // Garantir que masterSignal do analysis respeita o cutoff (evita "Sinal liberado" grudado após Limpar)
+                const annotated = await attachMasterSignalToAnalysis(currentAnalysis, mode);
+                const stats = computeMasterSignalStats(entriesHistory, mode, annotated);
+                sendResponse({ status: 'success', stats });
+            } catch (e) {
+                console.error('❌ Falha ao calcular stats dos Sinais de entrada:', e);
+                sendResponse({ status: 'error', error: String(e) });
+            }
+        })();
+        return true;
+    } else if (request.action === 'RECOMPUTE_MASTER_SIGNAL') {
+        // ✅ Forçar recomputar masterSignal do analysis atual (usado após "Limpar" na UI)
+        (async () => {
+            try {
+                const mode = request && request.mode ? request.mode : (analyzerConfig && analyzerConfig.aiMode ? 'diamond' : 'standard');
+                const stored = await chrome.storage.local.get(['analysis']);
+                const currentAnalysis = stored && stored.analysis ? stored.analysis : null;
+                const annotated = await attachMasterSignalToAnalysis(currentAnalysis, mode);
+                if (annotated) {
+                    // Re-enviar para a UI para atualizar overlay/topo imediatamente
+                    const payload = { ...attachLatestSpinsSnapshot(annotated) };
+                    payload.analysisMode = mode;
+                    sendMessageToContent('NEW_ANALYSIS', payload);
+                }
+                sendResponse({ status: 'success' });
+            } catch (e) {
+                sendResponse({ status: 'error', error: String(e) });
+            }
+        })();
         return true;
     } else if (request.action === 'recalibrateObserver') {
         // Recalibrar observador manualmente (botão "Atualizar")
