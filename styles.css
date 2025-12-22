@@ -3867,45 +3867,6 @@
     env(safe-area-inset-left, 0px);
 }
 
-.da-ia-fullscreen-bar {
-  height: 46px;
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  padding: 8px 12px;
-  box-sizing: border-box;
-}
-
-.da-ia-fullscreen-close {
-  width: 36px;
-  height: 36px;
-  padding: 0;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border: 1px solid rgba(148,163,184,0.22);
-  background: rgba(15, 23, 42, 0.55);
-  color: rgba(229,231,235,0.92);
-  border-radius: 12px;
-  cursor: pointer;
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
-}
-
-.da-ia-fullscreen-close:hover {
-  background: rgba(15, 23, 42, 0.62);
-  border-color: rgba(148,163,184,0.32);
-}
-
-.da-ia-fullscreen-close:active {
-  transform: scale(0.97);
-}
-
-.da-ia-fullscreen-close .ia-tests-toggle-icon {
-  width: 18px;
-  height: 18px;
-}
-
 .da-ia-fullscreen-host {
   flex: 1;
   min-height: 0;
@@ -3973,17 +3934,14 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border: 1px solid rgba(148,163,184,0.22);
-  background: rgba(15, 23, 42, 0.55);
+  border: none;
+  background: transparent;
   color: rgba(229,231,235,0.92);
   border-radius: 10px;
   cursor: pointer;
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
 }
 .ia-tests-toggle-btn:hover {
-  background: rgba(15, 23, 42, 0.62);
-  border-color: rgba(148,163,184,0.32);
+  background: rgba(255, 255, 255, 0.06);
 }
 
 .ia-tests-toggle-btn:active {
@@ -3998,6 +3956,14 @@
   min-height: 104px !important;
   max-width: 104px !important;
   padding: 0 !important;
+  /* iOS/Safari: evitar artefato “quadrado” causado por blur + blend-mode fora do recorte */
+  isolation: isolate !important;
+  -webkit-mask-image: radial-gradient(circle, #000 99%, transparent 100%) !important;
+  -webkit-mask-repeat: no-repeat !important;
+  -webkit-mask-size: 100% 100% !important;
+  mask-image: radial-gradient(circle, #000 99%, transparent 100%) !important;
+  mask-repeat: no-repeat !important;
+  mask-size: 100% 100% !important;
 }
 
 #blaze-double-analyzer .ia-tests-toggle-btn {
@@ -4008,13 +3974,19 @@
   padding: 0 !important;
 }
 
-.da-ia-fullscreen-overlay .da-ia-fullscreen-close {
-  width: 36px !important;
-  height: 36px !important;
-  min-height: 36px !important;
-  max-width: 36px !important;
-  padding: 0 !important;
+/* Mobile: reduzir efeitos pesados que geram “quadrado” no iOS */
+@media only screen and (max-width: 768px) {
+  #blaze-double-analyzer .ai-orb-fog {
+    display: none !important;
+  }
+
+  /* No mobile o .entry-box vira 42px; manter o card com largura fixa para evitar linhas “faltando 1” */
+  #blaze-double-analyzer .entry-item-wrap {
+    width: calc((42px + 2px + 4px) * var(--icon-scale, 1)) !important;
+  }
 }
+
+/* (sem botão extra no topo do fullscreen) */
 
 .ia-tests-toggle-icon {
   width: 18px;
@@ -4888,7 +4860,15 @@
 .entries-list::-webkit-scrollbar-thumb:hover {
     background: #3a4a60;
 }
-.entry-item-wrap { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+.entry-item-wrap {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    /* Mantém todas as colunas com a mesma largura (evita “buracos”/linhas irregulares) */
+    width: calc((36px + 2px + 4px) * var(--icon-scale, 1));
+    flex: 0 0 auto;
+}
 .entry-item { display: inline-flex; align-items: center; gap: 2px; }
 .entry-time { 
     font-size: calc(9px * var(--font-scale, 1)); 
@@ -5004,6 +4984,10 @@
     border-radius: 3px;
     margin: 2px 0;
     line-height: 1.2;
+    max-width: 100%;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 .entry-stage.win { 
     color: #2ecc71; 
