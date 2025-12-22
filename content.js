@@ -17654,8 +17654,23 @@ function logModeSnapshotUI(snapshot) {
             overlay.dataset.prevBodyOverflow = '';
         }
 
+        const bar = document.createElement('div');
+        bar.className = 'da-ia-fullscreen-bar';
+
+        const closeBtn = document.createElement('button');
+        closeBtn.type = 'button';
+        closeBtn.className = 'da-ia-fullscreen-close';
+        closeBtn.innerHTML = IA_FULLSCREEN_EXIT_ICON;
+        closeBtn.setAttribute('aria-label', 'Sair da tela cheia');
+        closeBtn.setAttribute('title', 'Sair da tela cheia');
+        closeBtn.addEventListener('click', () => closeIAFullscreenOverlay());
+
+        bar.appendChild(closeBtn);
+
         const host = document.createElement('div');
         host.className = 'da-ia-fullscreen-host';
+
+        overlay.appendChild(bar);
         overlay.appendChild(host);
 
         // Montar overlay no DOM
@@ -17750,7 +17765,9 @@ function logModeSnapshotUI(snapshot) {
     function applyIAVisibilityState() {
         const isIA = (activeEntriesTab === 'entries');
         const expanded = isIAFullscreenActive();
-        setIATestsToggleVisible(isIA || expanded);
+        // Em tela cheia, usamos o botão do próprio overlay (barra superior),
+        // então escondemos o toggle interno para não sobrepor as abas no mobile.
+        setIATestsToggleVisible(isIA && !expanded);
         updateIATestsToggleLabel();
 
         const shouldHideOverlay = !isIA || expanded;

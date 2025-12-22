@@ -3859,11 +3859,51 @@
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
   display: flex;
+  flex-direction: column;
   padding:
     env(safe-area-inset-top, 0px)
     env(safe-area-inset-right, 0px)
     env(safe-area-inset-bottom, 0px)
     env(safe-area-inset-left, 0px);
+}
+
+.da-ia-fullscreen-bar {
+  height: 46px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 8px 12px;
+  box-sizing: border-box;
+}
+
+.da-ia-fullscreen-close {
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(148,163,184,0.22);
+  background: rgba(15, 23, 42, 0.55);
+  color: rgba(229,231,235,0.92);
+  border-radius: 12px;
+  cursor: pointer;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+.da-ia-fullscreen-close:hover {
+  background: rgba(15, 23, 42, 0.62);
+  border-color: rgba(148,163,184,0.32);
+}
+
+.da-ia-fullscreen-close:active {
+  transform: scale(0.97);
+}
+
+.da-ia-fullscreen-close .ia-tests-toggle-icon {
+  width: 18px;
+  height: 18px;
 }
 
 .da-ia-fullscreen-host {
@@ -3879,7 +3919,7 @@
   flex-direction: column;
   margin: 0;
   border-radius: 0 !important;
-  padding: 10px 14px 14px 14px;
+  padding: 0 10px 10px 10px;
 }
 
 .da-ia-fullscreen-overlay .entries-content {
@@ -3954,13 +3994,6 @@
   display: block;
 }
 
-.da-ia-fullscreen-overlay .ia-tests-toggle {
-  position: fixed;
-  top: calc(12px + env(safe-area-inset-top, 0px));
-  right: calc(12px + env(safe-area-inset-right, 0px));
-  left: auto;
-  z-index: 2147483647;
-}
 
 /* fallback: se backdrop-filter não existir, desfocar a LISTA real */
 @supports not ((backdrop-filter: blur(2px)) or (-webkit-backdrop-filter: blur(2px))) {
