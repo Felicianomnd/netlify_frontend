@@ -3735,7 +3735,7 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
         const losses = totalCycles - wins;
         const pct = totalCycles ? ((wins / totalCycles) * 100).toFixed(1) : '0.0';
         const totalEntries = allEntries.length;
-        hitEl.innerHTML = `<span class="win-score">WIN: ${wins}</span> <span class="loss-score">LOSS: ${losses}</span> <span class="percentage">(${pct}%)</span> <span class="total-entries">• Entradas: ${totalEntries}</span>`;
+        hitEl.innerHTML = `<span class="win-score">WIN: ${wins}</span> <span class="loss-score">LOSS: ${losses}</span> <span class="percentage">(${pct}%)</span> <span class="total-entries">• Ciclos: ${totalEntries}</span>`;
 
         renderStandardSimulationChart({ wins, losses, totalCycles, totalEntries });
         renderStandardSimulationTickChart(allEntries);
@@ -5764,7 +5764,7 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
         const losses = totalCycles - wins;
         const pct = totalCycles ? ((wins / totalCycles) * 100).toFixed(1) : '0.0';
         const totalEntries = allEntries.length;
-        hitEl.innerHTML = `<span class="win-score">WIN: ${wins}</span> <span class="loss-score">LOSS: ${losses}</span> <span class="percentage">(${pct}%)</span> <span class="total-entries">• Entradas: ${totalEntries}</span>`;
+        hitEl.innerHTML = `<span class="win-score">WIN: ${wins}</span> <span class="loss-score">LOSS: ${losses}</span> <span class="percentage">(${pct}%)</span> <span class="total-entries">• Ciclos: ${totalEntries}</span>`;
 
         // ✅ Atualizar gráfico com os mesmos dados
         renderDiamondSimulationChart({ wins, losses, totalCycles, totalEntries });
@@ -11170,8 +11170,8 @@ async function persistAnalyzerState(newState) {
             <div class="entries-section">
             <div class="entries-panel" id="entriesPanel">
                     <div class="entries-tabs-bar" id="entriesTabs">
-                        <button type="button" class="entries-tab" data-tab="master">Sinais</button>
                         <button type="button" class="entries-tab active" data-tab="entries">IA</button>
+                        <button type="button" class="entries-tab" data-tab="master">Sinais</button>
                         <button type="button" class="entries-tab" data-tab="bets" aria-disabled="true">Apostas</button>
                         <button type="button" class="entries-tab" data-tab="chart">Gráfico</button>
                     </div>
@@ -11184,7 +11184,27 @@ async function persistAnalyzerState(newState) {
                             <div class="entries-list" id="masterEntriesList"></div>
                         </div>
                         <div class="entries-view" data-view="entries">
-                <div class="entries-list" id="entriesList"></div>
+                            <div class="entries-list-wrap" id="entriesListWrap">
+                                <div class="entries-list" id="entriesList"></div>
+                                <!-- ✅ Toggle: ver/ocultar testes (remover vidro + IA) -->
+                                <div class="ia-tests-toggle" id="iaTestsToggle" style="display:none;">
+                                    <button type="button" class="ia-tests-toggle-btn" id="iaTestsToggleBtn">Ver testes IA</button>
+                                </div>
+                                <!-- ✅ Vidro desfocado (mostra apenas o "vulto" do conteúdo) -->
+                                <div class="ia-bootstrap-glass" id="iaBootstrapGlass" style="display:none;"></div>
+                                <!-- ✅ IA VIVA: aparece quando a aba IA está vazia (após Limpar ou primeira abertura) -->
+                                <div class="ia-bootstrap-overlay" id="iaBootstrapOverlay" style="display:none;">
+                                    <div class="ia-bootstrap-orb" id="iaBootstrapOrb" data-state="idle">
+                                        <button type="button" class="ai-orb-btn" id="iaBootstrapBtn" title="Analisar histórico">
+                                            <span class="ai-orb-fog fog1" aria-hidden="true"></span>
+                                            <span class="ai-orb-fog fog2" aria-hidden="true"></span>
+                                            <span class="ai-orb-label">IA</span>
+                                            <span class="ai-orb-check" aria-hidden="true">✓</span>
+                                        </button>
+                                        <div class="ia-bootstrap-text" id="iaBootstrapText">Analisar histórico</div>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                         <div class="entries-view" data-view="bets" hidden>
                             <div class="bets-container" id="betsContainer">
@@ -11289,6 +11309,28 @@ async function persistAnalyzerState(newState) {
                 
                 <div class="observer-section">
                     <h4>Sinais de entrada</h4>
+                    <!-- ✅ Sistema Híbrido (FASE 2): escolha do modo de operação -->
+                    <div class="observer-hybrid" id="observerHybrid">
+                        <div class="observer-hybrid-row">
+                            <span class="observer-hybrid-label">Sistema híbrido</span>
+                            <select class="observer-hybrid-select" id="entryGateHybridMode" title="Camadas da Fase 2 (todas juntas ou somente um nível)">
+                                <option value="auto">Híbrido (todos)</option>
+                                <option value="manual">Somente 1 nível</option>
+                            </select>
+                        </div>
+                        <div class="observer-hybrid-row" id="entryGateHybridManualRow">
+                            <span class="observer-hybrid-label">Nível</span>
+                            <select class="observer-hybrid-select" id="entryGateHybridManualLevel" title="Operar SOMENTE neste nível (1 = mais rígido, 3 = mais volume)">
+                                <option value="1">Nível 1</option>
+                                <option value="2">Nível 2</option>
+                                <option value="3">Nível 3</option>
+                            </select>
+                        </div>
+                        <div class="observer-hybrid-row" id="entryGateHybridAutoRow" style="display:none;">
+                            <span class="observer-hybrid-label">Meta</span>
+                            <input class="observer-hybrid-input" id="entryGateHybridTarget" type="number" min="10" max="200" step="1" inputmode="numeric" title="Meta aproximada de sinais (modo híbrido)" />
+                        </div>
+                    </div>
                     <div class="observer-stats" id="observerStats">
                         <div class="observer-loading">Carregando...</div>
                     </div>
@@ -12239,6 +12281,10 @@ async function persistAnalyzerState(newState) {
         
         initEntriesTabs();
         setEntriesTab(activeEntriesTab);
+        // ✅ Controles do Sistema Híbrido (FASE 2) dentro de "Sinais de entrada"
+        initEntryGateHybridControls().catch(() => {});
+        // ✅ IA Viva: garantir binding inicial (overlay aparece quando IA está vazia)
+        try { bindIABootstrapButton(); } catch (_) {}
         setupAutoBetHistoryUI();
         if (autoBetManager && typeof autoBetManager.onSidebarReady === 'function') {
             setTimeout(() => autoBetManager.onSidebarReady(), 0);
@@ -13751,6 +13797,7 @@ async function persistAnalyzerState(newState) {
         const confidenceText = document.getElementById('confidenceText');
         const suggestionColor = document.getElementById('suggestionColor');
         const patternInfo = document.getElementById('patternInfo');
+        const patternSection = document.querySelector('.pattern-section');
         const totalSpins = document.getElementById('totalSpins');
         const lastUpdate = document.getElementById('lastUpdate');
         // Não resetar o estágio imediatamente; somente quando realmente não houver Gale ativo
@@ -13779,15 +13826,26 @@ async function persistAnalyzerState(newState) {
         if (Object.prototype.hasOwnProperty.call(data, 'analysis')) {
             if (data.analysis) {
                 const analysis = data.analysis;
-                // ✅ UX: quando há sinal ativo, expandir o bloco "Padrão" (sem scroll interno)
-                try {
-                    patternInfo?.classList?.add('pattern-expanded');
-                } catch (_) {}
                 const confidence = analysis.confidence;
                 const isEntrySignal = !!(analysis && analysis.masterSignal && analysis.masterSignal.active);
                 const phaseLabel = (analysis.phase && analysis.phase !== 'ENTRADA' && analysis.phase !== 'G0')
                     ? analysis.phase.toUpperCase()
                     : '';
+
+                // ✅ NOVA REGRA (usuário): o bloco "Padrão" só aparece quando for SINAL DE ENTRADA.
+                // Em modo IA, não deve mostrar "Entrar na cor", "Raciocínio" nem "Nenhum padrão detectado" para sinais normais.
+                try {
+                    if (patternSection) {
+                        patternSection.style.display = isEntrySignal ? '' : 'none';
+                    }
+                } catch (_) {}
+                if (!isEntrySignal) {
+                    try { patternInfo?.classList?.remove('pattern-expanded'); } catch (_) {}
+                    try { if (patternInfo) patternInfo.innerHTML = ''; } catch (_) {}
+                } else {
+                    // ✅ UX: quando há sinal ativo, expandir o bloco "Padrão" (sem scroll interno)
+                    try { patternInfo?.classList?.add('pattern-expanded'); } catch (_) {}
+                }
                 
                 // Só atualiza UI se a análise mudou (evita flutuação a cada 2s)
                 const analysisSig = `${isEntrySignal ? 'ENTRY' : 'RAW'}|${analysis.color}|${confidence.toFixed(2)}|${phaseLabel}|${analysis.createdOnTimestamp || analysis.timestamp || ''}`;
@@ -13818,8 +13876,8 @@ async function persistAnalyzerState(newState) {
                     syncBetModeView();
                 }
                 
-                // Update pattern info - sempre usar renderização amigável
-                if (Object.prototype.hasOwnProperty.call(data, 'pattern') && data.pattern) {
+                // Update pattern info - renderizar SOMENTE quando for SINAL DE ENTRADA
+                if (isEntrySignal && Object.prototype.hasOwnProperty.call(data, 'pattern') && data.pattern) {
                     try {
                         console.log('');
                         console.log('🔍 ===== PROCESSANDO PADRÃO NA UI =====');
@@ -13980,9 +14038,10 @@ async function persistAnalyzerState(newState) {
                 
                 renderSuggestionStatus(currentAnalysisStatus);
                 
-                // ✅ LIMPAR INFORMAÇÕES DO PADRÃO (remove dados das 6 fases do Modo Diamante)
-                patternInfo.textContent = 'Nenhum padrão detectado';
-                patternInfo.title = '';
+                // ✅ Bloco "Padrão" não deve aparecer quando não houver SINAL DE ENTRADA
+                try { if (patternSection) patternSection.style.display = 'none'; } catch (_) {}
+                try { patternInfo.textContent = ''; } catch (_) {}
+                try { patternInfo.title = ''; } catch (_) {}
                 try { patternInfo?.classList?.remove('pattern-expanded'); } catch (_) {}
                 setSuggestionStage('');
                 // ✅ Encerrar overlay do Sinal de entrada imediatamente quando não há análise
@@ -14529,13 +14588,15 @@ async function persistAnalyzerState(newState) {
             // 1) Se existe análise PENDENTE (ENTRADA) do modo atual e NÃO é "Sinal de entrada",
             // exibir já a cor aqui (antes mesmo de ir para G1).
             const analysisMode = analysis ? resolveAnalysisMode(analysis) : null;
-            const shouldShowPendingEntry = !!(analysis && analysisMode === currentMode && !isEntrySignal(analysis));
+            // ✅ Correção: também mostrar quando for "Sinal de entrada"
+            const shouldShowPendingEntry = !!(analysis && analysisMode === currentMode);
 
             // 2) Se existe Martingale ativo do modo atual e NÃO é ciclo de "Sinal de entrada",
             // exibir a cor do GALE (currentColor) + G1/G2 dentro.
             const cycleAnalysis = martingaleState && martingaleState.analysisData ? martingaleState.analysisData : null;
             const cycleMode = cycleAnalysis ? resolveAnalysisMode(cycleAnalysis) : currentMode;
-            const shouldShowPendingGale = !!(martingaleState && martingaleState.active && cycleMode === currentMode && !isEntrySignal(cycleAnalysis));
+            // ✅ Correção: também mostrar quando for ciclo de "Sinal de entrada"
+            const shouldShowPendingGale = !!(martingaleState && martingaleState.active && cycleMode === currentMode);
 
             if (shouldShowPendingGale || shouldShowPendingEntry) {
                 const color = shouldShowPendingGale
@@ -14549,8 +14610,12 @@ async function persistAnalyzerState(newState) {
                     : (stage && stage.startsWith('G') && stage !== 'G0' ? stage : '');
 
                 if (color) {
+                    const isMasterPending = shouldShowPendingGale
+                        ? isEntrySignal(cycleAnalysis)
+                        : isEntrySignal(analysis);
                     const galeAttr = galeLabel ? ` data-gale="${galeLabel}"` : '';
-                    const title = galeLabel ? `IA • Aguardando resultado (${galeLabel})` : 'IA • Aguardando resultado';
+                    const titleBase = isMasterPending ? 'Sinal de entrada' : 'IA';
+                    const title = galeLabel ? `${titleBase} • Aguardando resultado (${galeLabel})` : `${titleBase} • Aguardando resultado`;
                     pendingIndicator = `
                         <div class="entry-item-wrap gale-active-indicator" title="${title}">
                             <div class="entry-conf-top gale-placeholder">&nbsp;</div>
@@ -14565,8 +14630,22 @@ async function persistAnalyzerState(newState) {
                 }
             }
 
-            // Inserir indicador no TOPO + itens
-            list.innerHTML = pendingIndicator + (items || '<div class="no-history">Sem entradas registradas</div>');
+            // ✅ IA VIVA: vidro desfocado SEMPRE na aba IA + bolinha sempre visível por cima
+            const isIA = (activeEntriesTab === 'entries');
+            try {
+                bindIATestsToggle();
+                applyIAVisibilityState();
+                if (isIA) {
+                    bindIABootstrapButton();
+                    setIABootstrapHasHistory(filteredEntries.length > 0);
+                    // Mostrar CTA apenas quando não há histórico visível (cutoff) e não está rodando
+                    const showCta = !iaBootstrapBusy && filteredEntries.length === 0;
+                    setIABootstrapState(iaBootstrapBusy ? 'loading' : 'idle', showCta ? 'Analisar histórico' : '');
+                }
+            } catch (_) {}
+
+            // Inserir indicador no TOPO + itens (o vidro desfoca o conteúdo real)
+            list.innerHTML = pendingIndicator + (items || (isIA ? '' : '<div class="no-history">Sem entradas registradas</div>'));
             
             // ✅ CORREÇÃO: Adicionar evento de clique para mostrar padrão usando o array filtrado correto
             const clickableEntries = list.querySelectorAll('.clickable-entry');
@@ -14582,7 +14661,8 @@ async function persistAnalyzerState(newState) {
             });
         }).catch(error => {
             console.warn('⚠️ Não foi possível ler martingaleState/analysis:', error);
-            list.innerHTML = items || '<div class="no-history">Sem entradas registradas</div>';
+            const isIA = (activeEntriesTab === 'entries');
+            list.innerHTML = items || (isIA ? '' : '<div class="no-history">Sem entradas registradas</div>');
         });
         
         // ═══════════════════════════════════════════════════════════════
@@ -14628,7 +14708,7 @@ async function persistAnalyzerState(newState) {
         
         // Mostrar placar WIN/LOSS com porcentagem e total de entradas
         const clearButtonHTML = `<button type="button" class="clear-entries-btn" id="clearEntriesBtn" title="Limpar histórico">Limpar</button>`;
-        hitEl.innerHTML = `<span class="win-score">WIN: ${wins}</span> <span class="loss-score">LOSS: ${losses}</span> <span class="percentage">(${pct}%)</span> <span class="total-entries">• Entradas: ${totalEntries} ${clearButtonHTML}</span>`;
+        hitEl.innerHTML = `<span class="win-score">WIN: ${wins}</span> <span class="loss-score">LOSS: ${losses}</span> <span class="percentage">(${pct}%)</span> <span class="total-entries">• Ciclos: ${totalEntries} ${clearButtonHTML}</span>`;
         const inlineClearBtn = document.getElementById('clearEntriesBtn');
         if (inlineClearBtn) {
             inlineClearBtn.addEventListener('click', function(event) {
@@ -14842,24 +14922,56 @@ async function persistAnalyzerState(newState) {
             const analysis = result.analysis;
             let galeActiveIndicator = '';
             const isMasterCycleActive = !!(analysis && analysis.masterSignal && analysis.masterSignal.active);
-            if (martingaleState && martingaleState.active && isMasterCycleActive) {
-                const lossCount = martingaleState.lossCount || 0;
-                const galeNumber = lossCount;
-                const stage = String(martingaleState.stage || '').toUpperCase().trim();
-                const galeLabel = stage && stage.startsWith('G') ? stage : `G${galeNumber}`;
-                const color = String(martingaleState.currentColor || martingaleState.entryColor || analysis?.color || '').toLowerCase().trim();
-                const normalizedColor = (color === 'red' || color === 'black' || color === 'white') ? color : 'neutral';
-                galeActiveIndicator = `
-                    <div class="entry-item-wrap gale-active-indicator" title="Sinal de entrada • Aguardando resultado (${galeLabel})">
-                        <div class="entry-conf-top gale-placeholder">&nbsp;</div>
-                        <div class="entry-stage gale-placeholder">&nbsp;</div>
-                        <div class="entry-item">
-                            <div class="entry-box ${normalizedColor} pending-ring" data-gale="${galeLabel}"></div>
-                            <div class="entry-result-bar win" style="opacity:0;"></div>
+            // ✅ NOVO: também mostrar o sinal PENDENTE já na PRIMEIRA ENTRADA (G0),
+            // não apenas quando já entrou em G1/G2.
+            const normColor = (value) => {
+                const raw = String(value || '').toLowerCase().trim();
+                if (raw === 'red' || raw === 'vermelho') return 'red';
+                if (raw === 'black' || raw === 'preto') return 'black';
+                if (raw === 'white' || raw === 'branco') return 'white';
+                return null;
+            };
+            const isDiamondAnalysis = (a) => {
+                try {
+                    const desc = a && a.patternDescription ? String(a.patternDescription) : '';
+                    if (a && a.diamondSourceLevel) return true;
+                    return desc.includes('NÍVEL DIAMANTE') || desc.includes('5 Níveis');
+                } catch (_) {
+                    return false;
+                }
+            };
+            const resolveAnalysisMode = (a) => (isDiamondAnalysis(a) ? 'diamond' : 'standard');
+
+            const analysisMode = analysis ? resolveAnalysisMode(analysis) : null;
+            const shouldShowPendingEntry = !!(analysis && analysisMode === currentMode && isMasterCycleActive);
+            const shouldShowPendingGale = !!(martingaleState && martingaleState.active && isMasterCycleActive);
+
+            if (shouldShowPendingGale || shouldShowPendingEntry) {
+                const color = shouldShowPendingGale
+                    ? normColor(martingaleState.currentColor || martingaleState.entryColor || analysis?.color)
+                    : normColor(analysis?.color);
+                const stage = shouldShowPendingGale
+                    ? String(martingaleState.stage || '').toUpperCase().trim()
+                    : String(analysis?.phase || '').toUpperCase().trim();
+                const galeLabel = shouldShowPendingGale
+                    ? (stage && stage.startsWith('G') ? stage : (martingaleState.lossCount ? `G${martingaleState.lossCount}` : ''))
+                    : (stage && stage.startsWith('G') && stage !== 'G0' ? stage : '');
+                const galeAttr = galeLabel ? ` data-gale="${galeLabel}"` : '';
+
+                if (color) {
+                    const title = galeLabel ? `Sinal de entrada • Aguardando resultado (${galeLabel})` : 'Sinal de entrada • Aguardando resultado';
+                    galeActiveIndicator = `
+                        <div class="entry-item-wrap gale-active-indicator" title="${title}">
+                            <div class="entry-conf-top gale-placeholder">&nbsp;</div>
+                            <div class="entry-stage gale-placeholder">&nbsp;</div>
+                            <div class="entry-item">
+                                <div class="entry-box ${color} pending-ring"${galeAttr}></div>
+                                <div class="entry-result-bar win" style="opacity:0;"></div>
+                            </div>
+                            <div class="entry-time gale-placeholder">&nbsp;</div>
                         </div>
-                        <div class="entry-time gale-placeholder">&nbsp;</div>
-                    </div>
-                `;
+                    `;
+                }
             }
 
             list.innerHTML = galeActiveIndicator + (items || '<div class="no-history">Nenhum sinal de entrada registrado ainda</div>');
@@ -14882,7 +14994,7 @@ async function persistAnalyzerState(newState) {
         const totalEntries = totalCycles;
 
         const clearButtonHTML = `<button type="button" class="clear-entries-btn" id="clearMasterEntriesBtn" title="Limpar histórico de sinais de entrada">Limpar</button>`;
-        hitEl.innerHTML = `<span class="win-score">WIN: ${wins}</span> <span class="loss-score">LOSS: ${losses}</span> <span class="percentage">(${pct}%)</span> <span class="total-entries">• Entradas: ${totalEntries} ${clearButtonHTML}</span>`;
+        hitEl.innerHTML = `<span class="win-score">WIN: ${wins}</span> <span class="loss-score">LOSS: ${losses}</span> <span class="percentage">(${pct}%)</span> <span class="total-entries">• Ciclos: ${totalEntries} ${clearButtonHTML}</span>`;
         const inlineClearBtn = document.getElementById('clearMasterEntriesBtn');
         if (inlineClearBtn) {
             inlineClearBtn.addEventListener('click', function(event) {
@@ -14947,6 +15059,26 @@ async function persistAnalyzerState(newState) {
         scope.querySelectorAll('.entries-tab').forEach((button) => {
             button.classList.toggle('active', button.dataset.tab === tab);
         });
+
+        // ✅ Vidro desfocado: sempre ativo na aba IA (entries), independente de ter histórico ou não.
+        // ✅ Bolinha IA: sempre visível por cima do vidro (aba IA).
+        try {
+            const isIA = (tab === 'entries');
+            bindIATestsToggle();
+            applyIAVisibilityState();
+            if (isIA) {
+                bindIABootstrapButton();
+                // Heurística: se já há cards na lista, ocultar o CTA ("Analisar histórico")
+                let hasAny = false;
+                try {
+                    const list = document.getElementById('entriesList');
+                    hasAny = !!(list && list.querySelector('.entry-item-wrap'));
+                } catch (_) {}
+                setIABootstrapHasHistory(hasAny);
+                const showCta = !iaBootstrapBusy && !hasAny;
+                setIABootstrapState(iaBootstrapBusy ? 'loading' : 'idle', showCta ? 'Analisar histórico' : '');
+            }
+        } catch (_) {}
     }
 
     function setupAutoBetHistoryUI() {
@@ -17315,10 +17447,255 @@ function logModeSnapshotUI(snapshot) {
         });
     }
     
+    // ═══════════════════════════════════════════════════════════════
+    // 👑 SISTEMA HÍBRIDO (FASE 2) — UI (Aba "Sinais de entrada")
+    // ═══════════════════════════════════════════════════════════════
+    let entryGateHybridBound = false;
+
+    function sanitizeMasterSignalV2Config(raw) {
+        const obj = raw && typeof raw === 'object' ? raw : {};
+        const mode = String(obj.levelMode || 'auto').toLowerCase().trim();
+        const levelMode = mode === 'manual' ? 'manual' : 'auto';
+        const clampInt = (v, min, max, fallback) => {
+            const n = Math.floor(Number(v));
+            if (!Number.isFinite(n)) return fallback;
+            return Math.max(min, Math.min(max, n));
+        };
+        return {
+            enabled: Object.prototype.hasOwnProperty.call(obj, 'enabled') ? !!obj.enabled : true,
+            levelMode,
+            manualLevel: clampInt(obj.manualLevel, 1, 3, 2),
+            autoTargetSignals: clampInt(obj.autoTargetSignals, 10, 200, 50)
+        };
+    }
+
+    function applyEntryGateHybridVisibility(levelMode) {
+        const manualRow = document.getElementById('entryGateHybridManualRow');
+        const autoRow = document.getElementById('entryGateHybridAutoRow');
+        if (manualRow) manualRow.style.display = (levelMode === 'manual') ? 'flex' : 'none';
+        if (autoRow) autoRow.style.display = (levelMode === 'auto') ? 'flex' : 'none';
+    }
+
+    async function persistMasterSignalV2Config(partialUpdate = {}) {
+        try {
+            const stored = await storageCompat.get(['analyzerConfig']);
+            const current = stored?.analyzerConfig || {};
+            const prev = sanitizeMasterSignalV2Config(current.masterSignalV2 || {});
+            const merged = sanitizeMasterSignalV2Config({ ...prev, ...(partialUpdate || {}) });
+            const updated = { ...current, masterSignalV2: merged };
+
+            await storageCompat.set({ analyzerConfig: updated });
+
+            // Aplicar config no background + recomputar masterSignal do modo atual
+            try { chrome.runtime.sendMessage({ action: 'applyConfig' }, function() {}); } catch (_) {}
+            const currentMode = document.querySelector('.ai-mode-toggle.active') ? 'diamond' : 'standard';
+            try { chrome.runtime.sendMessage({ action: 'RECOMPUTE_MASTER_SIGNAL', mode: currentMode }, function() {}); } catch (_) {}
+
+            // Atualizar card de stats (debounced)
+            try { scheduleMasterSignalStatsRefresh(350); } catch (_) {}
+        } catch (e) {
+            console.warn('⚠️ Falha ao salvar config do Sistema Híbrido (FASE 2):', e);
+        }
+    }
+
+    async function initEntryGateHybridControls(force = false) {
+        try {
+            if (entryGateHybridBound && !force) return;
+            const modeSel = document.getElementById('entryGateHybridMode');
+            const levelSel = document.getElementById('entryGateHybridManualLevel');
+            const targetInput = document.getElementById('entryGateHybridTarget');
+            if (!modeSel || !levelSel || !targetInput) return;
+
+            const stored = await storageCompat.get(['analyzerConfig']);
+            const cfg = sanitizeMasterSignalV2Config(stored?.analyzerConfig?.masterSignalV2 || {});
+
+            modeSel.value = cfg.levelMode;
+            levelSel.value = String(cfg.manualLevel);
+            targetInput.value = String(cfg.autoTargetSignals);
+            applyEntryGateHybridVisibility(cfg.levelMode);
+
+            if (!entryGateHybridBound) {
+                modeSel.addEventListener('change', () => {
+                    const nextMode = String(modeSel.value || '').toLowerCase().trim() === 'manual' ? 'manual' : 'auto';
+                    applyEntryGateHybridVisibility(nextMode);
+                    persistMasterSignalV2Config({ levelMode: nextMode });
+                });
+                levelSel.addEventListener('change', () => {
+                    const lvl = Math.max(1, Math.min(3, Math.floor(Number(levelSel.value) || 2)));
+                    persistMasterSignalV2Config({ manualLevel: lvl });
+                });
+                targetInput.addEventListener('change', () => {
+                    const tgt = Math.max(10, Math.min(200, Math.floor(Number(targetInput.value) || 50)));
+                    targetInput.value = String(tgt);
+                    persistMasterSignalV2Config({ autoTargetSignals: tgt });
+                });
+                entryGateHybridBound = true;
+            }
+        } catch (e) {
+            console.warn('⚠️ Falha ao inicializar controles do Sistema Híbrido (FASE 2):', e);
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // 🤖 IA VIVA — Bootstrap do histórico na aba IA (200 ciclos)
+    // ═══════════════════════════════════════════════════════════════
+    let iaBootstrapBusy = false;
+    let iaBootstrapBound = false;
+    let iaTestsVisible = false;
+    let iaTestsBound = false;
+    const iaBackdropSupported = (() => {
+        try {
+            return !!(
+                (window.CSS && typeof window.CSS.supports === 'function') &&
+                (window.CSS.supports('backdrop-filter', 'blur(2px)') || window.CSS.supports('-webkit-backdrop-filter', 'blur(2px)'))
+            );
+        } catch (_) {
+            return false;
+        }
+    })();
+
+    function setIABootstrapGlassVisible(visible) {
+        const glass = document.getElementById('iaBootstrapGlass');
+        if (!glass) return;
+        glass.style.display = visible ? 'block' : 'none';
+    }
+
+    function setIABootstrapOverlayVisible(visible) {
+        const overlay = document.getElementById('iaBootstrapOverlay');
+        if (!overlay) return;
+        overlay.style.display = visible ? 'flex' : 'none';
+    }
+
+    function setIABootstrapState(state, text) {
+        const orb = document.getElementById('iaBootstrapOrb');
+        const label = document.getElementById('iaBootstrapText');
+        if (orb) orb.setAttribute('data-state', state || 'idle');
+        if (label && typeof text === 'string') label.textContent = text;
+    }
+
+    function setIABootstrapHasHistory(hasHistory) {
+        const orb = document.getElementById('iaBootstrapOrb');
+        if (!orb) return;
+        orb.setAttribute('data-has-history', hasHistory ? 'true' : 'false');
+    }
+
+    function applyIAGlassMode(active) {
+        const wrap = document.getElementById('entriesListWrap');
+        const list = document.getElementById('entriesList');
+        const enabled = !!active;
+        if (wrap) wrap.classList.toggle('ia-glass-active', enabled);
+        // bloquear interação da LISTA (não das abas)
+        if (list) list.style.pointerEvents = enabled ? 'none' : '';
+        // fallback de blur é feito via CSS @supports quando backdrop-filter não existir
+        void iaBackdropSupported;
+    }
+
+    function setIATestsToggleVisible(visible) {
+        const wrap = document.getElementById('iaTestsToggle');
+        if (!wrap) return;
+        wrap.style.display = visible ? 'block' : 'none';
+    }
+
+    function updateIATestsToggleLabel() {
+        const btn = document.getElementById('iaTestsToggleBtn');
+        if (!btn) return;
+        btn.textContent = iaTestsVisible ? 'Ocultar' : 'Ver testes IA';
+    }
+
+    function applyIAVisibilityState() {
+        const isIA = (activeEntriesTab === 'entries');
+        setIATestsToggleVisible(isIA);
+        updateIATestsToggleLabel();
+
+        const shouldHideOverlay = !isIA || iaTestsVisible;
+        const shouldGlass = isIA && !iaTestsVisible;
+
+        try { setIABootstrapGlassVisible(shouldGlass); } catch (_) {}
+        try { setIABootstrapOverlayVisible(!shouldHideOverlay); } catch (_) {}
+        try { applyIAGlassMode(shouldGlass); } catch (_) {}
+    }
+
+    function bindIATestsToggle() {
+        if (iaTestsBound) return;
+        const btn = document.getElementById('iaTestsToggleBtn');
+        if (!btn) return;
+        btn.addEventListener('click', () => {
+            iaTestsVisible = !iaTestsVisible;
+            applyIAVisibilityState();
+        });
+        iaTestsBound = true;
+    }
+
+    function shouldShowIABootstrapOverlay(filteredEntriesCount, pendingIndicatorHtml) {
+        // Só faz sentido na aba IA (entries)
+        if (activeEntriesTab !== 'entries') return false;
+        // Se está rodando, manter overlay visível (para animação), mesmo que a lista atualize por trás
+        if (iaBootstrapBusy) return true;
+        // Se há itens, não mostrar
+        if ((Number(filteredEntriesCount) || 0) > 0) return false;
+        // Se existe placeholder pendente no topo, não sobrepor
+        if (pendingIndicatorHtml && String(pendingIndicatorHtml).trim()) return false;
+        return true;
+    }
+
+    // IA Viva: o “vidro” fica SEMPRE por cima da aba IA.
+    // Não devemos “simular” sinais falsos por trás; o vidro desfoca o conteúdo real (quando existir).
+
+    function bindIABootstrapButton() {
+        if (iaBootstrapBound) return;
+        const btn = document.getElementById('iaBootstrapBtn');
+        if (!btn) return;
+        btn.addEventListener('click', async () => {
+            if (iaBootstrapBusy) return;
+            iaBootstrapBusy = true;
+            // Ao clicar: esconder texto e deixar apenas a bolinha animando
+            setIABootstrapState('loading', '');
+
+            const mode = document.querySelector('.ai-mode-toggle.active') ? 'diamond' : 'standard';
+            try {
+                chrome.runtime.sendMessage({
+                    action: 'IA_BOOTSTRAP_HISTORY',
+                    mode,
+                    targetCycles: 200
+                }, async (response) => {
+                    const err = chrome.runtime.lastError;
+                    if (err) {
+                        iaBootstrapBusy = false;
+                        setIABootstrapState('idle', 'Analisar histórico');
+                        showToast(`❌ Falha ao analisar histórico: ${err.message || err}`, 3200);
+                        return;
+                    }
+                    if (!response || response.status !== 'success') {
+                        iaBootstrapBusy = false;
+                        setIABootstrapState('idle', 'Analisar histórico');
+                        const msg = response && response.error ? response.error : 'resposta inválida';
+                        showToast(`❌ Falha ao analisar histórico: ${msg}`, 3200);
+                        return;
+                    }
+
+                    // ✅ Animação de concluído e sumir
+                    setIABootstrapState('done', '');
+                    setTimeout(() => {
+                        iaBootstrapBusy = false;
+                        // Após concluir, manter apenas a bolinha (CTA some quando houver histórico visível)
+                        setIABootstrapState('idle', '');
+                    }, 850);
+                });
+            } catch (e) {
+                iaBootstrapBusy = false;
+                setIABootstrapState('idle', 'Analisar histórico');
+                showToast(`❌ Falha ao analisar histórico: ${e.message || e}`, 3200);
+            }
+        });
+        iaBootstrapBound = true;
+    }
+
     // Função para atualizar UI do observador
     function updateObserverUI(stats) {
         const observerStats = document.getElementById('observerStats');
         if (!observerStats) return;
+        // Manter controles híbridos sincronizados (em caso de refresh/reload)
+        try { initEntryGateHybridControls(); } catch (_) {}
         
         // Limpar loading
         observerStats.innerHTML = '';
@@ -17342,6 +17719,13 @@ function logModeSnapshotUI(snapshot) {
         const neededToStart = Number.isFinite(Number(safe.neededToStart)) ? Number(safe.neededToStart) : Math.max(0, minCycles - totalCycles);
         const distanceSinceLastRet = Number.isFinite(Number(safe.distanceSinceLastRet)) ? Number(safe.distanceSinceLastRet) : null;
         const modeLabel = safe.mode === 'diamond' ? 'Diamante' : 'Premium';
+        const diamondSrc = safe && safe.diamondCurrentSourceLevel ? safe.diamondCurrentSourceLevel : null;
+        const diamondSrcId = diamondSrc && diamondSrc.id ? String(diamondSrc.id) : '';
+        const diamondSrcStats = safe && safe.diamondCurrentSourceStats ? safe.diamondCurrentSourceStats : null;
+        const diamondSrcPct = (diamondSrcStats && typeof diamondSrcStats.hitRate === 'number')
+            ? (Number(diamondSrcStats.hitRate) * 100).toFixed(1)
+            : '';
+        const diamondSignalsByLevel = safe && safe.diamondSignalsByLevel ? safe.diamondSignalsByLevel : null;
 
         const isCollecting = totalCycles < minCycles;
 
@@ -17373,9 +17757,33 @@ function logModeSnapshotUI(snapshot) {
             if (!parts.length) return '';
             return parts.join(' • ');
         })();
+        const diamondLevelText = (() => {
+            if (safe.mode !== 'diamond') return '';
+            if (!diamondSrcId) return '<div><b>Nível (origem do sinal):</b> —</div>';
+            const extra = diamondSrcPct ? ` (${diamondSrcPct}%)` : '';
+            return `<div><b>Nível (origem do sinal):</b> ${diamondSrcId}${extra}</div>`;
+        })();
+
+        const diamondRankText = (() => {
+            if (safe.mode !== 'diamond') return '';
+            const total = Number(diamondSignalsByLevel && diamondSignalsByLevel.totalMasterCycles) || 0;
+            const levels = diamondSignalsByLevel && Array.isArray(diamondSignalsByLevel.levels) ? diamondSignalsByLevel.levels : [];
+            if (!total || !levels.length) return '<div><b>Por nível (sinais):</b> —</div>';
+            const fmt = (x) => {
+                const id = x && x.id ? String(x.id) : '—';
+                const pct = x && typeof x.pct === 'number' ? (x.pct * 100).toFixed(0) : '0';
+                const cnt = Number(x && x.count) || 0;
+                return `${id} ${pct}% (${cnt})`;
+            };
+            // Mostrar top 5 para não poluir
+            const top = levels.slice(0, 5).map(fmt).join(' • ');
+            return `<div><b>Por nível (sinais):</b> ${top}</div>`;
+        })();
         observerStats.innerHTML = `
             <div class="observer-loading" style="padding:0; text-align:left;">
                 <div><b>Modo:</b> ${modeLabel}</div>
+                ${diamondLevelText}
+                ${diamondRankText}
                 <div><b>Distância do último LOSS:</b> ${distText}</div>
                 <div><b>WIN (ciclo):</b> ${totalCycles > 0 ? `${cycleWinRate.toFixed(1)}% (${wins}/${totalCycles})` : '—'}</div>
                 <div><b>LOSS (RED):</b> ${totalCycles > 0 ? `${rets}/${totalCycles}` : '—'}</div>

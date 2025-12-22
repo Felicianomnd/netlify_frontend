@@ -1974,6 +1974,54 @@
     margin-bottom: 8px;
 }
 
+.observer-hybrid {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 8px 10px;
+    margin-bottom: 10px;
+    background: rgba(147,51,234,0.08);
+    border-radius: 8px;
+    border: 1px solid rgba(147,51,234,0.18);
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,0.04);
+}
+
+.observer-hybrid-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+    font-size: 11px;
+}
+
+.observer-hybrid-label {
+    color: #c4b5fd;
+    font-weight: 700;
+    letter-spacing: 0.2px;
+}
+
+.observer-hybrid-select,
+.observer-hybrid-input {
+    width: 120px;
+    padding: 6px 8px;
+    border-radius: 6px;
+    border: 1px solid rgba(255,255,255,0.10);
+    background: rgba(0,0,0,0.18);
+    color: #cdd6e8;
+    font-size: 11px;
+    outline: none;
+}
+
+.observer-hybrid-input {
+    text-align: right;
+}
+
+.observer-hybrid-select:focus,
+.observer-hybrid-input:focus {
+    border-color: rgba(147,51,234,0.55);
+    box-shadow: 0 0 0 2px rgba(147,51,234,0.18);
+}
+
 .observer-loading {
     text-align: center;
     color: #8da2bb;
@@ -3677,6 +3725,607 @@
   border: 1px solid var(--border-color);
   border-radius: 0; /* cantos retos, seguindo padrão do simulador */
   padding: 0 10px 10px 10px;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   🤖 IA VIVA (Bootstrap do histórico na aba IA)
+   - bolinha redonda, conic-gradient girando + "breathing"
+   - estados: idle | loading | done
+   ═══════════════════════════════════════════════════════════════ */
+.entries-list-wrap {
+  position: relative;
+  /* garantir espaço para a bolinha aparecer quando IA estiver vazia */
+  min-height: 200px;
+  border-radius: 12px;
+  overflow: hidden; /* bordas limpas no vidro/blur */
+  /* moldura leve para o "vidro" ficar bonito */
+  border: 1px solid rgba(148, 163, 184, 0.14);
+  box-shadow:
+    0 18px 40px rgba(0,0,0,0.22),
+    inset 0 0 0 1px rgba(255,255,255,0.04);
+}
+
+.ia-bootstrap-glass {
+  position: absolute;
+  inset: 0;
+  z-index: 4; /* abaixo da bolinha (overlay) */
+  /* não bloquear tabs; bloqueio de clique é feito na lista */
+  pointer-events: none;
+  background: rgba(10, 14, 22, 0.18);
+  /* desfoque ~55% */
+  backdrop-filter: blur(8px) saturate(0.95);
+  -webkit-backdrop-filter: blur(8px) saturate(0.95);
+  border-radius: inherit;
+  border: 1px solid rgba(148, 163, 184, 0.20);
+  box-shadow:
+    inset 0 0 0 1px rgba(255,255,255,0.05),
+    inset 0 0 24px rgba(255,255,255,0.03),
+    0 16px 38px rgba(0,0,0,0.26);
+}
+
+.ia-bootstrap-glass::before {
+  content: "";
+  position: absolute;
+  inset: -40%;
+  background:
+    radial-gradient(circle at 30% 35%, rgba(255,255,255,0.06), transparent 60%),
+    radial-gradient(circle at 70% 60%, rgba(255,255,255,0.04), transparent 64%),
+    linear-gradient(120deg, rgba(255,255,255,0.08), rgba(255,255,255,0.02), rgba(255,255,255,0.08));
+  opacity: 0.16;
+  filter: blur(14px);
+  mix-blend-mode: overlay;
+  transform: translate3d(-6%, -2%, 0) rotate(-2deg);
+  animation: iaGlassSheen 4.8s ease-in-out infinite;
+}
+
+/* “fumaça/código” sutil no vidro (parte inferior até o meio) */
+.ia-bootstrap-glass::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 56%;
+  background:
+    radial-gradient(circle at 25% 80%, rgba(110,190,255,0.14), transparent 68%),
+    radial-gradient(circle at 75% 95%, rgba(200,240,255,0.10), transparent 72%),
+    repeating-linear-gradient(
+      90deg,
+      rgba(255,255,255,0.00) 0px,
+      rgba(255,255,255,0.06) 14px,
+      rgba(255,255,255,0.00) 28px
+    );
+  opacity: 0.28;
+  filter: blur(6px);
+  mix-blend-mode: overlay;
+  pointer-events: none;
+  animation: iaGlassCodeDrift 10s ease-in-out infinite;
+}
+
+@keyframes iaGlassSheen {
+  0% { transform: translate3d(-7%, -3%, 0) rotate(-2deg); opacity: 0.28; }
+  50% { transform: translate3d(7%, 3%, 0) rotate(2deg); opacity: 0.42; }
+  100% { transform: translate3d(-7%, -3%, 0) rotate(-2deg); opacity: 0.28; }
+}
+
+@keyframes iaGlassCodeDrift {
+  0% { transform: translate3d(-3%, 0, 0); opacity: 0.22; }
+  50% { transform: translate3d(3%, 0, 0); opacity: 0.32; }
+  100% { transform: translate3d(-3%, 0, 0); opacity: 0.22; }
+}
+
+@keyframes aiFogDrift1 {
+  0% { transform: translate3d(-5%, 0%, 0) rotate(-6deg) scale(1.06); background-position: 18% 94%; }
+  50% { transform: translate3d(5%, -2%, 0) rotate(6deg) scale(1.12); background-position: 84% 70%; }
+  100% { transform: translate3d(-5%, 0%, 0) rotate(-6deg) scale(1.06); background-position: 18% 94%; }
+}
+
+@keyframes aiFogDrift2 {
+  0% { transform: translate3d(4%, -2%, 0) rotate(5deg) scale(1.04); background-position: 76% 78%; }
+  50% { transform: translate3d(-5%, 2%, 0) rotate(-5deg) scale(1.10); background-position: 18% 94%; }
+  100% { transform: translate3d(4%, -2%, 0) rotate(5deg) scale(1.04); background-position: 76% 78%; }
+}
+
+.ia-bootstrap-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 5;
+  /* não bloquear interação do resto; só a bolinha é clicável */
+  pointer-events: none;
+}
+.ia-bootstrap-orb {
+  pointer-events: auto;
+}
+
+/* Toggle "Ver testes IA" */
+.ia-tests-toggle {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 6;
+  pointer-events: auto;
+}
+.ia-tests-toggle-btn {
+  border: 1px solid rgba(148,163,184,0.22);
+  background: rgba(15, 23, 42, 0.55);
+  color: rgba(229,231,235,0.92);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.2px;
+  padding: 6px 10px;
+  border-radius: 10px;
+  cursor: pointer;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+.ia-tests-toggle-btn:hover {
+  background: rgba(15, 23, 42, 0.62);
+  border-color: rgba(148,163,184,0.32);
+}
+
+/* fallback: se backdrop-filter não existir, desfocar a LISTA real */
+@supports not ((backdrop-filter: blur(2px)) or (-webkit-backdrop-filter: blur(2px))) {
+  .entries-list-wrap.ia-glass-active #entriesList {
+    filter: blur(8px);
+    opacity: 0.92;
+  }
+}
+
+.ia-bootstrap-orb {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  user-select: none;
+}
+
+/* halo neon (fundo) */
+.ia-bootstrap-orb::before {
+  content: "";
+  position: absolute;
+  width: 190px;
+  height: 190px;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 30% 35%, rgba(110,190,255,0.28), transparent 58%),
+    radial-gradient(circle at 70% 55%, rgba(70,150,255,0.20), transparent 60%),
+    radial-gradient(circle at 45% 75%, rgba(200,240,255,0.16), transparent 62%);
+  filter: blur(26px);
+  opacity: 0.95;
+  transform: translateZ(0);
+  animation: aiHaloPulse 3.2s ease-in-out infinite;
+  z-index: 0;
+}
+
+/* halo interno (neon suave, mais “bonito” no fundo) */
+.ia-bootstrap-orb::after {
+  content: "";
+  position: absolute;
+  width: 170px;
+  height: 170px;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 50% 50%, rgba(255,255,255,0.20), rgba(255,255,255,0.08) 42%, rgba(255,255,255,0.00) 78%);
+  filter: blur(18px);
+  opacity: 0.92;
+  transform: translateZ(0);
+  animation: aiHaloPulse 2.6s ease-in-out infinite;
+  z-index: 0;
+}
+
+.ai-orb-btn {
+  width: 104px;
+  height: 104px;
+  border-radius: 50%;
+  border: none;
+  cursor: pointer;
+  position: relative;
+  overflow: hidden; /* clip perfeito da esfera */
+  padding: 0;
+  /* esfera levemente transparente (não parecer “botão”) */
+  background:
+    radial-gradient(circle at 50% 18%, rgba(255,255,255,0.78), rgba(245,252,255,0.38) 42%, rgba(140,210,255,0.30) 68%, rgba(70,150,255,0.22) 100%);
+  box-shadow:
+    0 18px 44px rgba(0,0,0,0.22),
+    0 0 22px rgba(200,240,255,0.12);
+  outline: none;
+  transform: translateZ(0);
+  z-index: 1;
+}
+
+/* fumaça fluida dentro da bolinha (visível e animada) */
+.ai-orb-fog {
+  position: absolute;
+  inset: -34%;
+  border-radius: 50%;
+  pointer-events: none;
+  mix-blend-mode: screen;
+  filter: blur(16px) saturate(1.10) contrast(1.06);
+  opacity: 0.62;
+  /* limitar até o meio (topo fica mais claro) */
+  -webkit-mask-image: linear-gradient(to top, rgba(0,0,0,1) 0%, rgba(0,0,0,1) 58%, rgba(0,0,0,0) 84%);
+  mask-image: linear-gradient(to top, rgba(0,0,0,1) 0%, rgba(0,0,0,1) 58%, rgba(0,0,0,0) 84%);
+  z-index: 1;
+}
+
+.ai-orb-fog.fog1 {
+  background:
+    radial-gradient(circle at 28% 88%, rgba(35,105,255,0.65), transparent 66%),
+    radial-gradient(circle at 78% 82%, rgba(20,85,230,0.52), transparent 70%),
+    radial-gradient(circle at 52% 72%, rgba(190,235,255,0.18), transparent 72%);
+  background-size: 220% 220%;
+  background-position: 20% 92%;
+  animation: aiFogDrift1 6.6s ease-in-out infinite;
+}
+
+.ai-orb-fog.fog2 {
+  background:
+    radial-gradient(circle at 42% 92%, rgba(110,190,255,0.36), transparent 68%),
+    radial-gradient(circle at 86% 76%, rgba(65,145,255,0.28), transparent 70%),
+    radial-gradient(circle at 58% 98%, rgba(255,255,255,0.10), transparent 74%);
+  background-size: 240% 240%;
+  background-position: 74% 78%;
+  opacity: 0.44;
+  animation: aiFogDrift2 9.8s ease-in-out infinite reverse;
+}
+
+/* Visual realista (SVG com turbulência) */
+.ai-orb-visual {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  pointer-events: none;
+  transform: translateZ(0);
+  will-change: transform, filter;
+  animation: aiOrbVisualDrift 7.2s ease-in-out infinite;
+  z-index: 0;
+}
+
+/* Animação sutil dentro do SVG (garante movimento “fumaça”) */
+.ai-orb-visual .ai-orb-clouds {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: aiOrbCloudMove 7.5s ease-in-out infinite;
+}
+
+/* Camada fluida (CSS) — garante movimento visível mesmo se o SVG não animar */
+.ai-orb-liquid {
+  position: absolute;
+  left: -18%;
+  right: -18%;
+  top: 42%;
+  bottom: -28%;
+  border-radius: 50%;
+  background: transparent;
+  will-change: transform, filter, opacity, background-position;
+  animation: aiCupWobble 9s ease-in-out infinite;
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* “nuvem no fundo do copo” (2 camadas suaves) */
+.ai-orb-liquid::before,
+.ai-orb-liquid::after {
+  content: "";
+  position: absolute;
+  inset: -30%;
+  border-radius: 50%;
+  background-blend-mode: screen;
+  mix-blend-mode: screen;
+  will-change: transform, opacity, filter, background-position;
+  pointer-events: none;
+}
+
+.ai-orb-liquid::before {
+  background:
+    radial-gradient(circle at 30% 82%, rgba(45,115,255,0.55), transparent 64%),
+    radial-gradient(circle at 70% 90%, rgba(20,85,230,0.42), transparent 70%),
+    radial-gradient(circle at 48% 72%, rgba(175,220,255,0.18), transparent 72%);
+  background-size: 220% 220%;
+  background-position: 22% 88%;
+  filter: blur(16px) saturate(1.05) contrast(1.06);
+  opacity: 0.72;
+  animation: aiCloudCup1 7.8s ease-in-out infinite;
+}
+
+.ai-orb-liquid::after {
+  inset: -18%;
+  background:
+    radial-gradient(circle at 38% 88%, rgba(110,190,255,0.32), transparent 68%),
+    radial-gradient(circle at 78% 78%, rgba(65,145,255,0.26), transparent 70%),
+    radial-gradient(circle at 55% 96%, rgba(255,255,255,0.08), transparent 74%);
+  background-size: 240% 240%;
+  background-position: 68% 80%;
+  filter: blur(18px) saturate(1.02) contrast(1.05);
+  opacity: 0.52;
+  animation: aiCloudCup2 11.5s ease-in-out infinite reverse;
+}
+
+/* brilho/specular (só acabamento) */
+.ai-orb-btn::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background:
+    /* topo mais claro (como “copo”) */
+    linear-gradient(to bottom, rgba(255,255,255,0.26), rgba(255,255,255,0.00) 62%),
+    radial-gradient(circle at 35% 22%, rgba(255,255,255,0.38), rgba(255,255,255,0.00) 52%),
+    radial-gradient(circle at 70% 82%, rgba(0,0,0,0.16), rgba(0,0,0,0.00) 62%);
+  opacity: 0.46;
+  pointer-events: none;
+  z-index: 2;
+}
+
+/* leve vinheta para dar profundidade */
+.ai-orb-btn::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 50% 50%, rgba(0,0,0,0.00), rgba(0,0,0,0.14) 82%, rgba(0,0,0,0.22) 100%);
+  opacity: 0.42;
+  pointer-events: none;
+  z-index: 2;
+}
+
+/* fumaça colorida (extra) — dá aspecto mais “realista” (tipo ChatGPT voice) */
+.ai-orb-smoke {
+  position: absolute;
+  inset: -55%;
+  border-radius: 50%;
+  background-size: 180% 180%;
+  background-position: 25% 25%;
+  background:
+    radial-gradient(circle at 25% 35%, rgba(150,220,255,0.86), transparent 52%),
+    radial-gradient(circle at 70% 30%, rgba(90,170,255,0.74), transparent 56%),
+    radial-gradient(circle at 58% 78%, rgba(215,245,255,0.70), transparent 58%),
+    radial-gradient(circle at 40% 60%, rgba(255,255,255,0.12), transparent 50%);
+  background-blend-mode: screen;
+  filter: blur(18px) saturate(1.35) contrast(1.08);
+  opacity: 0.78;
+  mix-blend-mode: screen;
+  will-change: transform, filter, opacity, background-position;
+  animation:
+    aiSmokeDrift 4.6s ease-in-out infinite,
+    aiSmokeHue 9.5s linear infinite;
+  z-index: 1;
+  pointer-events: none;
+}
+
+/* camadas extras para dar mais profundidade de “fumaça” */
+.ai-orb-smoke::before,
+.ai-orb-smoke::after {
+  content: "";
+  position: absolute;
+  inset: -35%;
+  border-radius: 50%;
+  mix-blend-mode: screen;
+  pointer-events: none;
+}
+
+.ai-orb-smoke::before {
+  background:
+    radial-gradient(circle at 35% 25%, rgba(150,220,255,0.50), transparent 56%),
+    radial-gradient(circle at 75% 55%, rgba(90,170,255,0.40), transparent 60%),
+    radial-gradient(circle at 45% 80%, rgba(215,245,255,0.34), transparent 62%);
+  filter: blur(22px) saturate(1.25);
+  opacity: 0.55;
+  animation:
+    aiSmokeDrift2 6.2s ease-in-out infinite,
+    aiSmokeHue 11.5s linear infinite;
+}
+
+.ai-orb-smoke::after {
+  inset: -20%;
+  background:
+    radial-gradient(circle at 55% 35%, rgba(255,255,255,0.10), transparent 55%),
+    radial-gradient(circle at 25% 65%, rgba(150,220,255,0.24), transparent 62%),
+    radial-gradient(circle at 80% 78%, rgba(90,170,255,0.18), transparent 64%);
+  filter: blur(18px) saturate(1.15);
+  opacity: 0.38;
+  animation:
+    aiSmokeDrift3 5.4s ease-in-out infinite reverse;
+}
+
+/* (Atual) Pseudo-elements do orb: somente acabamento.
+   O movimento “realista” vem do SVG (turbulência) dentro do botão. */
+.ai-orb-btn:hover {
+  transform: translateZ(0);
+  box-shadow:
+    0 20px 44px rgba(0,0,0,0.24),
+    0 0 30px rgba(150,220,255,0.18),
+    inset 0 0 0 1px rgba(255,255,255,0.07);
+}
+
+.ai-orb-btn:active {
+  transform: translateZ(0);
+}
+
+.ia-bootstrap-text {
+  position: relative;
+  z-index: 1;
+  font-size: 12px;
+  font-weight: 700;
+  color: #cdd6e8;
+  letter-spacing: 0.25px;
+  opacity: 0.92;
+}
+
+.ai-orb-label {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-size: 16px;
+  font-weight: 900;
+  color: rgba(255,255,255,0.78);
+  text-shadow: 
+    0 2px 8px rgba(0,0,0,0.35),
+    0 0 12px rgba(0,212,255,0.15),
+    0 0 16px rgba(147,51,234,0.12);
+  opacity: 0.75;
+  transform: scale(1);
+  transition: opacity 260ms ease, transform 260ms ease;
+  pointer-events: none;
+  z-index: 5;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  mix-blend-mode: overlay;
+}
+
+.ai-orb-check {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-size: 32px;
+  font-weight: 900;
+  color: rgba(0,255,136,0.98);
+  text-shadow: 0 8px 18px rgba(0,255,136,0.25);
+  opacity: 0;
+  transform: scale(0.7);
+  transition: opacity 260ms ease, transform 260ms ease;
+  pointer-events: none;
+  z-index: 5;
+}
+
+.ia-bootstrap-orb[data-state="loading"] .ai-orb-btn::before {
+  opacity: 0.65;
+}
+.ia-bootstrap-orb[data-state="loading"] .ai-orb-visual {
+  filter: saturate(1.05) contrast(1.02);
+}
+.ia-bootstrap-orb[data-state="loading"] .ai-orb-smoke {
+  animation:
+    aiSmokeDrift 2.9s ease-in-out infinite,
+    aiSmokeHue 6.5s linear infinite;
+  opacity: 0.86;
+}
+.ia-bootstrap-orb[data-state="loading"]::before {
+  opacity: 1;
+  filter: blur(28px);
+  animation-duration: 2.6s;
+}
+.ia-bootstrap-orb[data-state="loading"] .ia-bootstrap-text {
+  display: none;
+}
+.ia-bootstrap-orb[data-state="done"] .ia-bootstrap-text {
+  display: none;
+}
+.ia-bootstrap-orb[data-has-history="true"] .ia-bootstrap-text {
+  display: none;
+}
+
+.ia-bootstrap-orb[data-state="done"] .ai-orb-btn::before {
+  opacity: 0.65;
+}
+.ia-bootstrap-orb[data-state="done"]::before { opacity: 0.95; }
+.ia-bootstrap-orb[data-state="done"] .ai-orb-label {
+  opacity: 0;
+  transform: scale(0.7);
+}
+.ia-bootstrap-orb[data-state="done"] .ai-orb-check {
+  opacity: 1;
+  transform: scale(1);
+}
+
+@keyframes aiOrbSpin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+@keyframes aiOrbShift {
+  0% { background-position: 18% 22%; }
+  50% { background-position: 82% 40%; }
+  100% { background-position: 22% 86%; }
+}
+
+@keyframes aiOrbFlow {
+  0% { transform: translate3d(-5%, -3%, 0) rotate(-4deg) scale(1.02); background-position: 18% 22%; }
+  50% { transform: translate3d(6%, 4%, 0) rotate(4deg) scale(1.08); background-position: 78% 40%; }
+  100% { transform: translate3d(-5%, -3%, 0) rotate(-4deg) scale(1.02); background-position: 22% 82%; }
+}
+
+@keyframes aiOrbHue {
+  0%, 100% { filter: blur(14px) saturate(1.25) contrast(1.12) hue-rotate(0deg); }
+  50% { filter: blur(14px) saturate(1.25) contrast(1.12) hue-rotate(18deg); }
+}
+
+@keyframes aiOrbBreath {
+  0%, 100% { transform: scale(1); opacity: 0.80; }
+  50% { transform: scale(1.03); opacity: 0.95; }
+}
+
+@keyframes aiOrbPulse {
+  0% { transform: translateZ(0) scale(0.94); }
+  22% { transform: translateZ(0) scale(1.02); }
+  46% { transform: translateZ(0) scale(1.08); }
+  62% { transform: translateZ(0) scale(1.01); }
+  78% { transform: translateZ(0) scale(1.05); }
+  100% { transform: translateZ(0) scale(0.94); }
+}
+
+@keyframes aiSmokeDrift {
+  0% { transform: translate3d(-7%, -5%, 0) rotate(-8deg) scale(1.02); opacity: 0.70; background-position: 18% 22%; }
+  45% { transform: translate3d(7%, 6%, 0) rotate(7deg) scale(1.10); opacity: 0.88; background-position: 78% 40%; }
+  100% { transform: translate3d(-7%, -5%, 0) rotate(-8deg) scale(1.02); opacity: 0.70; background-position: 22% 82%; }
+}
+
+@keyframes aiSmokeHue {
+  0%, 100% { filter: blur(18px) saturate(1.28) contrast(1.06) hue-rotate(0deg); }
+  50% { filter: blur(18px) saturate(1.28) contrast(1.06) hue-rotate(14deg); }
+}
+
+@keyframes aiSmokeDrift2 {
+  0% { transform: translate3d(-5%, -3%, 0) rotate(-5deg) scale(1.02); }
+  50% { transform: translate3d(6%, 4%, 0) rotate(6deg) scale(1.08); }
+  100% { transform: translate3d(-5%, -3%, 0) rotate(-5deg) scale(1.02); }
+}
+
+@keyframes aiSmokeDrift3 {
+  0% { transform: translate3d(3%, -2%, 0) rotate(4deg) scale(1.02); opacity: 0.32; }
+  50% { transform: translate3d(-4%, 3%, 0) rotate(-4deg) scale(1.06); opacity: 0.42; }
+  100% { transform: translate3d(3%, -2%, 0) rotate(4deg) scale(1.02); opacity: 0.32; }
+}
+
+@keyframes aiHaloPulse {
+  0%, 100% { transform: scale(1); opacity: 0.72; }
+  50% { transform: scale(1.06); opacity: 0.95; }
+}
+
+@keyframes aiOrbVisualDrift {
+  0%, 100% { transform: translateZ(0) rotate(-1deg); filter: saturate(1) contrast(1); }
+  50% { transform: translateZ(0) rotate(1deg); filter: saturate(1.02) contrast(1.01); }
+}
+
+@keyframes aiOrbCloudMove {
+  0%, 100% { transform: translate(-2px, 1px) scale(1.03); opacity: 1; }
+  50% { transform: translate(2px, -1px) scale(1.06); opacity: 1; }
+}
+
+@keyframes aiCupWobble {
+  0%, 100% { transform: translate3d(0%, 0%, 0) rotate(-1deg); }
+  50% { transform: translate3d(0%, -1%, 0) rotate(1deg); }
+}
+
+@keyframes aiCloudCup1 {
+  0% { transform: translate3d(-4%, 0%, 0) rotate(-2deg) scale(1.05); background-position: 18% 92%; }
+  50% { transform: translate3d(4%, -2%, 0) rotate(2deg) scale(1.09); background-position: 84% 70%; }
+  100% { transform: translate3d(-4%, 0%, 0) rotate(-2deg) scale(1.05); background-position: 18% 92%; }
+}
+
+@keyframes aiCloudCup2 {
+  0% { transform: translate3d(3%, -2%, 0) rotate(2deg) scale(1.03); background-position: 76% 78%; }
+  50% { transform: translate3d(-3%, 2%, 0) rotate(-2deg) scale(1.08); background-position: 18% 94%; }
+  100% { transform: translate3d(3%, -2%, 0) rotate(2deg) scale(1.03); background-position: 76% 78%; }
 }
 .entries-header {
   display: flex;
