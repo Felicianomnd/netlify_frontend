@@ -446,6 +446,14 @@
     cursor: sw-resize;
 }
 
+/* 🔒 Desabilitar resize pelo lado direito (conflitava com a scrollbar vertical) */
+#blaze-double-analyzer .resize-e,
+#blaze-double-analyzer .resize-ne,
+#blaze-double-analyzer .resize-se {
+    display: none !important;
+    pointer-events: none !important;
+}
+
 /* =========================================================================
    HEADER & USER MENU - REDESIGN (CLEAN & MODERN)
    ========================================================================= */
@@ -3840,22 +3848,92 @@
   pointer-events: auto;
 }
 
-/* Toggle "Ver testes IA" */
+/* ═══════════════════════════════════════════════════════════════
+   ⛶ IA - TELA CHEIA DO HISTÓRICO
+   ═══════════════════════════════════════════════════════════════ */
+.da-ia-fullscreen-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483646;
+  background: rgba(3, 7, 18, 0.92);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  display: flex;
+  padding:
+    env(safe-area-inset-top, 0px)
+    env(safe-area-inset-right, 0px)
+    env(safe-area-inset-bottom, 0px)
+    env(safe-area-inset-left, 0px);
+}
+
+.da-ia-fullscreen-host {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
+.da-ia-fullscreen-overlay #entriesPanel.entries-panel {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  border-radius: 0 !important;
+  padding: 10px 14px 14px 14px;
+}
+
+.da-ia-fullscreen-overlay .entries-content {
+  flex: 1;
+  min-height: 0;
+}
+
+.da-ia-fullscreen-overlay .entries-view:not([hidden]) {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.da-ia-fullscreen-overlay .entries-list-wrap {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border-radius: 0;
+}
+
+.da-ia-fullscreen-overlay .entries-list {
+  flex: 1;
+  min-height: 0;
+  max-height: none;
+  overflow-y: auto;
+  padding: 10px 14px;
+  gap: 6px;
+}
+
+.da-ia-fullscreen-overlay .entries-list::-webkit-scrollbar {
+  width: 10px;
+}
+
+/* Toggle de tela cheia (ícone) */
 .ia-tests-toggle {
   position: absolute;
   top: 8px;
-  left: 8px;
+  right: 8px;
+  left: auto;
   z-index: 6;
   pointer-events: auto;
 }
 .ia-tests-toggle-btn {
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   border: 1px solid rgba(148,163,184,0.22);
   background: rgba(15, 23, 42, 0.55);
   color: rgba(229,231,235,0.92);
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.2px;
-  padding: 6px 10px;
   border-radius: 10px;
   cursor: pointer;
   backdrop-filter: blur(8px);
@@ -3864,6 +3942,24 @@
 .ia-tests-toggle-btn:hover {
   background: rgba(15, 23, 42, 0.62);
   border-color: rgba(148,163,184,0.32);
+}
+
+.ia-tests-toggle-btn:active {
+  transform: scale(0.97);
+}
+
+.ia-tests-toggle-icon {
+  width: 18px;
+  height: 18px;
+  display: block;
+}
+
+.da-ia-fullscreen-overlay .ia-tests-toggle {
+  position: fixed;
+  top: calc(12px + env(safe-area-inset-top, 0px));
+  right: calc(12px + env(safe-area-inset-right, 0px));
+  left: auto;
+  z-index: 2147483647;
 }
 
 /* fallback: se backdrop-filter não existir, desfocar a LISTA real */

@@ -10944,11 +10944,8 @@ async function persistAnalyzerState(newState) {
             <div class="resize-handles">
                 <div class="resize-handle resize-n"></div>
                 <div class="resize-handle resize-s"></div>
-                <div class="resize-handle resize-e"></div>
                 <div class="resize-handle resize-w"></div>
-                <div class="resize-handle resize-ne"></div>
                 <div class="resize-handle resize-nw"></div>
-                <div class="resize-handle resize-se"></div>
                 <div class="resize-handle resize-sw"></div>
             </div>
             
@@ -11186,9 +11183,13 @@ async function persistAnalyzerState(newState) {
                         <div class="entries-view" data-view="entries">
                             <div class="entries-list-wrap" id="entriesListWrap">
                                 <div class="entries-list" id="entriesList"></div>
-                                <!-- ✅ Toggle: ver/ocultar testes (remover vidro + IA) -->
+                                <!-- ✅ Toggle: expandir histórico (tela cheia) -->
                                 <div class="ia-tests-toggle" id="iaTestsToggle" style="display:none;">
-                                    <button type="button" class="ia-tests-toggle-btn" id="iaTestsToggleBtn">Ver testes IA</button>
+                                    <button type="button" class="ia-tests-toggle-btn" id="iaTestsToggleBtn" aria-label="Expandir histórico (tela cheia)" title="Expandir histórico (tela cheia)">
+                                        <svg class="ia-tests-toggle-icon" viewBox="0 0 24 24" aria-hidden="true">
+                                            <path fill="currentColor" d="M7 14H5v5h5v-2H7v-3zm0-4h2V7h3V5H5v5zm14 9h-5v-2h3v-3h2v5zm-5-14h5v5h-2V7h-3V5z"/>
+                                        </svg>
+                                    </button>
                                 </div>
                                 <!-- ✅ Vidro desfocado (mostra apenas o "vulto" do conteúdo) -->
                                 <div class="ia-bootstrap-glass" id="iaBootstrapGlass" style="display:none;"></div>
@@ -17541,8 +17542,20 @@ function logModeSnapshotUI(snapshot) {
     // ═══════════════════════════════════════════════════════════════
     let iaBootstrapBusy = false;
     let iaBootstrapBound = false;
-    let iaTestsVisible = false;
     let iaTestsBound = false;
+    let iaFullscreenKeyHandler = null;
+    const IA_FULLSCREEN_OVERLAY_ID = 'da-ia-fullscreen-overlay';
+    const IA_FULLSCREEN_PLACEHOLDER_ID = 'da-ia-entries-panel-placeholder';
+    const IA_FULLSCREEN_ICON = `
+        <svg class="ia-tests-toggle-icon" viewBox="0 0 24 24" aria-hidden="true">
+            <path fill="currentColor" d="M7 14H5v5h5v-2H7v-3zm0-4h2V7h3V5H5v5zm14 9h-5v-2h3v-3h2v5zm-5-14h5v5h-2V7h-3V5z"/>
+        </svg>
+    `;
+    const IA_FULLSCREEN_EXIT_ICON = `
+        <svg class="ia-tests-toggle-icon" viewBox="0 0 24 24" aria-hidden="true">
+            <path fill="currentColor" d="M5 16h3v3h2v-5H5v2zm3-8H5v2h5V5H8v3zm11 8h-3v-3h-2v5h5v-2zm-3-8V5h-2v5h5V8h-3z"/>
+        </svg>
+    `;
     const iaBackdropSupported = (() => {
         try {
             return !!(
@@ -17596,19 +17609,152 @@ function logModeSnapshotUI(snapshot) {
         wrap.style.display = visible ? 'block' : 'none';
     }
 
+    function isIAFullscreenActive() {
+        try {
+            return !!document.getElementById(IA_FULLSCREEN_OVERLAY_ID);
+        } catch (_) {
+            return false;
+        }
+    }
+
+    function openIAFullscreenOverlay() {
+        if (isIAFullscreenActive()) return;
+
+        // Garantir que estamos na aba IA antes de abrir a tela cheia
+        try {
+            if (activeEntriesTab !== 'entries') {
+                setEntriesTab('entries');
+            }
+        } catch (_) {}
+
+        const entriesPanel = document.getElementById('entriesPanel');
+        if (!entriesPanel) return;
+        const parent = entriesPanel.parentNode;
+        if (!parent) return;
+
+        // Placeholder para restaurar o painel ao fechar (robusto, mesmo se UI re-renderizar)
+        const placeholder = document.createElement('div');
+        placeholder.id = IA_FULLSCREEN_PLACEHOLDER_ID;
+        placeholder.style.display = 'none';
+        parent.insertBefore(placeholder, entriesPanel);
+
+        const overlay = document.createElement('div');
+        overlay.id = IA_FULLSCREEN_OVERLAY_ID;
+        overlay.className = 'da-ia-fullscreen-overlay';
+        overlay.setAttribute('role', 'dialog');
+        overlay.setAttribute('aria-label', 'Histórico em tela cheia');
+        try {
+            overlay.dataset.prevHtmlOverflow = document.documentElement.style.overflow || '';
+        } catch (_) {
+            overlay.dataset.prevHtmlOverflow = '';
+        }
+        try {
+            overlay.dataset.prevBodyOverflow = document.body ? (document.body.style.overflow || '') : '';
+        } catch (_) {
+            overlay.dataset.prevBodyOverflow = '';
+        }
+
+        const host = document.createElement('div');
+        host.className = 'da-ia-fullscreen-host';
+        overlay.appendChild(host);
+
+        // Montar overlay no DOM
+        try {
+            (document.body || document.documentElement).appendChild(overlay);
+        } catch (_) {
+            // noop
+        }
+
+        // Mover o painel para dentro do overlay (mantém UI viva e atualizando)
+        host.appendChild(entriesPanel);
+
+        // Bloquear scroll do site por trás
+        try { document.documentElement.style.overflow = 'hidden'; } catch (_) {}
+        try { if (document.body) document.body.style.overflow = 'hidden'; } catch (_) {}
+        try { document.documentElement.classList.add('da-ia-fullscreen-active'); } catch (_) {}
+
+        // ESC fecha
+        if (!iaFullscreenKeyHandler) {
+            iaFullscreenKeyHandler = (event) => {
+                try {
+                    if (!event) return;
+                    if (event.key !== 'Escape') return;
+                    if (!isIAFullscreenActive()) return;
+                    event.preventDefault();
+                    closeIAFullscreenOverlay();
+                } catch (_) {}
+            };
+        }
+        try {
+            document.addEventListener('keydown', iaFullscreenKeyHandler, true);
+        } catch (_) {}
+
+        // Atualizar overlays/ícone (esconde bolinha/vidro em fullscreen)
+        try { applyIAVisibilityState(); } catch (_) {}
+    }
+
+    function closeIAFullscreenOverlay() {
+        const overlay = document.getElementById(IA_FULLSCREEN_OVERLAY_ID);
+        if (!overlay) return;
+
+        const entriesPanel = overlay.querySelector('#entriesPanel');
+        const placeholder = document.getElementById(IA_FULLSCREEN_PLACEHOLDER_ID);
+
+        // Restaurar painel
+        try {
+            if (entriesPanel && placeholder) {
+                placeholder.replaceWith(entriesPanel);
+            }
+        } catch (_) {}
+
+        // Restaurar scroll
+        try {
+            document.documentElement.style.overflow = overlay.dataset.prevHtmlOverflow || '';
+        } catch (_) {}
+        try {
+            if (document.body) {
+                document.body.style.overflow = overlay.dataset.prevBodyOverflow || '';
+            }
+        } catch (_) {}
+        try { document.documentElement.classList.remove('da-ia-fullscreen-active'); } catch (_) {}
+
+        // Remover overlay
+        try { overlay.remove(); } catch (_) {}
+
+        // Remover handler de ESC
+        try {
+            if (iaFullscreenKeyHandler) {
+                document.removeEventListener('keydown', iaFullscreenKeyHandler, true);
+            }
+        } catch (_) {}
+
+        // Voltar sempre para a aba IA (modo original com bolinha/vidro)
+        try {
+            setEntriesTab('entries');
+        } catch (_) {
+            try { applyIAVisibilityState(); } catch (_) {}
+        }
+    }
+
     function updateIATestsToggleLabel() {
         const btn = document.getElementById('iaTestsToggleBtn');
         if (!btn) return;
-        btn.textContent = iaTestsVisible ? 'Ocultar' : 'Ver testes IA';
+        const expanded = isIAFullscreenActive();
+        btn.innerHTML = expanded ? IA_FULLSCREEN_EXIT_ICON : IA_FULLSCREEN_ICON;
+        const label = expanded ? 'Sair da tela cheia' : 'Expandir histórico (tela cheia)';
+        btn.setAttribute('aria-label', label);
+        btn.setAttribute('title', label);
+        btn.classList.toggle('is-expanded', expanded);
     }
 
     function applyIAVisibilityState() {
         const isIA = (activeEntriesTab === 'entries');
-        setIATestsToggleVisible(isIA);
+        const expanded = isIAFullscreenActive();
+        setIATestsToggleVisible(isIA || expanded);
         updateIATestsToggleLabel();
 
-        const shouldHideOverlay = !isIA || iaTestsVisible;
-        const shouldGlass = isIA && !iaTestsVisible;
+        const shouldHideOverlay = !isIA || expanded;
+        const shouldGlass = isIA && !expanded;
 
         try { setIABootstrapGlassVisible(shouldGlass); } catch (_) {}
         try { setIABootstrapOverlayVisible(!shouldHideOverlay); } catch (_) {}
@@ -17620,8 +17766,11 @@ function logModeSnapshotUI(snapshot) {
         const btn = document.getElementById('iaTestsToggleBtn');
         if (!btn) return;
         btn.addEventListener('click', () => {
-            iaTestsVisible = !iaTestsVisible;
-            applyIAVisibilityState();
+            if (isIAFullscreenActive()) {
+                closeIAFullscreenOverlay();
+            } else {
+                openIAFullscreenOverlay();
+            }
         });
         iaTestsBound = true;
     }
