@@ -3945,7 +3945,9 @@
 .da-ia-fullscreen-overlay .entries-list {
   flex: 1;
   min-height: 0;
-  max-height: none;
+  /* No mobile existe .entries-list { max-height: 250px !important; }.
+     Aqui precisamos quebrar essa trava para a tela cheia ocupar 100% da altura. */
+  max-height: none !important;
   overflow-y: auto;
   padding: 10px 14px;
   gap: 6px;
@@ -3986,6 +3988,32 @@
 
 .ia-tests-toggle-btn:active {
   transform: scale(0.97);
+}
+
+/* ✅ HOTFIX MOBILE: NÃO deixar regras genéricas de @media (max-width:768px)
+   esticarem botões de ícone e a bolinha IA (lá existe `button { width:100% !important; padding:... }`). */
+#blaze-double-analyzer .ai-orb-btn {
+  width: 104px !important;
+  height: 104px !important;
+  min-height: 104px !important;
+  max-width: 104px !important;
+  padding: 0 !important;
+}
+
+#blaze-double-analyzer .ia-tests-toggle-btn {
+  width: 34px !important;
+  height: 34px !important;
+  min-height: 34px !important;
+  max-width: 34px !important;
+  padding: 0 !important;
+}
+
+.da-ia-fullscreen-overlay .da-ia-fullscreen-close {
+  width: 36px !important;
+  height: 36px !important;
+  min-height: 36px !important;
+  max-width: 36px !important;
+  padding: 0 !important;
 }
 
 .ia-tests-toggle-icon {
