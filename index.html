@@ -10,8 +10,24 @@
     <meta name="theme-color" content="#1a1a2e">
     <title>Double Analyzer - Painel Web 2025</title>
     
-    <!-- ✅ CARREGA O CSS ORIGINAL DA SIDEBAR -->
-    <link rel="stylesheet" href="styles.css">
+    <!-- ✅ CARREGA O CSS ORIGINAL DA SIDEBAR (com cache-busting no mobile/Safari) -->
+    <link id="appStyles" rel="stylesheet">
+    <script>
+        (function loadStylesWithVersion() {
+            try {
+                const link = document.getElementById('appStyles');
+                if (link) link.href = 'styles.css?v=' + Date.now();
+            } catch (e) {
+                // fallback simples
+                try {
+                    const l = document.createElement('link');
+                    l.rel = 'stylesheet';
+                    l.href = 'styles.css?v=' + Date.now();
+                    document.head.appendChild(l);
+                } catch (_) {}
+            }
+        })();
+    </script>
     
     <style>
         /* Estilos APENAS para a página web, não afeta a sidebar */
