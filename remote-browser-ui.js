@@ -29,10 +29,32 @@ class RemoteBrowser {
     createUI() {
         console.log('[RemoteBrowser] 🎨 Criando interface fullscreen...');
         
+        // ✅ Desktop (Dashboard novo): anexar no workspace (lado direito) e não cobrir a coluna de configurações
+        const dash = document.getElementById('blaze-double-analyzer');
+        const dashMain = dash && dash.classList && dash.classList.contains('da-desktop-dashboard')
+            ? dash.querySelector('.da-desktop-main')
+            : null;
+        const host = dashMain || document.body;
+
         // Criar modal fullscreen
         this.modalOverlay = document.createElement('div');
         this.modalOverlay.id = 'remoteBrowserModal';
-        this.modalOverlay.style.cssText = `
+        const isDocked = !!dashMain;
+        this.modalOverlay.style.cssText = isDocked
+            ? `
+                position: absolute;
+                inset: 0;
+                width: 100%;
+                height: 100%;
+                background: rgba(0, 0, 0, 0.92);
+                z-index: 80;
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                justify-content: center;
+                padding: 20px;
+              `
+            : `
             position: fixed;
             top: 0;
             left: 0;
@@ -109,9 +131,9 @@ class RemoteBrowser {
         this.container.appendChild(this.canvas);
         this.container.appendChild(closeBtn);
         
-        // Adicionar modal ao body
+        // Adicionar modal ao host (body ou workspace do dashboard)
         this.modalOverlay.appendChild(this.container);
-        document.body.appendChild(this.modalOverlay);
+        host.appendChild(this.modalOverlay);
         
         // Event listeners
         this.setupEventListeners();

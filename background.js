@@ -182,6 +182,15 @@ let intervalId = null;
 let forceLogoutTabOpened = false;
 
 // ═══════════════════════════════════════════════════════════════════════════════
+// 🛟 RECUPERAÇÃO (novo) — ativação manual via UI
+// - Quando ativo, o sistema filtra e só envia sinal quando atingir alta certeza.
+// - Após WIN do sinal de recuperação, desativa automaticamente.
+// ═══════════════════════════════════════════════════════════════════════════════
+const RECOVERY_MODE_KEY = 'recoveryMode';
+let recoveryModeEnabled = false;
+const RECOVERY_MIN_CONFIDENCE = 85; // "certeiro" (ajustável futuramente)
+
+// ═══════════════════════════════════════════════════════════════════════════════
 // 💾 CACHE EM MEMÓRIA (não persiste após recarregar)
 // ═══════════════════════════════════════════════════════════════════════════════
 const REALTIME_HISTORY_CAP = 10000;
@@ -2982,7 +2991,7 @@ async function startDataCollection() {
     
     // ✅ CARREGAR CONFIGURAÇÕES E ESTADO DO MARTINGALE DO STORAGE IMEDIATAMENTE
     try {
-        const storageData = await chrome.storage.local.get(['analyzerConfig', 'martingaleState']);
+        const storageData = await chrome.storage.local.get(['analyzerConfig', 'martingaleState', RECOVERY_MODE_KEY]);
         
         // Carregar configurações
         if (storageData.analyzerConfig) {
@@ -3011,6 +3020,14 @@ async function startDataCollection() {
                 entryColor: martingaleState.entryColor,
                 lossCount: martingaleState.lossCount
             });
+        }
+
+        // 🛟 Recuperação: carregar flag persistida
+        try {
+            const raw = storageData && storageData[RECOVERY_MODE_KEY] ? storageData[RECOVERY_MODE_KEY] : null;
+            recoveryModeEnabled = !!(raw && typeof raw === 'object' ? raw.enabled : raw);
+        } catch (_) {
+            recoveryModeEnabled = false;
         }
     } catch (e) {
         console.warn('⚠️ Erro ao carregar configurações/estado, usando padrão:', e);
@@ -3058,6 +3075,68 @@ async function startDataCollection() {
     
     // 4. Inicializar histórico completo (até 10k) uma vez ao iniciar
     await initializeHistoryIfNeeded().catch(e => console.warn('Falha ao inicializar histórico completo:', e));
+
+    // ✅ AUTO-HEAL: se existe análise pendente OU martingale consecutivo travado, limpar para não travar o sistema.
+    // Motivo: após refresh/erro, pode ficar martingale ativo (G1/G2) sem analysis correspondente → trava sinais para sempre.
+    try {
+        const latestSpinObj = (cachedHistory && cachedHistory.length > 0) ? cachedHistory[0] : null;
+        const latestMs = Number.isFinite(parseSpinTimestamp(latestSpinObj)) ? parseSpinTimestamp(latestSpinObj) : 0;
+
+        const stored = await chrome.storage.local.get(['analysis', 'martingaleState']);
+        const a = stored && stored.analysis ? stored.analysis : null;
+        const storedMart = stored && stored.martingaleState ? stored.martingaleState : null;
+        const effectiveMart = (storedMart && storedMart.active) ? storedMart : martingaleState;
+
+        const parseMs = (v) => {
+            try {
+                if (v == null) return 0;
+                if (typeof v === 'number') return Number.isFinite(v) ? v : 0;
+                const n = Number(v);
+                if (Number.isFinite(n)) return n;
+                const ms = Date.parse(String(v));
+                return Number.isFinite(ms) ? ms : 0;
+            } catch (_) { return 0; }
+        };
+        const aMs = parseMs(a && a.createdOnTimestamp);
+        const entryMs = parseMs(effectiveMart && (effectiveMart.entryTimestamp || (effectiveMart.analysisData && effectiveMart.analysisData.createdOnTimestamp)));
+
+        // Se o histórico já avançou bem além do timestamp do sinal, então ele não deveria seguir pendente.
+        // 3 minutos é extremamente conservador (o jogo resolve em poucos segundos).
+        const STALE_MS = 3 * 60 * 1000;
+
+        const { consecutiveGales } = getMartingaleSettings();
+        const isConsecutiveStage = !!(effectiveMart && effectiveMart.active && isMartingaleStageConsecutive(effectiveMart.stage, consecutiveGales));
+        const analysisStale = !!(a && aMs > 0 && latestMs > 0 && latestMs > aMs && (latestMs - aMs) > STALE_MS);
+        const martingaleStale = !!(
+            isConsecutiveStage &&
+            // se não há analysis pendente, é inconsistente (consecutivo exige analysis para avaliar próximo giro)
+            (!a || !a.createdOnTimestamp) &&
+            // e se já passou tempo suficiente desde o início do ciclo (ou estado está sem timestamp)
+            (entryMs <= 0 || (latestMs > 0 && entryMs > 0 && latestMs > entryMs && (latestMs - entryMs) > STALE_MS))
+        );
+
+        if (analysisStale || martingaleStale) {
+            const reason = analysisStale ? 'analysis_stale_startup' : 'martingale_consecutive_stale_no_analysis_startup';
+            console.warn('🧯 [AUTO-HEAL] Estado travado detectado no startup. Limpando para destravar.', {
+                reason,
+                stage: effectiveMart && effectiveMart.stage,
+                entryTimestamp: effectiveMart && effectiveMart.entryTimestamp,
+                analysisCreatedOnTimestamp: a && a.createdOnTimestamp,
+                latestMs,
+                deltaSec: Math.round(((analysisStale ? (latestMs - aMs) : (latestMs - entryMs)) || 0) / 1000)
+            });
+            resetMartingaleState();
+            await chrome.storage.local.set({
+                analysis: null,
+                pattern: null,
+                lastBet: { status: 'loss', phase: (a && a.phase) || (effectiveMart && effectiveMart.stage) || 'G0', resolvedAtTimestamp: (latestSpinObj && (latestSpinObj.timestamp ?? latestSpinObj.created_at)) || Date.now(), clearedReason: reason },
+                martingaleState
+            });
+            sendMessageToContent('CLEAR_ANALYSIS');
+        }
+    } catch (e) {
+        console.warn('⚠️ Falha no auto-heal de análise pendente:', e);
+    }
     
     // 5. Busca de padrões agora é MANUAL (usuário clica no botão)
     // ⏱️ Duração atual: 30s (busca rápida e intensiva)
@@ -3363,7 +3442,9 @@ async function processNewSpinFromServer(spinData) {
             console.log('   Número:', rollNumber);
             console.log('   Timestamp:', latestSpin.created_at);
             
-                if (currentAnalysis && currentAnalysis.createdOnTimestamp && currentAnalysis.predictedFor === 'next') {
+                // ✅ Corrigido: algumas análises antigas/alternativas não possuem predictedFor='next'
+                // (ex.: resultados de performPatternAnalysis). Se createdOnTimestamp existe, tratamos como pendente.
+                if (currentAnalysis && currentAnalysis.createdOnTimestamp) {
                 console.log('✅ Recomendação pendente encontrada!');
                 console.log('🔍 Comparando timestamps:');
                 console.log('   Recomendação:', currentAnalysis.createdOnTimestamp);
@@ -3491,11 +3572,7 @@ async function processNewSpinFromServer(spinData) {
                             console.log('   ➤ entriesHistory.length ANTES:', entriesHistory.length);
                             
                             entriesHistory.unshift(winEntry);
-                            // ✅ IA VIVA: manter janela deslizante de 100 ciclos (por modo)
-                            try {
-                                const mk = analyzerConfig && analyzerConfig.aiMode ? 'diamond' : 'standard';
-                                entriesHistory = trimEntriesHistoryByModeCycleCap(entriesHistory, mk, 200);
-                            } catch (_) {}
+                            // ✅ Pedido: não limitar histórico por ciclos (acumular ilimitado)
                             
                             console.log('%c✅ ENTRADA ADICIONADA AO HISTÓRICO!', 'color: #00FF00; font-weight: bold; font-size: 14px;');
                             console.log('   ➤ entriesHistory.length DEPOIS:', entriesHistory.length);
@@ -3569,6 +3646,11 @@ async function processNewSpinFromServer(spinData) {
                             console.log('   ➤ martingaleState.active:', martingaleState.active);
                             console.log('   ➤ rigorLevel: 75 (reset)');
                             
+                            const disableRecoveryAfterWin = !!(currentAnalysis && currentAnalysis.recoveryMode);
+                            if (disableRecoveryAfterWin) {
+                                recoveryModeEnabled = false;
+                            }
+
                             await chrome.storage.local.set({ 
                                 analysis: null, 
                                 pattern: null,
@@ -3579,9 +3661,16 @@ async function processNewSpinFromServer(spinData) {
                                 lastCycleResolvedTimestamp: Date.now(),
                                 entriesHistory,
                                 martingaleState,  // ✅ Salvar estado do Martingale
-                                rigorLevel: 75 // RESET: Volta para 75% após WIN
+                                rigorLevel: 75, // RESET: Volta para 75% após WIN
+                                ...(disableRecoveryAfterWin ? { [RECOVERY_MODE_KEY]: { enabled: false, updatedAt: Date.now(), lastResult: 'win' } } : {})
                             });
                             
+                            if (disableRecoveryAfterWin) {
+                                try {
+                                    sendMessageToContent('RECOVERY_MODE_UPDATE', { enabled: false, statusText: 'Desativada • WIN confirmado' });
+                                } catch (_) {}
+                            }
+
                             
                             sendMessageToContent('CLEAR_ANALYSIS');
                             
@@ -3717,11 +3806,7 @@ async function processNewSpinFromServer(spinData) {
                                     console.log('   ➤ entriesHistory.length ANTES:', entriesHistory.length);
                                     
                                     entriesHistory.unshift(lossEntry);
-                                    // ✅ IA VIVA: manter janela deslizante de 100 ciclos (por modo)
-                                    try {
-                                        const mk = analyzerConfig && analyzerConfig.aiMode ? 'diamond' : 'standard';
-                                        entriesHistory = trimEntriesHistoryByModeCycleCap(entriesHistory, mk, 200);
-                                    } catch (_) {}
+                                    // ✅ Pedido: não limitar histórico por ciclos (acumular ilimitado)
                                     
                                     console.log('%c✅ ENTRADA ADICIONADA AO HISTÓRICO!', 'color: #00FF00; font-weight: bold; font-size: 14px;');
                                     console.log('   ➤ entriesHistory.length DEPOIS:', entriesHistory.length);
@@ -3840,11 +3925,7 @@ async function processNewSpinFromServer(spinData) {
                                 };
                                 
                                 entriesHistory.unshift(entradaLossEntry);
-                                // ✅ IA VIVA: manter janela deslizante de 100 ciclos (por modo)
-                                try {
-                                    const mk = analyzerConfig && analyzerConfig.aiMode ? 'diamond' : 'standard';
-                                    entriesHistory = trimEntriesHistoryByModeCycleCap(entriesHistory, mk, 200);
-                                } catch (_) {}
+                                // ✅ Pedido: não limitar histórico por ciclos (acumular ilimitado)
                                 
                                 // Salvar estado do Martingale
                                 martingaleState.active = true;
@@ -3960,11 +4041,7 @@ async function processNewSpinFromServer(spinData) {
                                     };
                                     
                                     entriesHistory.unshift(retEntry);
-                                    // ✅ IA VIVA: manter janela deslizante de 100 ciclos (por modo)
-                                    try {
-                                        const mk = analyzerConfig && analyzerConfig.aiMode ? 'diamond' : 'standard';
-                                        entriesHistory = trimEntriesHistoryByModeCycleCap(entriesHistory, mk, 200);
-                                    } catch (_) {}
+                                    // ✅ Pedido: não limitar histórico por ciclos (acumular ilimitado)
                                     
                                     // ✅ Calcular estatísticas WIN/LOSS FILTRADAS POR MODO
                                     const currentMode = analyzerConfig.aiMode ? 'diamond' : 'standard';
@@ -4056,11 +4133,7 @@ async function processNewSpinFromServer(spinData) {
                                 };
                                 
                                 entriesHistory.unshift(galeLossEntry);
-                                // ✅ IA VIVA: manter janela deslizante de 100 ciclos (por modo)
-                                try {
-                                    const mk = analyzerConfig && analyzerConfig.aiMode ? 'diamond' : 'standard';
-                                    entriesHistory = trimEntriesHistoryByModeCycleCap(entriesHistory, mk, 200);
-                                } catch (_) {}
+                                // ✅ Pedido: não limitar histórico por ciclos (acumular ilimitado)
                                 
                                 // Atualizar estado do Martingale
                                 martingaleState.stage = `G${nextGaleNumber}`;
@@ -4148,11 +4221,7 @@ async function processNewSpinFromServer(spinData) {
                                 };
                                 
                                 entriesHistory.unshift(g1LossEntry);
-                                // ✅ IA VIVA: manter janela deslizante de 100 ciclos (por modo)
-                                try {
-                                    const mk = analyzerConfig && analyzerConfig.aiMode ? 'diamond' : 'standard';
-                                    entriesHistory = trimEntriesHistoryByModeCycleCap(entriesHistory, mk, 200);
-                                } catch (_) {}
+                                // ✅ Pedido: não limitar histórico por ciclos (acumular ilimitado)
                                 
                                 // Atualizar estado do Martingale
                                 martingaleState.stage = 'G2';
@@ -4250,11 +4319,7 @@ async function processNewSpinFromServer(spinData) {
                                 };
                                 
                                 entriesHistory.unshift(retEntry);
-                                // ✅ IA VIVA: manter janela deslizante de 100 ciclos (por modo)
-                                try {
-                                    const mk = analyzerConfig && analyzerConfig.aiMode ? 'diamond' : 'standard';
-                                    entriesHistory = trimEntriesHistoryByModeCycleCap(entriesHistory, mk, 200);
-                                } catch (_) {}
+                                // ✅ Pedido: não limitar histórico por ciclos (acumular ilimitado)
                                 
                                 // ✅ Calcular estatísticas WIN/LOSS FILTRADAS POR MODO
                                 const currentMode = analyzerConfig.aiMode ? 'diamond' : 'standard';
@@ -4308,8 +4373,6 @@ async function processNewSpinFromServer(spinData) {
                         console.log('   Motivo: currentAnalysis não existe');
                     } else if (!currentAnalysis.createdOnTimestamp) {
                         console.log('   Motivo: createdOnTimestamp ausente');
-                    } else if (currentAnalysis.predictedFor !== 'next') {
-                        console.log('   Motivo: predictedFor =', currentAnalysis.predictedFor, '(esperado: "next")');
                     }
                 }
                 
@@ -17217,13 +17280,64 @@ async function runAnalysisController(history) {
 		emitModeSnapshotToContent('Análise em andamento', history.length);
 		
 		// ⚠️ CRÍTICO: Em gales consecutivos (até o limite configurado), não gerar novo sinal.
+		// ✅ Correção: se o martingale estiver ativo mas NÃO houver analysis pendente correspondente (ou estiver stale),
+		// isso significa estado travado após refresh/erro → auto-reset para destravar.
 		const { consecutiveGales } = getMartingaleSettings();
 		if (martingaleState.active && isMartingaleStageConsecutive(martingaleState.stage, consecutiveGales)) {
-			logSection('⛔ Martingale ativo (modo consecutivo)');
-			logInfo('Estágio', martingaleState.stage);
-			logInfo('Cor', martingaleState.entryColor);
-			logInfo('Ação', 'Aguardando resultado anterior');
-			return; // ✅ NÃO executar nova análise em modo consecutivo com Martingale ativo
+			let shouldBlock = true;
+			try {
+				const latestSpin = history && history.length > 0 ? history[0] : null;
+				const latestMs = Number.isFinite(parseSpinTimestamp(latestSpin)) ? parseSpinTimestamp(latestSpin) : 0;
+				const stored = await chrome.storage.local.get(['analysis']);
+				const a = stored && stored.analysis ? stored.analysis : null;
+				const parseMs = (v) => {
+					try {
+						if (v == null) return 0;
+						if (typeof v === 'number') return Number.isFinite(v) ? v : 0;
+						const n = Number(v);
+						if (Number.isFinite(n)) return n;
+						const ms = Date.parse(String(v));
+						return Number.isFinite(ms) ? ms : 0;
+					} catch (_) { return 0; }
+				};
+				const aMs = parseMs(a && a.createdOnTimestamp);
+				const entryMs = parseMs(martingaleState.entryTimestamp || (martingaleState.analysisData && martingaleState.analysisData.createdOnTimestamp));
+				const STALE_MS = 3 * 60 * 1000;
+				const stale = !!(
+					latestMs > 0 &&
+					((aMs > 0 && latestMs > aMs && (latestMs - aMs) > STALE_MS) ||
+					 ((aMs <= 0) && entryMs > 0 && latestMs > entryMs && (latestMs - entryMs) > STALE_MS) ||
+					 ((aMs <= 0) && (entryMs <= 0)))
+				);
+				const missingAnalysis = !(a && a.createdOnTimestamp);
+				if (missingAnalysis || stale) {
+					shouldBlock = false;
+					console.warn('🧯 [AUTO-HEAL] Martingale consecutivo travado (sem analysis pendente ou stale). Limpando para destravar.', {
+						stage: martingaleState.stage,
+						entryTimestamp: martingaleState.entryTimestamp,
+						analysisCreatedOnTimestamp: a && a.createdOnTimestamp,
+						latestMs
+					});
+					resetMartingaleState();
+					await chrome.storage.local.set({
+						analysis: null,
+						pattern: null,
+						lastBet: { status: 'loss', phase: 'G0', resolvedAtTimestamp: (latestSpin && (latestSpin.timestamp ?? latestSpin.created_at)) || Date.now(), clearedReason: missingAnalysis ? 'martingale_missing_analysis_controller' : 'martingale_stale_controller' },
+						martingaleState
+					});
+					sendMessageToContent('CLEAR_ANALYSIS');
+				}
+			} catch (e) {
+				console.warn('⚠️ Falha ao tentar auto-heal do martingale consecutivo no controller:', e);
+			}
+
+			if (shouldBlock) {
+				logSection('⛔ Martingale ativo (modo consecutivo)');
+				logInfo('Estágio', martingaleState.stage);
+				logInfo('Cor', martingaleState.entryColor);
+				logInfo('Ação', 'Aguardando resultado anterior');
+				return; // ✅ NÃO executar nova análise em modo consecutivo com Martingale ativo
+			}
 		}
 		// Log removido: redução de verbosidade
 		
@@ -17504,6 +17618,28 @@ async function runAnalysisController(history) {
 				console.log('%c   🎲 Fase: ' + analysis.phase, 'color: #00FF88;');
 				console.log(`%c   📍 Número do giro: #${history[0].number}`, 'color: #00FF88;');
 				
+				// 🛟 MODO RECUPERAÇÃO (manual): só enviar quando atingir alta certeza
+				if (recoveryModeEnabled) {
+					const conf = Number(analysis.confidence) || 0;
+					if (conf < RECOVERY_MIN_CONFIDENCE) {
+						try {
+							sendMessageToContent('RECOVERY_MODE_UPDATE', {
+								enabled: true,
+								statusText: `Ativa • buscando sinal ≥${RECOVERY_MIN_CONFIDENCE}% (atual ${Math.round(conf)}%)…`
+							});
+						} catch (_) {}
+						sendAnalysisStatus(`🛟 Recuperação: buscando sinal ≥${RECOVERY_MIN_CONFIDENCE}%…`);
+						return; // não salvar analysis pendente (continua buscando no próximo giro)
+					}
+					analysis.recoveryMode = true;
+					try {
+						sendMessageToContent('RECOVERY_MODE_UPDATE', {
+							enabled: true,
+							statusText: `Sinal encontrado (${Math.round(conf)}%) • aguardando resultado`
+						});
+					} catch (_) {}
+				}
+
 				// Salvar análise E número do giro do último sinal
 				await chrome.storage.local.set({
 					analysis: analysis,
@@ -28705,6 +28841,55 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     } else if (request.action === 'GET_ANALYSIS_STATUS') {
         sendResponse({ status: 'ok', enabled: analysisEnabled });
         return true;
+    } else if (request.action === 'SET_RECOVERY_MODE') {
+        (async () => {
+            try {
+                const enabled = request && typeof request.enabled === 'boolean' ? request.enabled : false;
+                recoveryModeEnabled = !!enabled;
+                await chrome.storage.local.set({ [RECOVERY_MODE_KEY]: { enabled: recoveryModeEnabled, updatedAt: Date.now() } });
+                try {
+                    sendMessageToContent('RECOVERY_MODE_UPDATE', {
+                        enabled: recoveryModeEnabled,
+                        statusText: recoveryModeEnabled ? 'Ativa • buscando sinal certeiro…' : 'Desativada'
+                    });
+                } catch (_) {}
+                sendResponse({ status: 'ok', enabled: recoveryModeEnabled });
+            } catch (e) {
+                console.error('❌ Falha em SET_RECOVERY_MODE:', e);
+                sendResponse({ status: 'error', error: String(e) });
+            }
+        })();
+        return true;
+    } else if (request.action === 'GET_RECOVERY_MODE') {
+        try {
+            sendResponse({ status: 'ok', enabled: !!recoveryModeEnabled });
+        } catch (_) {
+            sendResponse({ status: 'ok', enabled: false });
+        }
+        return true;
+    } else if (request.action === 'FORCE_CLEAR_PENDING') {
+        (async () => {
+            try {
+                const reason = request && request.reason ? String(request.reason) : 'manual';
+                console.warn('🧯 [FORCE_CLEAR_PENDING] Limpando pendência para destravar.', { reason });
+
+                // Resetar estado do ciclo (martingale) + limpar análise/padrão
+                resetMartingaleState();
+                await chrome.storage.local.set({
+                    analysis: null,
+                    pattern: null,
+                    lastBet: { status: 'loss', phase: 'G0', resolvedAtTimestamp: Date.now(), clearedReason: reason },
+                    martingaleState
+                });
+
+                sendMessageToContent('CLEAR_ANALYSIS');
+                sendResponse({ status: 'ok' });
+            } catch (e) {
+                console.error('❌ Falha em FORCE_CLEAR_PENDING:', e);
+                sendResponse({ status: 'error', error: String(e) });
+            }
+        })();
+        return true; // async response
     } else if (request.action === 'GET_MEMORIA_ATIVA_STATUS') {
         // 🧠 Retornar status da memória ativa para interface
         console.log('%c🧠 [BACKGROUND] Requisição de status da memória ativa recebida', 'color: #00CED1; font-weight: bold;');
@@ -29142,7 +29327,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         })();
         return true;
     } else if (request.action === 'IA_BOOTSTRAP_HISTORY') {
-        // 🤖 IA VIVA: gerar 100 ciclos via simulação no passado, usando a config atual (sem alterar config)
+        // 🤖 IA VIVA: bootstrap do histórico via simulação no passado, usando a config atual (sem alterar config)
         (async () => {
             try {
                 const mode = String(request && request.mode ? request.mode : (analyzerConfig && analyzerConfig.aiMode ? 'diamond' : 'standard'))
@@ -29150,7 +29335,8 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                     .trim() === 'diamond'
                     ? 'diamond'
                     : 'standard';
-                const targetCycles = Math.max(10, Math.min(200, Math.floor(Number(request && request.targetCycles) || 200)));
+                // ✅ Pedido: bootstrap inicial = 20 ciclos (mais recentes). Sem cap permanente no histórico.
+                const targetCycles = Math.max(1, Math.min(200, Math.floor(Number(request && request.targetCycles) || 20)));
 
                 const stored = await chrome.storage.local.get(['analyzerConfig', 'entriesHistory', 'analysis', ENTRIES_CLEAR_CUTOFF_KEY]);
                 const cfg = stored && stored.analyzerConfig && typeof stored.analyzerConfig === 'object'
@@ -29291,8 +29477,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                 // entriesHistory é newest-first, então anexar no fim preserva "mais recente" no topo.
                 let merged = cleanedExisting.concat(keptEntries);
 
-                // Enforce: janela deslizante de 100 ciclos para esse modo (mantém apenas os mais recentes após o bootstrap)
-                merged = trimEntriesHistoryByModeCycleCap(merged, mode, targetCycles);
+                // ✅ Sem cap após bootstrap: manter histórico acumulando normalmente (sem limitar em 20/200).
 
                 await chrome.storage.local.set({ entriesHistory: merged });
 

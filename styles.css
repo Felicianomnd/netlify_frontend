@@ -3754,15 +3754,17 @@
 }
 
 .ia-bootstrap-glass {
+  /* ✅ Removido por solicitação: sem efeito de vidro/blur no modo IA */
+  display: none !important;
   position: absolute;
   inset: 0;
   z-index: 4; /* abaixo da bolinha (overlay) */
   /* não bloquear tabs; bloqueio de clique é feito na lista */
   pointer-events: none;
   background: rgba(10, 14, 22, 0.18);
-  /* desfoque ~55% */
-  backdrop-filter: blur(8px) saturate(0.95);
-  -webkit-backdrop-filter: blur(8px) saturate(0.95);
+  /* sem blur */
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
   border-radius: inherit;
   border: 1px solid rgba(148, 163, 184, 0.20);
   box-shadow:
@@ -3998,8 +4000,9 @@
 /* fallback: se backdrop-filter não existir, desfocar a LISTA real */
 @supports not ((backdrop-filter: blur(2px)) or (-webkit-backdrop-filter: blur(2px))) {
   .entries-list-wrap.ia-glass-active #entriesList {
-    filter: blur(8px);
-    opacity: 0.92;
+    /* ✅ sem blur */
+    filter: none !important;
+    opacity: 1 !important;
   }
 }
 
@@ -4480,6 +4483,67 @@
   gap: 6px;
   flex-wrap: nowrap;
   white-space: nowrap;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   🛟 RECUPERAÇÃO (aba "master" renomeada)
+   ═══════════════════════════════════════════════════════════════ */
+.recovery-toggle-btn {
+  height: 30px;
+  padding: 0 12px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(233, 242, 255, 0.92);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.recovery-toggle-btn:hover {
+  background: rgba(255, 255, 255, 0.10);
+  border-color: rgba(239, 68, 68, 0.35);
+}
+
+.recovery-toggle-btn[aria-pressed="true"] {
+  background: rgba(239, 68, 68, 0.88);
+  border-color: rgba(239, 68, 68, 0.45);
+  color: #fff;
+}
+
+.recovery-status {
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+.recovery-help {
+  margin-top: 10px;
+  padding: 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(15, 23, 32, 0.40);
+  color: rgba(233, 242, 255, 0.88);
+}
+
+.recovery-help-title {
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  margin-bottom: 8px;
+}
+
+.recovery-help-text {
+  font-size: 12px;
+  line-height: 1.45;
+  color: rgba(233, 242, 255, 0.80);
 }
 .clear-entries-btn {
   border: none;
@@ -8654,5 +8718,475 @@ body.da-ext-fullscreen #patternDetailsModal .bank-patterns-modal-content {
     #standardSimulationModal .diamond-sim-period-options {
         grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
     }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   🖥️ DESKTOP DASHBOARD (NOVO LAYOUT) — Sidebar fixa + cards (como no print)
+   - Válido apenas para Desktop (>= 769px)
+   - Mobile permanece com o layout atual
+   ═══════════════════════════════════════════════════════════════════════════════ */
+
+@media (min-width: 769px) {
+  #blaze-double-analyzer.da-desktop-dashboard {
+    /* Ajustes finos pedidos: cantos menos arredondados e header mais alto */
+    /* ✅ Cantos MUITO sutis (quase imperceptíveis) */
+    --da-desktop-radius: 3px;
+    /* ✅ Header BEM mais alto (altura vertical) */
+    --da-header-height: 88px;
+    /* Container ocupa toda a tela (o JS também força inline com !important) */
+    background:
+      radial-gradient(1200px 800px at 25% 0%, rgba(59, 130, 246, 0.14), transparent 60%),
+      radial-gradient(1000px 600px at 80% 10%, rgba(239, 68, 68, 0.12), transparent 55%),
+      linear-gradient(180deg, #070a11 0%, #060813 100%);
+    border: none !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    display: flex !important;
+    flex-direction: column !important;
+    overflow: hidden !important;
+  }
+
+  /* Shell: duas colunas (settings + workspace) */
+  #blaze-double-analyzer.da-desktop-dashboard .da-desktop-shell {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: grid;
+    grid-template-columns: 320px minmax(0, 1fr);
+    gap: 18px;
+    padding: 18px;
+    box-sizing: border-box;
+  }
+
+  #blaze-double-analyzer.da-desktop-dashboard .da-desktop-sidebar {
+    min-height: 0;
+    border-radius: var(--da-desktop-radius);
+    background: rgba(13, 18, 28, 0.72);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    box-shadow: 0 18px 50px rgba(0, 0, 0, 0.35);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+
+  #blaze-double-analyzer.da-desktop-dashboard .da-desktop-sidebar-scroll {
+    min-height: 0;
+    overflow: auto;
+    padding: 14px;
+  }
+
+  #blaze-double-analyzer.da-desktop-dashboard .da-desktop-main {
+    min-height: 0;
+    border-radius: var(--da-desktop-radius);
+    background: rgba(13, 18, 28, 0.35);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    box-shadow: 0 18px 50px rgba(0, 0, 0, 0.25);
+    position: relative; /* ✅ referência para overlays/modais acoplados */
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* Modais (Configurar Níveis / Simulação / Modelos) acoplados ao workspace (lado direito) */
+  #blaze-double-analyzer.da-desktop-dashboard .da-desktop-main .da-docked-modal {
+    position: absolute !important;
+    inset: 0 !important;
+    width: 100% !important;
+    height: 100% !important;
+    z-index: 60;
+    display: none;
+  }
+
+  #blaze-double-analyzer.da-desktop-dashboard .da-desktop-main .da-docked-modal[style*="display: flex"],
+  #blaze-double-analyzer.da-desktop-dashboard .da-desktop-main .da-docked-modal[style*="display:flex"] {
+    display: flex !important;
+  }
+
+  #blaze-double-analyzer.da-desktop-dashboard .da-desktop-main .da-docked-modal .custom-pattern-modal-overlay,
+  #blaze-double-analyzer.da-desktop-dashboard .da-desktop-main .da-docked-modal .bank-patterns-modal-overlay {
+    display: none !important;
+  }
+
+  #blaze-double-analyzer.da-desktop-dashboard .da-desktop-main .da-docked-modal .custom-pattern-modal-content,
+  #blaze-double-analyzer.da-desktop-dashboard .da-desktop-main .da-docked-modal .bank-patterns-modal-content {
+    position: absolute !important;
+    inset: 0 !important;
+    left: 0 !important;
+    top: 0 !important;
+    transform: none !important;
+    width: 100% !important;
+    height: 100% !important;
+    max-width: none !important;
+    max-height: none !important;
+    margin: 0 !important;
+    border-radius: var(--da-desktop-radius) !important;
+  }
+
+  /* IA - Tela cheia: no dashboard, ocupar apenas o workspace (lado direito) */
+  #blaze-double-analyzer.da-desktop-dashboard .da-ia-fullscreen-overlay {
+    position: absolute !important;
+    inset: 0 !important;
+    z-index: 70 !important;
+    border-radius: var(--da-desktop-radius);
+  }
+
+  /* Header: manter moderno e fixo */
+  #blaze-double-analyzer.da-desktop-dashboard .da-header {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    /* ✅ Forçar altura vertical (evita override de outras regras) */
+    height: var(--da-header-height) !important;
+    min-height: var(--da-header-height) !important;
+    padding: 0 32px !important;
+    gap: 18px;
+  }
+
+  /* Título + badge mais confortáveis no desktop */
+  #blaze-double-analyzer.da-desktop-dashboard .da-app-name {
+    font-size: 18px;
+    font-weight: 650;
+    letter-spacing: -0.2px;
+  }
+
+  #blaze-double-analyzer.da-desktop-dashboard .title-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    padding: 6px 14px;
+    border-radius: 4px;
+    line-height: 1;
+  }
+
+  /* No desktop novo, o painel de configurações fica sempre visível (sem toggle de conta) */
+  #blaze-double-analyzer.da-desktop-dashboard .user-menu-toggle {
+    display: none !important;
+  }
+
+  /* No desktop novo, o menu de usuário vira parte da sidebar */
+  #blaze-double-analyzer.da-desktop-dashboard .user-menu-panel {
+    position: static !important;
+    top: auto !important;
+    right: auto !important;
+    width: 100% !important;
+    height: auto !important;
+    transform: none !important;
+    border-left: none !important;
+    box-shadow: none !important;
+    border-radius: var(--da-desktop-radius);
+    background: rgba(15, 23, 32, 0.45);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    overflow: hidden;
+  }
+
+  /* Minha Conta: colapsável (fechado por padrão) */
+  #blaze-double-analyzer.da-desktop-dashboard .user-menu-panel .user-menu-header {
+    cursor: pointer;
+    user-select: none;
+    position: relative;
+  }
+
+  #blaze-double-analyzer.da-desktop-dashboard .user-menu-panel .user-menu-header::after {
+    content: '▾';
+    position: absolute;
+    right: 12px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: rgba(233, 242, 255, 0.65);
+    font-size: 14px;
+    transition: transform 0.18s ease;
+  }
+
+  #blaze-double-analyzer.da-desktop-dashboard .user-menu-panel.da-collapsed .user-menu-header::after {
+    transform: translateY(-50%) rotate(-90deg);
+  }
+
+  #blaze-double-analyzer.da-desktop-dashboard .user-menu-panel.da-collapsed .user-menu-body,
+  #blaze-double-analyzer.da-desktop-dashboard .user-menu-panel.da-collapsed .user-menu-footer {
+    display: none !important;
+  }
+
+  #blaze-double-analyzer.da-desktop-dashboard .user-menu-close {
+    display: none !important;
+  }
+
+  /* AutoBet modal vira “seção embutida” na sidebar esquerda */
+  #blaze-double-analyzer.da-desktop-dashboard #autoBetModal {
+    display: block !important;
+    position: static !important;
+    width: 100% !important;
+    height: auto !important;
+    margin-top: 14px;
+  }
+
+  #blaze-double-analyzer.da-desktop-dashboard #autoBetModal .auto-bet-modal-overlay {
+    display: none !important;
+  }
+
+  #blaze-double-analyzer.da-desktop-dashboard #autoBetModal .auto-bet-modal-content {
+    position: static !important;
+    inset: auto !important;
+    left: auto !important;
+    top: auto !important;
+    transform: none !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    height: auto !important;
+    max-height: none !important;
+    margin: 0 !important;
+    border-radius: var(--da-desktop-radius) !important;
+    border: 1px solid rgba(255, 255, 255, 0.06) !important;
+    box-shadow: none !important;
+    background: rgba(15, 23, 32, 0.35) !important;
+    overflow: hidden;
+  }
+
+  #blaze-double-analyzer.da-desktop-dashboard #autoBetModal .auto-bet-modal-header {
+    display: none !important;
+  }
+
+  #blaze-double-analyzer.da-desktop-dashboard #autoBetModal .auto-bet-modal-body {
+    padding: 12px !important;
+  }
+
+  /* Workspace: usar o analyzerContent como scroll do lado direito */
+  #blaze-double-analyzer.da-desktop-dashboard .da-desktop-main #analyzerContent {
+    height: 100%;
+    max-height: 100%;
+    overflow: auto;
+    padding: 16px;
+    box-sizing: border-box;
+  }
+
+  /* Grid de cards (lado direito) */
+  #blaze-double-analyzer.da-desktop-dashboard #analyzerDefaultView {
+    display: grid;
+    grid-template-columns: repeat(12, minmax(0, 1fr));
+    gap: 14px;
+    align-items: start;
+  }
+
+  /* “Desembrulhar” a linha de análise/último giro para virar dois cards no grid */
+  #blaze-double-analyzer.da-desktop-dashboard .analysis-lastspin-row {
+    display: contents;
+  }
+
+  /* Card base */
+  #blaze-double-analyzer.da-desktop-dashboard .da-card {
+    position: relative;
+    border-radius: var(--da-desktop-radius);
+    background: rgba(15, 23, 32, 0.55);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    box-shadow: none;
+    padding: 14px;
+    overflow: hidden;
+  }
+
+  /* ✅ Painel: remover o botão de 3 barrinhas (config) no desktop — configs já estão na sidebar fixa */
+  #blaze-double-analyzer.da-desktop-dashboard #autoBetSummary #autoBetConfigBtn {
+    display: none !important;
+  }
+
+  /* ✅ IA: posicionar o ícone de tela cheia na linha WIN/LOSS/Ciclos/Limpar (não em cima dos outros) */
+  #blaze-double-analyzer.da-desktop-dashboard #entriesPanel .entries-header {
+    flex-wrap: nowrap;
+  }
+
+  #blaze-double-analyzer.da-desktop-dashboard #entriesPanel .ia-tests-toggle {
+    position: static !important;
+    inset: auto !important;
+    margin-left: auto;
+    z-index: 1;
+  }
+
+  #blaze-double-analyzer.da-desktop-dashboard #entriesPanel .ia-tests-toggle-btn {
+    width: 32px !important;
+    height: 32px !important;
+    border-radius: var(--da-desktop-radius) !important;
+  }
+
+  /* ✅ Aguardando sinal: destacar Sinal de entrada com fundo branco (somente desktop) */
+  #blaze-double-analyzer.da-desktop-dashboard #analyzerDefaultView .analysis-card.da-entry-signal-highlight {
+    background: rgba(255, 255, 255, 0.96) !important;
+    border: 1px solid rgba(0, 0, 0, 0.10);
+  }
+
+  #blaze-double-analyzer.da-desktop-dashboard #analyzerDefaultView .analysis-card.da-entry-signal-highlight .confidence-text {
+    color: #0f172a;
+  }
+
+  #blaze-double-analyzer.da-desktop-dashboard #analyzerDefaultView .analysis-card.da-entry-signal-highlight .confidence-bar {
+    background: rgba(15, 23, 42, 0.08);
+  }
+
+  #blaze-double-analyzer.da-desktop-dashboard #analyzerDefaultView .analysis-card.da-entry-signal-highlight .suggestion-stage {
+    color: #0f172a;
+    text-shadow: none;
+  }
+
+  /* ✅ Remover margens “do layout antigo” dentro do grid (evita desalinhamentos) */
+  #blaze-double-analyzer.da-desktop-dashboard #analyzerDefaultView .analysis-section,
+  #blaze-double-analyzer.da-desktop-dashboard #analyzerDefaultView .last-spin-section,
+  #blaze-double-analyzer.da-desktop-dashboard #analyzerDefaultView .entries-section,
+  #blaze-double-analyzer.da-desktop-dashboard #analyzerDefaultView .pattern-section,
+  #blaze-double-analyzer.da-desktop-dashboard #analyzerDefaultView .pattern-bank-section,
+  #blaze-double-analyzer.da-desktop-dashboard #analyzerDefaultView .observer-section,
+  #blaze-double-analyzer.da-desktop-dashboard #analyzerDefaultView .stats-section {
+    margin: 0 !important;
+  }
+
+  /* ✅ IA (abas IA/Sinais/Apostas/Gráfico): remover “container de fundo” (sem card dentro de card) */
+  #blaze-double-analyzer.da-desktop-dashboard #analyzerDefaultView .entries-section .entries-panel {
+    background: transparent !important;
+    border: none !important;
+    padding: 0 !important;
+  }
+
+  /* O wrapper do vidro não precisa de cantos tão grandes no desktop */
+  #blaze-double-analyzer.da-desktop-dashboard #analyzerDefaultView .entries-section .entries-list-wrap {
+    border-radius: var(--da-desktop-radius) !important;
+  }
+
+  /* ✅ Padrão: sem “bloco” quando vazio (só texto) */
+  #blaze-double-analyzer.da-desktop-dashboard #analyzerDefaultView .pattern-section .pattern-info {
+    background: transparent !important;
+    border: none !important;
+    padding: 0 !important;
+    border-radius: 0 !important;
+  }
+
+  /* Ajustar cantos internos de alguns blocos do dashboard */
+  #blaze-double-analyzer.da-desktop-dashboard #analyzerDefaultView .spin-display,
+  #blaze-double-analyzer.da-desktop-dashboard #analyzerDefaultView .analysis-card {
+    border-radius: var(--da-desktop-radius) !important;
+  }
+
+  /* Botão expandir/recolher */
+  #blaze-double-analyzer.da-desktop-dashboard .da-card .da-card-expand {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    width: 34px;
+    height: 34px;
+    border-radius: var(--da-desktop-radius);
+    border: 1px solid rgba(255, 255, 255, 0.10);
+    background: rgba(255, 255, 255, 0.04);
+    color: rgba(233, 242, 255, 0.9);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: transform 0.15s ease, background 0.2s ease, border-color 0.2s ease;
+  }
+
+  #blaze-double-analyzer.da-desktop-dashboard .da-card .da-card-expand:hover {
+    background: rgba(255, 255, 255, 0.08);
+    border-color: rgba(239, 68, 68, 0.35);
+    transform: translateY(-1px);
+  }
+
+  #blaze-double-analyzer.da-desktop-dashboard .da-card .da-icon {
+    width: 18px;
+    height: 18px;
+  }
+
+  #blaze-double-analyzer.da-desktop-dashboard .da-card .da-icon-collapse {
+    display: none;
+  }
+
+  #blaze-double-analyzer.da-desktop-dashboard .da-card.da-card-is-expanded .da-icon-expand {
+    display: none;
+  }
+
+  #blaze-double-analyzer.da-desktop-dashboard .da-card.da-card-is-expanded .da-icon-collapse {
+    display: inline-block;
+  }
+
+  /* Ações fora da caixa "Minha conta" (ex.: Modo Aposta) */
+  #blaze-double-analyzer.da-desktop-dashboard .da-desktop-sidebar-actions {
+    margin-top: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  #blaze-double-analyzer.da-desktop-dashboard .da-desktop-sidebar-actions .user-info-item {
+    border-bottom: none;
+    padding: 0;
+  }
+
+  #blaze-double-analyzer.da-desktop-dashboard .da-desktop-sidebar-actions .view-mode-toggle-btn {
+    background: rgba(239, 68, 68, 0.92);
+    border: 1px solid rgba(239, 68, 68, 0.35);
+    border-radius: var(--da-desktop-radius);
+    padding: 12px 14px;
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: 0.6px;
+    text-transform: uppercase;
+  }
+
+  #blaze-double-analyzer.da-desktop-dashboard .da-desktop-sidebar-actions .view-mode-toggle-btn:hover {
+    background: rgba(220, 38, 38, 0.95);
+    border-color: rgba(239, 68, 68, 0.55);
+    transform: translateY(-1px);
+  }
+
+  /* Colocação dos cards (12 colunas) */
+  #blaze-double-analyzer.da-desktop-dashboard #autoBetSummary.da-card { grid-column: span 4; }
+  #blaze-double-analyzer.da-desktop-dashboard #analyzerDefaultView .analysis-section.da-card { grid-column: span 4; }
+  #blaze-double-analyzer.da-desktop-dashboard #analyzerDefaultView .last-spin-section.da-card { grid-column: span 4; }
+
+  #blaze-double-analyzer.da-desktop-dashboard #analyzerDefaultView .entries-section.da-card { grid-column: span 8; }
+  #blaze-double-analyzer.da-desktop-dashboard #analyzerDefaultView .pattern-section.da-card { grid-column: span 4; }
+
+  #blaze-double-analyzer.da-desktop-dashboard #analyzerDefaultView .pattern-bank-section.da-card { grid-column: span 4; }
+  #blaze-double-analyzer.da-desktop-dashboard #analyzerDefaultView .observer-section.da-card { grid-column: span 8; }
+
+  #blaze-double-analyzer.da-desktop-dashboard #analyzerDefaultView .stats-section.da-card { grid-column: 1 / -1; }
+
+  /* Quando expandido: mostrar somente o card ativo no lado direito */
+  #blaze-double-analyzer.da-desktop-dashboard.da-dashboard-expanded #analyzerDefaultView {
+    height: 100%;
+    grid-template-columns: 1fr;
+  }
+
+  #blaze-double-analyzer.da-desktop-dashboard.da-dashboard-expanded .da-card {
+    display: none;
+  }
+
+  #blaze-double-analyzer.da-desktop-dashboard.da-dashboard-expanded .da-card.da-card-is-expanded {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    overflow: auto;
+    grid-column: 1 / -1;
+  }
+
+  /* ✅ Card "Padrão": ícone puro (sem “botão” atrás) e alinhado ao título */
+  #blaze-double-analyzer.da-desktop-dashboard #analyzerDefaultView .pattern-section.da-card .da-card-expand {
+    width: 28px;
+    height: 28px;
+    top: 8px;
+    right: 10px;
+    border: none;
+    background: transparent;
+    border-radius: 0;
+    box-shadow: none;
+    transform: none;
+    padding: 0;
+    opacity: 0.9;
+  }
+
+  #blaze-double-analyzer.da-desktop-dashboard #analyzerDefaultView .pattern-section.da-card .da-card-expand:hover {
+    background: transparent;
+    border-color: transparent;
+    transform: none;
+    opacity: 1;
+    color: rgba(233, 242, 255, 0.95);
+  }
 }
 

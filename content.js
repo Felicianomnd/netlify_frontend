@@ -3085,6 +3085,8 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
         const modal = document.getElementById('standardSimulationModal');
         if (!modal) return;
 
+        // 🖥️ Desktop (Dashboard novo): modal acoplado no workspace (lado direito)
+        dockModalToDesktopWorkspace(modal);
         modal.style.display = 'flex';
 
         // ✅ Desktop + modo compacto: abrir no exato tamanho do painel compactado (sem modal “menorzinho”)
@@ -6796,6 +6798,8 @@ function enforceSignalIntensityAvailability(options = {}) {
             }
             }
             
+            // 🖥️ Desktop (Dashboard novo): modal fica acoplado no workspace (lado direito)
+            dockModalToDesktopWorkspace(modal);
             modal.style.display = 'flex';
 
             // ✅ Sempre abrir com todos os níveis fechados (accordion)
@@ -6825,6 +6829,8 @@ function enforceSignalIntensityAvailability(options = {}) {
             }
             }
             
+            // 🖥️ Desktop (Dashboard novo): modal fica acoplado no workspace (lado direito)
+            dockModalToDesktopWorkspace(modal);
             modal.style.display = 'flex';
 
             // ✅ Sempre abrir com todos os níveis fechados (accordion)
@@ -7502,6 +7508,8 @@ function enforceSignalIntensityAvailability(options = {}) {
     // Abrir modal
     function openCustomPatternModal() {
         const modal = document.getElementById('customPatternModal');
+        // 🖥️ Desktop (Dashboard novo): modal acoplado no workspace (lado direito)
+        dockModalToDesktopWorkspace(modal);
         modal.style.display = 'flex';
         
         // Resetar campos
@@ -11016,11 +11024,6 @@ async function persistAnalyzerState(newState) {
                         <span class="user-info-value" id="userMenuDays">—</span>
                     </div>
                     <div class="user-info-item">
-                        <button type="button" class="view-mode-toggle-btn" id="viewModeToggleBtn" title="Alternar entre Tela Cheia e Modo Compacto">
-                            <span id="viewModeLabel">Modo Compacto</span>
-                        </button>
-                    </div>
-                    <div class="user-info-item">
                         <button type="button" class="view-mode-toggle-btn" id="betModeToggleBtn" title="Alternar entre modo completo e modo aposta">
                             <span id="betViewLabel">Modo Completo</span>
                         </button>
@@ -11168,13 +11171,13 @@ async function persistAnalyzerState(newState) {
             <div class="entries-panel" id="entriesPanel">
                     <div class="entries-tabs-bar" id="entriesTabs">
                         <button type="button" class="entries-tab active" data-tab="entries">IA</button>
-                        <button type="button" class="entries-tab" data-tab="master">Sinais</button>
+                        <button type="button" class="entries-tab" data-tab="master">Recuperação</button>
                         <button type="button" class="entries-tab" data-tab="bets" aria-disabled="true">Apostas</button>
                         <button type="button" class="entries-tab" data-tab="chart">Gráfico</button>
                     </div>
                 <div class="entries-header">
                     <span class="entries-hit" id="entriesHit">Acertos: 0/0 (0%)</span>
-                    <span class="entries-hit" id="masterEntriesHit" style="display:none;">Sinais de entrada: 0/0 (0%)</span>
+                    <span class="entries-hit" id="masterEntriesHit" style="display:none;">Recuperação: desativada</span>
                 </div>
                     <div class="entries-content">
                         <div class="entries-view" data-view="master" hidden>
@@ -12241,31 +12244,8 @@ async function persistAnalyzerState(newState) {
             // noop
         }
         
-        // ✅ BOTÃO DE TOGGLE: MODO TELA CHEIA ↔ MODO COMPACTO (DESKTOP APENAS)
-        // Precisa ser DEPOIS da sidebar ser anexada ao DOM
-        const viewModeToggleBtn = document.getElementById('viewModeToggleBtn');
-        const viewModeLabel = document.getElementById('viewModeLabel');
         const betModeToggleBtn = document.getElementById('betModeToggleBtn');
         const betViewLabel = document.getElementById('betViewLabel');
-        
-        if (viewModeToggleBtn) {
-            if (isDesktop()) {
-            viewModeToggleBtn.addEventListener('click', () => {
-                console.log('🔄 Alternando modo de visualização (desktop)...');
-                toggleViewMode(sidebar, viewModeLabel);
-                setUserMenuState(false); // Fechar menu após clicar
-            });
-            console.log('✅ Event listener do botão de modo (desktop) adicionado');
-        } else {
-                // Mobile: não faz sentido ter "Tela Cheia/Compacto" (já é um layout único)
-                const wrapper = viewModeToggleBtn.closest('.user-info-item');
-                if (wrapper) {
-                    wrapper.remove();
-                } else {
-                    viewModeToggleBtn.remove();
-                }
-            }
-        }
         
         if (betModeToggleBtn) {
             betModeToggleBtn.addEventListener('click', () => {
@@ -12276,6 +12256,17 @@ async function persistAnalyzerState(newState) {
                 applyDisplayMode(next);
                 setUserMenuState(false);
             });
+        }
+        
+        // ✅ NOVO: Layout fixo de Desktop (substitui compacto/tela cheia)
+        // - Sidebar de configurações fixa à esquerda
+        // - Cards à direita com expansão por seção
+        if (isDesktop()) {
+            try {
+                applyDesktopDashboardLayout(sidebar);
+            } catch (err) {
+                console.warn('⚠️ Falha ao aplicar layout desktop (dashboard):', err);
+            }
         }
         // Aplicar modo de exibição salvo (completo ou aposta)
         applyDisplayMode(getDisplayMode());
@@ -12428,6 +12419,16 @@ async function persistAnalyzerState(newState) {
 
         const closeAutoBetModal = () => {
             if (!autoBetModal) return;
+
+            // 🖥️ Desktop (Dashboard novo): configs ficam fixas — não fechar
+            try {
+                const container = document.getElementById('blaze-double-analyzer');
+                const isDashboardDesktop = isDesktop() && container && container.classList.contains('da-desktop-dashboard');
+                if (isDashboardDesktop) {
+                    autoBetModal.style.display = 'block';
+                    return;
+                }
+            } catch (_) {}
             
             const sidebarEl = document.getElementById('blaze-double-analyzer');
             const isCompactMode = sidebarEl && sidebarEl.classList.contains('compact-mode');
@@ -12451,6 +12452,18 @@ async function persistAnalyzerState(newState) {
 
         const openAutoBetModal = async () => {
             if (!autoBetModal) return;
+
+            // 🖥️ Desktop (Dashboard novo): configurações ficam fixas na coluna da esquerda
+            // Então aqui apenas rola até a seção (não abre modal/flutuante).
+            try {
+                const container = document.getElementById('blaze-double-analyzer');
+                const isDashboardDesktop = isDesktop() && container && container.classList.contains('da-desktop-dashboard');
+                if (isDashboardDesktop) {
+                    autoBetModal.style.display = 'block';
+                    autoBetModal.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    return;
+                }
+            } catch (_) {}
             
             autoBetModal.style.display = 'flex';
             document.body.classList.add('auto-bet-modal-open');
@@ -12816,9 +12829,11 @@ async function persistAnalyzerState(newState) {
             });
         }
         
-        // Add drag and resize functionality
-        makeDraggable(sidebar);
-        makeResizable(sidebar);
+        // ✅ Desktop: sem drag/resize (novo layout fixo). Mobile mantém comportamento atual.
+        if (!isDesktop()) {
+            makeDraggable(sidebar);
+            makeResizable(sidebar);
+        }
         
         return sidebar;
     }
@@ -12945,7 +12960,16 @@ async function persistAnalyzerState(newState) {
             const topLayerContainer =
                 (topCustomModal && topCustomModal.querySelector('.custom-pattern-modal-content'))
                     ? topCustomModal.querySelector('.custom-pattern-modal-content')
-                    : (document.getElementById('blaze-double-analyzer') || document.body);
+                    : (() => {
+                        const root = (document.getElementById('blaze-double-analyzer') || document.body);
+                        // 🖥️ Desktop (Dashboard novo): anexar no workspace (lado direito) para manter sidebar fixa
+                        try {
+                            if (isDesktop() && root && root.classList && root.classList.contains('da-desktop-dashboard')) {
+                                return root.querySelector('.da-desktop-main') || root;
+                            }
+                        } catch (_) {}
+                        return root;
+                    })();
 
             if (topLayerContainer !== document.body && getComputedStyle(topLayerContainer).position === 'static') {
                 topLayerContainer.style.position = 'relative';
@@ -13054,7 +13078,16 @@ async function persistAnalyzerState(newState) {
         const topLayerContainer =
             (topCustomModal && topCustomModal.querySelector('.custom-pattern-modal-content'))
                 ? topCustomModal.querySelector('.custom-pattern-modal-content')
-                : (document.getElementById('blaze-double-analyzer') || document.body);
+                : (() => {
+                    const root = (document.getElementById('blaze-double-analyzer') || document.body);
+                    // 🖥️ Desktop (Dashboard novo): anexar no workspace (lado direito)
+                    try {
+                        if (isDesktop() && root && root.classList && root.classList.contains('da-desktop-dashboard')) {
+                            return root.querySelector('.da-desktop-main') || root;
+                        }
+                    } catch (_) {}
+                    return root;
+                })();
 
         if (topLayerContainer !== document.body && getComputedStyle(topLayerContainer).position === 'static') {
             topLayerContainer.style.position = 'relative';
@@ -13828,57 +13861,63 @@ async function persistAnalyzerState(newState) {
             if (data.analysis) {
                 const analysis = data.analysis;
                 const confidence = analysis.confidence;
-                const isEntrySignal = !!(analysis && analysis.masterSignal && analysis.masterSignal.active);
+                // ✅ Nova regra: IA é a "fase principal". Sempre tratar o sinal como aposta do usuário.
+                // (Fase 2 / "Sinal de entrada" deixa de ser o fluxo principal.)
+                const isEntrySignal = false;
                 const phaseLabel = (analysis.phase && analysis.phase !== 'ENTRADA' && analysis.phase !== 'G0')
                     ? analysis.phase.toUpperCase()
                     : '';
+                const analysisCardEl = document.querySelector('.analysis-section .analysis-card');
 
-                // ✅ NOVA REGRA (usuário): o bloco "Padrão" só aparece quando for SINAL DE ENTRADA.
-                // Em modo IA, não deve mostrar "Entrar na cor", "Raciocínio" nem "Nenhum padrão detectado" para sinais normais.
+                // ✅ Voltar a mostrar "Padrão encontrado" também para sinais da IA (fase principal).
+                // Mostrar o bloco sempre que existir analysis/patternDescription.
                 try {
+                    const hasPattern = !!(analysis && analysis.patternDescription);
                     if (patternSection) {
-                        patternSection.style.display = isEntrySignal ? '' : 'none';
+                        patternSection.style.display = hasPattern ? '' : 'none';
+                    }
+                    if (patternInfo) {
+                        if (hasPattern) {
+                            patternInfo.classList.add('pattern-expanded');
+                        } else {
+                            patternInfo.classList.remove('pattern-expanded');
+                            patternInfo.innerHTML = '';
+                        }
                     }
                 } catch (_) {}
-                if (!isEntrySignal) {
-                    try { patternInfo?.classList?.remove('pattern-expanded'); } catch (_) {}
-                    try { if (patternInfo) patternInfo.innerHTML = ''; } catch (_) {}
-                } else {
-                    // ✅ UX: quando há sinal ativo, expandir o bloco "Padrão" (sem scroll interno)
-                    try { patternInfo?.classList?.add('pattern-expanded'); } catch (_) {}
-                }
                 
                 // Só atualiza UI se a análise mudou (evita flutuação a cada 2s)
                 const analysisSig = `${isEntrySignal ? 'ENTRY' : 'RAW'}|${analysis.color}|${confidence.toFixed(2)}|${phaseLabel}|${analysis.createdOnTimestamp || analysis.timestamp || ''}`;
                 if (analysisSig !== lastAnalysisSignature) {
                     lastAnalysisSignature = analysisSig;
                     
-                    if (isEntrySignal) {
-                        // ✅ Mostrar SOMENTE o sinal que o usuário vai entrar (Sinal de entrada)
-                        confidenceFill.style.width = `${confidence}%`;
-                        confidenceText.textContent = `${confidence.toFixed(1)}%`;
+                    // ✅ Voltar a exibir sinais no topo (Aguardando sinal), como antes:
+                    // - Sinal normal: aparece aqui em cima
+                    // - Sinal de entrada: também aparece e recebe destaque (fundo branco no desktop)
+                    confidenceFill.style.width = `${confidence}%`;
+                    confidenceText.textContent = `${confidence.toFixed(1)}%`;
 
-                        if (suggestionColor) {
-                            suggestionColor.removeAttribute('data-gale');
-                            suggestionColor.className = `suggestion-color suggestion-color-box ${analysis.color}`;
-                            suggestionColor.setAttribute('title', 'Sinal de entrada');
-                            // Estilo "Apostas": anel girando aguardando resultado
-                            suggestionColor.innerHTML = `<span class="pending-indicator"></span>`;
-                        }
-                    } else {
-                        // ❌ Não exibir sinal bruto (IA/Padrão) aqui em cima
-                        confidenceFill.style.width = '0%';
-                        confidenceText.textContent = '0%';
-                        renderSuggestionStatus(currentAnalysisStatus);
-                        setSuggestionStage('');
+                    if (analysisCardEl) {
+                        analysisCardEl.classList.toggle('da-entry-signal-highlight', isEntrySignal);
                     }
+
+                    if (suggestionColor) {
+                        suggestionColor.removeAttribute('data-gale');
+                        suggestionColor.className = `suggestion-color suggestion-color-box ${analysis.color}`;
+                        suggestionColor.setAttribute('title', isEntrySignal ? 'Sinal de entrada' : 'Sinal');
+                        // Estilo "Apostas": anel girando aguardando resultado
+                        suggestionColor.innerHTML = `<span class="pending-indicator"></span>`;
+                    }
+
+                    // Mostrar estágio quando existir (G1/G2...), senão ocultar
+                    try { setSuggestionStage(phaseLabel || ''); } catch (_) {}
 
                     // Sincronizar visual do modo aposta
                     syncBetModeView();
                 }
                 
-                // Update pattern info - renderizar SOMENTE quando for SINAL DE ENTRADA
-                if (isEntrySignal && Object.prototype.hasOwnProperty.call(data, 'pattern') && data.pattern) {
+                // Update pattern info - renderizar para sinais IA (fase principal)
+                if (Object.prototype.hasOwnProperty.call(data, 'pattern') && data.pattern) {
                     try {
                         console.log('');
                         console.log('🔍 ===== PROCESSANDO PADRÃO NA UI =====');
@@ -14028,6 +14067,10 @@ async function persistAnalyzerState(newState) {
                 lastAnalysisSignature = '';
                 confidenceFill.style.width = '0%';
                 confidenceText.textContent = '0%';
+                try {
+                    const analysisCardEl = document.querySelector('.analysis-section .analysis-card');
+                    if (analysisCardEl) analysisCardEl.classList.remove('da-entry-signal-highlight');
+                } catch (_) {}
                 
                 // ✅ RESETAR TÍTULO DO BLOCO (agora é sinal)
                 const analysisModeTitle = document.getElementById('analysisModeTitle');
@@ -14586,56 +14629,67 @@ async function persistAnalyzerState(newState) {
 
             let pendingIndicator = '';
 
-            // 1) Se existe análise PENDENTE (ENTRADA) do modo atual e NÃO é "Sinal de entrada",
-            // exibir já a cor aqui (antes mesmo de ir para G1).
+            // ✅ Correção do “pendente travado”:
+            // Só mostrar indicador quando houver uma ANÁLISE realmente pendente no storage.
+            // (Em alguns fluxos, o martingale pode ficar "ativo" aguardando novo sinal; isso NÃO é "aguardando resultado".)
             const analysisMode = analysis ? resolveAnalysisMode(analysis) : null;
-            // ✅ Correção: também mostrar quando for "Sinal de entrada"
-            const shouldShowPendingEntry = !!(analysis && analysisMode === currentMode);
+            const shouldShowPending = !!(analysis && analysisMode === currentMode);
 
-            // 2) Se existe Martingale ativo do modo atual e NÃO é ciclo de "Sinal de entrada",
-            // exibir a cor do GALE (currentColor) + G1/G2 dentro.
-            const cycleAnalysis = martingaleState && martingaleState.analysisData ? martingaleState.analysisData : null;
-            const cycleMode = cycleAnalysis ? resolveAnalysisMode(cycleAnalysis) : currentMode;
-            // ✅ Correção: também mostrar quando for ciclo de "Sinal de entrada"
-            const shouldShowPendingGale = !!(martingaleState && martingaleState.active && cycleMode === currentMode);
+            if (shouldShowPending) {
+                const parseMs = (v) => {
+                    try {
+                        if (v == null) return 0;
+                        if (typeof v === 'number') return Number.isFinite(v) ? v : 0;
+                        const n = Number(v);
+                        if (Number.isFinite(n)) return n;
+                        const ms = Date.parse(String(v));
+                        return Number.isFinite(ms) ? ms : 0;
+                    } catch (_) {
+                        return 0;
+                    }
+                };
 
-            if (shouldShowPendingGale || shouldShowPendingEntry) {
-                const color = shouldShowPendingGale
-                    ? normColor(martingaleState.currentColor || martingaleState.entryColor)
-                    : normColor(analysis?.color);
-                const stage = shouldShowPendingGale
-                    ? String(martingaleState.stage || '').toUpperCase().trim()
-                    : String(analysis?.phase || '').toUpperCase().trim();
-                const galeLabel = shouldShowPendingGale
-                    ? (stage && stage.startsWith('G') ? stage : (martingaleState.lossCount ? `G${martingaleState.lossCount}` : ''))
-                    : (stage && stage.startsWith('G') && stage !== 'G0' ? stage : '');
+                // Se faltar timestamp (estado corrompido) OU estiver muito velho (travado), pedir reset no background.
+                const rawTs = analysis && analysis.createdOnTimestamp != null ? analysis.createdOnTimestamp : null;
+                const hasTimestamp = rawTs != null && String(rawTs).trim().length > 0;
+                const aMs = parseMs(rawTs);
+                const nowMs = Date.now();
+                const STALE_MS = 3 * 60 * 1000; // 3min (bem conservador)
+                const isStale = (aMs > 0 && nowMs > aMs && (nowMs - aMs) > STALE_MS);
 
-                if (color) {
-                    const isMasterPending = shouldShowPendingGale
-                        ? isEntrySignal(cycleAnalysis)
-                        : isEntrySignal(analysis);
-                    const galeAttr = galeLabel ? ` data-gale="${galeLabel}"` : '';
-                    const titleBase = isMasterPending ? 'Sinal de entrada' : 'IA';
-                    const title = galeLabel ? `${titleBase} • Aguardando resultado (${galeLabel})` : `${titleBase} • Aguardando resultado`;
-                    pendingIndicator = `
-                        <div class="entry-item-wrap gale-active-indicator" title="${title}">
-                            <div class="entry-conf-top gale-placeholder">&nbsp;</div>
-                            <div class="entry-stage gale-placeholder">&nbsp;</div>
-                            <div class="entry-item">
-                                <div class="entry-box ${color} pending-ring"${galeAttr}></div>
-                                <div class="entry-result-bar win" style="opacity:0;"></div>
+                if (!hasTimestamp || isStale) {
+                    const reason = !hasTimestamp ? 'missing_timestamp_ui' : 'stale_pending_ui';
+                    try { chrome.runtime.sendMessage({ action: 'FORCE_CLEAR_PENDING', reason }, () => {}); } catch (_) {}
+                } else {
+                    const color = normColor(analysis?.color);
+                    const stage = String(analysis?.phase || '').toUpperCase().trim();
+                    const galeLabel = (stage && stage.startsWith('G') && stage !== 'G0') ? stage : '';
+
+                    if (color) {
+                        const isMasterPending = isEntrySignal(analysis);
+                        const galeAttr = galeLabel ? ` data-gale="${galeLabel}"` : '';
+                        const titleBase = isMasterPending ? 'Sinal de entrada' : 'IA';
+                        const title = galeLabel ? `${titleBase} • Aguardando resultado (${galeLabel})` : `${titleBase} • Aguardando resultado`;
+                        pendingIndicator = `
+                            <div class="entry-item-wrap gale-active-indicator" title="${title}">
+                                <div class="entry-conf-top gale-placeholder">&nbsp;</div>
+                                <div class="entry-stage gale-placeholder">&nbsp;</div>
+                                <div class="entry-item">
+                                    <div class="entry-box ${color} pending-ring"${galeAttr}></div>
+                                    <div class="entry-result-bar win" style="opacity:0;"></div>
+                                </div>
+                                <div class="entry-time gale-placeholder">&nbsp;</div>
                             </div>
-                            <div class="entry-time gale-placeholder">&nbsp;</div>
-                        </div>
-                    `;
+                        `;
+                    }
                 }
             }
 
-            // ✅ IA VIVA: vidro desfocado SEMPRE na aba IA + bolinha sempre visível por cima
+            // ✅ IA VIVA: sem “vidro/ofuscado”. Manter apenas a bolinha (CTA) quando a IA estiver vazia.
             const isIA = (activeEntriesTab === 'entries');
             try {
                 bindIATestsToggle();
-                applyIAVisibilityState();
+                applyIAVisibilityState(filteredEntries.length, pendingIndicator);
                 if (isIA) {
                     bindIABootstrapButton();
                     setIABootstrapHasHistory(filteredEntries.length > 0);
@@ -14770,240 +14824,59 @@ async function persistAnalyzerState(newState) {
         try { renderMasterEntriesPanel(entries); } catch (_) {}
     }
 
-        // Render de lista de entradas (apenas Sinais de entrada)
-    function renderMasterEntriesPanel(entries) {
+    // ✅ Nova aba: Recuperação (ativação manual)
+    let recoveryModeEnabled = false;
+    let recoveryModeStatusText = 'Desativada';
+
+    function renderRecoveryPanel() {
         const list = document.getElementById('masterEntriesList');
         const hitEl = document.getElementById('masterEntriesHit');
         if (!list || !hitEl) return;
 
-        // Detectar modo ativo (Premium vs Diamante)
-        const aiModeToggle = document.querySelector('.ai-mode-toggle.active');
-        const isDiamondMode = !!aiModeToggle;
-        const currentMode = isDiamondMode ? 'diamond' : 'standard';
+        const btnLabel = recoveryModeEnabled ? 'Desativar' : 'Recuperar';
+        const statusText = recoveryModeEnabled
+            ? (recoveryModeStatusText || 'Ativa • buscando sinal certeiro…')
+            : 'Desativada • clique em “Recuperar” após um RED';
 
-        let entriesArr = Array.isArray(entries) ? entries : [];
-        const hasExplicitMode = entriesArr.some(e => e && (e.analysisMode === 'diamond' || e.analysisMode === 'standard'));
-        const resolveEntryMode = (e) => {
-            const m = e && typeof e.analysisMode === 'string' ? e.analysisMode : null;
-            if (m === 'diamond' || m === 'standard') return m;
-            return hasExplicitMode ? 'legacy' : 'standard';
-        };
+        hitEl.innerHTML = `
+            <button type="button" class="recovery-toggle-btn" id="recoveryToggleBtn" aria-pressed="${recoveryModeEnabled ? 'true' : 'false'}">${btnLabel}</button>
+            <span class="recovery-status" id="recoveryStatusText">${statusText}</span>
+        `;
 
-        // ✅ Backfill: se já houve apostas (autoBetHistory) em Sinal de entrada, marcar isMaster no entriesHistory
-        // Isso permite renderizar "Sinais" mesmo para históricos antigos (antes do campo isMaster existir).
-        try {
-            if (!masterEntriesBackfillLock && autoBetHistoryStore && typeof autoBetHistoryStore.getAll === 'function') {
-                const history = autoBetHistoryStore.getAll();
-                const masterIds = new Set(
-                    (Array.isArray(history) ? history : [])
-                        .filter(r => r && r.isMaster && (r.mode || 'standard') === currentMode && r.id != null)
-                        .map(r => String(r.id))
-                );
-                if (masterIds.size) {
-                    let didPatch = false;
-                    const patched = entriesArr.map(e => {
-                        if (!e || typeof e !== 'object') return e;
-                        if (e.isMaster) return e;
-                        const mode = resolveEntryMode(e);
-                        if (mode !== currentMode) return e;
-                        const key = (e.cycleId != null ? e.cycleId : (e.patternData && e.patternData.createdOnTimestamp != null ? e.patternData.createdOnTimestamp : null));
-                        if (key != null && masterIds.has(String(key))) {
-                            didPatch = true;
-                            return { ...e, isMaster: true };
-                        }
-                        return e;
-                    });
-                    if (didPatch) {
-                        masterEntriesBackfillLock = true;
-                        try {
-                            chrome.storage.local.set({ entriesHistory: patched }, function() {
-                                masterEntriesBackfillLock = false;
-                            });
-                        } catch (_) {
-                            masterEntriesBackfillLock = false;
-                        }
-                        entriesArr = patched;
-                    }
-                }
-            }
-        } catch (_) {}
-
-        // Filtrar por modo + somente SINAL DE ENTRADA (respeitando cutoff)
-        const entriesByMode = entriesArr.filter(e => resolveEntryMode(e) === currentMode);
-        const cutoffMs = getMasterEntriesCutoffMs(currentMode);
-        const entriesMaster = entriesByMode.filter(e => !!(e && e.isMaster) && getEntryTimestampMs(e) >= cutoffMs);
-
-        // Filtrar somente resultados finais (mesma regra do painel IA)
-        const filteredEntries = entriesMaster.filter(e => {
-            if (e.result === 'WIN') return true;
-            if (e.result === 'LOSS') {
-                if (e.finalResult === 'RED' || e.finalResult === 'RET') return true;
-                let isContinuing = false;
-                for (let key in e) {
-                    if (key.startsWith('continuingToG')) { isContinuing = true; break; }
-                }
-                if (isContinuing) return false;
-                return true;
-            }
-            return true;
-        });
-
-        const items = filteredEntries.map((e, idx) => {
-            const entryIndex = idx;
-            const time = new Date(e.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-            const cls = e.color;
-            const badge = e.color === 'white' ? blazeWhiteSVG(16) : `<span>${e.number}</span>`;
-            const isWin = e.result === 'WIN';
-
-            let barClass = isWin ? 'win' : 'loss';
-            let stageText = '';
-
-            if (e.martingaleStage) {
-                if (isWin) {
-                    if (e.martingaleStage === 'ENTRADA' || e.wonAt === 'ENTRADA') {
-                        stageText = 'WIN';
-                    } else if (e.martingaleStage && e.martingaleStage.startsWith('G')) {
-                        const galeNum = e.martingaleStage.substring(1);
-                        stageText = `WIN <span style="color: white;">G${galeNum}</span>`;
-                    }
-                } else {
-                    if (e.finalResult === 'RED' || e.finalResult === 'RET') {
-                        const stage = e.martingaleStage || e.phase;
-                        if (stage === 'ENTRADA' || stage === 'G0') {
-                            stageText = 'LOSS';
-                        } else if (stage && stage.startsWith('G')) {
-                            const galeNum = stage.substring(1);
-                            stageText = `LOSS <span style="color: white;">G${galeNum}</span>`;
-                        } else {
-                            stageText = 'LOSS';
-                        }
-                    } else {
-                        let isContinuing = false;
-                        let nextGale = '';
-                        for (let key in e) {
-                            if (key.startsWith('continuingToG')) {
-                                isContinuing = true;
-                                nextGale = key.substring('continuingTo'.length);
-                                break;
-                            }
-                        }
-                        stageText = isContinuing
-                            ? `LOSS ➜<span style="color: white;">${nextGale}</span>`
-                            : 'LOSS';
-                    }
-                }
-            } else {
-                const phaseDigit = e.phase === 'G1' ? '1' : (e.phase === 'G2' ? '2' : '');
-                if (phaseDigit) {
-                    stageText = isWin ? `WIN <span style="color: white;">G${phaseDigit}</span>` : `LOSS <span style="color: white;">G${phaseDigit}</span>`;
-                } else {
-                    stageText = isWin ? 'WIN' : 'LOSS';
-                }
-            }
-
-            const title = `Sinal de entrada • Giro: ${e.number} • Cor: ${e.color} • ${time} • Resultado: ${e.result}${e.martingaleStage ? ' • Estágio: ' + e.martingaleStage : ''}${e.confidence ? ' • Confiança: ' + e.confidence.toFixed(1) + '%' : ''}`;
-            const confTop = (typeof e.confidence === 'number') ? `${e.confidence.toFixed(0)}%` : '';
-            const resultBar = `<div class="entry-result-bar ${barClass}"></div>`;
-            const stageLabel = stageText ? `<div class="entry-stage ${barClass}">${stageText}</div>` : '';
-
-            return `<div class="entry-item-wrap clickable-entry" title="${title}" data-entry-index="${entryIndex}">
-                ${confTop ? `<div class="entry-conf-top">${confTop}</div>` : ''}
-                ${stageLabel}
-                <div class="entry-item">
-                    <div class="entry-box ${cls}">${badge}</div>
-                    ${resultBar}
+        list.innerHTML = `
+            <div class="recovery-help">
+                <div class="recovery-help-title">Recuperação</div>
+                <div class="recovery-help-text">
+                    Ative após um <b>LOSS/RED</b>. O sistema procura uma entrada de <b>alta certeza</b> baseada no histórico
+                    e envia o sinal quando encontrar. Após um <b>WIN</b>, desativa automaticamente.
                 </div>
-                <div class="entry-time">${time}</div>
-            </div>`;
-        }).join('');
+            </div>
+        `;
 
-        // Gale ativo: mostrar somente se o ciclo atual também for Sinal de entrada
-        storageCompat.get(['martingaleState', 'analysis']).then((result = {}) => {
-            const martingaleState = result.martingaleState;
-            const analysis = result.analysis;
-            let galeActiveIndicator = '';
-            const isMasterCycleActive = !!(analysis && analysis.masterSignal && analysis.masterSignal.active);
-            // ✅ NOVO: também mostrar o sinal PENDENTE já na PRIMEIRA ENTRADA (G0),
-            // não apenas quando já entrou em G1/G2.
-            const normColor = (value) => {
-                const raw = String(value || '').toLowerCase().trim();
-                if (raw === 'red' || raw === 'vermelho') return 'red';
-                if (raw === 'black' || raw === 'preto') return 'black';
-                if (raw === 'white' || raw === 'branco') return 'white';
-                return null;
-            };
-            const isDiamondAnalysis = (a) => {
+        const btn = document.getElementById('recoveryToggleBtn');
+        if (btn) {
+            btn.onclick = (event) => {
+                try { event.preventDefault(); event.stopPropagation(); } catch (_) {}
+                const next = !recoveryModeEnabled;
+                recoveryModeEnabled = next;
+                recoveryModeStatusText = next ? 'Ativa • buscando sinal certeiro…' : 'Desativada';
+                renderRecoveryPanel();
                 try {
-                    const desc = a && a.patternDescription ? String(a.patternDescription) : '';
-                    if (a && a.diamondSourceLevel) return true;
-                    return desc.includes('NÍVEL DIAMANTE') || desc.includes('5 Níveis');
-                } catch (_) {
-                    return false;
-                }
+                    chrome.runtime.sendMessage({ action: 'SET_RECOVERY_MODE', enabled: next }, function() {});
+                } catch (_) {}
             };
-            const resolveAnalysisMode = (a) => (isDiamondAnalysis(a) ? 'diamond' : 'standard');
-
-            const analysisMode = analysis ? resolveAnalysisMode(analysis) : null;
-            const shouldShowPendingEntry = !!(analysis && analysisMode === currentMode && isMasterCycleActive);
-            const shouldShowPendingGale = !!(martingaleState && martingaleState.active && isMasterCycleActive);
-
-            if (shouldShowPendingGale || shouldShowPendingEntry) {
-                const color = shouldShowPendingGale
-                    ? normColor(martingaleState.currentColor || martingaleState.entryColor || analysis?.color)
-                    : normColor(analysis?.color);
-                const stage = shouldShowPendingGale
-                    ? String(martingaleState.stage || '').toUpperCase().trim()
-                    : String(analysis?.phase || '').toUpperCase().trim();
-                const galeLabel = shouldShowPendingGale
-                    ? (stage && stage.startsWith('G') ? stage : (martingaleState.lossCount ? `G${martingaleState.lossCount}` : ''))
-                    : (stage && stage.startsWith('G') && stage !== 'G0' ? stage : '');
-                const galeAttr = galeLabel ? ` data-gale="${galeLabel}"` : '';
-
-                if (color) {
-                    const title = galeLabel ? `Sinal de entrada • Aguardando resultado (${galeLabel})` : 'Sinal de entrada • Aguardando resultado';
-                    galeActiveIndicator = `
-                        <div class="entry-item-wrap gale-active-indicator" title="${title}">
-                            <div class="entry-conf-top gale-placeholder">&nbsp;</div>
-                            <div class="entry-stage gale-placeholder">&nbsp;</div>
-                            <div class="entry-item">
-                                <div class="entry-box ${color} pending-ring"${galeAttr}></div>
-                                <div class="entry-result-bar win" style="opacity:0;"></div>
-                            </div>
-                            <div class="entry-time gale-placeholder">&nbsp;</div>
-                        </div>
-                    `;
-                }
-            }
-
-            list.innerHTML = galeActiveIndicator + (items || '<div class="no-history">Nenhum sinal de entrada registrado ainda</div>');
-            const clickableEntries = list.querySelectorAll('.clickable-entry');
-            clickableEntries.forEach((entryEl) => {
-                entryEl.addEventListener('click', function() {
-                    const entryIndex = parseInt(this.getAttribute('data-entry-index'), 10);
-                    const entry = filteredEntries[entryIndex];
-                    if (entry) showPatternForEntry(entry);
-                });
-            });
-        }).catch(() => {
-            list.innerHTML = items || '<div class="no-history">Nenhum sinal de entrada registrado ainda</div>';
-        });
-
-        const totalCycles = filteredEntries.length;
-        const wins = filteredEntries.filter(e => e.result === 'WIN').length;
-        const losses = totalCycles - wins;
-        const pct = totalCycles ? ((wins / totalCycles) * 100).toFixed(1) : '0.0';
-        const totalEntries = totalCycles;
-
-        const clearButtonHTML = `<button type="button" class="clear-entries-btn" id="clearMasterEntriesBtn" title="Limpar histórico de sinais de entrada">Limpar</button>`;
-        hitEl.innerHTML = `<span class="win-score">WIN: ${wins}</span> <span class="loss-score">LOSS: ${losses}</span> <span class="percentage">(${pct}%)</span> <span class="total-entries">• Ciclos: ${totalEntries} ${clearButtonHTML}</span>`;
-        const inlineClearBtn = document.getElementById('clearMasterEntriesBtn');
-        if (inlineClearBtn) {
-            inlineClearBtn.addEventListener('click', function(event) {
-                event.preventDefault();
-                event.stopPropagation();
-                clearMasterEntriesHistory();
-            });
         }
+    }
+
+    function renderMasterEntriesPanel(entries) {
+        // Master virou "Recuperação": não renderizar mais o histórico antigo de Sinal de entrada
+        void entries;
+        storageCompat.get(['recoveryMode']).then((res = {}) => {
+            recoveryModeEnabled = !!(res.recoveryMode && res.recoveryMode.enabled);
+            renderRecoveryPanel();
+        }).catch(() => {
+            renderRecoveryPanel();
+        });
     }
 
     function initEntriesTabs() {
@@ -15492,6 +15365,304 @@ async function persistAnalyzerState(newState) {
     function isDesktop() {
         return window.innerWidth > 768;
     }
+
+    // ═══════════════════════════════════════════════════════════════════════════════
+    // 🖥️ NOVO LAYOUT DESKTOP (Dashboard)
+    // - Substitui "modo compacto" e "tela cheia" no desktop
+    // - Sidebar de configurações fixa à esquerda
+    // - Cards à direita, com expansão por seção (mantendo sidebar fixa)
+    // ═══════════════════════════════════════════════════════════════════════════════
+    function applyDesktopDashboardLayout(sidebar) {
+        if (!sidebar || !isDesktop()) return;
+
+        // Marcar modo desktop
+        sidebar.classList.add('da-desktop-dashboard');
+        // Garantir que os modos antigos não "vazem" estilos
+        sidebar.classList.remove('compact-mode');
+        sidebar.classList.remove('fullscreen-mode');
+
+        // Forçar fullscreen do container no desktop (inclusive na versão web, que usa !important no index.html)
+        try {
+            sidebar.style.setProperty('position', 'fixed', 'important');
+            sidebar.style.setProperty('inset', '0', 'important');
+            sidebar.style.setProperty('top', '0', 'important');
+            sidebar.style.setProperty('left', '0', 'important');
+            sidebar.style.setProperty('right', '0', 'important');
+            sidebar.style.setProperty('bottom', '0', 'important');
+            sidebar.style.setProperty('width', '100%', 'important');
+            sidebar.style.setProperty('height', '100%', 'important');
+            sidebar.style.setProperty('max-width', '100%', 'important');
+            sidebar.style.setProperty('max-height', '100%', 'important');
+        } catch (_) {}
+
+        // Evitar scroll da página "por trás"
+        try {
+            document.documentElement.style.overflow = 'hidden';
+            document.body.style.overflow = 'hidden';
+        } catch (_) {}
+
+        // Criar shell (idempotente)
+        let shell = sidebar.querySelector('.da-desktop-shell');
+        let settingsSidebar = sidebar.querySelector('.da-desktop-sidebar');
+        let settingsScroll = sidebar.querySelector('.da-desktop-sidebar-scroll');
+        let main = sidebar.querySelector('.da-desktop-main');
+
+        if (!shell) {
+            shell = document.createElement('div');
+            shell.className = 'da-desktop-shell';
+
+            settingsSidebar = document.createElement('aside');
+            settingsSidebar.className = 'da-desktop-sidebar';
+
+            settingsScroll = document.createElement('div');
+            settingsScroll.className = 'da-desktop-sidebar-scroll';
+
+            main = document.createElement('main');
+            main.className = 'da-desktop-main';
+
+            settingsSidebar.appendChild(settingsScroll);
+            shell.appendChild(settingsSidebar);
+            shell.appendChild(main);
+
+            const header = sidebar.querySelector('.da-header');
+            if (header && header.parentNode === sidebar) {
+                header.insertAdjacentElement('afterend', shell);
+            } else {
+                sidebar.appendChild(shell);
+            }
+        }
+
+        // Esconder handles de resize (dashboard não é redimensionável)
+        const resizeHandles = sidebar.querySelector('.resize-handles');
+        if (resizeHandles) {
+            resizeHandles.style.display = 'none';
+        }
+
+        // Mover elementos existentes para o layout novo
+        const analyzerContent = sidebar.querySelector('#analyzerContent');
+        if (analyzerContent && main && analyzerContent.parentNode !== main) {
+            main.appendChild(analyzerContent);
+        }
+
+        const userMenuPanel = sidebar.querySelector('#userMenuPanel');
+        if (userMenuPanel && settingsScroll && userMenuPanel.parentNode !== settingsScroll) {
+            // 🖥️ Desktop: "Minha conta" fica na coluna esquerda, mas fechada por padrão (accordion)
+            settingsScroll.appendChild(userMenuPanel);
+        }
+
+        // 🧾 Ações fixas da sidebar (ex.: Modo Aposta) devem ficar FORA da caixa "Minha conta"
+        try {
+            if (settingsScroll) {
+                let actions = sidebar.querySelector('.da-desktop-sidebar-actions');
+                if (!actions) {
+                    actions = document.createElement('div');
+                    actions.className = 'da-desktop-sidebar-actions';
+                    // colocar logo após "Minha conta" (ou no topo, se ainda não estiver)
+                    if (userMenuPanel && userMenuPanel.parentNode === settingsScroll) {
+                        userMenuPanel.insertAdjacentElement('afterend', actions);
+                    } else {
+                        settingsScroll.insertAdjacentElement('afterbegin', actions);
+                    }
+                }
+
+                const betBtn = sidebar.querySelector('#betModeToggleBtn');
+                const betWrapper = betBtn && betBtn.closest ? betBtn.closest('.user-info-item') : null;
+                if (betWrapper && betWrapper.parentNode !== actions) {
+                    actions.appendChild(betWrapper);
+                }
+            }
+        } catch (_) {}
+
+        const autoBetModal = sidebar.querySelector('#autoBetModal');
+        if (autoBetModal && settingsScroll && autoBetModal.parentNode !== settingsScroll) {
+            // No desktop, as configurações ficam sempre visíveis na sidebar da esquerda
+            autoBetModal.style.display = 'block';
+            settingsScroll.appendChild(autoBetModal);
+        }
+
+        // Inicializar colapsáveis da sidebar (Minha conta fechada por padrão)
+        initDesktopSidebarSettings(sidebar);
+
+        // Inicializar cards/expansão (idempotente)
+        initDesktopDashboardCards(sidebar);
+    }
+
+    function initDesktopDashboardCards(root) {
+        if (!root || !isDesktop()) return;
+        if (root.dataset.daCardsInitialized === '1') return;
+        root.dataset.daCardsInitialized = '1';
+
+        const analyzerDefaultView = root.querySelector('#analyzerDefaultView');
+        if (!analyzerDefaultView) return;
+
+        const registerCard = (el, cardId, options = {}) => {
+            if (!el) return;
+            el.classList.add('da-card');
+            el.dataset.daCard = cardId;
+            const expandable = options && options.expandable === false ? false : true;
+            el.dataset.daExpandable = expandable ? '1' : '0';
+
+            // Remover botão se não deve expandir
+            const existingBtn = el.querySelector('.da-card-expand');
+            if (!expandable) {
+                if (existingBtn) {
+                    try { existingBtn.remove(); } catch (_) {}
+                }
+                return;
+            }
+
+            if (!existingBtn) {
+                const btn = document.createElement('button');
+                btn.type = 'button';
+                btn.className = 'da-card-expand';
+                btn.setAttribute('aria-label', 'Expandir/Recolher');
+                btn.setAttribute('title', 'Expandir');
+                btn.dataset.daExpand = cardId;
+                btn.innerHTML = `
+                    <svg class="da-icon da-icon-expand" viewBox="0 0 24 24" aria-hidden="true">
+                        <path fill="currentColor" d="M7 14H5v5h5v-2H7v-3zm0-4h2V7h3V5H5v5zm14 9h-5v-2h3v-3h2v5zm-5-14h5v5h-2V7h-3V5z"/>
+                    </svg>
+                    <svg class="da-icon da-icon-collapse" viewBox="0 0 24 24" aria-hidden="true">
+                        <path fill="currentColor" d="M7 9h2V7h3V5H5v7h2V9zm12 0v3h-3v2h5V5h-7v2h3v2h2zm-7 10v-2H9v-3H7v7h7v-2h-2zm2-3h3v3h2v-7h-7v2h2v2z"/>
+                    </svg>
+                `;
+                el.appendChild(btn);
+            }
+        };
+
+        // Mapear cards do painel atual (abas/seções existentes)
+        // ❌ Sem ícone de expandir: Painel (saldo), Aguardando sinal, Último giro, Sinais de entrada
+        registerCard(root.querySelector('#autoBetSummary'), 'panel', { expandable: false });
+        registerCard(root.querySelector('#analyzerDefaultView .analysis-section'), 'analysis', { expandable: false });
+        registerCard(root.querySelector('#analyzerDefaultView .last-spin-section'), 'lastspin', { expandable: false });
+        // ❌ Sem ícone extra de expandir aqui: a aba IA já tem o expand interno (vidro/IA).
+        registerCard(root.querySelector('#analyzerDefaultView .entries-section'), 'entries', { expandable: false });
+        registerCard(root.querySelector('#analyzerDefaultView .pattern-section'), 'pattern');
+        registerCard(root.querySelector('#analyzerDefaultView .pattern-bank-section'), 'bank');
+        registerCard(root.querySelector('#analyzerDefaultView .observer-section'), 'observer', { expandable: false });
+        registerCard(root.querySelector('#analyzerDefaultView .stats-section'), 'history');
+
+        const isInteractiveTarget = (target) => {
+            if (!target || !(target instanceof Element)) return false;
+            const selector = 'button, a, input, select, textarea, label, [role="button"], [contenteditable="true"], .clickable-entry, .entries-tab, .spin-history-item';
+            return !!target.closest(selector);
+        };
+
+        // Delegação: clique no card (área vazia) ou no botão de expandir
+        root.addEventListener('click', (event) => {
+            const btn = event.target && event.target.closest ? event.target.closest('.da-card-expand') : null;
+            if (btn) {
+                event.preventDefault();
+                const cardId = btn.dataset.daExpand;
+                const current = root.dataset.daExpanded || '';
+                setDesktopExpandedCard(root, current === cardId ? '' : cardId);
+                return;
+            }
+
+            const card = event.target && event.target.closest ? event.target.closest('.da-card[data-da-card]') : null;
+            if (!card) return;
+            if (card.dataset.daExpandable === '0') return;
+            if (isInteractiveTarget(event.target)) return;
+
+            // Evitar conflitos com cliques dentro do conteúdo (ex.: lista de entradas).
+            // Só permitir expandir ao clicar no "topo" do card (faixa do título).
+            try {
+                const rect = card.getBoundingClientRect();
+                const y = (event.clientY || 0) - rect.top;
+                if (y > 64) return;
+            } catch (_) {}
+
+            const cardId = card.dataset.daCard || '';
+            if (!cardId) return;
+            const current = root.dataset.daExpanded || '';
+            if (current && current !== cardId) return; // já está expandido em outro card
+
+            setDesktopExpandedCard(root, current === cardId ? '' : cardId);
+        });
+    }
+
+    function initDesktopSidebarSettings(root) {
+        if (!root || !isDesktop()) return;
+        if (root.dataset.daSidebarSettingsInitialized === '1') return;
+        root.dataset.daSidebarSettingsInitialized = '1';
+
+        const userMenuPanel = root.querySelector('#userMenuPanel');
+        if (userMenuPanel) {
+            userMenuPanel.classList.add('da-settings-account');
+
+            // ✅ Por padrão: fechado
+            let shouldOpen = false;
+            try {
+                const saved = localStorage.getItem('daDesktopAccountOpen');
+                shouldOpen = saved === '1';
+            } catch (_) {}
+
+            userMenuPanel.classList.toggle('da-collapsed', !shouldOpen);
+
+            const header = userMenuPanel.querySelector('.user-menu-header');
+            if (header && header.dataset.daToggleBound !== '1') {
+                header.dataset.daToggleBound = '1';
+                header.addEventListener('click', (event) => {
+                    try {
+                        // Não colapsar se clicou em algo interativo dentro do header
+                        const t = event && event.target;
+                        if (t && t.closest && t.closest('button, a, input, select, textarea')) {
+                            return;
+                        }
+                    } catch (_) {}
+
+                    const isCollapsed = userMenuPanel.classList.toggle('da-collapsed');
+                    try {
+                        localStorage.setItem('daDesktopAccountOpen', isCollapsed ? '0' : '1');
+                    } catch (_) {}
+                });
+            }
+        }
+    }
+
+    function setDesktopExpandedCard(root, cardIdRaw) {
+        if (!root) return;
+        const cardId = String(cardIdRaw || '').trim();
+
+        if (!cardId) {
+            delete root.dataset.daExpanded;
+            root.classList.remove('da-dashboard-expanded');
+            const expandedCards = root.querySelectorAll('.da-card.da-card-is-expanded');
+            expandedCards.forEach(c => c.classList.remove('da-card-is-expanded'));
+            return;
+        }
+
+        root.dataset.daExpanded = cardId;
+        root.classList.add('da-dashboard-expanded');
+        const cards = root.querySelectorAll('.da-card[data-da-card]');
+        cards.forEach((c) => c.classList.toggle('da-card-is-expanded', c.dataset.daCard === cardId));
+
+        // Garantir foco/scroll no card expandido
+        const active = root.querySelector(`.da-card[data-da-card="${cardId}"]`);
+        if (active) {
+            try {
+                active.scrollIntoView({ block: 'start', behavior: 'smooth' });
+            } catch (_) {}
+        }
+    }
+
+    function dockModalToDesktopWorkspace(modalEl) {
+        try {
+            const container = document.getElementById('blaze-double-analyzer');
+            if (!isDesktop() || !container || !container.classList.contains('da-desktop-dashboard')) {
+                return false;
+            }
+            const main = container.querySelector('.da-desktop-main');
+            if (!main || !modalEl) return false;
+            if (modalEl.parentNode !== main) {
+                main.appendChild(modalEl);
+            }
+            modalEl.classList.add('da-docked-modal');
+            return true;
+        } catch (_) {
+            return false;
+        }
+    }
     
     function getViewMode() {
         try {
@@ -15610,6 +15781,13 @@ async function persistAnalyzerState(newState) {
         if (isBet) {
             syncBetModeView();
         }
+
+        // 🖥️ Desktop (Dashboard novo): ao alternar modo (aposta/completo), sempre sair de qualquer card expandido
+        try {
+            if (sidebar && sidebar.classList && sidebar.classList.contains('da-desktop-dashboard')) {
+                setDesktopExpandedCard(sidebar, '');
+            }
+        } catch (_) {}
         
         // Label SEMPRE mostra o modo para o qual o usuário vai mudar ao clicar
         if (betLabel) {
@@ -15721,25 +15899,14 @@ async function persistAnalyzerState(newState) {
     // Load saved sidebar state
     function loadSidebarState(sidebar) {
         try {
-            // ✅ VERIFICAR SE É DESKTOP
             if (!isDesktop()) {
-                // Mobile: ignorar modos, usar fullscreen nativo
+                // Mobile: manter comportamento atual
                 return;
             }
-            
-            // ✅ DESKTOP: Aplicar modo salvo (padrão: tela cheia)
-            const viewMode = getViewMode();
-            const viewModeLabel = document.getElementById('viewModeLabel');
-            
-            if (viewMode === 'fullscreen') {
-                applyFullscreenMode(sidebar);
-                if (viewModeLabel) viewModeLabel.textContent = 'Modo Compacto';
-            } else {
-                applyCompactMode(sidebar);
-                if (viewModeLabel) viewModeLabel.textContent = 'Tela Cheia';
-            }
-            
-            console.log('📍 Sidebar carregada em modo:', viewMode);
+
+            // ✅ DESKTOP (NOVO): sempre usar o layout Dashboard (sidebar fixa + cards)
+            applyDesktopDashboardLayout(sidebar);
+            console.log('📍 Layout Desktop (Dashboard) aplicado');
         } catch (e) {
             console.error('Erro ao carregar estado da sidebar:', e);
         }
@@ -16268,8 +16435,24 @@ function logModeSnapshotUI(snapshot) {
             if (autoBetManager && typeof autoBetManager.handleEntriesUpdate === 'function') {
                 autoBetManager.handleEntriesUpdate(request.data);
             }
-            // ✅ Atualizar card dos Sinais de entrada (Fase 2)
-            try { scheduleMasterSignalStatsRefresh(); } catch (_) {}
+            // (Fase 2 removida do fluxo principal)
+        } else if (request.type === 'RECOVERY_MODE_UPDATE') {
+            // ✅ Atualização do modo Recuperação (ativação manual)
+            try {
+                const data = request.data || {};
+                if (typeof data.enabled === 'boolean') {
+                    recoveryModeEnabled = !!data.enabled;
+                }
+                if (typeof data.statusText === 'string') {
+                    recoveryModeStatusText = data.statusText;
+                } else if (typeof data.state === 'string') {
+                    // fallback simples
+                    recoveryModeStatusText = data.state;
+                }
+                try { renderRecoveryPanel(); } catch (_) {}
+            } catch (err) {
+                console.warn('⚠️ Falha ao processar RECOVERY_MODE_UPDATE:', err);
+            }
         } else if (request.type === 'OBSERVER_UPDATE') {
             // ✅ Compat: OBSERVER_UPDATE antigo pode continuar chegando.
             // O card agora mostra dados do SINAL DE ENTRADA, então fazemos refresh via action dedicada.
@@ -17538,7 +17721,7 @@ function logModeSnapshotUI(snapshot) {
     }
 
     // ═══════════════════════════════════════════════════════════════
-    // 🤖 IA VIVA — Bootstrap do histórico na aba IA (200 ciclos)
+    // 🤖 IA VIVA — Bootstrap do histórico na aba IA (20 ciclos iniciais)
     // ═══════════════════════════════════════════════════════════════
     let iaBootstrapBusy = false;
     let iaBootstrapBound = false;
@@ -17566,6 +17749,30 @@ function logModeSnapshotUI(snapshot) {
             return false;
         }
     })();
+
+    // ✅ IA VIVA (sem vidro): guardar contexto do último render para decidir se o overlay deve aparecer
+    let iaBootstrapLastEntriesCount = 0;
+    let iaBootstrapLastPendingIndicatorHtml = '';
+
+    // ✅ UX: a bolinha "IA" deve aparecer apenas na PRIMEIRA busca do usuário.
+    // Depois de uma busca bem-sucedida, ela nunca mais reaparece (mesmo se o usuário limpar/filtrar a lista).
+    const IA_BOOTSTRAP_USED_KEY_PREFIX = 'daIABootstrapUsed_';
+    function getIABootstrapUsedKey(mode) {
+        const mk = String(mode || '').toLowerCase().trim() === 'diamond' ? 'diamond' : 'standard';
+        return `${IA_BOOTSTRAP_USED_KEY_PREFIX}${mk}`;
+    }
+    function isIABootstrapUsed(mode) {
+        try {
+            return localStorage.getItem(getIABootstrapUsedKey(mode)) === '1';
+        } catch (_) {
+            return false;
+        }
+    }
+    function markIABootstrapUsed(mode) {
+        try {
+            localStorage.setItem(getIABootstrapUsedKey(mode), '1');
+        } catch (_) {}
+    }
 
     function setIABootstrapGlassVisible(visible) {
         const glass = document.getElementById('iaBootstrapGlass');
@@ -17601,6 +17808,20 @@ function logModeSnapshotUI(snapshot) {
         if (list) list.style.pointerEvents = enabled ? 'none' : '';
         // fallback de blur é feito via CSS @supports quando backdrop-filter não existir
         void iaBackdropSupported;
+    }
+
+    function dockIATestsToggleToEntriesHeader() {
+        try {
+            if (!isDesktop()) return;
+            const container = document.getElementById('blaze-double-analyzer');
+            if (!container || !container.classList.contains('da-desktop-dashboard')) return;
+            const toggle = document.getElementById('iaTestsToggle');
+            const header = document.querySelector('#entriesPanel .entries-header');
+            if (!toggle || !header) return;
+            if (toggle.parentNode !== header) {
+                header.appendChild(toggle);
+            }
+        } catch (_) {}
     }
 
     function setIATestsToggleVisible(visible) {
@@ -17660,7 +17881,11 @@ function logModeSnapshotUI(snapshot) {
 
         // Montar overlay no DOM
         try {
-            (document.body || document.documentElement).appendChild(overlay);
+            const container = document.getElementById('blaze-double-analyzer');
+            const dashboardHost = (isDesktop() && container && container.classList.contains('da-desktop-dashboard'))
+                ? (container.querySelector('.da-desktop-main') || container)
+                : (document.body || document.documentElement);
+            dashboardHost.appendChild(overlay);
         } catch (_) {
             // noop
         }
@@ -17747,20 +17972,41 @@ function logModeSnapshotUI(snapshot) {
         btn.classList.toggle('is-expanded', expanded);
     }
 
-    function applyIAVisibilityState() {
+    function applyIAVisibilityState(entriesCount, pendingIndicatorHtml) {
+        // Atualizar contexto (quando chamado a partir do render)
+        try {
+            const n = Number(entriesCount);
+            if (Number.isFinite(n)) iaBootstrapLastEntriesCount = n;
+        } catch (_) {}
+        try {
+            if (typeof pendingIndicatorHtml === 'string') {
+                iaBootstrapLastPendingIndicatorHtml = pendingIndicatorHtml;
+            }
+        } catch (_) {}
+
         const isIA = (activeEntriesTab === 'entries');
         const expanded = isIAFullscreenActive();
+        // ✅ Desktop: colocar o ícone de tela cheia na linha do WIN/LOSS/Ciclos/Limpar
+        try { dockIATestsToggleToEntriesHeader(); } catch (_) {}
         // Manter o ícone DENTRO da aba (sem botão extra fora do painel).
         // Em tela cheia ele continua servindo para "minimizar" (toggle do ícone).
         setIATestsToggleVisible(isIA);
         updateIATestsToggleLabel();
 
-        const shouldHideOverlay = !isIA || expanded;
-        const shouldGlass = isIA && !expanded;
+        // ✅ Pedido do usuário: remover “vidro/ofuscado” do modo IA.
+        // Portanto: nunca mostrar o glass e nunca aplicar blur/filtro na lista.
+        const shouldGlass = false;
 
-        try { setIABootstrapGlassVisible(shouldGlass); } catch (_) {}
+        // Overlay (bolinha) só faz sentido quando a IA está vazia e NÃO há pendência.
+        // (Se já tem histórico, não deve ficar cobrindo o conteúdo.)
+        const shouldHideOverlay = !isIA || expanded || !shouldShowIABootstrapOverlay(
+            iaBootstrapLastEntriesCount,
+            iaBootstrapLastPendingIndicatorHtml
+        );
+
+        try { setIABootstrapGlassVisible(false); } catch (_) {}
+        try { applyIAGlassMode(false); } catch (_) {}
         try { setIABootstrapOverlayVisible(!shouldHideOverlay); } catch (_) {}
-        try { applyIAGlassMode(shouldGlass); } catch (_) {}
     }
 
     function bindIATestsToggle() {
@@ -17780,6 +18026,9 @@ function logModeSnapshotUI(snapshot) {
     function shouldShowIABootstrapOverlay(filteredEntriesCount, pendingIndicatorHtml) {
         // Só faz sentido na aba IA (entries)
         if (activeEntriesTab !== 'entries') return false;
+        // ✅ Se já foi usado uma vez, nunca mais mostrar a bolinha
+        const mode = document.querySelector('.ai-mode-toggle.active') ? 'diamond' : 'standard';
+        if (isIABootstrapUsed(mode)) return false;
         // Se está rodando, manter overlay visível (para animação), mesmo que a lista atualize por trás
         if (iaBootstrapBusy) return true;
         // Se há itens, não mostrar
@@ -17807,7 +18056,8 @@ function logModeSnapshotUI(snapshot) {
                 chrome.runtime.sendMessage({
                     action: 'IA_BOOTSTRAP_HISTORY',
                     mode,
-                    targetCycles: 200
+                    // ✅ Novo pedido: bootstrap inicial = 20 ciclos mais recentes
+                    targetCycles: 20
                 }, async (response) => {
                     const err = chrome.runtime.lastError;
                     if (err) {
@@ -17827,9 +18077,13 @@ function logModeSnapshotUI(snapshot) {
                     // ✅ Animação de concluído e sumir
                     setIABootstrapState('done', '');
                     setTimeout(() => {
+                        // ✅ Marcar como já usado: nunca mais mostrar a bolinha depois do 1º bootstrap
+                        markIABootstrapUsed(mode);
                         iaBootstrapBusy = false;
                         // Após concluir, manter apenas a bolinha (CTA some quando houver histórico visível)
                         setIABootstrapState('idle', '');
+                        // Forçar reavaliação do overlay (some imediatamente após o 1º carregamento)
+                        try { applyIAVisibilityState(iaBootstrapLastEntriesCount, iaBootstrapLastPendingIndicatorHtml); } catch (_) {}
                     }, 850);
                 });
             } catch (e) {
