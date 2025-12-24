@@ -81,8 +81,6 @@ function logModeSnapshot(contextLabel = 'Contexto atual', historyLength = cached
         }
     } else {
         logInfo('Min. ocorrências', analyzerConfig.minOccurrences || 1);
-        const signalInterval = (analyzerConfig.minSignalIntervalSpins ?? analyzerConfig.minIntervalSpins) || 0;
-        logInfo('Intervalo entre sinais', signalInterval);
     }
     if (analyzerConfig.aiMode) {
         getDiamondConfigSnapshot().forEach(([label, detail]) => logInfo(label, detail));
@@ -198,6 +196,37 @@ const RECOVERY_SECURE_HISTORY_KEY = 'recoverySecureHistory';
 // A liberação é baseada na leitura do histórico de CICLOS (distância entre LOSS/RED + hazard),
 // buscando um "momento seguro" com baixa previsão de LOSS.
 const RECOVERY_MIN_CYCLES = 20;
+
+// ✅ UI feedback (Recuperação): mostrar por que ainda não liberou sinal
+let lastRecoveryGateStatusByMode = { standard: '', diamond: '' };
+let lastRecoveryGateStatusSentAtByMode = { standard: 0, diamond: 0 };
+const RECOVERY_GATE_STATUS_THROTTLE_MS = 2500;
+
+function emitRecoveryGateStatus(modeRaw, textRaw) {
+    try {
+        if (!recoveryModeEnabled) return;
+        const mode = String(modeRaw || '').toLowerCase().trim() === 'diamond' ? 'diamond' : 'standard';
+        const nextText = (typeof textRaw === 'string') ? textRaw : '';
+        const now = Date.now();
+        const prevText = lastRecoveryGateStatusByMode && lastRecoveryGateStatusByMode[mode] ? lastRecoveryGateStatusByMode[mode] : '';
+        const prevAt = Number(lastRecoveryGateStatusSentAtByMode && lastRecoveryGateStatusSentAtByMode[mode]) || 0;
+
+        // throttle: só enviar se mudou OU se passou um tempo mínimo
+        if (nextText === prevText && (now - prevAt) < RECOVERY_GATE_STATUS_THROTTLE_MS) {
+            return;
+        }
+
+        lastRecoveryGateStatusByMode = { ...(lastRecoveryGateStatusByMode || {}), [mode]: nextText };
+        lastRecoveryGateStatusSentAtByMode = { ...(lastRecoveryGateStatusSentAtByMode || {}), [mode]: now };
+
+        try {
+            sendMessageToContent('RECOVERY_MODE_UPDATE', {
+                enabled: true,
+                statusText: nextText
+            });
+        } catch (_) {}
+    } catch (_) {}
+}
 
 function computeRecoveryGateFromEntries(entriesHistoryRaw, modeRaw) {
     try {
@@ -462,7 +491,6 @@ const DEFAULT_ANALYZER_CONFIG = {
     minOccurrences: 2,            // ✅ quantidade mínima de WINS exigida (padrão: 2) - MODO PADRÃO
     maxOccurrences: 0,            // ✅ quantidade MÁXIMA de ocorrências (0 = sem limite)
     minIntervalSpins: 2,          // ✅ intervalo mínimo em GIROS entre OCORRÊNCIAS do MESMO padrão (modo padrão)
-    minSignalIntervalSpins: 2,    // ✅ intervalo mínimo em GIROS entre ENTRADAS/SINAIS (modo Diamante)
     minPatternSize: 3,            // ✅ tamanho MÍNIMO do padrão (giros)
     maxPatternSize: 0,            // ✅ tamanho MÁXIMO do padrão (0 = sem limite)
     winPercentOthers: 100,        // ✅ WIN% mínima para as ocorrências restantes (100% = apenas padrões perfeitos)
@@ -3840,7 +3868,7 @@ async function processNewSpinFromServer(spinData) {
                                 analysis: null, 
                                 pattern: null,
                                 lastBet: { status: 'win', phase: currentAnalysis.phase || 'G0', resolvedAtTimestamp: latestSpin.created_at },
-                                // ✅ Intervalo após entrada (Diamante): contar a partir do FIM DO CICLO
+                                // ✅ Marcar fim do ciclo (WIN/RET) para referência de estado/telemetria
                                 lastCycleResolvedSpinId: latestSpin ? (latestSpin.id || null) : null,
                                 lastCycleResolvedSpinTimestamp: latestSpin ? (latestSpin.created_at || null) : null,
                                 lastCycleResolvedTimestamp: Date.now(),
@@ -4043,7 +4071,7 @@ async function processNewSpinFromServer(spinData) {
                                         analysis: null, 
                                         pattern: null,
                                         lastBet: { status: 'loss', phase: 'G0', resolvedAtTimestamp: latestSpin.created_at },
-                                        // ✅ Intervalo após entrada (Diamante): contar a partir do FIM DO CICLO (RED)
+                                        // ✅ Marcar fim do ciclo (RED) para referência de estado/telemetria
                                         lastCycleResolvedSpinId: latestSpin ? (latestSpin.id || null) : null,
                                         lastCycleResolvedSpinTimestamp: latestSpin ? (latestSpin.created_at || null) : null,
                                         lastCycleResolvedTimestamp: Date.now(),
@@ -4305,7 +4333,7 @@ async function processNewSpinFromServer(spinData) {
                                         analysis: null, 
                                         pattern: null, 
                                         lastBet: { status: 'loss', phase: currentStage, resolvedAtTimestamp: latestSpin.created_at },
-                                        // ✅ Intervalo após entrada (Diamante): contar a partir do FIM DO CICLO (RED)
+                                        // ✅ Marcar fim do ciclo (RED) para referência de estado/telemetria
                                         lastCycleResolvedSpinId: latestSpin ? (latestSpin.id || null) : null,
                                         lastCycleResolvedSpinTimestamp: latestSpin ? (latestSpin.created_at || null) : null,
                                         lastCycleResolvedTimestamp: Date.now(),
@@ -4623,7 +4651,7 @@ async function processNewSpinFromServer(spinData) {
                                         analysis: null, 
                                         pattern: null, 
                                     lastBet: { status: 'loss', phase: 'G2', resolvedAtTimestamp: latestSpin.created_at },
-                                        // ✅ Intervalo após entrada (Diamante): contar a partir do FIM DO CICLO (RED)
+                                        // ✅ Marcar fim do ciclo (RED) para referência de estado/telemetria
                                         lastCycleResolvedSpinId: latestSpin ? (latestSpin.id || null) : null,
                                         lastCycleResolvedSpinTimestamp: latestSpin ? (latestSpin.created_at || null) : null,
                                         lastCycleResolvedTimestamp: Date.now(),
@@ -14875,7 +14903,8 @@ async function analyzeWithPatternSystem(history) {
         // ═══════════════════════════════════════════════════════════════
         // ⏱️ VERIFICAÇÃO DE INTERVALO MÍNIMO ENTRE SINAIS (APENAS MODO DIAMANTE)
         // ═══════════════════════════════════════════════════════════════
-        let minIntervalSpins = (analyzerConfig.minSignalIntervalSpins ?? analyzerConfig.minIntervalSpins) || 0;
+        // ❌ Removido a pedido do usuário: não aplicar cooldown/intervalo entre sinais.
+        let minIntervalSpins = 0;
         // ✅ N4-only (com N9 opcional): o usuário quer volume alto, então não aplicar cooldown entre sinais.
         if (shouldUseN4DynamicGalesForConfig(analyzerConfig)) {
             minIntervalSpins = 0;
@@ -26263,24 +26292,31 @@ async function emitAnalysisToContent(analysis, mode) {
                     analysis.recoveryGate = null;
                 } else {
                     try {
-                        const stored = await chrome.storage.local.get([RECOVERY_SECURE_HISTORY_KEY, ENTRIES_CLEAR_CUTOFF_KEY]);
-                        const all = stored && Array.isArray(stored[RECOVERY_SECURE_HISTORY_KEY]) ? stored[RECOVERY_SECURE_HISTORY_KEY] : [];
-                        const cutoffMs = getMasterCutoffMsForMode(stored ? stored[ENTRIES_CLEAR_CUTOFF_KEY] : null, modeKey);
-                        const filtered = filterEntriesHistoryByCutoff(all, cutoffMs);
-                        const gate = computeRecoveryGateFromEntries(filtered, modeKey);
+                        // ✅ Recuperação usa histórico interno (seeded) SEM cutoff da IA
+                        const stored = await chrome.storage.local.get([RECOVERY_SECURE_HISTORY_KEY, 'entriesHistory']);
+                        const allRecovery = stored && Array.isArray(stored[RECOVERY_SECURE_HISTORY_KEY]) ? stored[RECOVERY_SECURE_HISTORY_KEY] : [];
+                        const baseEntries = stored && Array.isArray(stored.entriesHistory) ? stored.entriesHistory : [];
+
+                        // Se por algum motivo o recoverySecureHistory estiver vazio, usar entriesHistory como fallback
+                        const source = allRecovery.length ? allRecovery : baseEntries;
+                        const gate = computeRecoveryGateFromEntries(source, modeKey);
                         if (gate && gate.ok === true) {
                             analysis.recoveryMode = true;
                             analysis.hiddenInternal = false; // ✅ sinal seguro: visível (IA + Recuperação)
                             analysis.recoveryGate = gate && gate.stats ? gate.stats : null;
+                            // limpar texto de “aguardando” ao liberar sinal
+                            try { emitRecoveryGateStatus(modeKey, ''); } catch (_) {}
                         } else {
                             analysis.recoveryMode = false;
                             analysis.hiddenInternal = true;
                             analysis.recoveryGate = gate && gate.stats ? gate.stats : null;
+                            try { emitRecoveryGateStatus(modeKey, gate && gate.reason ? gate.reason : 'Aguardando ponto seguro...'); } catch (_) {}
                         }
                     } catch (_) {
                         analysis.recoveryMode = false;
                         analysis.hiddenInternal = true;
                         analysis.recoveryGate = null;
+                        try { emitRecoveryGateStatus(modeKey, 'Aguardando ponto seguro...'); } catch (_) {}
                     }
                 }
             } else {
@@ -27695,56 +27731,8 @@ function buildDiamondSingleLevelEnabledMap(levelId, baseEnabledMap = null) {
 }
 
 function computeIntervalBlockForSimulation(history, config, simState) {
-    const minIntervalSpins = (config?.minSignalIntervalSpins ?? config?.minIntervalSpins) || 0;
-    if (!config?.aiMode || minIntervalSpins <= 0) {
-        return { blocked: false, message: '' };
-    }
-    // ✅ N4-only (com N9 opcional): não aplicar cooldown entre sinais na simulação.
-    if (shouldUseN4DynamicGalesForConfig(config)) {
-        return { blocked: false, message: '' };
-    }
-
-    // ✅ Intervalo após entrada (Diamante): contar a partir do FIM DO CICLO (WIN/RET) na simulação.
-    const lastCycleResolvedSpinId = simState?.lastCycleResolvedSpinId || null;
-    const lastCycleResolvedSpinTimestamp = simState?.lastCycleResolvedSpinTimestamp || null;
-    // fallback legado:
-    const lastSignalSpinId = simState?.lastSignalSpinId || null;
-    const lastSignalSpinTimestamp = simState?.lastSignalSpinTimestamp || null;
-
-    const refId = lastCycleResolvedSpinId || lastSignalSpinId;
-    const refTs = lastCycleResolvedSpinTimestamp || lastSignalSpinTimestamp;
-
-    let spinsSince = null;
-    if (Array.isArray(history) && history.length > 0) {
-        if (refId) {
-            const idx = history.findIndex(spin => spin && spin.id === refId);
-            spinsSince = idx >= 0 ? idx : history.length;
-        } else if (refTs) {
-            const referenceTime = new Date(refTs).getTime();
-            if (!Number.isNaN(referenceTime)) {
-                for (let i = 0; i < history.length; i++) {
-                    const spinTime = history[i]?.timestamp ? new Date(history[i].timestamp).getTime() : NaN;
-                    if (!Number.isNaN(spinTime) && spinTime <= referenceTime) {
-                        spinsSince = i;
-                        break;
-                    }
-                }
-                if (spinsSince === null) spinsSince = history.length;
-            }
-        }
-    }
-
-    if (spinsSince === null) {
-        return { blocked: false, message: '' };
-    }
-    if (spinsSince >= minIntervalSpins) {
-        return { blocked: false, message: '' };
-    }
-    const remaining = minIntervalSpins - spinsSince;
-    return {
-        blocked: true,
-        message: `⏳ Aguardando ${remaining} giro(s)... ${spinsSince}/${minIntervalSpins}`
-    };
+    // ❌ Removido a pedido do usuário: não aplicar cooldown/intervalo entre sinais na simulação.
+    return { blocked: false, message: '' };
 }
 
 function createDiamondSimulationState(config) {
@@ -29207,15 +29195,18 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                 // (3) limpar a UI (não mostrar sinal em lugar algum).
                 if (recoveryModeEnabled) {
                     try {
-                        const stored = await chrome.storage.local.get(['analysis', 'entriesHistory', RECOVERY_SECURE_HISTORY_KEY, ENTRIES_CLEAR_CUTOFF_KEY]);
+                        const stored = await chrome.storage.local.get(['analysis', 'entriesHistory', RECOVERY_SECURE_HISTORY_KEY]);
                         const existingRecovery = stored && Array.isArray(stored[RECOVERY_SECURE_HISTORY_KEY]) ? stored[RECOVERY_SECURE_HISTORY_KEY] : [];
                         const baseEntries = stored && Array.isArray(stored.entriesHistory) ? stored.entriesHistory : [];
-                        if (!existingRecovery.length && baseEntries.length) {
-                            // usar a mesma janela do "Limpar" da IA (cutoff) para não herdar histórico limpado
-                            const modeKey = analyzerConfig && analyzerConfig.aiMode ? 'diamond' : 'standard';
-                            const cutoffMs = getMasterCutoffMsForMode(stored ? stored[ENTRIES_CLEAR_CUTOFF_KEY] : null, modeKey);
-                            const seeded = filterEntriesHistoryByCutoff(baseEntries, cutoffMs);
+                        // ✅ Regra: ao ativar Recuperação, sempre garantir uma base robusta.
+                        // Não depender do cutoff da IA (isso pode zerar e “travar” por 20+ min).
+                        // Se houver entriesHistory, usar como seed (cap para não inflar storage).
+                        if (baseEntries.length) {
+                            const cap = 2000;
+                            const seeded = baseEntries.slice(0, cap);
                             await chrome.storage.local.set({ [RECOVERY_SECURE_HISTORY_KEY]: seeded });
+                        } else if (!existingRecovery.length) {
+                            await chrome.storage.local.set({ [RECOVERY_SECURE_HISTORY_KEY]: [] });
                         }
                         const a = stored && stored.analysis ? stored.analysis : null;
                         if (a && !a.recoveryMode) {

@@ -1020,7 +1020,7 @@
         
         // ✅ CAMPOS EXCLUSIVOS DO MODO DIAMANTE
         const diamondOnlyFields = [
-            'cfgMinInterval'         // Intervalo após entrada (giros) - somente Modo Diamante
+            // (vazio)
         ];
         
         diamondOnlyFields.forEach(fieldId => {
@@ -1036,8 +1036,7 @@
         
         // ✅ CAMPOS COMPARTILHADOS: Destacar quando IA está ativa (são usados em ambos os modos)
         const sharedFields = [
-            { id: 'cfgMinOccurrences', label: 'Confiança mínima (%)' },
-            { id: 'cfgMinInterval', label: 'Distância mínima entre sinais (Modo Diamante)' }
+            { id: 'cfgMinOccurrences', label: 'Confiança mínima (%)' }
         ];
         
         sharedFields.forEach(({ id, label }) => {
@@ -11050,6 +11049,23 @@ async function persistAnalyzerState(newState) {
                         <span class="user-info-label">Nome</span>
                         <span class="user-info-value" id="userMenuName">—</span>
                     </div>
+
+                    <!-- ✅ Telegram Chat ID (fora das configurações do modo) -->
+                    <div class="user-info-item-editable">
+                        <span class="user-info-label">Telegram Chat ID</span>
+                        <div style="display: flex; gap: 6px; align-items: stretch;">
+                            <input type="password" class="profile-input" id="cfgTgChatId" placeholder="Digite seu Chat ID" style="flex: 1; min-width: 0;" />
+                            <button type="button" id="toggleTgId" class="toggle-visibility-btn" title="Mostrar/Ocultar">
+                                <svg class="eye-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                    <path d="M12 5C7 5 2.73 8.11 1 12.5C2.73 16.89 7 20 12 20C17 20 21.27 16.89 23 12.5C21.27 8.11 17 5 12 5Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                                    <circle cx="12" cy="12.5" r="3.5" stroke="currentColor" stroke-width="2"/>
+                                </svg>
+                                <svg class="eye-off-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style="display: none;">
+                                    <path d="M3 3L21 21M10.5 10.7C9.8 11.5 9.5 12.5 10 13.5C10.5 14.5 11.5 15 12.5 15C13.3 15 14.1 14.6 14.7 14M17 17C15.5 18.5 13.8 19.5 12 19.5C7 19.5 2.73 16.39 1 12C2.1 9.6 3.8 7.6 6 6.3M12 5.5C17 5.5 21.27 8.61 23 13C22.4 14.4 21.5 15.7 20.4 16.8" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                                </svg>
+                            </button>
+                        </div>
+                    </div>
                     
                     <div class="profile-divider">Configurações</div>
                     
@@ -11466,16 +11482,6 @@ async function persistAnalyzerState(newState) {
                                     <div class="settings-section settings-section-highlight" style="margin-top: 0;">
                     <h4>Configurações</h4>
                     <div class="settings-grid">
-                                            <div class="setting-item">
-                                                <span class="setting-label">Intervalo após entrada (giros):</span>
-                                                <input
-                                                    type="number"
-                                                    id="cfgMinInterval"
-                                                    min="0"
-                                                    value="2"
-                                                    title="Quantidade mínima de giros entre ENTRADAS/SINAIS consecutivos no Modo Diamante (0 = pode enviar sinal em qualquer giro)."
-                                                    placeholder="Ex: 2 giros (0 = sem intervalo mínimo entre entradas)" />
-                                            </div>
                         <div class="setting-item" id="historyDepthSetting">
                             <span class="setting-label">Profundidade de Análise (giros):</span>
                             <input type="number" id="cfgHistoryDepth" min="100" max="10000" value="500" title="Quantidade de giros para análise e busca de padrões (100-10000) - VÁLIDO APENAS NO MODO PADRÃO" placeholder="Ex: 500 giros" />
@@ -11518,21 +11524,6 @@ async function persistAnalyzerState(newState) {
                             <div class="hot-pattern-actions">
                                 <button id="standardSimulationBtn" class="btn-hot-pattern btn-standard-test-config" type="button" title="Simular/otimizar esta configuração no passado (sem olhar o futuro)">
                                     Testar configurações
-                                </button>
-                            </div>
-                        </div>
-                        <div class="setting-item setting-row">
-                            <span class="setting-label">Telegram Chat ID:</span>
-                            <div style="display: flex; gap: 4px; flex: 1; align-items: stretch;">
-                                <input type="password" id="cfgTgChatId" placeholder="Digite seu Chat ID" style="flex: 1;" />
-                                <button type="button" id="toggleTgId" class="toggle-visibility-btn" title="Mostrar/Ocultar">
-                                    <svg class="eye-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                        <path d="M12 5C7 5 2.73 8.11 1 12.5C2.73 16.89 7 20 12 20C17 20 21.27 16.89 23 12.5C21.27 8.11 17 5 12 5Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                                        <circle cx="12" cy="12.5" r="3.5" stroke="currentColor" stroke-width="2"/>
-                                    </svg>
-                                    <svg class="eye-off-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style="display: none;">
-                                        <path d="M3 3L21 21M10.5 10.7C9.8 11.5 9.5 12.5 10 13.5C10.5 14.5 11.5 15 12.5 15C13.3 15 14.1 14.6 14.7 14M17 17C15.5 18.5 13.8 19.5 12 19.5C7 19.5 2.73 16.39 1 12C2.1 9.6 3.8 7.6 6 6.3M12 5.5C17 5.5 21.27 8.61 23 13C22.4 14.4 21.5 15.7 20.4 16.8" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                                    </svg>
                                 </button>
                             </div>
                         </div>
@@ -12737,7 +12728,6 @@ async function persistAnalyzerState(newState) {
                         minOccurrences: 2,
                         maxOccurrences: 0,
                         minIntervalSpins: 2,
-                        minSignalIntervalSpins: 2,
                         minPatternSize: 3,
                         maxPatternSize: 0,
                         winPercentOthers: 100,
@@ -17746,7 +17736,6 @@ function logModeSnapshotUI(snapshot) {
                 const minOcc = document.getElementById('cfgMinOccurrences');
                 const maxOcc = document.getElementById('cfgMaxOccurrences');
                 const patternInt = document.getElementById('cfgPatternInterval');
-                const minInt = document.getElementById('cfgMinInterval');
                 const minSize = document.getElementById('cfgMinPatternSize');
                 const maxSize = document.getElementById('cfgMaxPatternSize');
                 const winPct = document.getElementById('cfgWinPercentOthers');
@@ -17759,12 +17748,6 @@ function logModeSnapshotUI(snapshot) {
                 if (minOcc) minOcc.value = cfg.minOccurrences != null ? cfg.minOccurrences : 1;
                 if (maxOcc) maxOcc.value = cfg.maxOccurrences != null ? cfg.maxOccurrences : 0;
                 if (patternInt) patternInt.value = cfg.minIntervalSpins != null ? cfg.minIntervalSpins : 0;
-                if (minInt) {
-                    const signalInterval = cfg.minSignalIntervalSpins != null
-                        ? cfg.minSignalIntervalSpins
-                        : (cfg.minIntervalSpins != null ? cfg.minIntervalSpins : 0);
-                    minInt.value = signalInterval;
-                }
                 if (minSize) minSize.value = cfg.minPatternSize != null ? cfg.minPatternSize : 3;
                 if (maxSize) maxSize.value = cfg.maxPatternSize != null ? cfg.maxPatternSize : 0;
                 if (winPct) winPct.value = cfg.winPercentOthers != null ? cfg.winPercentOthers : 25;
@@ -17892,7 +17875,6 @@ function logModeSnapshotUI(snapshot) {
                 const minOcc = Math.max(parseInt(getElementValue('cfgMinOccurrences', '1'), 10), 1);
                 const maxOcc = Math.max(parseInt(getElementValue('cfgMaxOccurrences', '0'), 10), 0);
                 const patternInterval = Math.max(parseInt(getElementValue('cfgPatternInterval', '0'), 10), 0);
-                const signalInterval = Math.max(parseInt(getElementValue('cfgMinInterval', '0'), 10), 0);
                 let minSize = Math.max(parseInt(getElementValue('cfgMinPatternSize', '2'), 10), 2);
                 let maxSize = Math.max(parseInt(getElementValue('cfgMaxPatternSize', '0'), 10), 0);
                 const winPct = Math.max(0, Math.min(100, parseInt(getElementValue('cfgWinPercentOthers', '25'), 10)));
@@ -18017,7 +17999,6 @@ function logModeSnapshotUI(snapshot) {
                 console.log('   • minOccurrences:', minOcc);
                 console.log('   • maxOccurrences:', maxOcc);
                 console.log('   • minIntervalSpins (entre padrões):', patternInterval);
-                console.log('   • minSignalIntervalSpins (após entrada):', signalInterval);
                 console.log('   • minPatternSize:', minSize);
                 console.log('   • maxPatternSize:', maxSize);
                 console.log('   • winPercentOthers:', winPct + '%');
@@ -18078,7 +18059,6 @@ function logModeSnapshotUI(snapshot) {
                     minOccurrences: minOcc,
                     maxOccurrences: maxOcc,
                     minIntervalSpins: patternInterval,
-                    minSignalIntervalSpins: signalInterval,
                     minPatternSize: minSize,
                     maxPatternSize: maxSize,
                     winPercentOthers: winPct,
