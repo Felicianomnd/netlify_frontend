@@ -11303,7 +11303,7 @@ async function persistAnalyzerState(newState) {
                 <div class="pattern-section">
                     <h4>Padrão</h4>
                     <div class="pattern-info" id="patternInfo">
-                        Nenhum padrão detectado
+                        
                     </div>
                 </div>
                 
@@ -13173,8 +13173,9 @@ async function persistAnalyzerState(newState) {
     }
     
     // Função auxiliar para renderizar análise IA COM círculos coloridos
-    function renderAIAnalysisWithSpins(aiData, last5Spins) {
+    function renderAIAnalysisWithSpins(aiData, last5Spins, options = {}) {
         console.log('%c🎨 RENDERIZANDO IA COM CÍRCULOS!', 'color: #00FF00; font-weight: bold; font-size: 14px;');
+        const showSpins = !((options && typeof options === 'object') && options.showSpins === false);
 
         const parseDiamondReasoning = (raw = '') => {
             const meta = { mode: null, score: null, decision: null, confidence: null };
@@ -13372,7 +13373,7 @@ async function persistAnalyzerState(newState) {
                     ? 'BRANCA'
                     : '—';
 
-        const spinsSection = spinsCount > 0 ? `
+        const spinsSection = (showSpins && spinsCount > 0) ? `
             <div class="ai-entry-section">
                 <div class="ai-entry-section-title">Últimos ${spinsCount} giros</div>
                 <div class="ai-entry-spins">${spinsHTML}</div>
@@ -13427,10 +13428,11 @@ async function persistAnalyzerState(newState) {
             // Usar last5Spins do parsed OU do patternData
             const last5Spins = parsed.last5Spins || (patternData && patternData.last5Spins) || [];
             console.log('%c   🎯 last5Spins final a usar:', 'color: #00FFFF; font-weight: bold;', last5Spins);
+            const hideInlineSpins = !!(patternData && patternData.__daPatternCard);
             
             if (last5Spins.length > 0) {
                 // Renderizar com círculos coloridos
-                return renderAIAnalysisWithSpins(parsed, last5Spins);
+                return renderAIAnalysisWithSpins(parsed, last5Spins, { showSpins: !hideInlineSpins });
             } else {
                 console.log('%c⚠️ last5Spins vazio - renderizando formato antigo', 'color: #FFAA00;');
                 return renderAIAnalysisOldFormat(parsed);
@@ -13501,10 +13503,11 @@ async function persistAnalyzerState(newState) {
             
             if (aiData) {
                 console.log('✅ DETECTADO: Análise por IA - renderizando com círculos coloridos');
+                const hideInlineSpins = !!(patternData && patternData.__daPatternCard);
                 
                 // Se for formato novo (estruturado com last5Spins)
                 if (aiData.last5Spins && aiData.last5Spins.length > 0) {
-                    return renderAIAnalysisWithSpins(aiData, aiData.last5Spins);
+                    return renderAIAnalysisWithSpins(aiData, aiData.last5Spins, { showSpins: !hideInlineSpins });
                 } else {
                     return renderAIAnalysisOldFormat(aiData);
                 }
@@ -13967,7 +13970,9 @@ async function persistAnalyzerState(newState) {
     // - Deve sempre exibir os últimos 10 giros (independente da aba ativa).
     // ═══════════════════════════════════════════════════════════════
 
-    function getPatternLastSpinsSnapshot(limit = 10) {
+    const PATTERN_LAST_SPINS_LIMIT = 14;
+
+    function getPatternLastSpinsSnapshot(limit = PATTERN_LAST_SPINS_LIMIT) {
         try {
             const n = Math.max(0, Number(limit) || 0);
             const arr = Array.isArray(currentHistoryData) ? currentHistoryData : [];
@@ -13982,7 +13987,7 @@ async function persistAnalyzerState(newState) {
         if (!list.length) {
             return `<div class="no-history" style="padding:8px 4px;">Aguardando giros...</div>`;
         }
-        return list.map((spin) => {
+        return list.map((spin, index) => {
             const color = (spin && typeof spin.color === 'string') ? spin.color.toLowerCase() : '';
             const safeColor = (color === 'red' || color === 'black' || color === 'white') ? color : 'red';
             const isWhite = safeColor === 'white';
@@ -13995,17 +14000,18 @@ async function persistAnalyzerState(newState) {
                     return '';
                 }
             })();
+            const label = index === 0 ? 'Recente' : `${index + 1}º`;
             const title = `${safeColor === 'red' ? 'Vermelho' : safeColor === 'black' ? 'Preto' : 'Branco'}: ${number}${time ? ' - ' + time : ''}`;
             return `<div class="spin-history-item-wrap" title="${escapeHtml(title)}">
                 <div class="spin-history-quadrado ${safeColor}">
                     ${isWhite ? blazeWhiteSVG(20) : `<span>${escapeHtml(String(number))}</span>`}
                 </div>
-                <div class="spin-history-time">${escapeHtml(time)}</div>
+                <div class="spin-history-time">${escapeHtml(label)}</div>
             </div>`;
         }).join('');
     }
 
-    function ensurePatternInfoLayout(patternInfoEl, limit = 10) {
+    function ensurePatternInfoLayout(patternInfoEl, limit = PATTERN_LAST_SPINS_LIMIT) {
         if (!patternInfoEl) return { mainEl: null, rowEl: null };
         const safeLimit = Math.max(1, Number(limit) || 10);
 
@@ -14016,20 +14022,28 @@ async function persistAnalyzerState(newState) {
             spinsBlock.id = 'patternLastSpinsBlock';
             spinsBlock.className = 'pattern-last-spins';
             spinsBlock.innerHTML = `
-                <div class="pattern-last-spins-title" style="font-size: 11px; color: var(--text-secondary); margin: 10px 0 6px;">Últimos ${safeLimit} giros</div>
-                <div class="spin-history-bar-blaze pattern-last-spins-row" id="patternLastSpinsRow"></div>
+                <div class="ai-entry-section ai-entry-section--pattern-spins">
+                    <div class="ai-entry-section-title">Últimos ${safeLimit} giros</div>
+                    <div class="ai-entry-spins" id="patternLastSpinsRow"></div>
+                </div>
             `;
-            patternInfoEl.appendChild(spinsBlock);
+            patternInfoEl.insertBefore(spinsBlock, patternInfoEl.firstChild);
         } else {
-            const titleEl = spinsBlock.querySelector('.pattern-last-spins-title');
+            const titleEl = spinsBlock.querySelector('.ai-entry-section-title');
             if (titleEl) titleEl.textContent = `Últimos ${safeLimit} giros`;
+            // Garantir que fique no TOPO
+            try {
+                if (patternInfoEl.firstChild !== spinsBlock) {
+                    patternInfoEl.insertBefore(spinsBlock, patternInfoEl.firstChild);
+                }
+            } catch (_) {}
         }
 
         let rowEl = spinsBlock.querySelector('#patternLastSpinsRow');
         if (!rowEl) {
             rowEl = document.createElement('div');
             rowEl.id = 'patternLastSpinsRow';
-            rowEl.className = 'spin-history-bar-blaze pattern-last-spins-row';
+            rowEl.className = 'ai-entry-spins';
             spinsBlock.appendChild(rowEl);
         }
 
@@ -14046,12 +14060,17 @@ async function persistAnalyzerState(newState) {
                 try { mainEl.appendChild(node); } catch (_) {}
             });
 
-            patternInfoEl.insertBefore(mainEl, spinsBlock);
+            // ✅ Padrão: "Últimos giros" no topo, conteúdo abaixo
+            patternInfoEl.appendChild(mainEl);
         } else {
-            // Garantir ordem (wrapper antes do bloco de giros)
+            // Garantir ordem (bloco de giros no topo)
             try {
-                if (spinsBlock && mainEl.nextSibling !== spinsBlock) {
-                    patternInfoEl.insertBefore(mainEl, spinsBlock);
+                if (spinsBlock && patternInfoEl.firstChild !== spinsBlock) {
+                    patternInfoEl.insertBefore(spinsBlock, patternInfoEl.firstChild);
+                }
+                if (spinsBlock && mainEl.previousSibling !== spinsBlock) {
+                    // colocar conteúdo logo após o bloco
+                    patternInfoEl.insertBefore(mainEl, spinsBlock.nextSibling);
                 }
             } catch (_) {}
         }
@@ -14061,11 +14080,9 @@ async function persistAnalyzerState(newState) {
 
     function setPatternMainContent(patternInfoEl, html, { expanded = false } = {}) {
         try {
-            const { mainEl } = ensurePatternInfoLayout(patternInfoEl, 10);
+            const { mainEl } = ensurePatternInfoLayout(patternInfoEl, PATTERN_LAST_SPINS_LIMIT);
             if (!mainEl) return;
-            const nextHtml = (typeof html === 'string' && html.trim())
-                ? html
-                : '<div class="pattern-empty">Nenhum padrão detectado</div>';
+            const nextHtml = (typeof html === 'string') ? html : '';
             mainEl.innerHTML = nextHtml;
             try {
                 patternInfoEl.classList.toggle('pattern-expanded', !!expanded);
@@ -14073,15 +14090,12 @@ async function persistAnalyzerState(newState) {
         } catch (_) {}
     }
 
-    function refreshPatternLastSpins(patternInfoEl, limit = 10) {
+    function refreshPatternLastSpins(patternInfoEl, limit = PATTERN_LAST_SPINS_LIMIT) {
         try {
             const { mainEl, rowEl } = ensurePatternInfoLayout(patternInfoEl, limit);
             if (!rowEl) return;
             rowEl.innerHTML = renderPatternLastSpinsItems(getPatternLastSpinsSnapshot(limit));
-            // Nunca deixar o card “vazio”
-            if (mainEl && !String(mainEl.textContent || '').trim() && !mainEl.children.length) {
-                mainEl.innerHTML = '<div class="pattern-empty">Nenhum padrão detectado</div>';
-            }
+            // ✅ Não mostrar mensagem quando não há padrão (pedido do usuário)
         } catch (_) {}
     }
     // Update sidebar with new data
@@ -14103,7 +14117,7 @@ async function persistAnalyzerState(newState) {
         // ✅ Pedido: Card "Padrão" deve ser SEMPRE visível e SEMPRE mostrar os últimos 10 giros
         // (inclusive quando chega apenas lastSpin e quando a análise some após o resultado).
         try { if (patternSection) patternSection.style.display = ''; } catch (_) {}
-        try { refreshPatternLastSpins(patternInfo, 10); } catch (_) {}
+        try { refreshPatternLastSpins(patternInfo, PATTERN_LAST_SPINS_LIMIT); } catch (_) {}
         
         if (data.lastSpin) {
             const spin = data.lastSpin;
@@ -14160,8 +14174,8 @@ async function persistAnalyzerState(newState) {
                             patternInfo.classList.add('pattern-expanded');
                         } else {
                             // ✅ Nunca deixar vazio (o card ficava “sumindo/limpo”)
-                            setPatternMainContent(patternInfo, '<div class="pattern-empty">Nenhum padrão detectado</div>', { expanded: false });
-                            try { refreshPatternLastSpins(patternInfo, 10); } catch (_) {}
+                            setPatternMainContent(patternInfo, '', { expanded: false });
+                            try { refreshPatternLastSpins(patternInfo, PATTERN_LAST_SPINS_LIMIT); } catch (_) {}
                         }
                     }
                 } catch (_) {}
@@ -14232,7 +14246,16 @@ async function persistAnalyzerState(newState) {
                         if (typeof parsed === 'string' && parsed.trim().startsWith('🤖')) {
                             console.log('✅ DETECTADO: Análise por IA (formato texto antigo)');
                             isAIAnalysis = true;
-                            setPatternMainContent(patternInfo, renderPatternVisual(parsed, data.pattern), { expanded: true });
+                            setPatternMainContent(
+                                patternInfo,
+                                renderPatternVisual(
+                                    parsed,
+                                    (data.pattern && typeof data.pattern === 'object')
+                                        ? { ...data.pattern, __daPatternCard: true }
+                                        : { __daPatternCard: true }
+                                ),
+                                { expanded: true }
+                            );
                         } else {
                             // Fazer parse do JSON
                             parsed = typeof parsed === 'string' ? JSON.parse(parsed) : parsed;
@@ -14242,7 +14265,16 @@ async function persistAnalyzerState(newState) {
                                 console.log('✅ DETECTADO: Análise por IA (formato JSON estruturado)');
                                 console.log('🎲 last5Spins no JSON:', parsed.last5Spins);
                                 isAIAnalysis = true;
-                                setPatternMainContent(patternInfo, renderPatternVisual(parsed, data.pattern), { expanded: true });
+                                setPatternMainContent(
+                                    patternInfo,
+                                    renderPatternVisual(
+                                        parsed,
+                                        (data.pattern && typeof data.pattern === 'object')
+                                            ? { ...data.pattern, __daPatternCard: true }
+                                            : { __daPatternCard: true }
+                                    ),
+                                    { expanded: true }
+                                );
                             } else if (parsed.type === 'custom_pattern') {
                                 console.log('✅ DETECTADO: Padrão Customizado');
                                 console.log('📋 Nome:', parsed.name);
@@ -14276,7 +14308,16 @@ async function persistAnalyzerState(newState) {
                                 console.log('📝 Análise padrão detectada');
                                 // anexar summary vindo do analysis se existir
                                 if (data.analysis && data.analysis.summary) parsed.summary = data.analysis.summary;
-                                setPatternMainContent(patternInfo, renderPatternVisual(parsed, data.pattern), { expanded: true });
+                                setPatternMainContent(
+                                    patternInfo,
+                                    renderPatternVisual(
+                                        parsed,
+                                        (data.pattern && typeof data.pattern === 'object')
+                                            ? { ...data.pattern, __daPatternCard: true }
+                                            : { __daPatternCard: true }
+                                    ),
+                                    { expanded: true }
+                                );
                             }
                         }
                         
@@ -14372,8 +14413,8 @@ async function persistAnalyzerState(newState) {
                             if (patternInfo) {
                                 if (!hasPattern) {
                                     // ✅ Nunca deixar vazio após resultado/refresh
-                                    setPatternMainContent(patternInfo, '<div class="pattern-empty">Nenhum padrão detectado</div>', { expanded: false });
-                                    try { refreshPatternLastSpins(patternInfo, 10); } catch (_) {}
+                                    setPatternMainContent(patternInfo, '', { expanded: false });
+                                    try { refreshPatternLastSpins(patternInfo, PATTERN_LAST_SPINS_LIMIT); } catch (_) {}
                                 } else {
                                     patternInfo.classList.add('pattern-expanded');
                                     // Reusar renderer já existente
@@ -14385,13 +14426,17 @@ async function persistAnalyzerState(newState) {
                                         })() : desc;
                                         setPatternMainContent(
                                             patternInfo,
-                                            renderPatternVisual(parsed, { description: desc, last5Spins: a.last5Spins || a.last10Spins || [] }),
+                                            renderPatternVisual(parsed, {
+                                                description: desc,
+                                                last5Spins: a.last5Spins || a.last10Spins || [],
+                                                __daPatternCard: true
+                                            }),
                                             { expanded: true }
                                         );
-                                        try { refreshPatternLastSpins(patternInfo, 10); } catch (_) {}
+                                        try { refreshPatternLastSpins(patternInfo, PATTERN_LAST_SPINS_LIMIT); } catch (_) {}
                                     } catch (_) {
                                         setPatternMainContent(patternInfo, `<pre class="pattern-raw">${escapeHtml(String(desc || ''))}</pre>`, { expanded: true });
-                                        try { refreshPatternLastSpins(patternInfo, 10); } catch (_) {}
+                                        try { refreshPatternLastSpins(patternInfo, PATTERN_LAST_SPINS_LIMIT); } catch (_) {}
                                     }
                                 }
                             }
@@ -14414,8 +14459,8 @@ async function persistAnalyzerState(newState) {
                             if (!renderFromMartingale(ms)) {
                                 renderSuggestionStatus(currentAnalysisStatus);
                                 try { if (patternSection) patternSection.style.display = ''; } catch (_) {}
-                                try { setPatternMainContent(patternInfo, '<div class="pattern-empty">Nenhum padrão detectado</div>', { expanded: false }); } catch (_) {}
-                                try { refreshPatternLastSpins(patternInfo, 10); } catch (_) {}
+                                try { setPatternMainContent(patternInfo, '', { expanded: false }); } catch (_) {}
+                                try { refreshPatternLastSpins(patternInfo, PATTERN_LAST_SPINS_LIMIT); } catch (_) {}
                                 try { patternInfo.title = ''; } catch (_) {}
                                 try { patternInfo?.classList?.remove('pattern-expanded'); } catch (_) {}
                                 setSuggestionStage('');
@@ -14424,8 +14469,8 @@ async function persistAnalyzerState(newState) {
                         }).catch(() => {
                             renderSuggestionStatus(currentAnalysisStatus);
                             try { if (patternSection) patternSection.style.display = ''; } catch (_) {}
-                            try { setPatternMainContent(patternInfo, '<div class="pattern-empty">Nenhum padrão detectado</div>', { expanded: false }); } catch (_) {}
-                            try { refreshPatternLastSpins(patternInfo, 10); } catch (_) {}
+                            try { setPatternMainContent(patternInfo, '', { expanded: false }); } catch (_) {}
+                            try { refreshPatternLastSpins(patternInfo, PATTERN_LAST_SPINS_LIMIT); } catch (_) {}
                             try { patternInfo.title = ''; } catch (_) {}
                             try { patternInfo?.classList?.remove('pattern-expanded'); } catch (_) {}
                             setSuggestionStage('');
@@ -14434,8 +14479,8 @@ async function persistAnalyzerState(newState) {
                     } catch (_) {
                         renderSuggestionStatus(currentAnalysisStatus);
                         try { if (patternSection) patternSection.style.display = ''; } catch (_) {}
-                        try { setPatternMainContent(patternInfo, '<div class="pattern-empty">Nenhum padrão detectado</div>', { expanded: false }); } catch (_) {}
-                        try { refreshPatternLastSpins(patternInfo, 10); } catch (_) {}
+                        try { setPatternMainContent(patternInfo, '', { expanded: false }); } catch (_) {}
+                        try { refreshPatternLastSpins(patternInfo, PATTERN_LAST_SPINS_LIMIT); } catch (_) {}
                         try { patternInfo.title = ''; } catch (_) {}
                         try { patternInfo?.classList?.remove('pattern-expanded'); } catch (_) {}
                         setSuggestionStage('');

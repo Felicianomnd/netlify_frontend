@@ -3436,6 +3436,14 @@
     flex-wrap: wrap;
 }
 
+/* ✅ Padrão (card): últimos 10 giros devem ficar sem “caixa” escura */
+#blaze-double-analyzer .pattern-section .ai-entry-section--pattern-spins .ai-entry-spins {
+    background: transparent;
+    border: none;
+    padding: 0;
+    border-radius: 0;
+}
+
 .ai-entry-spins .spin-history-item-wrap {
     display: inline-flex;
     flex-direction: column;
