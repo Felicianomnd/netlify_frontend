@@ -6919,6 +6919,8 @@ function enforceSignalIntensityAvailability(options = {}) {
             n3AllowBackoff: getCheckboxValue('diamondN3AllowBackoff', DIAMOND_LEVEL_DEFAULTS.n3AllowBackoff),
             n3IgnoreWhite: getCheckboxValue('diamondN3IgnoreWhite', DIAMOND_LEVEL_DEFAULTS.n3IgnoreWhite),
             n4Persistence: n4History,
+            // ✅ FIX: o toggle "Permitir mudar a cor no Gale (G1/G2)" deve persistir (não voltar sozinho)
+            n4DynamicGales: getCheckboxValue('diamondN4DynamicGales', DIAMOND_LEVEL_DEFAULTS.n4DynamicGales),
             n5MinuteBias: getNumber('diamondN5MinuteBias', 10, 200, DIAMOND_LEVEL_DEFAULTS.n5MinuteBias),
             n6RetracementWindow: getNumber('diamondN6Retracement', 30, 120, DIAMOND_LEVEL_DEFAULTS.n6RetracementWindow),
             n7DecisionWindow: getNumber('diamondN7DecisionWindow', 10, 50, DIAMOND_LEVEL_DEFAULTS.n7DecisionWindow),
@@ -9050,15 +9052,37 @@ autoBetHistoryStore.init().catch(error => console.warn('AutoBetHistory: iniciali
             // Agora, "Apostas" acompanha o fluxo principal (IA), então o resultado realizado vem do autoBetHistory
             // sem depender de isMaster.
             const activeMode = getActiveAnalysisModeKey();
-            const historyRecords = shouldDisplayBalances ? autoBetHistoryStore.getAll() : [];
-            const finalized = shouldDisplayBalances
-                ? historyRecords.filter(r => r && (r.mode || 'standard') === activeMode && (r.status === 'win' || r.status === 'loss'))
-                : [];
+            const cutoffMs = (() => {
+                try {
+                    return Number(getEntriesCutoffMs(activeMode)) || 0;
+                } catch (_) {
+                    return 0;
+                }
+            })();
+            const entriesForMode = (() => {
+                try {
+                    const byMode = filterEntriesSnapshotByMode(autoBetEntriesSnapshot, activeMode);
+                    if (!cutoffMs) return byMode;
+                    return byMode.filter(e => getEntryTimestampMs(e) >= cutoffMs);
+                } catch (_) {
+                    return [];
+                }
+            })();
+
+            // ✅ Regra do Painel (pedido do usuário):
+            // O Painel de saldo deve refletir TODAS as entradas exibidas na aba IA/Gráfico.
+            // Portanto, calcular SEMPRE pelo entriesHistory (snapshot) com o mesmo filtro de modo/cutoff,
+            // e NÃO por um store paralelo (autoBetHistoryStore) que pode conter apenas parte do histórico.
             let realizedProfitNet = 0;
-            for (const r of finalized) {
-                const delta = Number(r && r.profit);
-                if (!Number.isFinite(delta)) continue;
-                realizedProfitNet = Number((realizedProfitNet + delta).toFixed(2));
+            try {
+                if (shouldDisplayBalances && entriesForMode.length) {
+                    const snapshot = computeEntriesProfitSnapshot(entriesForMode, config);
+                    realizedProfitNet = Number(snapshot && snapshot.profit) || 0;
+                } else {
+                    realizedProfitNet = 0;
+                }
+            } catch (_) {
+                realizedProfitNet = 0;
             }
             // ✅ Exibição: "Lucro" e "Perdas" são o resultado líquido.
             // Se ainda está positivo, Perdas deve ficar 0 (perdas apenas quando abaixo do saldo inicial).
@@ -11190,7 +11214,6 @@ async function persistAnalyzerState(newState) {
                     <div class="entries-tabs-bar" id="entriesTabs">
                         <button type="button" class="entries-tab active" data-tab="entries">IA</button>
                         <button type="button" class="entries-tab" data-tab="master">Recuperação</button>
-                        <button type="button" class="entries-tab" data-tab="bets" aria-disabled="true">Apostas</button>
                         <button type="button" class="entries-tab" data-tab="chart">Gráfico</button>
                     </div>
                 <div class="entries-header">
@@ -11226,11 +11249,6 @@ async function persistAnalyzerState(newState) {
                                         <div class="ia-bootstrap-text" id="iaBootstrapText">Analisar histórico</div>
                                     </div>
                                 </div>
-                            </div>
-                        </div>
-                        <div class="entries-view" data-view="bets" hidden>
-                            <div class="bets-container" id="betsContainer">
-                                <div class="bets-empty">Nenhuma aposta registrada ainda.</div>
                             </div>
                         </div>
                         <div class="entries-view" data-view="chart" hidden>
@@ -13940,6 +13958,132 @@ async function persistAnalyzerState(newState) {
         </div>
         ` : ''}`;
     }
+
+    // ═══════════════════════════════════════════════════════════════
+    // ✅ PADRÃO (CARD): sempre visível + sempre mostrar últimos 10 giros
+    // Pedido do usuário:
+    // - O container "Padrão" NÃO pode sumir quando não tem sinal/padrão.
+    // - Após receber resultado, não pode ficar "limpo".
+    // - Deve sempre exibir os últimos 10 giros (independente da aba ativa).
+    // ═══════════════════════════════════════════════════════════════
+
+    function getPatternLastSpinsSnapshot(limit = 10) {
+        try {
+            const n = Math.max(0, Number(limit) || 0);
+            const arr = Array.isArray(currentHistoryData) ? currentHistoryData : [];
+            return arr.slice(0, n);
+        } catch (_) {
+            return [];
+        }
+    }
+
+    function renderPatternLastSpinsItems(spins = []) {
+        const list = Array.isArray(spins) ? spins : [];
+        if (!list.length) {
+            return `<div class="no-history" style="padding:8px 4px;">Aguardando giros...</div>`;
+        }
+        return list.map((spin) => {
+            const color = (spin && typeof spin.color === 'string') ? spin.color.toLowerCase() : '';
+            const safeColor = (color === 'red' || color === 'black' || color === 'white') ? color : 'red';
+            const isWhite = safeColor === 'white';
+            const number = (spin && spin.number != null) ? spin.number : '';
+            const time = (() => {
+                try {
+                    const t = (spin && spin.timestamp != null) ? spin.timestamp : null;
+                    return new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                } catch (_) {
+                    return '';
+                }
+            })();
+            const title = `${safeColor === 'red' ? 'Vermelho' : safeColor === 'black' ? 'Preto' : 'Branco'}: ${number}${time ? ' - ' + time : ''}`;
+            return `<div class="spin-history-item-wrap" title="${escapeHtml(title)}">
+                <div class="spin-history-quadrado ${safeColor}">
+                    ${isWhite ? blazeWhiteSVG(20) : `<span>${escapeHtml(String(number))}</span>`}
+                </div>
+                <div class="spin-history-time">${escapeHtml(time)}</div>
+            </div>`;
+        }).join('');
+    }
+
+    function ensurePatternInfoLayout(patternInfoEl, limit = 10) {
+        if (!patternInfoEl) return { mainEl: null, rowEl: null };
+        const safeLimit = Math.max(1, Number(limit) || 10);
+
+        // Block: últimos giros
+        let spinsBlock = patternInfoEl.querySelector('#patternLastSpinsBlock');
+        if (!spinsBlock) {
+            spinsBlock = document.createElement('div');
+            spinsBlock.id = 'patternLastSpinsBlock';
+            spinsBlock.className = 'pattern-last-spins';
+            spinsBlock.innerHTML = `
+                <div class="pattern-last-spins-title" style="font-size: 11px; color: var(--text-secondary); margin: 10px 0 6px;">Últimos ${safeLimit} giros</div>
+                <div class="spin-history-bar-blaze pattern-last-spins-row" id="patternLastSpinsRow"></div>
+            `;
+            patternInfoEl.appendChild(spinsBlock);
+        } else {
+            const titleEl = spinsBlock.querySelector('.pattern-last-spins-title');
+            if (titleEl) titleEl.textContent = `Últimos ${safeLimit} giros`;
+        }
+
+        let rowEl = spinsBlock.querySelector('#patternLastSpinsRow');
+        if (!rowEl) {
+            rowEl = document.createElement('div');
+            rowEl.id = 'patternLastSpinsRow';
+            rowEl.className = 'spin-history-bar-blaze pattern-last-spins-row';
+            spinsBlock.appendChild(rowEl);
+        }
+
+        // Wrapper: conteúdo principal do padrão (para não “sumir”)
+        let mainEl = patternInfoEl.querySelector('#patternMainContent');
+        if (!mainEl) {
+            mainEl = document.createElement('div');
+            mainEl.id = 'patternMainContent';
+            mainEl.className = 'pattern-main';
+
+            // Mover tudo que já existe (exceto o bloco de últimos giros) para dentro do wrapper
+            const nodes = Array.from(patternInfoEl.childNodes).filter(node => node !== spinsBlock);
+            nodes.forEach(node => {
+                try { mainEl.appendChild(node); } catch (_) {}
+            });
+
+            patternInfoEl.insertBefore(mainEl, spinsBlock);
+        } else {
+            // Garantir ordem (wrapper antes do bloco de giros)
+            try {
+                if (spinsBlock && mainEl.nextSibling !== spinsBlock) {
+                    patternInfoEl.insertBefore(mainEl, spinsBlock);
+                }
+            } catch (_) {}
+        }
+
+        return { mainEl, rowEl };
+    }
+
+    function setPatternMainContent(patternInfoEl, html, { expanded = false } = {}) {
+        try {
+            const { mainEl } = ensurePatternInfoLayout(patternInfoEl, 10);
+            if (!mainEl) return;
+            const nextHtml = (typeof html === 'string' && html.trim())
+                ? html
+                : '<div class="pattern-empty">Nenhum padrão detectado</div>';
+            mainEl.innerHTML = nextHtml;
+            try {
+                patternInfoEl.classList.toggle('pattern-expanded', !!expanded);
+            } catch (_) {}
+        } catch (_) {}
+    }
+
+    function refreshPatternLastSpins(patternInfoEl, limit = 10) {
+        try {
+            const { mainEl, rowEl } = ensurePatternInfoLayout(patternInfoEl, limit);
+            if (!rowEl) return;
+            rowEl.innerHTML = renderPatternLastSpinsItems(getPatternLastSpinsSnapshot(limit));
+            // Nunca deixar o card “vazio”
+            if (mainEl && !String(mainEl.textContent || '').trim() && !mainEl.children.length) {
+                mainEl.innerHTML = '<div class="pattern-empty">Nenhum padrão detectado</div>';
+            }
+        } catch (_) {}
+    }
     // Update sidebar with new data
     function updateSidebar(data) {
         // ═══════════════════════════════════════════════════════════════
@@ -13955,6 +14099,11 @@ async function persistAnalyzerState(newState) {
         const totalSpins = document.getElementById('totalSpins');
         const lastUpdate = document.getElementById('lastUpdate');
         // Não resetar o estágio imediatamente; somente quando realmente não houver Gale ativo
+
+        // ✅ Pedido: Card "Padrão" deve ser SEMPRE visível e SEMPRE mostrar os últimos 10 giros
+        // (inclusive quando chega apenas lastSpin e quando a análise some após o resultado).
+        try { if (patternSection) patternSection.style.display = ''; } catch (_) {}
+        try { refreshPatternLastSpins(patternInfo, 10); } catch (_) {}
         
         if (data.lastSpin) {
             const spin = data.lastSpin;
@@ -14003,14 +14152,16 @@ async function persistAnalyzerState(newState) {
                 try {
                     const hasPattern = !!(analysis && analysis.patternDescription);
                     if (patternSection) {
-                        patternSection.style.display = hasPattern ? '' : 'none';
+                        // ✅ Nunca esconder o card de Padrão
+                        patternSection.style.display = '';
                     }
                     if (patternInfo) {
                         if (hasPattern) {
                             patternInfo.classList.add('pattern-expanded');
                         } else {
-                            patternInfo.classList.remove('pattern-expanded');
-                            patternInfo.innerHTML = '';
+                            // ✅ Nunca deixar vazio (o card ficava “sumindo/limpo”)
+                            setPatternMainContent(patternInfo, '<div class="pattern-empty">Nenhum padrão detectado</div>', { expanded: false });
+                            try { refreshPatternLastSpins(patternInfo, 10); } catch (_) {}
                         }
                     }
                 } catch (_) {}
@@ -14081,7 +14232,7 @@ async function persistAnalyzerState(newState) {
                         if (typeof parsed === 'string' && parsed.trim().startsWith('🤖')) {
                             console.log('✅ DETECTADO: Análise por IA (formato texto antigo)');
                             isAIAnalysis = true;
-                            patternInfo.innerHTML = renderPatternVisual(parsed, data.pattern);
+                            setPatternMainContent(patternInfo, renderPatternVisual(parsed, data.pattern), { expanded: true });
                         } else {
                             // Fazer parse do JSON
                             parsed = typeof parsed === 'string' ? JSON.parse(parsed) : parsed;
@@ -14091,7 +14242,7 @@ async function persistAnalyzerState(newState) {
                                 console.log('✅ DETECTADO: Análise por IA (formato JSON estruturado)');
                                 console.log('🎲 last5Spins no JSON:', parsed.last5Spins);
                                 isAIAnalysis = true;
-                                patternInfo.innerHTML = renderPatternVisual(parsed, data.pattern);
+                                setPatternMainContent(patternInfo, renderPatternVisual(parsed, data.pattern), { expanded: true });
                             } else if (parsed.type === 'custom_pattern') {
                                 console.log('✅ DETECTADO: Padrão Customizado');
                                 console.log('📋 Nome:', parsed.name);
@@ -14105,7 +14256,7 @@ async function persistAnalyzerState(newState) {
                                 const colorName = parsed.expected_next === 'red' ? 'VERMELHO' : 
                                                 parsed.expected_next === 'black' ? 'PRETO' : 'BRANCO';
                                 
-                                patternInfo.innerHTML = `
+                                setPatternMainContent(patternInfo, `
                                     <div style="padding: 12px; background: var(--bg-tertiary); border-radius: 6px; border: 1px solid var(--border-color);">
                                         <div style="font-size: 14px; font-weight: bold; color: var(--text-primary); margin-bottom: 8px;">
                                             🎯 ${parsed.name}
@@ -14120,12 +14271,12 @@ async function persistAnalyzerState(newState) {
                                             ${parsed.occurrences} ocorrência(s) | ${parsed.stats.red}% ⭕ ${parsed.stats.black}% ⚫ ${parsed.stats.white}% ⚪
                                         </div>
                                     </div>
-                                `;
+                                `, { expanded: true });
                             } else {
                                 console.log('📝 Análise padrão detectada');
                                 // anexar summary vindo do analysis se existir
                                 if (data.analysis && data.analysis.summary) parsed.summary = data.analysis.summary;
-                                patternInfo.innerHTML = renderPatternVisual(parsed, data.pattern);
+                                setPatternMainContent(patternInfo, renderPatternVisual(parsed, data.pattern), { expanded: true });
                             }
                         }
                         
@@ -14140,7 +14291,7 @@ async function persistAnalyzerState(newState) {
                         console.error('❌ data.pattern:', data.pattern);
                         console.error('❌ data.pattern.description:', data.pattern.description);
                         console.error('❌ ======================================');
-                        patternInfo.innerHTML = `<div class="pattern-error">Erro ao processar padrão</div>`;
+                        setPatternMainContent(patternInfo, `<div class="pattern-error">Erro ao processar padrão</div>`, { expanded: false });
                     }
                 }
                 
@@ -14216,11 +14367,13 @@ async function persistAnalyzerState(newState) {
                         // Card "Padrão"
                         try {
                             const hasPattern = !!(a && a.patternDescription);
-                            if (patternSection) patternSection.style.display = hasPattern ? '' : 'none';
+                            // ✅ Nunca esconder o card de Padrão (pedido do usuário)
+                            if (patternSection) patternSection.style.display = '';
                             if (patternInfo) {
                                 if (!hasPattern) {
-                                    patternInfo.classList.remove('pattern-expanded');
-                                    patternInfo.innerHTML = '';
+                                    // ✅ Nunca deixar vazio após resultado/refresh
+                                    setPatternMainContent(patternInfo, '<div class="pattern-empty">Nenhum padrão detectado</div>', { expanded: false });
+                                    try { refreshPatternLastSpins(patternInfo, 10); } catch (_) {}
                                 } else {
                                     patternInfo.classList.add('pattern-expanded');
                                     // Reusar renderer já existente
@@ -14230,9 +14383,15 @@ async function persistAnalyzerState(newState) {
                                         const parsed = (typeof desc === 'string') ? (() => {
                                             try { return JSON.parse(desc); } catch (_) { return desc; }
                                         })() : desc;
-                                        patternInfo.innerHTML = renderPatternVisual(parsed, { description: desc, last5Spins: a.last5Spins || a.last10Spins || [] });
+                                        setPatternMainContent(
+                                            patternInfo,
+                                            renderPatternVisual(parsed, { description: desc, last5Spins: a.last5Spins || a.last10Spins || [] }),
+                                            { expanded: true }
+                                        );
+                                        try { refreshPatternLastSpins(patternInfo, 10); } catch (_) {}
                                     } catch (_) {
-                                        patternInfo.textContent = String(desc || '');
+                                        setPatternMainContent(patternInfo, `<pre class="pattern-raw">${escapeHtml(String(desc || ''))}</pre>`, { expanded: true });
+                                        try { refreshPatternLastSpins(patternInfo, 10); } catch (_) {}
                                     }
                                 }
                             }
@@ -14254,8 +14413,9 @@ async function persistAnalyzerState(newState) {
                             const ms = res.martingaleState;
                             if (!renderFromMartingale(ms)) {
                                 renderSuggestionStatus(currentAnalysisStatus);
-                                try { if (patternSection) patternSection.style.display = 'none'; } catch (_) {}
-                                try { patternInfo.textContent = ''; } catch (_) {}
+                                try { if (patternSection) patternSection.style.display = ''; } catch (_) {}
+                                try { setPatternMainContent(patternInfo, '<div class="pattern-empty">Nenhum padrão detectado</div>', { expanded: false }); } catch (_) {}
+                                try { refreshPatternLastSpins(patternInfo, 10); } catch (_) {}
                                 try { patternInfo.title = ''; } catch (_) {}
                                 try { patternInfo?.classList?.remove('pattern-expanded'); } catch (_) {}
                                 setSuggestionStage('');
@@ -14263,8 +14423,9 @@ async function persistAnalyzerState(newState) {
                             }
                         }).catch(() => {
                             renderSuggestionStatus(currentAnalysisStatus);
-                            try { if (patternSection) patternSection.style.display = 'none'; } catch (_) {}
-                            try { patternInfo.textContent = ''; } catch (_) {}
+                            try { if (patternSection) patternSection.style.display = ''; } catch (_) {}
+                            try { setPatternMainContent(patternInfo, '<div class="pattern-empty">Nenhum padrão detectado</div>', { expanded: false }); } catch (_) {}
+                            try { refreshPatternLastSpins(patternInfo, 10); } catch (_) {}
                             try { patternInfo.title = ''; } catch (_) {}
                             try { patternInfo?.classList?.remove('pattern-expanded'); } catch (_) {}
                             setSuggestionStage('');
@@ -14272,8 +14433,9 @@ async function persistAnalyzerState(newState) {
                         });
                     } catch (_) {
                         renderSuggestionStatus(currentAnalysisStatus);
-                        try { if (patternSection) patternSection.style.display = 'none'; } catch (_) {}
-                        try { patternInfo.textContent = ''; } catch (_) {}
+                        try { if (patternSection) patternSection.style.display = ''; } catch (_) {}
+                        try { setPatternMainContent(patternInfo, '<div class="pattern-empty">Nenhum padrão detectado</div>', { expanded: false }); } catch (_) {}
+                        try { refreshPatternLastSpins(patternInfo, 10); } catch (_) {}
                         try { patternInfo.title = ''; } catch (_) {}
                         try { patternInfo?.classList?.remove('pattern-expanded'); } catch (_) {}
                         setSuggestionStage('');
@@ -14615,7 +14777,7 @@ async function persistAnalyzerState(newState) {
         const aiModeToggle = document.querySelector('.ai-mode-toggle.active');
         const isDiamondMode = !!aiModeToggle;
         const currentMode = isDiamondMode ? 'diamond' : 'standard';
-        const iaHold = (() => {
+        let iaHold = (() => {
             try { return isIABootstrapHoldActive(currentMode); } catch (_) { return false; }
         })();
         
@@ -14652,9 +14814,14 @@ async function persistAnalyzerState(newState) {
         // Portanto: usar o MESMO cutoff da IA (entriesCutoffMs), sem depender de isMaster.
         let entriesByModeForChart = entriesByModeForIA;
 
-        // ✅ Pedido do usuário: após "Limpar", a IA deve permanecer vazia e com a bolinha/CTA
-        // ATÉ o usuário clicar em "Analisar histórico".
-        // Então, enquanto o HOLD estiver ativo, não renderizar entradas/plot mesmo que cheguem novas entradas.
+        // ✅ IA VIVA (HOLD):
+        // - Após "Limpar", manter vazio e com a bolinha ATÉ o usuário clicar em "Analisar histórico".
+        // - Porém, se chegaram NOVOS ciclos após o cutoff, o HOLD deve ser desligado automaticamente
+        //   (pedido do usuário: se veio sinal/resultado, a bolinha deve sumir e o histórico não pode "sumir").
+        if (iaHold && entriesByModeForIA.length > 0) {
+            try { setIABootstrapHoldActive(currentMode, false); } catch (_) {}
+            iaHold = false;
+        }
         if (iaHold) {
             entriesByModeForIA = [];
             entriesByModeForChart = [];
@@ -15019,44 +15186,188 @@ async function persistAnalyzerState(newState) {
     // ✅ Nova aba: Recuperação (ativação manual)
     let recoveryModeEnabled = false;
     let recoveryModeStatusText = 'Desativada';
+    // Snapshot do entriesHistory mais recente (para renderizar o histórico de Recuperação sem depender de fetch async)
+    let recoveryEntriesSourceCache = [];
 
     function renderRecoverySignalPreview(analysisOverride = null) {
         try {
             if (!recoveryModeEnabled) return;
-            const list = document.getElementById('masterEntriesList');
-            if (!list) return;
+            // ✅ Não sobrescrever a lista (histórico) aqui.
+            // Apenas re-renderizar o painel completo com o "preview pendente" no topo.
+            const hasOverride = arguments.length > 0;
+            if (hasOverride) {
+                renderRecoveryPanel(recoveryEntriesSourceCache, analysisOverride);
+            } else {
+                renderRecoveryPanel(recoveryEntriesSourceCache);
+            }
+        } catch (_) {}
+    }
 
-            const normColor = (value) => {
-                const raw = String(value || '').toLowerCase().trim();
-                if (raw === 'red' || raw === 'vermelho') return 'red';
-                if (raw === 'black' || raw === 'preto') return 'black';
-                if (raw === 'white' || raw === 'branco') return 'white';
-                return null;
-            };
+    function clearRecoveryEntriesHistory(modeKey) {
+        const key = modeKey === 'diamond' ? 'diamond' : 'standard';
+        const now = Date.now();
 
-            const stageLabelFrom = (a, ms) => {
-                const s1 = a && a.phase ? String(a.phase).toUpperCase().trim() : '';
-                if (s1 && s1.startsWith('G') && s1 !== 'G0') return s1;
-                const s2 = ms && ms.stage ? String(ms.stage).toUpperCase().trim() : '';
-                if (s2 && s2.startsWith('G') && s2 !== 'G0') return s2;
+        // 1) Cutoff do painel Recuperação (não apagar entriesHistory; só esconder do painel)
+        masterEntriesClearCutoffByMode = {
+            standard: Number(masterEntriesClearCutoffByMode.standard) || 0,
+            diamond: Number(masterEntriesClearCutoffByMode.diamond) || 0
+        };
+        masterEntriesClearCutoffByMode[key] = now;
+        try {
+            chrome.storage.local.set({ [MASTER_CLEAR_CUTOFF_KEY]: masterEntriesClearCutoffByMode }, function() {});
+        } catch (_) {}
+
+        // 2) Limpar fallback persistente do "último sinal" (para não reaparecer após refresh)
+        try { lastRecoveryEntryByMode[key] = null; } catch (_) {}
+        try {
+            storageCompat.get(['lastRecoveryEntryByMode']).then((res = {}) => {
+                const raw = res && res.lastRecoveryEntryByMode && typeof res.lastRecoveryEntryByMode === 'object'
+                    ? res.lastRecoveryEntryByMode
+                    : {};
+                const next = { ...raw, [key]: null };
+                try { chrome.storage.local.set({ lastRecoveryEntryByMode: next }, function() {}); } catch (_) {}
+            }).catch(() => {});
+        } catch (_) {}
+
+        // 3) Re-render imediato (usa cache)
+        try { renderRecoveryPanel(recoveryEntriesSourceCache); } catch (_) {}
+    }
+
+    function renderRecoveryPanel(entriesOverride, analysisOverride) {
+        const hasAnalysisOverride = arguments.length >= 2;
+        const list = document.getElementById('masterEntriesList');
+        const hitEl = document.getElementById('masterEntriesHit');
+        if (!list || !hitEl) return;
+
+        const aiModeToggle = document.querySelector('.ai-mode-toggle.active');
+        const isDiamondMode = !!aiModeToggle;
+        const currentMode = isDiamondMode ? 'diamond' : 'standard';
+
+        const btnLabel = recoveryModeEnabled ? 'Desativar' : 'Recuperar';
+        const statusText = recoveryModeEnabled
+            ? (recoveryModeStatusText || '')
+            : 'Desativada • clique em “Recuperar” após um RED';
+
+        const allEntries = Array.isArray(entriesOverride)
+            ? entriesOverride
+            : (Array.isArray(recoveryEntriesSourceCache) ? recoveryEntriesSourceCache : []);
+
+        // Mesmo resolveEntryMode da IA (para separar standard/diamond corretamente)
+        const hasExplicitMode = Array.isArray(allEntries) && allEntries.some(e =>
+            e && (e.analysisMode === 'diamond' || e.analysisMode === 'standard')
+        );
+        const resolveEntryMode = (e) => {
+            const m = e && typeof e.analysisMode === 'string' ? e.analysisMode : null;
+            if (m === 'diamond' || m === 'standard') return m;
+            return hasExplicitMode ? 'legacy' : 'standard';
+        };
+
+        // Cutoff do painel Recuperação (limpar sem afetar IA)
+        const cutoffMs = getMasterEntriesCutoffMs(currentMode);
+        const recoveryEntries = allEntries
+            .filter(e => resolveEntryMode(e) === currentMode)
+            .filter(e => getEntryTimestampMs(e) >= cutoffMs)
+            .filter(e => e && e.recoveryMode);
+
+        // Atualizar "último" (fallback) — agora é o primeiro do histórico
+        try {
+            if (recoveryEntries && recoveryEntries.length > 0) {
+                lastRecoveryEntryByMode[currentMode] = recoveryEntries[0];
+            }
+        } catch (_) {}
+
+        // Estatísticas do histórico de Recuperação
+        const totalCycles = recoveryEntries.length;
+        const wins = recoveryEntries.filter(e => e && e.result === 'WIN').length;
+        const losses = totalCycles - wins;
+        const pct = totalCycles ? ((wins / totalCycles) * 100).toFixed(1) : '0.0';
+
+        const clearButtonHTML = `<button type="button" class="clear-entries-btn" id="clearRecoveryBtn" title="Limpar histórico de recuperação">Limpar</button>`;
+        hitEl.innerHTML = `
+            <button type="button" class="recovery-toggle-btn" id="recoveryToggleBtn" aria-pressed="${recoveryModeEnabled ? 'true' : 'false'}">${btnLabel}</button>
+            <span class="recovery-status" id="recoveryStatusText">${statusText}</span>
+            <span class="win-score">WIN: ${wins}</span>
+            <span class="loss-score">LOSS: ${losses}</span>
+            <span class="percentage">(${pct}%)</span>
+            <span class="total-entries">• Ciclos: ${totalCycles} ${clearButtonHTML}</span>
+        `;
+
+        // Render do histórico (múltiplos sinais) — NÃO pode sumir ao ativar Recuperar.
+        const items = recoveryEntries.map((entry) => {
+            try {
+                const time = new Date(entry.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                const cls = entry.color;
+                const badge = entry.color === 'white' ? blazeWhiteSVG(16) : `<span>${entry.number}</span>`;
+                const isWin = entry.result === 'WIN';
+                const barClass = isWin ? 'win' : 'loss';
+
+                // Reaproveitar lógica de label (G1/G2...) igual IA
+                const stageRaw = (entry.martingaleStage || entry.phase || entry.wonAt || '').toString().toUpperCase().trim();
+                let stageText = isWin ? 'WIN' : 'LOSS';
+                if (stageRaw && stageRaw.startsWith('G') && stageRaw !== 'G0' && stageRaw !== 'ENTRADA') {
+                    const galeNum = stageRaw.substring(1);
+                    stageText = isWin
+                        ? `WIN <span style="color: white;">G${galeNum}</span>`
+                        : `LOSS <span style="color: white;">G${galeNum}</span>`;
+                }
+
+                const confTop = (typeof entry.confidence === 'number') ? `${entry.confidence.toFixed(0)}%` : '';
+                const title = `Recuperação • Giro: ${entry.number} • ${time} • Resultado: ${entry.result}`;
+                return `
+                    <div class="entry-item-wrap" title="${title}">
+                        ${confTop ? `<div class="entry-conf-top">${confTop}</div>` : ''}
+                        <div class="entry-stage ${barClass}">${stageText}</div>
+                        <div class="entry-item">
+                            <div class="entry-box ${cls}">${badge}</div>
+                            <div class="entry-result-bar ${barClass}"></div>
+                        </div>
+                        <div class="entry-time">${time}</div>
+                    </div>
+                `;
+            } catch (_) {
                 return '';
-            };
+            }
+        }).join('');
 
-            const renderSignal = (analysis, martingaleState) => {
-                if (!analysis || !analysis.recoveryMode) {
-                    // ativo, mas ainda sem sinal de recuperação → manter vazio
-                    list.innerHTML = '';
-                    return;
-                }
+        const historyHtml = items || '<div class="no-history">Sem sinais de recuperação registrados</div>';
+
+        // Preview pendente (quando Recuperar está ativo e já existe sinal liberado aguardando resultado)
+        const normColor = (value) => {
+            const raw = String(value || '').toLowerCase().trim();
+            if (raw === 'red' || raw === 'vermelho') return 'red';
+            if (raw === 'black' || raw === 'preto') return 'black';
+            if (raw === 'white' || raw === 'branco') return 'white';
+            return null;
+        };
+        const isDiamondAnalysis = (a) => {
+            try {
+                const desc = a && a.patternDescription ? String(a.patternDescription) : '';
+                if (a && a.diamondSourceLevel) return true;
+                return desc.includes('NÍVEL DIAMANTE') || desc.includes('5 Níveis');
+            } catch (_) {
+                return false;
+            }
+        };
+        const resolveAnalysisMode = (a) => (isDiamondAnalysis(a) ? 'diamond' : 'standard');
+        const stageLabelFrom = (a, ms) => {
+            const s1 = a && a.phase ? String(a.phase).toUpperCase().trim() : '';
+            if (s1 && s1.startsWith('G') && s1 !== 'G0') return s1;
+            const s2 = ms && ms.stage ? String(ms.stage).toUpperCase().trim() : '';
+            if (s2 && s2.startsWith('G') && s2 !== 'G0') return s2;
+            return '';
+        };
+        const buildPendingIndicator = (analysis, martingaleState) => {
+            try {
+                if (!analysis || typeof analysis !== 'object') return '';
+                if (!analysis.recoveryMode || analysis.hiddenInternal) return '';
+                const aMode = resolveAnalysisMode(analysis);
+                if (aMode !== currentMode) return '';
                 const color = normColor(analysis.color);
-                if (!color) {
-                    list.innerHTML = '';
-                    return;
-                }
+                if (!color) return '';
                 const galeLabel = stageLabelFrom(analysis, martingaleState);
                 const galeAttr = galeLabel ? ` data-gale="${galeLabel}"` : '';
                 const title = galeLabel ? `Recuperação • Aguardando resultado (${galeLabel})` : 'Recuperação • Aguardando resultado';
-                list.innerHTML = `
+                return `
                     <div class="entry-item-wrap gale-active-indicator" title="${title}">
                         <div class="entry-conf-top gale-placeholder">&nbsp;</div>
                         <div class="entry-stage gale-placeholder">&nbsp;</div>
@@ -15067,104 +15378,32 @@ async function persistAnalyzerState(newState) {
                         <div class="entry-time gale-placeholder">&nbsp;</div>
                     </div>
                 `;
-            };
-
-            if (analysisOverride && typeof analysisOverride === 'object') {
-                storageCompat.get(['martingaleState']).then((res = {}) => {
-                    renderSignal(analysisOverride, res.martingaleState);
-                }).catch(() => {
-                    renderSignal(analysisOverride, null);
-                });
-                return;
+            } catch (_) {
+                return '';
             }
+        };
 
-            storageCompat.get(['analysis', 'martingaleState']).then((res = {}) => {
-                renderSignal(res.analysis, res.martingaleState);
-            }).catch(() => {
-                list.innerHTML = '';
-            });
-        } catch (_) {}
-    }
+        const applyListHtml = (pendingHtml) => {
+            const pending = pendingHtml ? String(pendingHtml) : '';
+            list.innerHTML = pending + historyHtml;
+        };
 
-    function renderRecoveryPanel() {
-        const list = document.getElementById('masterEntriesList');
-        const hitEl = document.getElementById('masterEntriesHit');
-        if (!list || !hitEl) return;
-
-        const btnLabel = recoveryModeEnabled ? 'Desativar' : 'Recuperar';
-        const statusText = recoveryModeEnabled
-            ? (recoveryModeStatusText || '')
-            : 'Desativada • clique em “Recuperar” após um RED';
-
-        hitEl.innerHTML = `
-            <button type="button" class="recovery-toggle-btn" id="recoveryToggleBtn" aria-pressed="${recoveryModeEnabled ? 'true' : 'false'}">${btnLabel}</button>
-            <span class="recovery-status" id="recoveryStatusText">${statusText}</span>
-        `;
-
-        // ✅ UX (pedido do usuário):
-        // - ATIVO: campo limpo até existir sinal de recuperação (preview pendente)
-        // - DESATIVADO: manter visível o ÚLTIMO sinal de recuperação utilizado (não sumir após WIN)
         if (recoveryModeEnabled) {
-            list.innerHTML = '';
-            try { renderRecoverySignalPreview(); } catch (_) {}
-        } else {
-            const currentMode = document.querySelector('.ai-mode-toggle.active') ? 'diamond' : 'standard';
-            const last = lastRecoveryEntryByMode && lastRecoveryEntryByMode[currentMode] ? lastRecoveryEntryByMode[currentMode] : null;
-            const renderLast = (entry) => {
-                try {
-                    if (!entry || typeof entry !== 'object') {
-                        list.innerHTML = '';
-                        return;
-                    }
-                    const time = new Date(entry.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-                    const cls = entry.color;
-                    const badge = entry.color === 'white' ? blazeWhiteSVG(16) : `<span>${entry.number}</span>`;
-                    const isWin = entry.result === 'WIN';
-                    const barClass = isWin ? 'win' : 'loss';
-                    const stageRaw = (entry.martingaleStage || entry.phase || entry.wonAt || '').toString().toUpperCase().trim();
-                    let stageText = isWin ? 'WIN' : 'LOSS';
-                    if (stageRaw && stageRaw.startsWith('G') && stageRaw !== 'G0' && stageRaw !== 'ENTRADA') {
-                        const galeNum = stageRaw.substring(1);
-                        stageText = isWin
-                            ? `WIN <span style="color: white;">G${galeNum}</span>`
-                            : `LOSS <span style="color: white;">G${galeNum}</span>`;
-                    }
-                    const confTop = (typeof entry.confidence === 'number') ? `${entry.confidence.toFixed(0)}%` : '';
-                    const title = `Recuperação • Giro: ${entry.number} • ${time} • Resultado: ${entry.result}`;
-                    list.innerHTML = `
-                        <div class="entry-item-wrap" title="${title}">
-                            ${confTop ? `<div class="entry-conf-top">${confTop}</div>` : ''}
-                            <div class="entry-stage ${barClass}">${stageText}</div>
-                            <div class="entry-item">
-                                <div class="entry-box ${cls}">${badge}</div>
-                                <div class="entry-result-bar ${barClass}"></div>
-                            </div>
-                            <div class="entry-time">${time}</div>
-                        </div>
-                    `;
-                } catch (_) {
-                    list.innerHTML = '';
-                }
-            };
-
-            if (last && typeof last === 'object') {
-                renderLast(last);
+            if (hasAnalysisOverride) {
+                storageCompat.get(['martingaleState']).then((res = {}) => {
+                    applyListHtml(buildPendingIndicator(analysisOverride, res.martingaleState));
+                }).catch(() => {
+                    applyListHtml(buildPendingIndicator(analysisOverride, null));
+                });
             } else {
-                // ✅ Fallback: buscar do storage (persistente) para não sumir após WIN/refresh
-                list.innerHTML = '';
-                try {
-                    storageCompat.get(['lastRecoveryEntryByMode']).then((res = {}) => {
-                        const raw = res && res.lastRecoveryEntryByMode && typeof res.lastRecoveryEntryByMode === 'object'
-                            ? res.lastRecoveryEntryByMode
-                            : null;
-                        const stored = raw && raw[currentMode] ? raw[currentMode] : null;
-                        if (stored && typeof stored === 'object') {
-                            try { lastRecoveryEntryByMode[currentMode] = stored; } catch (_) {}
-                            renderLast(stored);
-                        }
-                    }).catch(() => {});
-                } catch (_) {}
+                storageCompat.get(['analysis', 'martingaleState']).then((res = {}) => {
+                    applyListHtml(buildPendingIndicator(res.analysis, res.martingaleState));
+                }).catch(() => {
+                    applyListHtml('');
+                });
             }
+        } else {
+            applyListHtml('');
         }
 
         const btn = document.getElementById('recoveryToggleBtn');
@@ -15174,22 +15413,32 @@ async function persistAnalyzerState(newState) {
                 const next = !recoveryModeEnabled;
                 recoveryModeEnabled = next;
                 recoveryModeStatusText = next ? '' : 'Desativada';
-                renderRecoveryPanel();
+                renderRecoveryPanel(recoveryEntriesSourceCache);
                 try {
                     chrome.runtime.sendMessage({ action: 'SET_RECOVERY_MODE', enabled: next }, function() {});
                 } catch (_) {}
+            };
+        }
+
+        const clearBtn = document.getElementById('clearRecoveryBtn');
+        if (clearBtn) {
+            clearBtn.onclick = (event) => {
+                try { event.preventDefault(); event.stopPropagation(); } catch (_) {}
+                clearRecoveryEntriesHistory(currentMode);
             };
         }
     }
 
     function renderMasterEntriesPanel(entries) {
         // Master virou "Recuperação": não renderizar mais o histórico antigo de Sinal de entrada
-        void entries;
+        if (Array.isArray(entries)) {
+            recoveryEntriesSourceCache = entries;
+        }
         storageCompat.get(['recoveryMode']).then((res = {}) => {
             recoveryModeEnabled = !!(res.recoveryMode && res.recoveryMode.enabled);
-            renderRecoveryPanel();
+            renderRecoveryPanel(recoveryEntriesSourceCache);
         }).catch(() => {
-            renderRecoveryPanel();
+            renderRecoveryPanel(recoveryEntriesSourceCache);
         });
     }
 
@@ -15214,22 +15463,22 @@ async function persistAnalyzerState(newState) {
     }
 
     function setEntriesTab(tab) {
-        if (tab !== 'master' && tab !== 'entries' && tab !== 'bets' && tab !== 'chart') {
+        // ✅ Aba "Apostas" removida (pedido): manter apenas IA / Recuperação / Gráfico
+        if (tab === 'bets') {
+            tab = 'entries';
+        }
+        if (tab !== 'master' && tab !== 'entries' && tab !== 'chart') {
             tab = 'entries';
         }
         activeEntriesTab = tab;
         const masterView = document.querySelector('.entries-view[data-view="master"]');
         const entriesView = document.querySelector('.entries-view[data-view="entries"]');
-        const betsView = document.querySelector('.entries-view[data-view="bets"]');
         const chartView = document.querySelector('.entries-view[data-view="chart"]');
         if (masterView) {
             masterView.hidden = tab !== 'master';
         }
         if (entriesView) {
             entriesView.hidden = tab !== 'entries';
-        }
-        if (betsView) {
-            betsView.hidden = tab !== 'bets';
         }
         if (chartView) {
             chartView.hidden = tab !== 'chart';
@@ -15405,17 +15654,10 @@ async function persistAnalyzerState(newState) {
     }
 
     function applyAutoBetAvailabilityToUI() {
-        const betsTab = document.querySelector('.entries-tab[data-tab="bets"]');
-        const shouldShow = cachedAutoBetAvailability.hasReal || cachedAutoBetAvailability.hasSimulation;
-        if (betsTab) {
-            betsTab.style.display = shouldShow ? 'inline-flex' : 'none';
-            betsTab.setAttribute('aria-disabled', shouldShow ? 'false' : 'true');
-        }
-        if (!shouldShow && activeEntriesTab === 'bets') {
+        // ✅ Aba "Apostas" removida (pedido): não exibir/gerenciar tab de apostas aqui.
+        // Mantemos apenas um fallback defensivo caso algum estado antigo tente abrir "bets".
+        if (activeEntriesTab === 'bets') {
             setEntriesTab('entries');
-        }
-        if (entriesTabsReady) {
-            renderAutoBetHistoryPanel();
         }
     }
     
@@ -15810,6 +16052,14 @@ async function persistAnalyzerState(newState) {
                     } else {
                         settingsScroll.insertAdjacentElement('afterbegin', actions);
                     }
+                }
+
+                // ✅ Pedido: mover o botão "Ativar análise" para a coluna esquerda,
+                // acima de todas as configurações (sem alterar lógica do toggle).
+                const analyzerToggleBtn = sidebar.querySelector('#toggleAnalyzerBtn');
+                if (analyzerToggleBtn && analyzerToggleBtn.parentNode !== actions) {
+                    // Inserir no topo (acima do botão "Modo Aposta")
+                    actions.insertAdjacentElement('afterbegin', analyzerToggleBtn);
                 }
 
                 const betBtn = sidebar.querySelector('#betModeToggleBtn');
@@ -16691,6 +16941,21 @@ function logModeSnapshotUI(snapshot) {
             
             const analysisPayload = request.data || null;
             const isHiddenInternal = !!(analysisPayload && analysisPayload.hiddenInternal);
+            const effectiveMode = (messageMode === 'diamond' || messageMode === 'standard') ? messageMode : tabMode;
+
+            // ✅ IA VIVA: se a bolinha está em HOLD (após "Limpar") e chegou um sinal visível,
+            // então devemos DESLIGAR o HOLD automaticamente:
+            // - bolinha some
+            // - histórico passa a registrar/exibir normalmente (o resultado não "some" depois)
+            try {
+                if (!isHiddenInternal && analysisPayload) {
+                    if (isIABootstrapHoldActive(effectiveMode)) {
+                        setIABootstrapHoldActive(effectiveMode, false);
+                        // Forçar reavaliação imediata do overlay (sem esperar ENTRIES_UPDATE)
+                        try { applyIAVisibilityState(iaBootstrapLastEntriesCount, 'pending'); } catch (_) {}
+                    }
+                }
+            } catch (_) {}
 
             updateSidebar({
                 analysis: analysisPayload,
@@ -18409,12 +18674,12 @@ function logModeSnapshotUI(snapshot) {
         const mode = document.querySelector('.ai-mode-toggle.active') ? 'diamond' : 'standard';
         // Se está rodando, manter overlay visível (para animação), mesmo que a lista atualize por trás
         if (iaBootstrapBusy) return true;
-        // ✅ Se a IA foi "limpa", manter a bolinha até o usuário clicar em Analisar histórico
-        if (isIABootstrapHoldActive(mode)) return true;
+        // ✅ Se existe placeholder pendente no topo, nunca sobrepor (mesmo se HOLD estiver ativo)
+        if (pendingIndicatorHtml && String(pendingIndicatorHtml).trim()) return false;
         // Se há itens, não mostrar
         if ((Number(filteredEntriesCount) || 0) > 0) return false;
-        // Se existe placeholder pendente no topo, não sobrepor
-        if (pendingIndicatorHtml && String(pendingIndicatorHtml).trim()) return false;
+        // ✅ Se a IA foi "limpa", manter a bolinha até o usuário clicar em Analisar histórico
+        if (isIABootstrapHoldActive(mode)) return true;
         return true;
     }
 
