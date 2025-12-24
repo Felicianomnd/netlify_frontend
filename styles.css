@@ -1994,6 +1994,11 @@
     box-shadow: inset 0 0 0 1px rgba(255,255,255,0.04);
 }
 
+/* 🖥️ Desktop dashboard: "Recuperação segura" não usa Sistema Híbrido */
+.da-desktop-dashboard #observerHybrid {
+    display: none !important;
+}
+
 .observer-hybrid-row {
     display: flex;
     justify-content: space-between;
@@ -3912,7 +3917,10 @@
      Aqui precisamos quebrar essa trava para a tela cheia ocupar 100% da altura. */
   max-height: none !important;
   overflow-y: auto;
-  padding: 10px 14px;
+  /* ✅ Mais respiro à direita para não “cortar” o último item (scrollbar/overflow) */
+  box-sizing: border-box;
+  padding: 10px 30px 10px 14px;
+  scrollbar-gutter: stable;
   gap: 6px;
 }
 
@@ -9045,6 +9053,70 @@ body.da-ext-fullscreen #patternDetailsModal .bank-patterns-modal-content {
     padding: 0 !important;
   }
 
+  /* ✅ Evitar “buraco”/pulo quando o card Padrão cresce:
+     - Fixar altura dos cards IA + Padrão (linha estável)
+     - Scroll interno no conteúdo (sem empurrar "Recuperação segura" pra baixo) */
+  #blaze-double-analyzer.da-desktop-dashboard #analyzerDefaultView .entries-section.da-card,
+  #blaze-double-analyzer.da-desktop-dashboard #analyzerDefaultView .pattern-section.da-card {
+    height: clamp(260px, 42vh, 420px);
+  }
+
+  /* IA: preencher a altura do card (sem espaço vazio) */
+  #blaze-double-analyzer.da-desktop-dashboard #analyzerDefaultView .entries-section.da-card {
+    align-self: stretch;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+
+  #blaze-double-analyzer.da-desktop-dashboard #analyzerDefaultView .entries-section.da-card #entriesPanel.entries-panel {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+  }
+
+  #blaze-double-analyzer.da-desktop-dashboard #analyzerDefaultView .entries-section.da-card #entriesPanel .entries-content {
+    flex: 1;
+    min-height: 0;
+  }
+
+  #blaze-double-analyzer.da-desktop-dashboard #analyzerDefaultView .entries-section.da-card #entriesPanel .entries-view:not([hidden]) {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+
+  #blaze-double-analyzer.da-desktop-dashboard #analyzerDefaultView .entries-section.da-card #entriesPanel .entries-list-wrap {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+
+  #blaze-double-analyzer.da-desktop-dashboard #analyzerDefaultView .entries-section.da-card #entriesPanel .entries-list {
+    flex: 1;
+    min-height: 0;
+    max-height: none !important;
+    overflow-y: auto;
+  }
+
+  /* Padrão: scroll interno (não cresce a linha do grid) */
+  #blaze-double-analyzer.da-desktop-dashboard #analyzerDefaultView .pattern-section.da-card {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+
+  #blaze-double-analyzer.da-desktop-dashboard #analyzerDefaultView .pattern-section.da-card #patternInfo {
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+    padding-right: 10px;
+    box-sizing: border-box;
+  }
+
   /* O wrapper do vidro não precisa de cantos tão grandes no desktop */
   #blaze-double-analyzer.da-desktop-dashboard #analyzerDefaultView .entries-section .entries-list-wrap {
     border-radius: var(--da-desktop-radius) !important;
@@ -9154,6 +9226,11 @@ body.da-ext-fullscreen #patternDetailsModal .bank-patterns-modal-content {
     grid-template-columns: 1fr;
   }
 
+  /* ✅ Fullscreen “real” no workspace: remover padding do container ao expandir um card */
+  #blaze-double-analyzer.da-desktop-dashboard.da-dashboard-expanded .da-desktop-main #analyzerContent {
+    padding: 0;
+  }
+
   #blaze-double-analyzer.da-desktop-dashboard.da-dashboard-expanded .da-card {
     display: none;
   }
@@ -9164,6 +9241,63 @@ body.da-ext-fullscreen #patternDetailsModal .bank-patterns-modal-content {
     height: 100%;
     overflow: auto;
     grid-column: 1 / -1;
+  }
+
+  /* ✅ Histórico de Giros fullscreen: ocupar toda a altura do workspace (sem “vazio” embaixo) */
+  #blaze-double-analyzer.da-desktop-dashboard.da-dashboard-expanded #analyzerDefaultView .stats-section.da-card.da-card-is-expanded #spin-history-bar-ext {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+  }
+
+  #blaze-double-analyzer.da-desktop-dashboard.da-dashboard-expanded #analyzerDefaultView .stats-section.da-card.da-card-is-expanded #spin-history-bar-ext .spin-history-label {
+    flex: 0 0 auto;
+  }
+
+  #blaze-double-analyzer.da-desktop-dashboard.da-dashboard-expanded #analyzerDefaultView .stats-section.da-card.da-card-is-expanded #spin-history-bar-ext .spin-history-bar-blaze {
+    flex: 1;
+    min-height: 0;
+    max-height: none;
+    padding-right: 8px; /* evita corte na lateral direita (scrollbar) */
+  }
+
+  /* ✅ Histórico: “+ no servidor” vira ação (clique) no desktop */
+  #blaze-double-analyzer.da-desktop-dashboard #analyzerDefaultView .stats-section .more-indicator {
+    cursor: pointer;
+  }
+
+  #blaze-double-analyzer.da-desktop-dashboard #analyzerDefaultView .stats-section .more-indicator:hover {
+    background: rgba(0, 212, 255, 0.12);
+    color: rgba(0, 255, 136, 0.95);
+  }
+
+  /* ✅ IA: evitar que o ícone no canto direito fique “cortado” no desktop */
+  #blaze-double-analyzer.da-desktop-dashboard #entriesPanel .entries-header {
+    padding-right: 16px;
+    min-width: 0;
+    overflow: hidden;
+  }
+
+  #blaze-double-analyzer.da-desktop-dashboard #entriesPanel .ia-tests-toggle {
+    margin-right: 8px;
+    flex: 0 0 auto;
+  }
+
+  /* ✅ IA header: permitir que o texto “WIN/LOSS/Ciclos/Limpar” encolha e não empurre o ícone para fora */
+  #blaze-double-analyzer.da-desktop-dashboard #entriesPanel #entriesHit {
+    min-width: 0;
+    flex: 1 1 auto;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* ✅ IA (desktop): respiro à direita para não cortar os quadradinhos no limite do container */
+  #blaze-double-analyzer.da-desktop-dashboard #entriesPanel .entries-list {
+    box-sizing: border-box;
+    padding-right: 26px;
+    scrollbar-gutter: stable;
   }
 
   /* ✅ Card "Padrão": ícone puro (sem “botão” atrás) e alinhado ao título */
@@ -9182,6 +9316,29 @@ body.da-ext-fullscreen #patternDetailsModal .bank-patterns-modal-content {
   }
 
   #blaze-double-analyzer.da-desktop-dashboard #analyzerDefaultView .pattern-section.da-card .da-card-expand:hover {
+    background: transparent;
+    border-color: transparent;
+    transform: none;
+    opacity: 1;
+    color: rgba(233, 242, 255, 0.95);
+  }
+
+  /* ✅ Card "Histórico de Giros": ícone puro (sem botão) e um pouco mais baixo (alinhado ao título) */
+  #blaze-double-analyzer.da-desktop-dashboard #analyzerDefaultView .stats-section.da-card .da-card-expand {
+    width: 28px;
+    height: 28px;
+    top: 10px;
+    right: 14px;
+    border: none;
+    background: transparent;
+    border-radius: 0;
+    box-shadow: none;
+    transform: none;
+    padding: 0;
+    opacity: 0.9;
+  }
+
+  #blaze-double-analyzer.da-desktop-dashboard #analyzerDefaultView .stats-section.da-card .da-card-expand:hover {
     background: transparent;
     border-color: transparent;
     transform: none;

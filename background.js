@@ -187,8 +187,161 @@ let forceLogoutTabOpened = false;
 // - Após WIN do sinal de recuperação, desativa automaticamente.
 // ═══════════════════════════════════════════════════════════════════════════════
 const RECOVERY_MODE_KEY = 'recoveryMode';
+// ✅ Persistir o último ciclo de Recuperação (por modo) para a UI exibir na aba "Recuperação"
+// mesmo após auto-desativar (WIN) ou refresh.
+const LAST_RECOVERY_ENTRY_BY_MODE_KEY = 'lastRecoveryEntryByMode';
 let recoveryModeEnabled = false;
-const RECOVERY_MIN_CONFIDENCE = 85; // "certeiro" (ajustável futuramente)
+// Histórico interno (fase 1 "silenciosa") usado para calcular o ponto seguro da Recuperação.
+// NÃO é exibido na aba IA; serve apenas como base de análise para "Recuperação segura".
+const RECOVERY_SECURE_HISTORY_KEY = 'recoverySecureHistory';
+// ✅ Recuperação (fase 2): NÃO usa %confidence do sinal.
+// A liberação é baseada na leitura do histórico de CICLOS (distância entre LOSS/RED + hazard),
+// buscando um "momento seguro" com baixa previsão de LOSS.
+const RECOVERY_MIN_CYCLES = 20;
+
+function computeRecoveryGateFromEntries(entriesHistoryRaw, modeRaw) {
+    try {
+        const mode = normalizeMasterMode(modeRaw);
+        const list = Array.isArray(entriesHistoryRaw) ? entriesHistoryRaw : [];
+        const hasExplicitMode = list.some(e => e && (e.analysisMode === 'diamond' || e.analysisMode === 'standard'));
+        const inMode = (e) => resolveEntryModeMaster(e, hasExplicitMode) === mode;
+        const finalsRecentFirst = list.filter(e => inMode(e) && isFinalCycleMaster(e));
+        const cyclesChron = finalsRecentFirst.slice().reverse(); // cronológico (antigo → recente)
+        const totalCycles = cyclesChron.length;
+        if (totalCycles < RECOVERY_MIN_CYCLES) {
+            return {
+                ok: false,
+                reason: `Coletando histórico (${totalCycles}/${RECOVERY_MIN_CYCLES})`,
+                stats: { totalCycles }
+            };
+        }
+
+        const isLossFinal = (e) => {
+            if (!e || typeof e !== 'object') return false;
+            const r = String(e.result || '').toUpperCase().trim();
+            if (r !== 'LOSS') return false;
+            const fr = String(e.finalResult || '').toUpperCase().trim();
+            if (fr === 'RED' || fr === 'RET') return true;
+            // LOSS sem flags de continuação -> tratar como final (sem gales)
+            return !hasContinuationFlagMaster(e);
+        };
+
+        const lossIdx = [];
+        for (let i = 0; i < cyclesChron.length; i++) {
+            if (isLossFinal(cyclesChron[i])) lossIdx.push(i);
+        }
+        const losses = lossIdx.length;
+        const sinceLoss = losses ? (totalCycles - lossIdx[lossIdx.length - 1]) : null;
+
+        if (losses < 2 || sinceLoss == null) {
+            return {
+                ok: false,
+                reason: `Base insuficiente de LOSS (${losses}/2)`,
+                stats: { totalCycles, losses, sinceLoss }
+            };
+        }
+
+        // gaps entre LOSS (cronológico)
+        const gaps = [];
+        for (let i = 1; i < lossIdx.length; i++) {
+            const g = Math.floor(lossIdx[i] - lossIdx[i - 1]);
+            if (Number.isFinite(g) && g > 0) gaps.push(g);
+        }
+
+        const hazardAt = (arr, d) => {
+            const dist = Math.floor(Number(d));
+            if (!Number.isFinite(dist) || dist <= 0) return null;
+            const gs = Array.isArray(arr) ? arr.map(Number).filter(n => Number.isFinite(n) && n > 0).map(n => Math.floor(n)) : [];
+            if (!gs.length) return null;
+            let at = 0;
+            let ge = 0;
+            for (const g of gs) {
+                if (g >= dist) ge++;
+                if (g === dist) at++;
+            }
+            if (ge <= 0) return null;
+            return at / ge;
+        };
+
+        // targets (gaps mais prováveis)
+        const freq = new Map();
+        for (const g of gaps) freq.set(g, (freq.get(g) || 0) + 1);
+        const totalGaps = gaps.length || 0;
+        const sorted = Array.from(freq.entries())
+            .map(([gap, count]) => ({ gap, count, prob: totalGaps ? (count / totalGaps) : 0 }))
+            .sort((a, b) => (b.count - a.count) || (a.gap - b.gap));
+
+        const retTopN = 5;
+        const retMinCount = 2;
+        const retMinSupport = 0.12;
+        const strict = sorted
+            .filter(it => it.count >= retMinCount && it.prob >= retMinSupport)
+            .slice(0, retTopN)
+            .map(it => it.gap);
+        const retTargets = strict.length ? strict : sorted.slice(0, retTopN).map(it => it.gap);
+
+        const lossHazardNow = hazardAt(gaps, sinceLoss);
+        const baselineLossRate = totalCycles > 0 ? (losses / totalCycles) : 0;
+        const hazardBlockAbove = 0.12;
+        const hazardBlockAboveEffective = Math.max(0.02, Math.min(hazardBlockAbove, baselineLossRate * 0.55));
+        const retAvoidWindow = 0; // evitar coincidência exata
+        const nearLossZone = (sinceLoss != null && retTargets.length)
+            ? retTargets.some(t => Math.abs(sinceLoss - t) <= retAvoidWindow)
+            : false;
+
+        // Regra dinâmica pós-LOSS: se já houve 2+ LOSS seguidos no histórico, após 1 LOSS aguardar 1 ciclo
+        const computeMaxLossStreak = (arr) => {
+            let max = 0;
+            let cur = 0;
+            for (const c of arr) {
+                if (isLossFinal(c)) { cur++; if (cur > max) max = cur; }
+                else cur = 0;
+            }
+            return max;
+        };
+        const maxLossStreakHist = computeMaxLossStreak(cyclesChron);
+        let minAfterLoss = maxLossStreakHist <= 1 ? 1 : 2;
+
+        // ✅ Regra mais previsível (pedido do usuário):
+        // usar média de distância entre LOSS para definir um "ponto seguro" mínimo,
+        // e evitar apenas as distâncias mais típicas de LOSS (retTargets).
+        const avgGap = gaps.length ? (gaps.reduce((acc, n) => acc + n, 0) / gaps.length) : null;
+        let safeDistance = minAfterLoss;
+        if (avgGap != null && Number.isFinite(avgGap) && avgGap > 0) {
+            // fração conservadora da média; cap para não "travar" em gaps grandes
+            safeDistance = Math.max(minAfterLoss, Math.max(1, Math.round(avgGap * 0.4)));
+            safeDistance = Math.min(safeDistance, 12);
+        }
+        const signalsUntilSafe = (sinceLoss != null) ? Math.max(0, safeDistance - sinceLoss) : null;
+        const postLossOk = sinceLoss >= safeDistance;
+
+        const ok = !!(postLossOk && !nearLossZone);
+        const hzTxt = (lossHazardNow != null) ? `${Math.round(lossHazardNow * 100)}%` : '—';
+        const reason = ok
+            ? `OK • distLOSS=${sinceLoss} • seguro≥${safeDistance} • hazard≈${hzTxt}`
+            : (!postLossOk
+                ? `Aguardando dist seguro • distLOSS=${sinceLoss} (mín ${safeDistance})`
+                : `Bloqueado • zona típica de LOSS (distLOSS=${sinceLoss} em [${retTargets.join(',') || '—'}])`);
+
+        return {
+            ok,
+            reason,
+            stats: {
+                totalCycles,
+                losses,
+                sinceLoss,
+                retTargets,
+                lossHazardNow,
+                hazardBlockAboveEffective,
+                avgGap,
+                safeDistance,
+                signalsUntilSafe
+            }
+        };
+    } catch (e) {
+        return { ok: false, reason: `Erro ao avaliar recuperação: ${String(e)}`, stats: {} };
+    }
+}
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // 💾 CACHE EM MEMÓRIA (não persiste após recarregar)
@@ -343,6 +496,7 @@ const DEFAULT_ANALYZER_CONFIG = {
         n3AllowBackoff: false,    // N3 - Alternância (tentar janelas menores se não houver dados)
         n3IgnoreWhite: false,     // N3 - Alternância (ignorar previsões de branco)
         n4Persistence: 2000,      // N4 - Autointeligente (histórico analisado em giros)
+        n4DynamicGales: true,     // N4 - Permitir mudar a cor no Gale (G1/G2) quando estiver rodando "somente N4"
         n5MinuteBias: 60,         // N5 - Ritmo por Giro / Minuto
         n6RetracementWindow: 80,  // N6 - Retração Histórica (janela de análise)
         n7DecisionWindow: 20,     // N7 - Continuidade Global (decisões analisadas)
@@ -387,7 +541,10 @@ const ENTRIES_CLEAR_CUTOFF_KEY = 'entriesClearCutoffByMode';
 
 function getEntryTimestampMsForHistory(entry) {
     try {
-        const t = entry && entry.timestamp != null ? entry.timestamp : null;
+        // ✅ IA Bootstrap: manter timestamp real, mas usar visibleAtTimestamp para cutoff/visibilidade.
+        const t = (entry && entry.visibleAtTimestamp != null)
+            ? entry.visibleAtTimestamp
+            : (entry && entry.timestamp != null ? entry.timestamp : null);
         if (t == null) return 0;
         const ms = (typeof t === 'number') ? t : Date.parse(String(t));
         return Number.isFinite(ms) ? ms : 0;
@@ -3365,6 +3522,15 @@ async function processNewSpinFromServer(spinData) {
             } catch (e) {
                 console.warn('⚠️ Erro ao buscar entriesHistory:', e);
             }
+
+            // Buscar histórico interno da Recuperação (fase 1 silenciosa)
+            let recoverySecureHistory = [];
+            try {
+                const result = await chrome.storage.local.get([RECOVERY_SECURE_HISTORY_KEY]);
+                recoverySecureHistory = result && Array.isArray(result[RECOVERY_SECURE_HISTORY_KEY]) ? result[RECOVERY_SECURE_HISTORY_KEY] : [];
+            } catch (e) {
+                console.warn('⚠️ Erro ao buscar recoverySecureHistory:', e);
+            }
             
             // ⚡ ATUALIZAR MEMÓRIA ATIVA INCREMENTALMENTE (super rápido!)
             if (memoriaAtiva.inicializada) {
@@ -3425,6 +3591,8 @@ async function processNewSpinFromServer(spinData) {
                 // Avaliar recomendação pendente (WIN / G1 / G2)
             const currentAnalysisResult = await chrome.storage.local.get(['analysis']);
             const currentAnalysis = currentAnalysisResult['analysis'];
+            const isHiddenInternal = !!(currentAnalysis && currentAnalysis.hiddenInternal);
+            const activeHistory = isHiddenInternal ? recoverySecureHistory : entriesHistory;
             
             console.log('📊 Resultado da busca:', currentAnalysisResult);
             console.log('📊 currentAnalysis existe?', currentAnalysis ? 'SIM' : 'NÃO');
@@ -3543,6 +3711,8 @@ async function processNewSpinFromServer(spinData) {
                                 analysisMode: analyzerConfig.aiMode ? 'diamond' : 'standard', // 'diamond' | 'standard'
                                 // ✅ NOVO: marcar se este ciclo era SINAL DE ENTRADA
                                 isMaster: !!(currentAnalysis && currentAnalysis.masterSignal && currentAnalysis.masterSignal.active),
+                                // ✅ NOVO: marcar se este ciclo foi um SINAL DE RECUPERAÇÃO (para exibir na aba Recuperação)
+                                recoveryMode: !!(currentAnalysis && currentAnalysis.recoveryMode),
                                 // ✅ NOVO (Diamante): qual nível "mandou" o sinal (origem)
                                 diamondSourceLevel: currentAnalysis && currentAnalysis.diamondSourceLevel ? currentAnalysis.diamondSourceLevel : null,
                                 // ✅ FINANCEIRO (fixo no tempo)
@@ -3571,7 +3741,7 @@ async function processNewSpinFromServer(spinData) {
                             console.log('   ➤ entriesHistory existe?', !!entriesHistory);
                             console.log('   ➤ entriesHistory.length ANTES:', entriesHistory.length);
                             
-                            entriesHistory.unshift(winEntry);
+                            activeHistory.unshift(winEntry);
                             // ✅ Pedido: não limitar histórico por ciclos (acumular ilimitado)
                             
                             console.log('%c✅ ENTRADA ADICIONADA AO HISTÓRICO!', 'color: #00FF00; font-weight: bold; font-size: 14px;');
@@ -3584,23 +3754,25 @@ async function processNewSpinFromServer(spinData) {
                             console.log(`📊 Placar total: ${calculateCycleScore(entriesHistory).totalWins} wins / ${calculateCycleScore(entriesHistory).totalLosses} losses`);
                             console.log(`📊 Placar ${currentMode}: ${filteredWins} wins / ${filteredLosses} losses`);
                             
-                            // ✅ Enviar confirmação de WIN ao Telegram (com informação de Martingale e modo)
-                            await sendTelegramMartingaleWin(
-                                martingaleStage, 
-                                { color: rollColor, number: rollNumber, timestamp: latestSpin.created_at },
-                                filteredWins,
-                                filteredLosses,
-                                currentMode,
-                                currentAnalysis.confidence
-                            );
-                            
-                            // Registrar no observador inteligente
-                            await registerEntryInObserver(
-                                currentAnalysis.confidence,
-                                'win',
-                                currentAnalysis.createdOnTimestamp,
-                                { type: currentAnalysis.patternType, occurrences: currentAnalysis.occurrences }
-                            );
+                            if (!isHiddenInternal) {
+                                // ✅ Enviar confirmação de WIN ao Telegram (com informação de Martingale e modo)
+                                await sendTelegramMartingaleWin(
+                                    martingaleStage, 
+                                    { color: rollColor, number: rollNumber, timestamp: latestSpin.created_at },
+                                    filteredWins,
+                                    filteredLosses,
+                                    currentMode,
+                                    currentAnalysis.confidence
+                                );
+                                
+                                // Registrar no observador inteligente
+                                await registerEntryInObserver(
+                                    currentAnalysis.confidence,
+                                    'win',
+                                    currentAnalysis.createdOnTimestamp,
+                                    { type: currentAnalysis.patternType, occurrences: currentAnalysis.occurrences }
+                                );
+                            }
                             
                             // ✅ ATUALIZAR HISTÓRICO DE CORES QUENTES
                             if (martingaleState.active && (martingaleStage === 'G1' || martingaleStage === 'G2')) {
@@ -3651,6 +3823,19 @@ async function processNewSpinFromServer(spinData) {
                                 recoveryModeEnabled = false;
                             }
 
+                            // ✅ Persistir último sinal de recuperação (por modo) para a aba "Recuperação"
+                            let lastRecoveryEntryByMode = null;
+                            if (!isHiddenInternal && disableRecoveryAfterWin) {
+                                try {
+                                    const prev = await chrome.storage.local.get([LAST_RECOVERY_ENTRY_BY_MODE_KEY]);
+                                    const raw = prev ? prev[LAST_RECOVERY_ENTRY_BY_MODE_KEY] : null;
+                                    const map = raw && typeof raw === 'object' ? raw : {};
+                                    lastRecoveryEntryByMode = { ...map, [currentMode]: winEntry };
+                                } catch (_) {
+                                    lastRecoveryEntryByMode = { [currentMode]: winEntry };
+                                }
+                            }
+
                             await chrome.storage.local.set({ 
                                 analysis: null, 
                                 pattern: null,
@@ -3659,9 +3844,10 @@ async function processNewSpinFromServer(spinData) {
                                 lastCycleResolvedSpinId: latestSpin ? (latestSpin.id || null) : null,
                                 lastCycleResolvedSpinTimestamp: latestSpin ? (latestSpin.created_at || null) : null,
                                 lastCycleResolvedTimestamp: Date.now(),
-                                entriesHistory,
+                                ...(isHiddenInternal ? { [RECOVERY_SECURE_HISTORY_KEY]: recoverySecureHistory } : { entriesHistory }),
                                 martingaleState,  // ✅ Salvar estado do Martingale
                                 rigorLevel: 75, // RESET: Volta para 75% após WIN
+                                ...(lastRecoveryEntryByMode ? { [LAST_RECOVERY_ENTRY_BY_MODE_KEY]: lastRecoveryEntryByMode } : {}),
                                 ...(disableRecoveryAfterWin ? { [RECOVERY_MODE_KEY]: { enabled: false, updatedAt: Date.now(), lastResult: 'win' } } : {})
                             });
                             
@@ -3672,7 +3858,9 @@ async function processNewSpinFromServer(spinData) {
                             }
 
                             
-                            sendMessageToContent('CLEAR_ANALYSIS');
+                            if (!isHiddenInternal || (currentAnalysis && currentAnalysis.recoveryMode)) {
+                                sendMessageToContent('CLEAR_ANALYSIS');
+                            }
                             
                             // ✅ Enviar atualização de entradas para UI
                             console.log('%c📤 ENVIANDO ENTRIES_UPDATE PARA UI...', 'color: #00D4FF; font-weight: bold; font-size: 14px;');
@@ -3685,8 +3873,10 @@ async function processNewSpinFromServer(spinData) {
                                 phase: entriesHistory[0].phase
                             } : 'N/A');
                             
-                            const uiUpdateResult = sendMessageToContent('ENTRIES_UPDATE', entriesHistory);
-                            console.log('%c📨 Resultado do envio para UI:', uiUpdateResult ? 'color: #00FF00;' : 'color: #FF0000;', uiUpdateResult);
+                            if (!isHiddenInternal) {
+                                const uiUpdateResult = sendMessageToContent('ENTRIES_UPDATE', entriesHistory);
+                                console.log('%c📨 Resultado do envio para UI:', uiUpdateResult ? 'color: #00FF00;' : 'color: #FF0000;', uiUpdateResult);
+                            }
                             console.log('%c║  ✅ ENTRADA WIN PROCESSADA COMPLETAMENTE!                                   ║', 'color: #00FF00; font-weight: bold;');
                         } else {
                             console.log('║  ❌ LOSS DETECTADO!                                      ║');
@@ -3706,13 +3896,15 @@ async function processNewSpinFromServer(spinData) {
                             // ✅ VERIFICAR SE É O ÚLTIMO GALE (vai virar RED) ou se ainda tem mais Gales
                             // NÃO ENVIAR MENSAGEM AQUI - será enviada dentro da lógica abaixo
                             
-                            // ✅ REGISTRAR NO CALIBRADOR DE PORCENTAGENS
-                            await registerEntryInObserver(
-                                currentAnalysis.confidence,
-                                'loss',
-                                currentAnalysis.createdOnTimestamp,
-                                { type: currentAnalysis.patternType, occurrences: currentAnalysis.occurrences }
-                            );
+                            if (!isHiddenInternal) {
+                                // ✅ REGISTRAR NO CALIBRADOR DE PORCENTAGENS
+                                await registerEntryInObserver(
+                                    currentAnalysis.confidence,
+                                    'loss',
+                                    currentAnalysis.createdOnTimestamp,
+                                    { type: currentAnalysis.patternType, occurrences: currentAnalysis.occurrences }
+                                );
+                            }
                             
                             // ═══════════════════════════════════════════════════════════════
                             // NOVA LÓGICA DE MARTINGALE - DECIDIR PRÓXIMA AÇÃO
@@ -3778,6 +3970,8 @@ async function processNewSpinFromServer(spinData) {
                                         analysisMode: analyzerConfig.aiMode ? 'diamond' : 'standard',
                                         // ✅ NOVO: marcar se este ciclo era SINAL DE ENTRADA
                                         isMaster: !!(currentAnalysis && currentAnalysis.masterSignal && currentAnalysis.masterSignal.active),
+                                        // ✅ NOVO: marcar se este ciclo foi um SINAL DE RECUPERAÇÃO
+                                        recoveryMode: !!(currentAnalysis && currentAnalysis.recoveryMode),
                                         // ✅ NOVO (Diamante): qual nível "mandou" o sinal (origem)
                                         diamondSourceLevel: currentAnalysis && currentAnalysis.diamondSourceLevel ? currentAnalysis.diamondSourceLevel : null,
                                         // ✅ FINANCEIRO (fixo no tempo)
@@ -3805,7 +3999,7 @@ async function processNewSpinFromServer(spinData) {
                                     console.log('   ➤ entriesHistory existe?', !!entriesHistory);
                                     console.log('   ➤ entriesHistory.length ANTES:', entriesHistory.length);
                                     
-                                    entriesHistory.unshift(lossEntry);
+                                    activeHistory.unshift(lossEntry);
                                     // ✅ Pedido: não limitar histórico por ciclos (acumular ilimitado)
                                     
                                     console.log('%c✅ ENTRADA ADICIONADA AO HISTÓRICO!', 'color: #00FF00; font-weight: bold; font-size: 14px;');
@@ -3818,9 +4012,11 @@ async function processNewSpinFromServer(spinData) {
                                     console.log(`📊 Placar total: ${calculateCycleScore(entriesHistory).totalWins} wins / ${calculateCycleScore(entriesHistory).totalLosses} losses`);
                                     console.log(`📊 Placar ${currentMode}: ${filteredWins} wins / ${filteredLosses} losses`);
                                     
-                                    // ✅ ENVIAR MENSAGEM DE RED AO TELEGRAM (sem Gales)
-                                    console.log('📤 Enviando mensagem de RED ao Telegram (0 Gales configurados)...');
-                                    await sendTelegramMartingaleRET(filteredWins, filteredLosses, currentMode, currentAnalysis.confidence);
+                                    if (!isHiddenInternal) {
+                                        // ✅ ENVIAR MENSAGEM DE RED AO TELEGRAM (sem Gales)
+                                        console.log('📤 Enviando mensagem de RED ao Telegram (0 Gales configurados)...');
+                                        await sendTelegramMartingaleRET(filteredWins, filteredLosses, currentMode, currentAnalysis.confidence);
+                                    }
                                     
                                     resetMartingaleState();
                                     
@@ -3830,6 +4026,19 @@ async function processNewSpinFromServer(spinData) {
                                     console.log('   ➤ lastBet.status: loss');
                                     console.log('   ➤ entriesHistory.length:', entriesHistory.length);
                                     
+                                    // ✅ Persistir último sinal de recuperação (por modo) para a aba "Recuperação"
+                                    let lastRecoveryEntryByMode = null;
+                                    if (!isHiddenInternal && (currentAnalysis && currentAnalysis.recoveryMode)) {
+                                        try {
+                                            const prev = await chrome.storage.local.get([LAST_RECOVERY_ENTRY_BY_MODE_KEY]);
+                                            const raw = prev ? prev[LAST_RECOVERY_ENTRY_BY_MODE_KEY] : null;
+                                            const map = raw && typeof raw === 'object' ? raw : {};
+                                            lastRecoveryEntryByMode = { ...map, [currentMode]: lossEntry };
+                                        } catch (_) {
+                                            lastRecoveryEntryByMode = { [currentMode]: lossEntry };
+                                        }
+                                    }
+
                                     await chrome.storage.local.set({ 
                                         analysis: null, 
                                         pattern: null,
@@ -3838,12 +4047,15 @@ async function processNewSpinFromServer(spinData) {
                                         lastCycleResolvedSpinId: latestSpin ? (latestSpin.id || null) : null,
                                         lastCycleResolvedSpinTimestamp: latestSpin ? (latestSpin.created_at || null) : null,
                                         lastCycleResolvedTimestamp: Date.now(),
-                                        entriesHistory,
+                                        ...(isHiddenInternal ? { [RECOVERY_SECURE_HISTORY_KEY]: recoverySecureHistory } : { entriesHistory }),
+                                        ...(lastRecoveryEntryByMode ? { [LAST_RECOVERY_ENTRY_BY_MODE_KEY]: lastRecoveryEntryByMode } : {}),
                                         martingaleState
                                     });
                                     
                                     
-                                    sendMessageToContent('CLEAR_ANALYSIS');
+                                    if (!isHiddenInternal || (currentAnalysis && currentAnalysis.recoveryMode)) {
+                                        sendMessageToContent('CLEAR_ANALYSIS');
+                                    }
                                     
                                     console.log('%c📤 ENVIANDO ENTRIES_UPDATE PARA UI...', 'color: #00D4FF; font-weight: bold; font-size: 14px;');
                                     console.log('   ➤ Type: ENTRIES_UPDATE');
@@ -3856,8 +4068,10 @@ async function processNewSpinFromServer(spinData) {
                                         finalResult: entriesHistory[0].finalResult
                                     } : 'N/A');
                                     
-                                    const uiUpdateResult = sendMessageToContent('ENTRIES_UPDATE', entriesHistory);
-                                    console.log('%c📨 Resultado do envio para UI:', uiUpdateResult ? 'color: #00FF00;' : 'color: #FF0000;', uiUpdateResult);
+                                    if (!isHiddenInternal) {
+                                        const uiUpdateResult = sendMessageToContent('ENTRIES_UPDATE', entriesHistory);
+                                        console.log('%c📨 Resultado do envio para UI:', uiUpdateResult ? 'color: #00FF00;' : 'color: #FF0000;', uiUpdateResult);
+                                    }
                                     console.log('%c║  ✅ ENTRADA LOSS PROCESSADA COMPLETAMENTE!                                  ║', 'color: #00FF00; font-weight: bold;');
                                     return;
                                 }
@@ -3866,12 +4080,14 @@ async function processNewSpinFromServer(spinData) {
                                 console.log(`🔄 Tentando G${nextGaleNumber}...`);
                                 console.log(`⚙️ Gales consecutivos (até): ${consecutiveGales}`);
                                 
-                                // ✅ ENVIAR MENSAGEM DE LOSS ENTRADA (vai tentar G1)
-                                await sendTelegramMartingaleLoss(
-                                    currentStage,
-                                    { color: rollColor, number: rollNumber, timestamp: latestSpin.created_at },
-                                    currentAnalysis.confidence
-                                );
+                                if (!isHiddenInternal) {
+                                    // ✅ ENVIAR MENSAGEM DE LOSS ENTRADA (vai tentar G1)
+                                    await sendTelegramMartingaleLoss(
+                                        currentStage,
+                                        { color: rollColor, number: rollNumber, timestamp: latestSpin.created_at },
+                                        currentAnalysis.confidence
+                                    );
+                                }
                                 
                                 // ✅ N4 (Autointeligente): permitir re-análise no Gale (G1) quando estiver rodando "só N4"
                                 let g1Color = currentAnalysis.color;
@@ -3924,7 +4140,7 @@ async function processNewSpinFromServer(spinData) {
                                     payoutMultiplier
                                 };
                                 
-                                entriesHistory.unshift(entradaLossEntry);
+                                activeHistory.unshift(entradaLossEntry);
                                 // ✅ Pedido: não limitar histórico por ciclos (acumular ilimitado)
                                 
                                 // Salvar estado do Martingale
@@ -3961,19 +4177,23 @@ async function processNewSpinFromServer(spinData) {
                                         analysis: g1Analysis,
                                         pattern: { description: g1Analysis.patternDescription, confidence: g1Analysis.confidence },
                                         lastBet: { status: 'pending', phase: 'G1', createdOnTimestamp: g1Analysis.createdOnTimestamp },
-                                        entriesHistory,
+                                        ...(isHiddenInternal ? { [RECOVERY_SECURE_HISTORY_KEY]: recoverySecureHistory } : { entriesHistory }),
                                         martingaleState
                                     });
                                     
                                     emitAnalysisToContent(g1Analysis, analyzerConfig.aiMode ? 'diamond' : 'standard');
-                                    sendMessageToContent('ENTRIES_UPDATE', entriesHistory);
+                                    if (!isHiddenInternal) {
+                                        sendMessageToContent('ENTRIES_UPDATE', entriesHistory);
+                                    }
 
                                     // ✅ Telegram com confiança REAL do G1
-                                    await sendTelegramMartingaleG1(
-                                        g1Color,
-                                        g1Analysis.confidence,
-                                        { color: rollColor, number: rollNumber, timestamp: latestSpin.created_at }
-                                    );
+                                    if (!isHiddenInternal) {
+                                        await sendTelegramMartingaleG1(
+                                            g1Color,
+                                            g1Analysis.confidence,
+                                            { color: rollColor, number: rollNumber, timestamp: latestSpin.created_at }
+                                        );
+                                    }
                                 } else {
                                     // ❌ MODO PADRÃO: Aguardar novo padrão para enviar G1
                                     console.log('⏳ MODO PRÓXIMO SINAL: Aguardando novo sinal para enviar G1...');
@@ -3982,12 +4202,14 @@ async function processNewSpinFromServer(spinData) {
                                         analysis: null,
                                         pattern: null,
                                         lastBet: { status: 'loss', phase: 'G0', resolvedAtTimestamp: latestSpin.created_at },
-                                        entriesHistory,
+                                        ...(isHiddenInternal ? { [RECOVERY_SECURE_HISTORY_KEY]: recoverySecureHistory } : { entriesHistory }),
                                         martingaleState
                                     });
                                     
-                                    sendMessageToContent('CLEAR_ANALYSIS');
-                                    sendMessageToContent('ENTRIES_UPDATE', entriesHistory);
+                                    if (!isHiddenInternal || (currentAnalysis && currentAnalysis.recoveryMode)) {
+                                        sendMessageToContent('CLEAR_ANALYSIS');
+                                        sendMessageToContent('ENTRIES_UPDATE', entriesHistory);
+                                    }
                                 }
                                 
                             } else if (currentStage.startsWith('G')) {
@@ -4029,6 +4251,8 @@ async function processNewSpinFromServer(spinData) {
                                         analysisMode: analyzerConfig.aiMode ? 'diamond' : 'standard',
                                         // ✅ NOVO: marcar se este ciclo era SINAL DE ENTRADA
                                         isMaster: !!(currentAnalysis && currentAnalysis.masterSignal && currentAnalysis.masterSignal.active),
+                                        // ✅ NOVO: marcar se este ciclo foi um SINAL DE RECUPERAÇÃO
+                                        recoveryMode: !!(currentAnalysis && currentAnalysis.recoveryMode),
                                         // ✅ FINANCEIRO (fixo no tempo)
                                         cycleId,
                                         betColor,
@@ -4040,7 +4264,7 @@ async function processNewSpinFromServer(spinData) {
                                         cycleNetProfit
                                     };
                                     
-                                    entriesHistory.unshift(retEntry);
+                                    activeHistory.unshift(retEntry);
                                     // ✅ Pedido: não limitar histórico por ciclos (acumular ilimitado)
                                     
                                     // ✅ Calcular estatísticas WIN/LOSS FILTRADAS POR MODO
@@ -4050,7 +4274,9 @@ async function processNewSpinFromServer(spinData) {
                                     console.log(`📊 Placar total: ${calculateCycleScore(entriesHistory).totalWins} wins / ${calculateCycleScore(entriesHistory).totalLosses} losses`);
                                     console.log(`📊 Placar ${currentMode}: ${filteredWins} wins / ${filteredLosses} losses`);
                                     
-                                    await sendTelegramMartingaleRET(filteredWins, filteredLosses, currentMode, currentAnalysis.confidence);
+                                    if (!isHiddenInternal) {
+                                        await sendTelegramMartingaleRET(filteredWins, filteredLosses, currentMode, currentAnalysis.confidence);
+                                    }
                                     
                                     // ✅ ATUALIZAR HISTÓRICO DE CORES QUENTES
                                     const colorSequence = [];
@@ -4061,6 +4287,19 @@ async function processNewSpinFromServer(spinData) {
                                     await updateHotColorsHistory(patternKey, colorSequence);
                                     
                                     resetMartingaleState();
+
+                                    // ✅ Persistir último sinal de recuperação (por modo) para a aba "Recuperação"
+                                    let lastRecoveryEntryByMode = null;
+                                    if (!isHiddenInternal && (currentAnalysis && currentAnalysis.recoveryMode)) {
+                                        try {
+                                            const prev = await chrome.storage.local.get([LAST_RECOVERY_ENTRY_BY_MODE_KEY]);
+                                            const raw = prev ? prev[LAST_RECOVERY_ENTRY_BY_MODE_KEY] : null;
+                                            const map = raw && typeof raw === 'object' ? raw : {};
+                                            lastRecoveryEntryByMode = { ...map, [currentMode]: retEntry };
+                                        } catch (_) {
+                                            lastRecoveryEntryByMode = { [currentMode]: retEntry };
+                                        }
+                                    }
                                     
                                     await chrome.storage.local.set({ 
                                         analysis: null, 
@@ -4070,12 +4309,15 @@ async function processNewSpinFromServer(spinData) {
                                         lastCycleResolvedSpinId: latestSpin ? (latestSpin.id || null) : null,
                                         lastCycleResolvedSpinTimestamp: latestSpin ? (latestSpin.created_at || null) : null,
                                         lastCycleResolvedTimestamp: Date.now(),
-                                        entriesHistory,
+                                        ...(isHiddenInternal ? { [RECOVERY_SECURE_HISTORY_KEY]: recoverySecureHistory } : { entriesHistory }),
+                                        ...(lastRecoveryEntryByMode ? { [LAST_RECOVERY_ENTRY_BY_MODE_KEY]: lastRecoveryEntryByMode } : {}),
                                         martingaleState
                                     });
                                     
-                                    sendMessageToContent('CLEAR_ANALYSIS');
-                                    sendMessageToContent('ENTRIES_UPDATE', entriesHistory);
+                                    if (!isHiddenInternal || (currentAnalysis && currentAnalysis.recoveryMode)) {
+                                        sendMessageToContent('CLEAR_ANALYSIS');
+                                        sendMessageToContent('ENTRIES_UPDATE', entriesHistory);
+                                    }
                                     return;
                                 }
                                 
@@ -4083,12 +4325,14 @@ async function processNewSpinFromServer(spinData) {
                                 console.log(`🔄 Tentando G${nextGaleNumber}...`);
                                 console.log(`⚙️ Gales consecutivos (até): ${consecutiveGales}`);
                                 
-                                // ✅ ENVIAR MENSAGEM DE LOSS (vai tentar próximo Gale)
-                                await sendTelegramMartingaleLoss(
-                                    currentStage,
-                                    { color: rollColor, number: rollNumber, timestamp: latestSpin.created_at },
-                                    currentAnalysis.confidence
-                                );
+                                if (!isHiddenInternal) {
+                                    // ✅ ENVIAR MENSAGEM DE LOSS (vai tentar próximo Gale)
+                                    await sendTelegramMartingaleLoss(
+                                        currentStage,
+                                        { color: rollColor, number: rollNumber, timestamp: latestSpin.created_at },
+                                        currentAnalysis.confidence
+                                    );
+                                }
                                 
                                 // ✅ N4 (Autointeligente): permitir re-análise no Gale (G2...) quando estiver rodando "só N4"
                                 console.log(`║  martingaleState.entryColor: ${martingaleState.entryColor}                   ║`);
@@ -4132,7 +4376,7 @@ async function processNewSpinFromServer(spinData) {
                                     isMaster: !!(currentAnalysis && currentAnalysis.masterSignal && currentAnalysis.masterSignal.active)
                                 };
                                 
-                                entriesHistory.unshift(galeLossEntry);
+                                activeHistory.unshift(galeLossEntry);
                                 // ✅ Pedido: não limitar histórico por ciclos (acumular ilimitado)
                                 
                                 // Atualizar estado do Martingale
@@ -4159,20 +4403,24 @@ async function processNewSpinFromServer(spinData) {
                                         analysis: nextGaleAnalysis,
                                         pattern: { description: nextGaleAnalysis.patternDescription, confidence: nextGaleAnalysis.confidence },
                                         lastBet: { status: 'pending', phase: `G${nextGaleNumber}`, createdOnTimestamp: nextGaleAnalysis.createdOnTimestamp },
-                                        entriesHistory,
+                                        ...(isHiddenInternal ? { [RECOVERY_SECURE_HISTORY_KEY]: recoverySecureHistory } : { entriesHistory }),
                                         martingaleState
                                     });
                                     
                                     emitAnalysisToContent(nextGaleAnalysis, analyzerConfig.aiMode ? 'diamond' : 'standard');
-                                    sendMessageToContent('ENTRIES_UPDATE', entriesHistory);
+                                    if (!isHiddenInternal) {
+                                        sendMessageToContent('ENTRIES_UPDATE', entriesHistory);
+                                    }
 
                                     // ✅ Telegram com confiança REAL do Gale
-                                    await sendTelegramMartingaleGale(
-                                        nextGaleNumber,
-                                        nextGaleColor,
-                                        nextGaleAnalysis.confidence,
-                                        { color: rollColor, number: rollNumber, timestamp: latestSpin.created_at }
-                                    );
+                                    if (!isHiddenInternal) {
+                                        await sendTelegramMartingaleGale(
+                                            nextGaleNumber,
+                                            nextGaleColor,
+                                            nextGaleAnalysis.confidence,
+                                            { color: rollColor, number: rollNumber, timestamp: latestSpin.created_at }
+                                        );
+                                    }
                                 } else {
                                     // ❌ MODO PADRÃO
                                     console.log(`⏳ MODO PRÓXIMO SINAL: Aguardando novo sinal para enviar G${nextGaleNumber}...`);
@@ -4181,12 +4429,14 @@ async function processNewSpinFromServer(spinData) {
                                         analysis: null,
                                         pattern: null,
                                         lastBet: { status: 'loss', phase: currentStage, resolvedAtTimestamp: latestSpin.created_at },
-                                        entriesHistory,
+                                        ...(isHiddenInternal ? { [RECOVERY_SECURE_HISTORY_KEY]: recoverySecureHistory } : { entriesHistory }),
                                         martingaleState
                                     });
                                     
-                                    sendMessageToContent('CLEAR_ANALYSIS');
-                                    sendMessageToContent('ENTRIES_UPDATE', entriesHistory);
+                                    if (!isHiddenInternal || (currentAnalysis && currentAnalysis.recoveryMode)) {
+                                        sendMessageToContent('CLEAR_ANALYSIS');
+                                        sendMessageToContent('ENTRIES_UPDATE', entriesHistory);
+                                    }
                                 }
                                 
                             } else if (false) {
@@ -4220,7 +4470,7 @@ async function processNewSpinFromServer(spinData) {
                                     analysisMode: analyzerConfig.aiMode ? 'diamond' : 'standard'
                                 };
                                 
-                                entriesHistory.unshift(g1LossEntry);
+                                activeHistory.unshift(g1LossEntry);
                                 // ✅ Pedido: não limitar histórico por ciclos (acumular ilimitado)
                                 
                                 // Atualizar estado do Martingale
@@ -4265,12 +4515,14 @@ async function processNewSpinFromServer(spinData) {
                                         analysis: null,
                                         pattern: null,
                                         lastBet: { status: 'loss', phase: 'G1', resolvedAtTimestamp: latestSpin.created_at },
-                                        entriesHistory,
+                                        ...(isHiddenInternal ? { [RECOVERY_SECURE_HISTORY_KEY]: recoverySecureHistory } : { entriesHistory }),
                                         martingaleState
                                     });
                                     
-                                    sendMessageToContent('CLEAR_ANALYSIS');
-                                    sendMessageToContent('ENTRIES_UPDATE', entriesHistory);
+                                    if (!isHiddenInternal || (currentAnalysis && currentAnalysis.recoveryMode)) {
+                                        sendMessageToContent('CLEAR_ANALYSIS');
+                                        sendMessageToContent('ENTRIES_UPDATE', entriesHistory);
+                                    }
                                 }
                                 
                             } else if (currentStage === 'G2') {
@@ -4307,6 +4559,8 @@ async function processNewSpinFromServer(spinData) {
                                     analysisMode: analyzerConfig.aiMode ? 'diamond' : 'standard',
                                     // ✅ NOVO: marcar se este ciclo era SINAL DE ENTRADA
                                     isMaster: !!(currentAnalysis && currentAnalysis.masterSignal && currentAnalysis.masterSignal.active),
+                                    // ✅ NOVO: marcar se este ciclo foi um SINAL DE RECUPERAÇÃO
+                                    recoveryMode: !!(currentAnalysis && currentAnalysis.recoveryMode),
                                     // ✅ FINANCEIRO (fixo no tempo)
                                     cycleId,
                                     betColor,
@@ -4318,7 +4572,7 @@ async function processNewSpinFromServer(spinData) {
                                     cycleNetProfit
                                 };
                                 
-                                entriesHistory.unshift(retEntry);
+                                activeHistory.unshift(retEntry);
                                 // ✅ Pedido: não limitar histórico por ciclos (acumular ilimitado)
                                 
                                 // ✅ Calcular estatísticas WIN/LOSS FILTRADAS POR MODO
@@ -4328,7 +4582,9 @@ async function processNewSpinFromServer(spinData) {
                                 console.log(`📊 Placar total: ${calculateCycleScore(entriesHistory).totalWins} wins / ${calculateCycleScore(entriesHistory).totalLosses} losses`);
                                 console.log(`📊 Placar ${currentMode}: ${filteredWins} wins / ${filteredLosses} losses`);
                                 
-                                await sendTelegramMartingaleRET(filteredWins, filteredLosses, currentMode);
+                                if (!isHiddenInternal) {
+                                    await sendTelegramMartingaleRET(filteredWins, filteredLosses, currentMode);
+                                }
                                 
                                 // ✅ ATUALIZAR HISTÓRICO DE CORES QUENTES
                                 console.log('📊 Atualizando histórico de cores quentes após RED...');
@@ -4349,6 +4605,19 @@ async function processNewSpinFromServer(spinData) {
                                 await updateHotColorsHistory(patternKey, colorSequence);
                                 
                                 resetMartingaleState();
+
+                                // ✅ Persistir último sinal de recuperação (por modo) para a aba "Recuperação"
+                                let lastRecoveryEntryByMode = null;
+                                if (!isHiddenInternal && (currentAnalysis && currentAnalysis.recoveryMode)) {
+                                    try {
+                                        const prev = await chrome.storage.local.get([LAST_RECOVERY_ENTRY_BY_MODE_KEY]);
+                                        const raw = prev ? prev[LAST_RECOVERY_ENTRY_BY_MODE_KEY] : null;
+                                        const map = raw && typeof raw === 'object' ? raw : {};
+                                        lastRecoveryEntryByMode = { ...map, [currentMode]: retEntry };
+                                    } catch (_) {
+                                        lastRecoveryEntryByMode = { [currentMode]: retEntry };
+                                    }
+                                }
                                 
                                     await chrome.storage.local.set({ 
                                         analysis: null, 
@@ -4358,12 +4627,15 @@ async function processNewSpinFromServer(spinData) {
                                         lastCycleResolvedSpinId: latestSpin ? (latestSpin.id || null) : null,
                                         lastCycleResolvedSpinTimestamp: latestSpin ? (latestSpin.created_at || null) : null,
                                         lastCycleResolvedTimestamp: Date.now(),
-                                        entriesHistory,
+                                        ...(isHiddenInternal ? { [RECOVERY_SECURE_HISTORY_KEY]: recoverySecureHistory } : { entriesHistory }),
+                                    ...(lastRecoveryEntryByMode ? { [LAST_RECOVERY_ENTRY_BY_MODE_KEY]: lastRecoveryEntryByMode } : {}),
                                     martingaleState
                                     });
                                 
-                                    sendMessageToContent('CLEAR_ANALYSIS');
-                                    sendMessageToContent('ENTRIES_UPDATE', entriesHistory);
+                                    if (!isHiddenInternal || (currentAnalysis && currentAnalysis.recoveryMode)) {
+                                        sendMessageToContent('CLEAR_ANALYSIS');
+                                        sendMessageToContent('ENTRIES_UPDATE', entriesHistory);
+                                    }
                             }
                         }
                     }
@@ -4383,6 +4655,20 @@ async function processNewSpinFromServer(spinData) {
                 });
                 
                 // ✅ EXECUTAR NOVA ANÁLISE (após processar WIN/LOSS)
+                // ⚠️ Importante: NÃO gerar novo sinal se ainda existe análise pendente (aguardando resultado).
+                // Isso evita sobrescrever G1/G2/Recuperação e elimina “sinal normal vazando” enquanto espera o resultado.
+                try {
+                    const storedNow = await chrome.storage.local.get(['analysis']);
+                    const aNow = storedNow && storedNow.analysis ? storedNow.analysis : null;
+                    if (aNow && aNow.createdOnTimestamp) {
+                        console.log('⏸️ Análise pendente detectada — pulando geração de novo sinal.', {
+                            phase: aNow.phase || 'G0',
+                            recoveryMode: !!aNow.recoveryMode
+                        });
+                        return;
+                    }
+                } catch (_) {}
+
             console.log('%c║                                                                               ║', 'color: #FFD700; font-weight: bold; font-size: 16px; background: #333300; padding: 5px;');
             console.log('%c║                                                                               ║', 'color: #FFD700; font-weight: bold; font-size: 16px; background: #333300; padding: 5px;');
             console.log('%c║       📊 Giros no histórico:', 'color: #FFD700; font-weight: bold; background: #333300; padding: 5px;', cachedHistory ? cachedHistory.length : 0);
@@ -4603,6 +4889,13 @@ async function analyzePatterns(history) {
             }
             
             console.log('✅ Análise concluída com sucesso!');
+
+            // 🛟 Recuperação ativa: este sinal entra como "silencioso" (fase 1) por padrão.
+            // `emitAnalysisToContent` decide se vira um sinal de recuperação (recoveryMode=true).
+            if (recoveryModeEnabled) {
+                try { analysis.hiddenInternal = true; } catch (_) {}
+            }
+
             await chrome.storage.local.set({
                 analysis: analysis,
                 pattern: {
@@ -10461,7 +10754,17 @@ function shouldUseN4DynamicGalesForConfig(config = analyzerConfig) {
         // N9 é "barreira/veto" (validador), não um nível de voto.
         // Permitir N4-only mesmo com N9 ativo, para não matar a reanálise dinâmica em setups comuns.
         const voteIds = enabledIds.filter(id => id !== 'N9');
-        return voteIds.length === 1 && voteIds[0] === 'N4';
+        if (!(voteIds.length === 1 && voteIds[0] === 'N4')) return false;
+        // ✅ Toggle do usuário: permitir ou não mudar a cor no Gale (G1/G2)
+        try {
+            const fallback = !!(DEFAULT_ANALYZER_CONFIG && DEFAULT_ANALYZER_CONFIG.diamondLevelWindows && DEFAULT_ANALYZER_CONFIG.diamondLevelWindows.n4DynamicGales);
+            const allowDynamic = (config === analyzerConfig)
+                ? getDiamondBoolean('n4DynamicGales', fallback)
+                : getDiamondBooleanFromConfig(config, 'n4DynamicGales', fallback);
+            return !!allowDynamic;
+        } catch (_) {
+            return true;
+        }
     } catch (_) {
         return false;
     }
@@ -17278,6 +17581,10 @@ async function runAnalysisController(history) {
         }
 
 		emitModeSnapshotToContent('Análise em andamento', history.length);
+
+        // 🛟 RECUPERAÇÃO (manual):
+        // A fase 1 continua rodando "silenciosa" para alimentar o histórico interno.
+        // A decisão de exibir (ou não) o sinal fica centralizada em `emitAnalysisToContent`.
 		
 		// ⚠️ CRÍTICO: Em gales consecutivos (até o limite configurado), não gerar novo sinal.
 		// ✅ Correção: se o martingale estiver ativo mas NÃO houver analysis pendente correspondente (ou estiver stale),
@@ -17427,6 +17734,12 @@ async function runAnalysisController(history) {
 			console.log('%c✅ Modo Padrão ainda ativo - continuando com envio do sinal...', 'color: #00FF88; font-weight: bold;');
 		}
 		
+		// Se Recuperação estiver ativa, este sinal entra como "silencioso" por padrão.
+		// `emitAnalysisToContent` decide se libera (recoveryMode=true) ou mantém oculto.
+		if (recoveryModeEnabled) {
+			try { verifyResult.hiddenInternal = true; } catch (_) {}
+		}
+
 		await chrome.storage.local.set({
 			analysis: verifyResult,
 			pattern: { description: verifyResult.patternDescription, confidence: verifyResult.confidence },
@@ -17451,7 +17764,7 @@ async function runAnalysisController(history) {
 			
 			// 2. Enviar para Telegram (INDEPENDENTE)
 			try {
-			if (history && history.length > 0) {
+			if (history && history.length > 0 && !(verifyResult && verifyResult.hiddenInternal)) {
 					sendResults.telegram = await sendTelegramEntrySignal(verifyResult.color, history[0], verifyResult.confidence, verifyResult);
 				}
 			} catch (e) {
@@ -17618,26 +17931,10 @@ async function runAnalysisController(history) {
 				console.log('%c   🎲 Fase: ' + analysis.phase, 'color: #00FF88;');
 				console.log(`%c   📍 Número do giro: #${history[0].number}`, 'color: #00FF88;');
 				
-				// 🛟 MODO RECUPERAÇÃO (manual): só enviar quando atingir alta certeza
+				// 🛟 Recuperação ativa: este sinal entra como "silencioso" (fase 1) por padrão.
+				// `emitAnalysisToContent` decide se vira um sinal de recuperação (recoveryMode=true).
 				if (recoveryModeEnabled) {
-					const conf = Number(analysis.confidence) || 0;
-					if (conf < RECOVERY_MIN_CONFIDENCE) {
-						try {
-							sendMessageToContent('RECOVERY_MODE_UPDATE', {
-								enabled: true,
-								statusText: `Ativa • buscando sinal ≥${RECOVERY_MIN_CONFIDENCE}% (atual ${Math.round(conf)}%)…`
-							});
-						} catch (_) {}
-						sendAnalysisStatus(`🛟 Recuperação: buscando sinal ≥${RECOVERY_MIN_CONFIDENCE}%…`);
-						return; // não salvar analysis pendente (continua buscando no próximo giro)
-					}
-					analysis.recoveryMode = true;
-					try {
-						sendMessageToContent('RECOVERY_MODE_UPDATE', {
-							enabled: true,
-							statusText: `Sinal encontrado (${Math.round(conf)}%) • aguardando resultado`
-						});
-					} catch (_) {}
+					try { analysis.hiddenInternal = true; } catch (_) {}
 				}
 
 				// Salvar análise E número do giro do último sinal
@@ -17672,7 +17969,7 @@ async function runAnalysisController(history) {
 				
 				// 2. Enviar para Telegram (INDEPENDENTE)
 				try {
-					if (history && history.length > 0) {
+					if (history && history.length > 0 && !(analysis && analysis.hiddenInternal)) {
 						sendResults.telegram = await sendTelegramEntrySignal(analysis.color, history[0], analysis.confidence, analysis);
 					}
 				} catch (e) {
@@ -17778,7 +18075,7 @@ async function runAnalysisController(history) {
 				
 				// 2. Enviar para Telegram (INDEPENDENTE)
 				try {
-				if (history && history.length > 0) {
+					if (history && history.length > 0 && !(analysis && analysis.hiddenInternal)) {
 						sendResults.telegram = await sendTelegramEntrySignal(analysis.color, history[0], analysis.confidence, analysis);
 					}
 				} catch (e) {
@@ -25946,11 +26243,70 @@ async function attachMasterSignalToAnalysis(analysis, mode) {
 }
 
 async function emitAnalysisToContent(analysis, mode) {
+    try {
+        if (analysis && typeof analysis === 'object' && recoveryModeEnabled) {
+            // 🛟 Recuperação ativa:
+            // - Continuar gerando sinais (fase 1) para alimentar histórico interno.
+            // - NÃO mostrar sinais normais ao usuário.
+            // - Só "liberar" (mostrar) quando o gate indicar momento seguro.
+            // - Se o ciclo já é de recuperação (analysis.recoveryMode), manter visível inclusive em G1/G2.
+            const modeKey = mode || (analyzerConfig && analyzerConfig.aiMode ? 'diamond' : 'standard');
+            const phase = String(analysis.phase || 'G0');
+            const isGalePhase = (phase !== 'G0' && phase !== 'ENTRADA');
+
+            if (!analysis.recoveryMode) {
+                // Por padrão, tudo roda como "silencioso" (não aparece na IA/topo).
+                analysis.hiddenInternal = true;
+
+                // Se estiver em gale de um ciclo "silencioso", nunca liberar no meio do ciclo.
+                if (isGalePhase) {
+                    analysis.recoveryGate = null;
+                } else {
+                    try {
+                        const stored = await chrome.storage.local.get([RECOVERY_SECURE_HISTORY_KEY, ENTRIES_CLEAR_CUTOFF_KEY]);
+                        const all = stored && Array.isArray(stored[RECOVERY_SECURE_HISTORY_KEY]) ? stored[RECOVERY_SECURE_HISTORY_KEY] : [];
+                        const cutoffMs = getMasterCutoffMsForMode(stored ? stored[ENTRIES_CLEAR_CUTOFF_KEY] : null, modeKey);
+                        const filtered = filterEntriesHistoryByCutoff(all, cutoffMs);
+                        const gate = computeRecoveryGateFromEntries(filtered, modeKey);
+                        if (gate && gate.ok === true) {
+                            analysis.recoveryMode = true;
+                            analysis.hiddenInternal = false; // ✅ sinal seguro: visível (IA + Recuperação)
+                            analysis.recoveryGate = gate && gate.stats ? gate.stats : null;
+                        } else {
+                            analysis.recoveryMode = false;
+                            analysis.hiddenInternal = true;
+                            analysis.recoveryGate = gate && gate.stats ? gate.stats : null;
+                        }
+                    } catch (_) {
+                        analysis.recoveryMode = false;
+                        analysis.hiddenInternal = true;
+                        analysis.recoveryGate = null;
+                    }
+                }
+            } else {
+                // ✅ Ciclo já é "sinal seguro": manter VISÍVEL inclusive em G1/G2.
+                analysis.hiddenInternal = false;
+            }
+        }
+    } catch (_) {}
+
     const annotated = await attachMasterSignalToAnalysis(analysis, mode);
-    const payload = annotated ? { ...attachLatestSpinsSnapshot(annotated) } : {};
-    if (mode) {
-        payload.analysisMode = mode;
+
+    // Persistir flags de Recuperação no storage (evita vazamento em refresh e garante avaliação correta no background)
+    try {
+        if (annotated && typeof annotated === 'object' && recoveryModeEnabled) {
+            await chrome.storage.local.set({ analysis: annotated });
+        }
+    } catch (_) {}
+
+    // Se for sinal interno (silencioso), persistimos no storage mas NÃO emitimos para UI.
+    // Exceção: quando `recoveryMode=true`, ele deve aparecer apenas na aba "Recuperação segura".
+    if (annotated && annotated.hiddenInternal && !annotated.recoveryMode) {
+        return false;
     }
+
+    const payload = annotated ? { ...attachLatestSpinsSnapshot(annotated) } : {};
+    if (mode) payload.analysisMode = mode;
     return sendMessageToContent('NEW_ANALYSIS', payload);
 }
 
@@ -28846,13 +29202,38 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             try {
                 const enabled = request && typeof request.enabled === 'boolean' ? request.enabled : false;
                 recoveryModeEnabled = !!enabled;
+                // ✅ Ao ativar: (1) semear base do histórico da Recuperação com o histórico já existente,
+                // (2) esconder qualquer sinal normal já pendente (vira "silencioso"),
+                // (3) limpar a UI (não mostrar sinal em lugar algum).
+                if (recoveryModeEnabled) {
+                    try {
+                        const stored = await chrome.storage.local.get(['analysis', 'entriesHistory', RECOVERY_SECURE_HISTORY_KEY, ENTRIES_CLEAR_CUTOFF_KEY]);
+                        const existingRecovery = stored && Array.isArray(stored[RECOVERY_SECURE_HISTORY_KEY]) ? stored[RECOVERY_SECURE_HISTORY_KEY] : [];
+                        const baseEntries = stored && Array.isArray(stored.entriesHistory) ? stored.entriesHistory : [];
+                        if (!existingRecovery.length && baseEntries.length) {
+                            // usar a mesma janela do "Limpar" da IA (cutoff) para não herdar histórico limpado
+                            const modeKey = analyzerConfig && analyzerConfig.aiMode ? 'diamond' : 'standard';
+                            const cutoffMs = getMasterCutoffMsForMode(stored ? stored[ENTRIES_CLEAR_CUTOFF_KEY] : null, modeKey);
+                            const seeded = filterEntriesHistoryByCutoff(baseEntries, cutoffMs);
+                            await chrome.storage.local.set({ [RECOVERY_SECURE_HISTORY_KEY]: seeded });
+                        }
+                        const a = stored && stored.analysis ? stored.analysis : null;
+                        if (a && !a.recoveryMode) {
+                            await chrome.storage.local.set({ analysis: { ...a, hiddenInternal: true } });
+                        }
+                    } catch (_) {}
+                }
+
                 await chrome.storage.local.set({ [RECOVERY_MODE_KEY]: { enabled: recoveryModeEnabled, updatedAt: Date.now() } });
                 try {
                     sendMessageToContent('RECOVERY_MODE_UPDATE', {
                         enabled: recoveryModeEnabled,
-                        statusText: recoveryModeEnabled ? 'Ativa • buscando sinal certeiro…' : 'Desativada'
+                        statusText: recoveryModeEnabled ? '' : 'Desativada'
                     });
                 } catch (_) {}
+                if (recoveryModeEnabled) {
+                    try { sendMessageToContent('CLEAR_ANALYSIS'); } catch (_) {}
+                }
                 sendResponse({ status: 'ok', enabled: recoveryModeEnabled });
             } catch (e) {
                 console.error('❌ Falha em SET_RECOVERY_MODE:', e);
@@ -29311,14 +29692,36 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         (async () => {
             try {
                 const mode = request && request.mode ? request.mode : (analyzerConfig && analyzerConfig.aiMode ? 'diamond' : 'standard');
-                const stored = await chrome.storage.local.get(['entriesHistory', 'analysis', ENTRIES_CLEAR_CUTOFF_KEY]);
+                const stored = await chrome.storage.local.get([
+                    'entriesHistory',
+                    'analysis',
+                    RECOVERY_MODE_KEY,
+                    RECOVERY_SECURE_HISTORY_KEY,
+                    ENTRIES_CLEAR_CUTOFF_KEY
+                ]);
                 const entriesHistoryAll = stored && Array.isArray(stored.entriesHistory) ? stored.entriesHistory : [];
+                const recoverySecureAll = stored && Array.isArray(stored[RECOVERY_SECURE_HISTORY_KEY]) ? stored[RECOVERY_SECURE_HISTORY_KEY] : [];
                 const cutoffMs = getMasterCutoffMsForMode(stored ? stored[ENTRIES_CLEAR_CUTOFF_KEY] : null, mode);
-                const entriesHistory = filterEntriesHistoryByCutoff(entriesHistoryAll, cutoffMs);
+                const storedRecoveryEnabled = !!(stored && stored[RECOVERY_MODE_KEY] && stored[RECOVERY_MODE_KEY].enabled);
+                const recoveryEnabled = storedRecoveryEnabled || !!recoveryModeEnabled;
+
+                // Fonte:
+                // - Recuperação ativa => usar histórico interno (recoverySecureHistory)
+                // - Caso contrário => usar histórico normal (entriesHistory)
+                const historyAll = recoveryEnabled ? recoverySecureAll : entriesHistoryAll;
+                const entriesHistory = filterEntriesHistoryByCutoff(historyAll, cutoffMs);
                 const currentAnalysis = stored && stored.analysis ? stored.analysis : null;
                 // Garantir que masterSignal do analysis respeita o cutoff (evita "Sinal liberado" grudado após Limpar)
                 const annotated = await attachMasterSignalToAnalysis(currentAnalysis, mode);
                 const stats = computeMasterSignalStats(entriesHistory, mode, annotated);
+                // ✅ Recuperação segura: expor gate + contador (faltam X) para o card "Recuperação segura"
+                try {
+                    const gate = computeRecoveryGateFromEntries(entriesHistory, mode);
+                    stats.recoveryEnabled = recoveryEnabled;
+                    stats.recoveryGate = gate;
+                    stats.currentSignalRecovery = !!(annotated && annotated.recoveryMode);
+                    stats.source = recoveryEnabled ? 'recoverySecureHistory' : 'entriesHistory';
+                } catch (_) {}
                 sendResponse({ status: 'success', stats });
             } catch (e) {
                 console.error('❌ Falha ao calcular stats dos Sinais de entrada:', e);
@@ -29455,13 +29858,14 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                     console.warn(`⚠️ IA_BOOTSTRAP_HISTORY: ciclos insuficientes (${createdCycles}/${targetCycles}) para modo ${mode}`);
                 }
 
-                // Carimbar timestamps para ficarem visíveis após "Limpar" (cutoff), sem mexer nas configs
+                // Carimbar "visibilidade" para passar no cutoff após "Limpar", MAS sem destruir o timestamp real.
+                // - `timestamp` permanece o original (para exibir hora correta no UI)
+                // - `visibleAtTimestamp` é usado só para filtro/cutoff (content.js)
                 const stampMs = Math.max(Date.now(), (Number(cutoffMs) || 0) + 1);
-                const stampIso = new Date(stampMs).toISOString();
-                const keptEntries = keptEntriesRaw.map(e => ({
+                const keptEntries = keptEntriesRaw.map((e, idx) => ({
                     ...(e && typeof e === 'object' ? e : {}),
-                    timestamp: stampIso,
-                    bootstrap: true
+                    bootstrap: true,
+                    visibleAtTimestamp: stampMs + idx // pequeno offset para estabilidade
                 }));
 
                 // Remover do histórico antigo tudo que for do modo alvo ANTES do cutoff (limpeza real, para não misturar)

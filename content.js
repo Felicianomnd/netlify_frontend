@@ -32,10 +32,13 @@
     // ═══════════════════════════════════════════════════════════════════════════════
     // VARIÁVEL GLOBAL: Controle de exibição do histórico por camadas
     // ═══════════════════════════════════════════════════════════════════════════════
-    let currentHistoryDisplayLimit = 500; // Começa exibindo 500, pode aumentar em camadas de 500
+    let currentHistoryDisplayLimit = 500; // Normal: começa exibindo 500 (camadas de 500)
+    let currentHistoryDisplayLimitExpanded = 1500; // Fullscreen do Histórico: começa maior para preencher o espaço
     let currentHistoryData = []; // Armazenar histórico atual para re-renderizar
     let autoPatternSearchTriggered = false; // Impede disparos automáticos repetidos
     let suppressAutoPatternSearch = false; // Evita busca automática após reset manual
+    // ✅ Manter o último sinal de recuperação (por modo) para não “sumir” após desativar (WIN)
+    let lastRecoveryEntryByMode = { standard: null, diamond: null };
     
     const SESSION_STORAGE_KEYS = ['authToken', 'user', 'lastAuthCheck'];
     let forceLogoutAlreadyTriggered = false;
@@ -1270,6 +1273,8 @@ const DIAMOND_LEVEL_DEFAULTS = {
     n3AllowBackoff: false,
     n3IgnoreWhite: false,
     n4Persistence: 2000,
+    // ✅ N4: permitir mudar a cor no Gale (G1/G2) quando estiver rodando "somente N4"
+    n4DynamicGales: true,
     n5MinuteBias: 60,
     n6RetracementWindow: 80,
     n7DecisionWindow: 20,
@@ -1397,7 +1402,10 @@ function getEntriesCutoffMs(modeKey) {
 
 function getEntryTimestampMs(entry) {
     try {
-        const t = entry && entry.timestamp != null ? entry.timestamp : null;
+        // ✅ IA Bootstrap: manter timestamp real para exibição, mas usar visibleAtTimestamp para cutoff/visibilidade.
+        const t = (entry && entry.visibleAtTimestamp != null)
+            ? entry.visibleAtTimestamp
+            : (entry && entry.timestamp != null ? entry.timestamp : null);
         const ms = (typeof t === 'number') ? t : Date.parse(String(t));
         return Number.isFinite(ms) ? ms : 0;
     } catch (_) {
@@ -2573,6 +2581,13 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                             <span class="diamond-level-subnote">
                                 Recomendado: 2000 giros (mín. 200 • máx. 10000)
                             </span>
+                            <label class="checkbox-label" style="margin-top: 10px;">
+                                <input type="checkbox" id="diamondN4DynamicGales" checked />
+                                Permitir mudar a cor no Gale (G1/G2)
+                            </label>
+                            <div class="diamond-level-subnote" style="margin-top: 6px;">
+                                Se desativado, mantém a cor da <b>entrada inicial</b> até o final do ciclo (G1/G2 não mudam a cor).
+                            </div>
                         </div>
                         <div class="diamond-level-field" data-level="n5">
                             <div class="diamond-level-header">
@@ -5832,6 +5847,7 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
             n3AllowBackoff: getCheckboxValue('diamondN3AllowBackoff', DIAMOND_LEVEL_DEFAULTS.n3AllowBackoff),
             n3IgnoreWhite: getCheckboxValue('diamondN3IgnoreWhite', DIAMOND_LEVEL_DEFAULTS.n3IgnoreWhite),
             n4Persistence: n4History,
+            n4DynamicGales: getCheckboxValue('diamondN4DynamicGales', DIAMOND_LEVEL_DEFAULTS.n4DynamicGales),
             n5MinuteBias: getNumber('diamondN5MinuteBias', 10, 200, DIAMOND_LEVEL_DEFAULTS.n5MinuteBias),
             n6RetracementWindow: getNumber('diamondN6Retracement', 30, 120, DIAMOND_LEVEL_DEFAULTS.n6RetracementWindow),
             n7DecisionWindow: getNumber('diamondN7DecisionWindow', 10, 50, DIAMOND_LEVEL_DEFAULTS.n7DecisionWindow),
@@ -6125,6 +6141,7 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                     }
                     if (upper === 'N4') {
                         setVal('diamondN4Persistence', windows.n4Persistence);
+                        setCheck('diamondN4DynamicGales', !!windows.n4DynamicGales);
                         return true;
                     }
                     return false;
@@ -6738,6 +6755,7 @@ function enforceSignalIntensityAvailability(options = {}) {
             return Math.max(200, Math.min(10000, Math.floor(scaled)));
         })();
         setInput('diamondN4Persistence', n4Normalized);
+        setCheckbox('diamondN4DynamicGales', getBoolean('n4DynamicGales', DIAMOND_LEVEL_DEFAULTS.n4DynamicGales));
         setInput('diamondN5MinuteBias', getValue('n5MinuteBias', DIAMOND_LEVEL_DEFAULTS.n5MinuteBias));
         setInput('diamondN6Retracement', getValue('n6RetracementWindow', DIAMOND_LEVEL_DEFAULTS.n6RetracementWindow));
         setInput('diamondN7DecisionWindow', getValue('n7DecisionWindow', DIAMOND_LEVEL_DEFAULTS.n7DecisionWindow));
@@ -9029,12 +9047,12 @@ autoBetHistoryStore.init().catch(error => console.warn('AutoBetHistory: iniciali
                 uiRefs.configBtn.setAttribute('aria-label', `Configurar autoaposta • ${statusText}`);
             }
             // ✅ Importante: separar saldo do simulador por modo (Diamante vs Premium).
-            // A partir desta atualização, "Apostas" opera APENAS com SINAIS DE ENTRADA,
-            // então o resultado realizado vem do autoBetHistory (que agora registra somente mestres).
+            // Agora, "Apostas" acompanha o fluxo principal (IA), então o resultado realizado vem do autoBetHistory
+            // sem depender de isMaster.
             const activeMode = getActiveAnalysisModeKey();
             const historyRecords = shouldDisplayBalances ? autoBetHistoryStore.getAll() : [];
             const finalized = shouldDisplayBalances
-                ? historyRecords.filter(r => r && r.isMaster && (r.mode || 'standard') === activeMode && (r.status === 'win' || r.status === 'loss'))
+                ? historyRecords.filter(r => r && (r.mode || 'standard') === activeMode && (r.status === 'win' || r.status === 'loss'))
                 : [];
             let realizedProfitNet = 0;
             for (const r of finalized) {
@@ -12555,15 +12573,15 @@ async function persistAnalyzerState(newState) {
                 triggerButtonFeedback(autoBetResetRuntimeModalBtn);
                 setButtonBusyState(autoBetResetRuntimeModalBtn, true, 'Resetando...');
                 try {
+                    // ✅ Pedido: "Resetar ciclo" também deve resetar o Painel (saldo/lucro/perdas),
+                    // mas NÃO deve limpar o histórico da IA (sinais).
+                    try {
+                        if (autoBetHistoryStore && typeof autoBetHistoryStore.clear === 'function') {
+                            autoBetHistoryStore.clear();
+                        }
+                    } catch (_) {}
                     if (autoBetManager && typeof autoBetManager.resetRuntime === 'function') {
                         autoBetManager.resetRuntime();
-                    }
-                    // ✅ Resetar ciclo deve limpar o saldo imediatamente (saldo é derivado do entriesHistory do modo ativo)
-                    // Reaproveita a mesma lógica do botão "Limpar" do painel de entradas (sem precisar recarregar a página).
-                    try {
-                        clearEntriesHistory();
-                    } catch (err) {
-                        console.warn('⚠️ Falha ao limpar histórico ao resetar ciclo:', err);
                     }
                 } finally {
                     setTimeout(() => setButtonBusyState(autoBetResetRuntimeModalBtn, false), 450);
@@ -13775,6 +13793,99 @@ async function persistAnalyzerState(newState) {
         return html;
     }
 
+    function isHistoryCardExpanded() {
+        try {
+            const root = document.getElementById('blaze-double-analyzer');
+            if (!root || !root.classList.contains('da-desktop-dashboard')) return false;
+            const card = document.querySelector('#analyzerDefaultView .stats-section');
+            return !!(card && card.classList.contains('da-card-is-expanded'));
+        } catch (_) {
+            return false;
+        }
+    }
+
+    function getHistoryDisplayLimit() {
+        return isHistoryCardExpanded() ? currentHistoryDisplayLimitExpanded : currentHistoryDisplayLimit;
+    }
+
+    function bumpHistoryDisplayLimitBy(delta) {
+        const inc = Math.max(0, Math.floor(Number(delta) || 0));
+        if (!inc) return;
+        if (isHistoryCardExpanded()) {
+            currentHistoryDisplayLimitExpanded += inc;
+        } else {
+            currentHistoryDisplayLimit += inc;
+        }
+    }
+
+    function bindHistoryLoadMoreIndicator() {
+        try {
+            // Somente no novo dashboard desktop
+            const root = document.getElementById('blaze-double-analyzer');
+            if (!isDesktop() || !root || !root.classList.contains('da-desktop-dashboard')) return;
+
+            const el = document.getElementById('historyLoadMoreIndicator');
+            if (!el) return;
+            const handler = () => {
+                try {
+                    const base = Array.isArray(currentHistoryData) ? currentHistoryData.length : 0;
+                    const limitNow = getHistoryDisplayLimit();
+                    const remaining = base - limitNow;
+                    const increment = 500;
+                    const addAmount = remaining > increment ? increment : Math.max(0, remaining);
+                    if (addAmount <= 0) return;
+                    bumpHistoryDisplayLimitBy(addAmount);
+                    console.log(`📊 Carregando mais ${addAmount} giros. Total exibido agora: ${getHistoryDisplayLimit()}`);
+                    const container = document.getElementById('spin-history-bar-ext');
+                    if (container) {
+                        container.innerHTML = renderSpinHistory(currentHistoryData);
+                        bindHistoryLoadMoreIndicator();
+                    }
+                } catch (_) {}
+            };
+            el.onclick = handler;
+            el.onkeydown = (e) => {
+                const k = e && e.key ? String(e.key) : '';
+                if (k === 'Enter' || k === ' ') {
+                    try { e.preventDefault(); } catch (_) {}
+                    handler();
+                }
+            };
+        } catch (_) {}
+    }
+
+    function ensureHistoryFullscreenFillsSpace() {
+        try {
+            if (!isDesktop() || !isHistoryCardExpanded()) return;
+            const container = document.getElementById('spin-history-bar-ext');
+            const bar = container ? container.querySelector('.spin-history-bar-blaze') : null;
+            if (!bar) return;
+
+            // Se o usuário já rolou, não forçar re-render (evita "pular" posição)
+            try { if (bar.scrollTop > 10) return; } catch (_) {}
+
+            const rect = bar.getBoundingClientRect();
+            if (!rect || rect.width <= 0 || rect.height <= 0) return;
+
+            const item = bar.querySelector('.spin-history-item-wrap');
+            const itemRect = item ? item.getBoundingClientRect() : null;
+            const itemW = itemRect && itemRect.width > 0 ? itemRect.width : 40;
+            const itemH = itemRect && itemRect.height > 0 ? itemRect.height : 52;
+            const cols = Math.max(1, Math.floor(rect.width / itemW));
+            const rows = Math.max(1, Math.floor(rect.height / itemH));
+            const needed = cols * (rows + 2); // +2 linhas de buffer
+            const chunk = 500;
+            const requiredChunk = Math.max(chunk, Math.ceil(needed / chunk) * chunk);
+            const total = Array.isArray(currentHistoryData) ? currentHistoryData.length : 0;
+            const target = Math.min(total || 0, Math.max(currentHistoryDisplayLimitExpanded, requiredChunk));
+            if (target > currentHistoryDisplayLimitExpanded) {
+                currentHistoryDisplayLimitExpanded = target;
+                container.innerHTML = renderSpinHistory(currentHistoryData);
+                bindHistoryLoadMoreIndicator();
+            }
+        } catch (_) {}
+    }
+
     function renderSpinHistory(history = []) {
         uiLog('═══════════════════════════════════════════════════════════');
         uiLog('🎨 RENDERIZANDO HISTÓRICO DE GIROS NA UI');
@@ -13787,17 +13898,26 @@ async function persistAnalyzerState(newState) {
         currentHistoryData = history;
         
         const totalSpins = history.length;
-        const displayLimit = currentHistoryDisplayLimit; // Usar limite dinâmico
+        const displayLimit = getHistoryDisplayLimit(); // Normal vs fullscreen
         const displayingCount = Math.min(totalSpins, displayLimit);
         const hasMore = totalSpins > displayLimit;
         const remainingSpins = totalSpins - displayLimit;
+
+        let isDashboardDesktop = false;
+        try {
+            const root = document.getElementById('blaze-double-analyzer');
+            isDashboardDesktop = !!(isDesktop() && root && root.classList.contains('da-desktop-dashboard'));
+        } catch (_) {}
         
         return `
         <div class="spin-history-label">
             <span>ÚLTIMOS GIROS</span>
             <div class="spin-count-info">
                 <span class="displaying-count">Exibindo ${displayingCount} de ${totalSpins}</span>
-                ${hasMore ? '<span class="more-indicator" title="Mostrando os mais recentes">📊 +' + remainingSpins + ' no servidor</span>' : ''}
+                ${hasMore ? (isDashboardDesktop
+                    ? '<span class="more-indicator" id="historyLoadMoreIndicator" role="button" tabindex="0" title="Carregar +500">📊 +' + remainingSpins + ' no servidor</span>'
+                    : '<span class="more-indicator" title="Mostrando os mais recentes">📊 +' + remainingSpins + ' no servidor</span>'
+                ) : ''}
             </div>
         </div>
         <div class="spin-history-bar-blaze">
@@ -13812,7 +13932,7 @@ async function persistAnalyzerState(newState) {
                 </div>`;
             }).join('')}
         </div>
-        ${hasMore ? `
+        ${hasMore && !isDashboardDesktop ? `
         <div style="text-align: center; margin-top: 12px; margin-bottom: 15px; padding: 8px 0;">
             <button id="loadMoreHistoryBtn" class="load-more-history-btn">
                 Carregar Mais ${remainingSpins > 500 ? '(+500)' : '(+' + remainingSpins + ')'}
@@ -13858,6 +13978,15 @@ async function persistAnalyzerState(newState) {
         }
         
         if (Object.prototype.hasOwnProperty.call(data, 'analysis')) {
+            // ✅ Recuperação: sinais internos (fase 1 "silenciosa") nunca devem aparecer no UI.
+            if (data.analysis && data.analysis.hiddenInternal) {
+                data.analysis = null;
+                // também não renderizar padrão/overlay vindo desse sinal
+                if (Object.prototype.hasOwnProperty.call(data, 'pattern')) {
+                    data.pattern = null;
+                }
+            }
+
             if (data.analysis) {
                 const analysis = data.analysis;
                 const confidence = analysis.confidence;
@@ -13911,9 +14040,25 @@ async function persistAnalyzerState(newState) {
 
                     // Mostrar estágio quando existir (G1/G2...), senão ocultar
                     try { setSuggestionStage(phaseLabel || ''); } catch (_) {}
+                    // ✅ Fallback: em alguns fluxos o "stage" pode estar apenas no martingaleState (e não em analysis.phase).
+                    // Ex.: entrou no G1/G2 e o topo precisa mostrar o rótulo dentro do ícone.
+                    if (!phaseLabel) {
+                        try {
+                            storageCompat.get(['martingaleState']).then((res = {}) => {
+                                const ms = res.martingaleState;
+                                const stage = ms && ms.active ? String(ms.stage || '').toUpperCase().trim() : '';
+                                if (stage && stage !== 'G0' && stage !== 'ENTRADA') {
+                                    try { setSuggestionStage(stage); } catch (_) {}
+                                }
+                            }).catch(() => {});
+                        } catch (_) {}
+                    }
 
                     // Sincronizar visual do modo aposta
                     syncBetModeView();
+
+                    // ✅ Recuperação: a aba mostra apenas o sinal de recuperação (quando existir)
+                    try { renderRecoverySignalPreview(analysis); } catch (_) {}
                 }
                 
                 // Update pattern info - renderizar para sinais IA (fase principal)
@@ -14016,50 +14161,9 @@ async function persistAnalyzerState(newState) {
                     }
                 } catch (_) {}
                 
-                // ✅ Update G1 status - LÓGICA CORRETA baseada no Martingale
-                // Verificar estado do Martingale para mostrar o indicador correto
-                storageCompat.get(['martingaleState']).then((result = {}) => {
-                    const martingaleState = result.martingaleState;
-                    
-                    if (isEntrySignal && martingaleState && martingaleState.active) {
-                        // ✅ LÓGICA CORRETA BASEADA NO NÚMERO DE LOSSES:
-                        // - G1 = 1 LOSS anterior
-                        // - G2 = 2 LOSSes anteriores  
-                        // - G3 = 3 LOSSes anteriores
-                        const lossCount = martingaleState.lossCount || 0;
-                        let nextGale = '';
-                        
-                        if (lossCount === 1) {
-                            nextGale = 'G1';
-                        } else if (lossCount === 2) {
-                            nextGale = 'G2';
-                        } else if (lossCount === 3) {
-                            nextGale = 'G3';
-                        } else if (lossCount > 3) {
-                            nextGale = `G${lossCount}`;
-                        }
-                        
-                        console.log('🔍 DEBUG INDICADOR GALE:', {
-                            lossCount: lossCount,
-                            nextGale: nextGale,
-                            martingaleActive: martingaleState.active,
-                            currentStage: martingaleState.stage
-                        });
-                        
-                        if (nextGale) {
-                            setSuggestionStage(nextGale);
-                            console.log('✅ INDICADOR ATIVADO:', nextGale, 'para', lossCount, 'LOSSes');
-                        } else {
-                            setSuggestionStage('');
-                        }
-                    } else {
-                        setSuggestionStage('');
-                        console.log('⚠️ Indicador desativado - Martingale não ativo');
-                    }
-                }).catch(error => {
-                    console.warn('⚠️ Não foi possível ler martingaleState:', error);
-                    setSuggestionStage('');
-                });
+                // ✅ Estágio (G1/G2...) no topo:
+                // Agora é tratado acima via `analysis.phase` (phaseLabel) + fallback do `martingaleState.stage`.
+                // Não sobrescrever aqui, para não apagar o rótulo no modo IA.
                 
                 // status indicator removed; entries panel shows progress
             } else {
@@ -14079,17 +14183,103 @@ async function persistAnalyzerState(newState) {
                 }
                 // Resetar também o resumo do modo aposta
                 syncBetModeView();
-                
-                renderSuggestionStatus(currentAnalysisStatus);
-                
-                // ✅ Bloco "Padrão" não deve aparecer quando não houver SINAL DE ENTRADA
-                try { if (patternSection) patternSection.style.display = 'none'; } catch (_) {}
-                try { patternInfo.textContent = ''; } catch (_) {}
-                try { patternInfo.title = ''; } catch (_) {}
-                try { patternInfo?.classList?.remove('pattern-expanded'); } catch (_) {}
-                setSuggestionStage('');
-                // ✅ Encerrar overlay do Sinal de entrada imediatamente quando não há análise
-                try { hideMasterSignalOverlay(); } catch (_) {}
+
+                // ✅ Recuperação: se estava mostrando um sinal de recuperação, limpar quando não houver análise
+                try { renderRecoverySignalPreview(null); } catch (_) {}
+
+                // ✅ Se houver Martingale ativo (G1/G2...) no storage, reconstruir o "sinal em andamento"
+                // mesmo após refresh/atualização, para não sumir do topo e do card de Padrão.
+                const msFromData = data && data.martingaleState ? data.martingaleState : null;
+                const renderFromMartingale = (ms) => {
+                    try {
+                        if (!ms || !ms.active) return false;
+                        const stage = String(ms.stage || '').toUpperCase().trim();
+                        if (!stage || !stage.startsWith('G') || stage === 'G0') return false;
+                        const a = ms.analysisData && typeof ms.analysisData === 'object' ? ms.analysisData : null;
+                        if (a && a.hiddenInternal) return false;
+                        const rawColor = ms.currentColor || ms.entryColor || (a ? a.color : null);
+                        const color = (rawColor ? String(rawColor).toLowerCase().trim() : '');
+                        if (!(color === 'red' || color === 'black' || color === 'white')) return false;
+
+                        // Confiança (se existir) + spinner
+                        const conf = (a && typeof a.confidence === 'number') ? a.confidence : 0;
+                        confidenceFill.style.width = `${Math.max(0, Math.min(100, Number(conf) || 0))}%`;
+                        confidenceText.textContent = `${Number(conf || 0).toFixed(1)}%`;
+
+                        if (suggestionColor) {
+                            suggestionColor.className = `suggestion-color suggestion-color-box ${color}`;
+                            suggestionColor.setAttribute('title', `IA • Aguardando resultado (${stage})`);
+                            suggestionColor.innerHTML = `<span class="pending-indicator"></span>`;
+                        }
+                        try { setSuggestionStage(stage); } catch (_) {}
+
+                        // Card "Padrão"
+                        try {
+                            const hasPattern = !!(a && a.patternDescription);
+                            if (patternSection) patternSection.style.display = hasPattern ? '' : 'none';
+                            if (patternInfo) {
+                                if (!hasPattern) {
+                                    patternInfo.classList.remove('pattern-expanded');
+                                    patternInfo.innerHTML = '';
+                                } else {
+                                    patternInfo.classList.add('pattern-expanded');
+                                    // Reusar renderer já existente
+                                    const desc = a.patternDescription;
+                                    try {
+                                        // tenta parse quando for JSON; senão renderiza string
+                                        const parsed = (typeof desc === 'string') ? (() => {
+                                            try { return JSON.parse(desc); } catch (_) { return desc; }
+                                        })() : desc;
+                                        patternInfo.innerHTML = renderPatternVisual(parsed, { description: desc, last5Spins: a.last5Spins || a.last10Spins || [] });
+                                    } catch (_) {
+                                        patternInfo.textContent = String(desc || '');
+                                    }
+                                }
+                            }
+                        } catch (_) {}
+
+                        // Manter modo aposta sincronizado
+                        syncBetModeView();
+                        return true;
+                    } catch (_) {
+                        return false;
+                    }
+                };
+
+                let didRender = false;
+                try { didRender = renderFromMartingale(msFromData); } catch (_) {}
+                if (!didRender) {
+                    try {
+                        storageCompat.get(['martingaleState']).then((res = {}) => {
+                            const ms = res.martingaleState;
+                            if (!renderFromMartingale(ms)) {
+                                renderSuggestionStatus(currentAnalysisStatus);
+                                try { if (patternSection) patternSection.style.display = 'none'; } catch (_) {}
+                                try { patternInfo.textContent = ''; } catch (_) {}
+                                try { patternInfo.title = ''; } catch (_) {}
+                                try { patternInfo?.classList?.remove('pattern-expanded'); } catch (_) {}
+                                setSuggestionStage('');
+                                try { hideMasterSignalOverlay(); } catch (_) {}
+                            }
+                        }).catch(() => {
+                            renderSuggestionStatus(currentAnalysisStatus);
+                            try { if (patternSection) patternSection.style.display = 'none'; } catch (_) {}
+                            try { patternInfo.textContent = ''; } catch (_) {}
+                            try { patternInfo.title = ''; } catch (_) {}
+                            try { patternInfo?.classList?.remove('pattern-expanded'); } catch (_) {}
+                            setSuggestionStage('');
+                            try { hideMasterSignalOverlay(); } catch (_) {}
+                        });
+                    } catch (_) {
+                        renderSuggestionStatus(currentAnalysisStatus);
+                        try { if (patternSection) patternSection.style.display = 'none'; } catch (_) {}
+                        try { patternInfo.textContent = ''; } catch (_) {}
+                        try { patternInfo.title = ''; } catch (_) {}
+                        try { patternInfo?.classList?.remove('pattern-expanded'); } catch (_) {}
+                        setSuggestionStage('');
+                        try { hideMasterSignalOverlay(); } catch (_) {}
+                    }
+                }
                 // status indicator removed; entries panel shows progress
             }
         }
@@ -14425,6 +14615,9 @@ async function persistAnalyzerState(newState) {
         const aiModeToggle = document.querySelector('.ai-mode-toggle.active');
         const isDiamondMode = !!aiModeToggle;
         const currentMode = isDiamondMode ? 'diamond' : 'standard';
+        const iaHold = (() => {
+            try { return isIABootstrapHoldActive(currentMode); } catch (_) { return false; }
+        })();
         
         console.log(`🔍 Modo de análise ativo: ${currentMode.toUpperCase()}`);
 
@@ -14453,15 +14646,22 @@ async function persistAnalyzerState(newState) {
         // ✅ Cutoff da aba IA: quando o usuário clica "Limpar" na IA, esconder TUDO que está na IA (inclui mestres),
         // mas sem afetar Sinais/Gráfico/Apostas (que usam outro cutoff).
         const entriesCutoffMs = getEntriesCutoffMs(currentMode);
-        const entriesByModeForIA = entriesByMode.filter(e => getEntryTimestampMs(e) >= entriesCutoffMs);
+        let entriesByModeForIA = entriesByMode.filter(e => getEntryTimestampMs(e) >= entriesCutoffMs);
         
-        // ✅ IA (Fase 1) deve mostrar TAMBÉM os sinais mestre.
-        // A limpeza da aba Sinais/Gráfico é feita via cutoff, sem apagar entriesHistory.
-        const masterCutoffMs = getMasterEntriesCutoffMs(currentMode);
-        const entriesByModeMaster = entriesByMode.filter(e => !!(e && e.isMaster) && getEntryTimestampMs(e) >= masterCutoffMs);
+        // ✅ Novo: Gráfico/Apostas devem acompanhar a mesma janela da IA (o que o usuário vê em IA).
+        // Portanto: usar o MESMO cutoff da IA (entriesCutoffMs), sem depender de isMaster.
+        let entriesByModeForChart = entriesByModeForIA;
+
+        // ✅ Pedido do usuário: após "Limpar", a IA deve permanecer vazia e com a bolinha/CTA
+        // ATÉ o usuário clicar em "Analisar histórico".
+        // Então, enquanto o HOLD estiver ativo, não renderizar entradas/plot mesmo que cheguem novas entradas.
+        if (iaHold) {
+            entriesByModeForIA = [];
+            entriesByModeForChart = [];
+        }
         
         console.log(`   Total de entradas: ${entries.length}`);
-        console.log(`   Entradas do modo ${currentMode}: ${entriesByMode.length} (IA>=cutoff=${entriesByModeForIA.length} | Sinais>=cutoff=${entriesByModeMaster.length})`);
+        console.log(`   Entradas do modo ${currentMode}: ${entriesByMode.length} (IA>=cutoff=${entriesByModeForIA.length})`);
         
         // ═══════════════════════════════════════════════════════════════
         // ✅ FILTRAR ENTRADAS - MOSTRAR APENAS RESULTADOS FINAIS
@@ -14499,6 +14699,14 @@ async function persistAnalyzerState(newState) {
             // Fallback: mostrar por padrão
             return true;
         });
+
+        // ✅ Guardar o último sinal de recuperação visível (para exibir na aba "Recuperação" mesmo após desativar)
+        try {
+            const latestRecovery = filteredEntries.find(e => e && e.recoveryMode);
+            if (latestRecovery) {
+                lastRecoveryEntryByMode[currentMode] = latestRecovery;
+            }
+        } catch (_) {}
         
         console.log(`📊 Entradas: ${entries.length} total | IA ${entriesByModeForIA.length} do modo ${currentMode} | ${filteredEntries.length} exibidas (${entriesByModeForIA.length - filteredEntries.length} LOSSes intermediários ocultos)`);
         
@@ -14633,7 +14841,7 @@ async function persistAnalyzerState(newState) {
             // Só mostrar indicador quando houver uma ANÁLISE realmente pendente no storage.
             // (Em alguns fluxos, o martingale pode ficar "ativo" aguardando novo sinal; isso NÃO é "aguardando resultado".)
             const analysisMode = analysis ? resolveAnalysisMode(analysis) : null;
-            const shouldShowPending = !!(analysis && analysisMode === currentMode);
+            const shouldShowPending = !!(analysis && !analysis.hiddenInternal && analysisMode === currentMode);
 
             if (shouldShowPending) {
                 const parseMs = (v) => {
@@ -14701,6 +14909,7 @@ async function persistAnalyzerState(newState) {
 
             // Inserir indicador no TOPO + itens (o vidro desfoca o conteúdo real)
             list.innerHTML = pendingIndicator + (items || (isIA ? '' : '<div class="no-history">Sem entradas registradas</div>'));
+            // (Recuperação) não espelhar lista completa da IA — a aba Recuperação mostra apenas 1 sinal (o de recuperação).
             
             // ✅ CORREÇÃO: Adicionar evento de clique para mostrar padrão usando o array filtrado correto
             const clickableEntries = list.querySelectorAll('.clickable-entry');
@@ -14732,34 +14941,17 @@ async function persistAnalyzerState(newState) {
         const totalEntries = totalCycles;
 
         // ═══════════════════════════════════════════════════════════════
-        // ✅ GRÁFICO — deve mostrar APENAS os Sinais de entrada (o que o usuário entra)
+        // ✅ GRÁFICO — acompanhar dados da aba IA (o que o usuário entra agora)
         // ═══════════════════════════════════════════════════════════════
-        // entriesByModeMaster já foi calculado acima (aba Sinais/Apostas/Gráfico)
-
-        // Reaproveitar a mesma regra de "só finais" para contar ciclos no gráfico
-        const filteredMasterFinals = entriesByModeMaster.filter(e => {
-            if (!e) return false;
-            if (e.result === 'WIN') return true;
-            if (e.result === 'LOSS') {
-                if (e.finalResult === 'RED' || e.finalResult === 'RET') return true;
-                let isContinuing = false;
-                for (let key in e) {
-                    if (key.startsWith('continuingToG')) { isContinuing = true; break; }
-                }
-                if (isContinuing) return false;
-                return true;
-            }
-            return false;
-        });
-
-        const chartTotalCycles = filteredMasterFinals.length;
-        const chartWins = filteredMasterFinals.filter(e => e.result === 'WIN').length;
+        // Usar as mesmas "finais" já calculadas para IA
+        const chartTotalCycles = filteredEntries.length;
+        const chartWins = filteredEntries.filter(e => e.result === 'WIN').length;
         const chartLosses = chartTotalCycles - chartWins;
         const chartPct = chartTotalCycles ? ((chartWins / chartTotalCycles) * 100).toFixed(1) : '0.0';
 
         // Para o tick chart precisamos das TENTATIVAS do ciclo (ENTRADA/G1/G2…),
-        // então aqui passamos o histórico completo APENAS dos Sinais de entrada.
-        const chartAttempts = entriesByModeMaster;
+        // então aqui passamos o histórico completo da IA (mesma janela/cutoff).
+        const chartAttempts = entriesByModeForChart;
         
         // Mostrar placar WIN/LOSS com porcentagem e total de entradas
         const clearButtonHTML = `<button type="button" class="clear-entries-btn" id="clearEntriesBtn" title="Limpar histórico">Limpar</button>`;
@@ -14828,6 +15020,72 @@ async function persistAnalyzerState(newState) {
     let recoveryModeEnabled = false;
     let recoveryModeStatusText = 'Desativada';
 
+    function renderRecoverySignalPreview(analysisOverride = null) {
+        try {
+            if (!recoveryModeEnabled) return;
+            const list = document.getElementById('masterEntriesList');
+            if (!list) return;
+
+            const normColor = (value) => {
+                const raw = String(value || '').toLowerCase().trim();
+                if (raw === 'red' || raw === 'vermelho') return 'red';
+                if (raw === 'black' || raw === 'preto') return 'black';
+                if (raw === 'white' || raw === 'branco') return 'white';
+                return null;
+            };
+
+            const stageLabelFrom = (a, ms) => {
+                const s1 = a && a.phase ? String(a.phase).toUpperCase().trim() : '';
+                if (s1 && s1.startsWith('G') && s1 !== 'G0') return s1;
+                const s2 = ms && ms.stage ? String(ms.stage).toUpperCase().trim() : '';
+                if (s2 && s2.startsWith('G') && s2 !== 'G0') return s2;
+                return '';
+            };
+
+            const renderSignal = (analysis, martingaleState) => {
+                if (!analysis || !analysis.recoveryMode) {
+                    // ativo, mas ainda sem sinal de recuperação → manter vazio
+                    list.innerHTML = '';
+                    return;
+                }
+                const color = normColor(analysis.color);
+                if (!color) {
+                    list.innerHTML = '';
+                    return;
+                }
+                const galeLabel = stageLabelFrom(analysis, martingaleState);
+                const galeAttr = galeLabel ? ` data-gale="${galeLabel}"` : '';
+                const title = galeLabel ? `Recuperação • Aguardando resultado (${galeLabel})` : 'Recuperação • Aguardando resultado';
+                list.innerHTML = `
+                    <div class="entry-item-wrap gale-active-indicator" title="${title}">
+                        <div class="entry-conf-top gale-placeholder">&nbsp;</div>
+                        <div class="entry-stage gale-placeholder">&nbsp;</div>
+                        <div class="entry-item">
+                            <div class="entry-box ${color} pending-ring"${galeAttr}></div>
+                            <div class="entry-result-bar win" style="opacity:0;"></div>
+                        </div>
+                        <div class="entry-time gale-placeholder">&nbsp;</div>
+                    </div>
+                `;
+            };
+
+            if (analysisOverride && typeof analysisOverride === 'object') {
+                storageCompat.get(['martingaleState']).then((res = {}) => {
+                    renderSignal(analysisOverride, res.martingaleState);
+                }).catch(() => {
+                    renderSignal(analysisOverride, null);
+                });
+                return;
+            }
+
+            storageCompat.get(['analysis', 'martingaleState']).then((res = {}) => {
+                renderSignal(res.analysis, res.martingaleState);
+            }).catch(() => {
+                list.innerHTML = '';
+            });
+        } catch (_) {}
+    }
+
     function renderRecoveryPanel() {
         const list = document.getElementById('masterEntriesList');
         const hitEl = document.getElementById('masterEntriesHit');
@@ -14835,7 +15093,7 @@ async function persistAnalyzerState(newState) {
 
         const btnLabel = recoveryModeEnabled ? 'Desativar' : 'Recuperar';
         const statusText = recoveryModeEnabled
-            ? (recoveryModeStatusText || 'Ativa • buscando sinal certeiro…')
+            ? (recoveryModeStatusText || '')
             : 'Desativada • clique em “Recuperar” após um RED';
 
         hitEl.innerHTML = `
@@ -14843,15 +15101,71 @@ async function persistAnalyzerState(newState) {
             <span class="recovery-status" id="recoveryStatusText">${statusText}</span>
         `;
 
-        list.innerHTML = `
-            <div class="recovery-help">
-                <div class="recovery-help-title">Recuperação</div>
-                <div class="recovery-help-text">
-                    Ative após um <b>LOSS/RED</b>. O sistema procura uma entrada de <b>alta certeza</b> baseada no histórico
-                    e envia o sinal quando encontrar. Após um <b>WIN</b>, desativa automaticamente.
-                </div>
-            </div>
-        `;
+        // ✅ UX (pedido do usuário):
+        // - ATIVO: campo limpo até existir sinal de recuperação (preview pendente)
+        // - DESATIVADO: manter visível o ÚLTIMO sinal de recuperação utilizado (não sumir após WIN)
+        if (recoveryModeEnabled) {
+            list.innerHTML = '';
+            try { renderRecoverySignalPreview(); } catch (_) {}
+        } else {
+            const currentMode = document.querySelector('.ai-mode-toggle.active') ? 'diamond' : 'standard';
+            const last = lastRecoveryEntryByMode && lastRecoveryEntryByMode[currentMode] ? lastRecoveryEntryByMode[currentMode] : null;
+            const renderLast = (entry) => {
+                try {
+                    if (!entry || typeof entry !== 'object') {
+                        list.innerHTML = '';
+                        return;
+                    }
+                    const time = new Date(entry.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                    const cls = entry.color;
+                    const badge = entry.color === 'white' ? blazeWhiteSVG(16) : `<span>${entry.number}</span>`;
+                    const isWin = entry.result === 'WIN';
+                    const barClass = isWin ? 'win' : 'loss';
+                    const stageRaw = (entry.martingaleStage || entry.phase || entry.wonAt || '').toString().toUpperCase().trim();
+                    let stageText = isWin ? 'WIN' : 'LOSS';
+                    if (stageRaw && stageRaw.startsWith('G') && stageRaw !== 'G0' && stageRaw !== 'ENTRADA') {
+                        const galeNum = stageRaw.substring(1);
+                        stageText = isWin
+                            ? `WIN <span style="color: white;">G${galeNum}</span>`
+                            : `LOSS <span style="color: white;">G${galeNum}</span>`;
+                    }
+                    const confTop = (typeof entry.confidence === 'number') ? `${entry.confidence.toFixed(0)}%` : '';
+                    const title = `Recuperação • Giro: ${entry.number} • ${time} • Resultado: ${entry.result}`;
+                    list.innerHTML = `
+                        <div class="entry-item-wrap" title="${title}">
+                            ${confTop ? `<div class="entry-conf-top">${confTop}</div>` : ''}
+                            <div class="entry-stage ${barClass}">${stageText}</div>
+                            <div class="entry-item">
+                                <div class="entry-box ${cls}">${badge}</div>
+                                <div class="entry-result-bar ${barClass}"></div>
+                            </div>
+                            <div class="entry-time">${time}</div>
+                        </div>
+                    `;
+                } catch (_) {
+                    list.innerHTML = '';
+                }
+            };
+
+            if (last && typeof last === 'object') {
+                renderLast(last);
+            } else {
+                // ✅ Fallback: buscar do storage (persistente) para não sumir após WIN/refresh
+                list.innerHTML = '';
+                try {
+                    storageCompat.get(['lastRecoveryEntryByMode']).then((res = {}) => {
+                        const raw = res && res.lastRecoveryEntryByMode && typeof res.lastRecoveryEntryByMode === 'object'
+                            ? res.lastRecoveryEntryByMode
+                            : null;
+                        const stored = raw && raw[currentMode] ? raw[currentMode] : null;
+                        if (stored && typeof stored === 'object') {
+                            try { lastRecoveryEntryByMode[currentMode] = stored; } catch (_) {}
+                            renderLast(stored);
+                        }
+                    }).catch(() => {});
+                } catch (_) {}
+            }
+        }
 
         const btn = document.getElementById('recoveryToggleBtn');
         if (btn) {
@@ -14859,7 +15173,7 @@ async function persistAnalyzerState(newState) {
                 try { event.preventDefault(); event.stopPropagation(); } catch (_) {}
                 const next = !recoveryModeEnabled;
                 recoveryModeEnabled = next;
-                recoveryModeStatusText = next ? 'Ativa • buscando sinal certeiro…' : 'Desativada';
+                recoveryModeStatusText = next ? '' : 'Desativada';
                 renderRecoveryPanel();
                 try {
                     chrome.runtime.sendMessage({ action: 'SET_RECOVERY_MODE', enabled: next }, function() {});
@@ -14977,13 +15291,15 @@ async function persistAnalyzerState(newState) {
             return;
         }
         const data = Array.isArray(history) ? history : autoBetHistoryStore.getAll();
-        // ✅ Exibir APENAS ciclos de SINAL DE ENTRADA (entradas reais)
-        const masterOnly = (Array.isArray(data) ? data : []).filter(r => r && r.isMaster);
-        if (!masterOnly.length) {
-            container.innerHTML = `<div class="bets-empty">Nenhum sinal de entrada registrado ainda.</div>`;
+        // ✅ Agora a aba Apostas acompanha os sinais da IA (fluxo principal):
+        // mostrar TODOS os ciclos do modo ativo, sem depender de isMaster.
+        const currentMode = document.querySelector('.ai-mode-toggle.active') ? 'diamond' : 'standard';
+        const byMode = (Array.isArray(data) ? data : []).filter(r => r && (r.mode || 'standard') === currentMode);
+        if (!byMode.length) {
+            container.innerHTML = `<div class="bets-empty">Nenhuma aposta registrada ainda.</div>`;
             return;
         }
-        const rows = masterOnly.map(renderBetHistoryRow).join('');
+        const rows = byMode.map(renderBetHistoryRow).join('');
         container.innerHTML = `
             <div class="bets-table-wrapper">
                 <table class="bets-table">
@@ -15126,6 +15442,26 @@ async function persistAnalyzerState(newState) {
                 chrome.storage.local.set({ [ENTRIES_CLEAR_CUTOFF_KEY]: entriesClearCutoffByMode }, function() {
                     console.log('✅ Cutoff salvo para aba IA:', entriesClearCutoffByMode);
                 });
+            } catch (_) {}
+
+            // ✅ Pedido: após limpar, voltar e manter a bolinha/CTA até o usuário clicar em "Analisar histórico"
+            try { setIABootstrapHoldActive(currentMode, true); } catch (_) {}
+            try {
+                iaBootstrapBusy = false;
+                setIABootstrapState('idle', 'Analisar histórico');
+            } catch (_) {}
+
+            // ✅ Pedido: ao clicar em "Limpar" na IA, resetar o Painel (saldo/lucro/perdas).
+            // O Painel é calculado via autoBetHistory + runtime (pendências), então zeramos ambos.
+            try {
+                if (autoBetHistoryStore && typeof autoBetHistoryStore.clear === 'function') {
+                    autoBetHistoryStore.clear();
+                }
+            } catch (_) {}
+            try {
+                if (autoBetManager && typeof autoBetManager.resetRuntime === 'function') {
+                    autoBetManager.resetRuntime();
+                }
             } catch (_) {}
 
             // Re-renderizar IA com cutoff aplicado (Sinais/Gráfico continuam usando seu próprio cutoff)
@@ -15444,6 +15780,17 @@ async function persistAnalyzerState(newState) {
             main.appendChild(analyzerContent);
         }
 
+        // ✅ Desktop: renomear card "Sinais de entrada" (onde ficam os dados do print) para "Recuperação segura"
+        // e remover/ocultar UI do "Sistema híbrido" (não usado).
+        try {
+            const h = sidebar.querySelector('.observer-section > h4');
+            if (h) h.textContent = 'Recuperação segura';
+        } catch (_) {}
+        try {
+            const hybrid = sidebar.querySelector('#observerHybrid');
+            if (hybrid) hybrid.style.display = 'none';
+        } catch (_) {}
+
         const userMenuPanel = sidebar.querySelector('#userMenuPanel');
         if (userMenuPanel && settingsScroll && userMenuPanel.parentNode !== settingsScroll) {
             // 🖥️ Desktop: "Minha conta" fica na coluna esquerda, mas fechada por padrão (accordion)
@@ -15489,11 +15836,16 @@ async function persistAnalyzerState(newState) {
 
     function initDesktopDashboardCards(root) {
         if (!root || !isDesktop()) return;
-        if (root.dataset.daCardsInitialized === '1') return;
-        root.dataset.daCardsInitialized = '1';
-
         const analyzerDefaultView = root.querySelector('#analyzerDefaultView');
         if (!analyzerDefaultView) return;
+
+        // ✅ Idempotente: o DOM pode sobreviver a reloads (classes/data-attrs ficam),
+        // mas os event listeners não. Então:
+        // - sempre re-registra cards (sem duplicar botões)
+        // - garante que o listener do clique esteja bound apenas 1x
+        if (root.dataset.daCardsInitialized !== '1') {
+            root.dataset.daCardsInitialized = '1';
+        }
 
         const registerCard = (el, cardId, options = {}) => {
             if (!el) return;
@@ -15549,36 +15901,39 @@ async function persistAnalyzerState(newState) {
         };
 
         // Delegação: clique no card (área vazia) ou no botão de expandir
-        root.addEventListener('click', (event) => {
-            const btn = event.target && event.target.closest ? event.target.closest('.da-card-expand') : null;
-            if (btn) {
-                event.preventDefault();
-                const cardId = btn.dataset.daExpand;
+        if (root.dataset.daCardsClickBound !== '1') {
+            root.dataset.daCardsClickBound = '1';
+            root.addEventListener('click', (event) => {
+                const btn = event.target && event.target.closest ? event.target.closest('.da-card-expand') : null;
+                if (btn) {
+                    event.preventDefault();
+                    const cardId = btn.dataset.daExpand;
+                    const current = root.dataset.daExpanded || '';
+                    setDesktopExpandedCard(root, current === cardId ? '' : cardId);
+                    return;
+                }
+
+                const card = event.target && event.target.closest ? event.target.closest('.da-card[data-da-card]') : null;
+                if (!card) return;
+                if (card.dataset.daExpandable === '0') return;
+                if (isInteractiveTarget(event.target)) return;
+
+                // Evitar conflitos com cliques dentro do conteúdo (ex.: lista de entradas).
+                // Só permitir expandir ao clicar no "topo" do card (faixa do título).
+                try {
+                    const rect = card.getBoundingClientRect();
+                    const y = (event.clientY || 0) - rect.top;
+                    if (y > 64) return;
+                } catch (_) {}
+
+                const cardId = card.dataset.daCard || '';
+                if (!cardId) return;
                 const current = root.dataset.daExpanded || '';
+                if (current && current !== cardId) return; // já está expandido em outro card
+
                 setDesktopExpandedCard(root, current === cardId ? '' : cardId);
-                return;
-            }
-
-            const card = event.target && event.target.closest ? event.target.closest('.da-card[data-da-card]') : null;
-            if (!card) return;
-            if (card.dataset.daExpandable === '0') return;
-            if (isInteractiveTarget(event.target)) return;
-
-            // Evitar conflitos com cliques dentro do conteúdo (ex.: lista de entradas).
-            // Só permitir expandir ao clicar no "topo" do card (faixa do título).
-            try {
-                const rect = card.getBoundingClientRect();
-                const y = (event.clientY || 0) - rect.top;
-                if (y > 64) return;
-            } catch (_) {}
-
-            const cardId = card.dataset.daCard || '';
-            if (!cardId) return;
-            const current = root.dataset.daExpanded || '';
-            if (current && current !== cardId) return; // já está expandido em outro card
-
-            setDesktopExpandedCard(root, current === cardId ? '' : cardId);
-        });
+            });
+        }
     }
 
     function initDesktopSidebarSettings(root) {
@@ -15642,6 +15997,16 @@ async function persistAnalyzerState(newState) {
         if (active) {
             try {
                 active.scrollIntoView({ block: 'start', behavior: 'smooth' });
+            } catch (_) {}
+        }
+
+        // ✅ Histório de Giros: ao entrar em fullscreen, preencher a área automaticamente
+        if (cardId === 'history') {
+            try {
+                setTimeout(() => {
+                    try { bindHistoryLoadMoreIndicator(); } catch (_) {}
+                    try { ensureHistoryFullscreenFillsSpace(); } catch (_) {}
+                }, 60);
             } catch (_) {}
         }
     }
@@ -16324,18 +16689,29 @@ function logModeSnapshotUI(snapshot) {
                 console.log('%c   🎲 Dados:', 'color: #00FFFF;', request.data.last5Spins);
             }
             
+            const analysisPayload = request.data || null;
+            const isHiddenInternal = !!(analysisPayload && analysisPayload.hiddenInternal);
+
             updateSidebar({
-                analysis: request.data,
+                analysis: analysisPayload,
                 pattern: {
-                    description: request.data.patternDescription,
-                    last5Spins: request.data.last5Spins // ✅ PASSAR DIRETAMENTE
+                    description: analysisPayload ? analysisPayload.patternDescription : null,
+                    last5Spins: analysisPayload ? analysisPayload.last5Spins : null // ✅ PASSAR DIRETAMENTE
                 }
             });
-            if (autoBetManager && typeof autoBetManager.handleAnalysis === 'function') {
-                autoBetManager.handleAnalysis(request.data);
+
+            // ✅ Recuperação segura: sinais internos (hiddenInternal) não podem acionar auto-bet nem "vazar" para UI normal.
+            if (!isHiddenInternal && autoBetManager && typeof autoBetManager.handleAnalysis === 'function') {
+                autoBetManager.handleAnalysis(analysisPayload);
             }
+
             // ✅ Atualizar card dos Sinais de entrada (pode mudar status/contador)
-            try { scheduleMasterSignalStatsRefresh(); } catch (_) {}
+            if (!isHiddenInternal) {
+                try { scheduleMasterSignalStatsRefresh(); } catch (_) {}
+            } else {
+                // Mesmo oculto, se for sinal de recuperação (recoveryMode=true), garantir refresh do painel.
+                try { renderRecoveryPanel(); } catch (_) {}
+            }
         } else if (request.type === 'NEW_SPIN') {
             console.log('%c⚡ NOVO GIRO!', 'color: #00ff88; font-weight: bold;');
             
@@ -16566,7 +16942,7 @@ function logModeSnapshotUI(snapshot) {
     // Load initial data (com retry safe) - SEM histórico (vem do servidor)
     function loadInitialData() {
         try {
-            chrome.storage.local.get(['lastSpin', 'analysis', 'pattern', 'entriesHistory', MASTER_CLEAR_CUTOFF_KEY, ENTRIES_CLEAR_CUTOFF_KEY], function(result) {
+            chrome.storage.local.get(['lastSpin', 'analysis', 'pattern', 'martingaleState', 'entriesHistory', MASTER_CLEAR_CUTOFF_KEY, ENTRIES_CLEAR_CUTOFF_KEY], function(result) {
                 // Só chama updateSidebar se a extensão não foi invalidada/descarregada
                 if (chrome && chrome.runtime && chrome.runtime.id) {
                     console.log('Dados iniciais carregados:', result);
@@ -17754,23 +18130,27 @@ function logModeSnapshotUI(snapshot) {
     let iaBootstrapLastEntriesCount = 0;
     let iaBootstrapLastPendingIndicatorHtml = '';
 
-    // ✅ UX: a bolinha "IA" deve aparecer apenas na PRIMEIRA busca do usuário.
-    // Depois de uma busca bem-sucedida, ela nunca mais reaparece (mesmo se o usuário limpar/filtrar a lista).
-    const IA_BOOTSTRAP_USED_KEY_PREFIX = 'daIABootstrapUsed_';
-    function getIABootstrapUsedKey(mode) {
+    // ✅ UX (pedido atual):
+    // - Ao clicar em "Limpar" na IA, deve voltar a bolinha/CTA.
+    // - Ela deve PERMANECER mesmo após F5, até o usuário clicar em "Analisar histórico".
+    // - Após analisar, o CTA some (porque já há histórico visível).
+    const IA_BOOTSTRAP_HOLD_KEY_PREFIX = 'daIABootstrapHold_';
+    function getIABootstrapHoldKey(mode) {
         const mk = String(mode || '').toLowerCase().trim() === 'diamond' ? 'diamond' : 'standard';
-        return `${IA_BOOTSTRAP_USED_KEY_PREFIX}${mk}`;
+        return `${IA_BOOTSTRAP_HOLD_KEY_PREFIX}${mk}`;
     }
-    function isIABootstrapUsed(mode) {
+    function isIABootstrapHoldActive(mode) {
         try {
-            return localStorage.getItem(getIABootstrapUsedKey(mode)) === '1';
+            return localStorage.getItem(getIABootstrapHoldKey(mode)) === '1';
         } catch (_) {
             return false;
         }
     }
-    function markIABootstrapUsed(mode) {
+    function setIABootstrapHoldActive(mode, active) {
         try {
-            localStorage.setItem(getIABootstrapUsedKey(mode), '1');
+            const key = getIABootstrapHoldKey(mode);
+            if (active) localStorage.setItem(key, '1');
+            else localStorage.removeItem(key);
         } catch (_) {}
     }
 
@@ -18026,11 +18406,11 @@ function logModeSnapshotUI(snapshot) {
     function shouldShowIABootstrapOverlay(filteredEntriesCount, pendingIndicatorHtml) {
         // Só faz sentido na aba IA (entries)
         if (activeEntriesTab !== 'entries') return false;
-        // ✅ Se já foi usado uma vez, nunca mais mostrar a bolinha
         const mode = document.querySelector('.ai-mode-toggle.active') ? 'diamond' : 'standard';
-        if (isIABootstrapUsed(mode)) return false;
         // Se está rodando, manter overlay visível (para animação), mesmo que a lista atualize por trás
         if (iaBootstrapBusy) return true;
+        // ✅ Se a IA foi "limpa", manter a bolinha até o usuário clicar em Analisar histórico
+        if (isIABootstrapHoldActive(mode)) return true;
         // Se há itens, não mostrar
         if ((Number(filteredEntriesCount) || 0) > 0) return false;
         // Se existe placeholder pendente no topo, não sobrepor
@@ -18077,11 +18457,19 @@ function logModeSnapshotUI(snapshot) {
                     // ✅ Animação de concluído e sumir
                     setIABootstrapState('done', '');
                     setTimeout(() => {
-                        // ✅ Marcar como já usado: nunca mais mostrar a bolinha depois do 1º bootstrap
-                        markIABootstrapUsed(mode);
+                        // ✅ Bootstrap concluído: liberar render normal (bolinha some quando houver histórico visível)
+                        setIABootstrapHoldActive(mode, false);
                         iaBootstrapBusy = false;
                         // Após concluir, manter apenas a bolinha (CTA some quando houver histórico visível)
                         setIABootstrapState('idle', '');
+                        // ✅ Importante: forçar re-render imediatamente após liberar o HOLD,
+                        // porque o ENTRIES_UPDATE pode ter chegado antes (evita precisar dar F5).
+                        try {
+                            storageCompat.get(['entriesHistory']).then((res = {}) => {
+                                const entries = Array.isArray(res.entriesHistory) ? res.entriesHistory : [];
+                                renderEntriesPanel(entries);
+                            }).catch(() => {});
+                        } catch (_) {}
                         // Forçar reavaliação do overlay (some imediatamente após o 1º carregamento)
                         try { applyIAVisibilityState(iaBootstrapLastEntriesCount, iaBootstrapLastPendingIndicatorHtml); } catch (_) {}
                     }, 850);
@@ -18099,8 +18487,13 @@ function logModeSnapshotUI(snapshot) {
     function updateObserverUI(stats) {
         const observerStats = document.getElementById('observerStats');
         if (!observerStats) return;
-        // Manter controles híbridos sincronizados (em caso de refresh/reload)
-        try { initEntryGateHybridControls(); } catch (_) {}
+        // Manter controles híbridos sincronizados (apenas quando a UI existir; no desktop dashboard fica oculto)
+        try {
+            const hybrid = document.getElementById('observerHybrid');
+            if (hybrid && hybrid.offsetParent !== null) {
+                initEntryGateHybridControls();
+            }
+        } catch (_) {}
         
         // Limpar loading
         observerStats.innerHTML = '';
@@ -18134,9 +18527,21 @@ function logModeSnapshotUI(snapshot) {
 
         const isCollecting = totalCycles < minCycles;
 
+        // Recuperação segura (gate + contador)
+        const recoveryEnabled = !!safe.recoveryEnabled;
+        const recoveryGate = safe && safe.recoveryGate && typeof safe.recoveryGate === 'object' ? safe.recoveryGate : null;
+        const recoveryGateStats = recoveryGate && recoveryGate.stats && typeof recoveryGate.stats === 'object' ? recoveryGate.stats : null;
+        const gateSinceLoss = Number.isFinite(Number(recoveryGateStats && recoveryGateStats.sinceLoss)) ? Number(recoveryGateStats.sinceLoss) : null;
+        const gateSafeDistance = Number.isFinite(Number(recoveryGateStats && recoveryGateStats.safeDistance)) ? Number(recoveryGateStats.safeDistance) : null;
+        const gateSignalsUntilSafe = Number.isFinite(Number(recoveryGateStats && recoveryGateStats.signalsUntilSafe)) ? Number(recoveryGateStats.signalsUntilSafe) : null;
+
         // Bloco informativo (motivo + distância)
-        const reasonText = safe.reason ? String(safe.reason) : (isCollecting ? 'Coletando dados...' : '—');
-        const distText = distanceSinceLastRet === null ? 'n/d' : String(distanceSinceLastRet);
+        const reasonText = (recoveryEnabled && recoveryGate && recoveryGate.reason)
+            ? String(recoveryGate.reason)
+            : (safe.reason ? String(safe.reason) : (isCollecting ? 'Coletando dados...' : '—'));
+        const distText = gateSinceLoss != null
+            ? String(gateSinceLoss)
+            : (distanceSinceLastRet === null ? 'n/d' : String(distanceSinceLastRet));
         const fmtList = (arr) => (Array.isArray(arr) && arr.length ? arr.join(',') : '—');
         const windowText = decisionWindowCycles != null ? ` (janela=${decisionWindowCycles} • prioriza recente)` : '';
         const streaks = safe.streaks && typeof safe.streaks === 'object' ? safe.streaks : null;
@@ -18198,19 +18603,36 @@ function logModeSnapshotUI(snapshot) {
             </div>
         `;
 
-        // Atualizar "Próximo sinal"
+        // Atualizar "Próximo sinal" (contador da Recuperação segura)
         const calibrationFactor = document.getElementById('calibrationFactor');
         if (calibrationFactor) {
             if (isCollecting) {
                 calibrationFactor.textContent = `Coletando ${totalCycles}/${minCycles}`;
                 calibrationFactor.style.color = '#ffa500'; // Laranja
             } else {
-                if (!hasCurrentSignal) {
-                    calibrationFactor.textContent = 'Aguardando';
-                    calibrationFactor.style.color = '#cdd6e8';
+                if (recoveryEnabled) {
+                    const isRecoveryPending = !!safe.currentSignalRecovery;
+                    if (isRecoveryPending) {
+                        calibrationFactor.textContent = 'Aguardando resultado';
+                        calibrationFactor.style.color = '#cdd6e8';
+                    } else if (recoveryGate && recoveryGate.ok === true) {
+                        calibrationFactor.textContent = 'Sinal seguro liberado';
+                        calibrationFactor.style.color = '#00ff88';
+                    } else if (gateSignalsUntilSafe != null && gateSignalsUntilSafe > 0) {
+                        calibrationFactor.textContent = `Faltam ${gateSignalsUntilSafe}`;
+                        calibrationFactor.style.color = '#ffa500';
+                    } else {
+                        calibrationFactor.textContent = 'Aguardando';
+                        calibrationFactor.style.color = '#cdd6e8';
+                    }
                 } else {
-                    calibrationFactor.textContent = nextIsMaster ? 'Sinal liberado' : 'Normal';
-                    calibrationFactor.style.color = nextIsMaster ? '#00ff88' : '#ef5350';
+                    if (!hasCurrentSignal) {
+                        calibrationFactor.textContent = 'Aguardando';
+                        calibrationFactor.style.color = '#cdd6e8';
+                    } else {
+                        calibrationFactor.textContent = nextIsMaster ? 'Sinal liberado' : 'Normal';
+                        calibrationFactor.style.color = nextIsMaster ? '#00ff88' : '#ef5350';
+                    }
                 }
             }
         }
@@ -18233,9 +18655,15 @@ function logModeSnapshotUI(snapshot) {
                 observerWinRate.textContent = `${neededToStart} sinal(is) p/ iniciar`;
                 observerWinRate.style.color = '#ffa500';
             } else {
-                const entPart = (sinceEntrada != null) ? `ENTR atual=${sinceEntrada} alvo(s)=${fmtList(entryTargets)}${entryTargetWindow ? `±${entryTargetWindow}` : ''}` : 'ENTR —';
-                const retPart = (sinceRet != null) ? `RED atual=${sinceRet} evitar=${fmtList(retTargets)}` : 'RED —';
-                observerWinRate.textContent = `${entPart} • ${retPart}`;
+                if (recoveryEnabled && gateSinceLoss != null) {
+                    const lossPart = `LOSS atual=${gateSinceLoss}${gateSafeDistance != null ? ` seguro≥${gateSafeDistance}` : ''}${gateSignalsUntilSafe != null ? ` faltam=${gateSignalsUntilSafe}` : ''}`;
+                    const avoidPart = `evitar=${fmtList(retTargets)}`;
+                    observerWinRate.textContent = `${lossPart} • ${avoidPart}`;
+                } else {
+                    const entPart = (sinceEntrada != null) ? `ENTR atual=${sinceEntrada} alvo(s)=${fmtList(entryTargets)}${entryTargetWindow ? `±${entryTargetWindow}` : ''}` : 'ENTR —';
+                    const retPart = (sinceRet != null) ? `RED atual=${sinceRet} evitar=${fmtList(retTargets)}` : 'RED —';
+                    observerWinRate.textContent = `${entPart} • ${retPart}`;
+                }
                 observerWinRate.style.color = '#cdd6e8';
             }
         }
@@ -18446,39 +18874,74 @@ function logModeSnapshotUI(snapshot) {
     async function fetchHistoryFromServer() {
         if (isUpdatingHistory) return;
         
+        let startTime = Date.now();
         try {
             isUpdatingHistory = true;
             
-            const startTime = Date.now();
+            startTime = Date.now();
             console.log('⏱️ [TIMING] Iniciando fetch em:', new Date().toLocaleTimeString());
-            
-            const response = await fetch(`${API_URL}/api/giros?limit=${GIROS_HISTORY_LIMIT}`, {
-                // 10k giros pode ser um payload maior em conexões lentas
-                signal: AbortSignal.timeout(12000)
-            });
-            
-            const fetchTime = Date.now() - startTime;
-            console.log(`⏱️ [TIMING] Fetch completou em ${fetchTime}ms`);
-            
-            if (!response.ok) {
-                throw new Error(`Servidor offline - Status ${response.status}`);
+
+            // ✅ Robustez: 10k giros pode estourar o timeout em conexão/servidor lento.
+            // Tentar 10k com timeout maior e fazer fallback automático (mantém o app vivo e mostra giros).
+            const attempts = [
+                { limit: GIROS_HISTORY_LIMIT, timeoutMs: 30000 },
+                { limit: 5000, timeoutMs: 22000 },
+                { limit: 2000, timeoutMs: 16000 },
+                { limit: 500, timeoutMs: 12000 }
+            ];
+
+            const fetchWithTimeout = async (url, timeoutMs) => {
+                // AbortSignal.timeout existe no Chrome moderno; fallback para AbortController.
+                try {
+                    if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function') {
+                        return await fetch(url, { signal: AbortSignal.timeout(timeoutMs) });
+                    }
+                } catch (_) {}
+                const controller = new AbortController();
+                const t = setTimeout(() => controller.abort(), Math.max(1000, Number(timeoutMs) || 12000));
+                try {
+                    return await fetch(url, { signal: controller.signal });
+                } finally {
+                    clearTimeout(t);
+                }
+            };
+
+            for (let i = 0; i < attempts.length; i++) {
+                const { limit, timeoutMs } = attempts[i];
+                const attemptStart = Date.now();
+                const label = `${limit}giros/${timeoutMs}ms`;
+                try {
+                    const response = await fetchWithTimeout(`${API_URL}/api/giros?limit=${limit}`, timeoutMs);
+                    const fetchTime = Date.now() - attemptStart;
+                    console.log(`⏱️ [TIMING] Fetch (${label}) completou em ${fetchTime}ms`);
+
+                    if (!response.ok) {
+                        throw new Error(`Servidor offline - Status ${response.status}`);
+                    }
+
+                    const data = await response.json();
+                    const totalTime = Date.now() - attemptStart;
+                    console.log(`⏱️ [TIMING] JSON (${label}) parseado em ${totalTime}ms total`);
+
+                    if (data && data.success && Array.isArray(data.data) && data.data.length) {
+                        if (limit !== GIROS_HISTORY_LIMIT) {
+                            console.warn(`⚠️ Histórico parcial carregado (${data.data.length}). Tentativa anterior demorou/abortou.`);
+                        } else {
+                            console.log(`✅ ${data.data.length} giros carregados em ${totalTime}ms`);
+                        }
+                        lastHistoryUpdate = new Date();
+                        return data.data;
+                    }
+                } catch (err) {
+                    const msg = (err && err.message) ? err.message : String(err);
+                    console.warn(`⚠️ [TIMING] Falha no fetch (${label}):`, msg);
+                }
             }
-            
-            const data = await response.json();
-            
-            const totalTime = Date.now() - startTime;
-            console.log(`⏱️ [TIMING] JSON parseado em ${totalTime}ms total`);
-            
-            if (data.success && data.data) {
-                console.log(`✅ ${data.data.length} giros carregados em ${totalTime}ms`);
-                lastHistoryUpdate = new Date();
-                return data.data;
-            }
-            
-            return [];
+
+            return []; // todas tentativas falharam
         } catch (error) {
-            const totalTime = Date.now() - (Date.now() - 8000);
-            console.error(`❌ [TIMING] Erro após timeout/erro:`, error.message);
+            const totalTime = Date.now() - startTime;
+            console.error(`❌ [TIMING] Erro ao buscar giros (${totalTime}ms):`, error && error.message ? error.message : error);
             return [];
         } finally {
             isUpdatingHistory = false;
@@ -18610,6 +19073,10 @@ function logModeSnapshotUI(snapshot) {
                 wrap.id = 'spin-history-bar-ext';
                 wrap.innerHTML = renderSpinHistory(currentHistoryData);
                 statsSection.appendChild(wrap);
+
+                // Dashboard desktop: botão do topo (+ no servidor) + preenchimento automático no fullscreen
+                try { bindHistoryLoadMoreIndicator(); } catch (_) {}
+                try { ensureHistoryFullscreenFillsSpace(); } catch (_) {}
                 
                 // 🆕 Adicionar event listener para o botão "Carregar Mais" (criação inicial - otimizado)
                 const loadMoreBtn = document.getElementById('loadMoreHistoryBtn');
@@ -18644,6 +19111,10 @@ function logModeSnapshotUI(snapshot) {
             // SALVAR posição do scroll (sempre no topo para novos giros)
             historyContainer.innerHTML = renderSpinHistory(currentHistoryData);
             historyContainer.style.display = 'block';
+
+            // Dashboard desktop: botão do topo (+ no servidor) + preenchimento automático no fullscreen
+            try { bindHistoryLoadMoreIndicator(); } catch (_) {}
+            try { ensureHistoryFullscreenFillsSpace(); } catch (_) {}
             
             // ✅ Re-adicionar event listener para o botão "Carregar Mais" (otimizado)
             const loadMoreBtn = document.getElementById('loadMoreHistoryBtn');
@@ -18702,6 +19173,10 @@ function logModeSnapshotUI(snapshot) {
                 
                 historyContainer.innerHTML = renderSpinHistory(spins);
                 historyContainer.style.display = 'block';
+
+                // Dashboard desktop: botão do topo (+ no servidor) + preenchimento automático no fullscreen
+                try { bindHistoryLoadMoreIndicator(); } catch (_) {}
+                try { ensureHistoryFullscreenFillsSpace(); } catch (_) {}
                 
                 // ✅ RESTAURAR posição do scroll DEPOIS de atualizar (só se não estava no topo)
                 if (wasScrolledDown && scrollPosition > 0) {
@@ -18750,6 +19225,10 @@ function logModeSnapshotUI(snapshot) {
                     wrap.id = 'spin-history-bar-ext';
                     wrap.innerHTML = renderSpinHistory(spins);
                     statsSection.appendChild(wrap);
+
+                    // Dashboard desktop: botão do topo (+ no servidor) + preenchimento automático no fullscreen
+                    try { bindHistoryLoadMoreIndicator(); } catch (_) {}
+                    try { ensureHistoryFullscreenFillsSpace(); } catch (_) {}
                     
                     // ✅ Adicionar event listener para o botão "Carregar Mais" (criação inicial - otimizado)
                     const loadMoreBtn = document.getElementById('loadMoreHistoryBtn');
