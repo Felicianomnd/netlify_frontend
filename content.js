@@ -19346,7 +19346,19 @@ function logModeSnapshotUI(snapshot) {
     // 🚀 ATUALIZAÇÃO INSTANTÂNEA DO HISTÓRICO (SEM REQUISIÇÃO HTTP)
     // ═══════════════════════════════════════════════════════════════
     function updateHistoryUIInstant(newSpin) {
-        if (!newSpin || !newSpin.number) return;
+        // ⚠️ Importante: o número pode ser 0 (BRANCO). Não usar checagem "falsy".
+        if (!newSpin || newSpin.number === undefined || newSpin.number === null) return;
+
+        // ✅ Manter o card "Padrão" (Últimos X giros) sempre sincronizado com o buffer local,
+        // mesmo quando o giro for duplicado e a UI do histórico não precisar re-renderizar.
+        const syncPatternLastSpinsUI = () => {
+            try {
+                const patternInfoEl = document.getElementById('patternInfo');
+                if (patternInfoEl) {
+                    refreshPatternLastSpins(patternInfoEl, PATTERN_LAST_SPINS_LIMIT);
+                }
+            } catch (_) {}
+        };
         
         // ✅ ADICIONAR NOVO GIRO NO INÍCIO DO HISTÓRICO LOCAL
         if (currentHistoryData.length > 0) {
@@ -19377,6 +19389,8 @@ function logModeSnapshotUI(snapshot) {
             
             // Se já existe, NÃO re-renderizar (evita custo alto em duplicatas/loops)
             if (exists) {
+                // Ainda assim, manter o card "Padrão" sincronizado (evita ficar 1 giro atrasado)
+                syncPatternLastSpinsUI();
                 return;
             }
             
@@ -19429,8 +19443,12 @@ function logModeSnapshotUI(snapshot) {
                         }
                     };
                 }
+                // Também sincronizar o bloco de "Últimos giros" no card Padrão.
+                syncPatternLastSpinsUI();
                 return; // Container criado com sucesso!
             }
+            // Mesmo sem container, tentar sincronizar o bloco de "Últimos giros" no card Padrão.
+            syncPatternLastSpinsUI();
             return;
         }
         
@@ -19471,6 +19489,9 @@ function logModeSnapshotUI(snapshot) {
         if (totalSpins) {
             totalSpins.textContent = currentHistoryData.length;
         }
+
+        // ✅ Sempre sincronizar o bloco de "Últimos giros" no card Padrão após atualizar o buffer/local UI.
+        syncPatternLastSpinsUI();
     }
     // ═══════════════════════════════════════════════════════════════
     // 🌐 ATUALIZAÇÃO COMPLETA DO HISTÓRICO (COM REQUISIÇÃO HTTP)
