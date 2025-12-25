@@ -46,15 +46,113 @@
         // Flag usada pelo content.js para liberar a seção "Configuração do modo" somente no contexto admin
         window.__BLAZE_ADMIN_ANALYSIS_CONFIG__ = true;
 
+        let hasAdminToken = false;
+        let pendingAction = null;
+
+        function isElementVisible(el) {
+            try {
+                if (!el) return false;
+                if (el.hasAttribute && el.hasAttribute('hidden')) return false;
+                if (el.style && el.style.display === 'none') return false;
+                // offsetParent null = hidden por display none (ou dentro de hidden)
+                return el.offsetParent !== null;
+            } catch (_) {
+                return false;
+            }
+        }
+
+        function waitFor(checkFn, options) {
+            const timeoutMs = (options && options.timeoutMs) ? options.timeoutMs : 8000;
+            const intervalMs = (options && options.intervalMs) ? options.intervalMs : 120;
+            const start = Date.now();
+            return new Promise((resolve, reject) => {
+                const tick = () => {
+                    try {
+                        const ok = checkFn();
+                        if (ok) return resolve(ok);
+                    } catch (_) {}
+                    if ((Date.now() - start) > timeoutMs) {
+                        return reject(new Error('timeout'));
+                    }
+                    setTimeout(tick, intervalMs);
+                };
+                tick();
+            });
+        }
+
+        async function runAdminAction(action) {
+            // 1) Abrir modal de configurações
+            const cfgBtn = await waitFor(() => document.getElementById('autoBetConfigBtn'));
+            try { cfgBtn.click(); } catch (_) {}
+
+            // 2) Garantir que a seção "Configuração do modo" existe e está visível (liberada pelo token)
+            const modeSection = await waitFor(() => {
+                const el = document.querySelector('#autoBetAccordion .auto-bet-acc-section[data-acc-key="mode"]');
+                return el && isElementVisible(el) ? el : null;
+            });
+
+            // 3) Abrir o accordion da seção "modo"
+            try {
+                const header = modeSection.querySelector('.auto-bet-acc-header');
+                if (header) {
+                    const expanded = header.getAttribute('aria-expanded') === 'true' || modeSection.classList.contains('is-open');
+                    if (!expanded) header.click();
+                }
+            } catch (_) {}
+
+            // 4) Ajustar modo (Premium vs Diamante) via toggle principal
+            try {
+                const aiToggle = await waitFor(() => document.getElementById('aiModeToggle'));
+                const isAi = aiToggle.classList.contains('active');
+                if (action === 'premium' && isAi) aiToggle.click();
+                if (action === 'diamond' && !isAi) aiToggle.click();
+            } catch (_) {}
+
+            // 5) Para Diamante: abrir "Configurar Níveis" imediatamente
+            if (action === 'diamond') {
+                try {
+                    const levelsBtn = await waitFor(() => {
+                        const el = document.getElementById('diamondLevelsBtn');
+                        return el && isElementVisible(el) ? el : null;
+                    });
+                    levelsBtn.click();
+                } catch (_) {}
+            }
+        }
+
+        function flushActionIfReady() {
+            if (!hasAdminToken) return;
+            if (!pendingAction) return;
+            const action = pendingAction;
+            pendingAction = null;
+            runAdminAction(action).catch(() => {});
+        }
+
         // Ocultar o aviso assim que o Painel Admin enviar o token
         window.addEventListener('message', (event) => {
             try {
                 const data = event && event.data ? event.data : null;
-                if (!data || data.type !== 'BLAZE_ADMIN_TOKEN') return;
-                const token = data.token;
-                if (typeof token !== 'string' || token.trim().length < 20) return;
-                const el = document.getElementById('adminHandshake');
-                if (el) el.style.display = 'none';
+                if (!data || !data.type) return;
+
+                if (data.type === 'BLAZE_ADMIN_TOKEN') {
+                    const token = data.token;
+                    if (typeof token !== 'string' || token.trim().length < 20) return;
+                    hasAdminToken = true;
+                    const el = document.getElementById('adminHandshake');
+                    if (el) el.style.display = 'none';
+                    // assim que receber token, se tiver ação pendente, executar
+                    setTimeout(() => flushActionIfReady(), 250);
+                    return;
+                }
+
+                if (data.type === 'BLAZE_ADMIN_ACTION') {
+                    const action = String(data.action || '').toLowerCase();
+                    if (action !== 'premium' && action !== 'diamond') return;
+                    pendingAction = action;
+                    // se já tem token, executa; senão fica pendente
+                    setTimeout(() => flushActionIfReady(), 250);
+                    return;
+                }
             } catch (_) {}
         });
     </script>

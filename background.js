@@ -1020,6 +1020,14 @@ function getProfileCompletionSnapshot(user) {
 
 async function enforceProfileGateOnAIMode(context = 'unknown') {
     try {
+        // 👑 ADMIN CONFIG (web): nunca bloquear Modo IA por cadastro incompleto
+        // (admin precisa conseguir abrir Configurar Níveis/Intensidade)
+        try {
+            if (typeof window !== 'undefined' && window.__BLAZE_ADMIN_ANALYSIS_CONFIG__ === true) {
+                return { allowed: true, adminBypass: true };
+            }
+        } catch (_) {}
+
         if (!analyzerConfig || !analyzerConfig.aiMode) return { allowed: true };
         const storage = await chrome.storage.local.get(['user', 'analyzerConfig']);
         const user = storage.user || null;
