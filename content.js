@@ -1514,6 +1514,7 @@ let lastTrainingSpinData = null;
 let lastModeSnapshot = null;
 let analyzerActive = true;
 let analyzerToggleBusy = false;
+// ✅ Painel (saldo) sempre visível — removido toggle "Painel" do header a pedido do usuário
 let autoBetSummaryVisible = true;
 let analyzerAutoPausedReason = null;
 let analyzerConfigSnapshot = null;
@@ -1521,69 +1522,21 @@ let bankProgressTimeout = null;
 
 function applyAutoBetSummaryVisibility() {
     const summary = document.getElementById('autoBetSummary');
-    const collapsed = document.getElementById('autoBetSummaryCollapsed');
     if (summary) {
-        summary.classList.toggle('hidden', !autoBetSummaryVisible);
-    }
-    if (collapsed) {
-        collapsed.classList.toggle('visible', !autoBetSummaryVisible);
+        // Sempre visível
+        summary.classList.remove('hidden');
     }
 }
 
 function setAutoBetSummaryVisibility(isVisible, source = 'user') {
-    autoBetSummaryVisible = !!isVisible;
-    try {
-        localStorage.setItem('autoBetSummaryVisible', autoBetSummaryVisible ? '1' : '0');
-    } catch (e) {
-        // ignore
-    }
+    // Toggle removido: manter sempre visível
+    autoBetSummaryVisible = true;
     applyAutoBetSummaryVisibility();
-    console.log(`[AUTO-BET] Visibilidade do resumo alterada (${source}):`, autoBetSummaryVisible ? 'visível' : 'oculto');
-    
-    updateAnalyzerConfigPartial({ autoBetSummaryVisible: autoBetSummaryVisible })
-        .catch(error => console.warn('⚠️ Não foi possível persistir autoBetSummaryVisible:', error));
 }
 
 async function initAutoBetSummaryVisibilityControls() {
-    let initializedFromConfig = false;
-    try {
-        const stored = await storageCompat.get(['analyzerConfig']);
-        const config = stored?.analyzerConfig || {};
-        if (typeof config.autoBetSummaryVisible === 'boolean') {
-            autoBetSummaryVisible = config.autoBetSummaryVisible;
-            initializedFromConfig = true;
-            try {
-                localStorage.setItem('autoBetSummaryVisible', autoBetSummaryVisible ? '1' : '0');
-            } catch (e) {
-                // ignore
-            }
-        }
-    } catch (error) {
-        console.warn('⚠️ Erro ao carregar visibilidade do saldo sincronizada:', error);
-    }
-    
-    if (!initializedFromConfig) {
-        try {
-            const saved = localStorage.getItem('autoBetSummaryVisible');
-            if (saved === '0') {
-                autoBetSummaryVisible = false;
-            }
-        } catch (e) {
-            // ignore
-        }
-    }
-    
-    const showBtn = document.getElementById('autoBetShowBtn');
-    if (showBtn) {
-        showBtn.addEventListener('click', () => {
-            // Toggle: Se estiver visível, esconde. Se estiver escondido, mostra.
-            setAutoBetSummaryVisibility(!autoBetSummaryVisible, 'toggle-btn');
-        });
-    }
+    autoBetSummaryVisible = true;
     applyAutoBetSummaryVisibility();
-    
-    updateAnalyzerConfigPartial({ autoBetSummaryVisible: autoBetSummaryVisible })
-        .catch(error => console.warn('⚠️ Não foi possível sincronizar estado inicial do saldo:', error));
 }
 
 function logTrainingConnectionStatus(isConnected, force = false) {
@@ -10067,6 +10020,58 @@ autoBetHistoryStore.init().catch(error => console.warn('AutoBetHistory: iniciali
         return pref === null ? true : pref === 'true';
     }
 
+    // ═══════════════════════════════════════════════════════════════════════════════
+    // ☁️ UI: Toggle "Sincronizar configurações" (fora da seção de modo, fácil acesso)
+    // ═══════════════════════════════════════════════════════════════════════════════
+
+    let syncConfigToggleEnabled = true;
+
+    function updateSyncConfigToggleUI(isEnabled) {
+        syncConfigToggleEnabled = !!isEnabled;
+        const toggleBtn = document.getElementById('syncConfigToggleBtn');
+        if (!toggleBtn) return;
+        toggleBtn.classList.toggle('active', syncConfigToggleEnabled);
+        const label = toggleBtn.querySelector('.toggle-label');
+        if (label) {
+            label.textContent = syncConfigToggleEnabled ? 'Sincronização ativa' : 'Sincronizar configs';
+        }
+        toggleBtn.title = syncConfigToggleEnabled
+            ? 'Sincronizar configurações com a conta (ATIVO)'
+            : 'Sincronizar configurações com a conta (DESATIVADO)';
+
+        // manter checkbox compatível (usado em load/save)
+        const chk = document.getElementById('syncConfigToAccount');
+        if (chk && typeof chk.checked === 'boolean') {
+            chk.checked = syncConfigToggleEnabled;
+        }
+    }
+
+    function initializeSyncConfigToggleState() {
+        try {
+            const enabled = getSyncConfigPreference();
+            updateSyncConfigToggleUI(enabled);
+        } catch (_) {
+            updateSyncConfigToggleUI(true);
+        }
+    }
+
+    function bindSyncConfigToggleUI() {
+        const toggleBtn = document.getElementById('syncConfigToggleBtn');
+        if (!toggleBtn || toggleBtn.dataset.bound === '1') return;
+        toggleBtn.dataset.bound = '1';
+        toggleBtn.addEventListener('click', () => {
+            const chk = document.getElementById('syncConfigToAccount');
+            const current = chk ? !!chk.checked : !!getSyncConfigPreference();
+            const next = !current;
+            try {
+                if (chk) chk.checked = next;
+            } catch (_) {}
+            try { saveSyncConfigPreference(next); } catch (_) {}
+            updateSyncConfigToggleUI(next);
+            try { showToast(next ? 'Sincronização ativada' : 'Sincronização desativada', 1800); } catch (_) {}
+        });
+    }
+
 function areValuesEqual(a, b) {
     if (a === b) return true;
     if (typeof a === 'object' && typeof b === 'object') {
@@ -11015,14 +11020,6 @@ async function persistAnalyzerState(newState) {
 
                 <!-- 2. Center: Simple Controls -->
                 <div class="da-controls-group">
-                    <button type="button" class="header-link" id="autoBetShowBtn" title="Abrir Painel">
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <rect x="2" y="6" width="20" height="12" rx="2"></rect>
-                            <path d="M6 12h4m-2-2v4m7-3h.01m3-2h.01"></path>
-                        </svg>
-                        <span>Painel</span>
-                    </button>
-
                     <button type="button" class="header-link ai-mode-toggle" id="aiModeToggle" title="Ativar/Desativar IA">
                         <span id="aiToggleLabel">AI OFF</span>
                     </button>
@@ -11189,9 +11186,6 @@ async function persistAnalyzerState(newState) {
                     </div>
                 </div>
             </div>
-            <div class="auto-bet-summary-collapsed" id="autoBetSummaryCollapsed" style="display: none;">
-                <!-- Botão movido para o header -->
-                </div>
                 
             <div class="analysis-lastspin-row">
                  <div class="analysis-section highlight-panel">
@@ -11257,12 +11251,14 @@ async function persistAnalyzerState(newState) {
                                 <div class="ia-bootstrap-overlay" id="iaBootstrapOverlay" style="display:none;">
                                     <div class="ia-bootstrap-orb" id="iaBootstrapOrb" data-state="idle">
                                         <button type="button" class="ai-orb-btn" id="iaBootstrapBtn" title="Analisar histórico">
+                                            <span class="ai-orb-smoke" aria-hidden="true"></span>
+                                            <span class="ai-orb-liquid" aria-hidden="true"></span>
                                             <span class="ai-orb-fog fog1" aria-hidden="true"></span>
                                             <span class="ai-orb-fog fog2" aria-hidden="true"></span>
                                             <span class="ai-orb-label">IA</span>
                                             <span class="ai-orb-check" aria-hidden="true">✓</span>
                                         </button>
-                                        <div class="ia-bootstrap-text" id="iaBootstrapText">Analisar histórico</div>
+                                        <div class="ia-bootstrap-text" id="iaBootstrapText" role="status" aria-live="polite">Analisar histórico</div>
                                     </div>
                                 </div>
                             </div>
@@ -11470,6 +11466,15 @@ async function persistAnalyzerState(newState) {
                         </button>
                     </div>
                     <div class="auto-bet-modal-body">
+                        <!-- ✅ Preferência global (IA + Premium): sincronizar configurações -->
+                        <div class="sync-config-toggle-wrap" id="syncConfigToggleWrap">
+                            <button class="auto-bet-config-launcher toggle-analyzer-btn" id="syncConfigToggleBtn" type="button" title="Sincronizar configurações com a conta">
+                                <span class="toggle-label">Sincronização ativa</span>
+                                <span class="toggle-indicator"></span>
+                            </button>
+                            <!-- Mantém compatibilidade: saveSettings/loadSettings leem o checkbox -->
+                            <input type="checkbox" id="syncConfigToAccount" checked style="display:none" />
+                        </div>
                         <div class="auto-bet-accordion" id="autoBetAccordion">
                             <!-- 1) CONFIGURAÇÃO DO MODO -->
                             <div class="auto-bet-acc-section" data-acc-key="mode">
@@ -11477,10 +11482,9 @@ async function persistAnalyzerState(newState) {
                                     <span class="auto-bet-acc-title">Configuração do modo</span>
                                     <span class="auto-bet-acc-caret" aria-hidden="true">▾</span>
                                 </button>
-                                <div class="auto-bet-acc-body auto-bet-acc-body--no-pad" id="autoBetAccBody-mode">
+                                <div class="auto-bet-acc-body" id="autoBetAccBody-mode">
                                     <!-- ✅ Mover o container inteiro de Configurações para dentro do modal (ambos os modos) -->
-                                    <div class="settings-section settings-section-highlight" style="margin-top: 0;">
-                    <h4>Configurações</h4>
+                                    <div class="settings-section settings-section-mode" style="margin-top: 0;">
                     <div class="settings-grid">
                         <div class="setting-item" id="historyDepthSetting">
                             <span class="setting-label">Profundidade de Análise (giros):</span>
@@ -11571,16 +11575,6 @@ async function persistAnalyzerState(newState) {
                                     </div>
                                 </div>
                             </div>
-                        </div>
-                        
-                        <!-- Opção de sincronização com a conta -->
-                        <div class="setting-item setting-row" style="margin-top: 20px; padding-top: 15px; border-top: 1px solid #333;">
-                            <label class="checkbox-label" style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
-                                <input type="checkbox" id="syncConfigToAccount" checked style="cursor: pointer;">
-                                <span style="font-size: 13px; color: #00d4ff;">
-                                    ☁️ Sincronizar configurações
-                                </span>
-                            </label>
                         </div>
                         
                     </div>
@@ -12636,6 +12630,11 @@ async function persistAnalyzerState(newState) {
         if (toggleAnalyzerBtn) {
             toggleAnalyzerBtn.addEventListener('click', handleAnalyzerToggle);
         }
+        // ✅ Toggle de sincronização (configs)
+        try {
+            bindSyncConfigToggleUI();
+            initializeSyncConfigToggleState();
+        } catch (_) {}
         initAutoBetSummaryVisibilityControls();
         initializeAnalyzerToggleState();
         
@@ -14522,9 +14521,7 @@ async function persistAnalyzerState(newState) {
     function getMasterSignalOverlayTarget() {
         const primary = document.getElementById('autoBetSummary');
         if (primary && primary.offsetParent !== null) return primary;
-        const collapsed = document.getElementById('autoBetSummaryCollapsed');
-        if (collapsed && collapsed.offsetParent !== null) return collapsed;
-        return primary || collapsed || null;
+        return primary || null;
     }
 
     function normalizeOverlayPhaseLabel(phase) {
@@ -16097,6 +16094,17 @@ async function persistAnalyzerState(newState) {
                     actions.insertAdjacentElement('afterbegin', analyzerToggleBtn);
                 }
 
+                // ✅ Pedido: mover "Sincronizar configurações" para fora e deixar de fácil acesso (igual Análise ativa)
+                const syncWrap = sidebar.querySelector('#syncConfigToggleWrap');
+                if (syncWrap && syncWrap.parentNode !== actions) {
+                    // Colocar logo após o botão "Análise ativa"
+                    if (analyzerToggleBtn && analyzerToggleBtn.parentNode === actions) {
+                        analyzerToggleBtn.insertAdjacentElement('afterend', syncWrap);
+                    } else {
+                        actions.insertAdjacentElement('afterbegin', syncWrap);
+                    }
+                }
+
                 const betBtn = sidebar.querySelector('#betModeToggleBtn');
                 const betWrapper = betBtn && betBtn.closest ? betBtn.closest('.user-info-item') : null;
                 if (betWrapper && betWrapper.parentNode !== actions) {
@@ -16148,6 +16156,17 @@ async function persistAnalyzerState(newState) {
                 return;
             }
 
+            // ✅ Importante: se já existe um botão (DOM persistiu), garantir que ele
+            // aponte para o card correto. Isso evita bugs tipo: clicar no fullscreen do
+            // "Histórico de Giros" e expandir "Padrão" por causa de data-daExpand antigo.
+            if (existingBtn) {
+                try {
+                    existingBtn.dataset.daExpand = cardId;
+                    existingBtn.setAttribute('aria-label', 'Expandir/Recolher');
+                    existingBtn.setAttribute('title', 'Expandir');
+                } catch (_) {}
+            }
+
             if (!existingBtn) {
                 const btn = document.createElement('button');
                 btn.type = 'button';
@@ -16175,7 +16194,8 @@ async function persistAnalyzerState(newState) {
         // ❌ Sem ícone extra de expandir aqui: a aba IA já tem o expand interno (vidro/IA).
         registerCard(root.querySelector('#analyzerDefaultView .entries-section'), 'entries', { expandable: false });
         registerCard(root.querySelector('#analyzerDefaultView .pattern-section'), 'pattern');
-        registerCard(root.querySelector('#analyzerDefaultView .pattern-bank-section'), 'bank');
+        // ❌ Banco de padrões não precisa de "tela cheia" (pedido do usuário)
+        registerCard(root.querySelector('#analyzerDefaultView .pattern-bank-section'), 'bank', { expandable: false });
         registerCard(root.querySelector('#analyzerDefaultView .observer-section'), 'observer', { expandable: false });
         registerCard(root.querySelector('#analyzerDefaultView .stats-section'), 'history');
 
@@ -17722,10 +17742,8 @@ function logModeSnapshotUI(snapshot) {
                 const activeModeKey = currentAIMode ? 'diamond' : 'standard';
                 const activeMartingaleProfile = sanitizedProfiles[activeModeKey];
                 
-                if (typeof cfg.autoBetSummaryVisible === 'boolean') {
-                    autoBetSummaryVisible = cfg.autoBetSummaryVisible;
-                    applyAutoBetSummaryVisibility();
-                }
+                // ✅ Painel (saldo) sempre visível — ignorar configs antigas de visibilidade
+                try { applyAutoBetSummaryVisibility(); } catch (_) {}
                 
                 if (typeof cfg.analysisEnabled === 'boolean') {
                     updateAnalyzerToggleUI(cfg.analysisEnabled);
@@ -17810,7 +17828,9 @@ function logModeSnapshotUI(snapshot) {
                 // ✅ Carregar preferência de sincronização de configurações
                 const syncConfigCheckbox = document.getElementById('syncConfigToAccount');
                 if (syncConfigCheckbox) {
-                    syncConfigCheckbox.checked = getSyncConfigPreference();
+                    const enabled = getSyncConfigPreference();
+                    syncConfigCheckbox.checked = enabled;
+                    try { updateSyncConfigToggleUI(enabled); } catch (_) {}
                     console.log(`🔄 Preferência de sincronização de configurações carregada: ${syncConfigCheckbox.checked ? 'ATIVADA' : 'DESATIVADA'}`);
                 }
             });
@@ -18069,7 +18089,7 @@ function logModeSnapshotUI(snapshot) {
                     martingaleProfiles: updatedProfiles,
                     autoBetConfig: sanitizedAutoBetConfig,
                     analysisEnabled: analyzerActive,
-                    autoBetSummaryVisible: autoBetSummaryVisible
+                    autoBetSummaryVisible: true
                 };
                 applyActiveMartingaleToLegacyFields(cfg, activeModeKey, updatedProfiles);
                 
@@ -18459,8 +18479,16 @@ function logModeSnapshotUI(snapshot) {
     function setIABootstrapState(state, text) {
         const orb = document.getElementById('iaBootstrapOrb');
         const label = document.getElementById('iaBootstrapText');
-        if (orb) orb.setAttribute('data-state', state || 'idle');
-        if (label && typeof text === 'string') label.textContent = text;
+        const nextState = state || 'idle';
+        if (orb) orb.setAttribute('data-state', nextState);
+        if (label && typeof text === 'string') {
+            let nextText = text;
+            // ✅ UX: em loading, sempre mostrar feedback ("Buscando...") mesmo se outro render setar ''.
+            if (nextState === 'loading' && !String(nextText).trim()) {
+                nextText = 'Buscando';
+            }
+            label.textContent = nextText;
+        }
     }
 
     function setIABootstrapHasHistory(hasHistory) {
@@ -18718,8 +18746,10 @@ function logModeSnapshotUI(snapshot) {
         btn.addEventListener('click', async () => {
             if (iaBootstrapBusy) return;
             iaBootstrapBusy = true;
-            // Ao clicar: esconder texto e deixar apenas a bolinha animando
-            setIABootstrapState('loading', '');
+            try { btn.disabled = true; } catch (_) {}
+            try { btn.setAttribute('aria-busy', 'true'); } catch (_) {}
+            // ✅ Feedback visual: manter texto visível com "Buscando..." (pontinhos via CSS)
+            setIABootstrapState('loading', 'Buscando');
 
             const mode = document.querySelector('.ai-mode-toggle.active') ? 'diamond' : 'standard';
             try {
@@ -18732,12 +18762,16 @@ function logModeSnapshotUI(snapshot) {
                     const err = chrome.runtime.lastError;
                     if (err) {
                         iaBootstrapBusy = false;
+                        try { btn.disabled = false; } catch (_) {}
+                        try { btn.removeAttribute('aria-busy'); } catch (_) {}
                         setIABootstrapState('idle', 'Analisar histórico');
                         showToast(`❌ Falha ao analisar histórico: ${err.message || err}`, 3200);
                         return;
                     }
                     if (!response || response.status !== 'success') {
                         iaBootstrapBusy = false;
+                        try { btn.disabled = false; } catch (_) {}
+                        try { btn.removeAttribute('aria-busy'); } catch (_) {}
                         setIABootstrapState('idle', 'Analisar histórico');
                         const msg = response && response.error ? response.error : 'resposta inválida';
                         showToast(`❌ Falha ao analisar histórico: ${msg}`, 3200);
@@ -18750,6 +18784,8 @@ function logModeSnapshotUI(snapshot) {
                         // ✅ Bootstrap concluído: liberar render normal (bolinha some quando houver histórico visível)
                         setIABootstrapHoldActive(mode, false);
                         iaBootstrapBusy = false;
+                        try { btn.disabled = false; } catch (_) {}
+                        try { btn.removeAttribute('aria-busy'); } catch (_) {}
                         // Após concluir, manter apenas a bolinha (CTA some quando houver histórico visível)
                         setIABootstrapState('idle', '');
                         // ✅ Importante: forçar re-render imediatamente após liberar o HOLD,
@@ -18766,6 +18802,8 @@ function logModeSnapshotUI(snapshot) {
                 });
             } catch (e) {
                 iaBootstrapBusy = false;
+                try { btn.disabled = false; } catch (_) {}
+                try { btn.removeAttribute('aria-busy'); } catch (_) {}
                 setIABootstrapState('idle', 'Analisar histórico');
                 showToast(`❌ Falha ao analisar histórico: ${e.message || e}`, 3200);
             }

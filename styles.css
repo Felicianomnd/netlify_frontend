@@ -2296,6 +2296,25 @@
   margin-top: 0;
 }
 
+/* ✅ Modo (IA/Premium): não criar “sub-card” dentro da própria seção */
+#autoBetModal .auto-bet-acc-section[data-acc-key="mode"] .settings-section.settings-section-mode {
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  padding: 0;
+}
+
+/* ✅ Toggle de sincronização (fica fora da seção de modo e é de fácil acesso) */
+#autoBetModal .sync-config-toggle-wrap {
+  padding: 12px;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+
+#blaze-double-analyzer.da-desktop-dashboard .da-desktop-sidebar-actions .sync-config-toggle-wrap {
+  padding: 0;
+  border-bottom: none;
+}
+
 /* ✅ Ajustes de layout do setor Martingale (mais claro e menos confuso) */
 #autoBetModal .auto-bet-martingale-settings {
   display: flex;
@@ -2360,6 +2379,16 @@
 .cfg-save-btn { margin-top: 10px; width: 100%; padding: 10px; border-radius: 3px; background: #ef4444; color: #fff; border: none; cursor: pointer; font-weight: 600; }
 .cfg-save-btn:hover { background: #dc2626; }
 .checkbox-label { font-size: 12px; display: flex; align-items: center; gap: 6px; }
+
+/* ✅ Modo Premium: sempre 1 item por linha (evita “visual quebrado” em 2 colunas) */
+#autoBetModal .auto-bet-acc-section[data-acc-key="mode"][data-mode="premium"] .settings-grid {
+    /* existe override global em media-query com !important; então aqui também precisa !important */
+    grid-template-columns: 1fr !important;
+    gap: 12px !important;
+}
+#autoBetModal .auto-bet-acc-section[data-acc-key="mode"][data-mode="premium"] .setting-item.setting-row {
+    grid-column: 1 !important;
+}
 
 /* ✅ Checkboxes dentro dos modais Diamante com visual de switch, alinhados ao Simulador */
 .custom-pattern-modal-body .checkbox-label {
@@ -3998,6 +4027,12 @@
     display: none !important;
   }
 
+  /* Mobile: evitar efeitos pesados dentro da bolinha (performance/artefatos iOS) */
+  #blaze-double-analyzer .ai-orb-smoke,
+  #blaze-double-analyzer .ai-orb-liquid {
+    display: none !important;
+  }
+
   /* No mobile o .entry-box vira 42px; manter o card com largura fixa para evitar linhas “faltando 1” */
   #blaze-double-analyzer .entry-item-wrap {
     width: calc((42px + 2px + 4px) * var(--icon-scale, 1)) !important;
@@ -4082,7 +4117,14 @@
     0 0 22px rgba(200,240,255,0.12);
   outline: none;
   transform: translateZ(0);
+  /* ✅ movimento constante (mais “IA viva” mesmo em idle) */
+  will-change: transform;
+  animation: aiOrbBreath 4.6s ease-in-out infinite;
   z-index: 1;
+}
+
+.ai-orb-btn:disabled {
+  cursor: progress;
 }
 
 /* fumaça fluida dentro da bolinha (visível e animada) */
@@ -4363,7 +4405,24 @@
   animation-duration: 2.6s;
 }
 .ia-bootstrap-orb[data-state="loading"] .ia-bootstrap-text {
-  display: none;
+  display: block;
+  opacity: 0.96;
+  font-weight: 800;
+  color: rgba(233, 242, 255, 0.95);
+}
+
+/* ✅ “Buscando...” com pontinhos animados */
+.ia-bootstrap-orb[data-state="loading"] .ia-bootstrap-text::after {
+  content: "...";
+  display: inline-block;
+  width: 0;
+  overflow: hidden;
+  vertical-align: bottom;
+  animation: iaBootstrapDots 1.15s steps(4, end) infinite;
+}
+
+@keyframes iaBootstrapDots {
+  to { width: 1.15em; }
 }
 .ia-bootstrap-orb[data-state="done"] .ia-bootstrap-text {
   display: none;
@@ -9239,12 +9298,15 @@ body.da-ext-fullscreen #patternDetailsModal .bank-patterns-modal-content {
     padding: 0;
   }
 
-  #blaze-double-analyzer.da-desktop-dashboard.da-dashboard-expanded .da-card {
-    display: none;
+  /* ✅ IMPORTANTE:
+     Alguns cards (IA/Padrão) têm regras MAIS específicas que forçam display:flex.
+     Então, em modo expandido, precisamos garantir que SOMENTE o card ativo apareça. */
+  #blaze-double-analyzer.da-desktop-dashboard.da-dashboard-expanded #analyzerContent .da-card {
+    display: none !important;
   }
 
-  #blaze-double-analyzer.da-desktop-dashboard.da-dashboard-expanded .da-card.da-card-is-expanded {
-    display: flex;
+  #blaze-double-analyzer.da-desktop-dashboard.da-dashboard-expanded #analyzerContent .da-card.da-card-is-expanded {
+    display: flex !important;
     flex-direction: column;
     height: 100%;
     overflow: auto;

@@ -3821,6 +3821,14 @@ async function processNewSpinFromServer(spinData) {
                                 
                                 await updateHotColorsHistory(patternKey, colorSequence);
                             }
+
+                            // 💎 N4 (Autointeligente): registrar resultado final do CICLO (WIN) para auto-aprendizado
+                            try {
+                                const learningAnalysis = (martingaleState && martingaleState.active && martingaleState.analysisData)
+                                    ? martingaleState.analysisData
+                                    : currentAnalysis;
+                                await recordN4SelfLearningFromResolvedCycle(learningAnalysis, 'win');
+                            } catch (_) {}
                             
                             // ✅ RESETAR CICLO DE MARTINGALE - CRÍTICO!
                             if (martingaleState.active) {
@@ -4045,6 +4053,11 @@ async function processNewSpinFromServer(spinData) {
                                         console.log('📤 Enviando mensagem de RED ao Telegram (0 Gales configurados)...');
                                         await sendTelegramMartingaleRET(filteredWins, filteredLosses, currentMode, currentAnalysis.confidence);
                                     }
+
+                                    // 💎 N4 (Autointeligente): registrar resultado final do CICLO (LOSS/RED) para auto-aprendizado
+                                    try {
+                                        await recordN4SelfLearningFromResolvedCycle(currentAnalysis, 'loss');
+                                    } catch (_) {}
                                     
                                     resetMartingaleState();
                                     
@@ -4313,6 +4326,14 @@ async function processNewSpinFromServer(spinData) {
                                     });
                                     colorSequence.push({ color: rollColor });
                                     await updateHotColorsHistory(patternKey, colorSequence);
+
+                                    // 💎 N4 (Autointeligente): registrar resultado final do CICLO (LOSS/RED) para auto-aprendizado
+                                    try {
+                                        const learningAnalysis = (martingaleState && martingaleState.active && martingaleState.analysisData)
+                                            ? martingaleState.analysisData
+                                            : currentAnalysis;
+                                        await recordN4SelfLearningFromResolvedCycle(learningAnalysis, 'loss');
+                                    } catch (_) {}
                                     
                                     resetMartingaleState();
 
@@ -5556,6 +5577,17 @@ let signalsHistory = {
     patternStats: {},         // Estatísticas por tipo de padrão
     contextStats: {},         // Estatísticas por contexto
     blockedPatterns: {},      // 🚫 Padrões bloqueados temporariamente {patternKey: {until: timestamp, reason: string}}
+    // 💎 N4 (Autointeligente): auto-aprendizado por "tipo de sinal" do próprio N4 (contexto n-gram + cor + setup)
+    n4SelfLearning: {
+        version: 1,
+        stats: {},            // { [key]: { total, wins, losses, recent: boolean[], lastTs } }
+        maxRecent: 30,        // janela de recência por key
+        maxKeys: 400,         // limite de chaves (evita crescer infinito)
+        minSamples: 8,        // mínimo de ciclos para ativar bloqueio/boost
+        badWinRate: 0.45,     // abaixo disso -> bloquear tipo
+        goodWinRate: 0.60,    // acima disso -> liberar com boost (mais permissivo)
+        lastUpdated: null
+    },
     consecutiveLosses: 0,     // 📉 Contador de losses consecutivos GLOBAL
     recentPerformance: [],    // 📊 Últimos 20 sinais (para ajuste dinâmico de minPercentage)
     lastUpdated: null
@@ -5575,6 +5607,26 @@ async function initializeSignalsHistory() {
             if (!signalsHistory.patternStats) signalsHistory.patternStats = {};
             if (!signalsHistory.contextStats) signalsHistory.contextStats = {};
             if (!signalsHistory.blockedPatterns) signalsHistory.blockedPatterns = {};
+            if (!signalsHistory.n4SelfLearning || typeof signalsHistory.n4SelfLearning !== 'object') {
+                signalsHistory.n4SelfLearning = {
+                    version: 1,
+                    stats: {},
+                    maxRecent: 30,
+                    maxKeys: 400,
+                    minSamples: 8,
+                    badWinRate: 0.45,
+                    goodWinRate: 0.60,
+                    lastUpdated: null
+                };
+            }
+            if (!signalsHistory.n4SelfLearning.stats || typeof signalsHistory.n4SelfLearning.stats !== 'object') {
+                signalsHistory.n4SelfLearning.stats = {};
+            }
+            if (!Number.isFinite(Number(signalsHistory.n4SelfLearning.maxRecent))) signalsHistory.n4SelfLearning.maxRecent = 30;
+            if (!Number.isFinite(Number(signalsHistory.n4SelfLearning.maxKeys))) signalsHistory.n4SelfLearning.maxKeys = 400;
+            if (!Number.isFinite(Number(signalsHistory.n4SelfLearning.minSamples))) signalsHistory.n4SelfLearning.minSamples = 8;
+            if (!Number.isFinite(Number(signalsHistory.n4SelfLearning.badWinRate))) signalsHistory.n4SelfLearning.badWinRate = 0.45;
+            if (!Number.isFinite(Number(signalsHistory.n4SelfLearning.goodWinRate))) signalsHistory.n4SelfLearning.goodWinRate = 0.60;
             if (signalsHistory.consecutiveLosses === undefined) signalsHistory.consecutiveLosses = 0;
             if (!signalsHistory.recentPerformance || !Array.isArray(signalsHistory.recentPerformance)) signalsHistory.recentPerformance = [];
             
@@ -5592,6 +5644,16 @@ async function initializeSignalsHistory() {
             patternStats: {},
             contextStats: {},
             blockedPatterns: {},
+            n4SelfLearning: {
+                version: 1,
+                stats: {},
+                maxRecent: 30,
+                maxKeys: 400,
+                minSamples: 8,
+                badWinRate: 0.45,
+                goodWinRate: 0.60,
+                lastUpdated: null
+            },
             consecutiveLosses: 0,
             recentPerformance: [],
             lastUpdated: null
@@ -5608,6 +5670,122 @@ async function saveSignalsHistory() {
         await chrome.storage.local.set({ signalsHistory });
     } catch (error) {
         console.error('%c❌ Erro ao salvar histórico de sinais:', 'color: #FF0000;', error);
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// 💎 N4 (Autointeligente): auto-aprendizado por tipo de sinal
+// ═══════════════════════════════════════════════════════════════
+
+function buildN4SelfLearningKey(ctxKey, tok, stepsToWin, intensity) {
+    try {
+        const ctx = String(ctxKey || '').trim().toUpperCase();
+        const t = String(tok || '').trim().toUpperCase();
+        const steps = Math.max(1, Math.min(3, Math.floor(Number(stepsToWin) || 1)));
+        const mode = (intensity === 'conservative') ? 'conservative' : 'aggressive';
+        if (!ctx) return null;
+        if (!(t === 'R' || t === 'B' || t === 'W')) return null;
+        return `N4|ctx=${ctx}|tok=${t}|steps=${steps}|int=${mode}`;
+    } catch (_) {
+        return null;
+    }
+}
+
+function getN4SelfLearningStatsForKey(key) {
+    try {
+        const store = signalsHistory && signalsHistory.n4SelfLearning ? signalsHistory.n4SelfLearning : null;
+        const map = store && store.stats ? store.stats : null;
+        if (!map || !key) return null;
+        const row = map[key];
+        if (!row || typeof row !== 'object') return null;
+        const total = Math.max(0, Math.floor(Number(row.total) || 0));
+        const wins = Math.max(0, Math.floor(Number(row.wins) || 0));
+        const losses = Math.max(0, Math.floor(Number(row.losses) || 0));
+        const recent = Array.isArray(row.recent) ? row.recent : [];
+        const recentN = recent.length;
+        const recentWins = recent.filter(Boolean).length;
+        const recentWinRate = recentN > 0 ? (recentWins / recentN) : null;
+        const totalWinRate = total > 0 ? (wins / total) : null;
+        return { total, wins, losses, recentN, recentWins, recentWinRate, totalWinRate, lastTs: row.lastTs || null };
+    } catch (_) {
+        return null;
+    }
+}
+
+function pruneN4SelfLearningIfNeeded() {
+    try {
+        if (!signalsHistory || !signalsHistory.n4SelfLearning || !signalsHistory.n4SelfLearning.stats) return;
+        const store = signalsHistory.n4SelfLearning;
+        const maxKeys = Math.max(50, Math.min(2000, Math.floor(Number(store.maxKeys) || 400)));
+        const keys = Object.keys(store.stats || {});
+        if (keys.length <= maxKeys) return;
+        // remover os mais antigos (por lastTs)
+        const ranked = keys.map(k => ({ k, ts: Number(store.stats[k]?.lastTs) || 0 }))
+            .sort((a, b) => a.ts - b.ts);
+        const toRemove = ranked.slice(0, Math.max(0, keys.length - maxKeys));
+        toRemove.forEach(({ k }) => { try { delete store.stats[k]; } catch (_) {} });
+    } catch (_) {}
+}
+
+async function recordN4SelfLearningFromResolvedCycle(analysisObj, outcome) {
+    try {
+        const analysis = analysisObj && typeof analysisObj === 'object' ? analysisObj : null;
+        if (!analysis) return false;
+        // ✅ Aprender apenas de sinais "visíveis" (não contam ciclos silenciosos da Recuperação).
+        // Exceção: se for recoveryMode=true (sinal seguro), ele é visível na aba Recuperação.
+        const isHiddenInternal = !!analysis.hiddenInternal;
+        const isRecoveryVisible = !!analysis.recoveryMode;
+        if (isHiddenInternal && !isRecoveryVisible) return false;
+        const n4 = analysis.diamondN4 && typeof analysis.diamondN4 === 'object' ? analysis.diamondN4 : null;
+        if (!n4) return false;
+        const usedInFinal = !!n4.usedInFinal;
+        if (!usedInFinal) return false;
+        const key = typeof n4.key === 'string' ? n4.key : null;
+        if (!key) return false;
+        const isWin = String(outcome || '').toLowerCase().trim() === 'win';
+        const isLoss = String(outcome || '').toLowerCase().trim() === 'loss';
+        if (!isWin && !isLoss) return false;
+
+        if (!signalsHistory.n4SelfLearning || typeof signalsHistory.n4SelfLearning !== 'object') {
+            signalsHistory.n4SelfLearning = {
+                version: 1,
+                stats: {},
+                maxRecent: 30,
+                maxKeys: 400,
+                minSamples: 8,
+                badWinRate: 0.45,
+                goodWinRate: 0.60,
+                lastUpdated: null
+            };
+        }
+        if (!signalsHistory.n4SelfLearning.stats || typeof signalsHistory.n4SelfLearning.stats !== 'object') {
+            signalsHistory.n4SelfLearning.stats = {};
+        }
+
+        const store = signalsHistory.n4SelfLearning;
+        const maxRecent = Math.max(10, Math.min(200, Math.floor(Number(store.maxRecent) || 30)));
+        const now = Date.now();
+        const row = store.stats[key] && typeof store.stats[key] === 'object'
+            ? store.stats[key]
+            : { total: 0, wins: 0, losses: 0, recent: [], lastTs: 0 };
+
+        row.total = Math.max(0, Math.floor(Number(row.total) || 0)) + 1;
+        row.wins = Math.max(0, Math.floor(Number(row.wins) || 0)) + (isWin ? 1 : 0);
+        row.losses = Math.max(0, Math.floor(Number(row.losses) || 0)) + (isLoss ? 1 : 0);
+        row.recent = Array.isArray(row.recent) ? row.recent.slice(-maxRecent + 1) : [];
+        row.recent.push(!!isWin);
+        row.lastTs = now;
+
+        store.stats[key] = row;
+        store.lastUpdated = now;
+
+        pruneN4SelfLearningIfNeeded();
+
+        await saveSignalsHistory();
+        return true;
+    } catch (e) {
+        console.warn('⚠️ Falha ao registrar auto-aprendizado do N4:', e);
+        return false;
     }
 }
 
@@ -10900,8 +11078,86 @@ function analyzeAutointeligente(history, options = {}) {
         const pB = (plainCounts.B + alpha) / denom;
         const pW = (plainCounts.W + alpha) / denom;
         const bestTokRB = (pB >= pR) ? 'B' : 'R';
-        const bestP1 = bestTokRB === 'B' ? pB : pR;
-        const bestColor = bestTokRB === 'B' ? 'black' : 'red';
+        const otherTokRB = bestTokRB === 'B' ? 'R' : 'B';
+        const ctxKeyP1Only = (() => {
+            try {
+                const limit = Math.min(maxOrder, tokens.length);
+                const raw = tokens.slice(-limit);
+                const lastW = raw.lastIndexOf('W');
+                const tail = lastW >= 0 ? raw.slice(lastW) : raw;
+                return tail.join('');
+            } catch (_) {
+                return '';
+            }
+        })();
+
+        // 💎 Auto-aprendizado (mesmo em P1-only): bloquear "tipo" que está dando muito LOSS
+        let chosenTokRB = bestTokRB;
+        let learningDecisionP1 = 'none'; // 'none' | 'swap' | 'blocked'
+        let learningKeyP1 = null;
+        let learningRecentNP1 = 0;
+        let learningRecentWinRateP1 = null;
+        try {
+            const learningStore = options && options.n4SelfLearning && typeof options.n4SelfLearning === 'object'
+                ? options.n4SelfLearning
+                : (signalsHistory && signalsHistory.n4SelfLearning ? signalsHistory.n4SelfLearning : null);
+            const minSamples = Math.max(3, Math.min(50, Math.floor(Number(learningStore?.minSamples) || 8)));
+            const badWinRate = Math.max(0.0, Math.min(1.0, Number(learningStore?.badWinRate) || 0.45));
+            const goodWinRate = Math.max(0.0, Math.min(1.0, Number(learningStore?.goodWinRate) || 0.60));
+
+            const keyBest = buildN4SelfLearningKey(ctxKeyP1Only, bestTokRB, 1, signalIntensity);
+            const keyOther = buildN4SelfLearningKey(ctxKeyP1Only, otherTokRB, 1, signalIntensity);
+            const statsBest = keyBest ? getN4SelfLearningStatsForKey(keyBest) : null;
+            const statsOther = keyOther ? getN4SelfLearningStatsForKey(keyOther) : null;
+
+            const bestN = statsBest ? (statsBest.recentN || 0) : 0;
+            const bestWR = statsBest ? statsBest.recentWinRate : null;
+            const otherN = statsOther ? (statsOther.recentN || 0) : 0;
+            const otherWR = statsOther ? statsOther.recentWinRate : null;
+
+            // Se o "melhor RB marginal" estiver ruim, tentar trocar para o outro RB se ele estiver melhor.
+            if (bestWR != null && bestN >= minSamples && bestWR <= badWinRate) {
+                const otherLooksGood = (otherWR != null && otherN >= minSamples && otherWR >= goodWinRate);
+                const otherLooksBetter = (otherWR != null && otherN >= minSamples && otherWR > bestWR && otherWR > badWinRate);
+                if (otherLooksGood || otherLooksBetter) {
+                    chosenTokRB = otherTokRB;
+                    learningDecisionP1 = 'swap';
+                } else {
+                    // sem alternativa confiável -> bloquear sinal (NULO) para evitar repetir LOSS
+                    learningDecisionP1 = 'blocked';
+                }
+            }
+
+            if (learningDecisionP1 !== 'blocked') {
+                learningKeyP1 = buildN4SelfLearningKey(ctxKeyP1Only, chosenTokRB, 1, signalIntensity);
+                const st = learningKeyP1 ? getN4SelfLearningStatsForKey(learningKeyP1) : null;
+                if (st) {
+                    learningRecentNP1 = st.recentN || 0;
+                    learningRecentWinRateP1 = st.recentWinRate;
+                }
+            } else if (statsBest) {
+                learningRecentNP1 = bestN;
+                learningRecentWinRateP1 = bestWR;
+            }
+        } catch (_) {}
+
+        if (learningDecisionP1 === 'blocked') {
+            const pct = (learningRecentWinRateP1 != null) ? `${(learningRecentWinRateP1 * 100).toFixed(0)}%` : 'n/d';
+            const n = learningRecentNP1 || 0;
+            return {
+                color: null,
+                confidence: 0,
+                details: `NULO • P1-only • AutoApr: BLOQUEADO (${pct} em ${n})`,
+                historyUsed: tokens.length,
+                historyConfigured: historySizeConfigured,
+                learningKey: null,
+                learningContext: ctxKeyP1Only || null,
+                learningDecision: 'blocked'
+            };
+        }
+
+        const bestP1 = chosenTokRB === 'B' ? pB : pR;
+        const bestColor = chosenTokRB === 'B' ? 'black' : 'red';
         return {
             color: bestColor,
             confidence: clamp01(bestP1),
@@ -10921,7 +11177,17 @@ function analyzeAutointeligente(history, options = {}) {
             maxGalesConsidered: 0,
             historyUsed: tokens.length,
             historyConfigured: historySizeConfigured,
-            details: `P1-only • Best ${bestColor.toUpperCase()} ${(bestP1 * 100).toFixed(1)}% • dist R ${(pR * 100).toFixed(1)}% / B ${(pB * 100).toFixed(1)}% / W ${(pW * 100).toFixed(1)}%`
+            learningKey: learningKeyP1 || null,
+            learningContext: ctxKeyP1Only || null,
+            learningDecision: learningDecisionP1,
+            details: `P1-only • Best ${bestColor.toUpperCase()} ${(bestP1 * 100).toFixed(1)}% • dist R ${(pR * 100).toFixed(1)}% / B ${(pB * 100).toFixed(1)}% / W ${(pW * 100).toFixed(1)}%` +
+                (learningDecisionP1 === 'swap'
+                    ? (() => {
+                        const pct = (learningRecentWinRateP1 != null) ? `${(learningRecentWinRateP1 * 100).toFixed(0)}%` : 'n/d';
+                        const n = learningRecentNP1 || 0;
+                        return ` • AutoApr: SWAP (${pct} em ${n})`;
+                    })()
+                    : '')
         };
     }
 
@@ -11381,7 +11647,8 @@ function analyzeAutointeligente(history, options = {}) {
         }
     };
 
-    const adaptiveScoreMin = computeAdaptiveScoreThreshold();
+    const adaptiveScoreMinBase = computeAdaptiveScoreThreshold();
+    let adaptiveScoreMin = adaptiveScoreMinBase;
     const requiredPHit = adaptiveScoreMin; // compat: exibimos o limiar usado
 
     const currentScore = computeScore(bestPick, secondPick);
@@ -11392,6 +11659,64 @@ function analyzeAutointeligente(history, options = {}) {
         && (Number(bestPick.mean || 0) >= volumeProfile.minP1Mean);
 
     const forcePick = !!(options && options.forcePick);
+
+    // ═══════════════════════════════════════════════════════════════
+    // 💎 AUTO-APRENDIZADO (N4): usar o histórico de WIN/LOSS do próprio N4
+    // - Bloqueia "tipos" com muito LOSS (recente)
+    // - Libera com pequeno boost quando um tipo é muito vencedor (recente)
+    // ═══════════════════════════════════════════════════════════════
+    let learningDecision = 'none'; // 'none' | 'boost' | 'blocked'
+    let learningRecentN = 0;
+    let learningRecentWinRate = null;
+    let learningKey = null;
+    try {
+        const learningStore = options && options.n4SelfLearning && typeof options.n4SelfLearning === 'object'
+            ? options.n4SelfLearning
+            : (signalsHistory && signalsHistory.n4SelfLearning ? signalsHistory.n4SelfLearning : null);
+        const minSamples = Math.max(3, Math.min(50, Math.floor(Number(learningStore?.minSamples) || 8)));
+        const badWinRate = Math.max(0.0, Math.min(1.0, Number(learningStore?.badWinRate) || 0.45));
+        const goodWinRate = Math.max(0.0, Math.min(1.0, Number(learningStore?.goodWinRate) || 0.60));
+
+        const ctxKey = Array.isArray(ctxTail) ? ctxTail.join('') : '';
+        const bestTok = bestPick && bestPick.tok ? bestPick.tok : null;
+        const candidateKey = buildN4SelfLearningKey(ctxKey, bestTok, stepsToWin, signalIntensity);
+        if (candidateKey) {
+            const stats = (typeof getN4SelfLearningStatsForKey === 'function')
+                ? getN4SelfLearningStatsForKey(candidateKey)
+                : null;
+            if (stats && stats.recentN != null) {
+                learningRecentN = stats.recentN;
+                learningRecentWinRate = stats.recentWinRate;
+
+                // ✅ Boost leve: se o tipo está MUITO vencedor, afrouxa um pouco o limiar (sem burlar filtros estruturais)
+                if (!allowed && stats.recentWinRate != null && stats.recentN >= minSamples && stats.recentWinRate >= goodWinRate) {
+                    const boostMargin = signalIntensity === 'conservative' ? 0.010 : 0.015;
+                    const minMeanSlack = signalIntensity === 'conservative' ? 0.00 : 0.01;
+                    const boostedOk = !!bestPick
+                        && passesNonScoreFilters(bestPick, secondPick, evidence.total)
+                        && (currentScore.score >= (adaptiveScoreMinBase - boostMargin))
+                        && (Number(bestPick.mean || 0) >= (volumeProfile.minP1Mean - minMeanSlack));
+                    if (boostedOk) {
+                        allowed = true;
+                        adaptiveScoreMin = Math.max(0, adaptiveScoreMinBase - boostMargin);
+                        learningDecision = 'boost';
+                    }
+                }
+
+                // 🚫 Bloqueio: se o tipo está dando LOSS demais, anula o voto do N4
+                if (allowed && stats.recentWinRate != null && stats.recentN >= minSamples && stats.recentWinRate <= badWinRate) {
+                    // Não bloquear picks forçados (gales dinâmicos) — isso é "salvar o ciclo", não gerar novo sinal.
+                    if (!forcePick) {
+                        allowed = false;
+                        learningDecision = 'blocked';
+                    }
+                }
+            }
+            if (allowed) {
+                learningKey = candidateKey;
+            }
+        }
+    } catch (_) {}
 
     const chosenTok = allowed ? (bestPick ? bestPick.tok : null) : (forcePick ? forcedTok : null);
     const chosenColor = chosenTok ? tokToColor[chosenTok] : null;
@@ -11410,11 +11735,20 @@ function analyzeAutointeligente(history, options = {}) {
     const edge = allowed ? Number(bestPick?.edgeLcb || 0) : 0;
     const lcb1 = allowed ? Number(bestPick?.lcb || 0) : 0;
 
+    const learningSuffix = (() => {
+        if (learningDecision === 'none') return '';
+        const pct = (learningRecentWinRate != null) ? `${(learningRecentWinRate * 100).toFixed(0)}%` : 'n/d';
+        const n = learningRecentN || 0;
+        if (learningDecision === 'boost') return ` • AutoApr: BOOST (${pct} em ${n})`;
+        if (learningDecision === 'blocked') return ` • AutoApr: BLOQUEADO (${pct} em ${n})`;
+        return '';
+    })();
+
     const details = chosenTok && allowed
-        ? `P1 ${(p1 * 100).toFixed(1)}% • P${stepsToWin}est ${(p3 * 100).toFixed(1)}% • BaseP${stepsToWin} ${(baselinePcycle * 100).toFixed(1)}% • LCB ${(lcb1 * 100).toFixed(1)}% • Score ${(currentScore.score * 100).toFixed(1)}≥${(adaptiveScoreMin * 100).toFixed(1)} • ${ctxLabel} • ${signalIntensity}`
+        ? `P1 ${(p1 * 100).toFixed(1)}% • P${stepsToWin}est ${(p3 * 100).toFixed(1)}% • BaseP${stepsToWin} ${(baselinePcycle * 100).toFixed(1)}% • LCB ${(lcb1 * 100).toFixed(1)}% • Score ${(currentScore.score * 100).toFixed(1)}≥${(adaptiveScoreMin * 100).toFixed(1)} • ${ctxLabel} • ${signalIntensity}${learningSuffix}`
         : chosenTok && forcePick
         ? `FORCE • P1 ${(p1 * 100).toFixed(1)}% • ${ctxLabel} • ${signalIntensity}`
-        : `NULO • ${bestPick ? `Score ${(currentScore.score * 100).toFixed(1)} < ${(adaptiveScoreMin * 100).toFixed(1)} • LCB ${(bestPick.lcb * 100).toFixed(1)}% • BaseP${stepsToWin} ${(baselinePcycle * 100).toFixed(1)}% • ${ctxLabel}` : 'sem contexto útil'} • ${signalIntensity}`;
+        : `NULO • ${bestPick ? `Score ${(currentScore.score * 100).toFixed(1)} < ${(adaptiveScoreMin * 100).toFixed(1)} • LCB ${(bestPick.lcb * 100).toFixed(1)}% • BaseP${stepsToWin} ${(baselinePcycle * 100).toFixed(1)}% • ${ctxLabel}` : 'sem contexto útil'} • ${signalIntensity}${learningSuffix}`;
 
     return {
         color: chosenColor,
@@ -11435,6 +11769,10 @@ function analyzeAutointeligente(history, options = {}) {
         maxGalesConsidered: maxGalesConfigured,
         historyUsed: tokens.length,
         historyConfigured: historySizeConfigured,
+        // 🔥 N4 auto-aprendizado: chave + contexto (usado para registrar WIN/LOSS por tipo)
+        learningKey: (allowed && !forcePick) ? (learningKey || null) : null,
+        learningContext: Array.isArray(ctxTail) ? ctxTail.join('') : null,
+        learningDecision,
         details
     };
 }
@@ -15216,7 +15554,9 @@ async function analyzeWithPatternSystem(history) {
             historySize: n4HistoryWindow,
             maxGales: n4MaxGalesConfigured,
             signalIntensity: analyzerConfig.signalIntensity || 'aggressive',
-            whiteProtectionAsWin: !!analyzerConfig.whiteProtectionAsWin
+            whiteProtectionAsWin: !!analyzerConfig.whiteProtectionAsWin,
+            // ✅ passar estado de aprendizado do N4 (somente leitura) para filtrar/boost
+            n4SelfLearning: signalsHistory && signalsHistory.n4SelfLearning ? signalsHistory.n4SelfLearning : null
         });
         
         const n4Decision = nivel9 && nivel9.color ? String(nivel9.color).toUpperCase() : 'NULO';
@@ -16393,6 +16733,24 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
             details: level.details
         }));
         const diamondSourceLevel = pickDiamondSourceLevel(scoreSummary, finalColor);
+        const diamondN4 = (() => {
+            try {
+                if (!n4Enabled) return null;
+                const voteColor = (nivel9 && nivel9.color) ? String(nivel9.color).toLowerCase() : null;
+                const key = (nivel9 && typeof nivel9.learningKey === 'string') ? nivel9.learningKey : null;
+                const ctx = (nivel9 && typeof nivel9.learningContext === 'string') ? nivel9.learningContext : null;
+                if (!voteColor) return null;
+                return {
+                    voteColor,
+                    key,
+                    ctx,
+                    usedInFinal: voteColor === String(finalColor || '').toLowerCase(),
+                    decision: (nivel9 && typeof nivel9.learningDecision === 'string') ? nivel9.learningDecision : 'none'
+                };
+            } catch (_) {
+                return null;
+            }
+        })();
 
         const intensityLabel = signalIntensity === 'conservative' ? 'Conservador' : 'Agressivo';
         const reasoning =
@@ -16450,7 +16808,8 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
             reasoning: reasoning,
             patternDescription: patternDescription,
             safeZone: safeZoneMeta,
-            diamondSourceLevel
+            diamondSourceLevel,
+            diamondN4
         };
 
         /* LEGACY VOTING BLOCK (COMENTADO)
@@ -17919,6 +18278,8 @@ async function runAnalysisController(history) {
 					color: aiColor,
 					confidence: aiResult.confidence,
                     diamondSourceLevel: aiResult.diamondSourceLevel || null,
+                    // 💎 N4: meta do auto-aprendizado (para auditoria/debug; não afeta UI se não usado)
+                    diamondN4: aiResult.diamondN4 || null,
 					last10Spins: last10SpinsForDescription,
 					last5Spins: last10SpinsForDescription ? last10SpinsForDescription.slice(0, 10) : [], // ✅ Mostrando últimos 10 giros
 					reasoning: aiResult.reasoning || aiResult.patternDescription || 'Análise baseada nos últimos ' + aiHistorySizeUsed + ' giros do histórico.',
@@ -17940,6 +18301,7 @@ async function runAnalysisController(history) {
 					color: aiColor,
 					confidence: aiResult.confidence,
                     diamondSourceLevel: aiResult.diamondSourceLevel || null,
+                    diamondN4: aiResult.diamondN4 || null,
 					patternDescription: aiDescription,
 					last10Spins: last10SpinsForDescription, // ✅ INCLUIR DIRETAMENTE para facilitar acesso
 					last5Spins: last10SpinsForDescription ? last10SpinsForDescription.slice(0, 10) : [], // ✅ Mostrando últimos 10 giros
