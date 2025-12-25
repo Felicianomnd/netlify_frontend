@@ -1120,32 +1120,6 @@
 
         
     }
-
-    // ═══════════════════════════════════════════════════════════════════════════════
-    // 👑 ADMIN VISIBILITY: esconder "Configuração do modo" do usuário (admin-only)
-    // ═══════════════════════════════════════════════════════════════════════════════
-
-    function applyAnalyzerAdminVisibility(rootEl) {
-        try {
-            const root = rootEl && rootEl.querySelector ? rootEl : document;
-            const modeSection = root.querySelector('#autoBetAccordion .auto-bet-acc-section[data-acc-key="mode"]');
-
-            // Usuário comum: nunca pode ver esta seção
-            if (!isAdminAnalyzerConfigContext()) {
-                if (modeSection) modeSection.style.display = 'none';
-                return;
-            }
-
-            // Admin: mostrar somente quando receber token do painel admin
-            const unlocked = isAdminAnalyzerConfigUnlocked();
-            if (modeSection) {
-                modeSection.style.display = unlocked ? '' : 'none';
-            }
-        } catch (e) {
-            // Não quebrar UI se algo falhar
-            console.warn('⚠️ Falha ao aplicar visibilidade admin da config do modo:', e);
-        }
-    }
     
     // ═══════════════════════════════════════════════════════════════════════════════
     // FUNÇÃO: Atualizar visual do toggle de modo IA (NOVO - SWITCH)
@@ -6973,20 +6947,6 @@ function enforceSignalIntensityAvailability(options = {}) {
                 // ✅ Atualizar snapshot do "Restaurar" para o estado recém-salvo
                 setDiamondLevelsRestoreSnapshot(updatedConfig);
                 enforceSignalIntensityAvailability();
-
-            // 👑 ADMIN: persistir níveis/config Diamante como CONFIG GLOBAL
-            if (isAdminAnalyzerConfigUnlocked()) {
-                try {
-                    const ok = await syncGlobalAnalyzerConfigToServer(updatedConfig);
-                    if (ok) {
-                        try { showToast('✓ Config global atualizada (níveis Diamante)', 2200); } catch (_) {}
-                    } else {
-                        try { showToast('⚠️ Falha ao salvar config global (níveis)', 2600); } catch (_) {}
-                    }
-                } catch (e) {
-                    console.warn('⚠️ Admin: falha ao salvar config global após salvar níveis:', e);
-                }
-            }
             try {
                 chrome.runtime.sendMessage({ action: 'applyConfig' });
             } catch (error) {
@@ -7638,136 +7598,6 @@ function enforceSignalIntensityAvailability(options = {}) {
       function getApiUrl() {
           return API_URLS.auth;
       }
-
-    // ═══════════════════════════════════════════════════════════════════════════════
-    // 👑 ADMIN: CONFIG GLOBAL DO ANALYZER (Diamante + Premium)
-    // - No site do usuário: ocultar UI de configuração do modo (admin-only)
-    // - No painel admin: reutilizar a mesma UI e salvar como CONFIG GLOBAL no backend
-    // ═══════════════════════════════════════════════════════════════════════════════
-
-    const GLOBAL_ANALYZER_ALLOWED_KEYS = Object.freeze([
-        // Premium (modo padrão)
-        'historyDepth',
-        'minOccurrences',
-        'maxOccurrences',
-        'minIntervalSpins',
-        'minPatternSize',
-        'maxPatternSize',
-        'winPercentOthers',
-        'requireTrigger',
-        // Diamante
-        'diamondLevelWindows',
-        'diamondLevelEnabled',
-        'n0AllowBlockAll',
-        'minuteSpinWindow',
-        // Geral
-        'signalIntensity'
-    ]);
-
-    function isAdminAnalyzerConfigContext() {
-        try {
-            return !!(typeof window !== 'undefined' && window.__BLAZE_ADMIN_ANALYSIS_CONFIG__ === true);
-        } catch (_) {
-            return false;
-        }
-    }
-
-    function getAdminAnalyzerToken() {
-        try {
-            const token = typeof window !== 'undefined' ? window.__BLAZE_ADMIN_TOKEN__ : null;
-            return (typeof token === 'string' && token.trim().length >= 20) ? token.trim() : null;
-        } catch (_) {
-            return null;
-        }
-    }
-
-    function isAdminAnalyzerConfigUnlocked() {
-        return isAdminAnalyzerConfigContext() && !!getAdminAnalyzerToken();
-    }
-
-    function pickGlobalAnalyzerConfig(raw) {
-        const source = raw && typeof raw === 'object' ? raw : {};
-        const out = {};
-        for (const key of GLOBAL_ANALYZER_ALLOWED_KEYS) {
-            if (!Object.prototype.hasOwnProperty.call(source, key)) continue;
-            const value = source[key];
-            if (key === 'diamondLevelWindows' || key === 'diamondLevelEnabled') {
-                out[key] = value && typeof value === 'object' ? value : {};
-                continue;
-            }
-            out[key] = value;
-        }
-        return out;
-    }
-
-    async function syncGlobalAnalyzerConfigToServer(fullAnalyzerConfig) {
-        const token = getAdminAnalyzerToken();
-        if (!token) return false;
-
-        try {
-            const apiUrl = getApiUrl();
-            const payload = pickGlobalAnalyzerConfig(fullAnalyzerConfig);
-            const response = await fetch(`${apiUrl}/api/admin/analyzer-config`, {
-                method: 'PUT',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${token}`
-                },
-                body: JSON.stringify({ config: payload })
-            });
-
-            if (!response.ok) {
-                const errText = await response.text().catch(() => '');
-                console.warn('⚠️ Admin: falha ao salvar config global do analyzer:', response.status, errText);
-                return false;
-            }
-
-            const data = await response.json().catch(() => null);
-            if (data && data.success) {
-                console.log('👑 Admin: config GLOBAL do analyzer salva com sucesso');
-                return true;
-            }
-            return false;
-        } catch (error) {
-            console.warn('⚠️ Admin: erro ao salvar config global do analyzer:', error);
-            return false;
-        }
-    }
-
-    // Receber token do Painel Admin via postMessage (sem expor em URL/localStorage)
-    (function bindAdminTokenBridge() {
-        try {
-            if (!isAdminAnalyzerConfigContext()) return;
-            if (window.__BLAZE_ADMIN_TOKEN_BRIDGE_BOUND__ === true) return;
-            window.__BLAZE_ADMIN_TOKEN_BRIDGE_BOUND__ = true;
-
-            window.addEventListener('message', (event) => {
-                const data = event && event.data ? event.data : null;
-                if (!data || data.type !== 'BLAZE_ADMIN_TOKEN') return;
-                const token = data.token;
-                if (typeof token !== 'string' || token.trim().length < 20) return;
-
-                window.__BLAZE_ADMIN_TOKEN__ = token.trim();
-
-                try {
-                    // Reaplicar visibilidade assim que desbloquear
-                    const sidebar = document.getElementById('blaze-double-analyzer');
-                    if (sidebar) applyAnalyzerAdminVisibility(sidebar);
-                } catch (_) {}
-
-                try {
-                    // UX: abrir automaticamente o modal de config e a seção do modo
-                    setTimeout(() => {
-                        const btn = document.getElementById('autoBetConfigBtn');
-                        if (btn) btn.click();
-                        const modeSection = document.querySelector('.auto-bet-acc-section[data-acc-key="mode"]');
-                        const header = modeSection ? modeSection.querySelector('.auto-bet-acc-header') : null;
-                        if (header) header.click();
-                    }, 350);
-                } catch (_) {}
-            });
-        } catch (_) {}
-    })();
 
     // ═══════════════════════════════════════════════════════════════════════════════
     // 💾 ADAPTADOR DE STORAGE (chrome.storage.local ou fallback em localStorage)
@@ -12427,10 +12257,6 @@ async function persistAnalyzerState(newState) {
             console.error('%c❌ ERRO ao adicionar sidebar ao DOM:', 'color: #FF0000; font-weight: bold;', error);
             return;
         }
-
-        // 👑 Admin-only: a seção "Configuração do modo" NÃO pode aparecer no site do usuário
-        // (no contexto admin, ela só aparece após receber token via postMessage)
-        try { applyAnalyzerAdminVisibility(sidebar); } catch (_) {}
         
         // ✅ Garantir spinner imediato após reload (antes de qualquer mensagem do background)
         try {
@@ -18285,20 +18111,6 @@ function logModeSnapshotUI(snapshot) {
                     console.log('');
                     latestAnalyzerConfig = cfg;
                     enforceSignalIntensityAvailability();
-
-                    // 👑 ADMIN: se estiver no contexto do Painel Admin, salvar como CONFIG GLOBAL
-                    if (isAdminAnalyzerConfigUnlocked()) {
-                        try {
-                            const ok = await syncGlobalAnalyzerConfigToServer(cfg);
-                            if (ok) {
-                                try { showToast('✓ Config global atualizada (site todo)', 2200); } catch (_) {}
-                            } else {
-                                try { showToast('⚠️ Não foi possível salvar a config global', 2600); } catch (_) {}
-                            }
-                        } catch (e) {
-                            console.warn('⚠️ Admin: falha ao salvar config global após salvar local:', e);
-                        }
-                    }
                     
                     // ✅ VERIFICAR SE DEVE SINCRONIZAR COM SERVIDOR
                     const syncCheckbox = document.getElementById('syncConfigToAccount');

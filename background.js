@@ -1020,14 +1020,6 @@ function getProfileCompletionSnapshot(user) {
 
 async function enforceProfileGateOnAIMode(context = 'unknown') {
     try {
-        // 👑 ADMIN CONFIG (web): nunca bloquear Modo IA por cadastro incompleto
-        // (admin precisa conseguir abrir Configurar Níveis/Intensidade)
-        try {
-            if (typeof window !== 'undefined' && window.__BLAZE_ADMIN_ANALYSIS_CONFIG__ === true) {
-                return { allowed: true, adminBypass: true };
-            }
-        } catch (_) {}
-
         if (!analyzerConfig || !analyzerConfig.aiMode) return { allowed: true };
         const storage = await chrome.storage.local.get(['user', 'analyzerConfig']);
         const user = storage.user || null;
@@ -1744,131 +1736,6 @@ let apiStatus = {
     lastError: null,
     syncAttempts: 0
 };
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// 🌍 CONFIG GLOBAL DO ANALYZER (Diamante + Premium) - aplicada em TODAS as contas
-// ═══════════════════════════════════════════════════════════════════════════════
-
-const GLOBAL_ANALYZER_CONFIG_ENDPOINT = '/api/config/analyzer';
-const GLOBAL_ANALYZER_ALLOWED_KEYS = Object.freeze([
-    // Premium (modo padrão)
-    'historyDepth',
-    'minOccurrences',
-    'maxOccurrences',
-    'minIntervalSpins',
-    'minPatternSize',
-    'maxPatternSize',
-    'winPercentOthers',
-    'requireTrigger',
-    // Diamante
-    'diamondLevelWindows',
-    'diamondLevelEnabled',
-    'n0AllowBlockAll',
-    'minuteSpinWindow',
-    // Geral
-    'signalIntensity'
-]);
-
-let globalAnalyzerConfigCache = null;
-let globalAnalyzerConfigCacheAt = 0;
-const GLOBAL_ANALYZER_CACHE_TTL_MS = 60 * 1000;
-
-function getAuthApiBaseUrl() {
-    try {
-        const host = (typeof window !== 'undefined' && window.location && window.location.hostname)
-            ? window.location.hostname
-            : '';
-        if (host === 'localhost' || host === '127.0.0.1') {
-            return 'http://localhost:3000';
-        }
-    } catch (_) {}
-    return API_CONFIG.authURL;
-}
-
-function pickGlobalAnalyzerConfig(raw) {
-    const source = raw && typeof raw === 'object' ? raw : null;
-    if (!source) return null;
-    const out = {};
-    for (const key of GLOBAL_ANALYZER_ALLOWED_KEYS) {
-        if (!Object.prototype.hasOwnProperty.call(source, key)) continue;
-        const value = source[key];
-        if (key === 'diamondLevelWindows' || key === 'diamondLevelEnabled') {
-            out[key] = value && typeof value === 'object' ? value : {};
-            continue;
-        }
-        out[key] = value;
-    }
-    return out;
-}
-
-function canonicalGlobalSubset(cfg) {
-    const source = cfg && typeof cfg === 'object' ? cfg : {};
-    const out = {};
-    for (const key of GLOBAL_ANALYZER_ALLOWED_KEYS) {
-        const value = source[key];
-        if (key === 'diamondLevelWindows' || key === 'diamondLevelEnabled') {
-            out[key] = value && typeof value === 'object' ? value : {};
-            continue;
-        }
-        out[key] = value;
-    }
-    return out;
-}
-
-function areGlobalAnalyzerSubsetsEqual(a, b) {
-    try {
-        return JSON.stringify(canonicalGlobalSubset(a)) === JSON.stringify(canonicalGlobalSubset(b));
-    } catch (_) {
-        return false;
-    }
-}
-
-function mergeGlobalAnalyzerConfigIntoFullConfig(fullConfigRaw, globalConfigRaw) {
-    const fullConfig = fullConfigRaw && typeof fullConfigRaw === 'object' ? fullConfigRaw : {};
-    const globalConfig = pickGlobalAnalyzerConfig(globalConfigRaw);
-    if (!globalConfig) return fullConfig;
-
-    const next = { ...fullConfig };
-    for (const key of GLOBAL_ANALYZER_ALLOWED_KEYS) {
-        if (!Object.prototype.hasOwnProperty.call(globalConfig, key)) continue;
-        const value = globalConfig[key];
-        if (key === 'diamondLevelWindows' || key === 'diamondLevelEnabled') {
-            next[key] = {
-                ...((next[key] && typeof next[key] === 'object') ? next[key] : {}),
-                ...(value && typeof value === 'object' ? value : {})
-            };
-            continue;
-        }
-        next[key] = value;
-    }
-    return next;
-}
-
-async function fetchGlobalAnalyzerConfig(options = {}) {
-    const force = !!(options && options.force);
-    const now = Date.now();
-    if (!force && globalAnalyzerConfigCache && (now - globalAnalyzerConfigCacheAt) < GLOBAL_ANALYZER_CACHE_TTL_MS) {
-        return globalAnalyzerConfigCache;
-    }
-
-    try {
-        const base = getAuthApiBaseUrl();
-        const url = `${base}${GLOBAL_ANALYZER_CONFIG_ENDPOINT}`;
-        const response = await fetch(url, { method: 'GET' });
-        if (!response.ok) return globalAnalyzerConfigCache;
-        const data = await response.json();
-        if (data && data.success) {
-            const cfg = pickGlobalAnalyzerConfig(data.config);
-            globalAnalyzerConfigCache = cfg;
-            globalAnalyzerConfigCacheAt = now;
-            return globalAnalyzerConfigCache;
-        }
-    } catch (error) {
-        console.warn('⚠️ Falha ao buscar config GLOBAL do analyzer:', error);
-    }
-
-    return globalAnalyzerConfigCache;
-}
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // 🔌 WEBSOCKET - CONEXÃO EM TEMPO REAL
@@ -2778,26 +2645,6 @@ function logActiveConfiguration() {
             await chrome.storage.local.set({ analyzerConfig: analyzerConfig });
         }
         await enforceProfileGateOnAIMode('startup_load');
-
-        // ✅ Aplicar CONFIG GLOBAL (admin) em cima da config local (preserva autoBetConfig e demais campos do usuário)
-        try {
-            const globalCfg = await fetchGlobalAnalyzerConfig({ force: true });
-            if (globalCfg) {
-                const currentCfg = analyzerConfig && typeof analyzerConfig === 'object' ? analyzerConfig : {};
-                const patched = mergeGlobalAnalyzerConfigIntoFullConfig(currentCfg, globalCfg);
-
-                // Persistir apenas se os campos globais diferirem (evita loop)
-                if (!areGlobalAnalyzerSubsetsEqual(currentCfg, patched)) {
-                    await chrome.storage.local.set({ analyzerConfig: patched });
-                }
-
-                // Garantir que a instância em memória reflita os valores globais
-                mergeAnalyzerConfig(patched);
-            }
-        } catch (e) {
-            console.warn('⚠️ Falha ao aplicar config GLOBAL do analyzer no startup:', e);
-        }
-
         console.log('AnalyzerConfig carregado:', analyzerConfig);
         
         // ✅ INICIALIZAR HISTÓRICO DE SINAIS (para auto-aprendizado)
@@ -2833,68 +2680,54 @@ function logActiveConfiguration() {
 // Apply config changes immediately
 chrome.storage.onChanged.addListener((changes, area) => {
     if (area === 'local' && changes.analyzerConfig) {
-        (async () => {
-            try {
-                const incoming = changes.analyzerConfig.newValue || {};
-
-                // ✅ Forçar os campos globais (admin) sempre que analyzerConfig mudar
-                const globalCfg = globalAnalyzerConfigCache || await fetchGlobalAnalyzerConfig({ force: false });
-                if (globalCfg) {
-                    const patched = mergeGlobalAnalyzerConfigIntoFullConfig(incoming, globalCfg);
-                    // Se alguém tentou alterar campos globais localmente, sobrescrever e sair (evita loop)
-                    if (!areGlobalAnalyzerSubsetsEqual(incoming, patched)) {
-                        await chrome.storage.local.set({ analyzerConfig: patched });
-                        return;
-                    }
-                    mergeAnalyzerConfig(patched);
-                } else {
-                    mergeAnalyzerConfig(incoming);
-                }
-
+        try {
+            const newVal = changes.analyzerConfig.newValue || {};
+            mergeAnalyzerConfig(newVal);
+            (async () => {
                 await enforceProfileGateOnAIMode('storage_changed');
-                console.log('AnalyzerConfig aplicado imediatamente:', analyzerConfig);
-
-                // ✅ EXIBIR NOVAS CONFIGURAÇÕES
-                console.log('\n🔄 CONFIGURAÇÕES ATUALIZADAS:');
-                logActiveConfiguration();
-
-                // ✅ VALIDAR CONFIGURAÇÕES (detectar conflitos)
-                const minSize = analyzerConfig.minPatternSize || 2;
-                const maxSize = analyzerConfig.maxPatternSize || 0;
-                const minOcc = analyzerConfig.minOccurrences || 1;
-                const maxOcc = analyzerConfig.maxOccurrences || 0;
-
-                if (maxSize > 0 && maxSize < minSize) {
-                    console.error('║  ⚠️ CONFIGURAÇÃO INVÁLIDA DETECTADA!                     ║');
-                    console.error(`║  ❌ Tamanho MÁXIMO (${maxSize}) < MÍNIMO (${minSize})!`);
-                    console.error('║  🚫 NENHUM PADRÃO SERÁ ENCONTRADO!                        ║');
-                    console.error('║  💡 Ajuste: maxPatternSize >= minPatternSize             ║');
-                }
-
-                if (maxOcc > 0 && maxOcc < minOcc) {
-                    console.error('║  ⚠️ CONFIGURAÇÃO INVÁLIDA DETECTADA!                     ║');
-                    console.error(`║  ❌ Ocorrências MÁXIMAS (${maxOcc}) < MÍNIMAS (${minOcc})!`);
-                    console.error('║  🚫 NENHUM PADRÃO SERÁ ENCONTRADO!                        ║');
-                    console.error('║  💡 Ajuste: maxOccurrences >= minOccurrences             ║');
-                }
-
-                // ✅ Notificar abas (extensão) para atualizar UI imediatamente
-                try {
-                    chrome.tabs.query({ url: '*://blaze.com/*' }, function(tabs) {
-                        tabs.forEach(tab => {
-                            chrome.tabs.sendMessage(tab.id, {
-                                type: 'ANALYZER_CONFIG_UPDATED',
-                                analyzerConfig
-                            }).catch(() => {});
-                        });
-                    });
-                } catch (err) {
-                    console.warn('⚠️ Falha ao notificar abas sobre atualização de config:', err);
-                }
-            } catch (e) {
-                console.warn('Falha ao aplicar analyzerConfig:', e);
+            })();
+            console.log('AnalyzerConfig aplicado imediatamente:', analyzerConfig);
+            
+            // ✅ EXIBIR NOVAS CONFIGURAÇÕES
+            console.log('\n🔄 CONFIGURAÇÕES ATUALIZADAS:');
+            logActiveConfiguration();
+            
+            // ✅ VALIDAR CONFIGURAÇÕES (detectar conflitos)
+            const minSize = analyzerConfig.minPatternSize || 2;
+            const maxSize = analyzerConfig.maxPatternSize || 0;
+            const minOcc = analyzerConfig.minOccurrences || 1;
+            const maxOcc = analyzerConfig.maxOccurrences || 0;
+            
+            if (maxSize > 0 && maxSize < minSize) {
+                console.error('║  ⚠️ CONFIGURAÇÃO INVÁLIDA DETECTADA!                     ║');
+                console.error(`║  ❌ Tamanho MÁXIMO (${maxSize}) < MÍNIMO (${minSize})!`);
+                console.error('║  🚫 NENHUM PADRÃO SERÁ ENCONTRADO!                        ║');
+                console.error('║  💡 Ajuste: maxPatternSize >= minPatternSize             ║');
             }
-        })();
+            
+            if (maxOcc > 0 && maxOcc < minOcc) {
+                console.error('║  ⚠️ CONFIGURAÇÃO INVÁLIDA DETECTADA!                     ║');
+                console.error(`║  ❌ Ocorrências MÁXIMAS (${maxOcc}) < MÍNIMAS (${minOcc})!`);
+                console.error('║  🚫 NENHUM PADRÃO SERÁ ENCONTRADO!                        ║');
+                console.error('║  💡 Ajuste: maxOccurrences >= minOccurrences             ║');
+            }
+
+        // ✅ Notificar todas as abas do Blaze para atualizar UI imediatamente (sem refresh)
+        try {
+            chrome.tabs.query({ url: '*://blaze.com/*' }, function(tabs) {
+                tabs.forEach(tab => {
+                    chrome.tabs.sendMessage(tab.id, {
+                        type: 'ANALYZER_CONFIG_UPDATED',
+                        analyzerConfig
+                    }).catch(() => {});
+                });
+            });
+        } catch (err) {
+            console.warn('⚠️ Falha ao notificar abas sobre atualização de config:', err);
+        }
+        } catch (e) {
+            console.warn('Falha ao aplicar analyzerConfig:', e);
+        }
     }
 });
 
@@ -30153,19 +29986,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                 
                 const res = await chrome.storage.local.get(['analyzerConfig']);
                 if (res && res.analyzerConfig) {
-                    let effectiveConfig = res.analyzerConfig;
-
-                    // ✅ Garantir que a config GLOBAL (admin) sobrescreva campos globais
-                    const globalCfg = globalAnalyzerConfigCache || await fetchGlobalAnalyzerConfig({ force: false });
-                    if (globalCfg) {
-                        const patched = mergeGlobalAnalyzerConfigIntoFullConfig(effectiveConfig, globalCfg);
-                        if (!areGlobalAnalyzerSubsetsEqual(effectiveConfig, patched)) {
-                            await chrome.storage.local.set({ analyzerConfig: patched });
-                        }
-                        effectiveConfig = patched;
-                    }
-
-                    mergeAnalyzerConfig(effectiveConfig);
+                    mergeAnalyzerConfig(res.analyzerConfig);
                 }
                 await enforceProfileGateOnAIMode('applyConfig');
                 console.log('%c⚙️ Nova configuração aplicada via UI:', 'color: #00D4FF; font-weight: bold;');
