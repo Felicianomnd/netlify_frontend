@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Admin • Configurações de Análise (Diamante/Prêmio)</title>
+    <link rel="stylesheet" href="styles.css">
+    <style>
+        html, body {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            background: #0b1220;
+            color: #ffffff;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        .admin-handshake {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            z-index: 999999;
+            padding: 10px 14px;
+            background: rgba(0, 0, 0, 0.55);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+            backdrop-filter: blur(8px);
+            font-size: 13px;
+            line-height: 1.35;
+        }
+        .admin-handshake strong {
+            color: #00FF88;
+        }
+        .admin-handshake code {
+            color: rgba(255, 255, 255, 0.85);
+        }
+    </style>
+</head>
+<body>
+    <div class="admin-handshake" id="adminHandshake">
+        <strong>Admin</strong>: esta tela é usada pelo Painel Admin para configurar o módulo de análise (Diamante + Prêmio).<br>
+        Aguardando autenticação via <code>postMessage</code>…
+    </div>
+
+    <script>
+        // Flag usada pelo content.js para liberar a seção "Configuração do modo" somente no contexto admin
+        window.__BLAZE_ADMIN_ANALYSIS_CONFIG__ = true;
+
+        // Ocultar o aviso assim que o Painel Admin enviar o token
+        window.addEventListener('message', (event) => {
+            try {
+                const data = event && event.data ? event.data : null;
+                if (!data || data.type !== 'BLAZE_ADMIN_TOKEN') return;
+                const token = data.token;
+                if (typeof token !== 'string' || token.trim().length < 20) return;
+                const el = document.getElementById('adminHandshake');
+                if (el) el.style.display = 'none';
+            } catch (_) {}
+        });
+    </script>
+
+    <!-- Ordem importante: shim -> background (configs) -> content (UI) -->
+    <script src="chrome-shim.js"></script>
+    <script src="background.js"></script>
+    <script src="content.js"></script>
+</body>
+</html>
+
+
