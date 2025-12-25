@@ -11360,9 +11360,9 @@ async function persistAnalyzerState(newState) {
                 </div>
                 
                 <div class="observer-section">
-                    <h4>Sinais de entrada</h4>
-                    <!-- ✅ Sistema Híbrido (FASE 2): escolha do modo de operação -->
-                    <div class="observer-hybrid" id="observerHybrid">
+                    <h4>Recuperação segura</h4>
+                    <!-- ✅ Sistema Híbrido (FASE 2): legado. Mantido apenas por compatibilidade, mas oculto em todas as telas. -->
+                    <div class="observer-hybrid" id="observerHybrid" style="display:none;">
                         <div class="observer-hybrid-row">
                             <span class="observer-hybrid-label">Sistema híbrido</span>
                             <select class="observer-hybrid-select" id="entryGateHybridMode" title="Camadas da Fase 2 (todas juntas ou somente um nível)">
