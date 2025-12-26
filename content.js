@@ -11023,10 +11023,21 @@ async function persistAnalyzerState(newState) {
                 <!-- 1. Left: Brand -->
                 <div class="da-brand">
                     <div class="da-logo">
-                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                           <path d="M12 2L2 7L12 12L22 7L12 2Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                           <path d="M2 17L12 22L22 17" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                           <path d="M2 12L12 17L22 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                        <svg width="20" height="20" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false">
+                            <defs>
+                                <linearGradient id="daLogoGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                                    <stop offset="0%" style="stop-color:#667eea;stop-opacity:1" />
+                                    <stop offset="100%" style="stop-color:#764ba2;stop-opacity:1" />
+                                </linearGradient>
+                            </defs>
+
+                            <circle cx="8" cy="8" r="7" fill="url(#daLogoGrad)" stroke="#fff" stroke-width="1"/>
+                            <circle cx="8" cy="8" r="4" fill="none" stroke="#fff" stroke-width="1"/>
+                            <circle cx="8" cy="8" r="2" fill="#fff"/>
+                            <circle cx="4" cy="4" r="1" fill="#fff" opacity="0.8"/>
+                            <circle cx="12" cy="4" r="1" fill="#fff" opacity="0.8"/>
+                            <circle cx="4" cy="12" r="1" fill="#fff" opacity="0.8"/>
+                            <circle cx="12" cy="12" r="1" fill="#fff" opacity="0.8"/>
                         </svg>
                     </div>
                     <span class="da-app-name">Double Analyzer</span>

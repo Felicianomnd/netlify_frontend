@@ -4,6 +4,11 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Double Analyzer - Autenticação</title>
+
+    <!-- Ícones / Favicon -->
+    <link rel="icon" href="icon16.svg" type="image/svg+xml">
+    <link rel="icon" href="icon48.svg" sizes="48x48" type="image/svg+xml">
+    <link rel="apple-touch-icon" href="icon128.svg">
     <style>
         * {
             margin: 0;
@@ -37,9 +42,18 @@
         }
 
         .logo-icon {
-            font-size: 48px;
-            margin-bottom: 12px;
+            width: 72px;
+            height: 72px;
+            margin: 0 auto 12px auto;
             animation: pulse 2s ease-in-out infinite;
+            filter: drop-shadow(0 14px 28px rgba(0, 0, 0, 0.35));
+            display: block;
+        }
+
+        .logo-icon img {
+            width: 100%;
+            height: 100%;
+            display: block;
         }
 
         @keyframes pulse {
@@ -685,6 +699,9 @@
 <body>
     <div class="auth-container">
         <div class="logo">
+            <div class="logo-icon" aria-hidden="true">
+                <img src="icon128.svg" alt="">
+            </div>
             <h1>Double Analyzer</h1>
             <p>Sistema de Análise de Padrões</p>
         </div>

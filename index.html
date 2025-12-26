@@ -8,7 +8,12 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="theme-color" content="#1a1a2e">
-    <title>Double Analyzer - Painel Web 2025</title>
+    <title>Double Analyzer</title>
+
+    <!-- Ícones / Favicon -->
+    <link rel="icon" href="icon16.svg" type="image/svg+xml">
+    <link rel="icon" href="icon48.svg" sizes="48x48" type="image/svg+xml">
+    <link rel="apple-touch-icon" href="icon128.svg">
     
     <!-- ✅ CARREGA O CSS ORIGINAL DA SIDEBAR (com cache-busting no mobile/Safari) -->
     <link id="appStyles" rel="stylesheet">
@@ -57,6 +62,14 @@
             transform: translate(-50%, -50%);
             text-align: center;
             z-index: 9999;
+        }
+
+        #loading-message .loading-logo {
+            width: 84px;
+            height: 84px;
+            display: block;
+            margin: 0 auto 14px auto;
+            filter: drop-shadow(0 14px 28px rgba(0, 0, 0, 0.35));
         }
 
         .loader {
@@ -202,6 +215,7 @@
 <body>
     <!-- Mensagem de carregamento -->
     <div id="loading-message">
+        <img class="loading-logo" src="icon128.svg" alt="Double Analyzer">
         <div class="loader"></div>
         <h2>Carregando Double Analyzer...</h2>
         <p>Inicializando sistemas...</p>
