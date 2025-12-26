@@ -1127,11 +1127,15 @@
             }
 
             try {
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 20000); // 20s
+
                 const response = await fetch(`${API_URL}/auth/forgot-password`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ email })
-                });
+                    body: JSON.stringify({ email }),
+                    signal: controller.signal
+                }).finally(() => clearTimeout(timeoutId));
 
                 const data = await response.json().catch(() => ({}));
 
@@ -1142,7 +1146,11 @@
                 showMessage(data.message || 'Se este e-mail estiver cadastrado, você receberá um link para redefinir sua senha em instantes.', 'success');
                 setTimeout(() => showScreen('authScreen'), 1500);
             } catch (error) {
-                showMessage(error.message || 'Erro ao solicitar recuperação de senha.', 'error');
+                if (error && error.name === 'AbortError') {
+                    showMessage('O servidor demorou para responder. Tente novamente.', 'error');
+                } else {
+                    showMessage(error.message || 'Erro ao solicitar recuperação de senha.', 'error');
+                }
             } finally {
                 if (btn) {
                     btn.disabled = false;
