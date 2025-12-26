@@ -2529,9 +2529,9 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                             <div class="diamond-level-note">
                                 Aprende do histórico cru (n-grams adaptativos) e decide RED/BLACK/WHITE ou NULO. Histórico maior = mais contexto; menor = mais sensível ao momento.
                             </div>
-                            <input type="number" id="diamondN4Persistence" min="200" max="10000" value="2000" />
+                            <input type="number" id="diamondN4Persistence" min="10" max="10000" value="2000" />
                             <span class="diamond-level-subnote">
-                                Recomendado: 2000 giros (mín. 200 • máx. 10000)
+                                Recomendado: 2000 giros (mín. 10 • máx. 10000)
                             </span>
                             <label class="checkbox-label" style="margin-top: 10px;">
                                 <input type="checkbox" id="diamondN4DynamicGales" checked />
@@ -5777,10 +5777,10 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
         // ✅ Migração N4: versões antigas usavam 20-120 como "janela". Agora é "Histórico".
         // Para não quebrar configs antigas: 20 => 2000, 60 => 6000, 120 => 10000 (clamp).
         let n4History = getNumber('diamondN4Persistence', null, null, DIAMOND_LEVEL_DEFAULTS.n4Persistence);
-        if (Number.isFinite(n4History) && n4History > 0 && n4History <= 120) {
+        if (Number.isFinite(n4History) && n4History >= 20 && n4History <= 120) {
             n4History = n4History * 100;
         }
-        n4History = Math.max(200, Math.min(10000, Math.floor(Number.isFinite(n4History) ? n4History : DIAMOND_LEVEL_DEFAULTS.n4Persistence)));
+        n4History = Math.max(10, Math.min(10000, Math.floor(Number.isFinite(n4History) ? n4History : DIAMOND_LEVEL_DEFAULTS.n4Persistence)));
         const newWindows = {
             n0History: getNumber('diamondN0History', 500, 10000, DIAMOND_LEVEL_DEFAULTS.n0History),
             n0Window: getNumber('diamondN0Window', 25, 250, DIAMOND_LEVEL_DEFAULTS.n0Window),
@@ -5879,19 +5879,34 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
             }
             const cfg = await buildDiamondConfigSnapshotFromModal();
 
-            // ✅ Simular: o "Período da simulação" deve cobrir automaticamente o maior histórico exigido
-            // dentre os níveis ATIVOS (evita o usuário ter que configurar em dois lugares).
+            // ✅ Simular: garantir que o "Período da simulação" tenha giros suficientes
+            // para o modo atual, sem causar confusão:
+            // - modo "all": usar o MAIOR histórico entre os níveis ATIVOS (evita duplicidade)
+            // - modo "level": usar APENAS o histórico do nível selecionado (não “puxar” 10k por causa de outros níveis)
             try {
                 const windows = cfg && cfg.diamondLevelWindows ? cfg.diamondLevelWindows : {};
                 const enabled = cfg && cfg.diamondLevelEnabled ? cfg.diamondLevelEnabled : {};
-                const requiredHistory = Math.max(
-                    enabled.n0 ? (Number(windows.n0History) || 0) : 0,
-                    enabled.n3 ? (Number(windows.n3Alternance) || 0) : 0,
-                    enabled.n4 ? (Number(windows.n4Persistence) || 0) : 0,
-                    enabled.n7 ? (Number(windows.n7HistoryWindow) || 0) : 0,
-                    enabled.n8 ? (Number(windows.n10History) || 0) : 0,
-                    enabled.n10 ? (Number(windows.n9History) || 0) : 0
-                );
+                const upper = (mode === 'level' && levelId) ? String(levelId).toUpperCase() : '';
+                const requiredHistory = (() => {
+                    if (mode === 'level' && upper) {
+                        if (upper === 'N0') return Number(windows.n0History) || 0;
+                        if (upper === 'N3') return Number(windows.n3Alternance) || 0;
+                        if (upper === 'N4') return Number(windows.n4Persistence) || 0;
+                        if (upper === 'N7') return Number(windows.n7HistoryWindow) || 0;
+                        if (upper === 'N8') return Number(windows.n10History) || 0;
+                        if (upper === 'N10') return Number(windows.n9History) || 0;
+                        return 0;
+                    }
+                    // mode=all: maior exigência dentre níveis ativos
+                    return Math.max(
+                        enabled.n0 ? (Number(windows.n0History) || 0) : 0,
+                        enabled.n3 ? (Number(windows.n3Alternance) || 0) : 0,
+                        enabled.n4 ? (Number(windows.n4Persistence) || 0) : 0,
+                        enabled.n7 ? (Number(windows.n7HistoryWindow) || 0) : 0,
+                        enabled.n8 ? (Number(windows.n10History) || 0) : 0,
+                        enabled.n10 ? (Number(windows.n9History) || 0) : 0
+                    );
+                })();
                 if (requiredHistory > 0) {
                     ensureDiamondSimHistoryLimitAtLeast(requiredHistory);
                 }
@@ -6703,8 +6718,8 @@ function enforceSignalIntensityAvailability(options = {}) {
         const n4Normalized = (() => {
             const v = Number(n4LegacyRaw);
             if (!Number.isFinite(v) || v <= 0) return DIAMOND_LEVEL_DEFAULTS.n4Persistence;
-            const scaled = v <= 120 ? (v * 100) : v;
-            return Math.max(200, Math.min(10000, Math.floor(scaled)));
+            const scaled = (v >= 20 && v <= 120) ? (v * 100) : v;
+            return Math.max(10, Math.min(10000, Math.floor(scaled)));
         })();
         setInput('diamondN4Persistence', n4Normalized);
         setCheckbox('diamondN4DynamicGales', getBoolean('n4DynamicGales', DIAMOND_LEVEL_DEFAULTS.n4DynamicGales));
@@ -6849,10 +6864,10 @@ function enforceSignalIntensityAvailability(options = {}) {
         // ✅ Migração N4: versões antigas usavam 20-120 como "janela". Agora é "Histórico".
         // Para não quebrar configs antigas: 20 => 2000, 60 => 6000, 120 => 10000 (clamp).
         let n4History = getNumber('diamondN4Persistence', null, null, DIAMOND_LEVEL_DEFAULTS.n4Persistence);
-        if (Number.isFinite(n4History) && n4History > 0 && n4History <= 120) {
+        if (Number.isFinite(n4History) && n4History >= 20 && n4History <= 120) {
             n4History = n4History * 100;
         }
-        n4History = Math.max(200, Math.min(10000, Math.floor(Number.isFinite(n4History) ? n4History : DIAMOND_LEVEL_DEFAULTS.n4Persistence)));
+        n4History = Math.max(10, Math.min(10000, Math.floor(Number.isFinite(n4History) ? n4History : DIAMOND_LEVEL_DEFAULTS.n4Persistence)));
         const newWindows = {
             n0History: getNumber('diamondN0History', 500, 10000, DIAMOND_LEVEL_DEFAULTS.n0History),
             n0Window: getNumber('diamondN0Window', 25, 250, DIAMOND_LEVEL_DEFAULTS.n0Window),

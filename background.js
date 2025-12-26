@@ -5579,7 +5579,7 @@ let signalsHistory = {
     blockedPatterns: {},      // 🚫 Padrões bloqueados temporariamente {patternKey: {until: timestamp, reason: string}}
     // 💎 N4 (Autointeligente): auto-aprendizado por "tipo de sinal" do próprio N4 (contexto n-gram + cor + setup)
     n4SelfLearning: {
-        version: 1,
+        version: 2,
         stats: {},            // { [key]: { total, wins, losses, recent: boolean[], lastTs } }
         maxRecent: 30,        // janela de recência por key
         maxKeys: 400,         // limite de chaves (evita crescer infinito)
@@ -5609,7 +5609,7 @@ async function initializeSignalsHistory() {
             if (!signalsHistory.blockedPatterns) signalsHistory.blockedPatterns = {};
             if (!signalsHistory.n4SelfLearning || typeof signalsHistory.n4SelfLearning !== 'object') {
                 signalsHistory.n4SelfLearning = {
-                    version: 1,
+                    version: 2,
                     stats: {},
                     maxRecent: 30,
                     maxKeys: 400,
@@ -5627,6 +5627,11 @@ async function initializeSignalsHistory() {
             if (!Number.isFinite(Number(signalsHistory.n4SelfLearning.minSamples))) signalsHistory.n4SelfLearning.minSamples = 8;
             if (!Number.isFinite(Number(signalsHistory.n4SelfLearning.badWinRate))) signalsHistory.n4SelfLearning.badWinRate = 0.45;
             if (!Number.isFinite(Number(signalsHistory.n4SelfLearning.goodWinRate))) signalsHistory.n4SelfLearning.goodWinRate = 0.60;
+            // ✅ Migração leve: se ainda estiver em versão antiga, apenas marcar versão (sem sobrescrever ajustes do usuário).
+            const n4Ver = Math.max(1, Math.floor(Number(signalsHistory.n4SelfLearning.version) || 1));
+            if (n4Ver < 2) {
+                signalsHistory.n4SelfLearning.version = 2;
+            }
             if (signalsHistory.consecutiveLosses === undefined) signalsHistory.consecutiveLosses = 0;
             if (!signalsHistory.recentPerformance || !Array.isArray(signalsHistory.recentPerformance)) signalsHistory.recentPerformance = [];
             
@@ -5645,7 +5650,7 @@ async function initializeSignalsHistory() {
             contextStats: {},
             blockedPatterns: {},
             n4SelfLearning: {
-                version: 1,
+                version: 2,
                 stats: {},
                 maxRecent: 30,
                 maxKeys: 400,
@@ -5685,7 +5690,14 @@ function buildN4SelfLearningKey(ctxKey, tok, stepsToWin, intensity) {
         const mode = (intensity === 'conservative') ? 'conservative' : 'aggressive';
         if (!ctx) return null;
         if (!(t === 'R' || t === 'B' || t === 'W')) return null;
-        return `N4|ctx=${ctx}|tok=${t}|steps=${steps}|int=${mode}`;
+        // ✅ Separar aprendizado por política de Gale:
+        // - dyn: N4-only com gales dinâmicos (muda cor em G1/G2)
+        // - fix: consenso multi-níveis (a cor do ciclo é fixa)
+        // Default = dyn (compat), com fallback automático para a chave legada sem "|pol=".
+        const pol = (arguments.length >= 5 && (arguments[4] === false || String(arguments[4]).toLowerCase().includes('fix')))
+            ? 'fix'
+            : 'dyn';
+        return `N4|ctx=${ctx}|tok=${t}|steps=${steps}|int=${mode}|pol=${pol}`;
     } catch (_) {
         return null;
     }
@@ -5696,7 +5708,14 @@ function getN4SelfLearningStatsForKey(key) {
         const store = signalsHistory && signalsHistory.n4SelfLearning ? signalsHistory.n4SelfLearning : null;
         const map = store && store.stats ? store.stats : null;
         if (!map || !key) return null;
-        const row = map[key];
+        let row = map[key];
+        // ✅ Fallback: chave legada (sem "|pol=") — mantém compatibilidade com dados já coletados.
+        if ((!row || typeof row !== 'object') && typeof key === 'string' && key.includes('|pol=')) {
+            try {
+                const legacyKey = key.replace(/\|pol=(dyn|fix)\b/i, '');
+                row = map[legacyKey];
+            } catch (_) {}
+        }
         if (!row || typeof row !== 'object') return null;
         const total = Math.max(0, Math.floor(Number(row.total) || 0));
         const wins = Math.max(0, Math.floor(Number(row.wins) || 0));
@@ -5748,7 +5767,7 @@ async function recordN4SelfLearningFromResolvedCycle(analysisObj, outcome) {
 
         if (!signalsHistory.n4SelfLearning || typeof signalsHistory.n4SelfLearning !== 'object') {
             signalsHistory.n4SelfLearning = {
-                version: 1,
+                version: 2,
                 stats: {},
                 maxRecent: 30,
                 maxKeys: 400,
@@ -10993,6 +11012,7 @@ function pickN4DynamicGaleColor({ history, config, stageNumber, maxGales, forceP
             maxGales: remaining,
             signalIntensity: (config && config.signalIntensity) || 'aggressive',
             whiteProtectionAsWin: !!(config && config.whiteProtectionAsWin),
+            dynamicGales: true,
             forcePick: !!forcePick
         });
         return n4 && n4.color ? n4.color : null;
@@ -11025,14 +11045,56 @@ function analyzeAutointeligente(history, options = {}) {
         const n = Number(raw);
         if (!Number.isFinite(n) || n <= 0) return 2000;
         // ✅ compatibilidade com N4 antigo (20..120): promover para escala de giros reais
-        if (n <= 120) return clampIntLocal(n * 100, 200, REALTIME_HISTORY_CAP);
-        return clampIntLocal(n, 200, REALTIME_HISTORY_CAP);
+        if (n >= 20 && n <= 120) return clampIntLocal(n * 100, 10, REALTIME_HISTORY_CAP);
+        return clampIntLocal(n, 10, REALTIME_HISTORY_CAP);
     };
 
     const historySizeConfigured = normalizeHistorySize(options.historySize ?? 2000);
     const maxOrder = clampIntLocal(options.maxOrder ?? 6, 1, 10);
     const maxGalesConfigured = clampIntLocal(options.maxGales ?? 0, 0, 2); // apenas até G2 importa aqui
     const signalIntensity = (options && options.signalIntensity === 'conservative') ? 'conservative' : 'aggressive';
+    // ✅ Política de Gale do N4:
+    // - dyn: (N4-only) pode mudar a cor no G1/G2
+    // - fix: (consenso multi-níveis) a cor do ciclo é fixa
+    // Default = dyn (compatibilidade com comportamento antigo do N4)
+    const dynamicGales = (options && Object.prototype.hasOwnProperty.call(options, 'dynamicGales'))
+        ? !!options.dynamicGales
+        : true;
+    const learningPolicy = dynamicGales ? 'dyn' : 'fix';
+
+    const resolveN4LearningParams = (baselineCycle, steps) => {
+        const store = (options && options.n4SelfLearning && typeof options.n4SelfLearning === 'object')
+            ? options.n4SelfLearning
+            : (signalsHistory && signalsHistory.n4SelfLearning ? signalsHistory.n4SelfLearning : null);
+        const baseline = clamp01(baselineCycle);
+        const s = Math.max(1, Math.min(3, Math.floor(Number(steps) || 1)));
+
+        // ✅ Para G2, exigir "padrões" vencedores de verdade.
+        // Ex.: baseline ~0.85 (Double) -> bad~0.82, good~0.95
+        const dynBad = clamp01(baseline - 0.03);
+        const dynGood = clamp01(baseline + 0.10);
+
+        let minSamples = Math.max(3, Math.min(80, Math.floor(Number(store?.minSamples) || 8)));
+        // mais amostras para ciclos mais longos (evita overfit do auto-aprendizado)
+        if (s >= 3) minSamples = Math.max(minSamples, 12);
+        else if (s === 2) minSamples = Math.max(minSamples, 10);
+
+        let bad = Number(store?.badWinRate);
+        let good = Number(store?.goodWinRate);
+        bad = clamp01(Number.isFinite(bad) ? bad : dynBad);
+        good = clamp01(Number.isFinite(good) ? good : dynGood);
+
+        // Se estiver em gales (steps>=2) e os thresholds forem "legado baixo", usar o dinâmico por baseline.
+        if (s >= 2) {
+            if (bad < 0.70) bad = dynBad;
+            if (good < 0.80) good = dynGood;
+        }
+        if (good <= bad) {
+            bad = dynBad;
+            good = Math.max(bad + 0.05, dynGood);
+        }
+        return { store, minSamples, badWinRate: bad, goodWinRate: good, baseline };
+    };
 
     const rawHistory = Array.isArray(history) ? history.slice(0, Math.min(historySizeConfigured, history.length)) : [];
     const chronological = rawHistory.slice().reverse();
@@ -11098,15 +11160,11 @@ function analyzeAutointeligente(history, options = {}) {
         let learningRecentNP1 = 0;
         let learningRecentWinRateP1 = null;
         try {
-            const learningStore = options && options.n4SelfLearning && typeof options.n4SelfLearning === 'object'
-                ? options.n4SelfLearning
-                : (signalsHistory && signalsHistory.n4SelfLearning ? signalsHistory.n4SelfLearning : null);
-            const minSamples = Math.max(3, Math.min(50, Math.floor(Number(learningStore?.minSamples) || 8)));
-            const badWinRate = Math.max(0.0, Math.min(1.0, Number(learningStore?.badWinRate) || 0.45));
-            const goodWinRate = Math.max(0.0, Math.min(1.0, Number(learningStore?.goodWinRate) || 0.60));
+            const baseP1 = Math.max(Number(pR || 0), Number(pB || 0));
+            const { minSamples, badWinRate, goodWinRate } = resolveN4LearningParams(baseP1, 1);
 
-            const keyBest = buildN4SelfLearningKey(ctxKeyP1Only, bestTokRB, 1, signalIntensity);
-            const keyOther = buildN4SelfLearningKey(ctxKeyP1Only, otherTokRB, 1, signalIntensity);
+            const keyBest = buildN4SelfLearningKey(ctxKeyP1Only, bestTokRB, 1, signalIntensity, learningPolicy);
+            const keyOther = buildN4SelfLearningKey(ctxKeyP1Only, otherTokRB, 1, signalIntensity, learningPolicy);
             const statsBest = keyBest ? getN4SelfLearningStatsForKey(keyBest) : null;
             const statsOther = keyOther ? getN4SelfLearningStatsForKey(keyOther) : null;
 
@@ -11129,7 +11187,7 @@ function analyzeAutointeligente(history, options = {}) {
             }
 
             if (learningDecisionP1 !== 'blocked') {
-                learningKeyP1 = buildN4SelfLearningKey(ctxKeyP1Only, chosenTokRB, 1, signalIntensity);
+                learningKeyP1 = buildN4SelfLearningKey(ctxKeyP1Only, chosenTokRB, 1, signalIntensity, learningPolicy);
                 const st = learningKeyP1 ? getN4SelfLearningStatsForKey(learningKeyP1) : null;
                 if (st) {
                     learningRecentNP1 = st.recentN || 0;
@@ -11416,6 +11474,47 @@ function analyzeAutointeligente(history, options = {}) {
         }
     };
 
+    // ✅ Política FIXA (consenso multi-níveis): mantém a cor do ciclo e calcula P(hit em ≤steps)
+    // usando o próprio modelo (Markov) para evoluir o contexto após cada resultado observado.
+    const estimateWinWithinFixedBet = (ctxTokens, steps, betTok) => {
+        try {
+            const s = Math.max(1, Math.min(3, Math.floor(Number(steps) || 1)));
+            const bet = betTok && candidateList.includes(betTok) ? betTok : pickTokByPredict(ctxTokens);
+            const memo = new Map();
+            const keyOf = (ctxArr, remaining) => `${ctxArr.join('')}|${remaining}|${bet}`;
+
+            const rec = (ctxArr, remaining) => {
+                const ctxSafe = buildTailAfterWhite(Array.isArray(ctxArr) ? ctxArr : []);
+                const rem = Math.max(1, Math.min(3, remaining));
+                const k = keyOf(ctxSafe, rem);
+                if (memo.has(k)) return memo.get(k);
+
+                const d = predict(ctxSafe);
+                let p = clamp01(d[bet] || 0);
+                if (rem === 1) {
+                    memo.set(k, p);
+                    return p;
+                }
+                for (const outTok of TOKENS) {
+                    if (outTok === bet) continue;
+                    const pOut = clamp01(d[outTok] || 0);
+                    if (!pOut) continue;
+                    const nextCtx = buildTailAfterWhite(shiftCtx(ctxSafe, outTok));
+                    p += pOut * rec(nextCtx, rem - 1);
+                }
+                p = clamp01(p);
+                memo.set(k, p);
+                return p;
+            };
+
+            return rec(ctxTokens, s);
+        } catch (_) {
+            return 0;
+        }
+    };
+
+    const estimateWinWithin = dynamicGales ? estimateWinWithinPolicyFirst : estimateWinWithinFixedBet;
+
     // Combinar evidências dos buckets (ordens) com peso parecido com o `predict()`
     // para evitar "winner's curse" de escolher uma ordem isolada.
     const evidence = { R: 0, B: 0, W: 0, total: 0 };
@@ -11461,7 +11560,7 @@ function analyzeAutointeligente(history, options = {}) {
 
     // ✅ Guardrail: evitar escolher uma cor com média condicional pior que o "baseline RB" (remove viés e piora artificial).
     const bestPickRaw = scored[0] || null;
-    const secondPick = scored[1] || null;
+    let secondPick = scored[1] || null;
     const baseBestObj = scored.find(s => s && s.tok === baseBestTokRB) || null;
     let bestPick = (bestPickRaw && baseBestObj && bestPickRaw.mean < baseBestPRB)
         ? baseBestObj
@@ -11481,7 +11580,7 @@ function analyzeAutointeligente(history, options = {}) {
             bestPick = baseBestObj || bestPick;
         }
     }
-    const marginLcb = bestPick && secondPick ? Math.max(0, (bestPick.lcb - secondPick.lcb)) : (bestPick ? bestPick.lcb : 0);
+    let marginLcb = bestPick && secondPick ? Math.max(0, (bestPick.lcb - secondPick.lcb)) : (bestPick ? bestPick.lcb : 0);
 
     // ✅ Ajuste de VOLUME (pedido do usuário):
     // Limiar fixo alto derruba o número de sinais. Aqui usamos um limiar adaptativo por percentil
@@ -11538,8 +11637,18 @@ function analyzeAutointeligente(history, options = {}) {
 
             const simulateCycleHit = (idx, firstTok) => {
                 try {
+                    let betTok = firstTok && candidateList.includes(firstTok) ? firstTok : pickTokByPredict(ctxForIndex(idx));
+                    // ✅ FIXED: a cor do ciclo não muda — basta checar se ela aparece em ≤stepsToWin giros.
+                    if (!dynamicGales) {
+                        for (let s = 1; s <= stepsToWin; s++) {
+                            const actualTok = tokens[idx + s];
+                            if (!actualTok) return false;
+                            if (actualTok === betTok) return true;
+                        }
+                        return false;
+                    }
+
                     let ctx = ctxForIndex(idx);
-                    let betTok = firstTok && candidateList.includes(firstTok) ? firstTok : pickTokByPredict(ctx);
                     for (let s = 1; s <= stepsToWin; s++) {
                         const actualTok = tokens[idx + s];
                         if (!actualTok) return false;
@@ -11651,7 +11760,7 @@ function analyzeAutointeligente(history, options = {}) {
     let adaptiveScoreMin = adaptiveScoreMinBase;
     const requiredPHit = adaptiveScoreMin; // compat: exibimos o limiar usado
 
-    const currentScore = computeScore(bestPick, secondPick);
+    let currentScore = computeScore(bestPick, secondPick);
 
     let allowed = !!bestPick
         && passesNonScoreFilters(bestPick, secondPick, evidence.total)
@@ -11665,28 +11774,58 @@ function analyzeAutointeligente(history, options = {}) {
     // - Bloqueia "tipos" com muito LOSS (recente)
     // - Libera com pequeno boost quando um tipo é muito vencedor (recente)
     // ═══════════════════════════════════════════════════════════════
-    let learningDecision = 'none'; // 'none' | 'boost' | 'blocked'
+    let learningDecision = 'none'; // 'none' | 'swap' | 'boost' | 'blocked'
     let learningRecentN = 0;
     let learningRecentWinRate = null;
     let learningKey = null;
     try {
-        const learningStore = options && options.n4SelfLearning && typeof options.n4SelfLearning === 'object'
-            ? options.n4SelfLearning
-            : (signalsHistory && signalsHistory.n4SelfLearning ? signalsHistory.n4SelfLearning : null);
-        const minSamples = Math.max(3, Math.min(50, Math.floor(Number(learningStore?.minSamples) || 8)));
-        const badWinRate = Math.max(0.0, Math.min(1.0, Number(learningStore?.badWinRate) || 0.45));
-        const goodWinRate = Math.max(0.0, Math.min(1.0, Number(learningStore?.goodWinRate) || 0.60));
+        const { minSamples, badWinRate, goodWinRate } = resolveN4LearningParams(baselinePcycle, stepsToWin);
 
         const ctxKey = Array.isArray(ctxTail) ? ctxTail.join('') : '';
-        const bestTok = bestPick && bestPick.tok ? bestPick.tok : null;
-        const candidateKey = buildN4SelfLearningKey(ctxKey, bestTok, stepsToWin, signalIntensity);
-        if (candidateKey) {
-            const stats = (typeof getN4SelfLearningStatsForKey === 'function')
-                ? getN4SelfLearningStatsForKey(candidateKey)
-                : null;
-            if (stats && stats.recentN != null) {
-                learningRecentN = stats.recentN;
-                learningRecentWinRate = stats.recentWinRate;
+        let bestTok = bestPick && bestPick.tok ? bestPick.tok : null;
+        let candidateKey = buildN4SelfLearningKey(ctxKey, bestTok, stepsToWin, signalIntensity, learningPolicy);
+        let stats = candidateKey ? getN4SelfLearningStatsForKey(candidateKey) : null;
+
+        // ✅ Swap inteligente (G2): se o tipo atual está ruim e a alternativa está muito melhor, troque a cor (em vez de só bloquear).
+        if (!forcePick && ctxKey && (bestTok === 'R' || bestTok === 'B')) {
+            const otherTok = bestTok === 'R' ? 'B' : 'R';
+            const otherKey = buildN4SelfLearningKey(ctxKey, otherTok, stepsToWin, signalIntensity, learningPolicy);
+            const otherStats = otherKey ? getN4SelfLearningStatsForKey(otherKey) : null;
+            const bestWR = stats && typeof stats.recentWinRate === 'number' ? stats.recentWinRate : null;
+            const bestN = stats && Number.isFinite(Number(stats.recentN)) ? Number(stats.recentN) : 0;
+            const otherWR = otherStats && typeof otherStats.recentWinRate === 'number' ? otherStats.recentWinRate : null;
+            const otherN = otherStats && Number.isFinite(Number(otherStats.recentN)) ? Number(otherStats.recentN) : 0;
+
+            const bestLooksBad = (bestWR != null && bestN >= minSamples && bestWR <= badWinRate);
+            const otherLooksGood = (otherWR != null && otherN >= minSamples && otherWR >= goodWinRate);
+            const otherLooksBetter = (otherWR != null && otherN >= minSamples && bestWR != null && otherWR > bestWR + 0.06);
+            if (bestLooksBad && (otherLooksGood || otherLooksBetter)) {
+                const otherPick = scored.find(s => s && s.tok === otherTok) || null;
+                const otherSecond = otherPick ? (scored.find(s => s && s.tok !== otherTok) || null) : null;
+                if (otherPick) {
+                    const nextScore = computeScore(otherPick, otherSecond);
+                    const nextAllowed = !!otherPick
+                        && passesNonScoreFilters(otherPick, otherSecond, evidence.total)
+                        && (nextScore.score >= adaptiveScoreMin)
+                        && (Number(otherPick.mean || 0) >= volumeProfile.minP1Mean);
+                    if (nextAllowed) {
+                        bestPick = otherPick;
+                        secondPick = otherSecond;
+                        marginLcb = bestPick && secondPick ? Math.max(0, (bestPick.lcb - secondPick.lcb)) : (bestPick ? bestPick.lcb : 0);
+                        currentScore = nextScore;
+                        allowed = true;
+                        bestTok = otherTok;
+                        candidateKey = otherKey;
+                        stats = otherStats;
+                        learningDecision = 'swap';
+                    }
+                }
+            }
+        }
+
+        if (stats && stats.recentN != null) {
+            learningRecentN = stats.recentN;
+            learningRecentWinRate = stats.recentWinRate;
 
                 // ✅ Boost leve: se o tipo está MUITO vencedor, afrouxa um pouco o limiar (sem burlar filtros estruturais)
                 if (!allowed && stats.recentWinRate != null && stats.recentN >= minSamples && stats.recentWinRate >= goodWinRate) {
@@ -11711,10 +11850,9 @@ function analyzeAutointeligente(history, options = {}) {
                         learningDecision = 'blocked';
                     }
                 }
-            }
-            if (allowed) {
-                learningKey = candidateKey;
-            }
+        }
+        if (allowed) {
+            learningKey = candidateKey;
         }
     } catch (_) {}
 
@@ -11724,8 +11862,8 @@ function analyzeAutointeligente(history, options = {}) {
     const p1 = chosenTok
         ? (allowed ? (bestPick?.mean || 0) : (forcedDist[chosenTok] || 0))
         : 0;
-    const p2 = chosenTok ? (stepsToWin >= 2 ? estimateWinWithinPolicyFirst(ctxTail, 2, chosenTok) : p1) : 0;
-    const p3 = chosenTok ? (stepsToWin >= 3 ? estimateWinWithinPolicyFirst(ctxTail, 3, chosenTok) : p2) : 0;
+    const p2 = chosenTok ? (stepsToWin >= 2 ? estimateWinWithin(ctxTail, 2, chosenTok) : p1) : 0;
+    const p3 = chosenTok ? (stepsToWin >= 3 ? estimateWinWithin(ctxTail, 3, chosenTok) : p2) : 0;
 
     const confidence = chosenTok ? clamp01(p1) : 0;
     const lossProb = chosenTok ? clamp01(1 - p1) : 1;
@@ -11739,16 +11877,17 @@ function analyzeAutointeligente(history, options = {}) {
         if (learningDecision === 'none') return '';
         const pct = (learningRecentWinRate != null) ? `${(learningRecentWinRate * 100).toFixed(0)}%` : 'n/d';
         const n = learningRecentN || 0;
+        if (learningDecision === 'swap') return ` • AutoApr: SWAP (${pct} em ${n})`;
         if (learningDecision === 'boost') return ` • AutoApr: BOOST (${pct} em ${n})`;
         if (learningDecision === 'blocked') return ` • AutoApr: BLOQUEADO (${pct} em ${n})`;
         return '';
     })();
 
     const details = chosenTok && allowed
-        ? `P1 ${(p1 * 100).toFixed(1)}% • P${stepsToWin}est ${(p3 * 100).toFixed(1)}% • BaseP${stepsToWin} ${(baselinePcycle * 100).toFixed(1)}% • LCB ${(lcb1 * 100).toFixed(1)}% • Score ${(currentScore.score * 100).toFixed(1)}≥${(adaptiveScoreMin * 100).toFixed(1)} • ${ctxLabel} • ${signalIntensity}${learningSuffix}`
+        ? `P1 ${(p1 * 100).toFixed(1)}% • P${stepsToWin}est ${(p3 * 100).toFixed(1)}% • BaseP${stepsToWin} ${(baselinePcycle * 100).toFixed(1)}% • LCB ${(lcb1 * 100).toFixed(1)}% • Score ${(currentScore.score * 100).toFixed(1)}≥${(adaptiveScoreMin * 100).toFixed(1)} • ${ctxLabel} • ${signalIntensity}/${learningPolicy}${learningSuffix}`
         : chosenTok && forcePick
-        ? `FORCE • P1 ${(p1 * 100).toFixed(1)}% • ${ctxLabel} • ${signalIntensity}`
-        : `NULO • ${bestPick ? `Score ${(currentScore.score * 100).toFixed(1)} < ${(adaptiveScoreMin * 100).toFixed(1)} • LCB ${(bestPick.lcb * 100).toFixed(1)}% • BaseP${stepsToWin} ${(baselinePcycle * 100).toFixed(1)}% • ${ctxLabel}` : 'sem contexto útil'} • ${signalIntensity}${learningSuffix}`;
+        ? `FORCE • P1 ${(p1 * 100).toFixed(1)}% • ${ctxLabel} • ${signalIntensity}/${learningPolicy}`
+        : `NULO • ${bestPick ? `Score ${(currentScore.score * 100).toFixed(1)} < ${(adaptiveScoreMin * 100).toFixed(1)} • LCB ${(bestPick.lcb * 100).toFixed(1)}% • BaseP${stepsToWin} ${(baselinePcycle * 100).toFixed(1)}% • ${ctxLabel}` : 'sem contexto útil'} • ${signalIntensity}/${learningPolicy}${learningSuffix}`;
 
     return {
         color: chosenColor,
@@ -15555,6 +15694,7 @@ async function analyzeWithPatternSystem(history) {
             maxGales: n4MaxGalesConfigured,
             signalIntensity: analyzerConfig.signalIntensity || 'aggressive',
             whiteProtectionAsWin: !!analyzerConfig.whiteProtectionAsWin,
+            dynamicGales: shouldUseN4DynamicGalesForConfig(analyzerConfig),
             // ✅ passar estado de aprendizado do N4 (somente leitura) para filtrar/boost
             n4SelfLearning: signalsHistory && signalsHistory.n4SelfLearning ? signalsHistory.n4SelfLearning : null
         });
@@ -27781,10 +27921,10 @@ function buildDiamondOptimizationCandidateConfig(baseConfig, levelId, rng) {
         windows.n3IgnoreWhite = ignoreWhite;
     } else if (upper === 'N4') {
         // N4 - Autointeligente (histórico analisado)
-        const baseW = clampInt(windows.n4Persistence ?? DEFAULT_ANALYZER_CONFIG.diamondLevelWindows.n4Persistence, 200, REALTIME_HISTORY_CAP);
+        const baseW = clampInt(windows.n4Persistence ?? DEFAULT_ANALYZER_CONFIG.diamondLevelWindows.n4Persistence, 10, REALTIME_HISTORY_CAP);
         const w = clampInt(
-            randomInt(rng, Math.max(200, Math.floor(baseW * 0.5)), Math.min(REALTIME_HISTORY_CAP, Math.ceil(baseW * 1.6))),
-            200,
+            randomInt(rng, Math.max(10, Math.floor(baseW * 0.5)), Math.min(REALTIME_HISTORY_CAP, Math.ceil(baseW * 1.6))),
+            10,
             REALTIME_HISTORY_CAP
         );
         windows.n4Persistence = w;
@@ -28221,6 +28361,7 @@ function evaluatePendingAnalysisSimulation(latestSpin, simState, history, modeKe
                 maxGales: remaining,
                 signalIntensity: config.signalIntensity || 'aggressive',
                 whiteProtectionAsWin: !!config.whiteProtectionAsWin,
+                dynamicGales: true,
                 forcePick: true
             });
             return n4 && n4.color ? n4.color : null;
@@ -28746,7 +28887,8 @@ function analyzeDiamondLevelsSimulation(history, config, simState) {
         historySize: n4HistoryWindow,
         maxGales: n4MaxGalesConfigured,
         signalIntensity: config.signalIntensity || 'aggressive',
-        whiteProtectionAsWin: !!config.whiteProtectionAsWin
+        whiteProtectionAsWin: !!config.whiteProtectionAsWin,
+        dynamicGales: shouldUseN4DynamicGalesForConfig(config)
     }) : null;
     const autoColor = n4Enabled && nivel9 && nivel9.color ? nivel9.color : null;
     const autoStrength = n4Enabled && nivel9 && nivel9.color ? clamp01Local(nivel9.confidence ?? 0) : 0;
