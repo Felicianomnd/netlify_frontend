@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Double Analyzer - Autenticação</title>
+    <title>Double Analyzer</title>
 
     <!-- Ícones / Favicon -->
     <link rel="icon" href="icon16.svg" type="image/svg+xml">
@@ -41,25 +41,7 @@
             margin-bottom: 32px;
         }
 
-        .logo-icon {
-            width: 72px;
-            height: 72px;
-            margin: 0 auto 12px auto;
-            animation: pulse 2s ease-in-out infinite;
-            filter: drop-shadow(0 14px 28px rgba(0, 0, 0, 0.35));
-            display: block;
-        }
-
-        .logo-icon img {
-            width: 100%;
-            height: 100%;
-            display: block;
-        }
-
-        @keyframes pulse {
-            0%, 100% { transform: scale(1); }
-            50% { transform: scale(1.05); }
-        }
+        /* (sem logo dentro da página; apenas favicon no navegador) */
 
         .logo h1 {
             font-size: 28px;
@@ -699,9 +681,6 @@
 <body>
     <div class="auth-container">
         <div class="logo">
-            <div class="logo-icon" aria-hidden="true">
-                <img src="icon128.svg" alt="">
-            </div>
             <h1>Double Analyzer</h1>
             <p>Sistema de Análise de Padrões</p>
         </div>
@@ -741,7 +720,7 @@
                     </button>
                 </form>
                 <div class="link">
-                    <a href="#" onclick="showMessage('Funcionalidade em desenvolvimento. Entre em contato com o suporte.', 'info'); return false;">Esqueci minha senha</a>
+                    <a href="#" onclick="showForgotPasswordScreen(); return false;">Esqueci minha senha</a>
                 </div>
             </div>
 
@@ -788,6 +767,34 @@
                         Criar Conta
                     </button>
                 </form>
+            </div>
+        </div>
+
+        <!-- TELA: RECUPERAÇÃO DE SENHA -->
+        <div id="forgotPasswordScreen" class="screen">
+            <div class="verification-card">
+                <div class="verification-header">
+                    <div>
+                        <div class="verification-title">Recuperar senha</div>
+                        <div class="verification-subtitle">
+                            Informe seu e-mail para receber o link de redefinição.
+                        </div>
+                    </div>
+                </div>
+
+                <form onsubmit="handleForgotPassword(event)">
+                    <div class="form-group">
+                        <label class="form-label">Email</label>
+                        <input type="email" class="form-input" id="forgotEmail" placeholder="seu@email.com" required>
+                    </div>
+                    <button type="submit" class="btn btn-primary" id="forgotBtn">
+                        Enviar link de recuperação
+                    </button>
+                </form>
+
+                <div class="link">
+                    <a href="#" onclick="showScreen('authScreen'); return false;">Voltar para login</a>
+                </div>
             </div>
         </div>
 
@@ -1088,6 +1095,60 @@
             document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
             document.getElementById(screenId).classList.add('active');
             hideMessage();
+        }
+
+        function showForgotPasswordScreen() {
+            showScreen('forgotPasswordScreen');
+
+            // Pré-preencher com o email do login (se já digitou)
+            const loginEmail = document.getElementById('loginEmail')?.value?.trim() || '';
+            const forgotEmail = document.getElementById('forgotEmail');
+            if (forgotEmail && loginEmail) {
+                forgotEmail.value = loginEmail;
+            }
+
+            setTimeout(() => forgotEmail?.focus(), 100);
+        }
+
+        async function handleForgotPassword(event) {
+            event.preventDefault();
+
+            const email = (document.getElementById('forgotEmail')?.value || '').trim().toLowerCase();
+            const btn = document.getElementById('forgotBtn');
+
+            if (!email) {
+                showMessage('Informe seu e-mail.', 'error');
+                return;
+            }
+
+            if (btn) {
+                btn.disabled = true;
+                btn.innerHTML = '<div class="loader"></div> Enviando...';
+            }
+
+            try {
+                const response = await fetch(`${API_URL}/auth/forgot-password`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email })
+                });
+
+                const data = await response.json().catch(() => ({}));
+
+                if (!response.ok || !data.success) {
+                    throw new Error(data.error || data.message || 'Não foi possível enviar o email de recuperação.');
+                }
+
+                showMessage(data.message || 'Se este e-mail estiver cadastrado, você receberá um link para redefinir sua senha em instantes.', 'success');
+                setTimeout(() => showScreen('authScreen'), 1500);
+            } catch (error) {
+                showMessage(error.message || 'Erro ao solicitar recuperação de senha.', 'error');
+            } finally {
+                if (btn) {
+                    btn.disabled = false;
+                    btn.innerHTML = 'Enviar link de recuperação';
+                }
+            }
         }
 
         // Gerar fingerprint ÚNICO do HARDWARE (não muda entre navegadores)
