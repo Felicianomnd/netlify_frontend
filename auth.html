@@ -185,17 +185,78 @@
             display: flex;
             align-items: center;
             justify-content: center;
+            position: relative;
             color: rgba(255,255,255,0.35);
             font-size: 13px;
             font-weight: 600;
         }
 
-        .hero-banner img {
+        .hero-banner-media {
+            position: absolute;
+            inset: 0;
             width: 100%;
             height: 100%;
-            max-height: 320px;
+            display: none;
+        }
+
+        .hero-banner-media.show {
+            display: block;
+        }
+
+        .hero-banner-media.fade img {
+            position: absolute;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            opacity: 0;
+            transition: opacity 0.5s ease;
+            display: block;
+        }
+
+        .hero-banner-media.fade img.active {
+            opacity: 1;
+        }
+
+        .hero-banner-media .hero-banner-track {
+            position: absolute;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            transform: translateX(0);
+            transition: transform 0.6s ease;
+        }
+
+        .hero-banner-media .hero-banner-track img {
+            flex: 0 0 100%;
+            width: 100%;
+            height: 100%;
             object-fit: cover;
             display: block;
+        }
+
+        .hero-banner-caption {
+            position: absolute;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            padding: 12px 14px;
+            background: linear-gradient(180deg, rgba(0,0,0,0) 0%, rgba(0,0,0,0.55) 55%, rgba(0,0,0,0.78) 100%);
+            color: #ffffff;
+            pointer-events: none;
+        }
+
+        .hero-banner-caption-title {
+            font-size: 14px;
+            font-weight: 800;
+            margin-bottom: 4px;
+        }
+
+        .hero-banner-caption-desc {
+            font-size: 12px;
+            color: rgba(255,255,255,0.82);
+            line-height: 1.35;
         }
 
         .section-title {
@@ -1171,7 +1232,11 @@
 
                 <div class="hero-banner" id="lpHeroBanner">
                     <span id="lpHeroBannerPlaceholder">Banner / Promoção</span>
-                    <img id="lpHeroBannerImg" alt="Banner" style="display:none;">
+                    <div id="lpHeroBannerMedia" class="hero-banner-media" aria-hidden="true"></div>
+                    <div id="lpHeroBannerCaption" class="hero-banner-caption" style="display:none;">
+                        <div id="lpHeroBannerCaptionTitle" class="hero-banner-caption-title"></div>
+                        <div id="lpHeroBannerCaptionDesc" class="hero-banner-caption-desc"></div>
+                    </div>
                 </div>
             </div>
         </section>
@@ -1608,6 +1673,14 @@
 
         let landingConfig = null;
         let landingPlans = [];
+        let heroBannerTimer = null;
+        let heroBannerIndex = 0;
+        let heroBannerSlides = [];
+        let heroBannerTransition = 'fade';
+        let heroBannerIntervalMs = 6000;
+        let heroBannerFadeImgs = [];
+        let heroBannerFadeActive = 0;
+        let heroBannerTrack = null;
 
         function setTextById(id, value) {
             const el = document.getElementById(id);
@@ -1636,6 +1709,158 @@
             landingConfig = data.landing || null;
             landingPlans = Array.isArray(data.plans) ? data.plans : [];
             renderLandingPage(landingConfig, landingPlans);
+        }
+
+        function stopHeroBanner() {
+            if (heroBannerTimer) {
+                clearInterval(heroBannerTimer);
+                heroBannerTimer = null;
+            }
+        }
+
+        function getHeroBannerSlides(cfg) {
+            const slidesRaw = Array.isArray(cfg?.hero?.banner?.slides) ? cfg.hero.banner.slides : [];
+            const legacy = cfg?.hero?.bannerImage || null;
+
+            let slides = slidesRaw;
+            if ((!slides || slides.length === 0) && legacy) {
+                slides = [{ title: '', description: '', image: legacy, link: '' }];
+            }
+
+            return (Array.isArray(slides) ? slides : [])
+                .map(s => ({
+                    title: s?.title || '',
+                    description: s?.description || '',
+                    image: s?.image || '',
+                    link: s?.link || ''
+                }))
+                .filter(s => !!s.image);
+        }
+
+        function setHeroBannerCaption(slide) {
+            const cap = document.getElementById('lpHeroBannerCaption');
+            const capTitle = document.getElementById('lpHeroBannerCaptionTitle');
+            const capDesc = document.getElementById('lpHeroBannerCaptionDesc');
+            if (!cap || !capTitle || !capDesc) return;
+
+            const title = String(slide?.title || '').trim();
+            const desc = String(slide?.description || '').trim();
+            if (!title && !desc) {
+                cap.style.display = 'none';
+                capTitle.textContent = '';
+                capDesc.textContent = '';
+                return;
+            }
+
+            capTitle.textContent = title;
+            capDesc.textContent = desc;
+            cap.style.display = 'block';
+        }
+
+        function setHeroBannerClick(slide) {
+            const banner = document.getElementById('lpHeroBanner');
+            if (!banner) return;
+            const link = String(slide?.link || '').trim();
+            if (link) {
+                banner.style.cursor = 'pointer';
+                banner.onclick = () => window.open(link, '_blank', 'noopener,noreferrer');
+            } else {
+                banner.style.cursor = 'default';
+                banner.onclick = null;
+            }
+        }
+
+        function setHeroBannerIndex(nextIndex) {
+            if (!heroBannerSlides.length) return;
+            const idx = ((nextIndex % heroBannerSlides.length) + heroBannerSlides.length) % heroBannerSlides.length;
+            const slide = heroBannerSlides[idx];
+
+            if (heroBannerTransition === 'slide' && heroBannerTrack) {
+                heroBannerTrack.style.transform = `translateX(-${idx * 100}%)`;
+            } else if (heroBannerFadeImgs.length === 2) {
+                const nextLayer = heroBannerFadeActive === 0 ? 1 : 0;
+                heroBannerFadeImgs[nextLayer].src = slide.image;
+                heroBannerFadeImgs[nextLayer].classList.add('active');
+                heroBannerFadeImgs[heroBannerFadeActive].classList.remove('active');
+                heroBannerFadeActive = nextLayer;
+            }
+
+            setHeroBannerCaption(slide);
+            setHeroBannerClick(slide);
+            heroBannerIndex = idx;
+        }
+
+        function setupHeroBanner(cfg) {
+            stopHeroBanner();
+            heroBannerIndex = 0;
+            heroBannerSlides = getHeroBannerSlides(cfg);
+
+            const placeholder = document.getElementById('lpHeroBannerPlaceholder');
+            const media = document.getElementById('lpHeroBannerMedia');
+            const cap = document.getElementById('lpHeroBannerCaption');
+            if (cap) cap.style.display = 'none';
+
+            if (!media || !placeholder) return;
+
+            clearNode(media);
+            media.className = 'hero-banner-media';
+            heroBannerFadeImgs = [];
+            heroBannerFadeActive = 0;
+            heroBannerTrack = null;
+
+            if (!heroBannerSlides.length) {
+                media.style.display = 'none';
+                placeholder.style.display = 'block';
+                return;
+            }
+
+            // Config
+            const transition = String(cfg?.hero?.banner?.transition || 'fade').toLowerCase();
+            heroBannerTransition = ['fade', 'slide'].includes(transition) ? transition : 'fade';
+            const intervalSecondsRaw = Number(cfg?.hero?.banner?.intervalSeconds);
+            const intervalSeconds = Number.isFinite(intervalSecondsRaw) ? Math.max(2, Math.min(60, Math.floor(intervalSecondsRaw))) : 6;
+            heroBannerIntervalMs = intervalSeconds * 1000;
+            const autoplay = cfg?.hero?.banner?.autoplay !== false;
+
+            placeholder.style.display = 'none';
+            media.style.display = 'block';
+            media.classList.add('show');
+
+            if (heroBannerTransition === 'slide') {
+                const track = document.createElement('div');
+                track.className = 'hero-banner-track';
+                for (const s of heroBannerSlides) {
+                    const img = document.createElement('img');
+                    img.alt = s.title ? String(s.title) : 'Banner';
+                    img.src = String(s.image);
+                    track.appendChild(img);
+                }
+                media.appendChild(track);
+                media.classList.add('slide');
+                heroBannerTrack = track;
+            } else {
+                const imgA = document.createElement('img');
+                const imgB = document.createElement('img');
+                imgA.alt = 'Banner';
+                imgB.alt = 'Banner';
+                imgA.src = String(heroBannerSlides[0].image);
+                imgA.classList.add('active');
+                imgB.src = String(heroBannerSlides[0].image);
+                imgB.classList.remove('active');
+                media.appendChild(imgA);
+                media.appendChild(imgB);
+                media.classList.add('fade');
+                heroBannerFadeImgs = [imgA, imgB];
+                heroBannerFadeActive = 0;
+            }
+
+            setHeroBannerIndex(0);
+
+            if (autoplay && heroBannerSlides.length > 1) {
+                heroBannerTimer = setInterval(() => {
+                    setHeroBannerIndex(heroBannerIndex + 1);
+                }, heroBannerIntervalMs);
+            }
         }
 
         function renderLandingPage(cfg, plans) {
@@ -1689,20 +1914,7 @@
                 }
             }
 
-            const bannerImg = document.getElementById('lpHeroBannerImg');
-            const bannerPlaceholder = document.getElementById('lpHeroBannerPlaceholder');
-            const bannerSrc = cfg?.hero?.bannerImage;
-            if (bannerImg && bannerPlaceholder) {
-                if (bannerSrc) {
-                    bannerImg.src = String(bannerSrc);
-                    bannerImg.style.display = 'block';
-                    bannerPlaceholder.style.display = 'none';
-                } else {
-                    bannerImg.removeAttribute('src');
-                    bannerImg.style.display = 'none';
-                    bannerPlaceholder.style.display = 'block';
-                }
-            }
+            setupHeroBanner(cfg || {});
 
             // Features
             setTextById('lpFeaturesTitle', cfg?.features?.title || 'Funcionalidades');
