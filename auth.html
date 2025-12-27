@@ -385,12 +385,25 @@
             gap: 22px;
         }
 
+        .payment-topbar {
+            display: flex;
+            justify-content: flex-start;
+            margin-bottom: 14px;
+        }
+
+        .payment-back-btn {
+            width: auto;
+            padding: 10px 14px;
+            font-size: 14px;
+            display: inline-flex;
+        }
+
         .payment-card {
             background: #1a2332;
-            border: none;
+            border: 1px solid rgba(255, 255, 255, 0.08);
             border-radius: 8px;
             padding: 28px;
-            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+            box-shadow: none;
         }
 
         .payment-card h3 {
@@ -912,22 +925,28 @@
 
         <!-- TELA 3: PAGAMENTO PIX -->
         <div id="paymentScreen" class="screen">
+            <div class="payment-topbar">
+                <button type="button" class="btn btn-secondary payment-back-btn" onclick="backToPlanScreen()">
+                    Voltar
+                </button>
+            </div>
+
             <!-- ✅ Mercado Pago (automático) -->
-            <div id="mpPaymentWrap" style="display: none;">
+            <div id="mpPaymentWrap">
                 <div class="payment-card">
                     <h3>Pagamento via PIX</h3>
                     <p style="color:#9aa9c6; font-size: 13px; margin-bottom: 14px;">
                         Escaneie o QR Code ou copie o código PIX abaixo. Assim que o pagamento for confirmado, o acesso será liberado automaticamente.
                     </p>
 
-                    <div class="mp-pix-qr">
+                    <div class="mp-pix-qr" id="mpPixQrWrap" style="display: none;">
                         <img id="mpPixQrImg" alt="QR Code PIX">
                     </div>
 
                     <label class="mp-pix-code-label" for="mpPixCode">Código PIX (copia e cola)</label>
                     <textarea id="mpPixCode" class="mp-pix-code" readonly></textarea>
 
-                    <button type="button" class="btn btn-primary" id="mpCopyBtn" onclick="copyMpPixCode()">
+                    <button type="button" class="btn btn-primary" id="mpCopyBtn" onclick="copyMpPixCode()" disabled>
                         Copiar código PIX
                     </button>
 
@@ -935,39 +954,18 @@
                         Abrir cobrança
                     </button>
 
+                    <button type="button" class="btn btn-secondary" id="mpRetryBtn" onclick="loadPaymentInfo()" style="margin-top: 12px; display: none;">
+                        Tentar novamente
+                    </button>
+
                     <div id="mpPaymentStatus" class="mp-payment-status">Gerando cobrança...</div>
-                </div>
-            </div>
 
-            <!-- 🧩 Fallback manual (PIX + WhatsApp) -->
-            <div id="manualPaymentWrap">
-            <div class="payment-layout">
-                <div class="payment-card">
-                    <h3>Finalize o pagamento via PIX</h3>
-
-                    <div class="pix-compact">
-                        <span class="pix-label">Chave PIX</span>
-                        <button type="button" onclick="copyPixKey()" class="pix-copy-btn">
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
-                                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
-                            </svg>
-                            Copiar
-                        </button>
-                        </div>
-                    <input type="hidden" id="pixKeyValue" value="-">
-                </div>
-
-                <div class="support-card">
-                    <h4>Envie o comprovante</h4>
-                    <p>Assim que o pagamento for confirmado, você receberá um código de ativação exclusivo.</p>
-                    <div class="support-actions">
-                        <a href="#" id="whatsappLink" class="whatsapp-link" target="_blank">Abrir WhatsApp</a>
-                        <button type="button" class="btn btn-primary" onclick="showActivationScreen()">Já recebi meu código</button>
-                        </div>
+                    <div class="link" style="margin-top: 14px;">
+                        <a href="#" onclick="showActivationScreen(); return false;">Já tenho um código de ativação</a>
                     </div>
                 </div>
             </div>
+
         </div>
 
         <!-- TELA 4: INSERIR CÓDIGO -->
@@ -1005,6 +1003,7 @@
         const SESSION_STORAGE_KEYS = ['authToken', 'user', 'lastAuthCheck'];
         let selectedPlan = null;
         let userData = null;
+        let pendingUserId = null;
         let paymentSettings = null;
         let mpPaymentId = null;
         let mpPixCode = null;
@@ -1564,10 +1563,23 @@
                     console.log('🔄 Redirecionando para index.html...');
                         window.location.href = 'index.html';
                 } else {
-                    if (data.requiresActivation) {
-                        userData = { email };
-                        showActivationScreen();
-                    } else if (data.expired) {
+                    if (data.requiresPayment || data.requiresActivation) {
+                        // Conta pendente: direcionar para pagamento Mercado Pago (sem liberar login)
+                        userData = { email: email.trim().toLowerCase() };
+                        pendingUserId = data.userId || null;
+                        selectedPlan = data.selectedPlan || null;
+
+                        if (!selectedPlan) {
+                            await loadPlans();
+                            showScreen('planScreen');
+                        } else {
+                            showScreen('paymentScreen');
+                            await loadPaymentInfo();
+                        }
+                        return;
+                    }
+
+                    if (data.expired) {
                         showMessage('Sua assinatura expirou. Entre em contato para renovar.', 'error');
                     } else {
                         showMessage(data.error || 'Email ou senha incorretos', 'error');
@@ -1822,16 +1834,38 @@
                 return;
             }
 
-            if (!emailVerificationToken) {
-                showMessage('Confirme o código enviado para o seu e-mail antes de continuar.', 'error');
-                return;
-            }
-            
             const btn = document.getElementById('confirmPlanBtn');
             btn.disabled = true;
             btn.innerHTML = '<div class="loader"></div> Processando...';
             
             try {
+                // Se o usuário já existe como PENDING (ex.: veio do login), apenas atualizar plano
+                if (pendingUserId && userData?.email) {
+                    const updateResp = await fetch(`${API_URL}/auth/pending/update-plan`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            email: userData.email,
+                            userId: pendingUserId,
+                            selectedPlan
+                        })
+                    });
+
+                    const updateData = await updateResp.json().catch(() => ({}));
+                    if (!updateResp.ok || !updateData.success) {
+                        throw new Error(updateData.error || 'Não foi possível atualizar o plano.');
+                    }
+
+                    showScreen('paymentScreen');
+                    await loadPaymentInfo();
+                    return;
+                }
+
+                if (!emailVerificationToken) {
+                    showMessage('Confirme o código enviado para o seu e-mail antes de continuar.', 'error');
+                    return;
+                }
+
                 const response = await fetch(`${API_URL}/auth/register`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -1841,13 +1875,14 @@
                 const data = await response.json();
                 
                 if (data.success) {
-                    await loadPaymentInfo();
                     showScreen('paymentScreen');
+                    pendingUserId = data.userId || pendingUserId;
+                    await loadPaymentInfo();
                 } else {
                     showMessage(data.error || 'Erro ao criar conta', 'error');
                 }
             } catch (error) {
-                showMessage('Erro ao criar conta', 'error');
+                showMessage(error?.message || 'Erro ao processar. Tente novamente.', 'error');
             } finally {
                 btn.disabled = false;
                 btn.innerHTML = 'Continuar';
@@ -2042,59 +2077,82 @@
             mpTicketUrl = null;
 
             const mpWrap = document.getElementById('mpPaymentWrap');
-            const manualWrap = document.getElementById('manualPaymentWrap');
+            if (mpWrap) mpWrap.style.display = 'block';
 
-            if (mpWrap) mpWrap.style.display = 'none';
-            if (manualWrap) manualWrap.style.display = 'none';
+            const qrWrap = document.getElementById('mpPixQrWrap');
+            const img = document.getElementById('mpPixQrImg');
+            if (img) img.removeAttribute('src');
+            if (qrWrap) qrWrap.style.display = 'none';
+
+            const codeEl = document.getElementById('mpPixCode');
+            if (codeEl) codeEl.value = '';
+
+            const copyBtn = document.getElementById('mpCopyBtn');
+            if (copyBtn) copyBtn.disabled = true;
+
+            const ticketBtn = document.getElementById('mpOpenTicketBtn');
+            if (ticketBtn) ticketBtn.style.display = 'none';
+
+            const retryBtn = document.getElementById('mpRetryBtn');
+            if (retryBtn) retryBtn.style.display = 'none';
+
+            if (!userData?.email || !selectedPlan) {
+                setMpPaymentStatus('Selecione um plano para gerar o PIX.', 'warn');
+                return;
+            }
+
+            setMpPaymentStatus('Gerando cobrança...', null);
 
             try {
-                // Tentar Mercado Pago (automático)
                 const response = await fetch(`${API_URL}/payments/mercadopago/create-pix`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        email: userData?.email,
+                        email: userData.email,
                         planDuration: selectedPlan
                     })
                 });
 
                 const data = await response.json().catch(() => ({}));
 
-                if (response.ok && data.success && data.payment?.id) {
-                    mpPaymentId = String(data.payment.id);
-                    mpPixCode = data.payment.qrCode || null;
-                    mpTicketUrl = data.payment.ticketUrl || null;
-
-                    const img = document.getElementById('mpPixQrImg');
-                    if (img && data.payment.qrCodeBase64) {
-                        img.src = `data:image/png;base64,${data.payment.qrCodeBase64}`;
-                    }
-
-                    const codeEl = document.getElementById('mpPixCode');
-                    if (codeEl) {
-                        codeEl.value = mpPixCode || '';
-                    }
-
-                    const ticketBtn = document.getElementById('mpOpenTicketBtn');
-                    if (ticketBtn) {
-                        ticketBtn.style.display = mpTicketUrl ? 'block' : 'none';
-                    }
-
-                    if (mpWrap) mpWrap.style.display = 'block';
-                    setMpPaymentStatus(formatMpStatusLabel(data.payment.status), null);
-
-                    // Polling (webhook pode demorar alguns segundos)
-                    mpPaymentPollInterval = setInterval(pollMpPaymentStatus, 4000);
-                    setTimeout(pollMpPaymentStatus, 1200);
-                    return;
+                if (!response.ok || !data.success || !data.payment?.id) {
+                    throw new Error(data.error || 'Não foi possível gerar a cobrança PIX.');
                 }
-            } catch (error) {
-                // cair no fallback manual
-            }
 
-            // Fallback: pagamento manual (PIX + WhatsApp)
-            if (manualWrap) manualWrap.style.display = 'block';
-            await loadManualPaymentInfo();
+                mpPaymentId = String(data.payment.id);
+                mpPixCode = data.payment.qrCode || null;
+                mpTicketUrl = data.payment.ticketUrl || null;
+
+                if (codeEl) {
+                    codeEl.value = mpPixCode || '';
+                }
+
+                if (copyBtn) {
+                    copyBtn.disabled = !mpPixCode;
+                }
+
+                if (ticketBtn) {
+                    ticketBtn.style.display = mpTicketUrl ? 'block' : 'none';
+                }
+
+                if (img && (data.payment.qrCodeBase64 || mpPixCode)) {
+                    const qrSrc = data.payment.qrCodeBase64
+                        ? `data:image/png;base64,${data.payment.qrCodeBase64}`
+                        : `https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(mpPixCode)}`;
+                    img.src = qrSrc;
+                    if (qrWrap) qrWrap.style.display = 'flex';
+                }
+
+                setMpPaymentStatus(formatMpStatusLabel(data.payment.status), null);
+
+                // Polling (webhook pode demorar alguns segundos)
+                mpPaymentPollInterval = setInterval(pollMpPaymentStatus, 4000);
+                setTimeout(pollMpPaymentStatus, 1200);
+            } catch (error) {
+                console.error('Erro ao gerar PIX Mercado Pago:', error);
+                setMpPaymentStatus(error.message || 'Erro ao gerar cobrança PIX.', 'warn');
+                if (retryBtn) retryBtn.style.display = 'block';
+            }
         }
 
         function copyPixKey() {
@@ -2112,10 +2170,17 @@
 
         function showPaymentScreen() {
             showScreen('paymentScreen');
-            // Se veio do fluxo de cadastro (tem plano selecionado), recarregar cobrança automaticamente
-            if (userData?.email && selectedPlan) {
-                loadPaymentInfo();
-            }
+            loadPaymentInfo();
+        }
+
+        async function backToPlanScreen() {
+            stopMpPaymentPolling();
+            mpPaymentId = null;
+            mpPixCode = null;
+            mpTicketUrl = null;
+
+            await loadPlans();
+            showScreen('planScreen');
         }
 
         function showActivationScreen() {
