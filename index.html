@@ -8,7 +8,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="theme-color" content="#1a1a2e">
-    <title>Double Analyzer</title>
+    <title>Double Análise</title>
 
     <!-- Ícones / Favicon -->
     <link rel="icon" href="icon16.svg" type="image/svg+xml">
@@ -62,31 +62,6 @@
             transform: translate(-50%, -50%);
             text-align: center;
             z-index: 9999;
-        }
-
-        .loading-brand {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 10px;
-            margin-bottom: 14px;
-        }
-
-        .loading-logo {
-            width: 44px;
-            height: 44px;
-            object-fit: contain;
-            display: block;
-        }
-
-        .loading-brand-text {
-            font-size: 18px;
-            font-weight: 900;
-            letter-spacing: 0.6px;
-            background: linear-gradient(90deg, #ff003f, #9945ff);
-            -webkit-background-clip: text;
-            background-clip: text;
-            -webkit-text-fill-color: transparent;
         }
 
         .loader {
@@ -232,12 +207,8 @@
 <body>
     <!-- Mensagem de carregamento -->
     <div id="loading-message">
-        <div class="loading-brand">
-            <img class="loading-logo" src="icon48.svg" alt="Double Analyzer">
-            <div class="loading-brand-text">Double Analyzer</div>
-        </div>
         <div class="loader"></div>
-        <h2 style="margin:0; font-size:14px; font-weight:700; color:#b4c2d8;">Carregando...</h2>
+        <h2>Carregando Double Análise...</h2>
         <p>Inicializando sistemas...</p>
     </div>
 
@@ -477,7 +448,7 @@
             console.error('❌ ERRO:', event.message, 'em', event.filename, 'linha', event.lineno);
         });
         
-        console.log('✅ Double Analyzer - Versão Web carregada');
+        console.log('✅ Double Análise - Versão Web carregada');
 
         // Remover loading
         setTimeout(() => {

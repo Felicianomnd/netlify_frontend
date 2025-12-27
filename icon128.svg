@@ -1,24 +1,56 @@
-<!-- Ícone 128x128 (novo) - Double Analyzer -->
-<svg width="128" height="128" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
-  <!-- D + símbolo inspirado no "branco" (losango + 4 pontos) -->
-  <path fill-rule="evenodd" clip-rule="evenodd"
-        d="M90 60H240
-           A180 196 0 0 1 240 452
-           H90V60Z
-           M150 140H240
-           A120 116 0 0 1 240 372
-           H150V140Z"
-        fill="#FF003F"/>
-
-  <g transform="translate(188 168)">
-    <polygon points="68,12 124,68 68,124 12,68"
-             fill="rgba(255,255,255,0.96)"
-             stroke="#FF003F"
-             stroke-width="10"
-             stroke-linejoin="round"/>
-    <circle cx="52" cy="52" r="8" fill="#FF003F"/>
-    <circle cx="84" cy="52" r="8" fill="#FF003F"/>
-    <circle cx="52" cy="84" r="8" fill="#FF003F"/>
-    <circle cx="84" cy="84" r="8" fill="#FF003F"/>
-  </g>
+<!-- Ícone 128x128 para a extensão Blaze Double Analyzer -->
+<svg width="128" height="128" viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="grad1" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#667eea;stop-opacity:1" />
+      <stop offset="50%" style="stop-color:#764ba2;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#f093fb;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="grad2" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#4CAF50;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#2E7D32;stop-opacity:1" />
+    </linearGradient>
+    <filter id="shadow" x="-50%" y="-50%" width="200%" height="200%">
+      <feDropShadow dx="2" dy="2" stdDeviation="3" flood-color="#000" flood-opacity="0.3"/>
+    </filter>
+  </defs>
+  
+  <!-- Fundo circular com sombra -->
+  <circle cx="64" cy="64" r="60" fill="url(#grad1)" stroke="#fff" stroke-width="4" filter="url(#shadow)"/>
+  
+  <!-- Círculos concêntricos do alvo -->
+  <circle cx="64" cy="64" r="48" fill="none" stroke="#fff" stroke-width="3"/>
+  <circle cx="64" cy="64" r="32" fill="none" stroke="#fff" stroke-width="3"/>
+  <circle cx="64" cy="64" r="16" fill="url(#grad2)"/>
+  
+  <!-- Número central -->
+  <text x="64" y="72" text-anchor="middle" fill="#fff" font-family="Arial, sans-serif" font-size="20" font-weight="bold">0</text>
+  
+  <!-- Números do Double ao redor -->
+  <text x="32" y="32" text-anchor="middle" fill="#F44336" font-family="Arial, sans-serif" font-size="12" font-weight="bold">1</text>
+  <text x="48" y="24" text-anchor="middle" fill="#F44336" font-family="Arial, sans-serif" font-size="12" font-weight="bold">2</text>
+  <text x="64" y="20" text-anchor="middle" fill="#F44336" font-family="Arial, sans-serif" font-size="12" font-weight="bold">3</text>
+  <text x="80" y="24" text-anchor="middle" fill="#F44336" font-family="Arial, sans-serif" font-size="12" font-weight="bold">4</text>
+  <text x="96" y="32" text-anchor="middle" fill="#F44336" font-family="Arial, sans-serif" font-size="12" font-weight="bold">5</text>
+  
+  <text x="96" y="64" text-anchor="middle" fill="#000" font-family="Arial, sans-serif" font-size="12" font-weight="bold">6</text>
+  <text x="96" y="96" text-anchor="middle" fill="#000" font-family="Arial, sans-serif" font-size="12" font-weight="bold">7</text>
+  <text x="80" y="104" text-anchor="middle" fill="#000" font-family="Arial, sans-serif" font-size="12" font-weight="bold">8</text>
+  <text x="64" y="108" text-anchor="middle" fill="#000" font-family="Arial, sans-serif" font-size="12" font-weight="bold">9</text>
+  <text x="48" y="104" text-anchor="middle" fill="#000" font-family="Arial, sans-serif" font-size="12" font-weight="bold">10</text>
+  <text x="32" y="96" text-anchor="middle" fill="#000" font-family="Arial, sans-serif" font-size="12" font-weight="bold">11</text>
+  <text x="32" y="64" text-anchor="middle" fill="#000" font-family="Arial, sans-serif" font-size="12" font-weight="bold">12</text>
+  
+  <!-- Símbolos de análise -->
+  <path d="M48 48 L56 56 L48 64" stroke="#fff" stroke-width="3" fill="none"/>
+  <path d="M80 48 L72 56 L80 64" stroke="#fff" stroke-width="3" fill="none"/>
+  
+  <!-- Pontos indicando cores -->
+  <circle cx="24" cy="24" r="3" fill="#F44336" opacity="0.9"/>
+  <circle cx="104" cy="24" r="3" fill="#000" opacity="0.9"/>
+  <circle cx="24" cy="104" r="3" fill="#000" opacity="0.9"/>
+  <circle cx="104" cy="104" r="3" fill="#F44336" opacity="0.9"/>
+  
+  <!-- Texto "DOUBLE" -->
+  <text x="64" y="100" text-anchor="middle" fill="#fff" font-family="Arial, sans-serif" font-size="8" font-weight="bold">DOUBLE</text>
 </svg>

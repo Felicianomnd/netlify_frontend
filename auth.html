@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Double Analyzer</title>
+    <title>Double Análise</title>
 
     <!-- Ícones / Favicon -->
     <link rel="icon" href="icon16.svg" type="image/svg+xml">
@@ -1527,8 +1527,8 @@
     <div id="lpLoadingOverlay" class="lp-loading-overlay" aria-live="polite">
         <div class="lp-loading-inner">
             <div class="lp-loading-brand">
-                <img id="lpLoadingLogo" class="lp-loading-logo" src="icon48.svg" alt="Double Analyzer">
-                <div id="lpLoadingBrandText" class="lp-loading-brand-text">Double Analyzer</div>
+                <img id="lpLoadingLogo" class="lp-loading-logo" alt="Double Análise" style="display:none;">
+                <div id="lpLoadingBrandText" class="lp-loading-brand-text">Double Análise</div>
             </div>
             <div class="lp-spinner" aria-hidden="true"></div>
             <div id="lpLoadingLabel" class="lp-loading-label">Carregando...</div>
@@ -1543,8 +1543,8 @@
     <header class="site-header">
         <div class="site-header-inner">
             <div class="brand">
-                <img id="lpBrandLogo" class="brand-logo" src="icon48.svg" alt="Double Analyzer">
-                <span id="lpBrand">Double Analyzer</span>
+                <img id="lpBrandLogo" class="brand-logo" alt="Double Análise" style="display:none;">
+                <span id="lpBrand">Double Análise</span>
             </div>
 
             <nav class="nav-links" id="lpNavLinks">
@@ -1615,7 +1615,7 @@
             <div class="pricing-grid" id="lpPricingGrid"></div>
         </section>
 
-        <div class="landing-footer" id="lpFooterText">© Double Analyzer</div>
+        <div class="landing-footer" id="lpFooterText">© Double Análise</div>
     </main>
 
     <!-- 🔍 Modal para ver prints maiores (50% da tela) -->
@@ -1636,7 +1636,7 @@
             <button type="button" class="auth-modal-close" onclick="closeAuthModal()" aria-label="Fechar">✕</button>
     <div class="auth-container">
         <div class="logo">
-            <h1>Double Analyzer</h1>
+            <h1>Double Análise</h1>
             <p>Sistema de Análise de Padrões</p>
         </div>
 
@@ -2103,11 +2103,11 @@
 
         function getLandingLogoSrc(cfg) {
             const raw = String(cfg?.header?.logo || '').trim();
-            return raw || 'icon48.svg';
+            return raw;
         }
 
         function applyLandingBranding(cfg) {
-            const brand = cfg?.header?.brand || 'Double Analyzer';
+            const brand = cfg?.header?.brand || 'Double Análise';
             const logo = getLandingLogoSrc(cfg);
             setTextById('lpBrand', brand);
             setImgById('lpBrandLogo', logo, brand);
@@ -2564,7 +2564,7 @@
             }
 
             // Footer
-            setTextById('lpFooterText', cfg?.footer?.text || '© Double Analyzer');
+            setTextById('lpFooterText', cfg?.footer?.text || '© Double Análise');
         }
 
         function switchTab(tab, el) {
@@ -2756,9 +2756,9 @@
                 ctx.fillStyle = '#f60';
                 ctx.fillRect(125, 1, 62, 20);
                 ctx.fillStyle = '#069';
-                ctx.fillText('Double Analyzer 🎯', 2, 15);
+                ctx.fillText('Double Análise 🎯', 2, 15);
                 ctx.fillStyle = 'rgba(102, 204, 0, 0.7)';
-                ctx.fillText('Double Analyzer 🎯', 4, 17);
+                ctx.fillText('Double Análise 🎯', 4, 17);
                 
                 // Gerar hash do canvas
                 const dataURL = canvas.toDataURL();
@@ -3445,7 +3445,7 @@
                 const clean = sanitizeWhatsapp(support.whatsapp || '');
                 if (clean && userData?.email) {
                     const message = encodeURIComponent(
-                        `Olá! Fiz o pagamento do Double Analyzer e não fui logado automaticamente.\n` +
+                        `Olá! Fiz o pagamento do Double Análise e não fui logado automaticamente.\n` +
                         `E-mail: ${userData.email}\n` +
                         `${mpPaymentId ? `Pagamento: ${mpPaymentId}\n` : ''}` +
                         `Pode me ajudar? Vou enviar o comprovante.`
@@ -3462,7 +3462,7 @@
             if (emailLink) {
                 const mail = (support.supportEmail || '').trim();
                 if (mail) {
-                    const subject = encodeURIComponent('Suporte - Pagamento confirmado (Double Analyzer)');
+                    const subject = encodeURIComponent('Suporte - Pagamento confirmado (Double Análise)');
                     const body = encodeURIComponent(
                         `Olá!\n\n` +
                         `Meu pagamento foi confirmado, mas eu não entrei automaticamente.\n` +
@@ -3541,7 +3541,7 @@
                         }
                         
                         if (cleanPhone) {
-                            const message = encodeURIComponent(`Olá! Acabei de fazer o pagamento do Double Analyzer. E-mail: ${userData.email}`);
+                            const message = encodeURIComponent(`Olá! Acabei de fazer o pagamento do Double Análise. E-mail: ${userData.email}`);
                             whatsappLink.href = `https://wa.me/${cleanPhone}?text=${message}`;
                             whatsappLink.removeAttribute('aria-disabled');
                         } else {
