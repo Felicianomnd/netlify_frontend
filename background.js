@@ -3658,11 +3658,23 @@ async function processNewSpinFromServer(spinData) {
                     console.log('   Comparação case-insensitive:', rollColor.toLowerCase() === currentAnalysis.color.toLowerCase());
                     
                         // ✅ CORREÇÃO CRÍTICA: Comparação robusta de cores
-                        const expectedColor = String(currentAnalysis.color || '').toLowerCase().trim();
-                        const actualColor = String(rollColor || '').toLowerCase().trim();
+                        const normalizeSimpleColor = (value) => {
+                            const s = String(value || '').toLowerCase().trim();
+                            if (!s) return '';
+                            if (s.startsWith('r')) return 'red';
+                            // "branco" não é black
+                            if (s.startsWith('b') && s !== 'branco') return 'black';
+                            if (s.startsWith('w') || s === 'branco') return 'white';
+                            return s;
+                        };
+                        const expectedColor = normalizeSimpleColor(currentAnalysis.color);
+                        const actualColor = normalizeSimpleColor(rollColor);
 
-                        // ✅ WIN = acerto da cor prevista. Branco NÃO pode virar WIN quando a previsão foi red/black.
-                        const hit = (expectedColor === actualColor);
+                        // ✅ Proteção no branco: se ativada, WHITE conta como WIN (ciclo não é perdido).
+                        const whiteProtectedHit = !!analyzerConfig.whiteProtectionAsWin
+                            && actualColor === 'white'
+                            && (expectedColor === 'red' || expectedColor === 'black');
+                        const hit = (expectedColor === actualColor) || whiteProtectedHit;
                     
                     console.log('   🔍 VERIFICAÇÃO FINAL DE WIN/LOSS:');
                     console.log('   Esperado (processado):', expectedColor);
@@ -28325,11 +28337,22 @@ function evaluatePendingAnalysisSimulation(latestSpin, simState, history, modeKe
         return;
     }
 
-    const expectedColor = String(currentAnalysis.color || '').toLowerCase().trim();
-    const actualColor = String(latestSpin.color || '').toLowerCase().trim();
+    const normalizeSimpleColor = (value) => {
+        const s = String(value || '').toLowerCase().trim();
+        if (!s) return '';
+        if (s.startsWith('r')) return 'red';
+        if (s.startsWith('b') && s !== 'branco') return 'black';
+        if (s.startsWith('w') || s === 'branco') return 'white';
+        return s;
+    };
+    const expectedColor = normalizeSimpleColor(currentAnalysis.color);
+    const actualColor = normalizeSimpleColor(latestSpin.color);
 
-    // ✅ WIN = acerto da cor prevista. Branco NÃO pode virar WIN quando a previsão foi red/black.
-    const hit = (expectedColor === actualColor);
+    // ✅ Proteção no branco: se ativada, WHITE conta como WIN (ciclo não é perdido).
+    const whiteProtectedHit = !!config.whiteProtectionAsWin
+        && actualColor === 'white'
+        && (expectedColor === 'red' || expectedColor === 'black');
+    const hit = (expectedColor === actualColor) || whiteProtectedHit;
 
     // Atualizar signalsHistory (N7) + alternance control
     markLastSignalResolved(simState, latestSpin, hit);
