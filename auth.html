@@ -137,39 +137,36 @@
             aspect-ratio: 4 / 1; /* mantém o tamanho do design do banner (ex.: 1600×400) */
             border-radius: 12px;
             overflow: hidden;
-            background: #0b1220;
+            background: transparent; /* mesma cor do site (body) */
+            display: flex;
+            align-items: stretch;
         }
 
-        /* Gradiente do lado esquerdo (mistura com a cor do site, estilo Netflix) */
-        .hero-stage::before {
+        .hero-stage-media {
+            position: relative;
+            flex: 1 1 auto;
+            overflow: hidden;
+            z-index: 0;
+        }
+
+        /* Gradiente só no lado do banner (não escurece a área do texto) */
+        .hero-stage-media::before {
             content: "";
             position: absolute;
             inset: 0;
             background:
                 linear-gradient(90deg,
-                    rgba(11, 18, 32, 0.98) 0%,
-                    rgba(11, 18, 32, 0.92) 38%,
-                    rgba(11, 18, 32, 0.55) 55%,
-                    rgba(11, 18, 32, 0.18) 70%,
-                    rgba(11, 18, 32, 0.00) 84%);
+                    rgba(21, 25, 36, 1.00) 0%,
+                    rgba(21, 25, 36, 0.86) 18%,
+                    rgba(21, 25, 36, 0.50) 34%,
+                    rgba(21, 25, 36, 0.18) 48%,
+                    rgba(21, 25, 36, 0.00) 62%),
+                linear-gradient(180deg,
+                    rgba(21, 25, 36, 0.00) 0%,
+                    rgba(21, 25, 36, 0.28) 85%,
+                    rgba(21, 25, 36, 0.60) 100%);
             z-index: 1;
             pointer-events: none;
-        }
-
-        /* Gradiente suave no rodapé para integrar */
-        .hero-stage::after {
-            content: "";
-            position: absolute;
-            inset: 0;
-            background: linear-gradient(180deg, rgba(11, 18, 32, 0.00) 0%, rgba(11, 18, 32, 0.55) 88%, rgba(11, 18, 32, 0.72) 100%);
-            z-index: 1;
-            pointer-events: none;
-        }
-
-        .hero-stage-media {
-            position: absolute;
-            inset: 0;
-            z-index: 0;
         }
 
         .hero-stage-content {
@@ -179,8 +176,10 @@
             display: flex;
             flex-direction: column;
             justify-content: center;
-            padding: 44px 40px;
-            max-width: 680px;
+            /* O banner começa após o bloco de texto */
+            flex: 0 0 clamp(360px, 44vw, 640px);
+            max-width: 640px;
+            padding: 44px 18px 44px 40px;
         }
 
         .hero-badge {
@@ -504,9 +503,15 @@
             }
             .hero-stage {
                 aspect-ratio: 16 / 9; /* em telas menores fica mais legível */
+                display: block;
+            }
+            .hero-stage-media {
+                position: absolute;
+                inset: 0;
             }
             .hero-stage-content {
                 padding: 22px 18px;
+                flex: 0 0 auto;
                 max-width: none;
             }
             .nav-links {
