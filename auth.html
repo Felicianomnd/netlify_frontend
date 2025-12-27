@@ -392,6 +392,44 @@
             text-align: center;
         }
 
+        /* ═══════════════════════════════════════════════════════════════════════ */
+        /* ✨ Hover (zoom suave)                                                   */
+        /* ═══════════════════════════════════════════════════════════════════════ */
+
+        @media (hover: hover) and (pointer: fine) {
+            .hero-banner .hero-banner-media {
+                transition: transform 0.35s ease;
+                transform-origin: center;
+                will-change: transform;
+            }
+
+            .hero-banner:hover .hero-banner-media {
+                transform: scale(1.04);
+            }
+
+            .tile-media img {
+                transition: transform 0.35s ease;
+                transform-origin: center;
+                will-change: transform;
+            }
+
+            .tile:hover .tile-media img {
+                transform: scale(1.06);
+            }
+
+            .feature-card,
+            .pricing-card {
+                transition: transform 0.25s ease;
+                transform-origin: center;
+                will-change: transform;
+            }
+
+            .feature-card:hover,
+            .pricing-card:hover {
+                transform: scale(1.01);
+            }
+        }
+
         @media (max-width: 900px) {
             .site-header-inner {
                 padding: 14px 16px;
