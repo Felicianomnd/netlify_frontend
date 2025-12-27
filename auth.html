@@ -181,7 +181,7 @@
             border-radius: 10px;
             background: rgba(0, 0, 0, 0.25);
             overflow: hidden;
-            min-height: 220px;
+            aspect-ratio: 4 / 1; /* Proporção fixa do banner (banner estreito) */
             display: flex;
             align-items: center;
             justify-content: center;
@@ -208,7 +208,8 @@
             inset: 0;
             width: 100%;
             height: 100%;
-            object-fit: cover;
+            object-fit: contain; /* nunca cortar o design */
+            background: rgba(0, 0, 0, 0.25);
             opacity: 0;
             transition: opacity 0.5s ease;
             display: block;
@@ -232,7 +233,8 @@
             flex: 0 0 100%;
             width: 100%;
             height: 100%;
-            object-fit: cover;
+            object-fit: contain; /* nunca cortar o design */
+            background: rgba(0, 0, 0, 0.25);
             display: block;
         }
 
@@ -314,17 +316,23 @@
         }
 
         .tile-media {
-            flex: 1;
+            width: 100%;
+            aspect-ratio: 1 / 1; /* Proporção fixa do GIF/Tile */
             background: rgba(255, 255, 255, 0.04);
             display: flex;
             align-items: center;
             justify-content: center;
         }
 
+        .tile.tile-wide .tile-media {
+            aspect-ratio: 16 / 9; /* Proporção fixa dos prints */
+        }
+
         .tile-media img {
             width: 100%;
             height: 100%;
-            object-fit: cover;
+            object-fit: contain; /* nunca cortar o design */
+            background: rgba(0, 0, 0, 0.25);
             display: block;
         }
 
@@ -2014,7 +2022,7 @@
                 const gallery = Array.isArray(cfg?.media?.gallery) ? cfg.media.gallery : [];
                 for (const g of gallery) {
                     const wrap = document.createElement('div');
-                    wrap.className = 'tile';
+                    wrap.className = 'tile tile-wide';
 
                     const media = document.createElement('div');
                     media.className = 'tile-media';
