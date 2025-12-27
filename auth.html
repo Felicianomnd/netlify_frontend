@@ -20,10 +20,380 @@
             font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, 'Roboto', 'Oxygen', sans-serif;
             background: #151924;
             min-height: 100vh;
+            margin: 0;
+            padding: 0;
+            overflow-x: hidden;
+        }
+
+        /* ═══════════════════════════════════════════════════════════════════════ */
+        /* 🌐 LANDING (Página inicial do site)                                     */
+        /* ═══════════════════════════════════════════════════════════════════════ */
+
+        .site-header {
+            position: sticky;
+            top: 0;
+            z-index: 50;
+            background: rgba(21, 25, 36, 0.92);
+            backdrop-filter: blur(10px);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+        }
+
+        .site-header-inner {
+            max-width: 1100px;
+            margin: 0 auto;
+            padding: 14px 18px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 14px;
+        }
+
+        .brand {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-weight: 800;
+            letter-spacing: 0.3px;
+            white-space: nowrap;
+        }
+
+        .brand span {
+            background: linear-gradient(90deg, #ff003f, #9945ff);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .nav-links {
+            display: flex;
+            gap: 14px;
+            align-items: center;
+            flex: 1;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+
+        .nav-links a {
+            color: #9aa9c6;
+            text-decoration: none;
+            font-size: 13px;
+            font-weight: 600;
+            padding: 8px 10px;
+            border-radius: 6px;
+            border: 1px solid transparent;
+            transition: all 0.2s ease;
+        }
+
+        .nav-links a:hover {
+            color: #ffffff;
+            border-color: rgba(255, 0, 63, 0.35);
+            background: rgba(255, 0, 63, 0.08);
+        }
+
+        .header-ctas {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            justify-content: flex-end;
+            white-space: nowrap;
+        }
+
+        .header-ctas .btn {
+            width: auto;
+            padding: 10px 14px;
+            height: auto;
+            font-size: 14px;
+            border-radius: 6px;
+        }
+
+        .landing {
+            max-width: 1100px;
+            margin: 0 auto;
+            padding: 26px 18px 60px 18px;
+        }
+
+        .landing-section {
+            padding: 28px 0;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+        }
+
+        .landing-section:last-child {
+            border-bottom: none;
+        }
+
+        .hero-grid {
+            display: grid;
+            grid-template-columns: 1.15fr 0.85fr;
+            gap: 22px;
+            align-items: center;
+        }
+
+        .hero-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 7px 10px;
+            border-radius: 999px;
+            font-size: 12px;
+            font-weight: 700;
+            color: #ff4d6d;
+            border: 1px solid rgba(255, 0, 63, 0.25);
+            background: rgba(255, 0, 63, 0.08);
+            margin-bottom: 10px;
+        }
+
+        .hero-title {
+            font-size: 34px;
+            line-height: 1.12;
+            letter-spacing: -0.4px;
+            margin: 0 0 10px 0;
+            color: #ffffff;
+        }
+
+        .hero-subtitle {
+            color: #9aa9c6;
+            font-size: 15px;
+            margin: 0 0 14px 0;
+        }
+
+        .hero-desc {
+            color: #b4c2d8;
+            font-size: 14px;
+            margin: 0 0 18px 0;
+        }
+
+        .hero-actions {
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+
+        .hero-actions .btn {
+            width: auto;
+            padding: 12px 16px;
+            border-radius: 8px;
+        }
+
+        .hero-banner {
+            width: 100%;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 10px;
+            background: rgba(0, 0, 0, 0.25);
+            overflow: hidden;
+            min-height: 220px;
             display: flex;
             align-items: center;
             justify-content: center;
+            color: rgba(255,255,255,0.35);
+            font-size: 13px;
+            font-weight: 600;
+        }
+
+        .hero-banner img {
+            width: 100%;
+            height: 100%;
+            max-height: 320px;
+            object-fit: cover;
+            display: block;
+        }
+
+        .section-title {
+            color: #ffffff;
+            font-size: 20px;
+            font-weight: 800;
+            margin: 0 0 10px 0;
+        }
+
+        .section-subtitle {
+            color: #9aa9c6;
+            font-size: 14px;
+            margin: 0 0 16px 0;
+        }
+
+        .feature-grid {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 12px;
+        }
+
+        .feature-card {
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 10px;
+            background: rgba(0, 0, 0, 0.22);
+            padding: 16px;
+        }
+
+        .feature-card h4 {
+            margin: 0 0 6px 0;
+            font-size: 14px;
+            color: #ffffff;
+        }
+
+        .feature-card p {
+            margin: 0;
+            font-size: 13px;
+            color: #9aa9c6;
+        }
+
+        .tiles-grid {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 12px;
+        }
+
+        .tile {
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 10px;
+            overflow: hidden;
+            background: rgba(0, 0, 0, 0.22);
+            min-height: 140px;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .tile-media {
+            flex: 1;
+            background: rgba(255, 255, 255, 0.04);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .tile-media img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            display: block;
+        }
+
+        .tile-title {
+            padding: 10px 12px;
+            font-size: 13px;
+            font-weight: 700;
+            color: #b4c2d8;
+        }
+
+        .pricing-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 12px;
+        }
+
+        .pricing-card {
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 10px;
+            background: rgba(0, 0, 0, 0.22);
+            padding: 18px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .pricing-card.highlight {
+            border-color: rgba(255, 0, 63, 0.38);
+            background: rgba(255, 0, 63, 0.06);
+        }
+
+        .pricing-name {
+            color: #ffffff;
+            font-size: 16px;
+            font-weight: 800;
+        }
+
+        .pricing-price {
+            color: #ff003f;
+            font-weight: 900;
+            font-size: 30px;
+            line-height: 1.0;
+        }
+
+        .pricing-price span {
+            color: #8da2bb;
+            font-size: 14px;
+            font-weight: 600;
+        }
+
+        .pricing-desc {
+            color: #9aa9c6;
+            font-size: 13px;
+            margin: 0;
+        }
+
+        .pricing-card .btn {
+            width: 100%;
+        }
+
+        .landing-footer {
+            padding-top: 26px;
+            color: #8da2bb;
+            font-size: 13px;
+            text-align: center;
+        }
+
+        @media (max-width: 900px) {
+            .hero-grid {
+                grid-template-columns: 1fr;
+            }
+            .feature-grid {
+                grid-template-columns: 1fr;
+            }
+            .tiles-grid {
+                grid-template-columns: 1fr;
+            }
+            .pricing-grid {
+                grid-template-columns: 1fr;
+            }
+            .nav-links {
+                display: none;
+            }
+        }
+
+        /* ═══════════════════════════════════════════════════════════════════════ */
+        /* 🔐 AUTH MODAL                                                          */
+        /* ═══════════════════════════════════════════════════════════════════════ */
+
+        .auth-modal {
+            position: fixed;
+            inset: 0;
+            z-index: 200;
+            display: none;
+            align-items: center;
+            justify-content: center;
             padding: 20px;
+        }
+
+        .auth-modal.active {
+            display: flex;
+        }
+
+        .auth-modal-overlay {
+            position: absolute;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.55);
+        }
+
+        .auth-modal-dialog {
+            position: relative;
+            z-index: 1;
+            width: 100%;
+            max-width: 520px;
+        }
+
+        .auth-modal-close {
+            position: absolute;
+            top: 12px;
+            right: 12px;
+            width: 36px;
+            height: 36px;
+            border-radius: 8px;
+            border: 1px solid rgba(255,255,255,0.12);
+            background: rgba(0,0,0,0.25);
+            color: #ffffff;
+            cursor: pointer;
+            font-size: 18px;
+            line-height: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
         }
 
         .auth-container {
@@ -766,7 +1136,76 @@
     </style>
 </head>
 <body>
-    <div class="auth-container">
+    <!-- 🌐 LANDING PAGE (sempre visível) -->
+    <header class="site-header">
+        <div class="site-header-inner">
+            <div class="brand"><span id="lpBrand">Double Analyzer</span></div>
+
+            <nav class="nav-links" id="lpNavLinks">
+                <a href="#funcionalidades">Funcionalidades</a>
+                <a href="#planos">Planos</a>
+            </nav>
+
+            <div class="header-ctas">
+                <button type="button" class="btn btn-secondary" id="lpLoginBtn" onclick="openAuthModal('login')">Entrar</button>
+                <button type="button" class="btn btn-primary" id="lpRegisterBtn" onclick="openAuthModal('register')">Criar conta</button>
+            </div>
+        </div>
+    </header>
+
+    <main class="landing">
+        <section class="landing-section" id="inicio">
+            <div class="hero-grid">
+                <div>
+                    <div class="hero-badge" id="lpHeroBadge" style="display:none;"></div>
+                    <h1 class="hero-title" id="lpHeroTitle">Sistema de Análise de Padrões</h1>
+                    <p class="hero-subtitle" id="lpHeroSubtitle">Entenda o que você está contratando antes de criar sua conta.</p>
+                    <p class="hero-desc" id="lpHeroDescription">
+                        Configure seus padrões, acompanhe sinais e use um painel rápido e limpo para tomar decisões com consistência.
+                    </p>
+
+                    <div class="hero-actions">
+                        <button type="button" class="btn btn-primary" onclick="scrollToSection('planos')">Ver planos</button>
+                        <button type="button" class="btn btn-secondary" onclick="openAuthModal('register')">Criar conta</button>
+                    </div>
+                </div>
+
+                <div class="hero-banner" id="lpHeroBanner">
+                    <span id="lpHeroBannerPlaceholder">Banner / Promoção</span>
+                    <img id="lpHeroBannerImg" alt="Banner" style="display:none;">
+                </div>
+            </div>
+        </section>
+
+        <section class="landing-section" id="funcionalidades">
+            <h2 class="section-title" id="lpFeaturesTitle">Funcionalidades</h2>
+            <p class="section-subtitle" id="lpFeaturesSubtitle"></p>
+            <div class="feature-grid" id="lpFeaturesGrid"></div>
+        </section>
+
+        <section class="landing-section" id="midia">
+            <h2 class="section-title" id="lpMediaTitle">Veja por dentro</h2>
+            <p class="section-subtitle" id="lpMediaSubtitle"></p>
+            <div class="tiles-grid" id="lpTilesGrid"></div>
+            <div style="height: 14px;"></div>
+            <div class="tiles-grid" id="lpGalleryGrid"></div>
+        </section>
+
+        <section class="landing-section" id="planos">
+            <h2 class="section-title" id="lpPricingTitle">Planos</h2>
+            <p class="section-subtitle" id="lpPricingSubtitle">Escolha o melhor para você</p>
+            <div class="pricing-grid" id="lpPricingGrid"></div>
+        </section>
+
+        <div class="landing-footer" id="lpFooterText">© Double Analyzer</div>
+    </main>
+
+    <!-- 🔐 MODAL DE LOGIN/CADASTRO (abre por botões/planos) -->
+    <div id="authModal" class="auth-modal" aria-hidden="true">
+        <div class="auth-modal-overlay" onclick="closeAuthModal()"></div>
+        <div class="auth-modal-dialog">
+            <button type="button" class="auth-modal-close" onclick="closeAuthModal()" aria-label="Fechar">✕</button>
+            <div class="auth-container">
         <div class="logo">
             <h1>Double Analyzer</h1>
             <p>Sistema de Análise de Padrões</p>
@@ -777,8 +1216,8 @@
         <!-- TELA 1: LOGIN/CADASTRO -->
         <div id="authScreen" class="screen active">
             <div class="tabs">
-                <button class="tab active" onclick="switchTab('login')">Login</button>
-                <button class="tab" onclick="switchTab('register')">Cadastrar</button>
+                <button class="tab active" data-tab="login" onclick="switchTab('login', this)">Login</button>
+                <button class="tab" data-tab="register" onclick="switchTab('register', this)">Cadastrar</button>
             </div>
 
             <!-- Login -->
@@ -997,6 +1436,8 @@
             </div>
         </div>
     </div>
+        </div>
+    </div>
 
     <script>
         const API_URL = 'https://blaze-analyzer-api-v2.onrender.com/api';
@@ -1148,15 +1589,260 @@
             if (session.token && session.user) {
                 console.log('✅ [AUTH] Já está logado! Redirecionando para index.html...');
                 window.location.href = 'index.html';
+                return;
             } else {
                 console.log('ℹ️ [AUTH] Não está logado - exibindo tela de login');
             }
+
+            // Landing (conteúdo dinâmico via Admin)
+            loadLandingPage().catch(() => {});
+
+            // Fechar modal com ESC
+            document.addEventListener('keydown', (e) => {
+                if (e.key === 'Escape') closeAuthModal();
+            });
         });
 
-        function switchTab(tab) {
+        // ═══════════════════════════════════════════════════════════════════════
+        // 🌐 Landing (conteúdo editável pelo Admin)
+        // ═══════════════════════════════════════════════════════════════════════
+
+        let landingConfig = null;
+        let landingPlans = [];
+
+        function setTextById(id, value) {
+            const el = document.getElementById(id);
+            if (!el) return;
+            el.textContent = value == null ? '' : String(value);
+        }
+
+        function clearNode(node) {
+            if (!node) return;
+            while (node.firstChild) node.removeChild(node.firstChild);
+        }
+
+        function formatPriceBRL(price) {
+            const n = Number(price);
+            if (!Number.isFinite(n)) return '0,00';
+            return n.toFixed(2).replace('.', ',');
+        }
+
+        async function loadLandingPage() {
+            const response = await fetch(`${API_URL}/site/landing`, { cache: 'no-store' });
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok || !data.success) {
+                throw new Error(data.error || 'Erro ao carregar landing');
+            }
+
+            landingConfig = data.landing || null;
+            landingPlans = Array.isArray(data.plans) ? data.plans : [];
+            renderLandingPage(landingConfig, landingPlans);
+        }
+
+        function renderLandingPage(cfg, plans) {
+            // Header
+            const brand = cfg?.header?.brand || 'Double Analyzer';
+            setTextById('lpBrand', brand);
+
+            const loginText = cfg?.header?.ctas?.loginText || 'Entrar';
+            const registerText = cfg?.header?.ctas?.registerText || 'Criar conta';
+            const loginBtn = document.getElementById('lpLoginBtn');
+            const registerBtn = document.getElementById('lpRegisterBtn');
+            if (loginBtn) loginBtn.textContent = loginText;
+            if (registerBtn) registerBtn.textContent = registerText;
+
+            const nav = document.getElementById('lpNavLinks');
+            if (nav) {
+                clearNode(nav);
+                const links = Array.isArray(cfg?.header?.links) ? cfg.header.links : [];
+                for (const link of links) {
+                    if (!link || !link.label) continue;
+                    const a = document.createElement('a');
+                    a.textContent = String(link.label);
+                    a.href = link.anchor || '#';
+                    a.addEventListener('click', (e) => {
+                        const href = a.getAttribute('href') || '';
+                        if (href.startsWith('#')) {
+                            e.preventDefault();
+                            scrollToSection(href.slice(1));
+                        }
+                    });
+                    nav.appendChild(a);
+                }
+                if (!links.length) {
+                    nav.style.display = 'none';
+                }
+            }
+
+            // Hero
+            setTextById('lpHeroTitle', cfg?.hero?.title || 'Sistema de Análise de Padrões');
+            setTextById('lpHeroSubtitle', cfg?.hero?.subtitle || '');
+            setTextById('lpHeroDescription', cfg?.hero?.description || '');
+
+            const badge = document.getElementById('lpHeroBadge');
+            if (badge) {
+                const badgeText = cfg?.hero?.promoBadge;
+                if (badgeText) {
+                    badge.textContent = String(badgeText);
+                    badge.style.display = 'inline-flex';
+                } else {
+                    badge.style.display = 'none';
+                }
+            }
+
+            const bannerImg = document.getElementById('lpHeroBannerImg');
+            const bannerPlaceholder = document.getElementById('lpHeroBannerPlaceholder');
+            const bannerSrc = cfg?.hero?.bannerImage;
+            if (bannerImg && bannerPlaceholder) {
+                if (bannerSrc) {
+                    bannerImg.src = String(bannerSrc);
+                    bannerImg.style.display = 'block';
+                    bannerPlaceholder.style.display = 'none';
+                } else {
+                    bannerImg.removeAttribute('src');
+                    bannerImg.style.display = 'none';
+                    bannerPlaceholder.style.display = 'block';
+                }
+            }
+
+            // Features
+            setTextById('lpFeaturesTitle', cfg?.features?.title || 'Funcionalidades');
+            setTextById('lpFeaturesSubtitle', '');
+
+            const featuresGrid = document.getElementById('lpFeaturesGrid');
+            if (featuresGrid) {
+                clearNode(featuresGrid);
+                const items = Array.isArray(cfg?.features?.items) ? cfg.features.items : [];
+                for (const item of items) {
+                    const card = document.createElement('div');
+                    card.className = 'feature-card';
+                    const h = document.createElement('h4');
+                    h.textContent = String(item?.title || '');
+                    const p = document.createElement('p');
+                    p.textContent = String(item?.description || '');
+                    card.appendChild(h);
+                    card.appendChild(p);
+                    featuresGrid.appendChild(card);
+                }
+            }
+
+            // Media
+            setTextById('lpMediaTitle', cfg?.media?.title || 'Veja por dentro');
+            setTextById('lpMediaSubtitle', '');
+
+            const tilesGrid = document.getElementById('lpTilesGrid');
+            if (tilesGrid) {
+                clearNode(tilesGrid);
+                const tiles = Array.isArray(cfg?.media?.tiles) ? cfg.media.tiles : [];
+                for (const tile of tiles) {
+                    const wrap = document.createElement('div');
+                    wrap.className = 'tile';
+
+                    const media = document.createElement('div');
+                    media.className = 'tile-media';
+                    if (tile?.image) {
+                        const img = document.createElement('img');
+                        img.alt = String(tile.title || 'Tile');
+                        img.src = String(tile.image);
+                        media.appendChild(img);
+                    } else {
+                        media.textContent = 'Imagem';
+                    }
+
+                    const title = document.createElement('div');
+                    title.className = 'tile-title';
+                    title.textContent = String(tile?.title || '');
+
+                    wrap.appendChild(media);
+                    wrap.appendChild(title);
+                    tilesGrid.appendChild(wrap);
+                }
+            }
+
+            const galleryGrid = document.getElementById('lpGalleryGrid');
+            if (galleryGrid) {
+                clearNode(galleryGrid);
+                const gallery = Array.isArray(cfg?.media?.gallery) ? cfg.media.gallery : [];
+                for (const g of gallery) {
+                    const wrap = document.createElement('div');
+                    wrap.className = 'tile';
+
+                    const media = document.createElement('div');
+                    media.className = 'tile-media';
+                    if (g?.image) {
+                        const img = document.createElement('img');
+                        img.alt = String(g.caption || 'Imagem');
+                        img.src = String(g.image);
+                        media.appendChild(img);
+                    } else {
+                        media.textContent = 'Print';
+                    }
+
+                    const title = document.createElement('div');
+                    title.className = 'tile-title';
+                    title.textContent = String(g?.caption || '');
+
+                    wrap.appendChild(media);
+                    wrap.appendChild(title);
+                    galleryGrid.appendChild(wrap);
+                }
+            }
+
+            // Pricing
+            setTextById('lpPricingTitle', cfg?.pricing?.title || 'Planos');
+            setTextById('lpPricingSubtitle', cfg?.pricing?.subtitle || '');
+
+            const pricingGrid = document.getElementById('lpPricingGrid');
+            if (pricingGrid) {
+                clearNode(pricingGrid);
+                const highlight = cfg?.pricing?.highlightDuration || null;
+                const ctaText = cfg?.pricing?.ctaText || 'Assinar';
+
+                const sortedPlans = Array.isArray(plans) ? [...plans].sort((a, b) => (a.days || 0) - (b.days || 0)) : [];
+                for (const plan of sortedPlans) {
+                    const card = document.createElement('div');
+                    card.className = `pricing-card${highlight && plan.duration === highlight ? ' highlight' : ''}`;
+
+                    const name = document.createElement('div');
+                    name.className = 'pricing-name';
+                    name.textContent = String(plan.name || plan.duration);
+
+                    const price = document.createElement('div');
+                    price.className = 'pricing-price';
+                    price.innerHTML = `R$ ${formatPriceBRL(plan.price)} <span>/ ${Number(plan.days || 0)} dias</span>`;
+
+                    const desc = document.createElement('p');
+                    desc.className = 'pricing-desc';
+                    desc.textContent = String(plan.description || '');
+
+                    const btn = document.createElement('button');
+                    btn.type = 'button';
+                    btn.className = 'btn btn-primary';
+                    btn.textContent = ctaText;
+                    btn.addEventListener('click', () => openAuthModal('register', { planDuration: plan.duration }));
+
+                    card.appendChild(name);
+                    card.appendChild(price);
+                    card.appendChild(desc);
+                    card.appendChild(btn);
+                    pricingGrid.appendChild(card);
+                }
+            }
+
+            // Footer
+            setTextById('lpFooterText', cfg?.footer?.text || '© Double Analyzer');
+        }
+
+        function switchTab(tab, el) {
             document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-            event.target.classList.add('active');
-            
+
+            const activeEl =
+                el ||
+                document.querySelector(`.tab[data-tab="${tab}"]`) ||
+                null;
+
+            if (activeEl) activeEl.classList.add('active');
+
             document.getElementById('loginForm').style.display = tab === 'login' ? 'block' : 'none';
             document.getElementById('registerForm').style.display = tab === 'register' ? 'block' : 'none';
             hideMessage();
@@ -1194,6 +1880,54 @@
             document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
             document.getElementById(screenId).classList.add('active');
             hideMessage();
+        }
+
+        function openAuthModal(mode = 'login', options = {}) {
+            const modal = document.getElementById('authModal');
+            if (!modal) return;
+
+            modal.classList.add('active');
+            modal.setAttribute('aria-hidden', 'false');
+
+            // Seleção de plano (quando clicou em um preço na landing)
+            if (options && options.planDuration) {
+                selectedPlan = options.planDuration;
+            } else if (!options?.preservePlan) {
+                // Se abriu "Criar conta" pelo header (sem escolher plano), limpar
+                if (mode === 'register') selectedPlan = null;
+                if (mode === 'login') selectedPlan = null;
+            }
+
+            // Entrando pelo modal não deve herdar contexto "pending" de login anterior
+            pendingUserId = null;
+
+            showScreen('authScreen');
+
+            if (mode === 'register') {
+                switchTab('register');
+                setTimeout(() => document.getElementById('registerName')?.focus(), 120);
+            } else {
+                switchTab('login');
+                setTimeout(() => document.getElementById('loginEmail')?.focus(), 120);
+            }
+        }
+
+        function closeAuthModal() {
+            const modal = document.getElementById('authModal');
+            if (!modal) return;
+            stopMpPaymentPolling();
+            modal.classList.remove('active');
+            modal.setAttribute('aria-hidden', 'true');
+        }
+
+        function scrollToSection(id) {
+            const el = document.getElementById(id);
+            if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+
+        // Usado pelo link "E-mail incorreto? Corrigir" na tela de verificação
+        function showRegisterScreen() {
+            openAuthModal('register', { preservePlan: true });
         }
 
         function showForgotPasswordScreen() {
@@ -1617,7 +2351,7 @@
                     email: email.trim().toLowerCase(),
                     password
                 };
-                selectedPlan = null;
+                // selectedPlan pode ter sido pré-selecionado na landing (ao clicar em um plano)
                 emailVerificationToken = null;
                 await requestEmailVerificationCode({ showSuccessMessage: true });
             } catch (error) {
@@ -1788,6 +2522,13 @@
                 const resendBtn = document.getElementById('resendVerificationBtn');
                 if (resendBtn) resendBtn.disabled = true;
 
+                // Se o plano já foi escolhido na landing (antes do cadastro), pular seleção e ir direto para pagamento
+                if (selectedPlan) {
+                    showMessage('Email verificado com sucesso! Continuando...', 'success');
+                    await confirmPlan();
+                    return;
+                }
+
                 showMessage('Email verificado com sucesso! Escolha seu plano para continuar.', 'success');
                 await loadPlans();
                 showScreen('planScreen');
@@ -1806,7 +2547,6 @@
                 
                 if (data.success) {
                     const container = document.getElementById('plansContainer');
-                    selectedPlan = null;
                     container.innerHTML = data.plans.map(plan => `
                         <div class="plan-card" onclick="selectPlan(event, '${plan.duration}')">
                             <div class="plan-name">${plan.name}</div>
@@ -2178,6 +2918,9 @@
             mpPaymentId = null;
             mpPixCode = null;
             mpTicketUrl = null;
+
+            // Forçar o usuário a escolher novamente (trocar de plano)
+            selectedPlan = null;
 
             await loadPlans();
             showScreen('planScreen');
