@@ -60,6 +60,7 @@
 
         .brand span {
             background: linear-gradient(90deg, #ff003f, #9945ff);
+            background-clip: text;
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
         }
@@ -122,11 +123,64 @@
             border-bottom: none;
         }
 
-        .hero-grid {
-            display: grid;
-            grid-template-columns: 1.15fr 0.85fr;
-            gap: 22px;
-            align-items: center;
+        /* ─────────────────────────────────────────────────────────────────────── */
+        /* 🎬 Hero (Netflix-style)                                                */
+        /* ─────────────────────────────────────────────────────────────────────── */
+
+        .landing-hero {
+            padding-top: 18px;
+        }
+
+        .hero-stage {
+            position: relative;
+            width: 100%;
+            aspect-ratio: 4 / 1; /* mantém o tamanho do design do banner (ex.: 1600×400) */
+            border-radius: 12px;
+            overflow: hidden;
+            background: #0b1220;
+        }
+
+        /* Gradiente do lado esquerdo (mistura com a cor do site, estilo Netflix) */
+        .hero-stage::before {
+            content: "";
+            position: absolute;
+            inset: 0;
+            background:
+                linear-gradient(90deg,
+                    rgba(11, 18, 32, 0.98) 0%,
+                    rgba(11, 18, 32, 0.92) 38%,
+                    rgba(11, 18, 32, 0.55) 55%,
+                    rgba(11, 18, 32, 0.18) 70%,
+                    rgba(11, 18, 32, 0.00) 84%);
+            z-index: 1;
+            pointer-events: none;
+        }
+
+        /* Gradiente suave no rodapé para integrar */
+        .hero-stage::after {
+            content: "";
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(180deg, rgba(11, 18, 32, 0.00) 0%, rgba(11, 18, 32, 0.55) 88%, rgba(11, 18, 32, 0.72) 100%);
+            z-index: 1;
+            pointer-events: none;
+        }
+
+        .hero-stage-media {
+            position: absolute;
+            inset: 0;
+            z-index: 0;
+        }
+
+        .hero-stage-content {
+            position: relative;
+            z-index: 2;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            padding: 44px 40px;
+            max-width: 680px;
         }
 
         .hero-badge {
@@ -177,15 +231,15 @@
 
         .hero-banner {
             width: 100%;
-            border: 1px solid rgba(255, 255, 255, 0.08);
-            border-radius: 10px;
-            background: rgba(0, 0, 0, 0.25);
+            border: none;
+            border-radius: 0;
+            background: transparent;
             overflow: hidden;
-            aspect-ratio: 4 / 1; /* Proporção fixa do banner (banner estreito) */
+            position: absolute;
+            inset: 0;
             display: flex;
             align-items: center;
             justify-content: center;
-            position: relative;
             color: rgba(255,255,255,0.35);
             font-size: 13px;
             font-weight: 600;
@@ -208,8 +262,8 @@
             inset: 0;
             width: 100%;
             height: 100%;
-            object-fit: contain; /* nunca cortar o design */
-            background: rgba(0, 0, 0, 0.25);
+            object-fit: contain;
+            object-position: right center;
             opacity: 0;
             transition: opacity 0.5s ease;
             display: block;
@@ -233,8 +287,8 @@
             flex: 0 0 100%;
             width: 100%;
             height: 100%;
-            object-fit: contain; /* nunca cortar o design */
-            background: rgba(0, 0, 0, 0.25);
+            object-fit: contain;
+            object-position: right center;
             display: block;
         }
 
@@ -445,8 +499,15 @@
             .landing {
                 padding: 22px 16px 56px 16px;
             }
-            .hero-grid {
-                grid-template-columns: 1fr;
+            .landing-hero {
+                padding-top: 14px;
+            }
+            .hero-stage {
+                aspect-ratio: 16 / 9; /* em telas menores fica mais legível */
+            }
+            .hero-stage-content {
+                padding: 22px 18px;
+                max-width: none;
             }
             .nav-links {
                 display: none;
@@ -538,6 +599,7 @@
             font-size: 28px;
             font-weight: 700;
             background: linear-gradient(90deg, #ff003f, #9945ff);
+            background-clip: text;
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
             margin-bottom: 8px;
@@ -1266,9 +1328,16 @@
     </header>
 
     <main class="landing">
-        <section class="landing-section" id="inicio">
-            <div class="hero-grid">
-                <div>
+        <section class="landing-section landing-hero" id="inicio">
+            <div class="hero-stage">
+                <div class="hero-stage-media" aria-hidden="true">
+                    <div class="hero-banner" id="lpHeroBanner">
+                        <span id="lpHeroBannerPlaceholder">Banner / Promoção</span>
+                        <div id="lpHeroBannerMedia" class="hero-banner-media"></div>
+                    </div>
+                </div>
+
+                <div class="hero-stage-content">
                     <div class="hero-badge" id="lpHeroBadge" style="display:none;"></div>
                     <h1 class="hero-title" id="lpHeroTitle">Sistema de Análise de Padrões</h1>
                     <p class="hero-subtitle" id="lpHeroSubtitle">Entenda o que você está contratando antes de criar sua conta.</p>
@@ -1279,15 +1348,6 @@
                     <div class="hero-actions">
                         <button type="button" class="btn btn-primary" onclick="scrollToSection('planos')">Ver planos</button>
                         <button type="button" class="btn btn-secondary" onclick="openAuthModal('register')">Criar conta</button>
-                    </div>
-                </div>
-
-                <div class="hero-banner" id="lpHeroBanner">
-                    <span id="lpHeroBannerPlaceholder">Banner / Promoção</span>
-                    <div id="lpHeroBannerMedia" class="hero-banner-media" aria-hidden="true"></div>
-                    <div id="lpHeroBannerCaption" class="hero-banner-caption" style="display:none;">
-                        <div id="lpHeroBannerCaptionTitle" class="hero-banner-caption-title"></div>
-                        <div id="lpHeroBannerCaptionDesc" class="hero-banner-caption-desc"></div>
                     </div>
                 </div>
             </div>
@@ -1319,7 +1379,7 @@
         <div class="auth-modal-overlay" onclick="closeAuthModal()"></div>
         <div class="auth-modal-dialog">
             <button type="button" class="auth-modal-close" onclick="closeAuthModal()" aria-label="Fechar">✕</button>
-            <div class="auth-container">
+    <div class="auth-container">
         <div class="logo">
             <h1>Double Analyzer</h1>
             <p>Sistema de Análise de Padrões</p>
@@ -1501,7 +1561,7 @@
 
                     <button type="button" class="btn btn-primary" id="mpCopyBtn" onclick="copyMpPixCode()" disabled>
                         Copiar código PIX
-                    </button>
+                        </button>
 
                     <button type="button" class="btn btn-secondary" id="mpOpenTicketBtn" onclick="openMpTicket()" style="margin-top: 12px; display: none;">
                         Abrir cobrança
@@ -1515,7 +1575,7 @@
 
                     <div class="link" style="margin-top: 14px;">
                         <a href="#" onclick="showActivationScreen(); return false;">Já tenho um código de ativação</a>
-                    </div>
+                        </div>
                 </div>
 
                 <!-- Suporte: aparece somente se o pagamento for confirmado e der erro na ativação/login -->
@@ -1567,8 +1627,8 @@
                     Ainda não recebeu? <a href="#" onclick="showPaymentScreen(); return false;">Voltar para pagamento</a>
                 </div>
             </div>
-        </div>
-    </div>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -2101,7 +2161,7 @@
                 null;
 
             if (activeEl) activeEl.classList.add('active');
-
+            
             document.getElementById('loginForm').style.display = tab === 'login' ? 'block' : 'none';
             document.getElementById('registerForm').style.display = tab === 'register' ? 'block' : 'none';
             hideMessage();
@@ -2832,7 +2892,7 @@
                 showMessage('Selecione um plano', 'error');
                 return;
             }
-
+            
             const btn = document.getElementById('confirmPlanBtn');
             btn.disabled = true;
             btn.innerHTML = '<div class="loader"></div> Processando...';
