@@ -1296,8 +1296,6 @@
         <section class="landing-section" id="midia">
             <h2 class="section-title" id="lpMediaTitle">Veja por dentro</h2>
             <p class="section-subtitle" id="lpMediaSubtitle"></p>
-            <div class="tiles-grid" id="lpTilesGrid"></div>
-            <div style="height: 14px;"></div>
             <div class="tiles-grid" id="lpGalleryGrid"></div>
         </section>
 
@@ -1987,40 +1985,19 @@
             setTextById('lpMediaTitle', cfg?.media?.title || 'Veja por dentro');
             setTextById('lpMediaSubtitle', '');
 
-            const tilesGrid = document.getElementById('lpTilesGrid');
-            if (tilesGrid) {
-                clearNode(tilesGrid);
-                const tiles = Array.isArray(cfg?.media?.tiles) ? cfg.media.tiles : [];
-                for (const tile of tiles) {
-                    const wrap = document.createElement('div');
-                    wrap.className = 'tile';
-
-                    const media = document.createElement('div');
-                    media.className = 'tile-media';
-                    if (tile?.image) {
-                        const img = document.createElement('img');
-                        img.alt = String(tile.title || 'Tile');
-                        img.src = String(tile.image);
-                        media.appendChild(img);
-                    } else {
-                        media.textContent = 'Imagem';
-                    }
-
-                    const title = document.createElement('div');
-                    title.className = 'tile-title';
-                    title.textContent = String(tile?.title || '');
-
-                    wrap.appendChild(media);
-                    wrap.appendChild(title);
-                    tilesGrid.appendChild(wrap);
-                }
-            }
-
             const galleryGrid = document.getElementById('lpGalleryGrid');
             if (galleryGrid) {
                 clearNode(galleryGrid);
-                const gallery = Array.isArray(cfg?.media?.gallery) ? cfg.media.gallery : [];
+                let gallery = Array.isArray(cfg?.media?.gallery) ? cfg.media.gallery : [];
+                // Compat: se veio config antiga com tiles, reaproveitar como prints (sem mostrar tiles)
+                if ((!gallery || gallery.length === 0) && Array.isArray(cfg?.media?.tiles)) {
+                    gallery = cfg.media.tiles
+                        .filter(t => t && t.image)
+                        .map(t => ({ caption: t.title || '', image: t.image }));
+                }
                 for (const g of gallery) {
+                    // Não renderizar itens vazios (evita cards gigantes em branco)
+                    if (!g?.image) continue;
                     const wrap = document.createElement('div');
                     wrap.className = 'tile tile-wide';
 
