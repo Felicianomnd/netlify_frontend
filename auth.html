@@ -65,6 +65,14 @@
             -webkit-text-fill-color: transparent;
         }
 
+        .brand-logo {
+            width: 28px;
+            height: 28px;
+            object-fit: contain;
+            display: block;
+            flex: 0 0 auto;
+        }
+
         .nav-links {
             display: flex;
             gap: 14px;
@@ -129,6 +137,31 @@
             gap: 12px;
             text-align: center;
             padding: 18px 16px;
+        }
+
+        .lp-loading-brand {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .lp-loading-logo {
+            width: 44px;
+            height: 44px;
+            object-fit: contain;
+            display: block;
+            flex: 0 0 auto;
+        }
+
+        .lp-loading-brand-text {
+            font-size: 16px;
+            font-weight: 900;
+            letter-spacing: 0.6px;
+            background: linear-gradient(90deg, #ff003f, #9945ff);
+            background-clip: text;
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            white-space: nowrap;
         }
 
         .lp-spinner {
@@ -1493,6 +1526,10 @@
     <!-- Loader: só mostra a página depois de carregar as infos da API -->
     <div id="lpLoadingOverlay" class="lp-loading-overlay" aria-live="polite">
         <div class="lp-loading-inner">
+            <div class="lp-loading-brand">
+                <img id="lpLoadingLogo" class="lp-loading-logo" src="icon48.svg" alt="Double Analyzer">
+                <div id="lpLoadingBrandText" class="lp-loading-brand-text">Double Analyzer</div>
+            </div>
             <div class="lp-spinner" aria-hidden="true"></div>
             <div id="lpLoadingLabel" class="lp-loading-label">Carregando...</div>
             <button id="lpLoadingRetryBtn" type="button" class="btn btn-secondary" style="display:none;" onclick="window.location.reload()">
@@ -1505,7 +1542,10 @@
     <!-- 🌐 LANDING PAGE (sempre visível) -->
     <header class="site-header">
         <div class="site-header-inner">
-            <div class="brand"><span id="lpBrand">Double Analyzer</span></div>
+            <div class="brand">
+                <img id="lpBrandLogo" class="brand-logo" src="icon48.svg" alt="Double Analyzer">
+                <span id="lpBrand">Double Analyzer</span>
+            </div>
 
             <nav class="nav-links" id="lpNavLinks">
                 <a href="#funcionalidades">Funcionalidades</a>
@@ -2047,6 +2087,36 @@
             return n.toFixed(2).replace('.', ',');
         }
 
+        function setImgById(id, src, alt = '') {
+            const el = document.getElementById(id);
+            if (!el) return;
+            const s = String(src || '').trim();
+            if (!s) {
+                el.removeAttribute('src');
+                el.style.display = 'none';
+                return;
+            }
+            el.src = s;
+            if (alt) el.alt = alt;
+            el.style.display = 'block';
+        }
+
+        function getLandingLogoSrc(cfg) {
+            const raw = String(cfg?.header?.logo || '').trim();
+            return raw || 'icon48.svg';
+        }
+
+        function applyLandingBranding(cfg) {
+            const brand = cfg?.header?.brand || 'Double Analyzer';
+            const logo = getLandingLogoSrc(cfg);
+            setTextById('lpBrand', brand);
+            setImgById('lpBrandLogo', logo, brand);
+
+            const loadingText = document.getElementById('lpLoadingBrandText');
+            if (loadingText) loadingText.textContent = brand;
+            setImgById('lpLoadingLogo', logo, brand);
+        }
+
         function isPrintModalOpen() {
             const modal = document.getElementById('lpPrintModal');
             return !!(modal && modal.classList.contains('active'));
@@ -2155,6 +2225,8 @@
             if (label) label.textContent = 'Carregando...';
             if (overlay) overlay.style.display = 'flex';
             if (page) page.style.display = 'none';
+            // Branding default (antes do fetch)
+            applyLandingBranding(null);
 
             try {
                 const response = await fetch(`${API_URL}/site/landing`, { cache: 'no-store' });
@@ -2165,6 +2237,7 @@
 
                 landingConfig = data.landing || null;
                 landingPlans = Array.isArray(data.plans) ? data.plans : [];
+                applyLandingBranding(landingConfig);
                 renderLandingPage(landingConfig, landingPlans);
 
                 if (overlay) overlay.style.display = 'none';
@@ -2331,9 +2404,8 @@
         }
 
         function renderLandingPage(cfg, plans) {
-            // Header
-            const brand = cfg?.header?.brand || 'Double Analyzer';
-            setTextById('lpBrand', brand);
+            // Header branding (logo + nome)
+            applyLandingBranding(cfg);
 
             const loginText = cfg?.header?.ctas?.loginText || 'Entrar';
             const registerText = cfg?.header?.ctas?.registerText || 'Criar conta';

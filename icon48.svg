@@ -1,34 +1,22 @@
-<!-- Ícone 48x48 para a extensão Blaze Double Analyzer -->
+<!-- Ícone 48x48 (novo) - Double Analyzer -->
 <svg width="48" height="48" viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg">
-  <defs>
-    <linearGradient id="grad1" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" style="stop-color:#667eea;stop-opacity:1" />
-      <stop offset="100%" style="stop-color:#764ba2;stop-opacity:1" />
-    </linearGradient>
-    <linearGradient id="grad2" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" style="stop-color:#4CAF50;stop-opacity:1" />
-      <stop offset="100%" style="stop-color:#2E7D32;stop-opacity:1" />
-    </linearGradient>
-  </defs>
-  
-  <!-- Fundo circular -->
-  <circle cx="24" cy="24" r="22" fill="url(#grad1)" stroke="#fff" stroke-width="2"/>
-  
-  <!-- Círculos concêntricos do alvo -->
-  <circle cx="24" cy="24" r="18" fill="none" stroke="#fff" stroke-width="2"/>
-  <circle cx="24" cy="24" r="12" fill="none" stroke="#fff" stroke-width="2"/>
-  <circle cx="24" cy="24" r="6" fill="url(#grad2)"/>
-  
-  <!-- Números do Double (0, 1-7 vermelho, 8-14 preto) -->
-  <text x="24" y="28" text-anchor="middle" fill="#fff" font-family="Arial, sans-serif" font-size="8" font-weight="bold">0</text>
-  
-  <!-- Pontos indicando cores -->
-  <circle cx="12" cy="12" r="2" fill="#F44336" opacity="0.9"/>
-  <circle cx="36" cy="12" r="2" fill="#000" opacity="0.9"/>
-  <circle cx="12" cy="36" r="2" fill="#000" opacity="0.9"/>
-  <circle cx="36" cy="36" r="2" fill="#F44336" opacity="0.9"/>
-  
-  <!-- Símbolo de análise -->
-  <path d="M18 20 L22 24 L18 28" stroke="#fff" stroke-width="2" fill="none"/>
-  <path d="M30 20 L26 24 L30 28" stroke="#fff" stroke-width="2" fill="none"/>
+  <path fill-rule="evenodd" clip-rule="evenodd"
+        d="M6 5H22
+           A18 19 0 0 1 22 43
+           H6V5Z
+           M11 12H22
+           A12 12 0 0 1 22 36
+           H11V12Z"
+        fill="#FF003F"/>
+
+  <polygon points="28,16 34,24 28,32 22,24"
+           fill="rgba(255,255,255,0.96)"
+           stroke="#FF003F"
+           stroke-width="1.6"
+           stroke-linejoin="round"/>
+
+  <circle cx="26" cy="22" r="1.4" fill="#FF003F"/>
+  <circle cx="30" cy="22" r="1.4" fill="#FF003F"/>
+  <circle cx="26" cy="26" r="1.4" fill="#FF003F"/>
+  <circle cx="30" cy="26" r="1.4" fill="#FF003F"/>
 </svg>

@@ -1,6 +1,11 @@
-<!-- Ícone 128x128 (novo) - Double Analyzer -->
-<svg width="128" height="128" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
-  <!-- D + símbolo inspirado no "branco" (losango + 4 pontos) -->
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!--
+    Logo Double Analyzer (Ícone)
+    Conceito: "D" com símbolo inspirado no "branco" (losango + 4 pontos), em uma estética próxima ao universo Blaze/Double.
+    Fundo transparente (para uso como PNG/ícone).
+  -->
+
+  <!-- Letra D (contorno grosso) -->
   <path fill-rule="evenodd" clip-rule="evenodd"
         d="M90 60H240
            A180 196 0 0 1 240 452
@@ -10,15 +15,20 @@
            H150V140Z"
         fill="#FF003F"/>
 
+  <!-- Símbolo (losango + 4 pontos) dentro do D -->
   <g transform="translate(188 168)">
+    <!-- losango (quadrado rotacionado) -->
     <polygon points="68,12 124,68 68,124 12,68"
              fill="rgba(255,255,255,0.96)"
              stroke="#FF003F"
              stroke-width="10"
              stroke-linejoin="round"/>
+    <!-- 4 pontos -->
     <circle cx="52" cy="52" r="8" fill="#FF003F"/>
     <circle cx="84" cy="52" r="8" fill="#FF003F"/>
     <circle cx="52" cy="84" r="8" fill="#FF003F"/>
     <circle cx="84" cy="84" r="8" fill="#FF003F"/>
   </g>
 </svg>
+
+

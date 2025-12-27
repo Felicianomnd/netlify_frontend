@@ -1,0 +1,49 @@
+<svg width="1400" height="512" viewBox="0 0 1400 512" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!--
+    Logo Double Analyzer (Completa)
+    Ícone "D" + wordmark "DOUBLE ANALYZER"
+    Fundo transparente.
+  -->
+
+  <!-- Ícone -->
+  <g transform="translate(0 0)">
+    <path fill-rule="evenodd" clip-rule="evenodd"
+          d="M90 60H240
+             A180 196 0 0 1 240 452
+             H90V60Z
+             M150 140H240
+             A120 116 0 0 1 240 372
+             H150V140Z"
+          fill="#FF003F"/>
+
+    <g transform="translate(188 168)">
+      <polygon points="68,12 124,68 68,124 12,68"
+               fill="rgba(255,255,255,0.96)"
+               stroke="#FF003F"
+               stroke-width="10"
+               stroke-linejoin="round"/>
+      <circle cx="52" cy="52" r="8" fill="#FF003F"/>
+      <circle cx="84" cy="52" r="8" fill="#FF003F"/>
+      <circle cx="52" cy="84" r="8" fill="#FF003F"/>
+      <circle cx="84" cy="84" r="8" fill="#FF003F"/>
+    </g>
+  </g>
+
+  <!-- Wordmark -->
+  <g transform="translate(360 0)">
+    <text x="0" y="298"
+          font-family="Segoe UI, Arial, sans-serif"
+          font-size="96"
+          font-weight="900"
+          letter-spacing="6"
+          fill="#E5E7EB">DOUBLE</text>
+    <text x="0" y="394"
+          font-family="Segoe UI, Arial, sans-serif"
+          font-size="96"
+          font-weight="900"
+          letter-spacing="6"
+          fill="#FF003F">ANALYZER</text>
+  </g>
+</svg>
+
+
