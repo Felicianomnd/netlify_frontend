@@ -442,6 +442,65 @@
             height: 14px;
         }
 
+        /* ═══════════════════════════════════════════════════════════════════════ */
+        /* 💳 MERCADO PAGO PIX (QR + Copia e Cola)                                 */
+        /* ═══════════════════════════════════════════════════════════════════════ */
+
+        .mp-pix-qr {
+            display: flex;
+            justify-content: center;
+            margin: 14px 0 18px 0;
+        }
+
+        .mp-pix-qr img {
+            width: 220px;
+            max-width: 100%;
+            height: auto;
+            background: #ffffff;
+            border-radius: 14px;
+            padding: 12px;
+        }
+
+        .mp-pix-code-label {
+            display: block;
+            margin: 10px 0 8px 0;
+            color: #b4c2d8;
+            font-size: 13px;
+            font-weight: 600;
+        }
+
+        .mp-pix-code {
+            width: 100%;
+            min-height: 92px;
+            resize: none;
+            padding: 12px 14px;
+            border: 1px solid rgba(255,255,255,0.12);
+            border-radius: 10px;
+            background: rgba(0,0,0,0.35);
+            color: #ffffff;
+            font-size: 12px;
+            line-height: 1.4;
+            word-break: break-all;
+            outline: none;
+        }
+
+        .mp-payment-status {
+            margin-top: 14px;
+            text-align: center;
+            font-size: 13px;
+            color: #9aa9c6;
+        }
+
+        .mp-payment-status.ok {
+            color: #00ff88;
+            font-weight: 700;
+        }
+
+        .mp-payment-status.warn {
+            color: #ff003f;
+            font-weight: 700;
+        }
+
         .support-card {
             background: #1a2332;
             border: none;
@@ -853,6 +912,35 @@
 
         <!-- TELA 3: PAGAMENTO PIX -->
         <div id="paymentScreen" class="screen">
+            <!-- ✅ Mercado Pago (automático) -->
+            <div id="mpPaymentWrap" style="display: none;">
+                <div class="payment-card">
+                    <h3>Pagamento via PIX</h3>
+                    <p style="color:#9aa9c6; font-size: 13px; margin-bottom: 14px;">
+                        Escaneie o QR Code ou copie o código PIX abaixo. Assim que o pagamento for confirmado, o acesso será liberado automaticamente.
+                    </p>
+
+                    <div class="mp-pix-qr">
+                        <img id="mpPixQrImg" alt="QR Code PIX">
+                    </div>
+
+                    <label class="mp-pix-code-label" for="mpPixCode">Código PIX (copia e cola)</label>
+                    <textarea id="mpPixCode" class="mp-pix-code" readonly></textarea>
+
+                    <button type="button" class="btn btn-primary" id="mpCopyBtn" onclick="copyMpPixCode()">
+                        Copiar código PIX
+                    </button>
+
+                    <button type="button" class="btn btn-secondary" id="mpOpenTicketBtn" onclick="openMpTicket()" style="margin-top: 12px; display: none;">
+                        Abrir cobrança
+                    </button>
+
+                    <div id="mpPaymentStatus" class="mp-payment-status">Gerando cobrança...</div>
+                </div>
+            </div>
+
+            <!-- 🧩 Fallback manual (PIX + WhatsApp) -->
+            <div id="manualPaymentWrap">
             <div class="payment-layout">
                 <div class="payment-card">
                     <h3>Finalize o pagamento via PIX</h3>
@@ -876,6 +964,7 @@
                     <div class="support-actions">
                         <a href="#" id="whatsappLink" class="whatsapp-link" target="_blank">Abrir WhatsApp</a>
                         <button type="button" class="btn btn-primary" onclick="showActivationScreen()">Já recebi meu código</button>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -917,6 +1006,10 @@
         let selectedPlan = null;
         let userData = null;
         let paymentSettings = null;
+        let mpPaymentId = null;
+        let mpPixCode = null;
+        let mpTicketUrl = null;
+        let mpPaymentPollInterval = null;
         let emailVerificationToken = null;
         let verificationCountdownInterval = null;
         let verificationCooldownRemaining = 0;
@@ -1784,7 +1877,46 @@
             }
         }
 
-        async function loadPaymentInfo() {
+        function stopMpPaymentPolling() {
+            if (mpPaymentPollInterval) {
+                clearInterval(mpPaymentPollInterval);
+                mpPaymentPollInterval = null;
+            }
+        }
+
+        function setMpPaymentStatus(text, variant) {
+            const el = document.getElementById('mpPaymentStatus');
+            if (!el) return;
+            el.textContent = text || '';
+            el.classList.remove('ok', 'warn');
+            if (variant) el.classList.add(variant);
+        }
+
+        function formatMpStatusLabel(status) {
+            const s = String(status || '').toLowerCase();
+            switch (s) {
+                case 'approved':
+                    return 'Pagamento confirmado.';
+                case 'pending':
+                    return 'Aguardando pagamento...';
+                case 'in_process':
+                    return 'Pagamento em processamento...';
+                case 'authorized':
+                    return 'Pagamento autorizado...';
+                case 'rejected':
+                    return 'Pagamento recusado.';
+                case 'cancelled':
+                    return 'Pagamento cancelado.';
+                case 'refunded':
+                    return 'Pagamento estornado.';
+                case 'charged_back':
+                    return 'Pagamento com chargeback.';
+                default:
+                    return 'Aguardando pagamento...';
+            }
+        }
+
+        async function loadManualPaymentInfo() {
             try {
                 const response = await fetch(`${API_URL}/plans/payment/settings`);
                 const data = await response.json();
@@ -1834,6 +1966,137 @@
             }
         }
 
+        async function activateWithCode(activationCode) {
+            try {
+                const response = await fetch(`${API_URL}/auth/activate`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        email: userData?.email,
+                        activationCode
+                    })
+                });
+
+                const data = await response.json().catch(() => ({}));
+
+                if (!response.ok || !data.success) {
+                    throw new Error(data.error || 'Não foi possível ativar a conta automaticamente.');
+                }
+
+                await saveSession(data.token, data.user);
+                window.location.href = 'index.html';
+            } catch (error) {
+                console.error('Erro ao ativar automaticamente:', error);
+                showMessage('Pagamento confirmado, mas não foi possível ativar automaticamente. Use o código de ativação.', 'info');
+            }
+        }
+
+        async function pollMpPaymentStatus() {
+            if (!mpPaymentId || !userData?.email) return;
+
+            try {
+                const url = `${API_URL}/payments/mercadopago/status/${encodeURIComponent(mpPaymentId)}?email=${encodeURIComponent(userData.email)}`;
+                const response = await fetch(url);
+                const data = await response.json().catch(() => ({}));
+
+                if (!response.ok || !data.success) {
+                    return;
+                }
+
+                if (data.paid) {
+                    setMpPaymentStatus('Pagamento confirmado! Liberando acesso...', 'ok');
+
+                    if (data.activationCode) {
+                        stopMpPaymentPolling();
+                        await activateWithCode(data.activationCode);
+                    }
+                    return;
+                }
+
+                setMpPaymentStatus(formatMpStatusLabel(data.status), null);
+            } catch (error) {
+                // Silencioso; polling continua
+            }
+        }
+
+        function copyMpPixCode() {
+            if (!mpPixCode) {
+                showMessage('Código PIX indisponível no momento.', 'error');
+                return;
+            }
+
+            navigator.clipboard.writeText(mpPixCode).then(() => {
+                showMessage('✓ Código PIX copiado', 'success');
+            });
+        }
+
+        function openMpTicket() {
+            if (!mpTicketUrl) return;
+            window.open(mpTicketUrl, '_blank', 'noopener,noreferrer');
+        }
+
+        async function loadPaymentInfo() {
+            stopMpPaymentPolling();
+            mpPaymentId = null;
+            mpPixCode = null;
+            mpTicketUrl = null;
+
+            const mpWrap = document.getElementById('mpPaymentWrap');
+            const manualWrap = document.getElementById('manualPaymentWrap');
+
+            if (mpWrap) mpWrap.style.display = 'none';
+            if (manualWrap) manualWrap.style.display = 'none';
+
+            try {
+                // Tentar Mercado Pago (automático)
+                const response = await fetch(`${API_URL}/payments/mercadopago/create-pix`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        email: userData?.email,
+                        planDuration: selectedPlan
+                    })
+                });
+
+                const data = await response.json().catch(() => ({}));
+
+                if (response.ok && data.success && data.payment?.id) {
+                    mpPaymentId = String(data.payment.id);
+                    mpPixCode = data.payment.qrCode || null;
+                    mpTicketUrl = data.payment.ticketUrl || null;
+
+                    const img = document.getElementById('mpPixQrImg');
+                    if (img && data.payment.qrCodeBase64) {
+                        img.src = `data:image/png;base64,${data.payment.qrCodeBase64}`;
+                    }
+
+                    const codeEl = document.getElementById('mpPixCode');
+                    if (codeEl) {
+                        codeEl.value = mpPixCode || '';
+                    }
+
+                    const ticketBtn = document.getElementById('mpOpenTicketBtn');
+                    if (ticketBtn) {
+                        ticketBtn.style.display = mpTicketUrl ? 'block' : 'none';
+                    }
+
+                    if (mpWrap) mpWrap.style.display = 'block';
+                    setMpPaymentStatus(formatMpStatusLabel(data.payment.status), null);
+
+                    // Polling (webhook pode demorar alguns segundos)
+                    mpPaymentPollInterval = setInterval(pollMpPaymentStatus, 4000);
+                    setTimeout(pollMpPaymentStatus, 1200);
+                    return;
+                }
+            } catch (error) {
+                // cair no fallback manual
+            }
+
+            // Fallback: pagamento manual (PIX + WhatsApp)
+            if (manualWrap) manualWrap.style.display = 'block';
+            await loadManualPaymentInfo();
+        }
+
         function copyPixKey() {
             const pixKey = document.getElementById('pixKeyValue').value;
 
@@ -1849,9 +2112,14 @@
 
         function showPaymentScreen() {
             showScreen('paymentScreen');
+            // Se veio do fluxo de cadastro (tem plano selecionado), recarregar cobrança automaticamente
+            if (userData?.email && selectedPlan) {
+                loadPaymentInfo();
+            }
         }
 
         function showActivationScreen() {
+            stopMpPaymentPolling();
             showScreen('activationScreen');
             ['code1', 'code2', 'code3', 'code4', 'code5', 'code6'].forEach(id => {
                 const input = document.getElementById(id);
