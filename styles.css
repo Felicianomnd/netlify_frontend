@@ -6681,14 +6681,18 @@ body.da-ext-fullscreen #patternDetailsModal .bank-patterns-modal-content {
     top: 20px;
     left: 50%;
     transform: translateX(-50%) translateY(-100px);
-    background: #00aa66;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: #1a2332;
+    border: 1px solid rgba(255, 255, 255, 0.12);
     color: #fff;
-    padding: 12px 24px;
+    padding: 12px 14px;
     border-radius: 6px;
-    font-size: 14px;
-    font-weight: 500;
+    font-size: 13px;
+    font-weight: 700;
     z-index: 999999999;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    box-shadow: none;
     opacity: 0;
     transition: all 0.3s ease;
 }
@@ -6696,6 +6700,45 @@ body.da-ext-fullscreen #patternDetailsModal .bank-patterns-modal-content {
 .custom-toast.show {
     opacity: 1;
     transform: translateX(-50%) translateY(0);
+}
+
+.custom-toast-success {
+    background: #22c55e;
+    border-color: rgba(255, 255, 255, 0.18);
+}
+
+.custom-toast-error {
+    background: #ef4444;
+    border-color: rgba(255, 255, 255, 0.18);
+}
+
+.custom-toast-info {
+    background: #1a2332;
+}
+
+.custom-toast-icon {
+    width: 26px;
+    height: 26px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.16);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: #ffffff;
+    flex: 0 0 auto;
+}
+
+.custom-toast-icon svg {
+    width: 16px;
+    height: 16px;
+    display: block;
+}
+
+.custom-toast-text {
+    max-width: 520px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 /* ========= FEEDBACK GLOBAL DE SALVAR (CENTRO DA TELA) ========= */
@@ -6742,8 +6785,8 @@ body.da-ext-fullscreen #patternDetailsModal .bank-patterns-modal-content {
 .save-status-check-icon {
   width: 16px;
   height: 10px;
-  border-left: 3px solid #0f172a;
-  border-bottom: 3px solid #0f172a;
+  border-left: 3px solid #ffffff;
+  border-bottom: 3px solid #ffffff;
   transform: rotate(-45deg);
 }
 

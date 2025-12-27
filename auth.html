@@ -397,23 +397,38 @@
             color: #9aa9c6;
         }
 
+        .gallery-row-wrap {
+            position: relative;
+        }
+
         .tiles-grid {
-            display: grid;
-            /* até ~5 por linha no desktop; não esticar quando tiver poucos */
-            grid-template-columns: repeat(auto-fill, minmax(240px, 320px));
+            /* prints sempre em UMA linha (scroll horizontal) */
+            display: flex;
+            flex-wrap: nowrap;
             gap: 12px;
-            justify-content: start;
-            align-items: start;
+            overflow-x: auto;
+            overflow-y: hidden;
+            padding: 2px 2px 6px 2px;
+            scroll-behavior: smooth;
+            -webkit-overflow-scrolling: touch;
+            scrollbar-width: none; /* Firefox */
+        }
+
+        .tiles-grid::-webkit-scrollbar {
+            display: none; /* Chrome/Safari */
         }
 
         .tile {
             border: 1px solid rgba(255, 255, 255, 0.08);
-            border-radius: 10px;
+            border-radius: 0;
             overflow: hidden;
             background: rgba(0, 0, 0, 0.22);
             min-height: 140px;
             display: flex;
             flex-direction: column;
+            flex: 0 0 auto;
+            width: clamp(220px, 28vw, 340px);
+            cursor: pointer;
         }
 
         .tile-media {
@@ -438,29 +453,43 @@
             display: block;
         }
 
-        .tile-expand {
+        .gallery-nav {
             position: absolute;
-            top: 10px;
-            right: 10px;
+            top: 50%;
+            transform: translateY(-50%);
             width: 34px;
             height: 34px;
-            display: inline-flex;
+            display: none;
             align-items: center;
             justify-content: center;
             border-radius: 8px;
-            border: 1px solid rgba(255, 255, 255, 0.14);
+            border: 1px solid rgba(255, 255, 255, 0.12);
             background: rgba(0, 0, 0, 0.35);
             color: rgba(255,255,255,0.92);
             cursor: pointer;
+            z-index: 2;
             transition: all 0.2s ease;
         }
 
-        .tile-expand:hover {
-            border-color: rgba(255, 0, 63, 0.35);
-            background: rgba(255, 0, 63, 0.10);
+        .gallery-nav.show {
+            display: inline-flex;
         }
 
-        .tile-expand svg {
+        .gallery-nav.prev {
+            left: 6px;
+        }
+
+        .gallery-nav.next {
+            right: 6px;
+        }
+
+        .gallery-nav:hover {
+            border-color: rgba(255, 0, 63, 0.35);
+            background: rgba(255, 0, 63, 0.10);
+            transform: translateY(-50%) translateY(-1px);
+        }
+
+        .gallery-nav svg {
             width: 18px;
             height: 18px;
         }
@@ -494,66 +523,36 @@
             z-index: 1;
             width: min(980px, 50vw);
             max-height: 82vh;
-            border: 1px solid rgba(255, 255, 255, 0.10);
-            border-radius: 12px;
-            background: rgba(0, 0, 0, 0.50);
-            overflow: hidden;
-        }
-
-        .lp-print-modal-header {
+            border: none;
+            border-radius: 0;
+            background: transparent;
+            overflow: visible;
             display: flex;
-            align-items: center;
-            justify-content: space-between;
+            flex-direction: column;
+            align-items: stretch;
             gap: 10px;
-            padding: 12px 14px;
-            border-bottom: 1px solid rgba(255,255,255,0.08);
-            background: rgba(0,0,0,0.20);
-        }
-
-        .lp-print-modal-title {
-            color: #ffffff;
-            font-size: 13px;
-            font-weight: 800;
-            line-height: 1.2;
-            overflow: hidden;
-            white-space: nowrap;
-            text-overflow: ellipsis;
-        }
-
-        .lp-print-modal-close {
-            width: 34px;
-            height: 34px;
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            border-radius: 8px;
-            border: 1px solid rgba(255,255,255,0.14);
-            background: rgba(0,0,0,0.35);
-            color: rgba(255,255,255,0.92);
-            cursor: pointer;
-            transition: all 0.2s ease;
-        }
-
-        .lp-print-modal-close:hover {
-            border-color: rgba(255, 0, 63, 0.35);
-            background: rgba(255, 0, 63, 0.10);
-        }
-
-        .lp-print-modal-close svg {
-            width: 18px;
-            height: 18px;
         }
 
         .lp-print-modal-body {
-            background: rgba(0,0,0,0.25);
+            background: transparent;
         }
 
         .lp-print-modal-body img {
             width: 100%;
-            height: min(72vh, 740px);
+            height: auto;
+            max-height: 72vh;
             object-fit: contain;
             display: block;
-            background: rgba(0,0,0,0.25);
+            background: transparent;
+        }
+
+        .lp-print-modal-caption {
+            width: 100%;
+            padding: 10px 12px;
+            background: rgba(0,0,0,0.35);
+            color: #e2e8f0;
+            font-size: 13px;
+            font-weight: 700;
         }
 
         .tile-title {
@@ -676,14 +675,19 @@
                 max-width: none;
             }
             .tiles-grid {
-                grid-template-columns: 1fr;
-                justify-content: stretch;
+                padding: 2px 2px 6px 2px;
+            }
+            .tile {
+                width: 82vw;
+            }
+            .gallery-nav {
+                display: none !important;
             }
             .lp-print-modal-dialog {
                 width: 92vw;
             }
             .lp-print-modal-body img {
-                height: 70vh;
+                max-height: 70vh;
             }
             .nav-links {
                 display: none;
@@ -1550,7 +1554,19 @@
         <section class="landing-section" id="midia">
             <h2 class="section-title" id="lpMediaTitle">Veja por dentro</h2>
             <p class="section-subtitle" id="lpMediaSubtitle"></p>
-            <div class="tiles-grid" id="lpGalleryGrid"></div>
+            <div class="gallery-row-wrap">
+                <button type="button" class="gallery-nav prev" id="lpGalleryPrev" onclick="scrollLandingGallery(-1)" aria-label="Ver prints anteriores">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <path d="M15 18l-6-6 6-6"/>
+                    </svg>
+                </button>
+                <div class="tiles-grid" id="lpGalleryGrid"></div>
+                <button type="button" class="gallery-nav next" id="lpGalleryNext" onclick="scrollLandingGallery(1)" aria-label="Ver próximos prints">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <path d="M9 18l6-6-6-6"/>
+                    </svg>
+                </button>
+            </div>
         </section>
 
         <section class="landing-section" id="planos">
@@ -1566,17 +1582,10 @@
     <div id="lpPrintModal" class="lp-print-modal" aria-hidden="true">
         <div class="lp-print-modal-overlay" onclick="closePrintModal()"></div>
         <div class="lp-print-modal-dialog" role="dialog" aria-label="Preview do print">
-            <div class="lp-print-modal-header">
-                <div id="lpPrintModalTitle" class="lp-print-modal-title"></div>
-                <button type="button" class="lp-print-modal-close" onclick="closePrintModal()" aria-label="Fechar preview">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                        <path d="M7 14H5v5h5v-2H7v-3zm12 0h-2v3h-3v2h5v-5zM7 10h2V7h3V5H5v5zm12 0V5h-5v2h3v3h2z"/>
-                    </svg>
-                </button>
-            </div>
             <div class="lp-print-modal-body">
                 <img id="lpPrintModalImg" alt="Print ampliado">
             </div>
+            <div id="lpPrintModalCaption" class="lp-print-modal-caption"></div>
         </div>
     </div>
 
@@ -2043,14 +2052,73 @@
             return !!(modal && modal.classList.contains('active'));
         }
 
+        let landingGalleryNavWired = false;
+
+        function getLandingGalleryEls() {
+            const grid = document.getElementById('lpGalleryGrid');
+            const prev = document.getElementById('lpGalleryPrev');
+            const next = document.getElementById('lpGalleryNext');
+            return { grid, prev, next };
+        }
+
+        function updateLandingGalleryNav() {
+            const { grid, prev, next } = getLandingGalleryEls();
+            if (!grid || !prev || !next) return;
+
+            const maxScroll = Math.max(0, grid.scrollWidth - grid.clientWidth);
+            const hasOverflow = maxScroll > 4;
+            if (!hasOverflow) {
+                prev.classList.remove('show');
+                next.classList.remove('show');
+                return;
+            }
+
+            const left = grid.scrollLeft || 0;
+            const atStart = left <= 2;
+            const atEnd = left >= (maxScroll - 2);
+
+            // Mostrar apenas quando realmente há mais conteúdo naquela direção
+            if (!atStart) prev.classList.add('show'); else prev.classList.remove('show');
+            if (!atEnd) next.classList.add('show'); else next.classList.remove('show');
+        }
+
+        function wireLandingGalleryNav() {
+            const { grid } = getLandingGalleryEls();
+            if (!grid) return;
+            if (landingGalleryNavWired) {
+                updateLandingGalleryNav();
+                return;
+            }
+            landingGalleryNavWired = true;
+            grid.addEventListener('scroll', () => {
+                window.requestAnimationFrame(updateLandingGalleryNav);
+            }, { passive: true });
+            window.addEventListener('resize', () => {
+                window.requestAnimationFrame(updateLandingGalleryNav);
+            });
+            updateLandingGalleryNav();
+        }
+
+        function scrollLandingGallery(dir) {
+            const { grid } = getLandingGalleryEls();
+            if (!grid) return;
+            const amount = Math.max(220, Math.round(grid.clientWidth * 0.9));
+            grid.scrollBy({ left: dir * amount, behavior: 'smooth' });
+            setTimeout(updateLandingGalleryNav, 260);
+        }
+
         function openPrintModal(imageSrc, title) {
             const modal = document.getElementById('lpPrintModal');
             const img = document.getElementById('lpPrintModalImg');
-            const ttl = document.getElementById('lpPrintModalTitle');
+            const cap = document.getElementById('lpPrintModalCaption');
             if (!modal || !img) return;
 
             img.src = String(imageSrc || '');
-            if (ttl) ttl.textContent = String(title || '').trim();
+            const caption = String(title || '').trim();
+            if (cap) {
+                cap.textContent = caption;
+                cap.style.display = caption ? 'block' : 'none';
+            }
 
             modal.classList.add('active');
             modal.setAttribute('aria-hidden', 'false');
@@ -2060,10 +2128,15 @@
         function closePrintModal() {
             const modal = document.getElementById('lpPrintModal');
             const img = document.getElementById('lpPrintModalImg');
+            const cap = document.getElementById('lpPrintModalCaption');
             if (!modal) return;
             modal.classList.remove('active');
             modal.setAttribute('aria-hidden', 'true');
             if (img) img.removeAttribute('src');
+            if (cap) {
+                cap.textContent = '';
+                cap.style.display = 'none';
+            }
             try { document.documentElement.style.overflow = ''; } catch (_) {}
         }
 
@@ -2358,22 +2431,6 @@
                         img.alt = String(g.caption || 'Imagem');
                         img.src = String(g.image);
                         media.appendChild(img);
-
-                        const expandBtn = document.createElement('button');
-                        expandBtn.type = 'button';
-                        expandBtn.className = 'tile-expand';
-                        expandBtn.setAttribute('aria-label', 'Ver print maior');
-                        expandBtn.innerHTML = `
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                                <path d="M7 14H5v5h5v-2H7v-3zm12 0h-2v3h-3v2h5v-5zM7 10h2V7h3V5H5v5zm12 0V5h-5v2h3v3h2z"/>
-                            </svg>
-                        `;
-                        expandBtn.addEventListener('click', (e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            togglePrintModal(String(g.image), String(g.caption || ''));
-                        });
-                        media.appendChild(expandBtn);
                     } else {
                         media.textContent = 'Print';
                     }
@@ -2384,8 +2441,13 @@
 
                     wrap.appendChild(media);
                     wrap.appendChild(title);
+                    wrap.addEventListener('click', () => {
+                        openPrintModal(String(g.image), String(g.caption || ''));
+                    });
                     galleryGrid.appendChild(wrap);
                 }
+                // setas de navegação aparecem apenas se houver overflow
+                wireLandingGalleryNav();
             }
 
             // Pricing

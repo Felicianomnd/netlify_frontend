@@ -1620,27 +1620,58 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
     n10: true
 });
     // Função para mostrar notificação toast (simples e rápida)
-    function showToast(message, duration = 2000) {
+    // Suporta:
+    // - showToast('Mensagem', 2000)
+    // - showToast('Mensagem', 'success'|'error'|'info', 2000)
+    function showToast(message, variantOrDuration = 2000, maybeDuration) {
+        const text = String(message || '').trim();
+
+        let variant = 'info';
+        let duration = 2000;
+        if (typeof variantOrDuration === 'number') {
+            duration = variantOrDuration;
+        } else if (typeof variantOrDuration === 'string') {
+            variant = variantOrDuration;
+            duration = (typeof maybeDuration === 'number' && Number.isFinite(maybeDuration)) ? maybeDuration : 2000;
+        }
+
         // Remover toast anterior se existir
         const existingToast = document.getElementById('customToast');
         if (existingToast) {
-            existingToast.remove();
+            try { existingToast.remove(); } catch (_) {}
         }
-        
+
         const toast = document.createElement('div');
         toast.id = 'customToast';
-        toast.className = 'custom-toast';
-        toast.textContent = message;
-        
+        toast.className = `custom-toast custom-toast-${variant}`;
+
+        const icon = document.createElement('div');
+        icon.className = 'custom-toast-icon';
+        if (variant === 'success') {
+            icon.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6L9 17l-5-5"></path></svg>`;
+        } else if (variant === 'error') {
+            icon.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6L6 18"></path><path d="M6 6l12 12"></path></svg>`;
+        } else {
+            icon.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 18h.01"></path><path d="M12 14a4 4 0 0 0-4-4"></path><path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2z"></path></svg>`;
+        }
+
+        const msg = document.createElement('div');
+        msg.className = 'custom-toast-text';
+        msg.textContent = text || (variant === 'success' ? 'Confirmado' : variant === 'error' ? 'Erro' : 'Aviso');
+
+        toast.appendChild(icon);
+        toast.appendChild(msg);
         document.body.appendChild(toast);
-        
+
         // Mostrar com animação
         setTimeout(() => toast.classList.add('show'), 10);
-        
+
         // Remover após duração
         setTimeout(() => {
             toast.classList.remove('show');
-            setTimeout(() => toast.remove(), 300);
+            setTimeout(() => {
+                try { toast.remove(); } catch (_) {}
+            }, 300);
         }, duration);
     }
     
