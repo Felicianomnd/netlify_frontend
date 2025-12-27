@@ -991,16 +991,15 @@
         }
 
         .support-card {
-            background: #1a2332;
-            border: none;
-            border-radius: 8px;
-            padding: 22px;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 10px;
+            background: rgba(0, 0, 0, 0.22);
+            padding: 16px;
             color: #9ca3af;
-            font-size: 14px;
+            font-size: 13px;
             display: flex;
             flex-direction: column;
-            gap: 14px;
-            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+            gap: 12px;
         }
 
         .support-card h4 {
@@ -1019,15 +1018,22 @@
             display: flex;
             align-items: center;
             justify-content: center;
-            padding: 14px;
+            padding: 12px 14px;
             background: #25d366;
             color: white;
             border-radius: 8px;
             text-decoration: none;
-            font-size: 16px;
+            font-size: 14px;
             font-weight: 600;
             cursor: pointer;
             transition: all 0.2s;
+        }
+
+        .support-actions a.btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            text-decoration: none;
         }
 
         .support-actions a[aria-disabled="true"] {
@@ -1511,6 +1517,25 @@
                         <a href="#" onclick="showActivationScreen(); return false;">Já tenho um código de ativação</a>
                     </div>
                 </div>
+
+                <!-- Suporte: aparece somente se o pagamento for confirmado e der erro na ativação/login -->
+                <div id="mpSupportCard" class="support-card" style="display:none; margin-top: 12px;">
+                    <h4>Precisa de ajuda?</h4>
+                    <div id="mpSupportText">
+                        Se o pagamento foi confirmado e você não entrou automaticamente, fale com o suporte e envie o comprovante.
+                    </div>
+                    <div class="support-actions">
+                        <a id="mpSupportWhatsappLink" class="whatsapp-link" href="#" target="_blank" rel="noopener noreferrer" aria-disabled="true">
+                            Falar no WhatsApp
+                        </a>
+                        <a id="mpSupportEmailLink" class="btn btn-secondary" href="#" aria-disabled="true">
+                            Enviar e-mail
+                        </a>
+                        <button type="button" class="btn btn-secondary" onclick="showActivationScreen()">
+                            Inserir código de ativação
+                        </button>
+                    </div>
+                </div>
             </div>
 
         </div>
@@ -1553,7 +1578,7 @@
         let selectedPlan = null;
         let userData = null;
         let pendingUserId = null;
-        let paymentSettings = null;
+        let supportSettings = null;
         let mpPaymentId = null;
         let mpPixCode = null;
         let mpTicketUrl = null;
@@ -2901,6 +2926,86 @@
             if (variant) el.classList.add(variant);
         }
 
+        function sanitizeWhatsapp(raw) {
+            const s = raw == null ? '' : String(raw);
+            let digits = s.replace(/\D/g, '');
+            if (!digits) return '';
+            if (!digits.startsWith('55')) digits = '55' + digits;
+            return digits;
+        }
+
+        async function fetchSupportSettings() {
+            if (supportSettings) return supportSettings;
+            try {
+                const response = await fetch(`${API_URL}/site/support`);
+                const data = await response.json().catch(() => ({}));
+                if (response.ok && data && data.success) {
+                    supportSettings = data.support || {};
+                    return supportSettings;
+                }
+            } catch (e) {
+                // ignore
+            }
+            supportSettings = {};
+            return supportSettings;
+        }
+
+        async function showMpSupportCard(reasonText) {
+            const card = document.getElementById('mpSupportCard');
+            if (!card) return;
+
+            const txt = document.getElementById('mpSupportText');
+            if (txt) {
+                const email = userData?.email ? String(userData.email) : '';
+                const pid = mpPaymentId ? String(mpPaymentId) : '';
+                txt.textContent = reasonText || `Se o pagamento foi confirmado e você não entrou automaticamente, fale com o suporte e envie o comprovante. (${email}${pid ? ` • pagamento ${pid}` : ''})`;
+            }
+
+            const support = await fetchSupportSettings();
+            const whatsappLink = document.getElementById('mpSupportWhatsappLink');
+            const emailLink = document.getElementById('mpSupportEmailLink');
+
+            // WhatsApp
+            if (whatsappLink) {
+                const clean = sanitizeWhatsapp(support.whatsapp || '');
+                if (clean && userData?.email) {
+                    const message = encodeURIComponent(
+                        `Olá! Fiz o pagamento do Double Analyzer e não fui logado automaticamente.\n` +
+                        `E-mail: ${userData.email}\n` +
+                        `${mpPaymentId ? `Pagamento: ${mpPaymentId}\n` : ''}` +
+                        `Pode me ajudar? Vou enviar o comprovante.`
+                    );
+                    whatsappLink.href = `https://wa.me/${clean}?text=${message}`;
+                    whatsappLink.removeAttribute('aria-disabled');
+                } else {
+                    whatsappLink.href = '#';
+                    whatsappLink.setAttribute('aria-disabled', 'true');
+                }
+            }
+
+            // Email
+            if (emailLink) {
+                const mail = (support.supportEmail || '').trim();
+                if (mail) {
+                    const subject = encodeURIComponent('Suporte - Pagamento confirmado (Double Analyzer)');
+                    const body = encodeURIComponent(
+                        `Olá!\n\n` +
+                        `Meu pagamento foi confirmado, mas eu não entrei automaticamente.\n` +
+                        `E-mail da conta: ${userData?.email || ''}\n` +
+                        `${mpPaymentId ? `ID do pagamento: ${mpPaymentId}\n` : ''}\n` +
+                        `Segue o comprovante.\n`
+                    );
+                    emailLink.href = `mailto:${mail}?subject=${subject}&body=${body}`;
+                    emailLink.removeAttribute('aria-disabled');
+                } else {
+                    emailLink.href = '#';
+                    emailLink.setAttribute('aria-disabled', 'true');
+                }
+            }
+
+            card.style.display = 'flex';
+        }
+
         function formatMpStatusLabel(status) {
             const s = String(status || '').toLowerCase();
             switch (s) {
@@ -2996,7 +3101,9 @@
                 window.location.href = 'index.html';
             } catch (error) {
                 console.error('Erro ao ativar automaticamente:', error);
-                showMessage('Pagamento confirmado, mas não foi possível ativar automaticamente. Use o código de ativação.', 'info');
+                setMpPaymentStatus('Pagamento confirmado, mas houve um erro para liberar o acesso automaticamente.', 'warn');
+                showMessage('Pagamento confirmado, mas não foi possível ativar automaticamente. Você pode inserir o código ou falar com o suporte.', 'info');
+                await showMpSupportCard();
             }
         }
 
@@ -3052,6 +3159,9 @@
 
             const mpWrap = document.getElementById('mpPaymentWrap');
             if (mpWrap) mpWrap.style.display = 'block';
+
+            const supportCard = document.getElementById('mpSupportCard');
+            if (supportCard) supportCard.style.display = 'none';
 
             const qrWrap = document.getElementById('mpPixQrWrap');
             const img = document.getElementById('mpPixQrImg');
