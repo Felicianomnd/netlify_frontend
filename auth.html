@@ -107,6 +107,50 @@
             border-radius: 6px;
         }
 
+        /* ─────────────────────────────────────────────────────────────────────── */
+        /* ⏳ Loader (evitar UI “quebrada” antes do conteúdo carregar)              */
+        /* ─────────────────────────────────────────────────────────────────────── */
+
+        .lp-loading-overlay {
+            position: fixed;
+            inset: 0;
+            z-index: 999;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #151924;
+        }
+
+        .lp-loading-inner {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 12px;
+            text-align: center;
+            padding: 18px 16px;
+        }
+
+        .lp-spinner {
+            width: 42px;
+            height: 42px;
+            border-radius: 999px;
+            border: 3px solid rgba(255, 255, 255, 0.14);
+            border-top-color: #ff003f;
+            animation: lpSpin 0.9s linear infinite;
+        }
+
+        @keyframes lpSpin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+
+        .lp-loading-label {
+            color: #b4c2d8;
+            font-size: 14px;
+            font-weight: 700;
+        }
+
         .landing {
             width: 100%;
             max-width: none;
@@ -355,8 +399,11 @@
 
         .tiles-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            /* até ~5 por linha no desktop; não esticar quando tiver poucos */
+            grid-template-columns: repeat(auto-fill, minmax(240px, 320px));
             gap: 12px;
+            justify-content: start;
+            align-items: start;
         }
 
         .tile {
@@ -508,6 +555,10 @@
             .hero-stage-content {
                 padding: 22px 18px;
                 max-width: none;
+            }
+            .tiles-grid {
+                grid-template-columns: 1fr;
+                justify-content: stretch;
             }
             .nav-links {
                 display: none;
@@ -1310,6 +1361,18 @@
     </style>
 </head>
 <body>
+    <!-- Loader: só mostra a página depois de carregar as infos da API -->
+    <div id="lpLoadingOverlay" class="lp-loading-overlay" aria-live="polite">
+        <div class="lp-loading-inner">
+            <div class="lp-spinner" aria-hidden="true"></div>
+            <div id="lpLoadingLabel" class="lp-loading-label">Carregando...</div>
+            <button id="lpLoadingRetryBtn" type="button" class="btn btn-secondary" style="display:none;" onclick="window.location.reload()">
+                Recarregar
+            </button>
+        </div>
+    </div>
+
+    <div id="lpPage" style="display:none;">
     <!-- 🌐 LANDING PAGE (sempre visível) -->
     <header class="site-header">
         <div class="site-header-inner">
@@ -1631,6 +1694,7 @@
             </div>
         </div>
     </div>
+    </div>
 
     <script>
         const API_URL = 'https://blaze-analyzer-api-v2.onrender.com/api';
@@ -1829,15 +1893,36 @@
         }
 
         async function loadLandingPage() {
-            const response = await fetch(`${API_URL}/site/landing`, { cache: 'no-store' });
-            const data = await response.json().catch(() => ({}));
-            if (!response.ok || !data.success) {
-                throw new Error(data.error || 'Erro ao carregar landing');
-            }
+            const overlay = document.getElementById('lpLoadingOverlay');
+            const page = document.getElementById('lpPage');
+            const label = document.getElementById('lpLoadingLabel');
+            const retryBtn = document.getElementById('lpLoadingRetryBtn');
 
-            landingConfig = data.landing || null;
-            landingPlans = Array.isArray(data.plans) ? data.plans : [];
-            renderLandingPage(landingConfig, landingPlans);
+            if (retryBtn) retryBtn.style.display = 'none';
+            if (label) label.textContent = 'Carregando...';
+            if (overlay) overlay.style.display = 'flex';
+            if (page) page.style.display = 'none';
+
+            try {
+                const response = await fetch(`${API_URL}/site/landing`, { cache: 'no-store' });
+                const data = await response.json().catch(() => ({}));
+                if (!response.ok || !data.success) {
+                    throw new Error(data.error || 'Erro ao carregar landing');
+                }
+
+                landingConfig = data.landing || null;
+                landingPlans = Array.isArray(data.plans) ? data.plans : [];
+                renderLandingPage(landingConfig, landingPlans);
+
+                if (overlay) overlay.style.display = 'none';
+                if (page) page.style.display = 'block';
+            } catch (error) {
+                console.error('Erro ao carregar landing:', error);
+                if (label) label.textContent = 'Erro ao carregar. Tente novamente.';
+                if (retryBtn) retryBtn.style.display = 'inline-flex';
+                if (overlay) overlay.style.display = 'flex';
+                if (page) page.style.display = 'none';
+            }
         }
 
         function stopHeroBanner() {
