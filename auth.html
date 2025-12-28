@@ -344,6 +344,8 @@
             opacity: 0;
             transition: opacity 0.5s ease;
             display: block;
+            /* Evita “blur”/pixelização em alguns setups (Chrome/Windows) */
+            image-rendering: -webkit-optimize-contrast;
         }
 
         .hero-banner-media.fade img.active {
@@ -367,6 +369,7 @@
             object-fit: contain;
             object-position: right center;
             display: block;
+            image-rendering: -webkit-optimize-contrast;
         }
 
         .hero-banner-caption {
@@ -486,6 +489,7 @@
             object-fit: contain; /* nunca cortar o design */
             background: rgba(0, 0, 0, 0.25);
             display: block;
+            image-rendering: -webkit-optimize-contrast;
         }
 
         .gallery-nav {
@@ -667,7 +671,6 @@
             .hero-banner .hero-banner-media {
                 transition: transform 0.35s ease;
                 transform-origin: center;
-                will-change: transform;
             }
 
             .hero-banner:hover .hero-banner-media {
@@ -677,7 +680,6 @@
             .tile-media img {
                 transition: transform 0.35s ease;
                 transform-origin: center;
-                will-change: transform;
             }
 
             .tile:hover .tile-media img {
@@ -688,7 +690,6 @@
             .pricing-card {
                 transition: transform 0.25s ease;
                 transform-origin: center;
-                will-change: transform;
             }
 
             .feature-card:hover,
