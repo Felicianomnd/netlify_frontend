@@ -91,15 +91,8 @@
         return sanitized;
     }
 
+    // ✅ Modo IA é global por conta (sincronizado). Não usar sessionStorage por aba.
     function getTabSpecificAIMode(defaultValue) {
-        const tabSpecificModeStr = sessionStorage.getItem('tabSpecificAIMode');
-        if (tabSpecificModeStr !== null) {
-            try {
-                return !!JSON.parse(tabSpecificModeStr);
-            } catch (error) {
-                console.warn('⚠️ Não foi possível interpretar tabSpecificAIMode do sessionStorage:', error);
-            }
-        }
         return !!defaultValue;
     }
 
@@ -887,15 +880,7 @@
         console.log('🔧 Salvando aiMode no storage:', newAIMode);
         console.log('🔧 Config completa sendo salva:', config);
         
-        // ═══════════════════════════════════════════════════════════════════════════════
-        // ✅ SOLUÇÃO: Salvar modo específico da ABA no sessionStorage
-        // ═══════════════════════════════════════════════════════════════════════════════
-        // sessionStorage é ISOLADO POR ABA - cada aba mantém sua própria configuração
-        console.log(`%c💾 Salvando modo ESPECÍFICO desta ABA no sessionStorage...`, 'color: #00FF88; font-weight: bold;');
-        sessionStorage.setItem('tabSpecificAIMode', JSON.stringify(newAIMode));
-        console.log(`%c✅ Modo desta aba: ${newAIMode ? '💎 DIAMANTE' : '⚙️ PADRÃO'}`, 'color: #00FF88; font-weight: bold;');
-        
-        // ✅ Também salvar no chrome.storage.local (para ser padrão de novas abas)
+        // ✅ Salvar no storage global (por conta/dispositivo)
         chrome.storage.local.set({ analyzerConfig: config }, function() {
             console.log('✅ Configuração global salva com sucesso!');
             updateAIModeUI(toggleElement, newAIMode);
@@ -949,8 +934,13 @@
                 }
             }
             
-            // ❌ NÃO SINCRONIZAR aiMode - cada dispositivo tem seu próprio modo ativo!
-            // As configurações (minPercentage, aiApiKey, etc) são sincronizadas via botão Salvar
+            // ✅ Sincronizar modo/config com a conta (se preferência estiver ativa)
+            try {
+                const shouldSync = getSyncConfigPreference();
+                if (shouldSync) {
+                    syncConfigToServer(config).catch(err => console.warn('⚠️ Falha ao sincronizar modo IA com servidor:', err));
+                }
+            } catch (_) {}
             
             // ✅ RE-RENDERIZAR ENTRADAS PARA FILTRAR POR MODO
             chrome.storage.local.get(['entriesHistory'], function(res) {
@@ -1089,19 +1079,10 @@
             }
         }
         
-        // ✅ BOTÕES DE PADRÕES CUSTOMIZADOS: Visíveis apenas no Nível Diamante
-        // (Zona Segura, Padrões Ativos, Adicionar Modelo)
-        const customPatternsContainer = document.getElementById('customPatternsContainer');
-        if (customPatternsContainer) {
-            if (isAIMode) {
-                // Modo Diamante: MOSTRAR botões de padrões customizados
-                customPatternsContainer.style.display = '';
-                console.log('🔥 Botões de Padrões Customizados visíveis (Modo Nível Diamante)');
-            } else {
-                // Modo Padrão: OCULTAR botões de padrões customizados
-                customPatternsContainer.style.display = 'none';
-                console.log('🔒 Botões de Padrões Customizados ocultos (Modo Padrão)');
-            }
+        // ✅ CONTROLES DO MODO DIAMANTE: visíveis apenas quando IA estiver ativa
+        const diamondLevelsContainer = document.getElementById('diamondLevelsContainer');
+        if (diamondLevelsContainer) {
+            diamondLevelsContainer.style.display = isAIMode ? '' : 'none';
         }
         
         // ✅ INTENSIDADE DE SINAIS: Visível apenas no Nível Diamante
@@ -10105,7 +10086,7 @@ autoBetHistoryStore.init().catch(error => console.warn('AutoBetHistory: iniciali
         const toggleBtn = document.getElementById('syncConfigToggleBtn');
         if (!toggleBtn || toggleBtn.dataset.bound === '1') return;
         toggleBtn.dataset.bound = '1';
-        toggleBtn.addEventListener('click', () => {
+        toggleBtn.addEventListener('click', async () => {
             const chk = document.getElementById('syncConfigToAccount');
             const current = chk ? !!chk.checked : !!getSyncConfigPreference();
             const next = !current;
@@ -10115,6 +10096,18 @@ autoBetHistoryStore.init().catch(error => console.warn('AutoBetHistory: iniciali
             try { saveSyncConfigPreference(next); } catch (_) {}
             updateSyncConfigToggleUI(next);
             try { showToast(next ? 'Sincronização ativada' : 'Sincronização desativada', 1800); } catch (_) {}
+
+            // ✅ Persistir preferência na conta, para todos os dispositivos respeitarem
+            try {
+                const stored = await storageCompat.get(['analyzerConfig']);
+                const currentConfig = stored?.analyzerConfig || {};
+                const updatedConfig = { ...currentConfig, syncConfigToAccount: next };
+                await storageCompat.set({ analyzerConfig: updatedConfig });
+                // Sempre enviar para o servidor (mesmo ao desativar), pois é a própria preferência
+                await syncConfigToServer(updatedConfig);
+            } catch (error) {
+                console.warn('⚠️ Não foi possível persistir preferência de sincronização na conta:', error);
+            }
         });
     }
 
@@ -10406,9 +10399,8 @@ async function persistAnalyzerState(newState) {
         }
         
         try {
-            // ✅ REMOVER aiMode da sincronização - cada dispositivo tem seu próprio modo!
+            // ✅ Sincronizar TODA a configuração da conta (inclui modo Premium/Diamante)
             const configToSync = { ...config };
-            delete configToSync.aiMode;
             
             const apiUrl = getApiUrl();
             const response = await fetch(`${apiUrl}/api/user/settings`, {
@@ -11573,9 +11565,9 @@ async function persistAnalyzerState(newState) {
                         </div>
                         
                         <!-- ═══════════════════════════════════════════════════════ -->
-                        <!-- MODELOS CUSTOMIZADOS DE ANÁLISE (NÍVEL DIAMANTE) -->
+                        <!-- NÍVEL DIAMANTE (IA): CONFIGURAR NÍVEIS -->
                         <!-- ═══════════════════════════════════════════════════════ -->
-                        <div class="setting-item setting-row" id="customPatternsContainer" style="margin-top: 20px; padding-top: 15px; border-top: 1px solid #333;">
+                        <div class="setting-item setting-row" id="diamondLevelsContainer" style="margin-top: 20px; padding-top: 15px; border-top: 1px solid #333;">
                             <div class="hot-pattern-actions">
                                 <button id="diamondLevelsBtn" class="btn-hot-pattern btn-diamond-levels">
                                     Configurar Níveis
@@ -11618,7 +11610,6 @@ async function persistAnalyzerState(newState) {
                         </div>
                         
                     </div>
-                    <button id="cfgSaveBtn" class="cfg-save-btn">Salvar</button>
                 </div>
                         </div>
                         </div>
@@ -11776,7 +11767,7 @@ async function persistAnalyzerState(newState) {
                     </div>
                     <div class="auto-bet-modal-footer">
                         <button type="button" class="auto-bet-reset" id="autoBetResetRuntimeModal"><span class="button-label">Resetar ciclo</span></button>
-                        <button type="button" class="auto-bet-save-btn" id="autoBetSaveConfig"><span class="button-label">Salvar autoaposta</span></button>
+                        <button type="button" class="auto-bet-save-btn" id="autoBetSaveConfig"><span class="button-label">Salvar</span></button>
                     </div>
                 </div>
             </div>
@@ -11944,8 +11935,7 @@ async function persistAnalyzerState(newState) {
                 // ✅ GARANTIR que o badge reflita o modo de análise correto após popular o menu
                 chrome.storage.local.get(['analyzerConfig'], function(result) {
                     const config = result.analyzerConfig || {};
-                    const tabSpecificModeStr = sessionStorage.getItem('tabSpecificAIMode');
-                    const isAIMode = tabSpecificModeStr !== null ? JSON.parse(tabSpecificModeStr) : (config.aiMode || false);
+                    const isAIMode = !!config.aiMode;
                     
                     const aiModeToggle = sidebar.querySelector('#aiModeToggle');
                     if (aiModeToggle && titleBadge) {
@@ -12652,13 +12642,8 @@ async function persistAnalyzerState(newState) {
                 }
             });
         }
-        // 🎯 CRIAR MODAL DE PADRÕES CUSTOMIZADOS E BANCO
-        // ═══════════════════════════════════════════════════════════════
-        createCustomPatternModal();
+        // 🎯 Modais do sistema
         createDiamondLevelsModal();
-        
-        // ✅ Carregar padrões customizados imediatamente após criar a sidebar
-        console.log('%c🎯 Carregando padrões customizados...', 'color: #00d4ff; font-weight: bold;');
         
         // 🧠 NÃO iniciar o intervalo automaticamente - só quando o modo IA for ativado
         console.log('%c🧠 Sistema de memória ativa preparado (aguardando ativação do modo IA)', 'color: #00CED1; font-weight: bold;');
@@ -12702,30 +12687,11 @@ async function persistAnalyzerState(newState) {
         // ✅ Toggle de modo IA
         const aiModeToggle = document.getElementById('aiModeToggle');
         if (aiModeToggle) {
-            // ═══════════════════════════════════════════════════════════════════════════════
-            // ✅ SOLUÇÃO: Carregar modo específico da ABA primeiro (sessionStorage)
-            // ═══════════════════════════════════════════════════════════════════════════════
-            // Carregar estado inicial
+            // Carregar estado inicial (modo IA é global/sincronizado por conta)
             chrome.storage.local.get(['analyzerConfig', 'user'], async function(result) {
                 const config = result.analyzerConfig || {};
                 const user = result.user || getStoredUserData();
-                
-                // ✅ VERIFICAR SE ESTA ABA JÁ TEM UMA CONFIGURAÇÃO PRÓPRIA (sessionStorage)
-                const tabSpecificModeStr = sessionStorage.getItem('tabSpecificAIMode');
-                let isAIMode = config.aiMode || false; // Padrão do chrome.storage.local
-                
-                if (tabSpecificModeStr !== null) {
-                    // ✅ Esta aba tem uma configuração específica! Usar ela!
-                    isAIMode = JSON.parse(tabSpecificModeStr);
-                    console.log(`%c🔄 ABA ESPECÍFICA: Usando modo salvo desta aba (${isAIMode ? '💎 DIAMANTE' : '⚙️ PADRÃO'})`, 'color: #00FF88; font-weight: bold;');
-                } else {
-                    // ✅ Primeira vez nesta aba, usar padrão global e salvar no sessionStorage
-                    console.log(`%c🆕 NOVA ABA: Usando modo padrão global (${isAIMode ? '💎 DIAMANTE' : '⚙️ PADRÃO'})`, 'color: #FFA500; font-weight: bold;');
-                    sessionStorage.setItem('tabSpecificAIMode', JSON.stringify(isAIMode));
-                }
-                
-                // ✅ Atualizar config com o modo específico desta aba
-                config.aiMode = isAIMode;
+                let isAIMode = !!config.aiMode;
 
                 // 🔒 REGRA: só permitir IA se cadastro estiver completo (Minha Conta)
                 const profileStatus = getProfileCompletionSnapshot(user);
@@ -12733,8 +12699,13 @@ async function persistAnalyzerState(newState) {
                     console.warn('🔒 Bloqueando Modo IA: cadastro incompleto.', profileStatus.missing);
                     isAIMode = false;
                     config.aiMode = false;
-                    sessionStorage.setItem('tabSpecificAIMode', JSON.stringify(false));
                     chrome.storage.local.set({ analyzerConfig: config });
+                    try {
+                        const shouldSync = getSyncConfigPreference();
+                        if (shouldSync) {
+                            syncConfigToServer(config).catch(err => console.warn('⚠️ Falha ao sincronizar desativação do IA (cadastro incompleto):', err));
+                        }
+                    } catch (_) {}
                     showToast('⚠️ Cadasto incompleto — Nível Diamante desativado.', 2600);
                 }
                 
@@ -12807,12 +12778,6 @@ async function persistAnalyzerState(newState) {
                     
                     const config = { ...DEFAULT_CONFIG, ...(result.analyzerConfig || {}) };
                     const user = result.user || getStoredUserData();
-                    
-                    // ✅ USAR O MODO ESPECÍFICO DESTA ABA (sessionStorage) EM VEZ DO GLOBAL
-                    const tabSpecificModeStr = sessionStorage.getItem('tabSpecificAIMode');
-                    if (tabSpecificModeStr !== null) {
-                        config.aiMode = JSON.parse(tabSpecificModeStr);
-                    }
                     
                     const newAIMode = !config.aiMode;
 
@@ -14324,35 +14289,6 @@ async function persistAnalyzerState(newState) {
                                     ),
                                     { expanded: true }
                                 );
-                            } else if (parsed.type === 'custom_pattern') {
-                                console.log('✅ DETECTADO: Padrão Customizado');
-                                console.log('📋 Nome:', parsed.name);
-                                console.log('🎯 Sequência:', parsed.sequence.join(' → '));
-                                console.log('📊 Ocorrências:', parsed.occurrences);
-                                console.log('🎲 Próxima cor esperada:', parsed.expected_next);
-                                
-                                // Renderizar padrão customizado
-                                const colorEmoji = parsed.expected_next === 'red' ? '🔴' : 
-                                                 parsed.expected_next === 'black' ? '⚫' : '⚪';
-                                const colorName = parsed.expected_next === 'red' ? 'VERMELHO' : 
-                                                parsed.expected_next === 'black' ? 'PRETO' : 'BRANCO';
-                                
-                                setPatternMainContent(patternInfo, `
-                                    <div style="padding: 12px; background: var(--bg-tertiary); border-radius: 6px; border: 1px solid var(--border-color);">
-                                        <div style="font-size: 14px; font-weight: bold; color: var(--text-primary); margin-bottom: 8px;">
-                                            🎯 ${parsed.name}
-                                        </div>
-                                        <div style="font-size: 12px; color: var(--text-secondary); margin-bottom: 8px;">
-                                            Sequência: ${parsed.sequence.join(' → ')}
-                                        </div>
-                                        <div style="font-size: 13px; color: var(--text-primary); font-weight: bold; margin-top: 8px;">
-                                            ${colorEmoji} Recomendação: ${colorName}
-                                        </div>
-                                        <div style="font-size: 11px; color: var(--text-secondary); margin-top: 4px;">
-                                            ${parsed.occurrences} ocorrência(s) | ${parsed.stats.red}% ⭕ ${parsed.stats.black}% ⚫ ${parsed.stats.white}% ⚪
-                                        </div>
-                                    </div>
-                                `, { expanded: true });
                             } else {
                                 console.log('📝 Análise padrão detectada');
                                 // anexar summary vindo do analysis se existir
@@ -15096,11 +15032,16 @@ async function persistAnalyzerState(newState) {
 
             let pendingIndicator = '';
 
-            // ✅ Correção do “pendente travado”:
-            // Só mostrar indicador quando houver uma ANÁLISE realmente pendente no storage.
-            // (Em alguns fluxos, o martingale pode ficar "ativo" aguardando novo sinal; isso NÃO é "aguardando resultado".)
-            const analysisMode = analysis ? resolveAnalysisMode(analysis) : null;
-            const shouldShowPending = !!(analysis && !analysis.hiddenInternal && analysisMode === currentMode);
+            // ✅ Indicador pendente (entrada/gale em andamento)
+            // Regras:
+            // - Se existir `analysis` pendente no storage: mostrar (entrada/G1/G2…)
+            // - Se `analysis` estiver null (ex.: G2 aguardando novo sinal por causa de "Consecutivo até (G)=1"):
+            //   ainda assim mostrar se o `martingaleState` estiver ativo em G1/G2...
+            const hasAnalysisPending = !!(analysis && !analysis.hiddenInternal);
+            const ms = (martingaleState && typeof martingaleState === 'object') ? martingaleState : null;
+            const stageFromMs = ms ? String(ms.stage || '').toUpperCase().trim() : '';
+            const hasGalePendingFromMs = !!(ms && ms.active && stageFromMs.startsWith('G') && stageFromMs !== 'G0');
+            const shouldShowPending = hasAnalysisPending || hasGalePendingFromMs;
 
             if (shouldShowPending) {
                 const parseMs = (v) => {
@@ -15117,7 +15058,9 @@ async function persistAnalyzerState(newState) {
                 };
 
                 // Se faltar timestamp (estado corrompido) OU estiver muito velho (travado), pedir reset no background.
-                const rawTs = analysis && analysis.createdOnTimestamp != null ? analysis.createdOnTimestamp : null;
+                const rawTs = hasAnalysisPending
+                    ? (analysis && analysis.createdOnTimestamp != null ? analysis.createdOnTimestamp : null)
+                    : (ms && ms.entryTimestamp != null ? ms.entryTimestamp : null);
                 const hasTimestamp = rawTs != null && String(rawTs).trim().length > 0;
                 const aMs = parseMs(rawTs);
                 const nowMs = Date.now();
@@ -15128,12 +15071,12 @@ async function persistAnalyzerState(newState) {
                     const reason = !hasTimestamp ? 'missing_timestamp_ui' : 'stale_pending_ui';
                     try { chrome.runtime.sendMessage({ action: 'FORCE_CLEAR_PENDING', reason }, () => {}); } catch (_) {}
                 } else {
-                    const color = normColor(analysis?.color);
-                    const stage = String(analysis?.phase || '').toUpperCase().trim();
+                    const color = normColor(hasAnalysisPending ? analysis?.color : (ms?.currentColor || ms?.entryColor));
+                    const stage = String((hasAnalysisPending ? (analysis?.phase || '') : stageFromMs) || '').toUpperCase().trim();
                     const galeLabel = (stage && stage.startsWith('G') && stage !== 'G0') ? stage : '';
 
                     if (color) {
-                        const isMasterPending = isEntrySignal(analysis);
+                        const isMasterPending = hasAnalysisPending ? isEntrySignal(analysis) : false;
                         const galeAttr = galeLabel ? ` data-gale="${galeLabel}"` : '';
                         const titleBase = isMasterPending ? 'Sinal de entrada' : 'IA';
                         const title = galeLabel ? `${titleBase} • Aguardando resultado (${galeLabel})` : `${titleBase} • Aguardando resultado`;
@@ -17162,7 +17105,6 @@ function logModeSnapshotUI(snapshot) {
         } else if (request.type === 'AI_MODE_BLOCKED_PROFILE') {
             try {
                 const missing = (request.data && Array.isArray(request.data.missing)) ? request.data.missing : (request.missing || []);
-                sessionStorage.setItem('tabSpecificAIMode', JSON.stringify(false));
                 const aiToggle = document.getElementById('aiModeToggle');
                 if (aiToggle) {
                     updateAIModeUI(aiToggle, false);
@@ -17765,27 +17707,27 @@ function logModeSnapshotUI(snapshot) {
     
     async function loadSettings() {
         try {
-            // ✅ CARREGAR CONFIGURAÇÃO LOCAL ATUAL PRIMEIRO (para preservar aiMode)
-            const localResult = await storageCompat.get(['analyzerConfig']);
-            const localConfig = localResult.analyzerConfig || {};
-            const localAIMode = localConfig.aiMode; // Preservar modo ativo local
-            
-            // ✅ VERIFICAR SE USUÁRIO QUER SINCRONIZAR
-            const shouldSync = getSyncConfigPreference();
-            
-            if (shouldSync) {
-                console.log('☁️ Sincronização ATIVADA - tentando carregar do servidor...');
-                // ✅ TENTAR CARREGAR DO SERVIDOR (se autenticado)
-                const serverConfig = await loadConfigFromServer();
-                
+            // ✅ Preferência de sincronização precisa ser respeitada em TODOS os dispositivos.
+            // Para isso, sempre tentamos buscar do servidor e, se vier `syncConfigToAccount`,
+            // usamos como fonte de verdade da conta.
+            const localPref = getSyncConfigPreference();
+            const serverConfig = await loadConfigFromServer();
+            const serverPref = (serverConfig && typeof serverConfig.syncConfigToAccount === 'boolean')
+                ? serverConfig.syncConfigToAccount
+                : null;
+            const effectivePref = (serverPref !== null) ? serverPref : localPref;
+
+            // Se o servidor informar a preferência, refletir localmente (UI + localStorage)
+            if (serverPref !== null && serverPref !== localPref) {
+                try { saveSyncConfigPreference(serverPref); } catch (_) {}
+                try { updateSyncConfigToggleUI(serverPref); } catch (_) {}
+            }
+
+            if (effectivePref) {
+                console.log('☁️ Sincronização ATIVADA - carregando configurações da conta...');
                 if (serverConfig) {
-                    // Se tem configuração no servidor, mesclar com aiMode local
                     console.log('✅ Usando configurações do servidor (sincronizado)');
-                    const mergedConfig = {
-                        ...serverConfig,
-                        aiMode: localAIMode // ✅ PRESERVAR aiMode local
-                    };
-                    await storageCompat.set({ analyzerConfig: mergedConfig });
+                    await storageCompat.set({ analyzerConfig: serverConfig });
                 } else {
                     console.log('⚠️ Não foi possível carregar do servidor - usando configuração local');
                 }
@@ -17798,8 +17740,7 @@ function logModeSnapshotUI(snapshot) {
                 const cfg = res && res.analyzerConfig ? res.analyzerConfig : {};
                 const sanitizedProfiles = sanitizeMartingaleProfilesFromConfig(cfg);
                 cfg.martingaleProfiles = sanitizedProfiles;
-                const currentAIMode = getTabSpecificAIMode(cfg.aiMode || false);
-                const activeModeKey = currentAIMode ? 'diamond' : 'standard';
+                const activeModeKey = cfg.aiMode ? 'diamond' : 'standard';
                 const activeMartingaleProfile = sanitizedProfiles[activeModeKey];
                 
                 // ✅ Painel (saldo) sempre visível — ignorar configs antigas de visibilidade
@@ -17904,7 +17845,7 @@ function logModeSnapshotUI(snapshot) {
         console.log('');
         
         // Referência ao botão (para validações que resetam visual em caso de erro)
-        const btn = document.getElementById('cfgSaveBtn');
+        const btn = document.getElementById('autoBetSaveConfig') || document.getElementById('cfgSaveBtn');
         
         // ✅ Feedback global de salvamento (bolinha no centro)
         showGlobalSaveLoading();
@@ -18104,15 +18045,8 @@ function logModeSnapshotUI(snapshot) {
                     return;
                 }
                 
-                // ✅ PRESERVAR aiMode ESPECÍFICO DESTA ABA (sessionStorage)
-                const tabSpecificModeStr = sessionStorage.getItem('tabSpecificAIMode');
-                let tabSpecificAIMode = getTabSpecificAIMode(currentConfig.aiMode || false);
-                
-                if (tabSpecificModeStr !== null) {
-                    console.log(`%c🔒 Preservando aiMode específico desta aba: ${tabSpecificAIMode ? '💎 DIAMANTE' : '⚙️ PADRÃO'}`, 'color: #00FF88; font-weight: bold;');
-                }
-
-                const activeModeKey = tabSpecificAIMode ? 'diamond' : 'standard';
+                // ✅ Modo IA é global/sincronizado por conta
+                const activeModeKey = (currentConfig && currentConfig.aiMode) ? 'diamond' : 'standard';
                 const maxGalesInput = parseInt(getElementValue('cfgMaxGales', String(martingaleProfiles[activeModeKey].maxGales)), 10);
                 const maxGales = clampMartingaleMax(maxGalesInput, martingaleProfiles[activeModeKey].maxGales);
                 let consecutiveGales = Math.max(0, Math.min(maxGales, Number.isFinite(consecutiveGalesRaw) ? consecutiveGalesRaw : 0));
@@ -18134,7 +18068,8 @@ function logModeSnapshotUI(snapshot) {
                 // ✅ MESCLAR com configuração atual para preservar aiMode e outros estados
                 const cfg = {
                     ...currentConfig, // Preservar configurações existentes
-                    aiMode: tabSpecificAIMode, // ✅ USAR MODO ESPECÍFICO DESTA ABA!
+                    aiMode: !!(currentConfig && currentConfig.aiMode),
+                    syncConfigToAccount: getSyncConfigPreference(),
                     historyDepth: historyDepth,
                     minOccurrences: minOcc,
                     maxOccurrences: maxOcc,
@@ -18155,7 +18090,7 @@ function logModeSnapshotUI(snapshot) {
                 
                 console.log('');
                 console.log('%c💾 Salvando em chrome.storage.local...', 'color: #00FF88; font-weight: bold;');
-                console.log('   aiMode preservado (específico desta aba):', cfg.aiMode);
+                console.log('   aiMode (global):', cfg.aiMode);
                 console.log('   Objeto completo:', cfg);
                 
                 chrome.storage.local.set({ analyzerConfig: cfg }, async function() {
@@ -19230,14 +19165,6 @@ function logModeSnapshotUI(snapshot) {
                     }, 2000);
                 }
             });
-        }
-    });
-
-    // Wire salvar configurações
-    document.addEventListener('click', function(e) {
-        if (e.target && e.target.id === 'cfgSaveBtn') {
-            e.preventDefault();
-            saveSettings();
         }
     });
 

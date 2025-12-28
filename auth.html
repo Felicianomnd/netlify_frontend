@@ -830,6 +830,11 @@
         /* 🔐 AUTH MODAL                                                          */
         /* ═══════════════════════════════════════════════════════════════════════ */
 
+        body.da-auth-modal-open {
+            overflow: hidden;
+            height: 100%;
+        }
+
         .auth-modal {
             position: fixed;
             inset: 0;
@@ -838,6 +843,7 @@
             align-items: center;
             justify-content: center;
             padding: 20px;
+            overscroll-behavior: contain;
         }
 
         .auth-modal.active {
@@ -847,7 +853,8 @@
         .auth-modal-overlay {
             position: absolute;
             inset: 0;
-            background: rgba(0, 0, 0, 0.55);
+            /* Opaco (não mostrar a landing por trás durante o fluxo de cadastro/pagamento) */
+            background: radial-gradient(1200px 720px at 50% -140px, #1a2332 0%, #0b0f14 62%, #0b0f14 100%);
         }
 
         .auth-modal-dialog {
@@ -855,6 +862,7 @@
             z-index: 1;
             width: 100%;
             max-width: 520px;
+            max-height: calc(100vh - 40px);
         }
 
         .auth-modal-close {
@@ -866,13 +874,28 @@
             border-radius: 8px;
             border: 1px solid rgba(255,255,255,0.12);
             background: rgba(0,0,0,0.25);
+            backdrop-filter: blur(8px);
             color: #ffffff;
             cursor: pointer;
-            font-size: 18px;
-            line-height: 0;
             display: flex;
             align-items: center;
             justify-content: center;
+            transition: transform 120ms ease, background 120ms ease, border-color 120ms ease;
+        }
+
+        .auth-modal-close svg {
+            width: 18px;
+            height: 18px;
+        }
+
+        .auth-modal-close:hover {
+            background: rgba(255,255,255,0.08);
+            border-color: rgba(255,255,255,0.22);
+            transform: translateY(-1px);
+        }
+
+        .auth-modal-close:active {
+            transform: translateY(0);
         }
 
         .auth-container {
@@ -883,7 +906,14 @@
             padding: 40px 32px;
             box-shadow: none;
             border: 1px solid rgba(255, 255, 255, 0.08);
+            max-height: calc(100vh - 40px);
+            overflow-y: auto;
+            overscroll-behavior: contain;
+            -webkit-overflow-scrolling: touch;
+            scrollbar-width: none; /* Firefox */
         }
+
+        .auth-container::-webkit-scrollbar { width: 0; height: 0; } /* Chrome/Safari */
 
         .screen-title {
             color: #ffffff;
@@ -901,11 +931,27 @@
         }
 
         .logo {
-            text-align: center;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 12px;
             margin-bottom: 32px;
+            text-align: left;
         }
 
-        /* (sem logo dentro da página; apenas favicon no navegador) */
+        .auth-modal-brand-logo {
+            width: 38px;
+            height: 38px;
+            object-fit: contain;
+            object-position: center;
+        }
+
+        .auth-modal-brand-text {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+            text-align: left;
+        }
 
         .logo h1 {
             font-size: 28px;
@@ -1732,13 +1778,21 @@
 
     <!-- 🔐 MODAL DE LOGIN/CADASTRO (abre por botões/planos) -->
     <div id="authModal" class="auth-modal" aria-hidden="true">
-        <div class="auth-modal-overlay" onclick="closeAuthModal()"></div>
+        <div class="auth-modal-overlay"></div>
         <div class="auth-modal-dialog">
-            <button type="button" class="auth-modal-close" onclick="closeAuthModal()" aria-label="Fechar">✕</button>
+            <button type="button" class="auth-modal-close" onclick="closeAuthModal()" aria-label="Fechar">
+                <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                    <path d="M6 6l12 12" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
+                    <path d="M18 6L6 18" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
+                </svg>
+            </button>
     <div class="auth-container">
         <div class="logo">
-            <h1>Double Análise</h1>
-            <p>Sistema de Análise de Padrões</p>
+            <img id="authModalBrandLogo" class="auth-modal-brand-logo" alt="Logo" style="display:none" />
+            <div class="auth-modal-brand-text">
+                <h1 id="authModalBrandTitle">Double Análise</h1>
+                <p id="authModalBrandSubtitle">Sistema de Análise de Padrões</p>
+            </div>
         </div>
 
         <div id="message" class="message"></div>
@@ -1785,7 +1839,7 @@
                 <form onsubmit="handleRegister(event)">
                     <div class="form-group">
                         <label class="form-label">Nome Completo</label>
-                        <input type="text" class="form-input" id="registerName" placeholder="João Silva" required>
+                        <input type="text" class="form-input" id="registerName" placeholder="Seu nome" required>
                     </div>
                     <div class="form-group">
                         <label class="form-label">Email</label>
@@ -2439,6 +2493,10 @@
             setTextById('lpBrand', brand);
             setImgById('lpBrandLogo', logo, brand);
 
+            // Modal de Login/Cadastro: logo antes do nome
+            setTextById('authModalBrandTitle', brand);
+            setImgById('authModalBrandLogo', logo, brand);
+
             const loadingText = document.getElementById('lpLoadingBrandText');
             if (loadingText) loadingText.textContent = brand;
             setImgById('lpLoadingLogo', logo, brand);
@@ -3070,6 +3128,41 @@
             document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
             document.getElementById(screenId).classList.add('active');
             hideMessage();
+            // Ao trocar de tela, garantir que o modal volte pro topo (não “travar” no meio do scroll)
+            try {
+                const container = document.querySelector('#authModal .auth-container');
+                if (container) container.scrollTop = 0;
+            } catch (_) {}
+        }
+
+        let authModalScrollTop = 0;
+        function lockAuthModalBackgroundScroll() {
+            try {
+                if (document.body.classList.contains('da-auth-modal-open')) return;
+                authModalScrollTop = window.scrollY || 0;
+                document.body.classList.add('da-auth-modal-open');
+                // travar scroll sem "pular" a página
+                document.body.style.position = 'fixed';
+                document.body.style.top = `-${authModalScrollTop}px`;
+                document.body.style.left = '0';
+                document.body.style.right = '0';
+                document.body.style.width = '100%';
+            } catch (_) {}
+        }
+
+        function unlockAuthModalBackgroundScroll() {
+            try {
+                if (!document.body.classList.contains('da-auth-modal-open')) return;
+                document.body.classList.remove('da-auth-modal-open');
+                const top = document.body.style.top || '0';
+                document.body.style.position = '';
+                document.body.style.top = '';
+                document.body.style.left = '';
+                document.body.style.right = '';
+                document.body.style.width = '';
+                const y = Math.abs(parseInt(top, 10)) || authModalScrollTop || 0;
+                window.scrollTo(0, y);
+            } catch (_) {}
         }
 
         function openAuthModal(mode = 'login', options = {}) {
@@ -3078,6 +3171,7 @@
 
             modal.classList.add('active');
             modal.setAttribute('aria-hidden', 'false');
+            lockAuthModalBackgroundScroll();
 
             // Seleção de plano (quando clicou em um preço na landing)
             if (options && options.planDuration) {
@@ -3108,6 +3202,7 @@
             stopMpPaymentPolling();
             modal.classList.remove('active');
             modal.setAttribute('aria-hidden', 'true');
+            unlockAuthModalBackgroundScroll();
         }
 
         function scrollToSection(id) {
@@ -3756,6 +3851,10 @@
             if (evt && evt.currentTarget) {
                 evt.currentTarget.classList.add('selected');
             }
+            // Trazer o botão "Continuar" pra tela (evita parecer que travou)
+            try {
+                document.getElementById('confirmPlanBtn')?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+            } catch (_) {}
         }
 
         async function confirmPlan() {
