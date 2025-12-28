@@ -883,6 +883,10 @@
             transition: transform 120ms ease, background 120ms ease, border-color 120ms ease;
         }
 
+        .auth-modal.no-close .auth-modal-close {
+            display: none;
+        }
+
         .auth-modal-close svg {
             width: 18px;
             height: 18px;
@@ -949,8 +953,18 @@
         .auth-modal-brand-text {
             display: flex;
             flex-direction: column;
-            gap: 2px;
+            gap: 4px;
             text-align: left;
+        }
+
+        .auth-modal-brand-text h1 {
+            margin: 0;
+            line-height: 1.05;
+        }
+
+        .auth-modal-brand-text p {
+            margin: 0;
+            line-height: 1.2;
         }
 
         .logo h1 {
@@ -960,7 +974,7 @@
             background-clip: text;
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
-            margin-bottom: 8px;
+            margin-bottom: 0;
         }
 
         .logo p {
@@ -1200,11 +1214,12 @@
         }
 
         .verification-card {
-            background: #1a2332;
+            /* Já existe um container (auth-container). Não criar "container dentro de container". */
+            background: transparent;
             border: none;
-            border-radius: 8px;
-            padding: 28px;
-            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+            border-radius: 0;
+            padding: 0;
+            box-shadow: none;
         }
 
         .verification-header {
@@ -2205,7 +2220,12 @@
             document.addEventListener('keydown', (e) => {
                 if (e.key === 'Escape') {
                     closePrintModal();
-                    closeAuthModal();
+                    // Só permitir fechar o auth modal no login/recuperação (não no fluxo de cadastro/pagamento)
+                    try {
+                        const modal = document.getElementById('authModal');
+                        const canClose = modal && !modal.classList.contains('no-close');
+                        if (canClose) closeAuthModal();
+                    } catch (_) {}
                 }
             });
         });
@@ -2486,7 +2506,9 @@
         }
 
         function applyLandingBranding(cfg) {
-            const brand = cfg?.header?.brand || 'Double Análise';
+            const rawBrand = String(cfg?.header?.brand || '').trim();
+            // Migração: valor antigo "Double Analyzer" não deve mais aparecer
+            const brand = (!rawBrand || rawBrand.toLowerCase() === 'double analyzer') ? 'Double Análise' : rawBrand;
             const logo = getLandingLogoSrc(cfg);
             const hasLogo = !!String(logo || '').trim();
             // Landing (fora do login): manter o nome completo (Double Análise)
@@ -3133,6 +3155,13 @@
                 const container = document.querySelector('#authModal .auth-container');
                 if (container) container.scrollTop = 0;
             } catch (_) {}
+
+            // Fluxo de cadastro/pagamento não deve ser fechado (sem X e sem ESC)
+            try {
+                const modal = document.getElementById('authModal');
+                const closable = (screenId === 'authScreen' || screenId === 'forgotPasswordScreen');
+                if (modal) modal.classList.toggle('no-close', !closable);
+            } catch (_) {}
         }
 
         let authModalScrollTop = 0;
@@ -3199,6 +3228,7 @@
         function closeAuthModal() {
             const modal = document.getElementById('authModal');
             if (!modal) return;
+            if (modal.classList.contains('no-close')) return;
             stopMpPaymentPolling();
             modal.classList.remove('active');
             modal.setAttribute('aria-hidden', 'true');
