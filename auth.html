@@ -438,31 +438,36 @@
             margin-bottom: 10px;
         }
 
-        .feature-badge {
-            display: inline-flex;
-            align-items: center;
-            padding: 6px 10px;
-            border-radius: 999px;
-            font-size: 12px;
-            font-weight: 800;
-            letter-spacing: 0.2px;
-            border: 1px solid rgba(255, 255, 255, 0.12);
-            background: rgba(255, 255, 255, 0.07);
-            color: #ffffff;
+        /* ✅ CÓPIA do selo do app logado (styles.css -> .title-badge / .title-badge.badge-ia) */
+        .title-badge {
+            display: inline-block;
+            font-size: 9px;
+            font-weight: 700;
+            padding: 3px 8px;
+            border-radius: 4px;
+            margin-left: 6px;
+            background: linear-gradient(135deg, #FFD700 0%, #FFA500 100%);
+            color: #1a1a1a;
+            letter-spacing: 0.5px;
+            vertical-align: middle;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+            transition: all 0.3s ease;
+            white-space: nowrap;
             user-select: none;
             pointer-events: none; /* não clicável */
         }
 
-        .feature-badge.premium {
-            background: rgba(255, 215, 0, 0.14);
-            border-color: rgba(255, 215, 0, 0.28);
-            color: #ffd54a;
+        .title-badge.badge-ia {
+            background: linear-gradient(135deg, #FFD700 0%, #FFA500 35%, #ef4444 70%, #dc2626 100%);
+            color: #ffffff;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+            text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+            font-weight: 800;
         }
 
-        .feature-badge.diamond {
-            background: rgba(153, 69, 255, 0.16);
-            border-color: rgba(153, 69, 255, 0.30);
-            color: #cdb3ff;
+        /* No card, o selo fica centralizado sozinho (sem margin-left do header) */
+        .feature-badge-row .title-badge {
+            margin-left: 0;
         }
 
         .feature-card h4 {
@@ -471,12 +476,12 @@
             color: #ffffff;
         }
 
-        .feature-card p {
+        .feature-card .feature-desc {
             margin: 0;
             font-size: 13px;
             color: #9aa9c6;
             line-height: 1.45;
-            white-space: pre-line; /* permite quebras de linha se o admin usar enter */
+            white-space: normal;
         }
 
         .gallery-row-wrap {
@@ -2186,11 +2191,95 @@
                 .replaceAll("'", '&#039;');
         }
 
-        // Rich text simples (seguro): suporta **negrito** e quebras de linha.
+        // Rich text simples (seguro):
+        // - Compat legado: suporta **negrito** e quebras de linha
+        // - Novo (admin): aceita um subset de HTML (negrito e negrito vermelho)
         function formatRichTextSimple(input) {
-            const escaped = escapeHtml(String(input || ''));
-            const withBold = escaped.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
-            return withBold.replace(/\n/g, '<br>');
+            const raw = String(input || '');
+            const looksLikeHtml = /<[^>]+>/.test(raw);
+            if (!looksLikeHtml) {
+                const escaped = escapeHtml(raw);
+                const withBold = escaped.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+                return withBold.replace(/\n/g, '<br>');
+            }
+
+            // Sanitização leve (whitelist) — evita <script>, eventos inline, etc.
+            const allowedTags = new Set(['BR', 'B', 'STRONG', 'SPAN', 'DIV', 'P', 'UL', 'OL', 'LI', 'FONT']);
+            const allowedStyleProps = new Set(['color', 'font-weight']);
+
+            const normalizeStyle = (styleText) => {
+                const src = String(styleText || '');
+                const out = [];
+                src.split(';').forEach(part => {
+                    const p = part.trim();
+                    if (!p) return;
+                    const m = p.match(/^([a-zA-Z-]+)\s*:\s*(.+)$/);
+                    if (!m) return;
+                    const key = m[1].trim().toLowerCase();
+                    const val = m[2].trim();
+                    if (!allowedStyleProps.has(key)) return;
+                    // limitar cor: apenas hex/rgb(a)/nomes simples
+                    if (key === 'color' && !/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$|^rgb\(|^rgba\(|^[a-zA-Z]+$/.test(val)) return;
+                    if (key === 'font-weight' && !/^(bold|bolder|[5-9]00)$/.test(val)) return;
+                    out.push(`${key}:${val}`);
+                });
+                return out.join(';');
+            };
+
+            const sanitizeNode = (node) => {
+                const children = Array.from(node.childNodes || []);
+                for (const child of children) {
+                    if (child.nodeType === Node.ELEMENT_NODE) {
+                        const tag = child.tagName;
+                        if (!allowedTags.has(tag)) {
+                            // substituir elemento não permitido por seu texto/filhos
+                            const frag = document.createDocumentFragment();
+                            while (child.firstChild) frag.appendChild(child.firstChild);
+                            child.replaceWith(frag);
+                            continue;
+                        }
+
+                        // Remover atributos perigosos (on*)
+                        Array.from(child.attributes || []).forEach(attr => {
+                            const name = String(attr.name || '').toLowerCase();
+                            if (name.startsWith('on')) child.removeAttribute(attr.name);
+                            if (name !== 'style' && name !== 'color') child.removeAttribute(attr.name);
+                        });
+
+                        // Converter <font color="..."> em <span style="color:...">
+                        if (tag === 'FONT') {
+                            const color = child.getAttribute('color') || '';
+                            const span = document.createElement('span');
+                            if (color) span.setAttribute('style', `color:${color};`);
+                            while (child.firstChild) span.appendChild(child.firstChild);
+                            child.replaceWith(span);
+                            sanitizeNode(span);
+                            continue;
+                        }
+
+                        const style = child.getAttribute('style');
+                        if (style) {
+                            const cleaned = normalizeStyle(style);
+                            if (cleaned) child.setAttribute('style', cleaned);
+                            else child.removeAttribute('style');
+                        }
+
+                        sanitizeNode(child);
+                    } else if (child.nodeType === Node.COMMENT_NODE) {
+                        child.remove();
+                    } else if (child.nodeType === Node.TEXT_NODE) {
+                        // ok
+                    } else {
+                        // outros nós -> remover
+                        try { child.remove(); } catch (_) {}
+                    }
+                }
+            };
+
+            const wrapper = document.createElement('div');
+            wrapper.innerHTML = raw;
+            sanitizeNode(wrapper);
+            return wrapper.innerHTML;
         }
 
         function formatPriceBRL(price) {
@@ -2810,16 +2899,17 @@
                     let badgeClass = '';
                     if (t.includes('premium')) {
                         badgeText = 'Análise Premium';
-                        badgeClass = 'premium';
+                        badgeClass = 'title-badge';
                     } else if (t.includes('diamante') || t.includes('diamond')) {
-                        badgeText = 'Modo Diamante';
-                        badgeClass = 'diamond';
+                        // No app logado, o diamante aparece como "Análise por IA" (selo com .badge-ia)
+                        badgeText = 'Análise por IA';
+                        badgeClass = 'title-badge badge-ia';
                     }
                     if (badgeText) {
                         const row = document.createElement('div');
                         row.className = 'feature-badge-row';
                         const badge = document.createElement('div');
-                        badge.className = `feature-badge ${badgeClass}`;
+                        badge.className = badgeClass;
                         badge.textContent = badgeText;
                         row.appendChild(badge);
                         card.appendChild(row);
@@ -2827,10 +2917,11 @@
 
                     const h = document.createElement('h4');
                     h.textContent = String(item?.title || '');
-                    const p = document.createElement('p');
-                    p.innerHTML = formatRichTextSimple(item?.description || '');
+                    const desc = document.createElement('div');
+                    desc.className = 'feature-desc';
+                    desc.innerHTML = formatRichTextSimple(item?.descriptionHtml || item?.description || '');
                     card.appendChild(h);
-                    card.appendChild(p);
+                    card.appendChild(desc);
                     featuresGrid.appendChild(card);
                 }
             }
