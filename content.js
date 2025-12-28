@@ -11053,7 +11053,8 @@ async function persistAnalyzerState(newState) {
             <div class="da-header">
                 <!-- 1. Left: Brand -->
                 <div class="da-brand">
-                    <span class="da-app-name">Double Analyzer</span>
+                    <img id="daAppLogo" class="da-app-logo" alt="Logo" style="display:none;">
+                    <span class="da-app-name" id="daAppName">Double</span>
                     <span class="title-badge" id="titleBadge">Análise Premium</span>
                             </div>
 
@@ -12296,6 +12297,27 @@ async function persistAnalyzerState(newState) {
             console.error('%c❌ ERRO ao adicionar sidebar ao DOM:', 'color: #FF0000; font-weight: bold;', error);
             return;
         }
+
+        // Branding (web app): usar cache da landing para mostrar logo + "Double" no header
+        try {
+            const KEY = 'lp_brand_cache_v1';
+            const raw = localStorage.getItem(KEY);
+            const data = raw ? JSON.parse(raw) : null;
+            const brand = data && typeof data.brand === 'string' ? data.brand : 'Double';
+            const logo = data && typeof data.logo === 'string' ? data.logo : '';
+
+            const nameEl = sidebar.querySelector('#daAppName');
+            const logoEl = sidebar.querySelector('#daAppLogo');
+            const shortBrand = String(brand || '').trim().split(/\s+/)[0] || 'Double';
+            if (nameEl) nameEl.textContent = shortBrand;
+
+            if (logo && logoEl) {
+                logoEl.src = logo;
+                logoEl.style.display = 'block';
+            } else if (logoEl) {
+                logoEl.style.display = 'none';
+            }
+        } catch (_) {}
         
         // ✅ Garantir spinner imediato após reload (antes de qualquer mensagem do background)
         try {

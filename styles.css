@@ -530,6 +530,14 @@
     gap: 10px;
 }
 
+.da-app-logo {
+    width: 20px;
+    height: 20px;
+    object-fit: contain;
+    display: none;
+    flex: 0 0 auto;
+}
+
 .da-logo svg {
     width: 20px;
     height: 20px;
