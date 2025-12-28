@@ -15068,7 +15068,8 @@ async function persistAnalyzerState(newState) {
                         const isMasterPending = hasAnalysisPending ? isEntrySignal(analysis) : false;
                         const galeAttr = galeLabel ? ` data-gale="${galeLabel}"` : '';
                         const titleBase = isMasterPending ? 'Sinal de entrada' : 'IA';
-                        const title = galeLabel ? `${titleBase} • Aguardando resultado (${galeLabel})` : `${titleBase} • Aguardando resultado`;
+                        const titleAction = hasAnalysisPending ? 'Aguardando resultado' : 'Aguardando sinal';
+                        const title = galeLabel ? `${titleBase} • ${titleAction} (${galeLabel})` : `${titleBase} • ${titleAction}`;
                         pendingIndicator = `
                             <div class="entry-item-wrap gale-active-indicator" title="${title}">
                                 <div class="entry-conf-top gale-placeholder">&nbsp;</div>
@@ -17141,6 +17142,18 @@ function logModeSnapshotUI(snapshot) {
                 autoBetManager.handleEntriesUpdate(request.data);
             }
             // (Fase 2 removida do fluxo principal)
+
+            // ✅ Manter o topo (Aguardando sinal) sincronizado com o estado real no storage
+            // (ex.: Martingale ativo em G1/G2 mesmo quando analysis está null)
+            try {
+                storageCompat.get(['analysis', 'pattern', 'martingaleState']).then((res = {}) => {
+                    const payload = { ...(res || {}) };
+                    if (!Object.prototype.hasOwnProperty.call(payload, 'analysis')) payload.analysis = null;
+                    if (!Object.prototype.hasOwnProperty.call(payload, 'pattern')) payload.pattern = null;
+                    if (!Object.prototype.hasOwnProperty.call(payload, 'martingaleState')) payload.martingaleState = null;
+                    updateSidebar(payload);
+                }).catch(() => {});
+            } catch (_) {}
         } else if (request.type === 'RECOVERY_MODE_UPDATE') {
             // ✅ Atualização do modo Recuperação (ativação manual)
             try {
@@ -17298,8 +17311,15 @@ function logModeSnapshotUI(snapshot) {
                         }
                     } catch (_) {}
                     
+                    // ✅ Robustez: garantir que chaves existam para o updateSidebar
+                    // (chrome.storage.local.get pode omitir a chave se ela não existir; updateSidebar depende do hasOwnProperty)
+                    const normalized = { ...(result || {}) };
+                    if (!Object.prototype.hasOwnProperty.call(normalized, 'analysis')) normalized.analysis = null;
+                    if (!Object.prototype.hasOwnProperty.call(normalized, 'pattern')) normalized.pattern = null;
+                    if (!Object.prototype.hasOwnProperty.call(normalized, 'martingaleState')) normalized.martingaleState = null;
+
                     // Atualizar sidebar com análise e último giro
-                    updateSidebar(result);
+                    updateSidebar(normalized);
                     
                     // ✅ CARREGAR HISTÓRICO DE ENTRADAS (WIN/LOSS)
                     if (result.entriesHistory && result.entriesHistory.length > 0) {
