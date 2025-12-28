@@ -13855,10 +13855,6 @@ async function persistAnalyzerState(newState) {
 
     function bindHistoryLoadMoreIndicator() {
         try {
-            // Somente no novo dashboard desktop
-            const root = document.getElementById('blaze-double-analyzer');
-            if (!isDesktop() || !root || !root.classList.contains('da-desktop-dashboard')) return;
-
             const el = document.getElementById('historyLoadMoreIndicator');
             if (!el) return;
             const handler = () => {
@@ -13948,11 +13944,10 @@ async function persistAnalyzerState(newState) {
         <div class="spin-history-label">
             <span>ÚLTIMOS GIROS</span>
             <div class="spin-count-info">
-                <span class="displaying-count">Exibindo ${displayingCount} de ${totalSpins}</span>
-                ${hasMore ? (isDashboardDesktop
-                    ? '<span class="more-indicator" id="historyLoadMoreIndicator" role="button" tabindex="0" title="Carregar +500">📊 +' + remainingSpins + ' no servidor</span>'
-                    : '<span class="more-indicator" title="Mostrando os mais recentes">📊 +' + remainingSpins + ' no servidor</span>'
-                ) : ''}
+                <span class="displaying-count">Exibindo ${hasMore
+                    ? `<span class="displaying-num" id="historyLoadMoreIndicator" role="button" tabindex="0" title="Carregar +500">${displayingCount}</span>`
+                    : `<span class="displaying-num">${displayingCount}</span>`
+                }</span>
             </div>
         </div>
         <div class="spin-history-bar-blaze">
@@ -13967,13 +13962,7 @@ async function persistAnalyzerState(newState) {
                 </div>`;
             }).join('')}
         </div>
-        ${hasMore && !isDashboardDesktop ? `
-        <div style="text-align: center; margin-top: 12px; margin-bottom: 15px; padding: 8px 0;">
-            <button id="loadMoreHistoryBtn" class="load-more-history-btn">
-                Carregar Mais ${remainingSpins > 500 ? '(+500)' : '(+' + remainingSpins + ')'}
-            </button>
-        </div>
-        ` : ''}`;
+        `;
     }
 
     // ═══════════════════════════════════════════════════════════════

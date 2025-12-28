@@ -2763,6 +2763,23 @@
   font-weight: 500;
 }
 
+.displaying-num {
+  font-weight: 700;
+  color: #c9d1e2;
+}
+
+#historyLoadMoreIndicator.displaying-num {
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-color: rgba(201, 209, 226, 0.35);
+  text-underline-offset: 3px;
+}
+
+#historyLoadMoreIndicator.displaying-num:hover {
+  text-decoration-color: rgba(255, 0, 63, 0.75);
+  color: #ffffff;
+}
+
 .more-indicator {
   padding: 2px 6px;
   background: rgba(76, 175, 80, 0.2);
@@ -5699,13 +5716,13 @@
         font-size: 12px !important;
     }
     
-    #customPatternsContainer {
+    #diamondLevelsContainer {
         width: 100% !important;
         padding: 0 8px !important;
         box-sizing: border-box !important;
     }
     
-    #customPatternsContainer > div {
+    #diamondLevelsContainer > div {
         flex-direction: column !important;
         gap: 8px !important;
     }
@@ -7674,14 +7691,15 @@ body.da-ext-fullscreen #patternDetailsModal .bank-patterns-modal-content {
     }
 }
 
-#customPatternsContainer .hot-pattern-actions {
+#diamondLevelsContainer .hot-pattern-actions {
     width: 100%;
     display: flex;
     gap: 12px;
+    justify-content: center;
 }
 
-#customPatternsContainer .hot-pattern-actions button {
-    flex: 1;
+#diamondLevelsContainer .hot-pattern-actions button {
+    width: 100%;
     min-width: 0;
 }
 
@@ -7702,7 +7720,7 @@ body.da-ext-fullscreen #patternDetailsModal .bank-patterns-modal-content {
 }
 
 @media (max-width: 420px) {
-    #customPatternsContainer .hot-pattern-actions {
+    #diamondLevelsContainer .hot-pattern-actions {
         flex-direction: column;
     }
 }
@@ -8414,14 +8432,14 @@ body.da-ext-fullscreen #patternDetailsModal .bank-patterns-modal-content {
     }
 }
 
-#customPatternsContainer .hot-pattern-actions {
+#diamondLevelsContainer .hot-pattern-actions {
     width: 100%;
     display: flex;
     gap: 12px;
 }
 
-#customPatternsContainer .hot-pattern-actions button {
-    flex: 1;
+#diamondLevelsContainer .hot-pattern-actions button {
+    width: 100%;
     min-width: 0;
 }
 
@@ -8437,7 +8455,7 @@ body.da-ext-fullscreen #patternDetailsModal .bank-patterns-modal-content {
 }
 
 @media (max-width: 420px) {
-    #customPatternsContainer .hot-pattern-actions {
+    #diamondLevelsContainer .hot-pattern-actions {
         flex-direction: column;
     }
 }
