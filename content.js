@@ -16070,20 +16070,27 @@ async function persistAnalyzerState(newState) {
                 if (!actions) {
                     actions = document.createElement('div');
                     actions.className = 'da-desktop-sidebar-actions';
-                    // colocar logo após "Minha conta" (ou no topo, se ainda não estiver)
-                    if (userMenuPanel && userMenuPanel.parentNode === settingsScroll) {
-                        userMenuPanel.insertAdjacentElement('afterend', actions);
-                    } else {
-                        settingsScroll.insertAdjacentElement('afterbegin', actions);
-                    }
+                    // ✅ Pedido: "Modo Aposta" deve ficar como PRIMEIRO item (acima de "Minha conta")
+                    settingsScroll.insertAdjacentElement('afterbegin', actions);
+                }
+
+                // ✅ 1) Modo aposta (primeiro)
+                const betBtn = sidebar.querySelector('#betModeToggleBtn');
+                const betWrapper = betBtn && betBtn.closest ? betBtn.closest('.user-info-item') : null;
+                if (betWrapper && betWrapper.parentNode !== actions) {
+                    actions.insertAdjacentElement('afterbegin', betWrapper);
                 }
 
                 // ✅ Pedido: mover o botão "Ativar análise" para a coluna esquerda,
                 // acima de todas as configurações (sem alterar lógica do toggle).
                 const analyzerToggleBtn = sidebar.querySelector('#toggleAnalyzerBtn');
                 if (analyzerToggleBtn && analyzerToggleBtn.parentNode !== actions) {
-                    // Inserir no topo (acima do botão "Modo Aposta")
-                    actions.insertAdjacentElement('afterbegin', analyzerToggleBtn);
+                    // Inserir logo abaixo do "Modo Aposta"
+                    if (betWrapper && betWrapper.parentNode === actions) {
+                        betWrapper.insertAdjacentElement('afterend', analyzerToggleBtn);
+                    } else {
+                        actions.insertAdjacentElement('afterbegin', analyzerToggleBtn);
+                    }
                 }
 
                 // ✅ Pedido: mover "Sincronizar configurações" para fora e deixar de fácil acesso (igual Análise ativa)
@@ -16095,12 +16102,6 @@ async function persistAnalyzerState(newState) {
                     } else {
                         actions.insertAdjacentElement('afterbegin', syncWrap);
                     }
-                }
-
-                const betBtn = sidebar.querySelector('#betModeToggleBtn');
-                const betWrapper = betBtn && betBtn.closest ? betBtn.closest('.user-info-item') : null;
-                if (betWrapper && betWrapper.parentNode !== actions) {
-                    actions.appendChild(betWrapper);
                 }
             }
         } catch (_) {}
