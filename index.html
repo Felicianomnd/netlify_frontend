@@ -11,9 +11,10 @@
     <title>Double Análise</title>
 
     <!-- Ícones / Favicon -->
-    <link rel="icon" href="icon16.svg" type="image/svg+xml">
-    <link rel="icon" href="icon48.svg" sizes="48x48" type="image/svg+xml">
-    <link rel="apple-touch-icon" href="icon128.svg">
+    <link id="appFavicon16" rel="icon" href="icon16.svg" type="image/svg+xml">
+    <link id="appFavicon48" rel="icon" href="icon48.svg" sizes="48x48" type="image/svg+xml">
+    <link id="appAppleTouchIcon" rel="apple-touch-icon" href="icon128.svg">
+    <link id="appShortcutIcon" rel="shortcut icon" href="icon16.svg">
     
     <!-- ✅ CARREGA O CSS ORIGINAL DA SIDEBAR (com cache-busting no mobile/Safari) -->
     <link id="appStyles" rel="stylesheet">
@@ -510,6 +511,77 @@
                 }
 
                 if (brand) document.title = brand;
+
+                // ✅ Favicon dinâmico (mesma regra do auth.html) para atualizar em todos os navegadores
+                const getMimeFromDataUrl = (dataUrl) => {
+                    const m = String(dataUrl || '').match(/^data:(image\/[a-zA-Z0-9.+-]+);/);
+                    return m ? m[1] : '';
+                };
+
+                const cacheBustIfUrl = (src) => {
+                    const s = String(src || '').trim();
+                    if (!s || s.startsWith('data:')) return s;
+                    const sep = s.includes('?') ? '&' : '?';
+                    return `${s}${sep}v=${Date.now()}`;
+                };
+
+                const setFavicons = (href, mime) => {
+                    const ids = ['appFavicon16', 'appFavicon48', 'appShortcutIcon'];
+                    for (const id of ids) {
+                        const l = document.getElementById(id);
+                        if (!l) continue;
+                        l.href = href;
+                        if (mime) l.type = mime; else l.removeAttribute('type');
+                    }
+                    const apple = document.getElementById('appAppleTouchIcon');
+                    if (apple) apple.href = href;
+                };
+
+                const dataUrlToPngDataUrl = (dataUrl, size = 64) => new Promise((resolve, reject) => {
+                    const img = new Image();
+                    img.onload = () => {
+                        try {
+                            const canvas = document.createElement('canvas');
+                            canvas.width = size;
+                            canvas.height = size;
+                            const ctx = canvas.getContext('2d');
+                            if (!ctx) return reject(new Error('Sem canvas'));
+                            ctx.clearRect(0, 0, size, size);
+                            const iw = img.naturalWidth || img.width || 1;
+                            const ih = img.naturalHeight || img.height || 1;
+                            const scale = Math.min(size / iw, size / ih);
+                            const w = Math.max(1, Math.round(iw * scale));
+                            const h = Math.max(1, Math.round(ih * scale));
+                            const x = Math.round((size - w) / 2);
+                            const y = Math.round((size - h) / 2);
+                            ctx.drawImage(img, x, y, w, h);
+                            resolve(canvas.toDataURL('image/png'));
+                        } catch (e) {
+                            reject(e);
+                        }
+                    };
+                    img.onerror = () => reject(new Error('Falha ao carregar imagem para favicon'));
+                    img.src = dataUrl;
+                });
+
+                const applyFaviconsFromLogo = (logoSrc) => {
+                    const rawLogo = String(logoSrc || '').trim();
+                    if (!rawLogo) return;
+                    if (rawLogo.startsWith('data:image/')) {
+                        Promise.all([
+                            dataUrlToPngDataUrl(rawLogo, 64),
+                            dataUrlToPngDataUrl(rawLogo, 128)
+                        ]).then(([ico64, ico128]) => {
+                            setFavicons(ico64, 'image/png');
+                            const apple = document.getElementById('appAppleTouchIcon');
+                            if (apple) apple.href = ico128;
+                        }).catch(() => setFavicons(rawLogo, getMimeFromDataUrl(rawLogo) || ''));
+                        return;
+                    }
+                    setFavicons(cacheBustIfUrl(rawLogo), '');
+                };
+
+                applyFaviconsFromLogo(logo);
             } catch (_) {}
         })();
 

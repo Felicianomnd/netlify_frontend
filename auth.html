@@ -432,6 +432,39 @@
             padding: 16px;
         }
 
+        .feature-badge-row {
+            display: flex;
+            justify-content: center;
+            margin-bottom: 10px;
+        }
+
+        .feature-badge {
+            display: inline-flex;
+            align-items: center;
+            padding: 6px 10px;
+            border-radius: 999px;
+            font-size: 12px;
+            font-weight: 800;
+            letter-spacing: 0.2px;
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            background: rgba(255, 255, 255, 0.07);
+            color: #ffffff;
+            user-select: none;
+            pointer-events: none; /* não clicável */
+        }
+
+        .feature-badge.premium {
+            background: rgba(255, 215, 0, 0.14);
+            border-color: rgba(255, 215, 0, 0.28);
+            color: #ffd54a;
+        }
+
+        .feature-badge.diamond {
+            background: rgba(153, 69, 255, 0.16);
+            border-color: rgba(153, 69, 255, 0.30);
+            color: #cdb3ff;
+        }
+
         .feature-card h4 {
             margin: 0 0 6px 0;
             font-size: 14px;
@@ -2217,13 +2250,32 @@
             return `${s}${sep}v=${Date.now()}`;
         }
 
+        function ensureShortcutIconLink() {
+            let link = document.querySelector('link[rel="shortcut icon"]');
+            if (!link) {
+                link = document.createElement('link');
+                link.rel = 'shortcut icon';
+                document.head.appendChild(link);
+            }
+            return link;
+        }
+
         function setFavicons(href, mime) {
-            const links = document.querySelectorAll('link[rel="icon"]');
-            links.forEach((l) => {
+            // Atualizar ícones por ID (evita conflito com type="image/svg+xml" e melhora compatibilidade)
+            const iconIds = ['lpFavicon16', 'lpFavicon48'];
+            for (const id of iconIds) {
+                const l = document.getElementById(id);
+                if (!l) continue;
                 l.href = href;
-                if (mime) l.type = mime;
-            });
-            const apple = document.querySelector('link[rel="apple-touch-icon"]');
+                if (mime) l.type = mime; else l.removeAttribute('type');
+            }
+
+            // Shortcut icon (alguns browsers ainda preferem este)
+            const shortcut = ensureShortcutIconLink();
+            shortcut.href = href;
+            if (mime) shortcut.type = mime; else shortcut.removeAttribute('type');
+
+            const apple = document.getElementById('lpAppleTouchIcon') || document.querySelector('link[rel="apple-touch-icon"]');
             if (apple) apple.href = href;
         }
 
@@ -2264,15 +2316,19 @@
 
             // Data URL: inferir MIME
             if (raw.startsWith('data:image/')) {
-                const mime = getMimeFromDataUrl(raw);
-                // WebP pode não funcionar como favicon em alguns browsers → converter para PNG
-                if (mime === 'image/webp') {
+                // ✅ Sempre gerar PNG pequeno (favicon com base64 grande dá problema em alguns browsers)
+                Promise.all([
+                    dataUrlToPngDataUrl(raw, 64),
                     dataUrlToPngDataUrl(raw, 128)
-                        .then((pngUrl) => setFavicons(pngUrl, 'image/png'))
-                        .catch(() => setFavicons(raw, mime));
-                    return;
-                }
-                setFavicons(raw, mime || '');
+                ]).then(([ico64, ico128]) => {
+                    setFavicons(ico64, 'image/png');
+                    // apple-touch-icon (tamanho maior ajuda no iOS)
+                    const apple = document.getElementById('lpAppleTouchIcon') || document.querySelector('link[rel="apple-touch-icon"]');
+                    if (apple) apple.href = ico128;
+                }).catch(() => {
+                    // fallback (melhor do que ficar preso no ícone antigo)
+                    setFavicons(raw, getMimeFromDataUrl(raw) || '');
+                });
                 return;
             }
 
@@ -2290,9 +2346,8 @@
             const brand = cfg?.header?.brand || 'Double Análise';
             const logo = getLandingLogoSrc(cfg);
             const hasLogo = !!String(logo || '').trim();
-            const brandShort = String(brand || '').trim().split(/\s+/)[0] || brand;
-            // Header: com logo, mostrar só "Double" (padrão de site) ao invés do nome completo
-            setTextById('lpBrand', hasLogo ? brandShort : brand);
+            // Landing (fora do login): manter o nome completo (Double Análise)
+            setTextById('lpBrand', brand);
             setImgById('lpBrandLogo', logo, brand);
 
             const loadingText = document.getElementById('lpLoadingBrandText');
@@ -2747,6 +2802,29 @@
                 for (const item of items) {
                     const card = document.createElement('div');
                     card.className = 'feature-card';
+
+                    // Selos automáticos (não precisa configurar manualmente)
+                    const titleTxt = String(item?.title || '');
+                    const t = titleTxt.toLowerCase();
+                    let badgeText = '';
+                    let badgeClass = '';
+                    if (t.includes('premium')) {
+                        badgeText = 'Análise Premium';
+                        badgeClass = 'premium';
+                    } else if (t.includes('diamante') || t.includes('diamond')) {
+                        badgeText = 'Modo Diamante';
+                        badgeClass = 'diamond';
+                    }
+                    if (badgeText) {
+                        const row = document.createElement('div');
+                        row.className = 'feature-badge-row';
+                        const badge = document.createElement('div');
+                        badge.className = `feature-badge ${badgeClass}`;
+                        badge.textContent = badgeText;
+                        row.appendChild(badge);
+                        card.appendChild(row);
+                    }
+
                     const h = document.createElement('h4');
                     h.textContent = String(item?.title || '');
                     const p = document.createElement('p');
