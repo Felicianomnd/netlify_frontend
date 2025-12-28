@@ -54,24 +54,55 @@
             position: relative;
         }
 
-        /* Mensagem de carregamento */
+        /* Loader padronizado (igual ao auth.html): logo acima + bolinha abaixo */
         #loading-message {
             position: fixed;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            text-align: center;
+            inset: 0;
             z-index: 9999;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #151924; /* fundo limpo e consistente */
+        }
+
+        .app-loading-inner {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 14px;
+            text-align: center;
+            padding: 20px 18px;
+            min-width: min(460px, 92vw);
+        }
+
+        .app-loading-logo {
+            width: 52px;
+            height: 52px;
+            object-fit: contain;
+            display: none;
+        }
+
+        .app-loading-brand-text {
+            font-size: 16px;
+            font-weight: 900;
+            letter-spacing: 0.6px;
+            background: linear-gradient(90deg, #ff003f, #9945ff);
+            background-clip: text;
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            white-space: nowrap;
+            display: block;
         }
 
         .loader {
-            border: 4px solid rgba(255, 255, 255, 0.1);
-            border-top: 4px solid #00FF88;
-            border-radius: 50%;
-            width: 50px;
-            height: 50px;
-            animation: spin 1s linear infinite;
-            margin: 0 auto 20px auto;
+            width: 44px;
+            height: 44px;
+            border-radius: 999px;
+            border: 3px solid rgba(255, 255, 255, 0.18);
+            border-top-color: rgba(255, 255, 255, 0.92);
+            animation: spin 0.9s linear infinite;
+            margin: 0;
         }
 
         @keyframes spin {
@@ -205,11 +236,13 @@
     </style>
 </head>
 <body>
-    <!-- Mensagem de carregamento -->
-    <div id="loading-message">
-        <div class="loader"></div>
-        <h2>Carregando Double Análise...</h2>
-        <p>Inicializando sistemas...</p>
+    <!-- Loader padronizado -->
+    <div id="loading-message" aria-live="polite">
+        <div class="app-loading-inner">
+            <img id="appLoadingLogo" class="app-loading-logo" alt="Logo">
+            <div id="appLoadingBrandText" class="app-loading-brand-text">Double Análise</div>
+            <div class="loader" aria-hidden="true"></div>
+        </div>
     </div>
 
     <!-- Container onde a sidebar será renderizada -->
@@ -450,15 +483,56 @@
         
         console.log('✅ Double Análise - Versão Web carregada');
 
-        // Remover loading
-        setTimeout(() => {
-            const loadingMessage = document.getElementById('loading-message');
-            if (loadingMessage) {
+        // Aplicar logo do usuário (cache da landing) no loader do app
+        (function applyAppBrandOnLoader() {
+            try {
+                const KEY = 'lp_brand_cache_v1';
+                const raw = localStorage.getItem(KEY);
+                const data = raw ? JSON.parse(raw) : null;
+                const brand = data && typeof data.brand === 'string' ? data.brand : 'Double Análise';
+                const logo = data && typeof data.logo === 'string' ? data.logo : '';
+
+                const logoEl = document.getElementById('appLoadingLogo');
+                const textEl = document.getElementById('appLoadingBrandText');
+
+                if (textEl) textEl.textContent = brand || 'Double Análise';
+                if (logo && logoEl) {
+                    logoEl.src = logo;
+                    logoEl.style.display = 'block';
+                    if (textEl) textEl.style.display = 'none';
+                } else {
+                    if (logoEl) logoEl.style.display = 'none';
+                    if (textEl) textEl.style.display = 'block';
+                }
+
+                if (brand) document.title = brand;
+            } catch (_) {}
+        })();
+
+        // Remover loading: quando a UI principal aparecer (ou timeout de segurança)
+        (function removeLoaderWhenReady() {
+            const hide = () => {
+                const loadingMessage = document.getElementById('loading-message');
+                if (!loadingMessage) return;
                 loadingMessage.style.opacity = '0';
                 loadingMessage.style.transition = 'opacity 0.5s ease';
-                setTimeout(() => loadingMessage.remove(), 500);
-            }
-        }, 1000);
+                setTimeout(() => { try { loadingMessage.remove(); } catch (_) {} }, 520);
+            };
+
+            const started = Date.now();
+            const timer = setInterval(() => {
+                const sidebar = document.getElementById('blaze-double-analyzer');
+                if (sidebar) {
+                    clearInterval(timer);
+                    hide();
+                    return;
+                }
+                if (Date.now() - started > 2500) {
+                    clearInterval(timer);
+                    hide();
+                }
+            }, 120);
+        })();
 
         // Verificar sidebar
         setTimeout(() => {
