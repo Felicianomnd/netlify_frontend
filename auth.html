@@ -494,20 +494,23 @@
             transform: translateY(-50%);
             width: 34px;
             height: 34px;
-            display: none;
+            display: inline-flex; /* sempre presente; visibilidade controlada por opacity */
             align-items: center;
             justify-content: center;
-            border-radius: 8px;
-            border: 1px solid rgba(255, 255, 255, 0.12);
-            background: rgba(0, 0, 0, 0.35);
+            border-radius: 0;
+            border: none;
+            background: transparent;
             color: rgba(255,255,255,0.92);
             cursor: pointer;
             z-index: 2;
-            transition: all 0.2s ease;
+            transition: opacity 0.2s ease, transform 0.2s ease;
+            opacity: 0;
+            pointer-events: none;
         }
 
         .gallery-nav.show {
-            display: inline-flex;
+            opacity: 0.58;
+            pointer-events: auto;
         }
 
         .gallery-nav.prev {
@@ -519,14 +522,14 @@
         }
 
         .gallery-nav:hover {
-            border-color: rgba(255, 0, 63, 0.35);
-            background: rgba(255, 0, 63, 0.10);
+            opacity: 0.95;
             transform: translateY(-50%) translateY(-1px);
         }
 
         .gallery-nav svg {
             width: 18px;
             height: 18px;
+            filter: drop-shadow(0 2px 10px rgba(0,0,0,0.65));
         }
 
         /* ─────────────────────────────────────────────────────────────────────── */
@@ -550,7 +553,8 @@
         .lp-print-modal-overlay {
             position: absolute;
             inset: 0;
-            background: rgba(0, 0, 0, 0.62);
+            background: rgba(0, 0, 0, 0.84);
+            backdrop-filter: blur(4px);
         }
 
         .lp-print-modal-dialog {
@@ -558,14 +562,14 @@
             z-index: 1;
             width: min(980px, 50vw);
             max-height: 82vh;
-            border: none;
+            border: 1px solid rgba(255, 255, 255, 0.08);
             border-radius: 0;
-            background: transparent;
-            overflow: visible;
+            background: rgba(0, 0, 0, 0.22);
+            overflow: hidden;
             display: flex;
             flex-direction: column;
             align-items: stretch;
-            gap: 10px;
+            gap: 0;
         }
 
         .lp-print-modal-body {
@@ -578,15 +582,16 @@
             max-height: 72vh;
             object-fit: contain;
             display: block;
-            background: transparent;
+            background: rgba(0, 0, 0, 0.25);
         }
 
         .lp-print-modal-caption {
             width: 100%;
-            padding: 10px 12px;
-            background: rgba(0,0,0,0.35);
-            color: #e2e8f0;
-            font-size: 13px;
+            padding: 12px 14px;
+            background: rgba(0,0,0,0.10);
+            border-top: 1px solid rgba(255, 255, 255, 0.08);
+            color: #b4c2d8;
+            font-size: 14px;
             font-weight: 700;
         }
 
@@ -2248,6 +2253,13 @@
             const { grid, prev, next } = getLandingGalleryEls();
             if (!grid || !prev || !next) return;
 
+            // Se a landing ainda estiver invisível (loader), clientWidth pode ser 0.
+            // Reagendar para quando estiver "pintada" na tela.
+            if (grid.clientWidth === 0) {
+                setTimeout(updateLandingGalleryNav, 120);
+                return;
+            }
+
             const maxScroll = Math.max(0, grid.scrollWidth - grid.clientWidth);
             const hasOverflow = maxScroll > 4;
             if (!hasOverflow) {
@@ -2257,8 +2269,9 @@
             }
 
             const left = grid.scrollLeft || 0;
-            const atStart = left <= 2;
-            const atEnd = left >= (maxScroll - 2);
+            // tolerância maior (evita sumir seta por arredondamento de pixels)
+            const atStart = left <= 6;
+            const atEnd = left >= (maxScroll - 6);
 
             // Mostrar apenas quando realmente há mais conteúdo naquela direção
             if (!atStart) prev.classList.add('show'); else prev.classList.remove('show');
@@ -2288,6 +2301,31 @@
             const amount = Math.max(220, Math.round(grid.clientWidth * 0.9));
             grid.scrollBy({ left: dir * amount, behavior: 'smooth' });
             setTimeout(updateLandingGalleryNav, 260);
+        }
+
+        function shouldAutoScrollGalleryOnHover() {
+            try {
+                return !!(window.matchMedia && window.matchMedia('(hover: hover) and (pointer: fine)').matches);
+            } catch (_) {
+                return false;
+            }
+        }
+
+        function ensureGalleryTileVisible(tileEl) {
+            const { grid } = getLandingGalleryEls();
+            if (!grid || !tileEl) return;
+            const gRect = grid.getBoundingClientRect();
+            const tRect = tileEl.getBoundingClientRect();
+            const pad = 18;
+
+            // Se estiver parcialmente para fora, rolar só o necessário.
+            if (tRect.left < gRect.left + pad) {
+                const delta = (tRect.left - gRect.left) - pad;
+                if (Math.abs(delta) > 6) grid.scrollBy({ left: delta, behavior: 'smooth' });
+            } else if (tRect.right > gRect.right - pad) {
+                const delta = (tRect.right - gRect.right) + pad;
+                if (Math.abs(delta) > 6) grid.scrollBy({ left: delta, behavior: 'smooth' });
+            }
         }
 
         function openPrintModal(imageSrc, title) {
@@ -2357,6 +2395,10 @@
                 await new Promise(r => setTimeout(r, 150));
                 if (overlay) overlay.style.display = 'none';
                 if (page) page.style.display = 'block';
+
+                // Agora que a página está visível, recalcular setas da galeria (clientWidth deixa de ser 0)
+                window.requestAnimationFrame(updateLandingGalleryNav);
+                setTimeout(updateLandingGalleryNav, 180);
             } catch (error) {
                 console.error('Erro ao carregar landing:', error);
                 if (label) label.textContent = 'Erro ao carregar. Tente novamente.';
@@ -2628,6 +2670,12 @@
 
                     wrap.appendChild(media);
                     wrap.appendChild(title);
+
+                    // UX: ao passar o mouse em prints parcialmente cortados, rolar suavemente para revelar.
+                    if (shouldAutoScrollGalleryOnHover()) {
+                        wrap.addEventListener('mouseenter', () => ensureGalleryTileVisible(wrap));
+                    }
+
                     wrap.addEventListener('click', () => {
                         openPrintModal(String(g.image), String(g.caption || ''));
                     });
