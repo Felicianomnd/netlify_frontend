@@ -9555,7 +9555,7 @@ autoBetHistoryStore.init().catch(error => console.warn('AutoBetHistory: iniciali
                     bets: [],
                     whiteBets: [],
                     createdAt: Date.now(),
-                    mode: analysis?.analysisMode || (getTabSpecificAIMode(false) ? 'diamond' : 'standard')
+                    mode: analysis?.analysisMode || (document.querySelector('.ai-mode-toggle.active') ? 'diamond' : 'standard')
                 };
             } else {
                 runtime.openCycle.stage = stageInfo.label;
@@ -16970,7 +16970,8 @@ function logModeSnapshotUI(snapshot) {
     chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         if (request.type === 'NEW_ANALYSIS') {
             const messageMode = request.data && request.data.analysisMode ? request.data.analysisMode : null;
-            const tabMode = getTabSpecificAIMode(false) ? 'diamond' : 'standard';
+            // ✅ Modo atual é global (por conta) e deve refletir o toggle real da UI (AI ON/OFF)
+            const tabMode = document.querySelector('.ai-mode-toggle.active') ? 'diamond' : 'standard';
 
             if (messageMode && messageMode !== tabMode) {
                 console.log(`%c⚠️ [NEW_ANALYSIS] Ignorado (modo ${messageMode} ≠ aba ${tabMode})`, 'color: #FFA500; font-weight: bold;');
@@ -17111,6 +17112,22 @@ function logModeSnapshotUI(snapshot) {
             currentAnalysisStatus = 'Aguardando análise...';
             updateSidebar({ analysis: null, pattern: null });
             renderSafeZoneStatus(null);
+
+            // ✅ Fix de corrida (G1/G2): em alguns fluxos o background envia CLEAR_ANALYSIS
+            // antes de o `martingaleState` atualizado estar disponível no storage.
+            // Re-checar rapidamente e re-renderizar o topo (Aguardando sinal) com o estágio correto.
+            try {
+                setTimeout(() => {
+                    try {
+                        storageCompat.get(['martingaleState']).then((res = {}) => {
+                            const ms = res.martingaleState;
+                            if (ms && ms.active) {
+                                updateSidebar({ analysis: null, martingaleState: ms });
+                            }
+                        }).catch(() => {});
+                    } catch (_) {}
+                }, 120);
+            } catch (_) {}
         } else if (request.type === 'PATTERN_BANK_UPDATE') {
             // Atualizar banco de padrões quando novos forem descobertos
             console.log('📂 Banco de padrões atualizado');
