@@ -14155,7 +14155,10 @@ async function persistAnalyzerState(newState) {
 
             if (data.analysis) {
                 const analysis = data.analysis;
-                const confidence = analysis.confidence;
+                const confidenceRaw = analysis ? analysis.confidence : 0;
+                const confidenceNum = Number(confidenceRaw);
+                const confidence = Number.isFinite(confidenceNum) ? confidenceNum : 0;
+                const confidenceClamped = Math.max(0, Math.min(100, confidence));
                 // ✅ Nova regra: IA é a "fase principal". Sempre tratar o sinal como aposta do usuário.
                 // (Fase 2 / "Sinal de entrada" deixa de ser o fluxo principal.)
                 const isEntrySignal = false;
@@ -14184,15 +14187,15 @@ async function persistAnalyzerState(newState) {
                 } catch (_) {}
                 
                 // Só atualiza UI se a análise mudou (evita flutuação a cada 2s)
-                const analysisSig = `${isEntrySignal ? 'ENTRY' : 'RAW'}|${analysis.color}|${confidence.toFixed(2)}|${phaseLabel}|${analysis.createdOnTimestamp || analysis.timestamp || ''}`;
+                const analysisSig = `${isEntrySignal ? 'ENTRY' : 'RAW'}|${analysis.color}|${confidenceClamped.toFixed(2)}|${phaseLabel}|${analysis.createdOnTimestamp || analysis.timestamp || ''}`;
                 if (analysisSig !== lastAnalysisSignature) {
                     lastAnalysisSignature = analysisSig;
                     
                     // ✅ Voltar a exibir sinais no topo (Aguardando sinal), como antes:
                     // - Sinal normal: aparece aqui em cima
                     // - Sinal de entrada: também aparece e recebe destaque (fundo branco no desktop)
-                    confidenceFill.style.width = `${confidence}%`;
-                    confidenceText.textContent = `${confidence.toFixed(1)}%`;
+                    confidenceFill.style.width = `${confidenceClamped}%`;
+                    confidenceText.textContent = `${confidenceClamped.toFixed(1)}%`;
 
                     if (analysisCardEl) {
                         analysisCardEl.classList.toggle('da-entry-signal-highlight', isEntrySignal);
@@ -17285,8 +17288,23 @@ function logModeSnapshotUI(snapshot) {
     function loadInitialData() {
         try {
             chrome.storage.local.get(['lastSpin', 'analysis', 'pattern', 'martingaleState', 'entriesHistory', MASTER_CLEAR_CUTOFF_KEY, ENTRIES_CLEAR_CUTOFF_KEY], function(result) {
-                // Só chama updateSidebar se a extensão não foi invalidada/descarregada
-                if (chrome && chrome.runtime && chrome.runtime.id) {
+                // ✅ Importante (modo WEB):
+                // No chrome-shim não existe `chrome.runtime.id`, então não podemos bloquear a renderização inicial.
+                // Em extensão real, `runtime.id` existe; em context invalidated, chamadas podem falhar — usamos try/catch.
+                const runtimeOk = (() => {
+                    try {
+                        return !!(chrome && chrome.runtime && (chrome.runtime.id || typeof chrome.runtime.sendMessage === 'function'));
+                    } catch (_) {
+                        return false;
+                    }
+                })();
+
+                if (!runtimeOk) {
+                    console.warn('⚠️ Runtime indisponível - pulando loadInitialData()');
+                    return;
+                }
+
+                try {
                     console.log('Dados iniciais carregados:', result);
 
                     // ✅ Garantir que o cutoff do "Limpar" da aba Sinais/Gráfico esteja carregado antes do primeiro render
@@ -17340,6 +17358,10 @@ function logModeSnapshotUI(snapshot) {
                     // ✅ CARREGAR CALIBRADOR DE PORCENTAGENS
                     console.log('📊 Carregando estatísticas do Calibrador de porcentagens...');
                     loadObserverStats();
+                }
+                } catch (err) {
+                    console.warn('⚠️ Falha ao processar loadInitialData (provável context invalidated). Tentando novamente...', err);
+                    setTimeout(loadInitialData, 1500);
                 }
             });
         } catch (e) {
@@ -17759,6 +17781,115 @@ function logModeSnapshotUI(snapshot) {
             const storedLocal = await storageCompat.get(['analyzerConfig']);
             const localConfig = (storedLocal && isPlainObject(storedLocal.analyzerConfig)) ? storedLocal.analyzerConfig : {};
 
+            // ✅ Aplicar local IMEDIATAMENTE (não esperar fetch do servidor)
+            const applyAnalyzerConfigToUI = (cfgInput) => {
+                try {
+                    const cfg = (cfgInput && typeof cfgInput === 'object') ? cfgInput : {};
+                    const sanitizedProfiles = sanitizeMartingaleProfilesFromConfig(cfg);
+                    cfg.martingaleProfiles = sanitizedProfiles;
+                    const uiModeKey = document.querySelector('.ai-mode-toggle.active') ? 'diamond' : null;
+                    const activeModeKey = uiModeKey || (cfg.aiMode ? 'diamond' : 'standard');
+                    const activeMartingaleProfile = sanitizedProfiles[activeModeKey];
+
+                    // ✅ Painel (saldo) sempre visível — ignorar configs antigas de visibilidade
+                    try { applyAutoBetSummaryVisibility(); } catch (_) {}
+
+                    if (typeof cfg.analysisEnabled === 'boolean') {
+                        updateAnalyzerToggleUI(cfg.analysisEnabled);
+                        sendRuntimeMessage({ action: 'SET_ANALYSIS_ENABLED', enabled: cfg.analysisEnabled }).catch(() => {});
+                    }
+
+                    const histDepth = document.getElementById('cfgHistoryDepth');
+                    const minOcc = document.getElementById('cfgMinOccurrences');
+                    const maxOcc = document.getElementById('cfgMaxOccurrences');
+                    const patternInt = document.getElementById('cfgPatternInterval');
+                    const minSize = document.getElementById('cfgMinPatternSize');
+                    const maxSize = document.getElementById('cfgMaxPatternSize');
+                    const winPct = document.getElementById('cfgWinPercentOthers');
+                    const reqTrig = document.getElementById('cfgRequireTrigger');
+                    const consecutiveMartingale = document.getElementById('cfgConsecutiveMartingale');
+                    const consecutiveGales = document.getElementById('cfgConsecutiveGales');
+                    const maxGales = document.getElementById('cfgMaxGales');
+                    const tgChatId = document.getElementById('cfgTgChatId');
+                    if (histDepth) histDepth.value = cfg.historyDepth != null ? cfg.historyDepth : 2000;
+                    if (minOcc) minOcc.value = cfg.minOccurrences != null ? cfg.minOccurrences : 1;
+                    if (maxOcc) maxOcc.value = cfg.maxOccurrences != null ? cfg.maxOccurrences : 0;
+                    if (patternInt) patternInt.value = cfg.minIntervalSpins != null ? cfg.minIntervalSpins : 0;
+                    if (minSize) minSize.value = cfg.minPatternSize != null ? cfg.minPatternSize : 3;
+                    if (maxSize) maxSize.value = cfg.maxPatternSize != null ? cfg.maxPatternSize : 0;
+                    if (winPct) winPct.value = cfg.winPercentOthers != null ? cfg.winPercentOthers : 25;
+                    if (reqTrig) reqTrig.checked = cfg.requireTrigger != null ? cfg.requireTrigger : true;
+                    if (consecutiveMartingale) consecutiveMartingale.checked = !!activeMartingaleProfile.consecutiveMartingale;
+                    if (consecutiveGales) consecutiveGales.value = activeMartingaleProfile.consecutiveGales != null ? activeMartingaleProfile.consecutiveGales : 0;
+                    if (maxGales) maxGales.value = activeMartingaleProfile.maxGales;
+                    if (tgChatId) tgChatId.value = cfg.telegramChatId || '';
+
+                    // ✅ UI: esconder/mostrar "Consecutivo até (G)" quando o toggle estiver desligado
+                    try {
+                        const wrapper = document.getElementById('consecutiveGalesWrapper');
+                        const input = document.getElementById('cfgConsecutiveGales');
+                        if (wrapper && consecutiveMartingale) {
+                            const enabled = !!consecutiveMartingale.checked;
+                            wrapper.style.display = enabled ? '' : 'none';
+                            if (input) input.disabled = !enabled;
+                        }
+                    } catch (_) {}
+
+                    const setAutoBetInput = (id, value, isCheckbox = false) => {
+                        const el = document.getElementById(id);
+                        if (!el) return;
+                        if (isCheckbox) {
+                            el.checked = !!value;
+                        } else if (value !== undefined && value !== null) {
+                            el.value = value;
+                        }
+                    };
+                    const mergedAutoBetConfig = {
+                        ...(cfg.autoBetConfig || {})
+                    };
+                    if (mergedAutoBetConfig.whiteProtection === undefined && typeof cfg.whiteProtectionAsWin === 'boolean') {
+                        mergedAutoBetConfig.whiteProtection = !!cfg.whiteProtectionAsWin;
+                    }
+                    const autoBetConfig = sanitizeAutoBetConfig(mergedAutoBetConfig);
+                    setAutoBetInput('autoBetEnabled', autoBetConfig.enabled, true);
+                    setAutoBetInput('autoBetSimulationOnly', autoBetConfig.simulationOnly, true);
+                    setAutoBetInput('autoBetBaseStake', autoBetConfig.baseStake);
+                    setAutoBetInput('autoBetGaleMultiplier', autoBetConfig.galeMultiplier);
+                    setAutoBetInput('autoBetStopWin', autoBetConfig.stopWin);
+                    setAutoBetInput('autoBetStopLoss', autoBetConfig.stopLoss);
+                    setAutoBetInput('autoBetSimulationBank', autoBetConfig.simulationBankRoll);
+                    setWhiteProtectionModeUI(autoBetConfig.whiteProtectionMode);
+                    setWhiteProtectionModeAvailability(!!autoBetConfig.whiteProtection);
+                    setAutoBetInput('autoBetInverseMode', autoBetConfig.inverseModeEnabled, true);
+
+                    // 🎚️ Carregar intensidade de sinais
+                    latestAnalyzerConfig = cfg;
+                    const signalIntensitySelect = document.getElementById('signalIntensitySelect');
+                    if (signalIntensitySelect) {
+                        const intensityValue = cfg.signalIntensity === 'conservative' ? 'conservative' : 'aggressive';
+                        signalIntensitySelect.value = intensityValue;
+                        console.log(`🎚️ Intensidade carregada: ${intensityValue}`);
+                        enforceSignalIntensityAvailability();
+                    }
+
+                    // ✅ Aplicar visibilidade dos campos baseado no modo IA (global)
+                    toggleAIConfigFields(!!cfg.aiMode);
+
+                    // ✅ Carregar preferência de sincronização de configurações (checkbox escondido)
+                    const syncConfigCheckbox = document.getElementById('syncConfigToAccount');
+                    if (syncConfigCheckbox) {
+                        const enabled = getSyncConfigPreference();
+                        syncConfigCheckbox.checked = enabled;
+                        try { updateSyncConfigToggleUI(enabled); } catch (_) {}
+                        console.log(`🔄 Preferência de sincronização de configurações carregada: ${syncConfigCheckbox.checked ? 'ATIVADA' : 'DESATIVADA'}`);
+                    }
+                } catch (err) {
+                    console.warn('⚠️ Falha ao aplicar analyzerConfig na UI:', err);
+                }
+            };
+
+            applyAnalyzerConfigToUI(localConfig);
+
             // ✅ Preferência de sincronização precisa ser respeitada em TODOS os dispositivos.
             // Para isso, sempre tentamos buscar do servidor e, se vier `syncConfigToAccount`,
             // usamos como fonte de verdade da conta.
@@ -17785,6 +17916,8 @@ function logModeSnapshotUI(snapshot) {
                     // - local preenche chaves ausentes (evita “zerar” quando o servidor veio capado)
                     const mergedConfig = deepMergeSafe(localConfig, serverConfig);
                     await storageCompat.set({ analyzerConfig: mergedConfig });
+                    // Atualizar UI com o merge (não esperar nada externo)
+                    applyAnalyzerConfigToUI(mergedConfig);
 
                     // ✅ Auto-heal: se o servidor estiver com menos chaves, reenviar o merged completo
                     // (corrige contas que foram sobrescritas por payload parcial em algum dispositivo)
@@ -17803,107 +17936,6 @@ function logModeSnapshotUI(snapshot) {
             } else {
                 console.log('💾 Sincronização DESATIVADA - usando APENAS configuração local');
             }
-            
-            // Carregar do localStorage (que agora pode ter sido atualizado do servidor)
-            chrome.storage.local.get(['analyzerConfig'], function(res) {
-                const cfg = res && res.analyzerConfig ? res.analyzerConfig : {};
-                const sanitizedProfiles = sanitizeMartingaleProfilesFromConfig(cfg);
-                cfg.martingaleProfiles = sanitizedProfiles;
-                const activeModeKey = cfg.aiMode ? 'diamond' : 'standard';
-                const activeMartingaleProfile = sanitizedProfiles[activeModeKey];
-                
-                // ✅ Painel (saldo) sempre visível — ignorar configs antigas de visibilidade
-                try { applyAutoBetSummaryVisibility(); } catch (_) {}
-                
-                if (typeof cfg.analysisEnabled === 'boolean') {
-                    updateAnalyzerToggleUI(cfg.analysisEnabled);
-                    sendRuntimeMessage({ action: 'SET_ANALYSIS_ENABLED', enabled: cfg.analysisEnabled }).catch(() => {});
-                }
-                
-                const histDepth = document.getElementById('cfgHistoryDepth');
-                const minOcc = document.getElementById('cfgMinOccurrences');
-                const maxOcc = document.getElementById('cfgMaxOccurrences');
-                const patternInt = document.getElementById('cfgPatternInterval');
-                const minSize = document.getElementById('cfgMinPatternSize');
-                const maxSize = document.getElementById('cfgMaxPatternSize');
-                const winPct = document.getElementById('cfgWinPercentOthers');
-                const reqTrig = document.getElementById('cfgRequireTrigger');
-                const consecutiveMartingale = document.getElementById('cfgConsecutiveMartingale');
-                const consecutiveGales = document.getElementById('cfgConsecutiveGales');
-                const maxGales = document.getElementById('cfgMaxGales');
-                const tgChatId = document.getElementById('cfgTgChatId');
-                if (histDepth) histDepth.value = cfg.historyDepth != null ? cfg.historyDepth : 2000;
-                if (minOcc) minOcc.value = cfg.minOccurrences != null ? cfg.minOccurrences : 1;
-                if (maxOcc) maxOcc.value = cfg.maxOccurrences != null ? cfg.maxOccurrences : 0;
-                if (patternInt) patternInt.value = cfg.minIntervalSpins != null ? cfg.minIntervalSpins : 0;
-                if (minSize) minSize.value = cfg.minPatternSize != null ? cfg.minPatternSize : 3;
-                if (maxSize) maxSize.value = cfg.maxPatternSize != null ? cfg.maxPatternSize : 0;
-                if (winPct) winPct.value = cfg.winPercentOthers != null ? cfg.winPercentOthers : 25;
-                if (reqTrig) reqTrig.checked = cfg.requireTrigger != null ? cfg.requireTrigger : true;
-                if (consecutiveMartingale) consecutiveMartingale.checked = activeMartingaleProfile.consecutiveMartingale;
-                if (consecutiveGales) consecutiveGales.value = activeMartingaleProfile.consecutiveGales != null ? activeMartingaleProfile.consecutiveGales : 0;
-                if (maxGales) maxGales.value = activeMartingaleProfile.maxGales;
-                if (tgChatId) tgChatId.value = cfg.telegramChatId || '';
-
-                // ✅ UI: esconder/mostrar "Consecutivo até (G)" quando o toggle estiver desligado
-                try {
-                    const wrapper = document.getElementById('consecutiveGalesWrapper');
-                    const input = document.getElementById('cfgConsecutiveGales');
-                    if (wrapper && consecutiveMartingale) {
-                        const enabled = !!consecutiveMartingale.checked;
-                        wrapper.style.display = enabled ? '' : 'none';
-                        if (input) input.disabled = !enabled;
-                    }
-                } catch (_) {}
-                const setAutoBetInput = (id, value, isCheckbox = false) => {
-                    const el = document.getElementById(id);
-                    if (!el) return;
-                    if (isCheckbox) {
-                        el.checked = !!value;
-                    } else if (value !== undefined && value !== null) {
-                        el.value = value;
-                    }
-                };
-                const mergedAutoBetConfig = {
-                    ...(cfg.autoBetConfig || {})
-                };
-                if (mergedAutoBetConfig.whiteProtection === undefined && typeof cfg.whiteProtectionAsWin === 'boolean') {
-                    mergedAutoBetConfig.whiteProtection = !!cfg.whiteProtectionAsWin;
-                }
-                const autoBetConfig = sanitizeAutoBetConfig(mergedAutoBetConfig);
-                setAutoBetInput('autoBetEnabled', autoBetConfig.enabled, true);
-                setAutoBetInput('autoBetSimulationOnly', autoBetConfig.simulationOnly, true);
-                setAutoBetInput('autoBetBaseStake', autoBetConfig.baseStake);
-                setAutoBetInput('autoBetGaleMultiplier', autoBetConfig.galeMultiplier);
-                setAutoBetInput('autoBetStopWin', autoBetConfig.stopWin);
-                setAutoBetInput('autoBetStopLoss', autoBetConfig.stopLoss);
-                setAutoBetInput('autoBetSimulationBank', autoBetConfig.simulationBankRoll);
-                setWhiteProtectionModeUI(autoBetConfig.whiteProtectionMode);
-                setWhiteProtectionModeAvailability(!!autoBetConfig.whiteProtection);
-                setAutoBetInput('autoBetInverseMode', autoBetConfig.inverseModeEnabled, true);
-                
-                // 🎚️ Carregar intensidade de sinais
-                latestAnalyzerConfig = cfg;
-                const signalIntensitySelect = document.getElementById('signalIntensitySelect');
-                if (signalIntensitySelect) {
-                    const intensityValue = cfg.signalIntensity === 'conservative' ? 'conservative' : 'aggressive';
-                    signalIntensitySelect.value = intensityValue;
-                    console.log(`🎚️ Intensidade carregada: ${intensityValue}`);
-                    enforceSignalIntensityAvailability();
-                }
-                
-                // ✅ Aplicar visibilidade dos campos baseado no modo IA (considerando modo específico da aba)
-                toggleAIConfigFields(currentAIMode);
-                
-                // ✅ Carregar preferência de sincronização de configurações
-                const syncConfigCheckbox = document.getElementById('syncConfigToAccount');
-                if (syncConfigCheckbox) {
-                    const enabled = getSyncConfigPreference();
-                    syncConfigCheckbox.checked = enabled;
-                    try { updateSyncConfigToggleUI(enabled); } catch (_) {}
-                    console.log(`🔄 Preferência de sincronização de configurações carregada: ${syncConfigCheckbox.checked ? 'ATIVADA' : 'DESATIVADA'}`);
-                }
-            });
         } catch (e) { console.error('Erro ao carregar configurações:', e); }
     }
     function saveSettings() {
@@ -19743,7 +19775,8 @@ function logModeSnapshotUI(snapshot) {
     }
     
     // Carregar configurações e banco de padrões ao iniciar
-    setTimeout(loadSettings, 1800);
+    // ✅ Melhor UX (pedido): aplicar config logo após iniciar (evita UI “zerada” após refresh)
+    setTimeout(loadSettings, 300);
     setTimeout(loadPatternBank, 2000);
     setTimeout(loadObserverStats, 2200);
     
