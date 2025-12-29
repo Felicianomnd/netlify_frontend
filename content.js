@@ -10392,7 +10392,7 @@ async function persistAnalyzerState(newState) {
     
     // Salvar configurações no servidor
     async function syncConfigToServer(config) {
-        const token = localStorage.getItem('authToken');
+        const token = await getAuthTokenForServerSync();
         if (!token) {
             console.log('⚠️ Usuário não autenticado - salvando apenas localmente');
             return false;
@@ -10436,7 +10436,7 @@ async function persistAnalyzerState(newState) {
     
     // Carregar configurações do servidor
     async function loadConfigFromServer() {
-        const token = localStorage.getItem('authToken');
+        const token = await getAuthTokenForServerSync();
         if (!token) {
             console.log('⚠️ Usuário não autenticado - carregando apenas do localStorage');
             return null;
