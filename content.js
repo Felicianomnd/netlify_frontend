@@ -12288,6 +12288,9 @@ async function persistAnalyzerState(newState) {
             return;
         }
 
+        // ✅ Mobile: garantir que TODOS os headers de modal tenham "Fechar" no canto direito (sem sobrepor título)
+        try { installMobileModalCloseButtonFix(sidebar); } catch (_) {}
+
         // Branding (web app): usar cache da landing para mostrar logo + "Double" no header
         try {
             const KEY = 'lp_brand_cache_v1';
@@ -15973,6 +15976,125 @@ async function persistAnalyzerState(newState) {
     }
 
     // ═══════════════════════════════════════════════════════════════════════════════
+    // 📱 MOBILE: FIX GLOBAL DO HEADER DOS MODAIS (botão "Fechar" no canto direito)
+    // Motivo: existem muitas regras antigas/!important e o usuário quer um comportamento
+    // consistente em QUALQUER navegador mobile. Aqui garantimos via inline styles.
+    // ═══════════════════════════════════════════════════════════════════════════════
+
+    let daMobileModalHeaderObserver = null;
+
+    function isMobilePhoneViewport() {
+        try {
+            if (window.matchMedia) return window.matchMedia('(max-width: 520px)').matches;
+        } catch (_) {}
+        return window.innerWidth <= 520;
+    }
+
+    function installMobileModalCloseButtonFix(rootEl) {
+        try {
+            if (!isMobilePhoneViewport()) return;
+            const root = rootEl || document;
+
+            const applyToHeader = (header) => {
+                try {
+                    if (!header || header.nodeType !== 1) return;
+                    if (header.dataset && header.dataset.daMobileCloseFix === '1') return;
+
+                    const title = header.querySelector('h3');
+                    const oldClose = header.querySelector(
+                        '.modal-header-close, .pattern-modal-close, .custom-pattern-modal-close, .auto-bet-modal-close, .bank-patterns-modal-close'
+                    );
+                    if (!oldClose) return;
+
+                    // Deixar header "responsivo" e previsível
+                    header.style.position = 'relative';
+                    header.style.display = 'flex';
+                    header.style.alignItems = 'center';
+                    header.style.justifyContent = 'flex-start';
+                    header.style.paddingLeft = '16px';
+                    header.style.paddingRight = '16px';
+                    header.style.gap = '10px';
+
+                    if (title) {
+                        title.style.flex = '1 1 auto';
+                        title.style.minWidth = '0';
+                        title.style.boxSizing = 'border-box';
+                        title.style.whiteSpace = 'nowrap';
+                        title.style.overflow = 'hidden';
+                        title.style.textOverflow = 'ellipsis';
+                        title.style.paddingRight = '96px'; // espaço do botão (evita sobrepor o texto)
+                        title.style.textAlign = 'left';
+                    }
+
+                    // Criar um NOVO botão de fechar (mobile), no canto direito
+                    const mobileBtn = document.createElement('button');
+                    mobileBtn.type = 'button';
+                    mobileBtn.className = 'da-mobile-close-btn';
+                    mobileBtn.textContent = (oldClose.textContent || 'Fechar').trim() || 'Fechar';
+                    mobileBtn.setAttribute('aria-label', 'Fechar');
+                    mobileBtn.style.cssText = [
+                        'position:absolute',
+                        'right:16px',
+                        'top:50%',
+                        'transform:translateY(-50%)',
+                        'background:transparent',
+                        'border:none',
+                        'color:var(--da-text-muted, #7a7a7a)',
+                        'font-size:13px',
+                        'font-weight:600',
+                        'padding:6px 10px',
+                        'border-radius:4px',
+                        'white-space:nowrap',
+                        'cursor:pointer',
+                        '-webkit-tap-highlight-color: transparent'
+                    ].join(';');
+
+                    // Esconder o botão antigo (mantendo o handler original)
+                    oldClose.style.display = 'none';
+                    oldClose.setAttribute('aria-hidden', 'true');
+
+                    mobileBtn.addEventListener('click', (event) => {
+                        try { event.preventDefault(); event.stopPropagation(); } catch (_) {}
+                        try { oldClose.click(); } catch (_) {}
+                    });
+
+                    header.appendChild(mobileBtn);
+                    if (header.dataset) header.dataset.daMobileCloseFix = '1';
+                } catch (_) {}
+            };
+
+            // Aplicar em headers já existentes
+            try {
+                root.querySelectorAll('.modal-header-minimal').forEach(applyToHeader);
+            } catch (_) {}
+
+            // Aplicar também em modais criados dinamicamente (ex.: modal de padrão)
+            if (!daMobileModalHeaderObserver) {
+                try {
+                    daMobileModalHeaderObserver = new MutationObserver((mutations) => {
+                        try {
+                            mutations.forEach((m) => {
+                                (m.addedNodes || []).forEach((node) => {
+                                    if (!node || node.nodeType !== 1) return;
+                                    if (node.matches && node.matches('.modal-header-minimal')) {
+                                        applyToHeader(node);
+                                    }
+                                    if (node.querySelectorAll) {
+                                        node.querySelectorAll('.modal-header-minimal').forEach(applyToHeader);
+                                    }
+                                });
+                            });
+                        } catch (_) {}
+                    });
+                    daMobileModalHeaderObserver.observe(document.body, { childList: true, subtree: true });
+                } catch (_) {
+                    daMobileModalHeaderObserver = null;
+                }
+            }
+        } catch (_) {}
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════════
     // 🖥️ NOVO LAYOUT DESKTOP (Dashboard)
     // - Substitui "modo compacto" e "tela cheia" no desktop
     // - Sidebar de configurações fixa à esquerda
@@ -17768,7 +17890,7 @@ function logModeSnapshotUI(snapshot) {
                     const baseVal = result[key];
                     if (isPlainObject(baseVal) && isPlainObject(patchVal)) {
                         result[key] = deepMergeSafe(baseVal, patchVal);
-                    } else {
+                } else {
                         // arrays/primitivos/null -> replace
                         result[key] = patchVal;
                     }
@@ -17784,104 +17906,104 @@ function logModeSnapshotUI(snapshot) {
             const applyAnalyzerConfigToUI = (cfgInput) => {
                 try {
                     const cfg = (cfgInput && typeof cfgInput === 'object') ? cfgInput : {};
-                    const sanitizedProfiles = sanitizeMartingaleProfilesFromConfig(cfg);
-                    cfg.martingaleProfiles = sanitizedProfiles;
+                const sanitizedProfiles = sanitizeMartingaleProfilesFromConfig(cfg);
+                cfg.martingaleProfiles = sanitizedProfiles;
                     const uiModeKey = document.querySelector('.ai-mode-toggle.active') ? 'diamond' : null;
                     const activeModeKey = uiModeKey || (cfg.aiMode ? 'diamond' : 'standard');
-                    const activeMartingaleProfile = sanitizedProfiles[activeModeKey];
-
-                    // ✅ Painel (saldo) sempre visível — ignorar configs antigas de visibilidade
-                    try { applyAutoBetSummaryVisibility(); } catch (_) {}
-
-                    if (typeof cfg.analysisEnabled === 'boolean') {
-                        updateAnalyzerToggleUI(cfg.analysisEnabled);
-                        sendRuntimeMessage({ action: 'SET_ANALYSIS_ENABLED', enabled: cfg.analysisEnabled }).catch(() => {});
-                    }
-
-                    const histDepth = document.getElementById('cfgHistoryDepth');
-                    const minOcc = document.getElementById('cfgMinOccurrences');
-                    const maxOcc = document.getElementById('cfgMaxOccurrences');
-                    const patternInt = document.getElementById('cfgPatternInterval');
-                    const minSize = document.getElementById('cfgMinPatternSize');
-                    const maxSize = document.getElementById('cfgMaxPatternSize');
-                    const winPct = document.getElementById('cfgWinPercentOthers');
-                    const reqTrig = document.getElementById('cfgRequireTrigger');
-                    const consecutiveMartingale = document.getElementById('cfgConsecutiveMartingale');
-                    const consecutiveGales = document.getElementById('cfgConsecutiveGales');
-                    const maxGales = document.getElementById('cfgMaxGales');
-                    const tgChatId = document.getElementById('cfgTgChatId');
-                    if (histDepth) histDepth.value = cfg.historyDepth != null ? cfg.historyDepth : 2000;
-                    if (minOcc) minOcc.value = cfg.minOccurrences != null ? cfg.minOccurrences : 1;
-                    if (maxOcc) maxOcc.value = cfg.maxOccurrences != null ? cfg.maxOccurrences : 0;
-                    if (patternInt) patternInt.value = cfg.minIntervalSpins != null ? cfg.minIntervalSpins : 0;
-                    if (minSize) minSize.value = cfg.minPatternSize != null ? cfg.minPatternSize : 3;
-                    if (maxSize) maxSize.value = cfg.maxPatternSize != null ? cfg.maxPatternSize : 0;
-                    if (winPct) winPct.value = cfg.winPercentOthers != null ? cfg.winPercentOthers : 25;
-                    if (reqTrig) reqTrig.checked = cfg.requireTrigger != null ? cfg.requireTrigger : true;
+                const activeMartingaleProfile = sanitizedProfiles[activeModeKey];
+                
+                // ✅ Painel (saldo) sempre visível — ignorar configs antigas de visibilidade
+                try { applyAutoBetSummaryVisibility(); } catch (_) {}
+                
+                if (typeof cfg.analysisEnabled === 'boolean') {
+                    updateAnalyzerToggleUI(cfg.analysisEnabled);
+                    sendRuntimeMessage({ action: 'SET_ANALYSIS_ENABLED', enabled: cfg.analysisEnabled }).catch(() => {});
+                }
+                
+                const histDepth = document.getElementById('cfgHistoryDepth');
+                const minOcc = document.getElementById('cfgMinOccurrences');
+                const maxOcc = document.getElementById('cfgMaxOccurrences');
+                const patternInt = document.getElementById('cfgPatternInterval');
+                const minSize = document.getElementById('cfgMinPatternSize');
+                const maxSize = document.getElementById('cfgMaxPatternSize');
+                const winPct = document.getElementById('cfgWinPercentOthers');
+                const reqTrig = document.getElementById('cfgRequireTrigger');
+                const consecutiveMartingale = document.getElementById('cfgConsecutiveMartingale');
+                const consecutiveGales = document.getElementById('cfgConsecutiveGales');
+                const maxGales = document.getElementById('cfgMaxGales');
+                const tgChatId = document.getElementById('cfgTgChatId');
+                if (histDepth) histDepth.value = cfg.historyDepth != null ? cfg.historyDepth : 2000;
+                if (minOcc) minOcc.value = cfg.minOccurrences != null ? cfg.minOccurrences : 1;
+                if (maxOcc) maxOcc.value = cfg.maxOccurrences != null ? cfg.maxOccurrences : 0;
+                if (patternInt) patternInt.value = cfg.minIntervalSpins != null ? cfg.minIntervalSpins : 0;
+                if (minSize) minSize.value = cfg.minPatternSize != null ? cfg.minPatternSize : 3;
+                if (maxSize) maxSize.value = cfg.maxPatternSize != null ? cfg.maxPatternSize : 0;
+                if (winPct) winPct.value = cfg.winPercentOthers != null ? cfg.winPercentOthers : 25;
+                if (reqTrig) reqTrig.checked = cfg.requireTrigger != null ? cfg.requireTrigger : true;
                     if (consecutiveMartingale) consecutiveMartingale.checked = !!activeMartingaleProfile.consecutiveMartingale;
-                    if (consecutiveGales) consecutiveGales.value = activeMartingaleProfile.consecutiveGales != null ? activeMartingaleProfile.consecutiveGales : 0;
-                    if (maxGales) maxGales.value = activeMartingaleProfile.maxGales;
-                    if (tgChatId) tgChatId.value = cfg.telegramChatId || '';
+                if (consecutiveGales) consecutiveGales.value = activeMartingaleProfile.consecutiveGales != null ? activeMartingaleProfile.consecutiveGales : 0;
+                if (maxGales) maxGales.value = activeMartingaleProfile.maxGales;
+                if (tgChatId) tgChatId.value = cfg.telegramChatId || '';
 
-                    // ✅ UI: esconder/mostrar "Consecutivo até (G)" quando o toggle estiver desligado
-                    try {
-                        const wrapper = document.getElementById('consecutiveGalesWrapper');
-                        const input = document.getElementById('cfgConsecutiveGales');
-                        if (wrapper && consecutiveMartingale) {
-                            const enabled = !!consecutiveMartingale.checked;
-                            wrapper.style.display = enabled ? '' : 'none';
-                            if (input) input.disabled = !enabled;
-                        }
-                    } catch (_) {}
-
-                    const setAutoBetInput = (id, value, isCheckbox = false) => {
-                        const el = document.getElementById(id);
-                        if (!el) return;
-                        if (isCheckbox) {
-                            el.checked = !!value;
-                        } else if (value !== undefined && value !== null) {
-                            el.value = value;
-                        }
-                    };
-                    const mergedAutoBetConfig = {
-                        ...(cfg.autoBetConfig || {})
-                    };
-                    if (mergedAutoBetConfig.whiteProtection === undefined && typeof cfg.whiteProtectionAsWin === 'boolean') {
-                        mergedAutoBetConfig.whiteProtection = !!cfg.whiteProtectionAsWin;
+                // ✅ UI: esconder/mostrar "Consecutivo até (G)" quando o toggle estiver desligado
+                try {
+                    const wrapper = document.getElementById('consecutiveGalesWrapper');
+                    const input = document.getElementById('cfgConsecutiveGales');
+                    if (wrapper && consecutiveMartingale) {
+                        const enabled = !!consecutiveMartingale.checked;
+                        wrapper.style.display = enabled ? '' : 'none';
+                        if (input) input.disabled = !enabled;
                     }
-                    const autoBetConfig = sanitizeAutoBetConfig(mergedAutoBetConfig);
-                    setAutoBetInput('autoBetEnabled', autoBetConfig.enabled, true);
-                    setAutoBetInput('autoBetSimulationOnly', autoBetConfig.simulationOnly, true);
-                    setAutoBetInput('autoBetBaseStake', autoBetConfig.baseStake);
-                    setAutoBetInput('autoBetGaleMultiplier', autoBetConfig.galeMultiplier);
-                    setAutoBetInput('autoBetStopWin', autoBetConfig.stopWin);
-                    setAutoBetInput('autoBetStopLoss', autoBetConfig.stopLoss);
-                    setAutoBetInput('autoBetSimulationBank', autoBetConfig.simulationBankRoll);
-                    setWhiteProtectionModeUI(autoBetConfig.whiteProtectionMode);
-                    setWhiteProtectionModeAvailability(!!autoBetConfig.whiteProtection);
-                    setAutoBetInput('autoBetInverseMode', autoBetConfig.inverseModeEnabled, true);
+                } catch (_) {}
 
-                    // 🎚️ Carregar intensidade de sinais
-                    latestAnalyzerConfig = cfg;
-                    const signalIntensitySelect = document.getElementById('signalIntensitySelect');
-                    if (signalIntensitySelect) {
-                        const intensityValue = cfg.signalIntensity === 'conservative' ? 'conservative' : 'aggressive';
-                        signalIntensitySelect.value = intensityValue;
-                        console.log(`🎚️ Intensidade carregada: ${intensityValue}`);
-                        enforceSignalIntensityAvailability();
+                const setAutoBetInput = (id, value, isCheckbox = false) => {
+                    const el = document.getElementById(id);
+                    if (!el) return;
+                    if (isCheckbox) {
+                        el.checked = !!value;
+                    } else if (value !== undefined && value !== null) {
+                        el.value = value;
                     }
-
+                };
+                const mergedAutoBetConfig = {
+                    ...(cfg.autoBetConfig || {})
+                };
+                if (mergedAutoBetConfig.whiteProtection === undefined && typeof cfg.whiteProtectionAsWin === 'boolean') {
+                    mergedAutoBetConfig.whiteProtection = !!cfg.whiteProtectionAsWin;
+                }
+                const autoBetConfig = sanitizeAutoBetConfig(mergedAutoBetConfig);
+                setAutoBetInput('autoBetEnabled', autoBetConfig.enabled, true);
+                setAutoBetInput('autoBetSimulationOnly', autoBetConfig.simulationOnly, true);
+                setAutoBetInput('autoBetBaseStake', autoBetConfig.baseStake);
+                setAutoBetInput('autoBetGaleMultiplier', autoBetConfig.galeMultiplier);
+                setAutoBetInput('autoBetStopWin', autoBetConfig.stopWin);
+                setAutoBetInput('autoBetStopLoss', autoBetConfig.stopLoss);
+                setAutoBetInput('autoBetSimulationBank', autoBetConfig.simulationBankRoll);
+                setWhiteProtectionModeUI(autoBetConfig.whiteProtectionMode);
+                setWhiteProtectionModeAvailability(!!autoBetConfig.whiteProtection);
+                setAutoBetInput('autoBetInverseMode', autoBetConfig.inverseModeEnabled, true);
+                
+                // 🎚️ Carregar intensidade de sinais
+                latestAnalyzerConfig = cfg;
+                const signalIntensitySelect = document.getElementById('signalIntensitySelect');
+                if (signalIntensitySelect) {
+                    const intensityValue = cfg.signalIntensity === 'conservative' ? 'conservative' : 'aggressive';
+                    signalIntensitySelect.value = intensityValue;
+                    console.log(`🎚️ Intensidade carregada: ${intensityValue}`);
+                    enforceSignalIntensityAvailability();
+                }
+                
                     // ✅ Aplicar visibilidade dos campos baseado no modo IA (global)
                     toggleAIConfigFields(!!cfg.aiMode);
-
+                
                     // ✅ Carregar preferência de sincronização de configurações (checkbox escondido)
-                    const syncConfigCheckbox = document.getElementById('syncConfigToAccount');
-                    if (syncConfigCheckbox) {
-                        const enabled = getSyncConfigPreference();
-                        syncConfigCheckbox.checked = enabled;
-                        try { updateSyncConfigToggleUI(enabled); } catch (_) {}
-                        console.log(`🔄 Preferência de sincronização de configurações carregada: ${syncConfigCheckbox.checked ? 'ATIVADA' : 'DESATIVADA'}`);
-                    }
+                const syncConfigCheckbox = document.getElementById('syncConfigToAccount');
+                if (syncConfigCheckbox) {
+                    const enabled = getSyncConfigPreference();
+                    syncConfigCheckbox.checked = enabled;
+                    try { updateSyncConfigToggleUI(enabled); } catch (_) {}
+                    console.log(`🔄 Preferência de sincronização de configurações carregada: ${syncConfigCheckbox.checked ? 'ATIVADA' : 'DESATIVADA'}`);
+                }
                 } catch (err) {
                     console.warn('⚠️ Falha ao aplicar analyzerConfig na UI:', err);
                 }
