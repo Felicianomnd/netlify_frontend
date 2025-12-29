@@ -54,7 +54,7 @@ function getDiamondConfigSnapshot() {
         ['N0', `Hist ${getValue('n0History', N0_DEFAULTS.historySize)} | W ${getDiamondWindow('n0Window', N0_DEFAULTS.windowSize)} | BlockAll ${analyzerConfig.n0AllowBlockAll !== false ? 'sim' : 'não'}`],
         ['N1', `W ${getDiamondWindow('n1WindowSize', SAFE_ZONE_DEFAULTS.windowSize)} | minA ${getDiamondWindow('n1PrimaryRequirement', SAFE_ZONE_DEFAULTS.primaryRequirement)} | minB ${getDiamondWindow('n1SecondaryRequirement', SAFE_ZONE_DEFAULTS.secondaryRequirement)}`],
         ['N2', `Janela base ${getDiamondWindow('n2Recent', 10)} (auto)`],
-        ['N3', `Janela ${getDiamondWindow('n3PatternLength', 10)} | Hist ${getDiamondWindow('n3Alternance', 12)} | Rigor ${getDiamondWindow('n3BaseThresholdPct', 60)}% | Jan ${getDiamondWindow('n3ThresholdPct', 75)}% | minOcc ${getDiamondWindow('n3MinOccurrences', 1)}`],
+        ['N3', `Prof ${getDiamondWindow('n3Alternance', 2000)} | Rigor ${getDiamondWindow('n3BaseThresholdPct', 60)}% | minOcc ${getDiamondWindow('n3MinOccurrences', 3)}`],
         ['N4', `Hist ${getDiamondWindow('n4Persistence', DEFAULT_ANALYZER_CONFIG.diamondLevelWindows.n4Persistence)}`],
         ['N5', `${getDiamondWindow('n5MinuteBias', 60)} amostras`],
         ['N6', `${getDiamondWindow('n6RetracementWindow', 80)} giros`],
@@ -516,11 +516,11 @@ const DEFAULT_ANALYZER_CONFIG = {
         n1MaxEntries: 1,          // N1 - Zona Segura (entradas consecutivas permitidas)
         n2Recent: 10,             // N2 - Ritmo Autônomo (janela base W)
         n2Previous: 10,           // N2 - (legado) espelha W por compatibilidade
-        n3Alternance: 12,         // N3 - Alternância (histórico analisado em giros)
-        n3PatternLength: 10,      // N3 - Alternância (janela ANTERIOR em giros para validar continuidade; NÃO inclui a formação)
-        n3MinOccurrences: 1,      // N3 - Alternância (ocorrências mínimas para considerar a janela)
-        n3BaseThresholdPct: 60,   // N3 - Alternância (rigor do N3/normal: probabilidade mínima global, em %)
-        n3ThresholdPct: 75,       // N3 - Alternância (rigor da janela: probabilidade mínima considerando janela anterior, em %)
+        n3Alternance: 2000,       // N3 - Alternância (profundidade do histórico em giros)
+        n3PatternLength: 10,      // (LEGADO) N3 - Alternância (janela anterior) — não usado
+        n3MinOccurrences: 3,      // N3 - Alternância (ocorrências mínimas do padrão no histórico)
+        n3BaseThresholdPct: 60,   // N3 - Alternância (rigor): probabilidade mínima do PRÓXIMO GIRO, em %
+        n3ThresholdPct: 75,       // (LEGADO) N3 - Alternância (rigor da janela) — não usado
         n3AllowBackoff: false,    // N3 - Alternância (tentar janelas menores se não houver dados)
         n3IgnoreWhite: false,     // N3 - Alternância (ignorar previsões de branco)
         n4Persistence: 2000,      // N4 - Autointeligente (histórico analisado em giros)
@@ -2232,7 +2232,7 @@ function displaySystemFooter() {
         }
     } else {
         logSection('Sistema ativo · Modo Padrão');
-        logInfo('Min. ocorrências', analyzerConfig.minOccurrences || 5);
+        logInfo('Min. ocorrências', analyzerConfig.minOccurrences ?? DEFAULT_ANALYZER_CONFIG.minOccurrences);
         logInfo('Trigger', analyzerConfig.requireTrigger ? 'Ativo' : 'Desativado');
     }
 }
@@ -2310,114 +2310,151 @@ function rigorLogString() {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 // ✅ VALIDAR ANÁLISE DE TENDÊNCIA/FREQUÊNCIA
+function getUserRigorThresholdsForPremium(config = analyzerConfig) {
+    try {
+        const cfg = (config && typeof config === 'object') ? config : {};
+        const minOcc = clampInt(cfg.minOccurrences ?? DEFAULT_ANALYZER_CONFIG.minOccurrences, 1, 1000);
+        const maxOcc = clampInt(cfg.maxOccurrences ?? DEFAULT_ANALYZER_CONFIG.maxOccurrences, 0, 100000);
+        const winPct = clampInt(cfg.winPercentOthers ?? DEFAULT_ANALYZER_CONFIG.winPercentOthers, 0, 100);
+        return { minOcc, maxOcc, winPct };
+    } catch (_) {
+        return { minOcc: 1, maxOcc: 0, winPct: 0 };
+    }
+}
+
+function getAnalysisWinRatePct(analysis) {
+    try {
+        if (!analysis || typeof analysis !== 'object') return 0;
+        const occ = Number(analysis.occurrences ?? 0);
+        const winsRaw = analysis.wins;
+        const lossesRaw = analysis.losses;
+
+        // Preferir wins/occurrences quando disponível
+        if (Number.isFinite(occ) && occ > 0) {
+            if (winsRaw != null) {
+                const wins = Number(winsRaw);
+                if (Number.isFinite(wins)) {
+                    return (wins / occ) * 100;
+                }
+            }
+            // Fallback: usar confidence como proxy de winrate
+            const conf = Number(analysis.confidence);
+            if (Number.isFinite(conf)) return Math.max(0, Math.min(100, conf));
+
+            // Sem métricas: assume neutro (100) para não bloquear indevidamente
+            return 100;
+        }
+
+        // Sem occurrences: usar confidence se existir
+        const conf = Number(analysis.confidence);
+        if (Number.isFinite(conf)) return Math.max(0, Math.min(100, conf));
+
+        // Último fallback: se veio losses explícito e wins não, tentar inferir
+        if (lossesRaw != null && winsRaw != null) {
+            const wins = Number(winsRaw);
+            const losses = Number(lossesRaw);
+            const total = (Number.isFinite(wins) ? wins : 0) + (Number.isFinite(losses) ? losses : 0);
+            if (total > 0) return (wins / total) * 100;
+        }
+        return 0;
+    } catch (_) {
+        return 0;
+    }
+}
+
 function validateFrequencyAnalysis(analysis) {
     if (!analysis) return { valid: false, reason: 'Análise não disponível' };
-    
-    const minOccurrences = 5;
-    const requiredWinRate = 100; // 100% WIN (0 LOSS)
-    
-    const occurrences = analysis.occurrences || 0;
-    // ✅ Se wins/losses não existirem, assumir 100% win rate (padrão das análises antigas)
-    const wins = analysis.wins !== undefined ? analysis.wins : occurrences;
-    const losses = analysis.losses !== undefined ? analysis.losses : 0;
-    const winRate = occurrences > 0 ? (wins / occurrences) * 100 : 0;
-    
-    // Validação silenciosa, apenas logs quando rejeita
-    if (occurrences < minOccurrences) {
-        logRejectedPattern('Tendência/Frequência', `${occurrences}/${minOccurrences} ocorrências`);
-        return { valid: false, reason: `${occurrences}/${minOccurrences} ocorrências` };
+
+    // ✅ Premium: respeitar rigor configurável do usuário (min/max ocorrências e WIN%)
+    const { minOcc, maxOcc, winPct } = getUserRigorThresholdsForPremium();
+    const occurrences = Number(analysis.occurrences ?? 0);
+    if (!Number.isFinite(occurrences) || occurrences < minOcc) {
+        logRejectedPattern('Tendência/Frequência', `${occurrences || 0}/${minOcc} ocorrências`);
+        return { valid: false, reason: `${occurrences || 0}/${minOcc} ocorrências` };
     }
-    
-    if (losses > 0) {
-        logRejectedPattern('Tendência/Frequência', `${losses} LOSS (exige 100% WIN)`);
-        return { valid: false, reason: `${losses} LOSS (exige 100% WIN)` };
+    if (maxOcc > 0 && occurrences > maxOcc) {
+        logRejectedPattern('Tendência/Frequência', `${occurrences}/${maxOcc} excede máx ocorrências`);
+        return { valid: false, reason: `${occurrences}/${maxOcc} excede máx ocorrências` };
     }
-    
-    console.log(`✅ [Validação]: Tendência/Frequência APROVADA (${wins}W/${losses}L)`);
+
+    const winRate = getAnalysisWinRatePct(analysis);
+    if (winPct > 0 && winRate < winPct) {
+        logRejectedPattern('Tendência/Frequência', `WIN% ${winRate.toFixed(1)}% < ${winPct}% (config)`);
+        return { valid: false, reason: `WIN% ${winRate.toFixed(1)}% < ${winPct}%` };
+    }
+
     return { valid: true };
 }
 
 // ✅ VALIDAR ANÁLISE TEMPORAL (HORÁRIO)
 function validateTemporalAnalysis(analysis) {
     if (!analysis) return { valid: false, reason: 'Análise não disponível' };
-    
-    const minOccurrences = 6;
-    const requiredWinRate = 100; // 100% WIN (0 LOSS)
-    
-    const occurrences = analysis.occurrences || 0;
-    // ✅ Se wins/losses não existirem, assumir 100% win rate (padrão das análises antigas)
-    const wins = analysis.wins !== undefined ? analysis.wins : occurrences;
-    const losses = analysis.losses !== undefined ? analysis.losses : 0;
-    const winRate = occurrences > 0 ? (wins / occurrences) * 100 : 0;
-    
-    // Validação silenciosa, apenas logs quando rejeita
-    if (occurrences < minOccurrences) {
-        logRejectedPattern('Temporal/Horário', `${occurrences}/${minOccurrences} ocorrências`);
-        return { valid: false, reason: `${occurrences}/${minOccurrences} ocorrências` };
+
+    const { minOcc, maxOcc, winPct } = getUserRigorThresholdsForPremium();
+    const occurrences = Number(analysis.occurrences ?? 0);
+    if (!Number.isFinite(occurrences) || occurrences < minOcc) {
+        logRejectedPattern('Temporal/Horário', `${occurrences || 0}/${minOcc} ocorrências`);
+        return { valid: false, reason: `${occurrences || 0}/${minOcc} ocorrências` };
     }
-    
-    if (losses > 0) {
-        logRejectedPattern('Temporal/Horário', `${losses} LOSS (exige 100% WIN)`);
-        return { valid: false, reason: `${losses} LOSS (exige 100% WIN)` };
+    if (maxOcc > 0 && occurrences > maxOcc) {
+        logRejectedPattern('Temporal/Horário', `${occurrences}/${maxOcc} excede máx ocorrências`);
+        return { valid: false, reason: `${occurrences}/${maxOcc} excede máx ocorrências` };
     }
-    
-    console.log(`✅ [Validação]: Temporal/Horário APROVADO (${wins}W/${losses}L)`);
+
+    const winRate = getAnalysisWinRatePct(analysis);
+    if (winPct > 0 && winRate < winPct) {
+        logRejectedPattern('Temporal/Horário', `WIN% ${winRate.toFixed(1)}% < ${winPct}% (config)`);
+        return { valid: false, reason: `WIN% ${winRate.toFixed(1)}% < ${winPct}%` };
+    }
+
     return { valid: true };
 }
 
 // ✅ VALIDAR ANÁLISE NÚMERO + COR
 function validateNumberAnalysis(analysis) {
     if (!analysis) return { valid: false, reason: 'Análise não disponível' };
-    
-    const minOccurrences = 3;
-    const requiredWinRate = 100; // 100% WIN (0 LOSS)
-    
-    const occurrences = analysis.occurrences || 0;
-    // ✅ Se wins/losses não existirem, calcular baseado na confidence (assumindo que confidence reflete winRate)
-    const wins = analysis.wins !== undefined ? analysis.wins : Math.round((analysis.confidence / 100) * occurrences);
-    const losses = analysis.losses !== undefined ? analysis.losses : (occurrences - wins);
-    const winRate = occurrences > 0 ? (wins / occurrences) * 100 : 0;
-    
-    // Validação silenciosa, apenas logs quando rejeita
-    if (occurrences < minOccurrences) {
-        logRejectedPattern('Número+Cor', `${occurrences}/${minOccurrences} ocorrências`);
-        return { valid: false, reason: `${occurrences}/${minOccurrences} ocorrências` };
+
+    const { minOcc, maxOcc, winPct } = getUserRigorThresholdsForPremium();
+    const occurrences = Number(analysis.occurrences ?? 0);
+    if (!Number.isFinite(occurrences) || occurrences < minOcc) {
+        logRejectedPattern('Número+Cor', `${occurrences || 0}/${minOcc} ocorrências`);
+        return { valid: false, reason: `${occurrences || 0}/${minOcc} ocorrências` };
     }
-    
-    if (losses > 0) {
-        logRejectedPattern('Número+Cor', `${losses} LOSS (exige 100% WIN)`);
-        return { valid: false, reason: `${losses} LOSS (exige 100% WIN)` };
+    if (maxOcc > 0 && occurrences > maxOcc) {
+        logRejectedPattern('Número+Cor', `${occurrences}/${maxOcc} excede máx ocorrências`);
+        return { valid: false, reason: `${occurrences}/${maxOcc} excede máx ocorrências` };
     }
-    
-    console.log(`✅ [Validação]: Número+Cor APROVADO (${wins}W/${losses}L)`);
+
+    const winRate = getAnalysisWinRatePct(analysis);
+    if (winPct > 0 && winRate < winPct) {
+        logRejectedPattern('Número+Cor', `WIN% ${winRate.toFixed(1)}% < ${winPct}% (config)`);
+        return { valid: false, reason: `WIN% ${winRate.toFixed(1)}% < ${winPct}%` };
+    }
+
     return { valid: true };
 }
 
 // ✅ VALIDAR ANÁLISE DE CICLO (CORRELAÇÃO)
 function validateCorrelationAnalysis(analysis) {
     if (!analysis) return { valid: false, reason: 'Análise não disponível' };
-    
-    const minOccurrences = 6;
-    const requiredWinRate = 100; // 100% WIN (0 LOSS)
-    
-    const occurrences = analysis.occurrences || 0;
-    // ✅ Se wins/losses não existirem, assumir 100% win rate (padrão das análises antigas)
-    const wins = analysis.wins !== undefined ? analysis.wins : occurrences;
-    const losses = analysis.losses !== undefined ? analysis.losses : 0;
-    const winRate = occurrences > 0 ? (wins / occurrences) * 100 : 0;
-    
-    // Validação silenciosa, apenas logs quando rejeita
-    if (occurrences < minOccurrences) {
-        logRejectedPattern('Ciclo/Periódica', `${occurrences}/${minOccurrences} ocorrências`);
-        return { valid: false, reason: `${occurrences}/${minOccurrences} ocorrências` };
+
+    const { minOcc, maxOcc, winPct } = getUserRigorThresholdsForPremium();
+    const occurrences = Number(analysis.occurrences ?? 0);
+    if (!Number.isFinite(occurrences) || occurrences < minOcc) {
+        logRejectedPattern('Ciclo/Periódica', `${occurrences || 0}/${minOcc} ocorrências`);
+        return { valid: false, reason: `${occurrences || 0}/${minOcc} ocorrências` };
     }
-    
-    if (losses > 0) {
-        logRejectedPattern('Ciclo/Periódica', `${losses} LOSS (exige 100% WIN)`);
-        return { valid: false, reason: `${losses} LOSS (exige 100% WIN)` };
+    if (maxOcc > 0 && occurrences > maxOcc) {
+        logRejectedPattern('Ciclo/Periódica', `${occurrences}/${maxOcc} excede máx ocorrências`);
+        return { valid: false, reason: `${occurrences}/${maxOcc} excede máx ocorrências` };
     }
-    
-    console.log(`✅ [Validação]: Ciclo/Periódica APROVADO (${wins}W/${losses}L)`);
+
+    const winRate = getAnalysisWinRatePct(analysis);
+    if (winPct > 0 && winRate < winPct) {
+        logRejectedPattern('Ciclo/Periódica', `WIN% ${winRate.toFixed(1)}% < ${winPct}% (config)`);
+        return { valid: false, reason: `WIN% ${winRate.toFixed(1)}% < ${winPct}%` };
+    }
+
     return { valid: true };
 }
 
@@ -10159,48 +10196,38 @@ function validateSequenceBarrier(history, predictedColor, configuredSize, altern
  *   - Dupla   (g=2):  L blocos = 2L giros
  *   - Tripla  (g=3):  L blocos = 3L giros
  *
- * Config:
- * - historySize: janela analisada (giros)
- * - contextWindowSize: janela ANTERIOR em giros (fora da alternância formada) para validar se a alternância tende a continuar
- * - minOccurrences: mínimo de ocorrências históricas no recorte
- * - baseThreshold: rigor do N3 (modo normal) — taxa global mínima (Entrada+G1) para o N3 votar
- * - contextThreshold: rigor da janela — taxa mínima (Entrada+G1) considerando a janela anterior
- * - WIN considerado até G1 (entrada ou G1). WIN em G2 não conta (alto risco).
+ * Config (simplificado — pedido do usuário):
+ * - historySize: profundidade do histórico (giros) usado para buscar ocorrências
+ * - minOccurrences: mínimo de ocorrências do padrão no histórico
+ * - baseThreshold: rigor do N3 — probabilidade mínima (próximo giro) para o N3 votar
+ * - allowBackoff: se true, tenta padrões menores (menos blocos) quando faltarem ocorrências
+ * - ignoreWhite: se true, nunca votar WHITE (mesmo que seja a cor mais provável após o padrão)
  */
 function analyzeAlternancePattern(history, options = {}) {
     logSection('[N3] Alternância (simples/dupla/tripla)');
 
     const defaultSettings = {
-        historySize: 60,
-        contextWindowSize: 10, // ✅ janela ANTERIOR (fora da alternância formada) para validar continuidade
+        historySize: 2000,
         baseThreshold: 0.60,
-        contextThreshold: 0.75,
-        minOccurrences: 1,
+        minOccurrences: 3,
         allowBackoff: false,
-        ignoreWhite: false // mantido por compatibilidade, mas branco sempre quebra alternância
+        ignoreWhite: false
     };
 
     const settings = {
         historySize: Number(options.historySize) > 0 ? Number(options.historySize) : defaultSettings.historySize,
-        contextWindowSize: Number(options.contextWindowSize ?? options.patternLength ?? options.contextSize) > 0
-            ? Number(options.contextWindowSize ?? options.patternLength ?? options.contextSize)
-            : defaultSettings.contextWindowSize,
         baseThreshold: (typeof options.baseThreshold === 'number')
             ? options.baseThreshold
             : (typeof options.threshold === 'number' ? options.threshold : defaultSettings.baseThreshold),
-        contextThreshold: typeof options.contextThreshold === 'number' ? options.contextThreshold : defaultSettings.contextThreshold,
         minOccurrences: Number(options.minOccurrences) > 0 ? Number(options.minOccurrences) : defaultSettings.minOccurrences,
         allowBackoff: !!options.allowBackoff,
         ignoreWhite: !!options.ignoreWhite
     };
 
     // ✅ historySize: recorte histórico para buscar ocorrências
-    // ✅ contextWindowSize: "janela deslizante" ANTES da formação (não inclui a alternância formada)
     settings.historySize = Math.max(4, Math.floor(Math.max(1, settings.historySize)));
-    settings.contextWindowSize = Math.max(1, Math.min(200, Math.floor(Math.max(1, settings.contextWindowSize))));
     settings.baseThreshold = clamp01(settings.baseThreshold);
-    settings.contextThreshold = clamp01(settings.contextThreshold);
-    settings.minOccurrences = Math.max(1, Math.min(100, Math.floor(settings.minOccurrences)));
+    settings.minOccurrences = Math.max(1, Math.min(500, Math.floor(settings.minOccurrences)));
 
     const trimmedHistory = Array.isArray(history) ? history.slice(0, settings.historySize) : [];
     const chronologicalSpins = trimmedHistory.slice().reverse();
@@ -10209,24 +10236,6 @@ function analyzeAlternancePattern(history, options = {}) {
 
     const isRB = (c) => c === 'red' || c === 'black';
     const oppositeRB = (c) => (c === 'red' ? 'black' : (c === 'black' ? 'red' : null));
-    // 🔎 Janela deslizante (contexto ANTES da alternância formada)
-    const tokenFor = (c) => (c === 'red' ? 'R' : (c === 'black' ? 'B' : (c === 'white' ? 'W' : '_')));
-    const tokenSeq = seq.map(tokenFor).join('');
-    const getContextKeyForPatternEndWithSize = (patternEndIdx, spinsUsed, windowSize) => {
-        const endIdx = Number(patternEndIdx);
-        const used = Number(spinsUsed);
-        const w = Number(windowSize);
-        if (!Number.isFinite(endIdx) || !Number.isFinite(used) || used <= 0) return null;
-        if (!Number.isFinite(w) || w <= 0) return null;
-        const patternStart = endIdx - used + 1;
-        const ctxStart = patternStart - w;
-        if (patternStart <= 0 || ctxStart < 0) return null;
-        return tokenSeq.slice(ctxStart, patternStart); // NÃO inclui a alternância formada
-    };
-
-    const getContextKeyForPatternEnd = (patternEndIdx, spinsUsed) =>
-        getContextKeyForPatternEndWithSize(patternEndIdx, spinsUsed, settings.contextWindowSize);
-    const isWinColor = (actualColor, expectedColor) => (actualColor === expectedColor);
 
     const buildRunsBackward = (endIdx, groupSize) => {
         if (endIdx < 0 || endIdx >= seq.length) return null;
@@ -10306,6 +10315,8 @@ function analyzeAlternancePattern(history, options = {}) {
 
             const maxBlocks = runsAll.length;
             const minBlocks = minBlocksFor(g);
+            // ✅ Para medir "próximo giro", precisamos de pelo menos 1 giro depois do padrão.
+            const maxBlocksForStats = Math.min(maxBlocks, Math.floor((seq.length - 1) / g));
             // ✅ Comprimento automático: sempre tenta do maior para o menor para não "bicar" alternâncias menores.
             const blocksToTry = [];
             for (let b = maxBlocks; b >= minBlocks; b--) blocksToTry.push(b);
@@ -10326,39 +10337,41 @@ function analyzeAlternancePattern(history, options = {}) {
             break;
         }
 
-            // passando critérios (rigor + ocorrências)
-            // - se allowBackoff=false, usamos o MAIOR comprimento estrutural válido (não o maxBlocks bruto),
-            //   porque maxBlocks pode incluir um bloco quebrado que invalida a alternância.
+            // passando critérios (probabilidade + ocorrências)
+            if (!structuralBlocksForG) continue;
+            const cappedStructural = Math.min(structuralBlocksForG, Math.max(minBlocks, maxBlocksForStats));
+            if (cappedStructural < minBlocks) continue;
             const blocksToTryPassing = settings.allowBackoff
-                ? blocksToTry
-                : (structuralBlocksForG ? [structuralBlocksForG] : []);
-            for (let b of blocksToTryPassing) {
+                ? Array.from({ length: cappedStructural - minBlocks + 1 }, (_, idx) => cappedStructural - idx)
+                : [cappedStructural];
+
+            for (const b of blocksToTryPassing) {
                 const det = checkAlternanceRuns(runsAll, g, b);
                 if (!det) continue;
-                const baseStats = computeBaseContinuationStats(g, b);
-                const contextStats = computeStatsWithContextBackoff(g, b, det.spinsUsed);
-                if (contextStats && contextStats.missingContext) continue;
-                if ((contextStats.occurrences || 0) < settings.minOccurrences) continue;
-                if ((contextStats.rate || 0) < settings.contextThreshold) continue;
-                if ((baseStats.rate || 0) < settings.baseThreshold) continue;
+                const stats = computeNextColorStats(g, b);
+                const occurrences = stats.occurrences || 0;
+                const bestColor = pickBestNextColor(stats.counts, settings.ignoreWhite);
+                const bestHits = bestColor ? (stats.counts[bestColor] || 0) : 0;
+                const bestRate = occurrences > 0 ? (bestHits / occurrences) : 0;
 
-                const score = clamp01(((baseStats.rate || 0) * 0.6) + ((contextStats.rate || 0) * 0.4));
+                if (!bestColor) continue;
+                if (occurrences < settings.minOccurrences) continue;
+                if (bestRate < settings.baseThreshold) continue;
 
                 const candidate = {
                     ...det,
-                    backoffApplied: b !== maxBlocks,
-                    stats: { base: baseStats, context: contextStats },
-                    score
+                    backoffApplied: b !== structuralBlocksForG,
+                    stats,
+                    bestColor,
+                    bestRate
                 };
-
                 if (!bestPassing ||
                     candidate.groupSize > bestPassing.groupSize ||
                     (candidate.groupSize === bestPassing.groupSize && candidate.blocks > bestPassing.blocks) ||
-                    (candidate.groupSize === bestPassing.groupSize && candidate.blocks === bestPassing.blocks && ((candidate.score || 0) > (bestPassing.score || 0)))
+                    (candidate.groupSize === bestPassing.groupSize && candidate.blocks === bestPassing.blocks && (candidate.bestRate || 0) > (bestPassing.bestRate || 0))
                 ) {
                     bestPassing = candidate;
                 }
-                // Primeiro match já é o maior "comprimento" válido para esse g (tentamos do maior -> menor)
                 break;
             }
         }
@@ -10378,84 +10391,44 @@ function analyzeAlternancePattern(history, options = {}) {
         return checkAlternanceRuns(runsAll, groupSize, neededBlocks);
     };
 
-    const computeBaseContinuationStats = (groupSize, neededBlocks) => {
-        // ✅ Taxa GLOBAL (modo normal): não filtra pela janela anterior; apenas conta ocorrências do padrão no histórico
-        // ✅ WIN considerado até G1 (entrada ou G1). WIN em G2 não conta.
+    const computeNextColorStats = (groupSize, neededBlocks) => {
         let occurrences = 0;
-        let hits = 0;
+        const counts = { red: 0, black: 0, white: 0 };
         for (let i = 0; i < seq.length - 1; i++) {
             const det = detectAtIndex(i, groupSize, neededBlocks);
             if (!det) continue;
             occurrences += 1;
-            const expected = det.expectedNext;
-            const next1 = seq[i + 1];
-            const next2 = (i + 2 < seq.length) ? seq[i + 2] : null;
-            if (isWinColor(next1, expected) || isWinColor(next2, expected)) {
-                hits += 1;
-            }
+            const next = seq[i + 1];
+            if (next === 'red') counts.red += 1;
+            else if (next === 'black') counts.black += 1;
+            else if (next === 'white') counts.white += 1;
         }
-        const rate = occurrences > 0 ? hits / occurrences : 0;
-        return { occurrences, hits, rate };
+        return { occurrences, counts };
     };
 
-    const computeContinuationStats = (groupSize, neededBlocks, requiredContextKey, windowSizeUsed) => {
-        // ✅ Novo: filtrar pela janela ANTERIOR (não inclui a alternância formada)
-        // ✅ WIN considerado até G1 (entrada ou G1). WIN em G2 não conta.
-        const contextKey = typeof requiredContextKey === 'string' ? requiredContextKey : null;
-        const wUsed = Number(windowSizeUsed);
-        if (!contextKey || contextKey.length === 0) {
-            return { occurrences: 0, hits: 0, rate: 0, missingContext: true, windowSizeUsed: Number.isFinite(wUsed) ? wUsed : settings.contextWindowSize };
-        }
-        let occurrences = 0;
-        let hits = 0;
-        for (let i = 0; i < seq.length - 1; i++) {
-            const det = detectAtIndex(i, groupSize, neededBlocks);
-            if (!det) continue;
-            const ctxKey = getContextKeyForPatternEndWithSize(i, det.spinsUsed, wUsed);
-            if (!ctxKey || ctxKey !== contextKey) continue;
-            occurrences += 1;
-
-            const expected = det.expectedNext;
-            const next1 = seq[i + 1];
-            const next2 = (i + 2 < seq.length) ? seq[i + 2] : null;
-            if (isWinColor(next1, expected) || isWinColor(next2, expected)) {
-                hits += 1;
+    const pickBestNextColor = (counts, ignoreWhite) => {
+        const c = counts && typeof counts === 'object' ? counts : { red: 0, black: 0, white: 0 };
+        const candidates = ignoreWhite ? ['red', 'black'] : ['red', 'black', 'white'];
+        let bestColor = null;
+        let bestCount = -1;
+        let tie = false;
+        for (const key of candidates) {
+            const v = Number(c[key] || 0);
+            if (v > bestCount) {
+                bestCount = v;
+                bestColor = key;
+                tie = false;
+            } else if (v === bestCount && v > 0) {
+                tie = true;
             }
         }
-        const rate = occurrences > 0 ? hits / occurrences : 0;
-        return { occurrences, hits, rate, windowSizeUsed: Number.isFinite(wUsed) ? wUsed : settings.contextWindowSize };
-    };
-
-    const computeStatsWithContextBackoff = (groupSize, neededBlocks, spinsUsed) => {
-        const baseW = settings.contextWindowSize;
-        const windowsToTry = [baseW];
-        if (settings.allowBackoff) {
-            let w = baseW;
-            // reduzir progressivamente até achar ocorrências suficientes
-            while (w > 1) {
-                w = Math.max(1, Math.floor(w * 0.7));
-                if (windowsToTry.includes(w)) break;
-                windowsToTry.push(w);
-                if (w === 1) break;
-            }
-        }
-
-        let last = null;
-        for (const w of windowsToTry) {
-            const requiredKey = getContextKeyForPatternEndWithSize(seq.length - 1, spinsUsed, w);
-            const stats = computeContinuationStats(groupSize, neededBlocks, requiredKey, w);
-            last = stats;
-            if (stats && stats.missingContext) continue;
-            if (stats && stats.occurrences >= settings.minOccurrences) {
-                return stats;
-            }
-        }
-        return last || { occurrences: 0, hits: 0, rate: 0, missingContext: true, windowSizeUsed: baseW };
+        if (tie) return null;
+        return bestColor;
     };
 
     console.log(`   📊 Total de giros disponíveis: ${Array.isArray(history) ? history.length : 0}`);
-    console.log(`   ⚙️ Config → histórico: ${settings.historySize} | janela anterior: ${settings.contextWindowSize} | rigor N3: ${(settings.baseThreshold * 100).toFixed(0)}% | rigor janela: ${(settings.contextThreshold * 100).toFixed(0)}% | min occ: ${settings.minOccurrences} | WIN até G1`);
-    console.log(`   ⚙️ Branco sempre quebra alternância (ignorar branco = irrelevante)`);
+    console.log(`   ⚙️ Config → profundidade: ${settings.historySize} | rigor: ${(settings.baseThreshold * 100).toFixed(0)}% | min occ: ${settings.minOccurrences} | backoff: ${settings.allowBackoff ? 'sim' : 'não'}`);
+    console.log(`   ⚙️ Branco sempre quebra alternância (fora do padrão)`);
 
     if (seq.length < 4) {
         const message = `Apenas ${seq.length} giros na janela (mínimo: 4)`;
@@ -10499,80 +10472,54 @@ function analyzeAlternancePattern(history, options = {}) {
 
     const typeName = current.groupSize === 1 ? 'Simples' : (current.groupSize === 2 ? 'Dupla' : 'Tripla');
 
-    // se kind === 'pass', já temos stats; senão calcular stats apenas para exibir (não votar)
-    const baseStats = (current.kind === 'pass' && current.stats && current.stats.base)
-        ? current.stats.base
-        : computeBaseContinuationStats(current.groupSize, current.blocks);
-    const contextStats = (current.kind === 'pass' && current.stats && current.stats.context)
-        ? current.stats.context
-        : computeStatsWithContextBackoff(current.groupSize, current.blocks, current.spinsUsed);
+    const stats = current.kind === 'pass' && current.stats ? current.stats : computeNextColorStats(current.groupSize, current.blocks);
+    const occurrences = stats && typeof stats.occurrences === 'number' ? stats.occurrences : 0;
+    const counts = stats && stats.counts ? stats.counts : { red: 0, black: 0, white: 0 };
 
-    const baseOccurrences = baseStats && baseStats.occurrences ? baseStats.occurrences : 0;
-    const baseHits = baseStats && baseStats.hits ? baseStats.hits : 0;
-    const baseRate = baseStats && typeof baseStats.rate === 'number' ? baseStats.rate : 0;
-    const basePct = baseRate * 100;
+    const finalColor = current.kind === 'pass' && current.bestColor ? current.bestColor : null;
+    const bestHits = finalColor ? (counts[finalColor] || 0) : 0;
+    const bestRate = occurrences > 0 ? (bestHits / occurrences) : 0;
 
-    const occurrences = contextStats && contextStats.occurrences ? contextStats.occurrences : 0; // (janela) - mantém compatibilidade com UI
-    const hits = contextStats && contextStats.hits ? contextStats.hits : 0;
-    const rate = contextStats && typeof contextStats.rate === 'number' ? contextStats.rate : 0;
-    const pct = rate * 100;
-    const windowUsed = (contextStats && contextStats.windowSizeUsed) ? contextStats.windowSizeUsed : settings.contextWindowSize;
-
-    const meetsOcc = occurrences >= settings.minOccurrences;
-    const meetsBaseThreshold = baseRate >= settings.baseThreshold;
-    const meetsContextThreshold = rate >= settings.contextThreshold;
-
-    const hasContext = !(contextStats && contextStats.missingContext);
-    const allowVote = current.kind === 'pass' && hasContext && meetsOcc && meetsBaseThreshold && meetsContextThreshold;
-    const finalColor = allowVote ? current.expectedNext : null;
-
-    const occBoost = occurrences > 0 ? Math.min(1, occurrences / Math.max(settings.minOccurrences + 2, 3)) : 0;
-    const finalConfidence = allowVote
-        ? clamp01((baseRate * 0.65) + (rate * 0.25) + (occBoost * 0.10))
-        : 0;
+    const allowVote = Boolean(finalColor);
+    const finalConfidence = allowVote ? clamp01(bestRate) : 0;
 
     const details = [
         `Alt ${typeName}`,
         `blocos ${current.blocks}`,
-        `janela ${windowUsed}`,
         `fase ${current.currentRunLen}/${current.groupSize}`,
-        `base ${basePct.toFixed(1)}% (${baseHits}/${baseOccurrences})`,
-        `jan ${pct.toFixed(1)}% (${hits}/${occurrences})`,
-        `rigor ${Math.round(settings.baseThreshold * 100)}/${Math.round(settings.contextThreshold * 100)}%`,
+        `amostra ${occurrences}`,
+        allowVote ? `${finalColor.toUpperCase()} ${(bestRate * 100).toFixed(1)}% (${bestHits}/${occurrences})` : 'NULO',
+        `rigor ${Math.round(settings.baseThreshold * 100)}%`,
+        `minOcc ${settings.minOccurrences}`,
         current.backoffApplied ? 'backoff' : null
     ].filter(Boolean).join(' • ');
 
     const overrideActive = Boolean(
         allowVote &&
-        baseRate >= Math.max(settings.baseThreshold + 0.05, 0.85) &&
-        rate >= Math.max(settings.contextThreshold + 0.1, 0.9) &&
-        occurrences >= settings.minOccurrences + 1
+        bestRate >= clamp01(settings.baseThreshold + 0.10) &&
+        occurrences >= settings.minOccurrences + 2
     );
     
     return {
         color: finalColor,
         pattern: `Alternância ${typeName}`,
-        alternationRate: basePct.toFixed(1),
-        baseRate,
-        baseRatePct: basePct.toFixed(1),
-        baseOccurrences,
-        baseHits,
-        contextRate: rate,
-        contextRatePct: pct.toFixed(1),
-        contextOccurrences: occurrences,
-        contextHits: hits,
-        contextWindowUsed: windowUsed,
+        // compat: alguns trechos antigos exibem alternationRate/baseRate*
+        alternationRate: (bestRate * 100).toFixed(1),
+        baseRate: bestRate,
+        baseRatePct: (bestRate * 100).toFixed(1),
+        baseOccurrences: occurrences,
+        baseHits: bestHits,
         alternationSize: current.blocks,
         confidence: finalConfidence,
-        probability: baseRate,
-        probabilityPct: basePct.toFixed(1),
+        probability: bestRate,
+        probabilityPct: (bestRate * 100).toFixed(1),
         occurrences,
         window: null,
         windowLabel: null,
         threshold: settings.baseThreshold,
         thresholdPct: (settings.baseThreshold * 100).toFixed(1),
-        contextThreshold: settings.contextThreshold,
-        contextThresholdPct: (settings.contextThreshold * 100).toFixed(1),
+        contextThreshold: null,
+        contextThresholdPct: null,
         minOccurrences: settings.minOccurrences,
         allowBackoff: settings.allowBackoff,
         ignoreWhite: settings.ignoreWhite,
@@ -10581,11 +10528,9 @@ function analyzeAlternancePattern(history, options = {}) {
         details,
         reason: allowVote
             ? null
-            : (!hasContext
-                ? 'context_window_insufficient'
-                : (!meetsOcc
-                    ? 'min_occ_not_met'
-                    : (!meetsBaseThreshold ? 'base_threshold_not_met' : 'context_threshold_not_met'))),
+            : (occurrences < settings.minOccurrences
+                ? 'min_occ_not_met'
+                : (bestRate < settings.baseThreshold ? 'base_threshold_not_met' : 'no_vote')),
         backoffApplied: current.backoffApplied,
         override: overrideActive,
         alternanceRuns: current.blocks,
@@ -15292,7 +15237,7 @@ async function analyzeWithPatternSystem(history) {
     const n1PrimaryRequirement = getDiamondWindow('n1PrimaryRequirement', SAFE_ZONE_DEFAULTS.primaryRequirement);
     const n1SecondaryRequirement = getDiamondWindow('n1SecondaryRequirement', SAFE_ZONE_DEFAULTS.secondaryRequirement);
     const n2W = getDiamondWindow('n2Recent', 10);
-    const n3Window = getDiamondWindow('n3Alternance', 12);
+    const n3Window = getDiamondWindow('n3Alternance', 2000);
     const n4Window = getDiamondWindow('n4Persistence', DEFAULT_ANALYZER_CONFIG.diamondLevelWindows.n4Persistence);
     const n5Window = getDiamondWindow('n5MinuteBias', 60);
     const n6Window = getDiamondWindow('n6RetracementWindow', 80);
@@ -15320,7 +15265,7 @@ async function analyzeWithPatternSystem(history) {
         ['N0', `Hist ${n0HistoryConfigured} | W ${n0WindowConfigured} | BlockAll ${analyzerConfig.n0AllowBlockAll !== false ? 'sim' : 'não'}`],
         ['N1', `Zona Segura → W ${n1WindowSize} | minA ${n1PrimaryRequirement} | minB ${n1SecondaryRequirement}`],
         ['N2', `W ${n2W} (auto)`],
-        ['N3', `Janela ${getDiamondWindow('n3PatternLength', 10)} | Hist ${n3Window} | Rigor ${getDiamondWindow('n3BaseThresholdPct', 60)}% | Jan ${getDiamondWindow('n3ThresholdPct', 75)}%`],
+        ['N3', `Prof ${n3Window} | Rigor ${getDiamondWindow('n3BaseThresholdPct', 60)}% | minOcc ${getDiamondWindow('n3MinOccurrences', 3)}`],
         ['N4', `Hist ${n4Window}`],
         ['N5', `${n5Window} amostras`],
         ['N6', `${n6Window} giros`],
@@ -15337,7 +15282,7 @@ async function analyzeWithPatternSystem(history) {
         n1PrimaryRequirement !== SAFE_ZONE_DEFAULTS.primaryRequirement ||
         n1SecondaryRequirement !== SAFE_ZONE_DEFAULTS.secondaryRequirement;
     const isN2Custom = n2W !== 10;
-    const isN3Custom = n3Window !== 12;
+    const isN3Custom = n3Window !== 2000;
     const isN4Custom = n4Window !== DEFAULT_ANALYZER_CONFIG.diamondLevelWindows.n4Persistence;
     const isN5Custom = n5Window !== 60;
     const isN6Custom = n6Window !== 80;
@@ -15657,32 +15602,24 @@ async function analyzeWithPatternSystem(history) {
         // 🔷 N4 - PADRÃO DE ALTERNÂNCIA (CONFIGURÁVEL PELO USUÁRIO)
         // ═══════════════════════════════════════════════════════════════
         console.log('%c║  🔷 N4 - PADRÃO DE ALTERNÂNCIA (CONFIGURÁVEL)          ║', 'color: #8E44AD; font-weight: bold; font-size: 14px;');
-        const n3HistoryWindow = Math.max(1, getDiamondWindow('n3Alternance', historySize));
-        const n3ContextWindowSizeConfigured = Math.max(
-            1,
-            Math.min(200, getDiamondWindow('n3PatternLength', DEFAULT_ANALYZER_CONFIG.diamondLevelWindows.n3PatternLength))
-        );
+        const n3HistoryWindow = Math.max(4, getDiamondWindow('n3Alternance', historySize));
         const n3BaseThresholdPctConfigured = Math.max(50, Math.min(95, getDiamondWindow('n3BaseThresholdPct', 60)));
-        const n3WindowThresholdPctConfigured = Math.max(50, Math.min(95, getDiamondWindow('n3ThresholdPct', 75)));
-        const n3MinOccurrencesConfigured = Math.max(1, Math.min(100, getDiamondWindow('n3MinOccurrences', 1)));
+        const n3MinOccurrencesConfigured = Math.max(1, Math.min(500, getDiamondWindow('n3MinOccurrences', 3)));
         const n3AllowBackoffConfigured = getDiamondBoolean('n3AllowBackoff', DEFAULT_ANALYZER_CONFIG.diamondLevelWindows.n3AllowBackoff);
         const n3IgnoreWhiteConfigured = getDiamondBoolean('n3IgnoreWhite', DEFAULT_ANALYZER_CONFIG.diamondLevelWindows.n3IgnoreWhite);
         const nivel7 = analyzeAlternancePattern(history, {
             historySize: n3HistoryWindow,
-            contextWindowSize: n3ContextWindowSizeConfigured,
             baseThreshold: n3BaseThresholdPctConfigured / 100,
-            contextThreshold: n3WindowThresholdPctConfigured / 100,
             minOccurrences: n3MinOccurrencesConfigured,
             allowBackoff: n3AllowBackoffConfigured,
-            ignoreWhite: n3IgnoreWhiteConfigured,
-            whiteProtectionAsWin: !!analyzerConfig.whiteProtectionAsWin
+            ignoreWhite: n3IgnoreWhiteConfigured
         });
         
         console.log('%c📊 ANÁLISE DE PADRÃO:', 'color: #8E44AD; font-weight: bold;');
-        console.log(`%c   Histórico analisado: ${nivel7.historyUsed || n3HistoryWindow}/${n3HistoryWindow} giros`, 'color: #8E44AD;');
+        console.log(`%c   Profundidade do histórico: ${nivel7.historyUsed || n3HistoryWindow}/${n3HistoryWindow} giros`, 'color: #8E44AD;');
         console.log(`%c   Alternância detectada: ${nivel7.pattern || 'N/A'} • ${nivel7.details || 'N/A'}`, 'color: #8E44AD;');
         console.log(
-            `%c   Probabilidade: base ${nivel7.baseRatePct || nivel7.alternationRate || '0.0'}% (limiar ${n3BaseThresholdPctConfigured}%) • janela ${nivel7.contextRatePct || '0.0'}% (limiar ${n3WindowThresholdPctConfigured}%)`,
+            `%c   Probabilidade: ${nivel7.probabilityPct || nivel7.baseRatePct || nivel7.alternationRate || '0.0'}% (limiar ${n3BaseThresholdPctConfigured}%)`,
             'color: #8E44AD;'
         );
         console.log(`%c   Ocorrências históricas: ${nivel7.occurrences != null ? nivel7.occurrences : 0}`, 'color: #8E44AD;');
@@ -18504,8 +18441,9 @@ async function runAnalysisController(history) {
 				};
 				
 				// 1. Enviar para extensão (UI)
+				// ✅ Premium (Modo Padrão): emitir como 'standard' (não como 'diamond')
 				try {
-					sendResults.extensao = await emitAnalysisToContent(analysis, 'diamond');
+					sendResults.extensao = await emitAnalysisToContent(analysis, 'standard');
 				} catch (e) {
 					console.error('❌ Erro crítico ao enviar para extensão:', e);
 				}
@@ -18610,8 +18548,9 @@ async function runAnalysisController(history) {
 				};
 				
 				// 1. Enviar para extensão (UI)
+				// ✅ Premium (Modo Padrão): emitir como 'standard' (não como 'diamond')
 				try {
-					sendResults.extensao = await emitAnalysisToContent(analysis, 'diamond');
+					sendResults.extensao = await emitAnalysisToContent(analysis, 'standard');
 				} catch (e) {
 					console.error('❌ Erro crítico ao enviar para extensão:', e);
 				}
@@ -18723,8 +18662,10 @@ async function loadPatternDB(silent = false) {
 		? res.patternDB
 		: { patterns_found: [], version: 1 };
 	
-	// 🔥 LIMPEZA CRÍTICA: Remover padrões com trigger inválida do banco
-	if (db.patterns_found && db.patterns_found.length > 0) {
+	// 🔥 LIMPEZA: Remover padrões com trigger inválida do banco
+	// ✅ Respeitar config do usuário: só limpar triggers inválidas quando "Exigir cor de disparo" estiver ATIVO.
+	const requireTrigger = !!(analyzerConfig && analyzerConfig.requireTrigger);
+	if (requireTrigger && db.patterns_found && db.patterns_found.length > 0) {
 		const beforeCount = db.patterns_found.length;
 		db.patterns_found = db.patterns_found.filter(pat => {
 			// Se não tem padrão ou trigger, manter (será validado depois)
@@ -19019,6 +18960,13 @@ async function verifyWithSavedPatterns(history, dbOverride = null) {
 
 	const headColors = history.map(s => s.color);
 	const maxTrackedStage = MAX_GALE_STAGE_TRACKED;
+	// ✅ Config do usuário (Modo Premium): respeitar "Exigir cor de disparo" e tamanho mínimo configurado
+	const requireTrigger = !!(analyzerConfig && analyzerConfig.requireTrigger);
+	const minPatternSizeGate = clampInt(
+		analyzerConfig?.minPatternSize ?? DEFAULT_ANALYZER_CONFIG.minPatternSize,
+		2,
+		50
+	);
 	let best = null;
 	for (const pat of db.patterns_found) {
 		const galeStageTotals = Array(maxTrackedStage + 1).fill(0);
@@ -19028,7 +18976,8 @@ async function verifyWithSavedPatterns(history, dbOverride = null) {
 		const galeSuccessCumulative = Array(maxTrackedStage + 1).fill(0);
 		if (!Array.isArray(pat.pattern) || pat.pattern.length === 0) continue;
 		const need = pat.pattern.length;
-		if (need < 3) continue; // ignorar padrões muito curtos
+		// ✅ Respeitar o tamanho mínimo configurado pelo usuário (evita hardcode 3)
+		if (need < minPatternSizeGate) continue;
 		if (headColors.length < need) continue;
 		const currentSeq = headColors.slice(0, need);
 		const isMatch = currentSeq.every((c, i) => c === pat.pattern[i]);
@@ -19047,25 +18996,27 @@ async function verifyWithSavedPatterns(history, dbOverride = null) {
 		continue;
 	}
 
-	if (!currentTriggerNormalized) {
-		console.log('❌ Padrão salvo rejeitado: sem cor de disparo atual disponível', {
-			pattern: pat.pattern,
-			firstPatternColor: getInitialPatternColor(pat.pattern)
-		});
-		continue;
-	}
-
-	const validation = validateDisparoColor(firstPatternNormalized, currentTriggerNormalized);
-	if (!validation.valid) {
-		console.log('❌ Padrão salvo rejeitado: cor de disparo atual inválida', {
+	// ✅ Se o usuário desativar "Exigir cor de disparo", NÃO bloquear o padrão por trigger.
+	if (requireTrigger) {
+		if (!currentTriggerNormalized) {
+			console.log('❌ Padrão salvo rejeitado: sem cor de disparo atual disponível', {
 				pattern: pat.pattern,
-				currentTrigger: currentTrigger,
-			currentTriggerNormalized,
-			firstPatternColor: getInitialPatternColor(pat.pattern),
-			firstPatternNormalized,
-			motivo: validation.reason || 'Cor de disparo igual ou inválida'
-		});
-		continue;
+				firstPatternColor: getInitialPatternColor(pat.pattern)
+			});
+			continue;
+		}
+		const validation = validateDisparoColor(firstPatternNormalized, currentTriggerNormalized);
+		if (!validation.valid) {
+			console.log('❌ Padrão salvo rejeitado: cor de disparo atual inválida', {
+					pattern: pat.pattern,
+					currentTrigger: currentTrigger,
+				currentTriggerNormalized,
+				firstPatternColor: getInitialPatternColor(pat.pattern),
+				firstPatternNormalized,
+				motivo: validation.reason || 'Cor de disparo igual ou inválida'
+			});
+			continue;
+		}
 	}
 		// NÃO exigir que a trigger seja igual à salva; triggers podem variar por ocorrência
 
@@ -19105,10 +19056,13 @@ async function verifyWithSavedPatterns(history, dbOverride = null) {
 			
 			const trigNormalized = normalizeColorName(trigColorRaw);
 			let triggerValid = true;
-			if (!trigNormalized) {
-				triggerValid = !analyzerConfig.requireTrigger;
-			} else {
-				triggerValid = validateDisparoColor(firstPatternNormalized, trigNormalized).valid;
+			// ✅ Respeitar "Exigir cor de disparo": se desativado, não validar disparo aqui.
+			if (requireTrigger) {
+				if (!trigNormalized) {
+					triggerValid = false;
+				} else {
+					triggerValid = validateDisparoColor(firstPatternNormalized, trigNormalized).valid;
+				}
 			}
 			if (!triggerValid) continue;
 
@@ -19157,9 +19111,9 @@ async function verifyWithSavedPatterns(history, dbOverride = null) {
 		
 		const trigEntry = history[i + need] ? history[i + need].color : null;
 		const trigNormalized = normalizeColorName(trigEntry);
-		if (!trigNormalized) {
-			if (analyzerConfig.requireTrigger) continue;
-		} else {
+		// ✅ Respeitar "Exigir cor de disparo": se desativado, não validar disparo aqui.
+		if (requireTrigger) {
+			if (!trigNormalized) continue;
 			if (!validateDisparoColor(firstPatternNormalized, trigNormalized).valid) continue;
 		}
 		
@@ -19461,67 +19415,70 @@ async function verifyWithSavedPatterns(history, dbOverride = null) {
 			}
 		}
 
-		// 🔥 VALIDAÇÃO CRÍTICA FINAL: Cor de disparo ATUAL deve ser válida
-		// Verificar se a cor de disparo ATUAL (antes do padrão head) é diferente da primeira cor do padrão
-		const finalTriggerNormalized = normalizeColorName(currentTrigger);
-		const firstFinalNormalized = normalizeColorName(getInitialPatternColor(pat.pattern));
+		// 🔥 VALIDAÇÃO FINAL DE TRIGGER: somente se o usuário exigir cor de disparo
+		if (requireTrigger) {
+			// Verificar se a cor de disparo ATUAL (antes do padrão head) é diferente da primeira cor do padrão
+			const finalTriggerNormalized = normalizeColorName(currentTrigger);
+			const firstFinalNormalized = normalizeColorName(getInitialPatternColor(pat.pattern));
 
-		if (!firstFinalNormalized) {
-			console.warn('⚠️ Padrão salvo rejeitado no sinal final: cor inicial inválida', pat.pattern);
-			continue;
-		}
+			if (!firstFinalNormalized) {
+				console.warn('⚠️ Padrão salvo rejeitado no sinal final: cor inicial inválida', pat.pattern);
+				continue;
+			}
 
-		if (!finalTriggerNormalized) {
-			console.log(`❌ Padrão salvo rejeitado no sinal final: sem cor de disparo atual`);
-			continue; // Sempre exigir trigger válida na hora de enviar sinal
-		}
-		
-		const finalValidation = validateDisparoColor(firstFinalNormalized, finalTriggerNormalized);
-		
-		if (!finalValidation.valid) {
-			console.log(`❌ Padrão salvo rejeitado no sinal final: cor de disparo atual INVÁLIDA`, {
-				pattern: pat.pattern.join('-'),
-				currentTrigger: currentTrigger,
-				triggerNormalized: finalTriggerNormalized,
-				firstPatternColor: getInitialPatternColor(pat.pattern),
-				firstNormalized: firstFinalNormalized,
-				motivo: finalValidation.reason || 'Cor de disparo IGUAL ou inválida - corromperia o padrão!'
+			if (!finalTriggerNormalized) {
+				console.log(`❌ Padrão salvo rejeitado no sinal final: sem cor de disparo atual`);
+				continue;
+			}
+
+			const finalValidation = validateDisparoColor(firstFinalNormalized, finalTriggerNormalized);
+			if (!finalValidation.valid) {
+				console.log(`❌ Padrão salvo rejeitado no sinal final: cor de disparo atual INVÁLIDA`, {
+					pattern: pat.pattern.join('-'),
+					currentTrigger: currentTrigger,
+					triggerNormalized: finalTriggerNormalized,
+					firstPatternColor: getInitialPatternColor(pat.pattern),
+					firstNormalized: firstFinalNormalized,
+					motivo: finalValidation.reason || 'Cor de disparo IGUAL ou inválida - corromperia o padrão!'
+				});
+				continue;
+			}
+
+			console.log(`✅ Validação final de trigger: APROVADA`, {
+				currentTrigger: finalTriggerNormalized,
+				firstPatternColor: firstFinalNormalized,
+				isOpposite: finalTriggerNormalized === 'white' || (finalTriggerNormalized === 'red' && firstFinalNormalized === 'black') || (finalTriggerNormalized === 'black' && firstFinalNormalized === 'red')
 			});
-			continue; // ❌ Cor de disparo INVÁLIDA - NÃO ENVIAR ENTRADA
 		}
-		
-		console.log(`✅ Validação final de trigger: APROVADA`, {
-			currentTrigger: finalTriggerNormalized,
-			firstPatternColor: firstFinalNormalized,
-			isOpposite: finalTriggerNormalized === 'white' || (finalTriggerNormalized === 'red' && firstFinalNormalized === 'black') || (finalTriggerNormalized === 'black' && firstFinalNormalized === 'red')
-		});
 
 		// Se assertCalc existe, já vem calibrado; senão, calibrar a confidence salva
 		const rawPatternConfidence = typeof pat.confidence === 'number' ? pat.confidence : 70;
 		const patternConfidence = assertCalc ? assertCalc.finalConfidence : applyCalibratedConfidence(rawPatternConfidence);
 		
-		// ✅ FILTRO DE RISCO DE SEQUÊNCIA: EVITAR PADRÕES SALVOS COM ALTO RISCO DE 3 LOSS CONSECUTIVOS
-		// Usamos preferencialmente o winPct real calculado em summary; se não existir, usamos a confidence do padrão.
-		let estimatedWinProb = null;
-		if (summary && typeof summary.winPct === 'number') {
-			estimatedWinProb = summary.winPct / 100;
-		} else {
-			estimatedWinProb = (typeof patternConfidence === 'number' ? patternConfidence : rawPatternConfidence) / 100;
-		}
-		// Proteger contra extremos 0% e 100%
-		estimatedWinProb = Math.min(Math.max(estimatedWinProb, 0.01), 0.99);
-		const probThreeLossSaved = Math.pow(1 - estimatedWinProb, 3);
-		const maxThreeLossProbSaved = 0.02; // 2% de tolerância (mesmo limite do modo padrão multidimensional)
-		
-		if (probThreeLossSaved > maxThreeLossProbSaved) {
-			console.log('❌ Padrão salvo rejeitado pelo filtro de risco de sequência (P(3 LOSS) acima do limite)', {
-				pattern: pat.pattern,
-				suggested,
-				estimatedWinProb: (estimatedWinProb * 100).toFixed(2) + '%',
-				probThreeLoss: (probThreeLossSaved * 100).toFixed(2) + '%',
-				maxAllowed: (maxThreeLossProbSaved * 100).toFixed(2) + '%'
-			});
-			continue;
+		// ✅ Premium (Modo Padrão): remover filtro oculto de risco P(3 LOSS).
+		// Esse filtro não é configurável na UI e deixava o modo Premium com volume muito baixo.
+		// Mantido apenas para Modo IA (se algum dia esse fluxo for usado lá).
+		if (analyzerConfig.aiMode) {
+			// Usamos preferencialmente o winPct real calculado em summary; se não existir, usamos a confidence do padrão.
+			let estimatedWinProb = null;
+			if (summary && typeof summary.winPct === 'number') {
+				estimatedWinProb = summary.winPct / 100;
+			} else {
+				estimatedWinProb = (typeof patternConfidence === 'number' ? patternConfidence : rawPatternConfidence) / 100;
+			}
+			estimatedWinProb = Math.min(Math.max(estimatedWinProb, 0.01), 0.99);
+			const probThreeLossSaved = Math.pow(1 - estimatedWinProb, 3);
+			const maxThreeLossProbSaved = 0.02;
+			if (probThreeLossSaved > maxThreeLossProbSaved) {
+				console.log('❌ Padrão salvo rejeitado pelo filtro de risco de sequência (P(3 LOSS) acima do limite)', {
+					pattern: pat.pattern,
+					suggested,
+					estimatedWinProb: (estimatedWinProb * 100).toFixed(2) + '%',
+					probThreeLoss: (probThreeLossSaved * 100).toFixed(2) + '%',
+					maxAllowed: (maxThreeLossProbSaved * 100).toFixed(2) + '%'
+				});
+				continue;
+			}
 		}
 
 		const candidate = {
@@ -19544,13 +19501,27 @@ async function discoverAndPersistPatterns(history, startTs, budgetMs) {
 		history = filterHistoryByResetCutoff(history);
 	}
 	if (!history || history.length < 50) return; // respeita regra mínima existente
+	const requireTrigger = !!(analyzerConfig && analyzerConfig.requireTrigger);
 	const db = await loadPatternDB();
 	const existingKeys = new Set(db.patterns_found.map(patternKeyOf));
 
 	const colors = history.map(s => s.color);
 	const tasks = [];
 	// Planejar 173+ análises diversificadas (cores, números, temporais e brancos)
-    for (let size = 3; size <= 15; size++) { // padrões de 3 a 15 giros
+	// ✅ Respeitar tamanhos configurados pelo usuário no Premium (com teto de segurança p/ performance)
+	const HARD_MAX_COLOR_PATTERN_SIZE = 20;
+	const minSizeCfg = clampInt(
+		analyzerConfig?.minPatternSize ?? DEFAULT_ANALYZER_CONFIG.minPatternSize,
+		2,
+		HARD_MAX_COLOR_PATTERN_SIZE
+	);
+	const rawMaxSizeCfg = Number(analyzerConfig?.maxPatternSize ?? DEFAULT_ANALYZER_CONFIG.maxPatternSize);
+	const maxSizeCfg = Number.isFinite(rawMaxSizeCfg) ? Math.floor(rawMaxSizeCfg) : 0;
+	const maxSizeEffective = maxSizeCfg > 0
+		? clampInt(maxSizeCfg, minSizeCfg, HARD_MAX_COLOR_PATTERN_SIZE)
+		: HARD_MAX_COLOR_PATTERN_SIZE;
+
+    for (let size = minSizeCfg; size <= maxSizeEffective; size++) {
 		for (let offset = 0; offset < 10; offset++) { // 10 offsets para maior cobertura
 			tasks.push({ kind: 'color-window', size, offset });
 		}
@@ -19725,8 +19696,9 @@ async function discoverAndPersistPatterns(history, startTs, budgetMs) {
 		if (typeof p.total_wins !== 'number') p.total_wins = 0;
 		if (typeof p.total_losses !== 'number') p.total_losses = 0;
 		
-		// 🔥 VALIDAÇÃO CRÍTICA FINAL: Validar trigger antes de salvar no banco
-		if (Array.isArray(p.pattern) && p.pattern.length > 0 && p.triggerColor) {
+		// 🔥 Validação de trigger antes de salvar no banco
+		// ✅ Respeitar config: só validar trigger se o usuário exigir cor de disparo.
+		if (requireTrigger && Array.isArray(p.pattern) && p.pattern.length > 0 && p.triggerColor) {
 			const firstColorNormalized = normalizeColorName(getInitialPatternColor(p.pattern));
 			const triggerNormalized = normalizeColorName(p.triggerColor);
 			const triggerValidation = validateDisparoColor(firstColorNormalized, triggerNormalized);
@@ -19763,7 +19735,14 @@ async function discoverAndPersistPatterns(history, startTs, budgetMs) {
 function discoverColorPatternsFast(colors, size, strideOffset) {
 	const out = [];
 	if (!Array.isArray(colors) || colors.length < size + 1) return out;
-	if (size < 3) return out; // garantir pelo menos 3 giros no padrão
+	// ✅ Respeitar configuração do usuário (Premium): mínimo do padrão pode ser 2
+	if (size < 2) return out;
+	const requireTrigger = !!(analyzerConfig && analyzerConfig.requireTrigger);
+	const minOccurrences = clampInt(
+		analyzerConfig?.minOccurrences ?? DEFAULT_ANALYZER_CONFIG.minOccurrences,
+		1,
+		1000
+	);
 	
 	// ═══════════════════════════════════════════════════════════════════════════════
 	// 🔥 NOVA LÓGICA: Agrupar por PADRÃO + TRIGGER (não só padrão)
@@ -19779,7 +19758,8 @@ function discoverColorPatternsFast(colors, size, strideOffset) {
 		const triggerColor = colors[i + size]; // cor imediatamente antes do padrão
 		
 		if (!triggerColor) continue;
-		if (!isValidTrigger(triggerColor, seq)) continue; // respeitar regra de disparo
+		// ✅ Respeitar "Exigir cor de disparo": só validar trigger quando ativo
+		if (requireTrigger && !isValidTrigger(triggerColor, seq)) continue;
 		
 		const normalizedTrigger = normalizeColorName(triggerColor);
 		if (!normalizedTrigger) continue;
@@ -19808,7 +19788,8 @@ function discoverColorPatternsFast(colors, size, strideOffset) {
 	// ═══════════════════════════════════════════════════════════════════════════════
 	
 	for (const bag of outcomesMap.values()) {
-		if (bag.count < 2) continue; // Mínimo 2 ocorrências com a MESMA trigger
+		// ✅ Respeitar Ocorrências mínima configurada pelo usuário
+		if (bag.count < minOccurrences) continue;
 		
 		const cnt = {};
 		for (const c of bag.outcomes) cnt[c] = (cnt[c] || 0) + 1;
@@ -20076,7 +20057,11 @@ function analyzeColorPatternsWithTrigger(history) {
     });
     
     // ✅ CONFIGURAÇÃO DO USUÁRIO
-    const minOccurrences = parseInt(analyzerConfig.minOccurrences) || 5;
+    // (não usar fallback rígido; respeitar o valor configurado + default real do sistema)
+    const minOccurrences = Math.max(
+        1,
+        Math.floor(Number(analyzerConfig.minOccurrences ?? DEFAULT_ANALYZER_CONFIG.minOccurrences))
+    );
     
     console.log(`📊 Config: minOccurrences=${minOccurrences}`);
     
@@ -20420,7 +20405,10 @@ function createOccurrenceRecord(patternSequence, triggerColor, resultColor, sequ
 	const corInicial = normalizeColorName(getInitialPatternColor(patternSequence));
     const triggerNormalized = normalizeColorName(triggerColor);
     const resultNormalized = normalizeColorName(resultColor);
-	const validation = validateDisparoColor(corInicial, triggerNormalized);
+	// ✅ Respeitar configuração do usuário: se "Exigir cor de disparo" estiver desativado,
+	// NÃO marcar ocorrência como inválida só por trigger "incompatível".
+	const requireTrigger = !!(analyzerConfig && analyzerConfig.requireTrigger);
+	const validation = requireTrigger ? validateDisparoColor(corInicial, triggerNormalized) : { valid: true };
 
 	const spinsArray = Array.isArray(sequenceSpins) ? sequenceSpins : [];
 	const sequenceNumbers = spinsArray.map(spin => spin.number ?? null);
@@ -20445,9 +20433,9 @@ function createOccurrenceRecord(patternSequence, triggerColor, resultColor, sequ
 		trigger_number: triggerNumber,
 		trigger_timestamp: triggerTimestamp,
         giro_numbers: triggerNumber != null ? [triggerNumber] : [],
-        flag_invalid_disparo: !validation.valid,
-        invalid_reason: validation.valid ? null : validation.reason,
-        raw_trigger_color: !validation.valid ? triggerColor : null
+        flag_invalid_disparo: requireTrigger ? !validation.valid : false,
+        invalid_reason: (requireTrigger && !validation.valid) ? validation.reason : null,
+        raw_trigger_color: (requireTrigger && !validation.valid) ? triggerColor : null
     };
 }
 
@@ -23023,42 +23011,29 @@ async function combineMultidimensionalAnalyses(colorAnalysis, numberAnalysis, ti
     )[0];
     
 	// NOVAS REGRAS DE RIGOR: Sistema de escalonamento 50% → 60%
-    const minOccurrences = 2; // Mínimo 2 ocorrências obrigatório
-    const minStatisticalSignificance = 2.0;
+    // ✅ Premium (Modo Padrão): o rigor deve ser o rigor do usuário (configurável),
+    // não thresholds ocultos (rigorLevel / P(3 LOSS) / sig fixo).
+    const { minOcc: minOccurrences, maxOcc: maxOccurrences } = getUserRigorThresholdsForPremium();
+    const minStatisticalSignificance = 0; // não aplicar gate oculto no Premium
+    const minConfidence = 0; // não aplicar gate oculto no Premium
+    const hasRecentLoss = false;
     
-    // Verificar nível de rigor atual e histórico de losses
-    const storage = await chrome.storage.local.get(['lastBet', 'rigorLevel']);
-    const lastBet = storage.lastBet;
-	const currentRigorLevel = storage.rigorLevel || 50; // Default 50%
-    
-    const hasRecentLoss = lastBet && 
-                         lastBet.status === 'loss' && 
-                         lastBet.resolvedAtTimestamp;
-    
-	// Determinar nível mínimo: 60% após loss, senão usa o nível atual
-	const minConfidence = hasRecentLoss ? 60 : currentRigorLevel;
-    
-    console.log(`🎯 Nível de rigor: ${minConfidence}% (${hasRecentLoss ? 'Após loss' : 'Normal'})`);
+    console.log(`🎯 Rigor do usuário (Premium): minOcc=${minOccurrences} | maxOcc=${maxOccurrences > 0 ? maxOccurrences : 'sem limite'} | win%Outras=${(analyzerConfig && typeof analyzerConfig.winPercentOthers === 'number') ? analyzerConfig.winPercentOthers : (DEFAULT_ANALYZER_CONFIG.winPercentOthers)}% | trigger=${(analyzerConfig && analyzerConfig.requireTrigger) ? 'on' : 'off'}`);
     console.log(`🎯 Melhor recomendação: ${bestRecommendation.color} com ${bestRecommendation.adjustedConfidence.toFixed(1)}% (${bestRecommendation.count} padrão${bestRecommendation.count > 1 ? 's' : ''})`);
     
     // Verificar se atende aos critérios
     const bestAnalysis = bestRecommendation.analyses.sort((a, b) => b.confidence - a.confidence)[0];
-    
-    // ✅ ESTIMAR RISCO DE 3 LOSS CONSECUTIVOS COM BASE NA CONFIANÇA DO PADRÃO
-    // Usamos a confiança do melhor padrão como aproximação da probabilidade de acerto (p_hat).
-    // Probabilidade aproximada de 3 LOSS seguidos: (1 - p_hat)^3.
-    const estimatedWinProb = Math.min(
-        Math.max((bestAnalysis.confidence || bestRecommendation.adjustedConfidence || 0) / 100, 0.01),
-        0.99
-    );
-    const probThreeLoss = Math.pow(1 - estimatedWinProb, 3);
-    const maxThreeLossProb = 0.02; // 2% de tolerância para 3 LOSS seguidos
-    const streakRiskOk = probThreeLoss <= maxThreeLossProb;
-    
-    const meetsCriteria = bestRecommendation.adjustedConfidence >= minConfidence && 
-                         bestAnalysis.occurrences >= minOccurrences && 
-                         bestAnalysis.statisticalSignificance >= minStatisticalSignificance &&
-                         streakRiskOk;
+
+    // ✅ Premium: sem filtro oculto de risco de sequência (P(3 LOSS))
+    const streakRiskOk = true;
+
+    const bestOcc = Number(bestAnalysis?.occurrences ?? 0);
+    const bestSig = Number(bestAnalysis?.statisticalSignificance ?? 0);
+    const meetsCriteria =
+        (Number.isFinite(bestOcc) ? bestOcc : 0) >= minOccurrences &&
+        (maxOccurrences === 0 || ((Number.isFinite(bestOcc) ? bestOcc : 0) <= maxOccurrences)) &&
+        ((Number.isFinite(bestSig) ? bestSig : 0) >= minStatisticalSignificance) &&
+        streakRiskOk;
     
     // ═══════════════════════════════════════════════════════════════════════════════
     // VALIDAÇÃO DE RIGOR POR TIPO DE ANÁLISE
@@ -23177,14 +23152,12 @@ async function combineMultidimensionalAnalyses(colorAnalysis, numberAnalysis, ti
                 threshold: analyzerConfig.winPercentOthers
             });
         }
-        // ✅ LOG SEGURO: verificar se propriedades existem antes de usar .toFixed()
+        // ✅ LOG SEGURO (Premium): sem gates ocultos (sem P(3 LOSS) / rigorLevel)
         const confStr = bestRecommendation?.adjustedConfidence != null ? bestRecommendation.adjustedConfidence.toFixed(1) : 'N/A';
         const occStr = bestAnalysis?.occurrences != null ? bestAnalysis.occurrences : 'N/A';
         const sigStr = bestAnalysis?.statisticalSignificance != null ? bestAnalysis.statisticalSignificance.toFixed(2) : 'N/A';
-        const streakStr = probThreeLoss != null ? (probThreeLoss * 100).toFixed(2) + '%' : 'N/A';
-        console.log(`❌ Análise rejeitada: conf=${confStr}%/${minConfidence}%, occ=${occStr}/${minOccurrences}, sig=${sigStr}, P(3 LOSS)=${streakStr} (máx ${(
-            maxThreeLossProb * 100
-        ).toFixed(2)}%)`);
+        const maxOccStr = (typeof maxOccurrences === 'number' && maxOccurrences > 0) ? `/máx ${maxOccurrences}` : '';
+        console.log(`❌ Análise rejeitada (Premium): conf=${confStr}%, occ=${occStr}/${minOccurrences}${maxOccStr}, sig=${sigStr}${rigorMessage ? ` | ${rigorMessage}` : ''}`);
         return null;
     }
     
@@ -27887,47 +27860,33 @@ function buildDiamondOptimizationCandidateConfig(baseConfig, levelId, rng) {
         windows.n2Previous = w; // legado: espelha W por compatibilidade
     } else if (upper === 'N3') {
         // N3 - Alternância
-        const baseHist = clampInt(windows.n3Alternance ?? 60, 4, 400);
-        const baseCtx = clampInt(windows.n3PatternLength ?? 10, 1, 200);
+        const baseHist = clampInt(windows.n3Alternance ?? 2000, 4, 10000);
         const baseGlobalThreshPct = clampInt(windows.n3BaseThresholdPct ?? 60, 50, 95);
-        const baseWindowThreshPct = clampInt(windows.n3ThresholdPct ?? 75, 50, 95);
-        const baseMinOcc = clampInt(windows.n3MinOccurrences ?? 1, 1, 50);
+        const baseMinOcc = clampInt(windows.n3MinOccurrences ?? 3, 1, 500);
         const baseAllowBackoff = windows.n3AllowBackoff !== undefined ? !!windows.n3AllowBackoff : false;
         const baseIgnoreWhite = windows.n3IgnoreWhite !== undefined ? !!windows.n3IgnoreWhite : false;
 
         const hist = clampInt(
-            randomInt(rng, Math.max(4, Math.floor(baseHist * 0.5)), Math.min(400, Math.ceil(baseHist * 1.5))),
+            randomInt(rng, Math.max(4, Math.floor(baseHist * 0.5)), Math.min(10000, Math.ceil(baseHist * 1.5))),
             4,
-            400
-        );
-        const ctx = clampInt(
-            randomInt(rng, Math.max(1, Math.floor(baseCtx * 0.5)), Math.min(200, Math.ceil(baseCtx * 1.6))),
-            1,
-            200
+            10000
         );
         const globalThreshPct = clampInt(
             randomInt(rng, Math.max(50, baseGlobalThreshPct - 18), Math.min(95, baseGlobalThreshPct + 12)),
             50,
             95
         );
-        const windowThreshPct = clampInt(
-            randomInt(rng, Math.max(50, baseWindowThreshPct - 18), Math.min(95, baseWindowThreshPct + 12)),
-            50,
-            95
-        );
         const minOcc = clampInt(
-            randomInt(rng, 1, Math.min(50, Math.max(1, baseMinOcc + 4))),
+            randomInt(rng, 1, Math.min(500, Math.max(1, baseMinOcc + 12))),
             1,
-            50
+            500
         );
         const allowBackoff = rng() < 0.35 ? !baseAllowBackoff : baseAllowBackoff;
         // Branco quebra alternância; esse toggle é compatibilidade/UX — manter, mas variar pouco
         const ignoreWhite = rng() < 0.15 ? !baseIgnoreWhite : baseIgnoreWhite;
 
         windows.n3Alternance = hist;
-        windows.n3PatternLength = ctx;
         windows.n3BaseThresholdPct = globalThreshPct;
-        windows.n3ThresholdPct = windowThreshPct;
         windows.n3MinOccurrences = minOcc;
         windows.n3AllowBackoff = allowBackoff;
         windows.n3IgnoreWhite = ignoreWhite;
@@ -28091,7 +28050,7 @@ async function runDiamondPastOptimization({ config, levelId, senderTabId, jobId,
                     : upper === 'N2'
                     ? `W ${dw.n2Recent}`
                     : upper === 'N3'
-                    ? `Hist ${dw.n3Alternance} | R ${dw.n3BaseThresholdPct ?? 60}% | Jan ${dw.n3ThresholdPct ?? 75}% | minOcc ${dw.n3MinOccurrences}`
+                    ? `Prof ${dw.n3Alternance} | R ${dw.n3BaseThresholdPct ?? 60}% | minOcc ${dw.n3MinOccurrences ?? 3}`
                     : upper === 'N4'
                     ? `Hist ${dw.n4Persistence}`
                     : '—';
@@ -28860,26 +28819,18 @@ function analyzeDiamondLevelsSimulation(history, config, simState) {
 
     // N3 - Alternância
     const n3Enabled = isLevelEnabledLocal('N3');
-    const n3HistoryWindow = Math.max(1, getDiamondWindowFromConfig(config, 'n3Alternance', historySize));
-    const n3ContextWindowSizeConfigured = Math.max(
-        1,
-        Math.min(200, getDiamondWindowFromConfig(config, 'n3PatternLength', DEFAULT_ANALYZER_CONFIG.diamondLevelWindows.n3PatternLength))
-    );
+    const n3HistoryWindow = Math.max(4, getDiamondWindowFromConfig(config, 'n3Alternance', historySize));
     const n3BaseThresholdPctConfigured = Math.max(50, Math.min(95, getDiamondWindowFromConfig(config, 'n3BaseThresholdPct', 60)));
-    const n3WindowThresholdPctConfigured = Math.max(50, Math.min(95, getDiamondWindowFromConfig(config, 'n3ThresholdPct', 75)));
-    const n3MinOccurrencesConfigured = Math.max(1, Math.min(100, getDiamondWindowFromConfig(config, 'n3MinOccurrences', 1)));
+    const n3MinOccurrencesConfigured = Math.max(1, Math.min(500, getDiamondWindowFromConfig(config, 'n3MinOccurrences', 3)));
     const n3AllowBackoffConfigured = getDiamondBooleanFromConfig(config, 'n3AllowBackoff', DEFAULT_ANALYZER_CONFIG.diamondLevelWindows.n3AllowBackoff);
     const n3IgnoreWhiteConfigured = getDiamondBooleanFromConfig(config, 'n3IgnoreWhite', DEFAULT_ANALYZER_CONFIG.diamondLevelWindows.n3IgnoreWhite);
 
     const nivel7 = n3Enabled ? analyzeAlternancePattern(history, {
         historySize: n3HistoryWindow,
-        contextWindowSize: n3ContextWindowSizeConfigured,
         baseThreshold: n3BaseThresholdPctConfigured / 100,
-        contextThreshold: n3WindowThresholdPctConfigured / 100,
         minOccurrences: n3MinOccurrencesConfigured,
         allowBackoff: n3AllowBackoffConfigured,
-        ignoreWhite: n3IgnoreWhiteConfigured,
-        whiteProtectionAsWin: !!config.whiteProtectionAsWin
+        ignoreWhite: n3IgnoreWhiteConfigured
     }) : null;
 
     const alternanceColor = n3Enabled && nivel7 && nivel7.color ? nivel7.color : null;
@@ -29851,7 +29802,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                 sendResponse({
                     status: 'success',
                     jobId,
-                    label: 'Simulação • Premium',
+                    label: 'Testar configurações • Premium',
                     entries,
                     stats: { wins, losses, totalCycles, pct: Number(pct.toFixed(1)) },
                     meta: {
@@ -29979,7 +29930,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                 const losses = totalCycles - wins;
                 const pct = totalCycles ? ((wins / totalCycles) * 100) : 0;
 
-                const label = mode === 'level' && levelId ? `Simulação • ${levelId}` : 'Simulação • Todos os níveis';
+                const label = mode === 'level' && levelId ? `Testar configurações • ${levelId}` : 'Testar configurações • Todos os níveis';
 
                 sendResponse({
                     status: 'success',

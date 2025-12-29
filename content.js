@@ -1243,13 +1243,11 @@ const DIAMOND_LEVEL_DEFAULTS = {
     // N2 (novo): janela base única (W). O código ajusta automaticamente.
     n2Recent: 10,
     n2Previous: 10,
-    n3Alternance: 12,
-    n3PatternLength: 10,
-    // ✅ Rigor do N3 (modo normal): probabilidade mínima global (Entrada+G1) para votar
+    // N3 - Alternância (simplificado): profundidade + rigor + ocorrências mínimas
+    n3Alternance: 2000,
+    // ✅ Rigor do N3: probabilidade mínima do próximo giro para votar
     n3BaseThresholdPct: 60,
-    // ✅ Rigor da janela (janela deslizante): probabilidade mínima (Entrada+G1) considerando a janela anterior
-    n3ThresholdPct: 75,
-    n3MinOccurrences: 1,
+    n3MinOccurrences: 3,
     n3AllowBackoff: false,
     n3IgnoreWhite: false,
     n4Persistence: 2000,
@@ -2344,9 +2342,8 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                     </div>
                     <div class="custom-pattern-modal-body">
                         <div class="diamond-sim-toolbar">
-                            <button type="button" class="btn-save-pattern" id="diamondSimulateAllBtn">Simular todos</button>
                             <div class="diamond-sim-level-wrapper">
-                                <button type="button" class="btn-hot-pattern" id="diamondSimulateLevelBtn">Simular ▾</button>
+                                <button type="button" class="btn-hot-pattern" id="diamondSimulateLevelBtn">Testar configurações ▾</button>
                                 <div class="diamond-sim-dropdown" id="diamondSimulateLevelDropdown" style="display:none;">
                                     <button type="button" class="diamond-sim-option" data-level="N0">N0 - Detector de Branco</button>
                                     <button type="button" class="diamond-sim-option" data-level="N1">N1 - Zona Segura</button>
@@ -2470,7 +2467,7 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                         </div>
                         <div class="diamond-level-field" data-level="n3">
                             <div class="diamond-level-header">
-                                <div class="diamond-level-title">N3 - Alternância (janela)</div>
+                                <div class="diamond-level-title">N3 - Alternância</div>
                                 <label class="diamond-level-switch checkbox-label">
                                     <input type="checkbox" class="diamond-level-toggle-input" id="diamondLevelToggleN3" checked />
                                     <span class="switch-track"></span>
@@ -2480,44 +2477,28 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                                 Detecta alternância real (simples/dupla/tripla). O branco quebra a alternância.
                             </div>
                             <div class="diamond-level-double">
-                                <div>
-                                    <span>Janela anterior (giros)</span>
-                                    <input type="number" id="diamondN3PatternLength" min="1" max="200" value="10" />
+                <div>
+                                    <span>Profundidade do histórico</span>
+                                    <input type="number" id="diamondN3Alternance" min="4" max="10000" value="2000" />
                                     <span class="diamond-level-subnote">
-                                        Giros ANTES da alternância (não inclui os giros da formação). Ex.: em <strong>RR BB</strong>, analisa os giros anteriores ao <strong>RR</strong>.
+                                        Recomendado: 2000 (mín. 4 • máx. 10000)
                                     </span>
-                            </div>
-                <div>
-                    <span>Histórico analisado (giros)</span>
-                                    <input type="number" id="diamondN3Alternance" min="4" max="400" value="12" />
-                            <span class="diamond-level-subnote">
-                                        Recomendado: 50-80 giros (mín. 4)
-                            </span>
-                                </div>
-            </div>
-            <div class="diamond-level-double">
-                <div>
-                    <span>Rigor do N3 (%)</span>
-                    <input type="number" id="diamondN3BaseThresholdPct" min="50" max="95" value="60" />
-                    <span class="diamond-level-subnote">
-                        Probabilidade mínima global (Entrada + G1) no histórico analisado, para o N3 votar
-                    </span>
                 </div>
                 <div>
-                    <span>Rigor da janela (%)</span>
-                    <input type="number" id="diamondN3ThresholdPct" min="50" max="95" value="75" />
-                    <span class="diamond-level-subnote">
-                        Probabilidade mínima (Entrada + G1) usando a janela anterior (janela deslizante)
-                    </span>
+                                    <span>Rigor do N3 (%)</span>
+                                    <input type="number" id="diamondN3BaseThresholdPct" min="50" max="95" value="60" />
+                                    <span class="diamond-level-subnote">
+                                        Probabilidade mínima do próximo giro, no histórico analisado, para o N3 votar
+                                    </span>
                 </div>
             </div>
             <div class="diamond-level-double">
                 <div>
-                    <span>Ocorrências mínimas (janela)</span>
-                    <input type="number" id="diamondN3MinOccurrences" min="1" max="50" value="1" />
-                    <span class="diamond-level-subnote">
-                        A janela anterior precisa aparecer pelo menos N vezes (para validar a janela)
-                    </span>
+                                    <span>Ocorrências mínimas</span>
+                                    <input type="number" id="diamondN3MinOccurrences" min="1" max="500" value="3" />
+                                    <span class="diamond-level-subnote">
+                                        O padrão precisa aparecer pelo menos N vezes no histórico
+                                    </span>
                 </div>
                 <div>
                     <label class="checkbox-label" style="margin-top: 18px;">
@@ -2525,7 +2506,7 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                 Permitir backoff (tentar padrões menores quando faltar histórico)
             </label>
             <div class="diamond-level-subnote" style="margin-top: 6px;">
-                Observação: branco sempre quebra a alternância (não é considerado dentro do padrão).
+                Observação: branco sempre quebra a alternância (fora do padrão).
                     </div>
                 </div>
             </div>
@@ -2764,9 +2745,9 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
     let standardOptimizationJobId = null;
     let standardOptimizationRunning = false;
     let standardSimBusyKind = null; // 'simulate' | 'optimize' | null
-    let standardSimPeriodPreset = '12h';
-    let standardSimHistoryLimit = 1440;
-    let standardSimHistoryLimitRaw = 1440;
+    let standardSimPeriodPreset = '1000';
+    let standardSimHistoryLimit = 1000;
+    let standardSimHistoryLimitRaw = 1000;
     let standardSimHasResults = false;
     let standardSimActiveTab = 'signals';
     let standardSimMovedNodes = [];
@@ -2831,7 +2812,7 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                 <div class="custom-pattern-modal-overlay"></div>
                 <div class="custom-pattern-modal-content">
                     <div class="custom-pattern-modal-header modal-header-minimal">
-                        <h3>Simulação</h3>
+                        <h3>Testar configurações</h3>
                         <button class="custom-pattern-modal-close" id="closeStandardSimulationModal" type="button">Fechar</button>
                     </div>
                     <div class="custom-pattern-modal-body">
@@ -2842,11 +2823,11 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                         </div>
                         <div class="diamond-sim-view-body">
                             <div id="standardSimulationSummary" class="diamond-sim-summary">
-                                Selecione o período e clique em <strong>Simular</strong> para ver o resultado aqui.
+                                Selecione o período e clique em <strong>Testar configurações</strong> para ver o resultado aqui.
                             </div>
                             <div id="standardSimulationProgress" class="diamond-sim-progress" style="display:none;">
                                 <div class="spinner"></div>
-                                <div id="standardSimulationProgressText">Simulando...</div>
+                                <div id="standardSimulationProgressText">Testando...</div>
                                 <div style="flex:1;"></div>
                                 <button type="button" class="btn-save-pattern" id="standardSimulationCancelBtn" style="max-width: 140px;">Cancelar</button>
                             </div>
@@ -2913,8 +2894,8 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                     <div class="custom-pattern-modal-footer standard-sim-footer">
                         <button type="button" class="btn-hot-pattern" id="standardSimulationClearBtn">Limpar</button>
                         <button type="button" class="btn-hot-pattern" id="standardSimulationOptimizeBtn">Otimizar (100)</button>
-                        <button type="button" class="btn-save-pattern" id="standardSimulationRunBtn">Simular</button>
-                        <button type="button" class="btn-hot-pattern" id="standardSimulationSaveCloseBtn" title="Salva as configurações e fecha a simulação">Salvar e fechar</button>
+                        <button type="button" class="btn-save-pattern" id="standardSimulationRunBtn">Testar configurações</button>
+                        <button type="button" class="btn-hot-pattern" id="standardSimulationSaveCloseBtn" title="Salva as configurações e fecha o teste">Salvar e fechar</button>
                     </div>
                 </div>
             </div>
@@ -3121,11 +3102,11 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
         standardSimHasResults = false;
         setStandardSimResultsVisible(false);
         setStandardSimActiveTab('signals');
-        standardSimPeriodPreset = '12h';
-        standardSimHistoryLimit = 1440;
-        standardSimHistoryLimitRaw = 1440;
+        standardSimPeriodPreset = '1000';
+        standardSimHistoryLimit = 1000;
+        standardSimHistoryLimitRaw = 1000;
         renderStandardSimPeriodSelector();
-        setStandardSimPeriodPreset('12h');
+        setStandardSimPeriodPreset('1000');
         clearStandardSimulationResultsOnly({ cancelIfRunning: true });
         updateStandardSimPreRunSummary();
     }
@@ -3159,7 +3140,7 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
         });
     }
 
-    function setStandardSimulationLoading(isLoading, text = 'Simulando...', kind = 'simulate') {
+    function setStandardSimulationLoading(isLoading, text = 'Testando...', kind = 'simulate') {
         const k = kind === 'optimize' ? 'optimize' : 'simulate';
         standardSimBusyKind = isLoading ? k : null;
         standardSimulationRunning = isLoading ? (k === 'simulate') : false;
@@ -3184,7 +3165,7 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
         const processed = Number(data && data.processed) || 0;
         const total = Number(data && data.total) || 0;
         const pct = total > 0 ? Math.min(100, Math.round((processed / total) * 100)) : 0;
-        setStandardSimulationLoading(true, `Simulando... ${processed}/${total} (${pct}%)`, 'simulate');
+        setStandardSimulationLoading(true, `Testando... ${processed}/${total} (${pct}%)`, 'simulate');
     }
 
     function updateStandardOptimizationProgress(data) {
@@ -3210,9 +3191,9 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
         const preset = DIAMOND_SIM_PERIOD_PRESETS.find(p => p.id === standardSimPeriodPreset) || null;
         const spins = preset ? preset.spins : (standardSimHistoryLimitRaw ?? standardSimHistoryLimit);
         const approx = spins ? formatApproxHoursFromSpins(spins) : '—';
-        const periodLabel = preset ? (preset.id === '10k' ? approx : preset.label) : 'Personalizado';
+        const periodLabel = preset ? preset.label : (spins ? String(spins) : '—');
         summary.innerHTML =
-            `Selecione o período e clique em <strong>Simular</strong>.<br>` +
+            `Selecione o período e clique em <strong>Testar configurações</strong>.<br>` +
             `Período: <strong>${periodLabel}</strong> • Giros: <strong>${spins || '—'}</strong> • Tempo: <strong>${approx}</strong>`;
     }
 
@@ -3254,18 +3235,16 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
         if (!container) return;
         const optionsHtml = DIAMOND_SIM_PERIOD_PRESETS.map(p => {
             const approx = formatApproxHoursFromSpins(p.spins);
-            const displayText = p.id === '10k' ? `${approx}` : `${p.label}`;
-            const title = p.id === '10k'
-                ? `Banco completo: ${p.spins} giros • ${approx}`
-                : `${p.spins} giros • ${approx}`;
+            const displayText = `${p.label}`;
+            const title = `${p.spins} giros • ${approx}`;
             return `<button type="button" class="diamond-sim-period-option" data-preset="${p.id}" title="${title}">${displayText}</button>`;
         }).join('');
 
         container.innerHTML = `
-            <div class="diamond-sim-period-title">Período da simulação</div>
+            <div class="diamond-sim-period-title">Período do teste</div>
             <div class="diamond-sim-period-options">${optionsHtml}</div>
             <div class="diamond-sim-custom-row">
-                <div class="diamond-sim-custom-label">Giros (personalizado)</div>
+                <div class="diamond-sim-custom-label">Giros</div>
                 <input id="standardSimCustomSpinsInput" class="diamond-sim-custom-input" type="number" inputmode="numeric" min="10" max="10000" step="1" />
                 <div class="diamond-sim-custom-suffix">máx 10.000</div>
             </div>
@@ -3302,7 +3281,7 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                 const raw = String(customInput.value || '').trim();
                 const clamped = clampDiamondSimHistoryLimit(raw);
                 if (clamped == null) {
-                    setStandardSimPeriodPreset('12h');
+                    setStandardSimPeriodPreset('1000');
                     return;
                 }
                 setStandardSimCustomHistoryLimit(clamped, { syncInput: true });
@@ -3335,11 +3314,11 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
         const hitEl = document.getElementById('standardSimEntriesHit');
         const progress = document.getElementById('standardSimulationProgress');
         const progressText = document.getElementById('standardSimulationProgressText');
-        if (summary) summary.innerHTML = 'Selecione o período e clique em <strong>Simular</strong> para ver o resultado aqui.';
+        if (summary) summary.innerHTML = 'Selecione o período e clique em <strong>Testar configurações</strong> para ver o resultado aqui.';
         if (list) list.innerHTML = '';
         if (hitEl) hitEl.innerHTML = '';
         if (progress) progress.style.display = 'none';
-        if (progressText) progressText.textContent = 'Simulando...';
+        if (progressText) progressText.textContent = 'Testando...';
 
         renderStandardSimulationChart({ wins: 0, losses: 0, totalCycles: 0, totalEntries: 0 });
         renderStandardSimulationTickChart([]);
@@ -3756,8 +3735,56 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
         const winPct = Math.max(0, Math.min(100, Math.floor(getNum('cfgWinPercentOthers', currentConfig.winPercentOthers ?? 100))));
         const reqTrig = getBool('cfgRequireTrigger', currentConfig.requireTrigger ?? true);
 
-        // snapshot para simulação: forçar Modo Padrão
-        return {
+        // ✅ Snapshot para teste: forçar Modo Padrão e incluir MARTINGALE + AUTO-BET
+        // (para refletir o comportamento do modo real, inclusive Gales/Consecutivo/Proteção no Branco)
+        const baseProfiles = sanitizeMartingaleProfilesFromConfig(currentConfig);
+        const maxGales = clampMartingaleMax(
+            getNum('cfgMaxGales', baseProfiles.standard.maxGales),
+            baseProfiles.standard.maxGales
+        );
+        const consecutiveMartingaleSelected = getBool('cfgConsecutiveMartingale', baseProfiles.standard.consecutiveMartingale);
+        const consecutiveGalesRaw = Math.floor(getNum('cfgConsecutiveGales', baseProfiles.standard.consecutiveGales));
+        let consecutiveGales = Math.max(
+            0,
+            Math.min(maxGales, Number.isFinite(consecutiveGalesRaw) ? consecutiveGalesRaw : 0)
+        );
+        if (!consecutiveMartingaleSelected) {
+            consecutiveGales = 0;
+        } else if (maxGales > 0) {
+            // toggle ligado: mínimo 1
+            consecutiveGales = Math.max(1, consecutiveGales);
+        }
+        const updatedProfiles = {
+            ...baseProfiles,
+            standard: {
+                maxGales,
+                consecutiveGales,
+                consecutiveMartingale: consecutiveGales > 0
+            }
+        };
+
+        const currentAutoBet = sanitizeAutoBetConfig(currentConfig.autoBetConfig || {});
+        const getStr = (id, fallback) => {
+            const el = document.getElementById(id);
+            if (!el) return fallback;
+            return String(el.value || fallback);
+        };
+        const autoBetRawConfig = {
+            enabled: false, // auto-bet sempre desabilitado (apenas simulação/teste)
+            simulationOnly: getBool('autoBetSimulationOnly', currentAutoBet.simulationOnly),
+            baseStake: getNum('autoBetBaseStake', currentAutoBet.baseStake),
+            galeMultiplier: getNum('autoBetGaleMultiplier', currentAutoBet.galeMultiplier),
+            stopWin: getNum('autoBetStopWin', currentAutoBet.stopWin),
+            stopLoss: getNum('autoBetStopLoss', currentAutoBet.stopLoss),
+            simulationBankRoll: getNum('autoBetSimulationBank', currentAutoBet.simulationBankRoll),
+            whitePayoutMultiplier: currentAutoBet.whitePayoutMultiplier,
+            whiteProtectionMode: normalizeWhiteProtectionMode(getStr('autoBetWhiteMode', currentAutoBet.whiteProtectionMode)),
+            inverseModeEnabled: getBool('autoBetInverseMode', currentAutoBet.inverseModeEnabled),
+            whiteProtection: getBool('autoBetWhiteProtection', currentAutoBet.whiteProtection)
+        };
+        const sanitizedAutoBetConfig = sanitizeAutoBetConfig(autoBetRawConfig);
+
+        const snapshot = {
             ...currentConfig,
             aiMode: false,
             historyDepth,
@@ -3767,8 +3794,13 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
             minPatternSize: minSize,
             maxPatternSize: maxSize,
             winPercentOthers: winPct,
-            requireTrigger: reqTrig
+            requireTrigger: reqTrig,
+            martingaleProfiles: updatedProfiles,
+            autoBetConfig: sanitizedAutoBetConfig,
+            whiteProtectionAsWin: !!sanitizedAutoBetConfig.whiteProtection
         };
+        applyActiveMartingaleToLegacyFields(snapshot, 'standard', updatedProfiles);
+        return snapshot;
     }
 
     async function startStandardSimulation() {
@@ -3777,18 +3809,18 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
             createStandardSimulationModal();
             setStandardSimActiveTab('signals');
             setStandardSimResultsVisible(false);
-            setStandardSimulationLoading(true, 'Simulando...', 'simulate');
+            setStandardSimulationLoading(true, 'Testando...', 'simulate');
 
             const summary = document.getElementById('standardSimulationSummary');
-            if (summary) summary.innerHTML = 'Preparando simulação...';
+            if (summary) summary.innerHTML = 'Preparando teste...';
 
             const cfg = await buildStandardConfigSnapshotFromUI();
 
             standardSimulationJobId = `std-sim-${Date.now()}-${Math.random().toString(16).slice(2)}`;
             const resolvedHistoryLimit =
                 standardSimPeriodPreset === 'custom'
-                    ? (clampDiamondSimHistoryLimit(standardSimHistoryLimitRaw) ?? clampDiamondSimHistoryLimit(standardSimHistoryLimit) ?? 1440)
-                    : (clampDiamondSimHistoryLimit(standardSimHistoryLimit) ?? 1440);
+                    ? (clampDiamondSimHistoryLimit(standardSimHistoryLimitRaw) ?? clampDiamondSimHistoryLimit(standardSimHistoryLimit) ?? 1000)
+                    : (clampDiamondSimHistoryLimit(standardSimHistoryLimit) ?? 1000);
 
             chrome.runtime.sendMessage({
                 action: 'STANDARD_SIMULATE_PAST',
@@ -3800,25 +3832,25 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                 if (err) {
                     setStandardSimulationLoading(false);
                     standardSimulationJobId = null;
-                    if (summary) summary.innerHTML = `❌ Falha ao simular: ${err.message || err}`;
+                    if (summary) summary.innerHTML = `❌ Falha ao testar: ${err.message || err}`;
                     return;
                 }
                 if (!response) {
                     setStandardSimulationLoading(false);
                     standardSimulationJobId = null;
-                    if (summary) summary.innerHTML = '❌ Falha ao simular: resposta inválida';
+                    if (summary) summary.innerHTML = '❌ Falha ao testar: resposta inválida';
                     return;
                 }
                 if (response.status === 'cancelled') {
                     setStandardSimulationLoading(false);
                     standardSimulationJobId = null;
-                    if (summary) summary.innerHTML = '⏹️ Simulação cancelada.';
+                    if (summary) summary.innerHTML = '⏹️ Teste cancelado.';
                     return;
                 }
                 if (response.status !== 'success') {
                     setStandardSimulationLoading(false);
                     standardSimulationJobId = null;
-                    if (summary) summary.innerHTML = `❌ Falha ao simular: ${response.error || 'resposta inválida'}`;
+                    if (summary) summary.innerHTML = `❌ Falha ao testar: ${response.error || 'resposta inválida'}`;
                     return;
                 }
 
@@ -3833,7 +3865,7 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                     const req = Number(meta.requestedHistoryLimit || 0);
                     const used = Number(meta.usedHistoryLimit || meta.totalSpins || 0);
                     summary.innerHTML =
-                        `<strong>Simulação • Modo Premium</strong><br>` +
+                        `<strong>Testar configurações • Modo Premium</strong><br>` +
                         `Giros analisados: <strong>${meta.totalSpins || 0}</strong><br>` +
                         `Disponível: <strong>${avail || '—'}</strong> • Solicitado: <strong>${req || '—'}</strong> • Usado: <strong>${used || '—'}</strong><br>` +
                         `Período: <strong>${from}</strong> → <strong>${to}</strong><br>` +
@@ -3849,7 +3881,7 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
             setStandardSimulationLoading(false);
             standardSimulationJobId = null;
             const summary = document.getElementById('standardSimulationSummary');
-            if (summary) summary.innerHTML = `❌ Falha ao simular: ${error.message || error}`;
+            if (summary) summary.innerHTML = `❌ Falha ao testar: ${error.message || error}`;
         }
     }
 
@@ -3868,8 +3900,8 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
 
             const resolvedHistoryLimit =
                 standardSimPeriodPreset === 'custom'
-                    ? (clampDiamondSimHistoryLimit(standardSimHistoryLimitRaw) ?? clampDiamondSimHistoryLimit(standardSimHistoryLimit) ?? 1440)
-                    : (clampDiamondSimHistoryLimit(standardSimHistoryLimit) ?? 1440);
+                    ? (clampDiamondSimHistoryLimit(standardSimHistoryLimitRaw) ?? clampDiamondSimHistoryLimit(standardSimHistoryLimit) ?? 1000)
+                    : (clampDiamondSimHistoryLimit(standardSimHistoryLimit) ?? 1000);
 
             standardOptimizationJobId = `std-opt-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
@@ -4191,20 +4223,20 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
     let diamondOptimizationActiveLevelId = null; // usado para prefixar progresso quando otimizando em lote (modo "all")
     let diamondSimMovedNodes = [];
     let diamondSimHiddenNodes = [];
-    let diamondSimPeriodPreset = '12h'; // padrão: 12 horas
-    let diamondSimHistoryLimit = 1440; // 12h * 120 giros/h
-    let diamondSimHistoryLimitRaw = 1440; // valor digitado (pode estar “em edição”)
+    let diamondSimPeriodPreset = '1000'; // padrão: 1000
+    let diamondSimHistoryLimit = 1000; // padrão
+    let diamondSimHistoryLimitRaw = 1000; // valor digitado (pode estar “em edição”)
     let diamondSimHasResults = false;
     let diamondSimActiveTab = 'signals';
 
     const DIAMOND_SIM_SPINS_PER_MINUTE = 2;
     const DIAMOND_SIM_SPINS_PER_HOUR = 120; // 2 giros/min * 60 min
     const DIAMOND_SIM_PERIOD_PRESETS = [
-        { id: '1h', label: '1h', spins: 1 * DIAMOND_SIM_SPINS_PER_HOUR },
-        { id: '2h', label: '2h', spins: 2 * DIAMOND_SIM_SPINS_PER_HOUR },
-        { id: '5h', label: '5h', spins: 5 * DIAMOND_SIM_SPINS_PER_HOUR },
-        { id: '12h', label: '12h', spins: 12 * DIAMOND_SIM_SPINS_PER_HOUR },
-        { id: '10k', label: '10k', spins: 10000 }
+        { id: '120', label: '120', spins: 120 },
+        { id: '240', label: '240', spins: 240 },
+        { id: '500', label: '500', spins: 500 },
+        { id: '1000', label: '1000', spins: 1000 },
+        { id: '2000', label: '2000', spins: 2000 }
     ];
 
     function clampDiamondSimHistoryLimit(raw) {
@@ -4214,7 +4246,7 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
         return Math.max(10, Math.min(10000, Math.floor(n)));
     }
 
-    function resolveDiamondSimHistoryLimitFromUI(fallback = 1440) {
+    function resolveDiamondSimHistoryLimitFromUI(fallback = 1000) {
         const resolved =
             diamondSimPeriodPreset === 'custom'
                 ? (clampDiamondSimHistoryLimit(diamondSimHistoryLimitRaw) ?? clampDiamondSimHistoryLimit(diamondSimHistoryLimit))
@@ -4333,7 +4365,7 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
     function updateDiamondSimRunButtonLabel() {
         const runBtn = document.getElementById('diamondSimulationRunBtn');
         if (!runBtn) return;
-        runBtn.textContent = diamondSimHasResults ? 'Simular novamente' : 'Simular';
+        runBtn.textContent = diamondSimHasResults ? 'Testar novamente' : 'Testar configurações';
     }
 
     function updateDiamondSimPreRunSummary() {
@@ -4342,11 +4374,9 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
         const preset = DIAMOND_SIM_PERIOD_PRESETS.find(p => p.id === diamondSimPeriodPreset) || null;
         const spins = preset ? preset.spins : (diamondSimHistoryLimitRaw ?? diamondSimHistoryLimit);
         const approx = spins ? formatApproxHoursFromSpins(spins) : '—';
-        const periodLabel = preset
-            ? (preset.id === '10k' ? approx : preset.label)
-            : 'Personalizado';
+        const periodLabel = preset ? preset.label : (spins ? String(spins) : '—');
         summary.innerHTML =
-            `Selecione o período e clique em <strong>Simular</strong>.<br>` +
+            `Selecione o período e clique em <strong>Testar configurações</strong>.<br>` +
             `Período: <strong>${periodLabel}</strong> • Giros: <strong>${spins || '—'}</strong> • Tempo: <strong>${approx}</strong>`;
     }
 
@@ -4388,18 +4418,16 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
         if (!container) return;
         const optionsHtml = DIAMOND_SIM_PERIOD_PRESETS.map(p => {
             const approx = formatApproxHoursFromSpins(p.spins);
-            const displayText = p.id === '10k' ? `${approx}` : `${p.label}`;
-            const title = p.id === '10k'
-                ? `Banco completo: ${p.spins} giros • ${approx}`
-                : `${p.spins} giros • ${approx}`;
+            const displayText = `${p.label}`;
+            const title = `${p.spins} giros • ${approx}`;
             return `<button type="button" class="diamond-sim-period-option" data-preset="${p.id}" title="${title}">${displayText}</button>`;
         }).join('');
 
         container.innerHTML = `
-            <div class="diamond-sim-period-title">Período da simulação</div>
+            <div class="diamond-sim-period-title">Período do teste</div>
             <div class="diamond-sim-period-options">${optionsHtml}</div>
             <div class="diamond-sim-custom-row">
-                <div class="diamond-sim-custom-label">Giros (personalizado)</div>
+                <div class="diamond-sim-custom-label">Giros</div>
                 <input id="diamondSimCustomSpinsInput" class="diamond-sim-custom-input" type="number" inputmode="numeric" min="10" max="10000" step="1" />
                 <div class="diamond-sim-custom-suffix">máx 10.000</div>
             </div>
@@ -4438,7 +4466,7 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                 const clamped = clampDiamondSimHistoryLimit(raw);
                 if (clamped == null) {
                     // volta para o padrão se ficou vazio/inválido
-                    setDiamondSimPeriodPreset('12h');
+                    setDiamondSimPeriodPreset('1000');
                     return;
                 }
                 // aqui sim aplicamos o clamp e sincronizamos o input
@@ -4456,7 +4484,7 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
 
     function openDiamondSimulationSetup(mode, levelId = null) {
         ensureDiamondSimulationView();
-        enterDiamondSimulationView({ titleText: 'Simulação' });
+        enterDiamondSimulationView({ titleText: 'Testar configurações' });
         applyDiamondSimMode(mode, levelId);
 
         // Ao entrar na tela: não rodar simulação automaticamente
@@ -4464,7 +4492,7 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
         setDiamondSimResultsVisible(false);
         updateDiamondSimRunButtonLabel();
         renderDiamondSimPeriodSelector();
-        setDiamondSimPeriodPreset('12h');
+        setDiamondSimPeriodPreset('1000');
 
         // Limpar apenas os resultados (mantém campos/config do nível na tela)
         clearDiamondSimulationResultsOnly({ cancelIfRunning: true });
@@ -4487,11 +4515,11 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
             <div id="diamondSimConfigContainer" class="diamond-sim-config"></div>
             <div class="diamond-sim-view-body">
                 <div id="diamondSimulationSummary" class="diamond-sim-summary">
-                    Configure e clique em <strong>Simular</strong> para ver o resultado aqui.
+                    Configure e clique em <strong>Testar configurações</strong> para ver o resultado aqui.
                 </div>
                 <div id="diamondSimulationProgress" class="diamond-sim-progress" style="display:none;">
                     <div class="spinner"></div>
-                    <div id="diamondSimulationProgressText">Simulando...</div>
+                    <div id="diamondSimulationProgressText">Testando...</div>
                     <div style="flex:1;"></div>
                     <button type="button" class="btn-save-pattern" id="diamondSimulationCancelBtn" style="max-width: 140px;">Cancelar</button>
                 </div>
@@ -4560,8 +4588,8 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
             </div>
             <div class="diamond-sim-view-footer">
                 <button type="button" class="btn-hot-pattern" id="diamondSimulationOptimizeBtn">Otimizar (100)</button>
-                <button type="button" class="btn-save-pattern" id="diamondSimulationRunBtn">Simular novamente</button>
-                <button type="button" class="btn-hot-pattern" id="diamondSimulationClearCloseBtn" title="Salva as configurações e fecha a simulação">Salvar e fechar</button>
+                <button type="button" class="btn-save-pattern" id="diamondSimulationRunBtn">Testar novamente</button>
+                <button type="button" class="btn-hot-pattern" id="diamondSimulationClearCloseBtn" title="Salva as configurações e fecha o teste">Salvar e fechar</button>
             </div>
         `;
 
@@ -4597,7 +4625,7 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                 const mode = diamondSimCurrentMode || 'level';
                 const levelId = diamondSimCurrentLevelId || null;
                 if (mode === 'level' && !levelId) {
-                    showCenteredNotice('Selecione um nível para simular.');
+                    showCenteredNotice('Selecione um nível para testar.');
                     return;
                 }
                 startDiamondSimulation(mode, levelId);
@@ -5408,11 +5436,11 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
         const hitEl = document.getElementById('diamondSimEntriesHit');
         const progress = document.getElementById('diamondSimulationProgress');
         const progressText = document.getElementById('diamondSimulationProgressText');
-        if (summary) summary.innerHTML = 'Selecione o período e clique em <strong>Simular</strong> para ver o resultado aqui.';
+        if (summary) summary.innerHTML = 'Selecione o período e clique em <strong>Testar configurações</strong> para ver o resultado aqui.';
         if (list) list.innerHTML = '';
         if (hitEl) hitEl.innerHTML = '';
         if (progress) progress.style.display = 'none';
-        if (progressText) progressText.textContent = 'Simulando...';
+        if (progressText) progressText.textContent = 'Testando...';
 
         renderDiamondSimulationChart({ wins: 0, losses: 0, totalCycles: 0, totalEntries: 0 });
         renderDiamondSimulationTickChart([]);
@@ -5440,11 +5468,11 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
         const progressText = document.getElementById('diamondSimulationProgressText');
         const configContainer = document.getElementById('diamondSimConfigContainer');
 
-        if (summary) summary.innerHTML = 'Selecione o período e clique em <strong>Simular</strong> para ver o resultado aqui.';
+        if (summary) summary.innerHTML = 'Selecione o período e clique em <strong>Testar configurações</strong> para ver o resultado aqui.';
         if (list) list.innerHTML = '';
         if (hitEl) hitEl.innerHTML = '';
         if (progress) progress.style.display = 'none';
-        if (progressText) progressText.textContent = 'Simulando...';
+        if (progressText) progressText.textContent = 'Testando...';
         if (configContainer) configContainer.innerHTML = '';
         renderDiamondSimulationChart({ wins: 0, losses: 0, totalCycles: 0, totalEntries: 0 });
         renderDiamondSimulationTickChart([]);
@@ -5551,7 +5579,7 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
 
         // subtítulo removido (evitar duplicidade com o nome do nível)
 
-        setDiamondLevelsModalTitle(titleText || 'Simulação');
+        setDiamondLevelsModalTitle(titleText || 'Testar configurações');
         levelsModal.classList.add('diamond-sim-active');
         view.style.display = 'flex';
     }
@@ -5598,7 +5626,7 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
         }
     }
 
-    function setDiamondSimulationLoading(isLoading, text = 'Simulando...', kind = 'simulate') {
+    function setDiamondSimulationLoading(isLoading, text = 'Testando...', kind = 'simulate') {
         const k = kind === 'optimize' ? 'optimize' : 'simulate';
         diamondSimBusyKind = isLoading ? k : null;
         diamondSimulationRunning = isLoading ? (k === 'simulate') : false;
@@ -5626,7 +5654,7 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
         const processed = Number(data && data.processed) || 0;
         const total = Number(data && data.total) || 0;
         const pct = total > 0 ? Math.min(100, Math.round((processed / total) * 100)) : 0;
-        setDiamondSimulationLoading(true, `Simulando... ${processed}/${total} (${pct}%)`, 'simulate');
+        setDiamondSimulationLoading(true, `Testando... ${processed}/${total} (${pct}%)`, 'simulate');
     }
 
     function updateDiamondOptimizationProgress(data) {
@@ -5803,11 +5831,9 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
             // N2 (novo): janela base única (W). Mantemos n2Previous espelhado por compatibilidade.
             n2Recent: n2W,
             n2Previous: n2W,
-            n3Alternance: getNumber('diamondN3Alternance', 1, null, DIAMOND_LEVEL_DEFAULTS.n3Alternance),
-            n3PatternLength: getNumber('diamondN3PatternLength', 1, 200, DIAMOND_LEVEL_DEFAULTS.n3PatternLength),
+            n3Alternance: getNumber('diamondN3Alternance', 4, 10000, DIAMOND_LEVEL_DEFAULTS.n3Alternance),
             n3BaseThresholdPct: getNumber('diamondN3BaseThresholdPct', 50, 95, DIAMOND_LEVEL_DEFAULTS.n3BaseThresholdPct),
-            n3ThresholdPct: getNumber('diamondN3ThresholdPct', 50, 95, DIAMOND_LEVEL_DEFAULTS.n3ThresholdPct),
-            n3MinOccurrences: getNumber('diamondN3MinOccurrences', 1, 50, DIAMOND_LEVEL_DEFAULTS.n3MinOccurrences),
+            n3MinOccurrences: getNumber('diamondN3MinOccurrences', 1, 500, DIAMOND_LEVEL_DEFAULTS.n3MinOccurrences),
             n3AllowBackoff: getCheckboxValue('diamondN3AllowBackoff', DIAMOND_LEVEL_DEFAULTS.n3AllowBackoff),
             n3IgnoreWhite: getCheckboxValue('diamondN3IgnoreWhite', DIAMOND_LEVEL_DEFAULTS.n3IgnoreWhite),
             n4Persistence: n4History,
@@ -5853,7 +5879,48 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
             ? (signalIntensitySelect.value === 'conservative' ? 'conservative' : 'aggressive')
             : (currentConfig.signalIntensity === 'conservative' ? 'conservative' : 'aggressive');
 
-        return {
+        // ✅ Incluir MARTINGALE + AUTO-BET no snapshot (para o teste refletir o modo real)
+        const baseProfiles = sanitizeMartingaleProfilesFromConfig(currentConfig);
+        const maxGales = clampMartingaleMax(
+            getNumber('cfgMaxGales', 0, 200, baseProfiles.diamond.maxGales),
+            baseProfiles.diamond.maxGales
+        );
+        const consecutiveMartingaleSelected = getCheckboxValue('cfgConsecutiveMartingale', baseProfiles.diamond.consecutiveMartingale);
+        const consecutiveGalesRaw = getNumber('cfgConsecutiveGales', 0, 200, baseProfiles.diamond.consecutiveGales);
+        let consecutiveGales = Math.max(0, Math.min(maxGales, Number.isFinite(consecutiveGalesRaw) ? consecutiveGalesRaw : 0));
+        if (!consecutiveMartingaleSelected) {
+            consecutiveGales = 0;
+        } else if (maxGales > 0) {
+            consecutiveGales = Math.max(1, consecutiveGales);
+        }
+        const updatedProfiles = {
+            ...baseProfiles,
+            diamond: {
+                maxGales,
+                consecutiveGales,
+                consecutiveMartingale: consecutiveGales > 0
+            }
+        };
+
+        const currentAutoBet = sanitizeAutoBetConfig(currentConfig.autoBetConfig || {});
+        const whiteModeEl = document.getElementById('autoBetWhiteMode');
+        const whiteProtectionMode = normalizeWhiteProtectionMode(whiteModeEl ? whiteModeEl.value : currentAutoBet.whiteProtectionMode);
+        const autoBetRawConfig = {
+            enabled: false, // auto-bet sempre desabilitado (apenas simulação/teste)
+            simulationOnly: getCheckboxValue('autoBetSimulationOnly', currentAutoBet.simulationOnly),
+            baseStake: getNumber('autoBetBaseStake', 0.01, null, currentAutoBet.baseStake),
+            galeMultiplier: getNumber('autoBetGaleMultiplier', 1, null, currentAutoBet.galeMultiplier),
+            stopWin: getNumber('autoBetStopWin', 0, null, currentAutoBet.stopWin),
+            stopLoss: getNumber('autoBetStopLoss', 0, null, currentAutoBet.stopLoss),
+            simulationBankRoll: getNumber('autoBetSimulationBank', 0, null, currentAutoBet.simulationBankRoll),
+            whitePayoutMultiplier: currentAutoBet.whitePayoutMultiplier,
+            whiteProtectionMode,
+            inverseModeEnabled: getCheckboxValue('autoBetInverseMode', currentAutoBet.inverseModeEnabled),
+            whiteProtection: getCheckboxValue('autoBetWhiteProtection', currentAutoBet.whiteProtection)
+        };
+        const sanitizedAutoBetConfig = sanitizeAutoBetConfig(autoBetRawConfig);
+
+        const snapshot = {
             ...currentConfig,
             aiMode: true,
             signalIntensity,
@@ -5866,8 +5933,13 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                 ...newEnabled
             },
             minuteSpinWindow: newWindows.n5MinuteBias,
-            n0AllowBlockAll: allowBlockAll
+            n0AllowBlockAll: allowBlockAll,
+            martingaleProfiles: updatedProfiles,
+            autoBetConfig: sanitizedAutoBetConfig,
+            whiteProtectionAsWin: !!sanitizedAutoBetConfig.whiteProtection
         };
+        applyActiveMartingaleToLegacyFields(snapshot, 'diamond', updatedProfiles);
+        return snapshot;
     }
 
     async function startDiamondSimulation(mode, levelId = null) {
@@ -5877,17 +5949,17 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
 
             const levelLabel = mode === 'level' ? String(levelId || '').toUpperCase() : 'TODOS';
             // manter a tela de simulação aberta (sem texto duplicado no cabeçalho)
-            enterDiamondSimulationView({ titleText: 'Simulação' });
+            enterDiamondSimulationView({ titleText: 'Testar configurações' });
             applyDiamondSimMode(mode, levelId);
 
             // ✅ ao rodar novamente, evitar “vazar” o gráfico na aba Sinais
             setDiamondSimActiveTab('signals');
             setDiamondSimResultsVisible(false);
-            setDiamondSimulationLoading(true, 'Simulando...', 'simulate');
+            setDiamondSimulationLoading(true, 'Testando...', 'simulate');
 
             const summary = document.getElementById('diamondSimulationSummary');
             if (summary) {
-                summary.innerHTML = `Preparando simulação...`;
+                summary.innerHTML = `Preparando teste...`;
             }
             const cfg = await buildDiamondConfigSnapshotFromModal();
 
@@ -5932,7 +6004,7 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
             if (mode === 'level' && levelId) {
                 try { bindDiamondSimPeriodToLevelHistory(levelId); } catch (_) {}
             }
-            const resolvedHistoryLimit = resolveDiamondSimHistoryLimitFromUI(1440);
+            const resolvedHistoryLimit = resolveDiamondSimHistoryLimitFromUI(1000);
 
             const requestPayload = {
                 action: 'DIAMOND_SIMULATE_PAST',
@@ -5949,25 +6021,25 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                     console.warn('⚠️ Erro na simulação:', err);
                     setDiamondSimulationLoading(false);
                     diamondSimulationJobId = null;
-                    if (summary) summary.innerHTML = `❌ Falha ao simular: ${err.message || err}`;
+                    if (summary) summary.innerHTML = `❌ Falha ao testar: ${err.message || err}`;
                     return;
                 }
                 if (!response) {
                     setDiamondSimulationLoading(false);
                     diamondSimulationJobId = null;
-                    if (summary) summary.innerHTML = `❌ Falha ao simular: resposta inválida`;
+                    if (summary) summary.innerHTML = `❌ Falha ao testar: resposta inválida`;
                     return;
                 }
                 if (response.status === 'cancelled') {
                     setDiamondSimulationLoading(false);
                     diamondSimulationJobId = null;
-                    if (summary) summary.innerHTML = '⏹️ Simulação cancelada.';
+                    if (summary) summary.innerHTML = '⏹️ Teste cancelado.';
                     return;
                 }
                 if (response.status !== 'success') {
                     setDiamondSimulationLoading(false);
                     diamondSimulationJobId = null;
-                    if (summary) summary.innerHTML = `❌ Falha ao simular: ${response && response.error ? response.error : 'resposta inválida'}`;
+                    if (summary) summary.innerHTML = `❌ Falha ao testar: ${response && response.error ? response.error : 'resposta inválida'}`;
                     return;
                 }
 
@@ -6015,7 +6087,7 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
             setDiamondSimulationLoading(false);
             diamondSimulationJobId = null;
             const summary = document.getElementById('diamondSimulationSummary');
-            if (summary) summary.innerHTML = `❌ Falha ao simular: ${error.message || error}`;
+            if (summary) summary.innerHTML = `❌ Falha ao testar: ${error.message || error}`;
         }
     }
 
@@ -6024,7 +6096,7 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
             if (diamondSimulationRunning || diamondOptimizationRunning) return;
             ensureDiamondSimulationView();
 
-            enterDiamondSimulationView({ titleText: 'Simulação' });
+            enterDiamondSimulationView({ titleText: 'Testar configurações' });
             applyDiamondSimMode('level', levelId);
 
             setDiamondSimActiveTab('signals');
@@ -6110,9 +6182,7 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                     }
                     if (upper === 'N3') {
                         setVal('diamondN3Alternance', windows.n3Alternance);
-                        setVal('diamondN3PatternLength', windows.n3PatternLength);
                         setVal('diamondN3BaseThresholdPct', windows.n3BaseThresholdPct);
-                        setVal('diamondN3ThresholdPct', windows.n3ThresholdPct);
                         setVal('diamondN3MinOccurrences', windows.n3MinOccurrences);
                         setCheck('diamondN3AllowBackoff', !!windows.n3AllowBackoff);
                         setCheck('diamondN3IgnoreWhite', !!windows.n3IgnoreWhite);
@@ -6187,7 +6257,7 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
             if (diamondSimulationRunning || diamondOptimizationRunning) return;
             ensureDiamondSimulationView();
 
-            enterDiamondSimulationView({ titleText: 'Simulação' });
+            enterDiamondSimulationView({ titleText: 'Testar configurações' });
             applyDiamondSimMode('all');
             setDiamondSimActiveTab('signals');
             setDiamondSimResultsVisible(false);
@@ -6255,9 +6325,7 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                 }
                 if (upper === 'N3') {
                     setVal('diamondN3Alternance', windows.n3Alternance);
-                    setVal('diamondN3PatternLength', windows.n3PatternLength);
                     setVal('diamondN3BaseThresholdPct', windows.n3BaseThresholdPct);
-                    setVal('diamondN3ThresholdPct', windows.n3ThresholdPct);
                     setVal('diamondN3MinOccurrences', windows.n3MinOccurrences);
                     setCheck('diamondN3AllowBackoff', !!windows.n3AllowBackoff);
                     setCheck('diamondN3IgnoreWhite', !!windows.n3IgnoreWhite);
@@ -6367,7 +6435,7 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                     `<strong>Otimização em lote concluída</strong><br>` +
                     rows +
                     skippedText +
-                    `<div style="margin-top:10px; color:#8da2bb;">Agora clique em <strong>Simular</strong> para ver o resultado com as configurações aplicadas (somente as ≥95%).</div>`;
+                    `<div style="margin-top:10px; color:#8da2bb;">Agora clique em <strong>Testar configurações</strong> para ver o resultado com as configurações aplicadas (somente as ≥95%).</div>`;
             }
         } catch (error) {
             console.warn('⚠️ Falha ao iniciar otimização em lote:', error);
@@ -6718,9 +6786,7 @@ function enforceSignalIntensityAvailability(options = {}) {
         setInput('diamondN1MaxEntries', getValue('n1MaxEntries', DIAMOND_LEVEL_DEFAULTS.n1MaxEntries));
         setInput('diamondN2Recent', getValue('n2Recent', DIAMOND_LEVEL_DEFAULTS.n2Recent));
         setInput('diamondN3Alternance', getValue('n3Alternance', DIAMOND_LEVEL_DEFAULTS.n3Alternance));
-        setInput('diamondN3PatternLength', getValue('n3PatternLength', DIAMOND_LEVEL_DEFAULTS.n3PatternLength));
         setInput('diamondN3BaseThresholdPct', getValue('n3BaseThresholdPct', DIAMOND_LEVEL_DEFAULTS.n3BaseThresholdPct));
-        setInput('diamondN3ThresholdPct', getValue('n3ThresholdPct', DIAMOND_LEVEL_DEFAULTS.n3ThresholdPct));
         setInput('diamondN3MinOccurrences', getValue('n3MinOccurrences', DIAMOND_LEVEL_DEFAULTS.n3MinOccurrences));
         setCheckbox('diamondN3AllowBackoff', getBoolean('n3AllowBackoff', DIAMOND_LEVEL_DEFAULTS.n3AllowBackoff));
         setCheckbox('diamondN3IgnoreWhite', getBoolean('n3IgnoreWhite', DIAMOND_LEVEL_DEFAULTS.n3IgnoreWhite));
@@ -6890,11 +6956,9 @@ function enforceSignalIntensityAvailability(options = {}) {
             // N2 (novo): janela base única (W). Mantemos n2Previous espelhado por compatibilidade.
             n2Recent: n2W,
             n2Previous: n2W,
-            n3Alternance: getNumber('diamondN3Alternance', 1, null, DIAMOND_LEVEL_DEFAULTS.n3Alternance),
-            n3PatternLength: getNumber('diamondN3PatternLength', 1, 200, DIAMOND_LEVEL_DEFAULTS.n3PatternLength),
+            n3Alternance: getNumber('diamondN3Alternance', 4, 10000, DIAMOND_LEVEL_DEFAULTS.n3Alternance),
             n3BaseThresholdPct: getNumber('diamondN3BaseThresholdPct', 50, 95, DIAMOND_LEVEL_DEFAULTS.n3BaseThresholdPct),
-            n3ThresholdPct: getNumber('diamondN3ThresholdPct', 50, 95, DIAMOND_LEVEL_DEFAULTS.n3ThresholdPct),
-            n3MinOccurrences: getNumber('diamondN3MinOccurrences', 1, 50, DIAMOND_LEVEL_DEFAULTS.n3MinOccurrences),
+            n3MinOccurrences: getNumber('diamondN3MinOccurrences', 1, 500, DIAMOND_LEVEL_DEFAULTS.n3MinOccurrences),
             n3AllowBackoff: getCheckboxValue('diamondN3AllowBackoff', DIAMOND_LEVEL_DEFAULTS.n3AllowBackoff),
             n3IgnoreWhite: getCheckboxValue('diamondN3IgnoreWhite', DIAMOND_LEVEL_DEFAULTS.n3IgnoreWhite),
             n4Persistence: n4History,
@@ -11558,7 +11622,7 @@ async function persistAnalyzerState(newState) {
                         <!-- Simulação no passado (Modo Padrão / Análise Premium) -->
                         <div class="setting-item setting-row" id="standardSimulationContainer" style="margin-top: 10px;">
                             <div class="hot-pattern-actions">
-                                <button id="standardSimulationBtn" class="btn-hot-pattern btn-standard-test-config" type="button" title="Simular/otimizar esta configuração no passado (sem olhar o futuro)">
+                                <button id="standardSimulationBtn" class="btn-hot-pattern btn-standard-test-config" type="button" title="Testar/otimizar esta configuração no passado (sem olhar o futuro)">
                                     Testar configurações
                                 </button>
                             </div>
@@ -17359,7 +17423,7 @@ function logModeSnapshotUI(snapshot) {
             setDiamondSimulationLoading(false);
             diamondSimulationJobId = null;
             const summary = document.getElementById('diamondSimulationSummary');
-            if (summary) summary.innerHTML = '⏹️ Simulação cancelada.';
+            if (summary) summary.innerHTML = '⏹️ Teste cancelado.';
         } else if (request.type === 'DIAMOND_OPTIMIZATION_PROGRESS') {
             updateDiamondOptimizationProgress(request.data || {});
         } else if (request.type === 'DIAMOND_OPTIMIZATION_CANCELLED') {
@@ -17381,7 +17445,7 @@ function logModeSnapshotUI(snapshot) {
             setStandardSimulationLoading(false);
             standardSimulationJobId = null;
             const summary = document.getElementById('standardSimulationSummary');
-            if (summary) summary.innerHTML = '⏹️ Simulação cancelada.';
+            if (summary) summary.innerHTML = '⏹️ Teste cancelado.';
         } else if (request.type === 'STANDARD_OPTIMIZATION_PROGRESS') {
             updateStandardOptimizationProgress(request.data || {});
         } else if (request.type === 'STANDARD_OPTIMIZATION_CANCELLED') {
