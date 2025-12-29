@@ -7401,6 +7401,8 @@ body.da-ext-fullscreen #patternDetailsModal .bank-patterns-modal-content {
         min-width: 0 !important;
         box-sizing: border-box !important;
         padding-right: 96px !important;
+        /* ✅ iOS antigo pode não suportar min/max(). Usar fallback + calc(env). */
+        padding-right: calc(96px + env(safe-area-inset-right, 0px)) !important;
         text-align: left !important;
         white-space: nowrap !important;
         overflow: hidden !important;
@@ -7413,7 +7415,8 @@ body.da-ext-fullscreen #patternDetailsModal .bank-patterns-modal-content {
     .modal-header-minimal .auto-bet-modal-close,
     .modal-header-minimal .bank-patterns-modal-close {
         position: absolute !important;
-        right: max(16px, env(safe-area-inset-right, 0px)) !important;
+        right: 16px !important;
+        right: calc(16px + env(safe-area-inset-right, 0px)) !important;
         top: 50% !important;
         transform: translateY(-50%) !important;
         margin: 0 !important;
@@ -7467,12 +7470,14 @@ body.da-ext-fullscreen #patternDetailsModal .bank-patterns-modal-content {
         font-size: 15px !important;
         box-sizing: border-box !important;
         padding-right: 96px !important; /* ✅ espaço do botão (evita cortar o título) */
+        padding-right: calc(96px + env(safe-area-inset-right, 0px)) !important;
         text-align: left !important;
     }
 
     #diamondLevelsModal #closeDiamondLevelsModal {
         position: absolute !important;
-        right: max(16px, env(safe-area-inset-right, 0px)) !important;
+        right: 16px !important;
+        right: calc(16px + env(safe-area-inset-right, 0px)) !important;
         top: 50% !important;
         transform: translateY(-50%) !important;
         white-space: nowrap !important;
@@ -7511,12 +7516,14 @@ body.da-ext-fullscreen #patternDetailsModal .bank-patterns-modal-content {
         font-size: 15px !important;
         box-sizing: border-box !important;
         padding-right: 96px !important; /* ✅ espaço do botão (evita cortar o título) */
+        padding-right: calc(96px + env(safe-area-inset-right, 0px)) !important;
         text-align: left !important;
     }
 
     #autoBetModal #closeAutoBetModal {
         position: absolute !important;
-        right: max(16px, env(safe-area-inset-right, 0px)) !important;
+        right: 16px !important;
+        right: calc(16px + env(safe-area-inset-right, 0px)) !important;
         top: 50% !important;
         transform: translateY(-50%) !important;
         white-space: nowrap !important;
