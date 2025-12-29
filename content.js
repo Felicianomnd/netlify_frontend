@@ -17734,11 +17734,37 @@ function logModeSnapshotUI(snapshot) {
     
     async function loadSettings() {
         try {
+            const isPlainObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
+            const deepMergeSafe = (base, patch) => {
+                const safeBase = isPlainObject(base) ? base : {};
+                const safePatch = isPlainObject(patch) ? patch : {};
+                const result = { ...safeBase };
+                Object.keys(safePatch).forEach((key) => {
+                    // proteger contra prototype pollution
+                    if (key === '__proto__' || key === 'constructor' || key === 'prototype') return;
+                    const patchVal = safePatch[key];
+                    if (patchVal === undefined) return;
+                    const baseVal = result[key];
+                    if (isPlainObject(baseVal) && isPlainObject(patchVal)) {
+                        result[key] = deepMergeSafe(baseVal, patchVal);
+                    } else {
+                        // arrays/primitivos/null -> replace
+                        result[key] = patchVal;
+                    }
+                });
+                return result;
+            };
+
+            // ✅ Ler config local ANTES de puxar do servidor (evita sobrescrever o local com payload incompleto)
+            const storedLocal = await storageCompat.get(['analyzerConfig']);
+            const localConfig = (storedLocal && isPlainObject(storedLocal.analyzerConfig)) ? storedLocal.analyzerConfig : {};
+
             // ✅ Preferência de sincronização precisa ser respeitada em TODOS os dispositivos.
             // Para isso, sempre tentamos buscar do servidor e, se vier `syncConfigToAccount`,
             // usamos como fonte de verdade da conta.
             const localPref = getSyncConfigPreference();
-            const serverConfig = await loadConfigFromServer();
+            const serverConfigRaw = await loadConfigFromServer();
+            const serverConfig = isPlainObject(serverConfigRaw) ? serverConfigRaw : null;
             const serverPref = (serverConfig && typeof serverConfig.syncConfigToAccount === 'boolean')
                 ? serverConfig.syncConfigToAccount
                 : null;
@@ -17754,7 +17780,23 @@ function logModeSnapshotUI(snapshot) {
                 console.log('☁️ Sincronização ATIVADA - carregando configurações da conta...');
                 if (serverConfig) {
                     console.log('✅ Usando configurações do servidor (sincronizado)');
-                    await storageCompat.set({ analyzerConfig: serverConfig });
+                    // ✅ Merge seguro:
+                    // - servidor vence em conflitos
+                    // - local preenche chaves ausentes (evita “zerar” quando o servidor veio capado)
+                    const mergedConfig = deepMergeSafe(localConfig, serverConfig);
+                    await storageCompat.set({ analyzerConfig: mergedConfig });
+
+                    // ✅ Auto-heal: se o servidor estiver com menos chaves, reenviar o merged completo
+                    // (corrige contas que foram sobrescritas por payload parcial em algum dispositivo)
+                    try {
+                        const serverKeys = Object.keys(serverConfig || {}).length;
+                        const mergedKeys = Object.keys(mergedConfig || {}).length;
+                        if (mergedKeys > serverKeys) {
+                            syncConfigToServer(mergedConfig).catch(err =>
+                                console.warn('⚠️ Falha ao re-sincronizar (auto-heal) configurações completas:', err)
+                            );
+                        }
+                    } catch (_) {}
                 } else {
                     console.log('⚠️ Não foi possível carregar do servidor - usando configuração local');
                 }
