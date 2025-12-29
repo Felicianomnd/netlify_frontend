@@ -492,6 +492,7 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
+    gap: 12px;
     padding: 0 32px;
     height: var(--da-header-height);
     background: var(--da-header-bg);
@@ -505,6 +506,11 @@
     font-weight: 600;
     color: var(--da-text);
     letter-spacing: -0.3px;
+    flex: 1 1 auto;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .modal-header-close {
@@ -517,6 +523,8 @@
     padding: 4px 8px;
     border-radius: 3px;
     transition: color 0.2s ease;
+    white-space: nowrap;
+    margin-left: auto;
 }
 
 .modal-header-close:hover {
@@ -3257,6 +3265,7 @@
     border-radius: 3px;
     transition: color 0.2s ease;
     white-space: nowrap;
+    margin-left: auto;
 }
 
 .pattern-modal-close:hover,
@@ -7420,16 +7429,16 @@ body.da-ext-fullscreen #patternDetailsModal .bank-patterns-modal-content {
         flex: 1 1 auto !important;
         min-width: 0 !important;
         font-size: 15px !important;
-        padding-right: 84px !important; /* ✅ espaço reservado para o botão no canto direito */
+        padding-right: 0 !important; /* ✅ não reservar espaço fixo; o botão fica no fluxo à direita */
     }
 
     #diamondLevelsModal #closeDiamondLevelsModal {
-        position: absolute !important;
-        right: 16px !important;
-        top: 50% !important;
-        transform: translateY(-50%) !important;
+        position: static !important;
+        right: auto !important;
+        top: auto !important;
+        transform: none !important;
         white-space: nowrap !important;
-        margin: 0 !important;
+        margin: 0 0 0 auto !important; /* ✅ empurrar para a direita sem sobrepor o título */
     }
 
     /* Configurar Simulador (autoBetModal) */
@@ -7462,16 +7471,16 @@ body.da-ext-fullscreen #patternDetailsModal .bank-patterns-modal-content {
         flex: 1 1 auto !important;
         min-width: 0 !important;
         font-size: 15px !important;
-        padding-right: 84px !important; /* ✅ espaço reservado para o botão no canto direito */
+        padding-right: 0 !important; /* ✅ não reservar espaço fixo; o botão fica no fluxo à direita */
     }
 
     #autoBetModal #closeAutoBetModal {
-        position: absolute !important;
-        right: 16px !important;
-        top: 50% !important;
-        transform: translateY(-50%) !important;
+        position: static !important;
+        right: auto !important;
+        top: auto !important;
+        transform: none !important;
         white-space: nowrap !important;
-        margin: 0 !important;
+        margin: 0 0 0 auto !important; /* ✅ empurrar para a direita sem sobrepor o título */
     }
 
     #autoBetModal .auto-bet-modal-body {
