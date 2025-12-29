@@ -7383,6 +7383,42 @@ body.da-ext-fullscreen #patternDetailsModal .bank-patterns-modal-content {
 /* ═══════════════════════════════════════════════════════════════════════════════ */
 
 @media (max-width: 520px) {
+    /* =========================================================================
+       ✅ PADRÃO GLOBAL (MOBILE): Header de modal com "Fechar" SEM SOBREPOR
+       - Botão sempre no canto direito, centralizado verticalmente
+       - Título ocupa a largura toda e reserva espaço para o botão
+       ========================================================================= */
+    .modal-header-minimal {
+        padding-left: 16px !important;
+        padding-right: 16px !important;
+        justify-content: flex-start !important;
+        position: relative !important;
+        gap: 10px !important;
+    }
+
+    .modal-header-minimal h3 {
+        flex: 1 1 auto !important;
+        min-width: 0 !important;
+        box-sizing: border-box !important;
+        padding-right: 96px !important;
+        text-align: left !important;
+        white-space: nowrap !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+    }
+
+    .modal-header-minimal .modal-header-close,
+    .modal-header-minimal .pattern-modal-close,
+    .modal-header-minimal .custom-pattern-modal-close,
+    .modal-header-minimal .auto-bet-modal-close,
+    .modal-header-minimal .bank-patterns-modal-close {
+        position: absolute !important;
+        right: max(16px, env(safe-area-inset-right, 0px)) !important;
+        top: 50% !important;
+        transform: translateY(-50%) !important;
+        margin: 0 !important;
+    }
+
     /* Configurar Níveis (fullscreen real, sem folgas e sem centralização) */
     #diamondLevelsModal .custom-pattern-modal-content {
         position: fixed !important;
@@ -7416,7 +7452,7 @@ body.da-ext-fullscreen #patternDetailsModal .bank-patterns-modal-content {
         box-sizing: border-box !important;
         display: flex !important;
         align-items: center !important;
-        justify-content: space-between !important;
+        justify-content: flex-start !important; /* botão é absoluto à direita no mobile */
         width: 100% !important;
         position: relative !important; /* ✅ referência para o botão "Fechar" no canto direito */
     }
@@ -7429,16 +7465,18 @@ body.da-ext-fullscreen #patternDetailsModal .bank-patterns-modal-content {
         flex: 1 1 auto !important;
         min-width: 0 !important;
         font-size: 15px !important;
-        padding-right: 0 !important; /* ✅ não reservar espaço fixo; o botão fica no fluxo à direita */
+        box-sizing: border-box !important;
+        padding-right: 96px !important; /* ✅ espaço do botão (evita cortar o título) */
+        text-align: left !important;
     }
 
     #diamondLevelsModal #closeDiamondLevelsModal {
-        position: static !important;
-        right: auto !important;
-        top: auto !important;
-        transform: none !important;
+        position: absolute !important;
+        right: max(16px, env(safe-area-inset-right, 0px)) !important;
+        top: 50% !important;
+        transform: translateY(-50%) !important;
         white-space: nowrap !important;
-        margin: 0 0 0 auto !important; /* ✅ empurrar para a direita sem sobrepor o título */
+        margin: 0 !important;
     }
 
     /* Configurar Simulador (autoBetModal) */
@@ -7458,7 +7496,7 @@ body.da-ext-fullscreen #patternDetailsModal .bank-patterns-modal-content {
         box-sizing: border-box !important;
         display: flex !important;
         align-items: center !important;
-        justify-content: space-between !important;
+        justify-content: flex-start !important; /* botão é absoluto à direita no mobile */
         width: 100% !important;
         position: relative !important; /* ✅ referência para o botão "Fechar" no canto direito */
     }
@@ -7471,16 +7509,18 @@ body.da-ext-fullscreen #patternDetailsModal .bank-patterns-modal-content {
         flex: 1 1 auto !important;
         min-width: 0 !important;
         font-size: 15px !important;
-        padding-right: 0 !important; /* ✅ não reservar espaço fixo; o botão fica no fluxo à direita */
+        box-sizing: border-box !important;
+        padding-right: 96px !important; /* ✅ espaço do botão (evita cortar o título) */
+        text-align: left !important;
     }
 
     #autoBetModal #closeAutoBetModal {
-        position: static !important;
-        right: auto !important;
-        top: auto !important;
-        transform: none !important;
+        position: absolute !important;
+        right: max(16px, env(safe-area-inset-right, 0px)) !important;
+        top: 50% !important;
+        transform: translateY(-50%) !important;
         white-space: nowrap !important;
-        margin: 0 0 0 auto !important; /* ✅ empurrar para a direita sem sobrepor o título */
+        margin: 0 !important;
     }
 
     #autoBetModal .auto-bet-modal-body {
