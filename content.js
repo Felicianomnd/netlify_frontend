@@ -17358,7 +17358,6 @@ function logModeSnapshotUI(snapshot) {
                     // ✅ CARREGAR CALIBRADOR DE PORCENTAGENS
                     console.log('📊 Carregando estatísticas do Calibrador de porcentagens...');
                     loadObserverStats();
-                }
                 } catch (err) {
                     console.warn('⚠️ Falha ao processar loadInitialData (provável context invalidated). Tentando novamente...', err);
                     setTimeout(loadInitialData, 1500);
