@@ -7672,12 +7672,12 @@ function enforceSignalIntensityAvailability(options = {}) {
           // API de Giros (coleta, histórico, padrões de análise)
           giros: window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
               ? 'http://localhost:3001'
-              : 'https://blaze-giros-api-v2-1.onrender.com',
+              : 'https://blaze-giros-api-v2-7t0l.onrender.com',
           
           // API de Autenticação (usuários, admin, padrões customizados)
           auth: window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
               ? 'http://localhost:3000'
-              : 'https://blaze-analyzer-api-v2.onrender.com'
+              : 'https://blaze-analyzer-api-v2-p9xb.onrender.com'
       };
 
       // ───────────────────────────────────────────────────────────────────────────
