@@ -407,25 +407,72 @@
             
             console.log('✅ Autenticado - carregando extensão...');
 
+            // ───────────────────────────────────────────────────────────────────────
+            // 🔧 Auto-Discovery System - busca URLs corretas automaticamente
+            // ───────────────────────────────────────────────────────────────────────
             const URLS_LOCAL_KEY = 'da_urls_v1';
-            const DEFAULT_AUTH_ORIGIN = 'https://blaze-analyzer-api-v2-p9xb.onrender.com';
+            const KNOWN_API_ORIGINS = [
+                'https://blaze-analyzer-api-v2-p9xb.onrender.com',  // Render 2 (atual)
+                'https://blaze-analyzer-api-v2.onrender.com',        // Render 1
+            ];
+            
             const normalizeOrigin = (raw) => {
                 const v = String(raw || '').trim();
                 if (!v) return '';
                 const withoutApi = v.replace(/\/api\/?$/i, '');
                 return withoutApi.replace(/\/+$/, '');
             };
-            const getAuthOriginFromLocal = () => {
+            
+            const fetchUrlsFrom = async (origin) => {
                 try {
-                    const raw = localStorage.getItem(URLS_LOCAL_KEY);
-                    const cfg = raw ? JSON.parse(raw) : null;
-                    const list = Array.isArray(cfg?.authApiOrigins) ? cfg.authApiOrigins : [];
-                    return normalizeOrigin(list[0]) || normalizeOrigin(DEFAULT_AUTH_ORIGIN);
+                    const resp = await fetch(`${origin}/api/site/urls`, { 
+                        cache: 'no-store',
+                        signal: AbortSignal.timeout(5000)
+                    });
+                    if (!resp.ok) return null;
+                    const data = await resp.json();
+                    return data.success && data.urls ? data.urls : null;
                 } catch (_) {
-                    return normalizeOrigin(DEFAULT_AUTH_ORIGIN);
+                    return null;
                 }
             };
-            const AUTH_ORIGIN = getAuthOriginFromLocal();
+            
+            const autoDiscoverUrls = async () => {
+                // Tenta cache local primeiro
+                try {
+                    const raw = localStorage.getItem(URLS_LOCAL_KEY);
+                    const cached = raw ? JSON.parse(raw) : null;
+                    if (cached?.authApiOrigins?.[0]) {
+                        const urls = await fetchUrlsFrom(cached.authApiOrigins[0]);
+                        if (urls) {
+                            localStorage.setItem(URLS_LOCAL_KEY, JSON.stringify({
+                                authApiOrigins: urls.authApiOrigins?.map(normalizeOrigin).filter(Boolean) || [],
+                                girosApiOrigins: urls.girosApiOrigins?.map(normalizeOrigin).filter(Boolean) || [],
+                                girosWsOrigins: urls.girosWsOrigins || []
+                            }));
+                            return normalizeOrigin(urls.authApiOrigins[0]);
+                        }
+                    }
+                } catch (_) {}
+                
+                // Tenta servidores conhecidos
+                for (const origin of KNOWN_API_ORIGINS) {
+                    const urls = await fetchUrlsFrom(origin);
+                    if (urls) {
+                        localStorage.setItem(URLS_LOCAL_KEY, JSON.stringify({
+                            authApiOrigins: urls.authApiOrigins?.map(normalizeOrigin).filter(Boolean) || [],
+                            girosApiOrigins: urls.girosApiOrigins?.map(normalizeOrigin).filter(Boolean) || [],
+                            girosWsOrigins: urls.girosWsOrigins || []
+                        }));
+                        return normalizeOrigin(urls.authApiOrigins[0]);
+                    }
+                }
+                
+                // Fallback
+                return normalizeOrigin(KNOWN_API_ORIGINS[0]);
+            };
+            
+            const AUTH_ORIGIN = await autoDiscoverUrls();
 
             const performAuthVerify = async () => {
                     try {

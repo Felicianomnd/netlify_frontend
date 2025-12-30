@@ -2054,12 +2054,17 @@
 
     <script>
         // ───────────────────────────────────────────────────────────────────────
-        // 🔧 Runtime URLs (Render alternância)
-        // Chave compartilhada com Admin Panel: da_urls_v1
+        // 🔧 Runtime URLs (Auto-Discovery System)
+        // Sistema inteligente que busca automaticamente as URLs corretas do servidor
         // ───────────────────────────────────────────────────────────────────────
 
         const URLS_LOCAL_KEY = 'da_urls_v1';
-        const DEFAULT_AUTH_ORIGIN = 'https://blaze-analyzer-api-v2-p9xb.onrender.com';
+        
+        // Lista de todas as URLs possíveis (Render 1, Render 2, etc)
+        const KNOWN_API_ORIGINS = [
+            'https://blaze-analyzer-api-v2-p9xb.onrender.com',  // Render 2 (atual)
+            'https://blaze-analyzer-api-v2.onrender.com',        // Render 1
+        ];
 
         function normalizeOrigin(raw) {
             const v = String(raw || '').trim();
@@ -2077,30 +2082,92 @@
             }
         }
 
-        function getAuthOriginFromLocal() {
-            const cfg = loadUrlsLocal();
-            const list = Array.isArray(cfg?.authApiOrigins) ? cfg.authApiOrigins : [];
-            return normalizeOrigin(list[0]) || normalizeOrigin(DEFAULT_AUTH_ORIGIN);
+        // Tenta buscar URLs de um servidor específico
+        async function fetchUrlsFrom(origin) {
+            try {
+                const resp = await fetch(`${origin}/api/site/urls`, { 
+                    cache: 'no-store',
+                    signal: AbortSignal.timeout(5000) // timeout de 5s
+                });
+                if (!resp.ok) return null;
+                const data = await resp.json();
+                if (!data.success || !data.urls) return null;
+                return data.urls;
+            } catch (_) {
+                return null;
+            }
         }
 
-        let API_URL = `${getAuthOriginFromLocal()}/api`;
-
-        async function syncUrlsFromServer() {
-            try {
-                const resp = await fetch(`${API_URL}/site/urls`, { cache: 'no-store' });
-                const data = await resp.json().catch(() => ({}));
-                if (!resp.ok || !data.success || !data.urls) return;
-                const urls = data.urls || {};
-                const merged = {
-                    authApiOrigins: Array.isArray(urls.authApiOrigins) ? urls.authApiOrigins.map(normalizeOrigin).filter(Boolean) : [],
-                    girosApiOrigins: Array.isArray(urls.girosApiOrigins) ? urls.girosApiOrigins.map(normalizeOrigin).filter(Boolean) : [],
-                    girosWsOrigins: Array.isArray(urls.girosWsOrigins) ? urls.girosWsOrigins.map((v) => String(v || '').trim()).filter(Boolean) : []
-                };
-                if (merged.authApiOrigins.length || merged.girosApiOrigins.length || merged.girosWsOrigins.length) {
-                    localStorage.setItem(URLS_LOCAL_KEY, JSON.stringify(merged));
+        // Auto-Discovery: tenta todos os servidores conhecidos até encontrar um que funcione
+        async function autoDiscoverUrls() {
+            console.log('🔍 Iniciando auto-discovery de URLs...');
+            
+            // 1. Tenta usar URLs salvas localmente
+            const cached = loadUrlsLocal();
+            if (cached?.authApiOrigins?.[0]) {
+                console.log('✅ Usando URLs do cache local');
+                const urls = await fetchUrlsFrom(cached.authApiOrigins[0]);
+                if (urls) {
+                    console.log('✅ URLs do cache confirmadas e atualizadas');
+                    saveUrlsLocal(urls);
+                    return urls;
                 }
-            } catch (_) {
-                // silencioso: login não pode quebrar por sync de config
+                console.log('⚠️ URLs do cache não respondem, tentando descobrir...');
+            }
+
+            // 2. Tenta cada servidor conhecido
+            for (const origin of KNOWN_API_ORIGINS) {
+                console.log(`🔍 Testando: ${origin}`);
+                const urls = await fetchUrlsFrom(origin);
+                if (urls) {
+                    console.log(`✅ Servidor encontrado: ${origin}`);
+                    saveUrlsLocal(urls);
+                    return urls;
+                }
+            }
+
+            // 3. Nenhum servidor respondeu - usa cache local se existir
+            if (cached?.authApiOrigins?.[0]) {
+                console.log('⚠️ Nenhum servidor disponível, usando cache local');
+                return cached;
+            }
+
+            // 4. Sem cache e sem servidor - usa primeiro da lista como fallback
+            console.log('⚠️ Usando fallback padrão');
+            return {
+                authApiOrigins: [KNOWN_API_ORIGINS[0]],
+                girosApiOrigins: [],
+                girosWsOrigins: []
+            };
+        }
+
+        function saveUrlsLocal(urls) {
+            const merged = {
+                authApiOrigins: Array.isArray(urls.authApiOrigins) ? urls.authApiOrigins.map(normalizeOrigin).filter(Boolean) : [],
+                girosApiOrigins: Array.isArray(urls.girosApiOrigins) ? urls.girosApiOrigins.map(normalizeOrigin).filter(Boolean) : [],
+                girosWsOrigins: Array.isArray(urls.girosWsOrigins) ? urls.girosWsOrigins.map((v) => String(v || '').trim()).filter(Boolean) : []
+            };
+            if (merged.authApiOrigins.length || merged.girosApiOrigins.length || merged.girosWsOrigins.length) {
+                localStorage.setItem(URLS_LOCAL_KEY, JSON.stringify(merged));
+            }
+        }
+
+        // Inicialização: busca URLs antes de qualquer coisa
+        let API_URL = null;
+        let urlsReady = false;
+
+        async function initializeUrls() {
+            const urls = await autoDiscoverUrls();
+            const authOrigin = normalizeOrigin(urls.authApiOrigins?.[0]) || normalizeOrigin(KNOWN_API_ORIGINS[0]);
+            API_URL = `${authOrigin}/api`;
+            urlsReady = true;
+            console.log(`✅ API configurada: ${API_URL}`);
+        }
+
+        // Garante que URLs estão prontas antes de usar
+        async function ensureUrlsReady() {
+            if (!urlsReady) {
+                await initializeUrls();
             }
         }
         const SESSION_STORAGE_KEYS = ['authToken', 'user', 'lastAuthCheck'];
@@ -2245,6 +2312,9 @@
 
         // Verificar se já está logado - SIMPLIFICADO
         window.addEventListener('DOMContentLoaded', async () => {
+            // PRIMEIRO: Inicializar URLs (auto-discovery)
+            await initializeUrls();
+            
             console.log('🔐 [AUTH] Verificando se usuário já está logado...');
             const session = await getStoredSession();
             
@@ -2258,9 +2328,6 @@
 
             // Landing (conteúdo dinâmico via Admin)
             loadLandingPage().catch(() => {});
-
-            // Sync de URLs (fonte de verdade: servidor)
-            syncUrlsFromServer().catch(() => {});
 
             // Fechar modal com ESC
             document.addEventListener('keydown', (e) => {
@@ -2750,6 +2817,8 @@
         }
 
         async function loadLandingPage() {
+            await ensureUrlsReady(); // Garantir que API_URL está configurado
+            
             const overlay = document.getElementById('lpLoadingOverlay');
             const page = document.getElementById('lpPage');
             const label = document.getElementById('lpLoadingLabel');
@@ -3300,6 +3369,7 @@
 
         async function handleForgotPassword(event) {
             event.preventDefault();
+            await ensureUrlsReady(); // Garantir que API_URL está configurado
 
             const email = (document.getElementById('forgotEmail')?.value || '').trim().toLowerCase();
             const btn = document.getElementById('forgotBtn');
@@ -3562,6 +3632,8 @@
         
         async function handleLogin(event) {
             event.preventDefault();
+            await ensureUrlsReady(); // Garantir que API_URL está configurado
+            
             const email = document.getElementById('loginEmail').value;
             const password = document.getElementById('loginPassword').value;
             const btn = document.getElementById('loginBtn');
@@ -3759,6 +3831,8 @@
         }
 
         async function requestEmailVerificationCode({ showSuccessMessage = true } = {}) {
+            await ensureUrlsReady(); // Garantir que API_URL está configurado
+            
             if (!userData || !userData.email) {
                 showMessage('Informe seus dados antes de solicitar o código.', 'error');
                 throw { handled: true };
@@ -3831,6 +3905,7 @@
 
         async function handleEmailVerification(event) {
             event.preventDefault();
+            await ensureUrlsReady(); // Garantir que API_URL está configurado
 
             const btn = document.getElementById('confirmEmailBtn');
             if (!btn) return;
@@ -3896,6 +3971,7 @@
         }
 
         async function loadPlans() {
+            await ensureUrlsReady(); // Garantir que API_URL está configurado
             try {
                 const response = await fetch(`${API_URL}/plans`);
                 const data = await response.json();
@@ -3928,6 +4004,8 @@
         }
 
         async function confirmPlan() {
+            await ensureUrlsReady(); // Garantir que API_URL está configurado
+            
             if (!selectedPlan) {
                 showMessage('Selecione um plano', 'error');
                 return;
@@ -4035,6 +4113,7 @@
         }
 
         async function fetchSupportSettings() {
+            await ensureUrlsReady(); // Garantir que API_URL está configurado
             if (supportSettings) return supportSettings;
             try {
                 const response = await fetch(`${API_URL}/site/support`);

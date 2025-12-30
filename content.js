@@ -7665,35 +7665,97 @@ function enforceSignalIntensityAvailability(options = {}) {
     // ═══════════════════════════════════════════════════════════════
     // 🌐 API HELPER - SINCRONIZAÇÃO COM SERVIDOR
       // ═══════════════════════════════════════════════════════════════
-      // 🌐 CONFIGURAÇÃO DE URLs - DUAS APIS SEPARADAS
+      // 🔧 AUTO-DISCOVERY SYSTEM - Busca URLs automaticamente do servidor
       // ═══════════════════════════════════════════════════════════════
       
+      const URLS_LOCAL_KEY = 'da_urls_v1';
+      
+      // URLs conhecidas para auto-discovery
+      const KNOWN_API_ORIGINS = {
+          auth: [
+              'https://blaze-analyzer-api-v2-p9xb.onrender.com',  // Render 2 (atual)
+              'https://blaze-analyzer-api-v2.onrender.com',        // Render 1
+          ],
+          giros: [
+              'https://blaze-giros-api-v2-7t0l.onrender.com',      // Render 2 (atual)
+              'https://blaze-giros-api-v2-1.onrender.com',         // Render 1
+          ]
+      };
+      
       const API_URLS = {
-          // API de Giros (coleta, histórico, padrões de análise)
           giros: window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
               ? 'http://localhost:3001'
-              : 'https://blaze-giros-api-v2-7t0l.onrender.com',
-          
-          // API de Autenticação (usuários, admin, padrões customizados)
+              : KNOWN_API_ORIGINS.giros[0],
           auth: window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
               ? 'http://localhost:3000'
-              : 'https://blaze-analyzer-api-v2-p9xb.onrender.com'
+              : KNOWN_API_ORIGINS.auth[0]
       };
-
-      // ───────────────────────────────────────────────────────────────────────────
-      // 🔧 Runtime URLs (sem precisar editar arquivo ao alternar Render)
-      // Chave compartilhada com o Painel Admin: da_urls_v1
-      // Estrutura:
-      // { authApiOrigins: [...], girosApiOrigins: [...], girosWsOrigins: [...] }
-      // ───────────────────────────────────────────────────────────────────────────
-
-      const URLS_LOCAL_KEY = 'da_urls_v1';
 
       function normalizeOrigin(raw) {
           const v = String(raw || '').trim();
           if (!v) return '';
           const withoutApi = v.replace(/\/api\/?$/i, '');
           return withoutApi.replace(/\/+$/, '');
+      }
+      
+      // Busca URLs de um servidor específico
+      async function fetchUrlsFrom(origin) {
+          try {
+              const resp = await fetch(`${origin}/api/site/urls`, { 
+                  cache: 'no-store',
+                  signal: AbortSignal.timeout(5000)
+              });
+              if (!resp.ok) return null;
+              const data = await resp.json();
+              return data.success && data.urls ? data.urls : null;
+          } catch (_) {
+              return null;
+          }
+      }
+      
+      // Auto-Discovery: tenta todos os servidores conhecidos
+      async function autoDiscoverUrls() {
+          // Se for localhost, não fazer discovery
+          if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+              return null;
+          }
+          
+          // 1. Tenta usar URLs salvas localmente
+          try {
+              const raw = localStorage.getItem(URLS_LOCAL_KEY);
+              const cached = raw ? JSON.parse(raw) : null;
+              if (cached?.authApiOrigins?.[0]) {
+                  const urls = await fetchUrlsFrom(cached.authApiOrigins[0]);
+                  if (urls) {
+                      saveUrlsLocal(urls);
+                      return urls;
+                  }
+              }
+          } catch (_) {}
+
+          // 2. Tenta cada servidor conhecido
+          for (const origin of KNOWN_API_ORIGINS.auth) {
+              const urls = await fetchUrlsFrom(origin);
+              if (urls) {
+                  saveUrlsLocal(urls);
+                  return urls;
+              }
+          }
+
+          return null;
+      }
+      
+      function saveUrlsLocal(urls) {
+          try {
+              const merged = {
+                  authApiOrigins: Array.isArray(urls.authApiOrigins) ? urls.authApiOrigins.map(normalizeOrigin).filter(Boolean) : [],
+                  girosApiOrigins: Array.isArray(urls.girosApiOrigins) ? urls.girosApiOrigins.map(normalizeOrigin).filter(Boolean) : [],
+                  girosWsOrigins: Array.isArray(urls.girosWsOrigins) ? urls.girosWsOrigins.map((v) => String(v || '').trim()).filter(Boolean) : []
+              };
+              if (merged.authApiOrigins.length || merged.girosApiOrigins.length || merged.girosWsOrigins.length) {
+                  localStorage.setItem(URLS_LOCAL_KEY, JSON.stringify(merged));
+              }
+          } catch (_) {}
       }
 
       function applyRuntimeUrls(urls) {
@@ -7707,27 +7769,38 @@ function enforceSignalIntensityAvailability(options = {}) {
           if (nextAuth) API_URLS.auth = nextAuth;
           if (nextGiros) API_URLS.giros = nextGiros;
       }
+      
+      // Inicializa URLs automaticamente
+      (async function initUrls() {
+          // 1) Tenta localStorage primeiro (mais rápido)
+          try {
+              const raw = localStorage.getItem(URLS_LOCAL_KEY);
+              if (raw) {
+                  const parsed = JSON.parse(raw);
+                  applyRuntimeUrls(parsed);
+              }
+          } catch (_) {}
 
-      // 1) localStorage (funciona na web; no content-script pode depender do domínio)
-      try {
-          const raw = localStorage.getItem(URLS_LOCAL_KEY);
-          if (raw) {
-              const parsed = JSON.parse(raw);
-              applyRuntimeUrls(parsed);
-          }
-      } catch (_) {}
-
-      // 2) chrome.storage.local (principal na extensão)
-      try {
-          if (typeof chrome !== 'undefined' && chrome.storage?.local?.get) {
-              chrome.storage.local.get([URLS_LOCAL_KEY], (result) => {
-                  try {
-                      const parsed = result ? result[URLS_LOCAL_KEY] : null;
-                      applyRuntimeUrls(parsed);
-                  } catch (_) {}
-              });
-          }
-      } catch (_) {}
+          // 2) chrome.storage.local (principal na extensão)
+          try {
+              if (typeof chrome !== 'undefined' && chrome.storage?.local?.get) {
+                  chrome.storage.local.get([URLS_LOCAL_KEY], (result) => {
+                      try {
+                          const parsed = result ? result[URLS_LOCAL_KEY] : null;
+                          applyRuntimeUrls(parsed);
+                      } catch (_) {}
+                  });
+              }
+          } catch (_) {}
+          
+          // 3) Auto-Discovery assíncrono (background, não bloqueia)
+          setTimeout(async () => {
+              const urls = await autoDiscoverUrls();
+              if (urls) {
+                  applyRuntimeUrls(urls);
+              }
+          }, 0);
+      })();
       
       // Obter URL da API de Giros
       function getGirosApiUrl() {

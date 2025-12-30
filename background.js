@@ -1789,14 +1789,90 @@ function applyUrlsConfigToApiConfig(urls) {
     }
 }
 
-async function refreshUrlsFromServer() {
-    // Se já sabemos a authURL, tentar buscar /api/site/urls e persistir (centraliza update via admin)
+// URLs conhecidas para auto-discovery
+const KNOWN_API_ORIGINS = {
+    auth: [
+        'https://blaze-analyzer-api-v2-p9xb.onrender.com',  // Render 2 (atual)
+        'https://blaze-analyzer-api-v2.onrender.com',        // Render 1
+    ],
+    giros: [
+        'https://blaze-giros-api-v2-7t0l.onrender.com',      // Render 2 (atual)
+        'https://blaze-giros-api-v2-1.onrender.com',         // Render 1
+    ]
+};
+
+// Busca URLs de um servidor específico
+async function fetchUrlsFrom(origin) {
     try {
-        const authOrigin = normalizeOrigin(API_CONFIG.authURL);
+        const resp = await fetch(`${origin}/api/site/urls`, { 
+            cache: 'no-store',
+            signal: AbortSignal.timeout(5000)
+        });
+        if (!resp.ok) return null;
+        const data = await resp.json();
+        return data.success && data.urls ? data.urls : null;
+    } catch (_) {
+        return null;
+    }
+}
+
+// Auto-Discovery: tenta todos os servidores conhecidos
+async function autoDiscoverUrls() {
+    // 1. Tenta usar URLs salvas localmente
+    try {
+        const cached = await loadUrlsConfig();
+        if (cached?.authApiOrigins?.[0]) {
+            const urls = await fetchUrlsFrom(cached.authApiOrigins[0]);
+            if (urls) {
+                return urls;
+            }
+        }
+    } catch (_) {}
+
+    // 2. Tenta cada servidor conhecido
+    for (const origin of KNOWN_API_ORIGINS.auth) {
+        const urls = await fetchUrlsFrom(origin);
+        if (urls) {
+            return urls;
+        }
+    }
+
+    return null;
+}
+
+async function refreshUrlsFromServer() {
+    // Tenta auto-discovery se a authURL atual não funcionar
+    try {
+        let authOrigin = normalizeOrigin(API_CONFIG.authURL);
         if (!authOrigin) return;
-        const resp = await fetch(`${authOrigin}/api/site/urls`, { cache: 'no-store' });
+        
+        // Tenta a URL configurada primeiro
+        let resp = await fetch(`${authOrigin}/api/site/urls`, { 
+            cache: 'no-store',
+            signal: AbortSignal.timeout(5000)
+        }).catch(() => null);
+        
+        // Se falhar, faz auto-discovery
+        if (!resp || !resp.ok) {
+            console.log('🔍 Auth URL não respondeu, iniciando auto-discovery...');
+            const urls = await autoDiscoverUrls();
+            if (urls) {
+                const merged = {
+                    authApiOrigins: Array.isArray(urls.authApiOrigins) ? urls.authApiOrigins.map(normalizeOrigin).filter(Boolean) : [],
+                    girosApiOrigins: Array.isArray(urls.girosApiOrigins) ? urls.girosApiOrigins.map(normalizeOrigin).filter(Boolean) : [],
+                    girosWsOrigins: Array.isArray(urls.girosWsOrigins) ? urls.girosWsOrigins.map(normalizeWs).filter(Boolean) : []
+                };
+                if (merged.authApiOrigins.length || merged.girosApiOrigins.length || merged.girosWsOrigins.length) {
+                    await saveUrlsConfig(merged);
+                    applyUrlsConfigToApiConfig(merged);
+                }
+            }
+            return;
+        }
+
+        // Se a URL configurada funciona, processa normalmente
         const data = await resp.json().catch(() => ({}));
-        if (!resp.ok || !data.success || !data.urls) return;
+        if (!data.success || !data.urls) return;
 
         const urls = data.urls || {};
         const merged = {
