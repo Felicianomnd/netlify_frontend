@@ -1715,6 +1715,102 @@ function createPatternKey(analysisData) {
 // 🌐 SINCRONIZAÇÃO COM API - DUAS APIS SEPARADAS
 // ═══════════════════════════════════════════════════════════════════════════════
 
+// ──────────────────────────────────────────────────────────────────────────────
+// 🔧 Runtime URLs (Render alternância)
+// Chave compartilhada com Admin Panel: da_urls_v1
+// Estrutura:
+// { authApiOrigins: [...], girosApiOrigins: [...], girosWsOrigins: [...] }
+// ──────────────────────────────────────────────────────────────────────────────
+
+const URLS_LOCAL_KEY = 'da_urls_v1';
+
+function normalizeOrigin(raw) {
+    const v = String(raw || '').trim();
+    if (!v) return '';
+    const withoutApi = v.replace(/\/api\/?$/i, '');
+    return withoutApi.replace(/\/+$/, '');
+}
+
+function normalizeWs(raw) {
+    const v = String(raw || '').trim().replace(/\/+$/, '');
+    if (!v) return '';
+    return v;
+}
+
+async function loadUrlsConfig() {
+    // Preferir chrome.storage.local (extensão). Fallback: localStorage (web).
+    try {
+        if (typeof chrome !== 'undefined' && chrome.storage?.local?.get) {
+            const result = await new Promise((resolve) => chrome.storage.local.get([URLS_LOCAL_KEY], resolve));
+            return (result && result[URLS_LOCAL_KEY]) ? result[URLS_LOCAL_KEY] : null;
+        }
+    } catch (_) {}
+
+    try {
+        const raw = localStorage.getItem(URLS_LOCAL_KEY);
+        return raw ? JSON.parse(raw) : null;
+    } catch (_) {
+        return null;
+    }
+}
+
+async function saveUrlsConfig(urls) {
+    try {
+        if (typeof chrome !== 'undefined' && chrome.storage?.local?.set) {
+            await new Promise((resolve) => chrome.storage.local.set({ [URLS_LOCAL_KEY]: urls }, resolve));
+        }
+    } catch (_) {}
+
+    try {
+        localStorage.setItem(URLS_LOCAL_KEY, JSON.stringify(urls));
+    } catch (_) {}
+}
+
+function applyUrlsConfigToApiConfig(urls) {
+    if (!urls || typeof urls !== 'object') return;
+    const authList = Array.isArray(urls.authApiOrigins) ? urls.authApiOrigins : [];
+    const girosList = Array.isArray(urls.girosApiOrigins) ? urls.girosApiOrigins : [];
+    const wsList = Array.isArray(urls.girosWsOrigins) ? urls.girosWsOrigins : [];
+
+    const auth = normalizeOrigin(authList[0]);
+    const giros = normalizeOrigin(girosList[0]);
+    const ws = normalizeWs(wsList[0]);
+
+    if (auth) API_CONFIG.authURL = auth;
+    if (giros) API_CONFIG.baseURL = giros;
+
+    if (ws) {
+        API_CONFIG.wsURL = ws;
+    } else if (giros) {
+        try {
+            const u = new URL(giros);
+            API_CONFIG.wsURL = `wss://${u.host}`;
+        } catch (_) {}
+    }
+}
+
+async function refreshUrlsFromServer() {
+    // Se já sabemos a authURL, tentar buscar /api/site/urls e persistir (centraliza update via admin)
+    try {
+        const authOrigin = normalizeOrigin(API_CONFIG.authURL);
+        if (!authOrigin) return;
+        const resp = await fetch(`${authOrigin}/api/site/urls`, { cache: 'no-store' });
+        const data = await resp.json().catch(() => ({}));
+        if (!resp.ok || !data.success || !data.urls) return;
+
+        const urls = data.urls || {};
+        const merged = {
+            authApiOrigins: Array.isArray(urls.authApiOrigins) ? urls.authApiOrigins.map(normalizeOrigin).filter(Boolean) : [],
+            girosApiOrigins: Array.isArray(urls.girosApiOrigins) ? urls.girosApiOrigins.map(normalizeOrigin).filter(Boolean) : [],
+            girosWsOrigins: Array.isArray(urls.girosWsOrigins) ? urls.girosWsOrigins.map(normalizeWs).filter(Boolean) : []
+        };
+        if (merged.authApiOrigins.length || merged.girosApiOrigins.length || merged.girosWsOrigins.length) {
+            await saveUrlsConfig(merged);
+            applyUrlsConfigToApiConfig(merged);
+        }
+    } catch (_) {}
+}
+
 const API_CONFIG = {
     // API de Giros (coleta automática, histórico, WebSocket)
     baseURL: 'https://blaze-giros-api-v2-1.onrender.com',
@@ -1729,6 +1825,16 @@ const API_CONFIG = {
     retryAttempts: 3,
     useWebSocket: true  // ✅ Usar WebSocket ao invés de polling
 };
+
+// Inicializar config dinâmica (sem travar o bootstrap)
+(async () => {
+    try {
+        const urls = await loadUrlsConfig();
+        applyUrlsConfigToApiConfig(urls);
+        // Buscar do servidor (fonte de verdade) e persistir
+        await refreshUrlsFromServer();
+    } catch (_) {}
+})();
 
 let apiStatus = {
     isOnline: false,

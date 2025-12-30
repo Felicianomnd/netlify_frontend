@@ -2053,7 +2053,56 @@
     </div>
 
     <script>
-        const API_URL = 'https://blaze-analyzer-api-v2.onrender.com/api';
+        // ───────────────────────────────────────────────────────────────────────
+        // 🔧 Runtime URLs (Render alternância)
+        // Chave compartilhada com Admin Panel: da_urls_v1
+        // ───────────────────────────────────────────────────────────────────────
+
+        const URLS_LOCAL_KEY = 'da_urls_v1';
+        const DEFAULT_AUTH_ORIGIN = 'https://blaze-analyzer-api-v2.onrender.com';
+
+        function normalizeOrigin(raw) {
+            const v = String(raw || '').trim();
+            if (!v) return '';
+            const withoutApi = v.replace(/\/api\/?$/i, '');
+            return withoutApi.replace(/\/+$/, '');
+        }
+
+        function loadUrlsLocal() {
+            try {
+                const raw = localStorage.getItem(URLS_LOCAL_KEY);
+                return raw ? (JSON.parse(raw) || null) : null;
+            } catch (_) {
+                return null;
+            }
+        }
+
+        function getAuthOriginFromLocal() {
+            const cfg = loadUrlsLocal();
+            const list = Array.isArray(cfg?.authApiOrigins) ? cfg.authApiOrigins : [];
+            return normalizeOrigin(list[0]) || normalizeOrigin(DEFAULT_AUTH_ORIGIN);
+        }
+
+        let API_URL = `${getAuthOriginFromLocal()}/api`;
+
+        async function syncUrlsFromServer() {
+            try {
+                const resp = await fetch(`${API_URL}/site/urls`, { cache: 'no-store' });
+                const data = await resp.json().catch(() => ({}));
+                if (!resp.ok || !data.success || !data.urls) return;
+                const urls = data.urls || {};
+                const merged = {
+                    authApiOrigins: Array.isArray(urls.authApiOrigins) ? urls.authApiOrigins.map(normalizeOrigin).filter(Boolean) : [],
+                    girosApiOrigins: Array.isArray(urls.girosApiOrigins) ? urls.girosApiOrigins.map(normalizeOrigin).filter(Boolean) : [],
+                    girosWsOrigins: Array.isArray(urls.girosWsOrigins) ? urls.girosWsOrigins.map((v) => String(v || '').trim()).filter(Boolean) : []
+                };
+                if (merged.authApiOrigins.length || merged.girosApiOrigins.length || merged.girosWsOrigins.length) {
+                    localStorage.setItem(URLS_LOCAL_KEY, JSON.stringify(merged));
+                }
+            } catch (_) {
+                // silencioso: login não pode quebrar por sync de config
+            }
+        }
         const SESSION_STORAGE_KEYS = ['authToken', 'user', 'lastAuthCheck'];
         let selectedPlan = null;
         let userData = null;
@@ -2209,6 +2258,9 @@
 
             // Landing (conteúdo dinâmico via Admin)
             loadLandingPage().catch(() => {});
+
+            // Sync de URLs (fonte de verdade: servidor)
+            syncUrlsFromServer().catch(() => {});
 
             // Fechar modal com ESC
             document.addEventListener('keydown', (e) => {

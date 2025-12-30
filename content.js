@@ -7679,6 +7679,55 @@ function enforceSignalIntensityAvailability(options = {}) {
               ? 'http://localhost:3000'
               : 'https://blaze-analyzer-api-v2.onrender.com'
       };
+
+      // ───────────────────────────────────────────────────────────────────────────
+      // 🔧 Runtime URLs (sem precisar editar arquivo ao alternar Render)
+      // Chave compartilhada com o Painel Admin: da_urls_v1
+      // Estrutura:
+      // { authApiOrigins: [...], girosApiOrigins: [...], girosWsOrigins: [...] }
+      // ───────────────────────────────────────────────────────────────────────────
+
+      const URLS_LOCAL_KEY = 'da_urls_v1';
+
+      function normalizeOrigin(raw) {
+          const v = String(raw || '').trim();
+          if (!v) return '';
+          const withoutApi = v.replace(/\/api\/?$/i, '');
+          return withoutApi.replace(/\/+$/, '');
+      }
+
+      function applyRuntimeUrls(urls) {
+          if (!urls || typeof urls !== 'object') return;
+          const authList = Array.isArray(urls.authApiOrigins) ? urls.authApiOrigins : [];
+          const girosList = Array.isArray(urls.girosApiOrigins) ? urls.girosApiOrigins : [];
+
+          const nextAuth = normalizeOrigin(authList[0]);
+          const nextGiros = normalizeOrigin(girosList[0]);
+
+          if (nextAuth) API_URLS.auth = nextAuth;
+          if (nextGiros) API_URLS.giros = nextGiros;
+      }
+
+      // 1) localStorage (funciona na web; no content-script pode depender do domínio)
+      try {
+          const raw = localStorage.getItem(URLS_LOCAL_KEY);
+          if (raw) {
+              const parsed = JSON.parse(raw);
+              applyRuntimeUrls(parsed);
+          }
+      } catch (_) {}
+
+      // 2) chrome.storage.local (principal na extensão)
+      try {
+          if (typeof chrome !== 'undefined' && chrome.storage?.local?.get) {
+              chrome.storage.local.get([URLS_LOCAL_KEY], (result) => {
+                  try {
+                      const parsed = result ? result[URLS_LOCAL_KEY] : null;
+                      applyRuntimeUrls(parsed);
+                  } catch (_) {}
+              });
+          }
+      } catch (_) {}
       
       // Obter URL da API de Giros
       function getGirosApiUrl() {
@@ -19458,7 +19507,7 @@ function logModeSnapshotUI(snapshot) {
     // ATUALIZAÇÃO AUTOMÁTICA DO HISTÓRICO DE GIROS DO SERVIDOR
     // ═══════════════════════════════════════════════════════════════════════════════
     
-    const API_URL = 'https://blaze-giros-api-v2-1.onrender.com';
+    // ✅ usar URL dinâmica (Runtime Config)
     const GIROS_HISTORY_LIMIT = 10000; // ✅ buffer para análise (mantém 500 visíveis via currentHistoryDisplayLimit)
     let isUpdatingHistory = false;
     let lastHistoryUpdate = null;
@@ -19512,7 +19561,7 @@ function logModeSnapshotUI(snapshot) {
                 const attemptStart = Date.now();
                 const label = `${limit}giros/${timeoutMs}ms`;
                 try {
-                    const response = await fetchWithTimeout(`${API_URL}/api/giros?limit=${limit}`, timeoutMs);
+                    const response = await fetchWithTimeout(`${getGirosApiUrl()}/api/giros?limit=${limit}`, timeoutMs);
                     const fetchTime = Date.now() - attemptStart;
                     console.log(`⏱️ [TIMING] Fetch (${label}) completou em ${fetchTime}ms`);
 
@@ -19552,7 +19601,7 @@ function logModeSnapshotUI(snapshot) {
     // Buscar APENAS o último giro do servidor (fallback leve)
     async function fetchLatestSpinFromServer() {
         try {
-            const response = await fetch(`${API_URL}/api/giros/latest`, {
+            const response = await fetch(`${getGirosApiUrl()}/api/giros/latest`, {
                 signal: AbortSignal.timeout(5000)
             });
             
