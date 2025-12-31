@@ -872,6 +872,8 @@
     function activateAIMode(config, newAIMode, toggleElement) {
         // Atualizar configuração
         config.aiMode = newAIMode;
+        // ✅ Versionar mudanças locais (ajuda a evitar corrida de sync/server sobrescrevendo o modo)
+        config._clientUpdatedAt = Date.now();
         config.martingaleProfiles = sanitizeMartingaleProfilesFromConfig(config);
         const activeModeKey = newAIMode ? 'diamond' : 'standard';
         applyActiveMartingaleToLegacyFields(config, activeModeKey, config.martingaleProfiles);
@@ -883,7 +885,8 @@
         // ✅ Salvar no storage global (por conta/dispositivo)
         chrome.storage.local.set({ analyzerConfig: config }, function() {
             console.log('✅ Configuração global salva com sucesso!');
-            updateAIModeUI(toggleElement, newAIMode);
+            // ✅ Aplicar modo na UI de forma atômica (header + campos/seções)
+            applyAIModeUIState(newAIMode, toggleElement);
             console.log(`🤖 Modo IA ${newAIMode ? 'ATIVADO' : 'DESATIVADO'}`);
             
             // ✅ Remover flag de forçar visibilidade quando IA for ativado
@@ -898,9 +901,9 @@
             }
             
             // ✅ Habilitar/Desabilitar campos irrelevantes para IA
-            toggleAIConfigFields(newAIMode);
-            // ✅ Recarregar configurações para refletir perfis específicos de cada modo
-            setTimeout(loadSettings, 0);
+            // (já aplicado por applyAIModeUIState)
+            // ⚠️ NÃO chamar loadSettings() aqui: isso fazia GET no servidor antes do POST terminar,
+            // e às vezes sobrescrevia aiMode com estado antigo, causando descompasso e exigindo múltiplos cliques.
             
             // 🧠 Se modo IA foi ativado, atualizar status e iniciar intervalo
             if (newAIMode) {
@@ -1154,6 +1157,43 @@
                 intervaloAtualizacaoMemoria = null;
             }
         }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════════
+    // ✅ FONTE ÚNICA DE VERDADE DO MODO (evitar inferir pelo DOM)
+    // ═══════════════════════════════════════════════════════════════════════════════
+    let lastKnownAiMode = null; // boolean | null
+
+    function normalizeAiMode(value) {
+        // Segurança: só aceitar boolean true; qualquer outra coisa => false
+        return value === true;
+    }
+
+    function getCurrentAiModeFlag(configHint) {
+        // 1) Preferir config explícita (storage/config carregado)
+        if (configHint && typeof configHint === 'object' && typeof configHint.aiMode === 'boolean') {
+            return configHint.aiMode;
+        }
+        // 2) Preferir último valor aplicado
+        if (typeof lastKnownAiMode === 'boolean') return lastKnownAiMode;
+        // 3) Fallback: DOM (apenas se ainda não sabemos)
+        const el = document.getElementById('aiModeToggle');
+        if (el && el.classList) return el.classList.contains('active');
+        return false;
+    }
+
+    function getCurrentModeKey(configHint) {
+        return getCurrentAiModeFlag(configHint) ? 'diamond' : 'standard';
+    }
+
+    function applyAIModeUIState(isAIMode, toggleEl) {
+        const active = !!isAIMode;
+        lastKnownAiMode = active;
+        try {
+            const el = toggleEl || document.getElementById('aiModeToggle');
+            if (el) updateAIModeUI(el, active);
+        } catch (_) {}
+        try { toggleAIConfigFields(active); } catch (_) {}
     }
 
 
@@ -9180,8 +9220,7 @@ autoBetHistoryStore.init().catch(error => console.warn('AutoBetHistory: iniciali
         }
 
         function getActiveAnalysisModeKey() {
-            const aiModeToggle = document.querySelector('.ai-mode-toggle.active');
-            return aiModeToggle ? 'diamond' : 'standard';
+            return getCurrentModeKey(latestAnalyzerConfig);
         }
 
         // ✅ Saldo por entrada (pendente) separado por modo (Diamante vs Premium)
@@ -9766,7 +9805,7 @@ autoBetHistoryStore.init().catch(error => console.warn('AutoBetHistory: iniciali
                     bets: [],
                     whiteBets: [],
                     createdAt: Date.now(),
-                    mode: analysis?.analysisMode || (document.querySelector('.ai-mode-toggle.active') ? 'diamond' : 'standard')
+                    mode: analysis?.analysisMode || getCurrentModeKey(latestAnalyzerConfig)
                 };
             } else {
                 runtime.openCycle.stage = stageInfo.label;
@@ -12905,7 +12944,7 @@ async function persistAnalyzerState(newState) {
             chrome.storage.local.get(['analyzerConfig', 'user'], async function(result) {
                 const config = result.analyzerConfig || {};
                 const user = result.user || getStoredUserData();
-                let isAIMode = !!config.aiMode;
+                let isAIMode = normalizeAiMode(config.aiMode);
 
                 // 🔒 REGRA: só permitir IA se cadastro estiver completo (Minha Conta)
                 const profileStatus = getProfileCompletionSnapshot(user);
@@ -12913,6 +12952,7 @@ async function persistAnalyzerState(newState) {
                     console.warn('🔒 Bloqueando Modo IA: cadastro incompleto.', profileStatus.missing);
                     isAIMode = false;
                     config.aiMode = false;
+                    config._clientUpdatedAt = Date.now();
                     chrome.storage.local.set({ analyzerConfig: config });
                     try {
                         const shouldSync = getSyncConfigPreference();
@@ -12923,7 +12963,7 @@ async function persistAnalyzerState(newState) {
                     showToast('⚠️ Cadasto incompleto — Nível Diamante desativado.', 2600);
                 }
                 
-                updateAIModeUI(aiModeToggle, isAIMode);
+                applyAIModeUIState(isAIMode, aiModeToggle);
                 
                 // ✅ GARANTIR que o container está oculto se modo está DESATIVADO
                 if (!isAIMode) {
@@ -12935,7 +12975,7 @@ async function persistAnalyzerState(newState) {
                 }
                 
                 // ✅ Aplicar estado dos campos ao carregar
-                toggleAIConfigFields(isAIMode);
+                // (já aplicado por applyAIModeUIState)
                 
                 // 🧠 Se modo IA já estiver ativo, atualizar status imediatamente
                 if (isAIMode) {
@@ -12993,7 +13033,7 @@ async function persistAnalyzerState(newState) {
                     const config = { ...DEFAULT_CONFIG, ...(result.analyzerConfig || {}) };
                     const user = result.user || getStoredUserData();
                     
-                    const newAIMode = !config.aiMode;
+                    const newAIMode = !normalizeAiMode(config.aiMode);
 
                     // 🔒 REGRA: só permitir ativar IA se cadastro estiver completo (Minha Conta)
                     if (newAIMode) {
@@ -15008,9 +15048,7 @@ async function persistAnalyzerState(newState) {
         // ═══════════════════════════════════════════════════════════════
         // ✅ NOVO: DETECTAR MODO DE ANÁLISE ATIVO
         // ═══════════════════════════════════════════════════════════════
-        const aiModeToggle = document.querySelector('.ai-mode-toggle.active');
-        const isDiamondMode = !!aiModeToggle;
-        const currentMode = isDiamondMode ? 'diamond' : 'standard';
+        const currentMode = getCurrentModeKey(latestAnalyzerConfig);
         let iaHold = (() => {
             try { return isIABootstrapHoldActive(currentMode); } catch (_) { return false; }
         })();
@@ -15481,9 +15519,7 @@ async function persistAnalyzerState(newState) {
         const hitEl = document.getElementById('masterEntriesHit');
         if (!list || !hitEl) return;
 
-        const aiModeToggle = document.querySelector('.ai-mode-toggle.active');
-        const isDiamondMode = !!aiModeToggle;
-        const currentMode = isDiamondMode ? 'diamond' : 'standard';
+        const currentMode = getCurrentModeKey(latestAnalyzerConfig);
 
         const btnLabel = recoveryModeEnabled ? 'Desativar' : 'Recuperar';
         const statusText = recoveryModeEnabled
@@ -15784,7 +15820,7 @@ async function persistAnalyzerState(newState) {
         const data = Array.isArray(history) ? history : autoBetHistoryStore.getAll();
         // ✅ Agora a aba Apostas acompanha os sinais da IA (fluxo principal):
         // mostrar TODOS os ciclos do modo ativo, sem depender de isMaster.
-        const currentMode = document.querySelector('.ai-mode-toggle.active') ? 'diamond' : 'standard';
+        const currentMode = getCurrentModeKey(latestAnalyzerConfig);
         const byMode = (Array.isArray(data) ? data : []).filter(r => r && (r.mode || 'standard') === currentMode);
         if (!byMode.length) {
             container.innerHTML = `<div class="bets-empty">Nenhuma aposta registrada ainda.</div>`;
@@ -15909,9 +15945,7 @@ async function persistAnalyzerState(newState) {
             const allEntries = result.entriesHistory || [];
 
             // Detectar qual modo está ativo
-            const aiModeToggle = document.querySelector('.ai-mode-toggle.active');
-            const isDiamondMode = !!aiModeToggle;
-            const currentMode = isDiamondMode ? 'diamond' : 'standard';
+            const currentMode = getCurrentModeKey(latestAnalyzerConfig);
 
             console.log(`🗑️ Limpando ABA IA (modo ${currentMode.toUpperCase()}) via cutoff — sem afetar Sinais/Gráfico`);
 
@@ -15963,9 +15997,7 @@ async function persistAnalyzerState(newState) {
         chrome.storage.local.get(['entriesHistory'], function(result) {
             const allEntries = result.entriesHistory || [];
 
-            const aiModeToggle = document.querySelector('.ai-mode-toggle.active');
-            const isDiamondMode = !!aiModeToggle;
-            const currentMode = isDiamondMode ? 'diamond' : 'standard';
+            const currentMode = getCurrentModeKey(latestAnalyzerConfig);
 
             console.log(`🗑️ Limpando ABA SINAIS (modo ${currentMode.toUpperCase()}) via cutoff — mantendo histórico da IA`);
 
@@ -17309,7 +17341,7 @@ function logModeSnapshotUI(snapshot) {
         if (request.type === 'NEW_ANALYSIS') {
             const messageMode = request.data && request.data.analysisMode ? request.data.analysisMode : null;
             // ✅ Modo atual é global (por conta) e deve refletir o toggle real da UI (AI ON/OFF)
-            const tabMode = document.querySelector('.ai-mode-toggle.active') ? 'diamond' : 'standard';
+            const tabMode = getCurrentModeKey(latestAnalyzerConfig);
 
             if (messageMode && messageMode !== tabMode) {
                 console.log(`%c⚠️ [NEW_ANALYSIS] Ignorado (modo ${messageMode} ≠ aba ${tabMode})`, 'color: #FFA500; font-weight: bold;');
@@ -17424,6 +17456,9 @@ function logModeSnapshotUI(snapshot) {
         } else if (request.type === 'ANALYZER_CONFIG_UPDATED') {
             try {
                 const cfg = request.analyzerConfig || {};
+                // ✅ Se o modo mudou (ou a UI estava atrasada), manter tudo sincronizado
+                latestAnalyzerConfig = cfg;
+                applyAIModeUIState(normalizeAiMode(cfg.aiMode));
                 populateDiamondLevelsForm(cfg);
                 refreshDiamondLevelToggleStates();
                 showSyncSpinner();
@@ -17801,8 +17836,7 @@ function logModeSnapshotUI(snapshot) {
         currentAnalysisStatus = status;
         
         // ✅ VERIFICAR SE O MODO IA ESTÁ ATIVO
-        const aiModeToggle = document.querySelector('.ai-mode-toggle.active');
-        const isAIMode = !!aiModeToggle;
+        const isAIMode = getCurrentAiModeFlag(latestAnalyzerConfig);
         
         uiLog('═══════════════════════════════════════════════════════════');
         uiLog('🔍 [DEBUG updateAnalysisStatus]');
@@ -18119,8 +18153,8 @@ function logModeSnapshotUI(snapshot) {
                     const cfg = (cfgInput && typeof cfgInput === 'object') ? cfgInput : {};
                 const sanitizedProfiles = sanitizeMartingaleProfilesFromConfig(cfg);
                 cfg.martingaleProfiles = sanitizedProfiles;
-                    const uiModeKey = document.querySelector('.ai-mode-toggle.active') ? 'diamond' : null;
-                    const activeModeKey = uiModeKey || (cfg.aiMode ? 'diamond' : 'standard');
+                    const isAIMode = normalizeAiMode(cfg.aiMode);
+                    const activeModeKey = isAIMode ? 'diamond' : 'standard';
                 const activeMartingaleProfile = sanitizedProfiles[activeModeKey];
                 
                 // ✅ Painel (saldo) sempre visível — ignorar configs antigas de visibilidade
@@ -18205,7 +18239,7 @@ function logModeSnapshotUI(snapshot) {
                 }
                 
                     // ✅ Aplicar visibilidade dos campos baseado no modo IA (global)
-                    toggleAIConfigFields(!!cfg.aiMode);
+                    applyAIModeUIState(isAIMode);
                 
                     // ✅ Carregar preferência de sincronização de configurações (checkbox escondido)
                 const syncConfigCheckbox = document.getElementById('syncConfigToAccount');
@@ -18246,7 +18280,12 @@ function logModeSnapshotUI(snapshot) {
                     // ✅ Merge seguro:
                     // - servidor vence em conflitos
                     // - local preenche chaves ausentes (evita “zerar” quando o servidor veio capado)
-                    const mergedConfig = deepMergeSafe(localConfig, serverConfig);
+                    const localUpdatedAt = (localConfig && typeof localConfig._clientUpdatedAt === 'number') ? localConfig._clientUpdatedAt : 0;
+                    const serverUpdatedAt = (serverConfig && typeof serverConfig._clientUpdatedAt === 'number') ? serverConfig._clientUpdatedAt : 0;
+                    const preferLocal = localUpdatedAt > serverUpdatedAt;
+                    const mergedConfig = preferLocal
+                        ? deepMergeSafe(serverConfig, localConfig) // local vence, servidor preenche faltantes
+                        : deepMergeSafe(localConfig, serverConfig); // servidor vence, local preenche faltantes
                     await storageCompat.set({ analyzerConfig: mergedConfig });
                     // Atualizar UI com o merge (não esperar nada externo)
                     applyAnalyzerConfigToUI(mergedConfig);
@@ -18256,7 +18295,7 @@ function logModeSnapshotUI(snapshot) {
                     try {
                         const serverKeys = Object.keys(serverConfig || {}).length;
                         const mergedKeys = Object.keys(mergedConfig || {}).length;
-                        if (mergedKeys > serverKeys) {
+                        if (preferLocal || mergedKeys > serverKeys) {
                             syncConfigToServer(mergedConfig).catch(err =>
                                 console.warn('⚠️ Falha ao re-sincronizar (auto-heal) configurações completas:', err)
                             );
@@ -18786,7 +18825,7 @@ function logModeSnapshotUI(snapshot) {
 
             // Aplicar config no background + recomputar masterSignal do modo atual
             try { chrome.runtime.sendMessage({ action: 'applyConfig' }, function() {}); } catch (_) {}
-            const currentMode = document.querySelector('.ai-mode-toggle.active') ? 'diamond' : 'standard';
+            const currentMode = getCurrentModeKey(latestAnalyzerConfig);
             try { chrome.runtime.sendMessage({ action: 'RECOMPUTE_MASTER_SIGNAL', mode: currentMode }, function() {}); } catch (_) {}
 
             // Atualizar card de stats (debounced)
@@ -19152,7 +19191,7 @@ function logModeSnapshotUI(snapshot) {
     function shouldShowIABootstrapOverlay(filteredEntriesCount, pendingIndicatorHtml) {
         // Só faz sentido na aba IA (entries)
         if (activeEntriesTab !== 'entries') return false;
-        const mode = document.querySelector('.ai-mode-toggle.active') ? 'diamond' : 'standard';
+        const mode = getCurrentModeKey(latestAnalyzerConfig);
         // Se está rodando, manter overlay visível (para animação), mesmo que a lista atualize por trás
         if (iaBootstrapBusy) return true;
         // ✅ Se existe placeholder pendente no topo, nunca sobrepor (mesmo se HOLD estiver ativo)
@@ -19179,7 +19218,7 @@ function logModeSnapshotUI(snapshot) {
             // ✅ Feedback visual: manter texto visível com "Buscando..." (pontinhos via CSS)
             setIABootstrapState('loading', 'Buscando');
 
-            const mode = document.querySelector('.ai-mode-toggle.active') ? 'diamond' : 'standard';
+            const mode = getCurrentModeKey(latestAnalyzerConfig);
             try {
                 chrome.runtime.sendMessage({
                     action: 'IA_BOOTSTRAP_HISTORY',
@@ -19455,7 +19494,7 @@ function logModeSnapshotUI(snapshot) {
     
     // Função para carregar dados do observador
     function loadObserverStats() {
-        const currentMode = document.querySelector('.ai-mode-toggle.active') ? 'diamond' : 'standard';
+        const currentMode = getCurrentModeKey(latestAnalyzerConfig);
         console.log('📡 Enviando mensagem: getMasterSignalStats...', currentMode);
         chrome.runtime.sendMessage({ action: 'getMasterSignalStats', mode: currentMode }, function(response) {
             console.log('📡 Resposta recebida:', response);

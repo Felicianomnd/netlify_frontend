@@ -1023,6 +1023,12 @@ async function enforceProfileGateOnAIMode(context = 'unknown') {
         if (!analyzerConfig || !analyzerConfig.aiMode) return { allowed: true };
         const storage = await chrome.storage.local.get(['user', 'analyzerConfig']);
         const user = storage.user || null;
+        // ✅ Evitar falso-negativo: em alguns carregamentos o `user` ainda não chegou no storage.
+        // Nesse caso, NÃO desligar o modo Diamante "do nada". O content.js já bloqueia ativação
+        // quando o cadastro está incompleto, então aqui só aplicamos o gate quando temos o user.
+        if (!user) {
+            return { allowed: true, pendingUser: true };
+        }
         const status = getProfileCompletionSnapshot(user);
         if (status.complete) return { allowed: true };
 
@@ -1030,10 +1036,10 @@ async function enforceProfileGateOnAIMode(context = 'unknown') {
         // Forçar off em memória e persistir
         analyzerConfig.aiMode = false;
         if (storage.analyzerConfig && typeof storage.analyzerConfig === 'object') {
-            const updated = { ...storage.analyzerConfig, aiMode: false };
+            const updated = { ...storage.analyzerConfig, aiMode: false, _clientUpdatedAt: Date.now() };
             await chrome.storage.local.set({ analyzerConfig: updated });
         } else {
-            await chrome.storage.local.set({ analyzerConfig: { ...(analyzerConfig || {}), aiMode: false } });
+            await chrome.storage.local.set({ analyzerConfig: { ...(analyzerConfig || {}), aiMode: false, _clientUpdatedAt: Date.now() } });
         }
 
         // Avisar UI para atualizar e mostrar motivo
