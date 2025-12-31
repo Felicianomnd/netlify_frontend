@@ -19002,9 +19002,11 @@ async function clearAllPatternsAndAnalysis() {
 	console.log('║  Calibrador: Preservado                                   ║');
 }
 
-// Busca INICIAL de padrões por 30 segundos ao abrir a extensão
+// Busca de padrões (Banco de Padrões): deve encerrar quando completar a varredura (tempo é só fail-safe)
 let initialSearchActive = false;
 let initialSearchInterval = null;
+let initialSearchRunnerBusy = false;
+let initialSearchTasksState = null; // { tasks, nextIdx, totalTasks, startedAt, historyLen }
 
 async function startInitialPatternSearch(history) {
 	if (!history || history.length < 50) {
@@ -19018,95 +19020,30 @@ async function startInitialPatternSearch(history) {
 	}
 	
 	initialSearchActive = true;
-	const startTime = Date.now();
-	const duration = 30 * 1000; // 30 segundos (30s)
-	const updateInterval = 1000; // ✅ ATUALIZAR A CADA 1 SEGUNDO (cronômetro fluido)
-	
-	console.log('%c🔍 Busca de padrões iniciada | 30s | ' + history.length + ' giros', 'color: #00D4FF; font-weight: bold; background: #002244; padding: 4px 8px; border-radius: 4px;');
-	
-	// ✅ NOTIFICAR IMEDIATAMENTE COM 0 PADRÕES (antes da primeira iteração)
-	sendMessageToContent('INITIAL_SEARCH_START', { 
-		duration: duration,
-		startTime: startTime
+
+	const startedAt = Date.now();
+	initialSearchTasksState = {
+		tasks: buildPatternDiscoveryTasks(),
+		nextIdx: 0,
+		totalTasks: 0,
+		startedAt,
+		historyLen: Array.isArray(history) ? history.length : 0
+	};
+	initialSearchTasksState.totalTasks = initialSearchTasksState.tasks.length;
+
+	console.log('%c🔍 Busca de padrões iniciada | varredura | ' + initialSearchTasksState.historyLen + ' giros', 'color: #00D4FF; font-weight: bold; background: #002244; padding: 4px 8px; border-radius: 4px;');
+
+	sendMessageToContent('INITIAL_SEARCH_START', {
+		progress01: 0,
+		processedTasks: 0,
+		totalTasks: initialSearchTasksState.totalTasks
 	});
-	
-	// ✅ Loop de CRONÔMETRO (atualiza a cada 1s) + BUSCA de padrões (a cada 5s)
-	let iteration = 0;
-	let lastSearchTime = Date.now();
-	const searchInterval = 5000; // Buscar padrões a cada 5 segundos
-	
-	initialSearchInterval = setInterval(async () => {
-		iteration++;
-		const elapsed = Date.now() - startTime;
-		const remaining = duration - elapsed;
-		const minutes = Math.floor(remaining / 60000);
-		const seconds = Math.floor((remaining % 60000) / 1000);
-		
-		if (remaining <= 0 || elapsed >= duration) {
-			// Tempo esgotado - finalizar busca
-			clearInterval(initialSearchInterval);
-			initialSearchActive = false;
-			
-			const db = await loadPatternDB(); // ✅ Aqui pode logar (busca finalizada)
-			const total = db.patterns_found ? db.patterns_found.length : 0;
-			
-		console.log('%c✅ Busca concluída | ' + total + '/5000 padrões | 🎯 Pronto!', 'color: #00FF88; font-weight: bold; background: #003322; padding: 4px 8px; border-radius: 4px;');
-			
-			sendMessageToContent('INITIAL_SEARCH_COMPLETE', { 
-				total: total,
-				duration: elapsed
-			});
-			return;
-		}
-		
-		// ✅ ATUALIZAR CRONÔMETRO NA UI (a cada 1s)
-		const db = await loadPatternDB(true); // silent = true (sem logs gigantes)
-		const total = db.patterns_found ? db.patterns_found.length : 0;
-		
-		// ✅ LOG A CADA 10 SEGUNDOS (reduzido para menos poluição)
-		if (iteration % 10 === 0) {
-			console.log(`%c⏱️ Busca: ${minutes}m ${seconds}s | ${total}/5000 padrões`, 'color: #00D4FF; font-weight: bold;');
-		}
-		
-		sendMessageToContent('INITIAL_SEARCH_PROGRESS', { 
-			total: total,
-			remaining: remaining,
-			iteration: iteration
-		});
-		
-		// ✅ BUSCAR PADRÕES apenas a cada 5 segundos (para não sobrecarregar)
-		const timeSinceLastSearch = Date.now() - lastSearchTime;
-		if (timeSinceLastSearch >= searchInterval) {
-			lastSearchTime = Date.now();
-			
-			try {
-				const iterationStartTs = Date.now();
-				const iterationBudget = Math.min(8000, remaining); // Até 8s por iteração
-				
-				await discoverAndPersistPatterns(history, iterationStartTs, iterationBudget);
-				
-				const dbAfterSearch = await loadPatternDB(true); // silent = true
-				const totalAfterSearch = dbAfterSearch.patterns_found ? dbAfterSearch.patterns_found.length : 0;
-				
-			// Log removido: já temos o cronômetro periódico
-				
-				// Se atingiu o limite, parar
-				if (totalAfterSearch >= 5000) {
-					clearInterval(initialSearchInterval);
-					initialSearchActive = false;
-					
-				console.log('%c✅ Limite atingido | 5000 padrões | 🎯 Pronto!', 'color: #00FF88; font-weight: bold; background: #003322; padding: 4px 8px; border-radius: 4px;');
-					
-					sendMessageToContent('INITIAL_SEARCH_COMPLETE', { 
-						total: totalAfterSearch,
-						duration: elapsed
-					});
-				}
-			} catch (error) {
-				console.error('❌ Erro na busca inicial:', error);
-			}
-		}
-	}, updateInterval);
+
+	// Rodar em background até completar a varredura (sem depender de 30s).
+	if (!initialSearchRunnerBusy) {
+		initialSearchRunnerBusy = true;
+		runInitialPatternSearchLoop(history).finally(() => { initialSearchRunnerBusy = false; });
+	}
 }
 
 // Para a busca inicial (se necessário)
@@ -19115,6 +19052,249 @@ function stopInitialPatternSearch() {
 		clearInterval(initialSearchInterval);
 		initialSearchActive = false;
 		console.log('%c⏸️ Busca interrompida', 'color: #FF9900; font-weight: bold;');
+	}
+	initialSearchActive = false;
+	initialSearchTasksState = null;
+}
+
+function buildPatternDiscoveryTasks() {
+	const tasks = [];
+	// ✅ Respeitar tamanhos configurados pelo usuário no Premium (com teto de segurança p/ performance)
+	const HARD_MAX_COLOR_PATTERN_SIZE = 20;
+	const minSizeCfg = clampInt(
+		analyzerConfig?.minPatternSize ?? DEFAULT_ANALYZER_CONFIG.minPatternSize,
+		2,
+		HARD_MAX_COLOR_PATTERN_SIZE
+	);
+	const rawMaxSizeCfg = Number(analyzerConfig?.maxPatternSize ?? DEFAULT_ANALYZER_CONFIG.maxPatternSize);
+	const maxSizeCfg = Number.isFinite(rawMaxSizeCfg) ? Math.floor(rawMaxSizeCfg) : 0;
+	const maxSizeEffective = maxSizeCfg > 0
+		? clampInt(maxSizeCfg, minSizeCfg, HARD_MAX_COLOR_PATTERN_SIZE)
+		: HARD_MAX_COLOR_PATTERN_SIZE;
+
+	for (let size = minSizeCfg; size <= maxSizeEffective; size++) {
+		for (let offset = 0; offset < 10; offset++) {
+			tasks.push({ kind: 'color-window', size, offset });
+		}
+	}
+	for (let len = 3; len <= 8; len++) {
+		for (let offset = 0; offset < 5; offset++) {
+			tasks.push({ kind: 'number-correlation-lite', len, offset });
+		}
+	}
+	tasks.push({ kind: 'white-intervals' });
+	tasks.push({ kind: 'night-white' });
+	tasks.push({ kind: 'time-repetition' });
+	tasks.push({ kind: 'temporal-reversal' });
+	tasks.push({ kind: 'white-break' });
+	tasks.push({ kind: 'white-after-dominance' });
+	tasks.push({ kind: 'complete-cycle' });
+	tasks.push({ kind: 'post-white-peak' });
+	tasks.push({ kind: 'post-white-recovery' });
+	tasks.push({ kind: 'total-correction' });
+	tasks.push({ kind: 'microcycle' });
+	tasks.push({ kind: 'night-stability' });
+	tasks.push({ kind: 'day-oscillation' });
+	return tasks;
+}
+
+async function discoverAndPersistPatternsBatch(history, tasks, startIdx, startTs, budgetMs) {
+	if (patternDiscoveryCutoff) {
+		history = filterHistoryByResetCutoff(history);
+	}
+	if (!history || history.length < 50) {
+		return { nextIdx: startIdx, totalPatterns: 0, added: 0 };
+	}
+	const requireTrigger = !!(analyzerConfig && analyzerConfig.requireTrigger);
+	const db = await loadPatternDB(true);
+	const existingKeys = new Set((db.patterns_found || []).map(patternKeyOf));
+	const colors = history.map(s => s.color);
+	let discovered = [];
+	let idx = startIdx;
+
+	for (; idx < tasks.length; idx++) {
+		if ((Date.now() - startTs) > budgetMs) break;
+		const t = tasks[idx];
+		let results = [];
+		if (t.kind === 'color-window') {
+			results = discoverColorPatternsFast(colors, t.size, t.offset);
+		} else if (t.kind === 'number-correlation-lite') {
+			results = discoverNumberCorrelationsFast(history.map(s => s.number), colors, t.len, t.offset);
+		} else if (t.kind === 'white-intervals') {
+			const pattern = analyzeWhiteIntervals(history);
+			if (pattern) results = [pattern];
+		} else if (t.kind === 'night-white') {
+			const pattern = analyzeNightWhitePattern(history);
+			if (pattern) results = [pattern];
+		} else if (t.kind === 'time-repetition') {
+			const pattern = analyzeTimeRepetitionPattern(history);
+			if (pattern) results = [pattern];
+		} else if (t.kind === 'temporal-reversal') {
+			const pattern = analyzeTemporalReversalPattern(history);
+			if (pattern) results = [pattern];
+		} else if (t.kind === 'white-break') {
+			const pattern = analyzeWhiteBreakPattern(history);
+			if (pattern) results = [pattern];
+		} else if (t.kind === 'white-after-dominance') {
+			const pattern = analyzeWhiteAfterDominancePattern(history);
+			if (pattern) results = [pattern];
+		} else if (t.kind === 'complete-cycle') {
+			const pattern = analyzeCompleteCyclePattern(history);
+			if (pattern) results = [pattern];
+		} else if (t.kind === 'post-white-peak') {
+			const pattern = analyzePostWhitePeakPattern(history);
+			if (pattern) results = [pattern];
+		} else if (t.kind === 'post-white-recovery') {
+			const pattern = analyzePostWhiteRecoveryPattern(history);
+			if (pattern) results = [pattern];
+		} else if (t.kind === 'total-correction') {
+			const pattern = analyzeTotalCorrectionPattern(history);
+			if (pattern) results = [pattern];
+		} else if (t.kind === 'microcycle') {
+			const pattern = analyzeMicrocyclePattern(history);
+			if (pattern) results = [pattern];
+		} else if (t.kind === 'night-stability') {
+			const pattern = analyzeNightStabilityPattern(history);
+			if (pattern) results = [pattern];
+		} else if (t.kind === 'day-oscillation') {
+			const pattern = analyzeDayOscillationPattern(history);
+			if (pattern) results = [pattern];
+		}
+
+		for (const r of results) {
+			if (r.suggestedColor && !r.expected_next) {
+				r.expected_next = r.suggestedColor;
+			}
+			if (typeof r.pattern === 'string' && !Array.isArray(r.pattern)) {
+				r.pattern = [r.pattern];
+			} else if (!Array.isArray(r.pattern) && Array.isArray(r.patternArr)) {
+				r.pattern = r.patternArr;
+			} else if (!Array.isArray(r.pattern)) {
+				r.pattern = r.pattern ? [String(r.pattern)] : [];
+			}
+			if (!r.type && r.patternType) {
+				r.type = r.patternType;
+			}
+			const key = patternKeyOf(r);
+			if (existingKeys.has(key)) continue;
+			existingKeys.add(key);
+			discovered.push(r);
+		}
+	}
+
+	if (discovered.length > 0) {
+		const nowIso = new Date().toISOString();
+		let idCounter = 0;
+		for (const p of discovered) {
+			if (!p.id) {
+				const timestamp = Date.now();
+				const counter = idCounter++;
+				const random = Math.floor(Math.random() * 10000);
+				p.id = `${timestamp}-${counter}-${random}`;
+			}
+			p.found_at = p.found_at || nowIso;
+			if (!p.expected_next && p.suggestedColor) {
+				p.expected_next = p.suggestedColor;
+			}
+			if (typeof p.confidence !== 'number') {
+				p.confidence = 70;
+			}
+			if (!Array.isArray(p.pattern)) {
+				if (Array.isArray(p.patternArr)) p.pattern = p.patternArr;
+				else if (typeof p.pattern === 'string') p.pattern = [p.pattern];
+				else p.pattern = [];
+			}
+			if (typeof p.total_wins !== 'number') p.total_wins = 0;
+			if (typeof p.total_losses !== 'number') p.total_losses = 0;
+
+			if (requireTrigger && Array.isArray(p.pattern) && p.pattern.length > 0 && p.triggerColor) {
+				const firstColorNormalized = normalizeColorName(getInitialPatternColor(p.pattern));
+				const triggerNormalized = normalizeColorName(p.triggerColor);
+				const triggerValidation = validateDisparoColor(firstColorNormalized, triggerNormalized);
+				if (!triggerValidation.valid) {
+					continue;
+				}
+			}
+
+			db.patterns_found.unshift({
+				id: p.id,
+				pattern: p.pattern,
+				expected_next: p.expected_next,
+				confidence: p.confidence,
+				found_at: p.found_at,
+				type: p.type || p.patternType || 'discovery',
+				occurrences: p.occurrences || 0,
+				triggerColor: p.triggerColor || null,
+				total_wins: p.total_wins,
+				total_losses: p.total_losses
+			});
+		}
+		db.patterns_found = db.patterns_found.slice(0, 5000);
+		await savePatternDB(db);
+	}
+
+	const totalPatterns = db.patterns_found ? db.patterns_found.length : 0;
+	return { nextIdx: idx, totalPatterns, added: discovered.length };
+}
+
+async function runInitialPatternSearchLoop(history) {
+	try {
+		const MAX_WALL_MS = 180000; // 3min fail-safe (não deve bater em uso normal)
+		let lastUiSentAt = 0;
+		while (initialSearchActive && initialSearchTasksState && initialSearchTasksState.nextIdx < initialSearchTasksState.totalTasks) {
+			const now = Date.now();
+			const elapsed = now - initialSearchTasksState.startedAt;
+			if (elapsed > MAX_WALL_MS) {
+				console.warn('⚠️ Busca de padrões excedeu o tempo máximo. Encerrando por segurança.');
+				break;
+			}
+
+			const batchStart = Date.now();
+			const { nextIdx, totalPatterns } = await discoverAndPersistPatternsBatch(
+				history,
+				initialSearchTasksState.tasks,
+				initialSearchTasksState.nextIdx,
+				batchStart,
+				900
+			);
+			initialSearchTasksState.nextIdx = nextIdx;
+
+			const progress01 = initialSearchTasksState.totalTasks > 0
+				? Math.min(1, Math.max(0, initialSearchTasksState.nextIdx / initialSearchTasksState.totalTasks))
+				: 1;
+
+			// Throttle UI messages
+			if ((Date.now() - lastUiSentAt) > 250) {
+				lastUiSentAt = Date.now();
+				sendMessageToContent('INITIAL_SEARCH_PROGRESS', {
+					total: totalPatterns,
+					progress01,
+					processedTasks: initialSearchTasksState.nextIdx,
+					totalTasks: initialSearchTasksState.totalTasks
+				});
+			}
+
+			// Se atingiu o limite, parar
+			if (totalPatterns >= 5000) {
+				break;
+			}
+
+			// Yield (evita travar o background em loops longos)
+			await new Promise(r => setTimeout(r, 0));
+		}
+	} catch (e) {
+		console.error('❌ Erro na busca de padrões:', e);
+	} finally {
+		if (initialSearchActive) {
+			initialSearchActive = false;
+		}
+		const db = await loadPatternDB(true);
+		const total = db.patterns_found ? db.patterns_found.length : 0;
+		sendMessageToContent('INITIAL_SEARCH_COMPLETE', {
+			total,
+			duration: Date.now() - (initialSearchTasksState && initialSearchTasksState.startedAt ? initialSearchTasksState.startedAt : Date.now())
+		});
+		initialSearchTasksState = null;
 	}
 }
 
@@ -30447,8 +30627,11 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                         );
                         return Math.max(1440, requiredHistory || 0, 2000);
                     }
-                    const depth = Number(cfg && cfg.historyDepth != null ? cfg.historyDepth : 500) || 500;
-                    return Math.max(1440, depth, 2000);
+                    // ✅ Pedido: respeitar a profundidade REAL configurada (historyDepth) no modo padrão
+                    // (não “estourar” para 2000/10k só para gerar mais ciclos no bootstrap)
+                    const rawDepth = Number(cfg && cfg.historyDepth != null ? cfg.historyDepth : 500) || 500;
+                    const depth = clampInt(rawDepth, 100, 10000);
+                    return depth;
                 };
 
                 const runSim = async (historyLimit) => {
@@ -30478,17 +30661,8 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                     ? simResult.simState.entriesHistory
                     : [];
 
-                // Se ainda não gerou ciclos suficientes, tentar uma vez com 10k
-                const hasExplicitSimMode = simEntries.some(e => e && (e.analysisMode === 'diamond' || e.analysisMode === 'standard'));
-                const inModeSim = (e) => resolveEntryModeMaster(e, hasExplicitSimMode) === mode;
-                const finalsNow = filterFinalEntries(simEntries).filter(inModeSim);
-                if (finalsNow.length < targetCycles && historyLimit < 10000) {
-                    historyLimit = 10000;
-                    simResult = await runSim(historyLimit);
-                    simEntries = simResult && simResult.simState && Array.isArray(simResult.simState.entriesHistory)
-                        ? simResult.simState.entriesHistory
-                        : [];
-                }
+                // ✅ Pedido: não aumentar historyLimit acima do configurado só para “forçar” ciclos.
+                // Se não houver ciclos suficientes, bootstrap parcial é OK (mantém consistência com historyDepth).
 
                 const hasExplicitModeSim2 = simEntries.some(e => e && (e.analysisMode === 'diamond' || e.analysisMode === 'standard'));
                 const inModeSim2 = (e) => resolveEntryModeMaster(e, hasExplicitModeSim2) === mode;
@@ -30852,7 +31026,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                 // ✅ PASSO 3: Aguardar um pouco para garantir que a UI foi atualizada
                 await new Promise(resolve => setTimeout(resolve, 100));
                 
-                // ✅ PASSO 4: Iniciar busca de 30s (isso enviará INITIAL_SEARCH_START)
+                // ✅ PASSO 4: Iniciar busca (encerra ao completar a varredura)
                 await startInitialPatternSearch(historyToAnalyze);
                 
                 sendResponse({ status: 'started', historySize: historyToAnalyze.length });

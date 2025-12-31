@@ -22,7 +22,8 @@
     --bg-tertiary: #2a3548;
     --text-primary: #ffffff;
     --text-secondary: #8b92a8;
-    --border-color: #2d3748;
+    /* ✅ Remover “linhas fininhas” (bordas) do layout: usar contraste/sombra em vez de stroke */
+    --border-color: transparent;
     --red-primary: #ef4444;
     --font-primary: 'Inter', 'Segoe UI', 'Roboto', -apple-system, sans-serif;
 }
@@ -150,8 +151,8 @@
     width: 420px;
     background: var(--bg-secondary);
     border-radius: 8px;
-    box-shadow: none;
-    border: 1px solid var(--border-color);
+    border: none;
+    box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55);
     overflow: hidden;
     transform: translateY(-20px) scale(0.95);
     opacity: 0;
@@ -166,7 +167,7 @@
 
 .ai-modal-header {
     background: var(--bg-tertiary);
-    border-bottom: 1px solid var(--border-color);
+    border-bottom: none;
     padding: 20px;
     text-align: center;
 }
@@ -204,7 +205,7 @@
 
 .ai-modal-steps {
     background: var(--bg-primary);
-    border: 1px solid var(--border-color);
+    border: none;
     border-radius: 8px;
     padding: 16px;
     margin: 20px 0;
@@ -224,7 +225,7 @@
     width: 28px;
     height: 28px;
     background: var(--bg-tertiary);
-    border: 1px solid var(--border-color);
+    border: none;
     border-radius: 50%;
     color: var(--text-primary);
     font-weight: bold;
@@ -266,12 +267,11 @@
 .ai-modal-btn-cancel {
     background: var(--bg-tertiary);
     color: var(--text-secondary);
-    border: 1px solid var(--border-color);
+    border: none;
 }
 
 .ai-modal-btn-cancel:hover {
     background: var(--bg-primary);
-    border-color: var(--border-color);
     transform: translateY(-2px);
 }
 
@@ -289,7 +289,7 @@
 /* Descrição da Análise IA */
 .pattern-ai-description {
     background: var(--bg-tertiary);
-    border: 1px solid var(--border-color);
+    border: none;
     border-radius: 6px;
     padding: 16px;
     margin: 12px 0;
@@ -322,6 +322,7 @@
 .pattern-meta { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
 .badge { display:inline-block; padding: 4px 10px; border-radius: 9999px; font-weight: 700; font-size: 12px; }
 .badge-green { background: rgba(43, 108, 176, 0.15); color: #cdd6e8; border: 1px solid rgba(43, 108, 176, 0.35); }
+.badge-green { border: none; }
 .meta-muted { color: #8da2bb; font-size: 12px; }
 /* Blaze Double Analyzer - Styles */
 #blaze-double-analyzer {
@@ -338,18 +339,18 @@
     color: var(--text-primary);
     font-family: var(--font-primary);
     z-index: 10000;
-    box-shadow: none;
-    border: 1px solid var(--border-color);
+    box-shadow: 0 28px 70px rgba(0, 0, 0, 0.55);
+    border: none;
     border-radius: 0;
     overflow: hidden;
     resize: none;
-    transition: background 0.4s ease, border-color 0.4s ease;
+    transition: background 0.4s ease;
 }
 
 /* 💎 MODO NÍVEL DIAMANTE ATIVO - Fundo 15% mais claro */
 #blaze-double-analyzer.diamond-mode-active {
     background: var(--bg-secondary);
-    border: 1px solid var(--border-color);
+    border: none;
 }
 
 #blaze-double-analyzer.collapsed {
@@ -464,7 +465,7 @@
 
 :root {
     --da-header-bg: #0a0a0a;
-    --da-header-border: rgba(255, 255, 255, 0.06);
+    --da-header-border: transparent;
     --da-primary: #FF003F;
     --da-text: #ffffff;
     --da-text-muted: #7a7a7a;
@@ -477,7 +478,8 @@
     width: 100%;
     height: var(--da-header-height);
     background: var(--da-header-bg);
-    border-bottom: 1px solid var(--da-header-border);
+    border-bottom: none;
+    box-shadow: 0 10px 26px rgba(0, 0, 0, 0.55);
     display: grid;
     grid-template-columns: auto 1fr auto;
     align-items: center;
@@ -496,7 +498,7 @@
     padding: 0 32px;
     height: var(--da-header-height);
     background: var(--da-header-bg);
-    border-bottom: 1px solid var(--da-header-border);
+    border-bottom: none;
     box-sizing: border-box;
 }
 
@@ -650,13 +652,13 @@
     width: 300px;
     height: calc(100vh - var(--da-header-height));
     background: var(--da-header-bg);
-    border-left: 1px solid rgba(255, 255, 255, 0.08);
+    border-left: none;
     transform: translateX(100%);
     transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     z-index: 9999;
     display: flex;
     flex-direction: column;
-    box-shadow: none;
+    box-shadow: -22px 0 50px rgba(0, 0, 0, 0.55);
     opacity: 1;
 }
 
@@ -685,20 +687,21 @@
     justify-content: space-between;
     align-items: center;
     padding: 16px 20px;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    border-bottom: none;
 }
 
 .user-menu-title {
     font-size: 14px;
     font-weight: 700;
     color: #fff;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
+    /* ✅ Pedido: não deixar "Minha conta" em maiúsculo */
+    text-transform: none;
+    letter-spacing: 0;
 }
 
 .user-menu-close {
     background: rgba(255, 255, 255, 0.05);
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    border: none;
     color: #a0aec0;
     padding: 4px 10px;
     border-radius: 4px;
@@ -729,7 +732,7 @@
     justify-content: space-between;
     align-items: center;
     padding-bottom: 8px;
-    border-bottom: 1px solid rgba(255,255,255,0.03);
+    border-bottom: none;
 }
 
 /* Quando contém apenas um botão (sem label) */
@@ -1173,7 +1176,7 @@
     font-size: 14px;
     font-weight: 600;
     color: #e0e0e0;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+    border-bottom: none;
     padding-bottom: 4px;
 }
 
@@ -1554,7 +1557,7 @@
     background: rgba(255, 255, 255, 0.05);
     border-radius: 8px;
     padding: 12px;
-    border-left: 3px solid #2b6cb0; /* cor padrão da extensão */
+    border-left: none; /* ✅ remover borda lateral */
 }
 
 .pattern-title {
@@ -1593,7 +1596,7 @@
     font-size: 13px;
     font-weight: 700;
     display: inline-block;
-    border: 1px solid rgba(76, 175, 80, 0.3);
+    border: none;
     box-shadow: 
         0 2px 8px rgba(76, 175, 80, 0.2),
         inset 0 1px 0 rgba(255, 255, 255, 0.1);
@@ -1603,7 +1606,7 @@
 .pattern-times {
     margin-top: 10px;
     padding-top: 10px;
-    border-top: 1px solid rgba(255, 255, 255, 0.1);
+    border-top: none; /* ✅ sem linha separadora */
 }
 
 .times-title {
@@ -1623,7 +1626,7 @@
 .analysis-contributions {
     margin-top: 10px;
     padding-top: 10px;
-    border-top: 1px solid rgba(255, 255, 255, 0.1);
+    border-top: none; /* ✅ sem linha separadora */
 }
 
 .contrib-title {
@@ -1653,7 +1656,7 @@
 .pattern-occurrences {
     margin-top: 12px;
     padding-top: 12px;
-    border-top: 1px solid rgba(255, 255, 255, 0.1);
+    border-top: none; /* ✅ sem linha separadora */
 }
 
 .occurrences-title {
@@ -1676,7 +1679,7 @@
     padding: 8px;
     background: rgba(255, 255, 255, 0.05);
     border-radius: 6px;
-    border-left: 3px solid #2b6cb0;
+    border-left: none; /* ✅ remover borda lateral */
 }
 
 .occurrence-header {
@@ -1825,9 +1828,37 @@
 
 .capacity-fill {
     height: 100%;
-    background: linear-gradient(90deg, #2b6cb0 0%, #4299e1 100%);
-    transition: width 0.3s ease;
+    /* ✅ Seguir paleta (remover azul) */
+    background: linear-gradient(90deg, rgba(255, 0, 63, 0.92) 0%, rgba(255, 77, 133, 0.95) 100%);
+    transition: width 0.22s linear;
     border-radius: 4px;
+}
+
+.capacity-search-text {
+    font-size: 11px;
+    color: #8da2bb;
+    text-align: center;
+    font-weight: 500;
+    padding-bottom: 2px;
+}
+
+.bank-capacity.is-searching .capacity-bar {
+    height: 10px;
+}
+
+.bank-capacity.is-searching .capacity-fill {
+    box-shadow: 0 0 0 1px rgba(255, 0, 63, 0.20) inset;
+}
+
+/* ✅ Ao concluir a busca: manter barra cheia e verde */
+.bank-capacity.is-search-complete .capacity-bar {
+    height: 10px;
+}
+
+.bank-capacity.is-search-complete .capacity-fill {
+    width: 100% !important;
+    background: linear-gradient(90deg, rgba(0, 200, 83, 0.92) 0%, rgba(105, 240, 174, 0.95) 100%);
+    box-shadow: 0 0 0 1px rgba(0, 200, 83, 0.22) inset;
 }
 
 .capacity-text {
@@ -2172,23 +2203,26 @@
 #autoBetModal .auto-bet-accordion {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  /* ✅ Pedido: tudo padronizado em UM único bloco (sem “cards” diferentes por seção) */
+  gap: 0;
+  background: rgba(15, 23, 32, 0.35);
+  border-radius: 10px;
+  overflow: hidden;
 }
 
 #autoBetModal .auto-bet-acc-section {
-  border: 1px solid rgba(255,255,255,0.07);
-  border-radius: 10px;
-  background: rgba(15, 23, 32, 0.35);
+  border: none;
+  border-radius: 0;
+  background: transparent;
   overflow: hidden;
 }
 
 /* ✅ Destaque da seção principal (Configuração do Modo) */
 #autoBetModal .auto-bet-acc-section[data-acc-key="mode"] {
   position: relative;
-  /* ✅ Sem cor extra/sem borda — o destaque é só o título centralizado */
   border: none;
-  border-radius: 10px; /* voltar ao padrão das outras seções */
-  background: rgba(15, 23, 32, 0.35);
+  border-radius: 0;
+  background: transparent;
   box-shadow: none;
 }
 
@@ -2198,23 +2232,21 @@
 }
 
 #autoBetModal .auto-bet-acc-section[data-acc-key="mode"] .auto-bet-acc-header {
-  /* ✅ centralizar o título (diferente das outras seções) */
-  display: grid;
-  grid-template-columns: 20px 1fr 20px;
+  /* ✅ Padronizar: mesmo estilo das demais seções */
+  display: flex;
   align-items: center;
-  justify-items: center;
-  padding: 16px 12px;
-  min-height: 58px; /* maior em altura */
-  color: var(--text-primary);
-  /* ✅ parte "normal" igual aos outros headers */
-  background: rgba(15, 23, 32, 0.55);
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  min-height: 0;
+  color: #cfe7ff;
+  background: transparent;
   border-bottom: none;
 }
 
 #autoBetModal .auto-bet-acc-section[data-acc-key="mode"] .auto-bet-acc-header::before {
-  content: "";
-  width: 20px;
-  height: 1px;
+  content: none;
+  display: none;
 }
 
 #autoBetModal .auto-bet-acc-section[data-acc-key="mode"] .auto-bet-acc-header::after {
@@ -2223,16 +2255,14 @@
 }
 
 #autoBetModal .auto-bet-acc-section[data-acc-key="mode"] .auto-bet-acc-title {
-  grid-column: 2;
-  justify-self: center;
-  width: 100%;
-  text-align: center;
+  width: auto;
+  text-align: left;
   position: relative;
   z-index: 1;
-  font-size: 13.5px;
-  font-weight: 800;
-  letter-spacing: 0.4px;
-  text-transform: uppercase;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: -0.2px;
+  text-transform: none;
 }
 
 /* ✅ Tema por modo (mesmas cores do badge do título) */
@@ -2252,8 +2282,7 @@
   background: rgba(239, 68, 68, 0.95);
 }
 #autoBetModal .auto-bet-acc-section[data-acc-key="mode"] .auto-bet-acc-caret {
-  grid-column: 3;
-  justify-self: end;
+  justify-self: auto;
   opacity: 0.85;
   position: relative;
   z-index: 1;
@@ -2265,8 +2294,8 @@
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 12px 12px;
-  background: rgba(15, 23, 32, 0.55);
+  padding: 12px 14px;
+  background: transparent;
   border: none;
   color: #cfe7ff;
   cursor: pointer;
@@ -2274,7 +2303,12 @@
 }
 
 #autoBetModal .auto-bet-acc-header:hover {
-  background: rgba(15, 23, 32, 0.68);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+/* Estado aberto: manter harmonia (sem trocar “caixa”) */
+#autoBetModal .auto-bet-acc-section.is-open .auto-bet-acc-header {
+  background: rgba(255, 255, 255, 0.03);
 }
 
 #autoBetModal .auto-bet-acc-title {
@@ -2297,7 +2331,8 @@
 
 #autoBetModal .auto-bet-acc-body {
   display: none;
-  padding: 12px;
+  padding: 12px 14px 14px;
+  background: rgba(0, 0, 0, 0.10);
 }
 
 #autoBetModal .auto-bet-acc-body--no-pad {
@@ -2310,6 +2345,13 @@
 
 #autoBetModal .auto-bet-acc-body .settings-section {
   margin-top: 0;
+}
+
+/* ✅ Dentro do accordion: evitar “caixas dentro de caixas” e tons diferentes */
+#autoBetModal .auto-bet-acc-body .settings-section,
+#autoBetModal .auto-bet-acc-body .settings-grid,
+#autoBetModal .auto-bet-acc-body .setting-item {
+  background: transparent;
 }
 
 /* ✅ Modo (IA/Premium): não criar “sub-card” dentro da própria seção */
@@ -2493,7 +2535,7 @@
     padding: 8px;
     background: rgba(255, 255, 255, 0.05);
     border-radius: 4px;
-    border-left: 2px solid #4CAF50;
+    border-left: none; /* ✅ remover borda lateral */
 }
 
 .occurrence-header {
@@ -3123,13 +3165,15 @@
 
 .occurrence-item {
     background: rgba(255, 255, 255, 0.05);
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    border: none; /* ✅ remover borda fininha */
     border-radius: 6px;
     padding: 8px;
     margin-bottom: 8px;
     position: relative;
     overflow: hidden;
     transition: all 0.2s ease;
+    /* Separação sem borda: sombra suave */
+    box-shadow: 0 12px 30px rgba(0, 0, 0, 0.22);
 }
 
 .occurrence-item:hover {
@@ -3137,13 +3181,7 @@
 }
 
 .occurrence-item::before {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 3px;
-    height: 100%;
-    background: rgba(255, 255, 255, 0.3);
+    content: none; /* ✅ remover “faixa”/borda lateral interna */
 }
 
 .occurrence-header {
@@ -3806,7 +3844,7 @@
 
 .entries-panel {
   background: var(--bg-secondary);
-  border: 1px solid var(--border-color);
+  border: none;
   border-radius: 0; /* cantos retos, seguindo padrão do simulador */
   padding: 0 10px 10px 10px;
 }
@@ -3820,13 +3858,11 @@
   position: relative;
   /* garantir espaço para a bolinha aparecer quando IA estiver vazia */
   min-height: 200px;
-  border-radius: 12px;
-  overflow: hidden; /* bordas limpas no vidro/blur */
-  /* moldura leve para o "vidro" ficar bonito */
-  border: 1px solid rgba(148, 163, 184, 0.14);
-  box-shadow:
-    0 18px 40px rgba(0,0,0,0.22),
-    inset 0 0 0 1px rgba(255,255,255,0.04);
+  /* ✅ Pedido: não criar “container dentro do container” na aba IA */
+  border-radius: 0;
+  overflow: visible;
+  border: none;
+  box-shadow: none;
 }
 
 .ia-bootstrap-glass {
@@ -3979,6 +4015,8 @@
   display: flex;
   flex-direction: column;
   border-radius: 0;
+  overflow: visible;
+  box-shadow: none;
 }
 
 .da-ia-fullscreen-overlay .entries-list {
@@ -4735,7 +4773,7 @@
 
 .bets-container {
   background: var(--bg-tertiary, #141e30);
-  border: 1px solid var(--border-color);
+  border: none;
   border-radius: 0; /* remover cantos arredondados do fundo mais claro */
   padding: 6px;
   max-height: 220px;
@@ -6431,7 +6469,7 @@ body.da-ext-fullscreen #patternDetailsModal .bank-patterns-modal-content {
     align-items: center;
     padding: 14px 16px;
     background: #0a0a0a;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    border-bottom: none;
     height: 56px;
     box-sizing: border-box;
 }
@@ -7662,6 +7700,7 @@ body.da-ext-fullscreen #patternDetailsModal .bank-patterns-modal-content {
     display: -webkit-box;
     -webkit-box-orient: vertical;
     -webkit-line-clamp: 2;
+    line-clamp: 2; /* compat */
 }
 
 /* Switch vai para a direita; caret fica no extremo direito */
@@ -8961,7 +9000,7 @@ body.da-ext-fullscreen #patternDetailsModal .bank-patterns-modal-content {
     min-height: 0;
     border-radius: var(--da-desktop-radius);
     background: rgba(13, 18, 28, 0.72);
-    border: 1px solid rgba(255, 255, 255, 0.08);
+    border: none;
     box-shadow: 0 18px 50px rgba(0, 0, 0, 0.35);
     overflow: hidden;
     display: flex;
@@ -9076,10 +9115,17 @@ body.da-ext-fullscreen #patternDetailsModal .bank-patterns-modal-content {
     transform: none !important;
     border-left: none !important;
     box-shadow: none !important;
-    border-radius: var(--da-desktop-radius);
-    background: rgba(15, 23, 32, 0.45);
-    border: 1px solid rgba(255, 255, 255, 0.06);
-    overflow: hidden;
+    border-radius: 0;
+    background: transparent;
+    border: none;
+    overflow: visible;
+  }
+
+  /* Minha Conta: não criar “card” interno com outra cor */
+  #blaze-double-analyzer.da-desktop-dashboard .user-menu-panel .user-menu-header,
+  #blaze-double-analyzer.da-desktop-dashboard .user-menu-panel .user-menu-body,
+  #blaze-double-analyzer.da-desktop-dashboard .user-menu-panel .user-menu-footer {
+    background: transparent !important;
   }
 
   /* Minha Conta: colapsável (fechado por padrão) */
@@ -9137,11 +9183,11 @@ body.da-ext-fullscreen #patternDetailsModal .bank-patterns-modal-content {
     height: auto !important;
     max-height: none !important;
     margin: 0 !important;
-    border-radius: var(--da-desktop-radius) !important;
-    border: 1px solid rgba(255, 255, 255, 0.06) !important;
+    border-radius: 0 !important;
+    border: none !important;
     box-shadow: none !important;
-    background: rgba(15, 23, 32, 0.35) !important;
-    overflow: hidden;
+    background: transparent !important;
+    overflow: visible;
   }
 
   #blaze-double-analyzer.da-desktop-dashboard #autoBetModal .auto-bet-modal-header {
@@ -9149,7 +9195,17 @@ body.da-ext-fullscreen #patternDetailsModal .bank-patterns-modal-content {
   }
 
   #blaze-double-analyzer.da-desktop-dashboard #autoBetModal .auto-bet-modal-body {
-    padding: 12px !important;
+    padding: 0 !important;
+    background: transparent !important;
+  }
+
+  /* Configs embutidas: manter tudo no MESMO fundo da sidebar (sem “3 tons”) */
+  #blaze-double-analyzer.da-desktop-dashboard #autoBetModal .auto-bet-accordion {
+    background: transparent !important;
+    border-radius: 0 !important;
+  }
+  #blaze-double-analyzer.da-desktop-dashboard #autoBetModal .auto-bet-acc-body {
+    background: transparent !important;
   }
 
   /* Workspace: usar o analyzerContent como scroll do lado direito */
@@ -9179,8 +9235,8 @@ body.da-ext-fullscreen #patternDetailsModal .bank-patterns-modal-content {
     position: relative;
     border-radius: var(--da-desktop-radius);
     background: rgba(15, 23, 32, 0.55);
-    border: 1px solid rgba(255, 255, 255, 0.06);
-    box-shadow: none;
+    border: none;
+    box-shadow: 0 22px 52px rgba(0, 0, 0, 0.35);
     padding: 14px;
     overflow: hidden;
   }
@@ -9211,7 +9267,7 @@ body.da-ext-fullscreen #patternDetailsModal .bank-patterns-modal-content {
   /* ✅ Aguardando sinal: destacar Sinal de entrada com fundo branco (somente desktop) */
   #blaze-double-analyzer.da-desktop-dashboard #analyzerDefaultView .analysis-card.da-entry-signal-highlight {
     background: rgba(255, 255, 255, 0.96) !important;
-    border: 1px solid rgba(0, 0, 0, 0.10);
+    border: none;
   }
 
   #blaze-double-analyzer.da-desktop-dashboard #analyzerDefaultView .analysis-card.da-entry-signal-highlight .confidence-text {
@@ -9311,7 +9367,9 @@ body.da-ext-fullscreen #patternDetailsModal .bank-patterns-modal-content {
 
   /* O wrapper do vidro não precisa de cantos tão grandes no desktop */
   #blaze-double-analyzer.da-desktop-dashboard #analyzerDefaultView .entries-section .entries-list-wrap {
-    border-radius: var(--da-desktop-radius) !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    overflow: visible !important;
   }
 
   /* ✅ Padrão: sem “bloco” quando vazio (só texto) */
@@ -9361,12 +9419,13 @@ body.da-ext-fullscreen #patternDetailsModal .bank-patterns-modal-content {
     display: none;
   }
 
+  /* ✅ Pedido: botão de tela cheia NÃO muda de estilo/ícone quando expandido */
   #blaze-double-analyzer.da-desktop-dashboard .da-card.da-card-is-expanded .da-icon-expand {
-    display: none;
+    display: inline-block;
   }
 
   #blaze-double-analyzer.da-desktop-dashboard .da-card.da-card-is-expanded .da-icon-collapse {
-    display: inline-block;
+    display: none;
   }
 
   /* Ações fora da caixa "Minha conta" (ex.: Modo Aposta) */

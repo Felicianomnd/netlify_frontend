@@ -990,7 +990,8 @@
             const modeSection = document.querySelector('#autoBetAccordion .auto-bet-acc-section[data-acc-key="mode"]');
             const titleEl = modeSection ? modeSection.querySelector('.auto-bet-acc-title') : null;
             if (titleEl) {
-                titleEl.textContent = isAIMode ? 'CONFIGURAÇÃO DO MODO IA' : 'CONFIGURAÇÃO DO MODO PREMIUM';
+                // ✅ Pedido: não usar ALL CAPS; manter padrão como "Simulador de banca"
+                titleEl.textContent = isAIMode ? 'Configuração do modo IA' : 'Configuração do modo premium';
             }
             if (modeSection) {
                 modeSection.setAttribute('data-mode', isAIMode ? 'ia' : 'premium');
@@ -1493,6 +1494,34 @@ function getEntryTimestampMs(entry) {
     }
 }
 
+// Timestamp REAL do evento (para podar por janela de giros / historyDepth).
+// Não usa visibleAtTimestamp (que é só para cutoff após "Limpar").
+function getEntryRealTimestampMs(entry) {
+    try {
+        const t = (entry && entry.timestamp != null) ? entry.timestamp : null;
+        const ms = (typeof t === 'number') ? t : Date.parse(String(t));
+        return Number.isFinite(ms) ? ms : 0;
+    } catch (_) {
+        return 0;
+    }
+}
+
+function clampIntRange(n, min, max) {
+    const v = Math.floor(Number(n));
+    if (!Number.isFinite(v)) return min;
+    return Math.max(min, Math.min(max, v));
+}
+
+function formatCompactDurationFromMs(ms) {
+    const totalMs = Math.max(0, Number(ms) || 0);
+    const totalMinutes = Math.floor(totalMs / 60000);
+    if (totalMinutes < 60) return `${Math.max(1, totalMinutes)}m`;
+    const hours = Math.floor(totalMinutes / 60);
+    const mins = totalMinutes - hours * 60;
+    if (mins <= 0) return `${hours}h`;
+    return `${hours}h ${mins}m`;
+}
+
 // Carregar cutoff uma vez (best-effort)
 loadMasterEntriesClearCutoff();
 loadEntriesClearCutoff();
@@ -1600,6 +1629,11 @@ let autoBetSummaryVisible = true;
 let analyzerAutoPausedReason = null;
 let analyzerConfigSnapshot = null;
 let bankProgressTimeout = null;
+let bankSearchUiActive = false;
+let bankSearchUiTimer = null;
+let bankSearchUiStartTime = 0;
+let bankSearchUiDurationMs = 30_000;
+let bankSearchUiCompleted = false;
 
 function applyAutoBetSummaryVisibility() {
     const summary = document.getElementById('autoBetSummary');
@@ -2804,15 +2838,16 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
             // ✅ Se estiver saindo a partir da simulação, persistir ajustes automaticamente
             try {
                 const isSimActive = modal.classList.contains('diamond-sim-active');
-                if (isSimActive) {
-                    await saveDiamondLevels({ silent: true, skipSync: true });
-                }
+                if (isSimActive) await saveDiamondLevels({ silent: true, skipSync: true });
             } catch (_) {}
 
-            // ✅ Se estiver na tela de simulação, limpar e voltar para a tela normal
-            try {
-                exitDiamondSimulationView({ cancelIfRunning: true, clear: true, closeModal: false });
-            } catch (_) {}
+            // ✅ Pedido: no modo Diamante, quando estiver em "Testar configurações",
+            // o botão "Fechar" deve VOLTAR para os níveis (não fechar o modal inteiro).
+            const isSimActive = modal.classList.contains('diamond-sim-active');
+            if (isSimActive) {
+                try { exitDiamondSimulationView({ cancelIfRunning: true, clear: true, closeModal: false }); } catch (_) {}
+                return; // NÃO fechar o modal de níveis
+            }
 
             // ✅ Desregistrar do sistema de janelas flutuantes apenas no modo compacto
             if (isDesktop() && isCompactMode) {
@@ -2994,7 +3029,6 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                         </div>
                     </div>
                     <div class="custom-pattern-modal-footer standard-sim-footer">
-                        <button type="button" class="btn-hot-pattern" id="standardSimulationClearBtn">Limpar</button>
                         <button type="button" class="btn-hot-pattern" id="standardSimulationOptimizeBtn">Otimizar (100)</button>
                         <button type="button" class="btn-save-pattern" id="standardSimulationRunBtn">Testar configurações</button>
                         <button type="button" class="btn-hot-pattern" id="standardSimulationSaveCloseBtn" title="Salva as configurações e fecha o teste">Salvar e fechar</button>
@@ -3107,15 +3141,10 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
             tabsBar.dataset.listenerAttached = '1';
         }
 
-        const clearBtn = document.getElementById('standardSimulationClearBtn');
         const optimizeBtn = document.getElementById('standardSimulationOptimizeBtn');
         const runBtn = document.getElementById('standardSimulationRunBtn');
         const cancelBtn = document.getElementById('standardSimulationCancelBtn');
 
-        if (clearBtn && !clearBtn.dataset.listenerAttached) {
-            clearBtn.addEventListener('click', () => clearStandardSimulationResultsOnly({ cancelIfRunning: true }));
-            clearBtn.dataset.listenerAttached = '1';
-        }
         if (runBtn && !runBtn.dataset.listenerAttached) {
             runBtn.addEventListener('click', () => startStandardSimulation());
             runBtn.dataset.listenerAttached = '1';
@@ -3909,6 +3938,8 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
         try {
             if (standardSimulationRunning || standardOptimizationRunning) return;
             createStandardSimulationModal();
+            // ✅ Pedido: "Testar configurações" já limpa por si só (não precisa de botão Limpar)
+            try { clearStandardSimulationResultsOnly({ cancelIfRunning: false }); } catch (_) {}
             setStandardSimActiveTab('signals');
             setStandardSimResultsVisible(false);
             setStandardSimulationLoading(true, 'Testando...', 'simulate');
@@ -3991,6 +4022,8 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
         try {
             if (standardSimulationRunning || standardOptimizationRunning) return;
             createStandardSimulationModal();
+            // ✅ Pedido: "Otimizar" já limpa por si só (não precisa de botão Limpar)
+            try { clearStandardSimulationResultsOnly({ cancelIfRunning: false }); } catch (_) {}
             setStandardSimActiveTab('signals');
             setStandardSimResultsVisible(false);
             setStandardSimulationLoading(true, 'Otimizando... (0/100)', 'optimize');
@@ -11382,7 +11415,7 @@ async function persistAnalyzerState(newState) {
 
             <div class="user-menu-panel" id="userMenuPanel" role="region" aria-labelledby="userMenuTitle">
                 <div class="user-menu-header">
-                    <div class="user-menu-title" id="userMenuTitle">Minha Conta</div>
+            <div class="user-menu-title" id="userMenuTitle">Minha conta</div>
                     <button type="button" class="user-menu-close" id="userMenuClose">Fechar</button>
                 </div>
                 <div class="user-menu-body">
@@ -11665,9 +11698,6 @@ async function persistAnalyzerState(newState) {
                 
                 <div class="pattern-bank-section">
                     <h4>📂 Banco de Padrões</h4>
-                    <div class="bank-progress" id="bankProgress" aria-live="polite" style="display:none;">
-                        <span class="bank-progress-text" id="bankProgressText"></span>
-                    </div>
                     <div class="bank-stats" id="bankStats">
                         <div class="bank-loading">Carregando...</div>
                     </div>
@@ -11675,7 +11705,8 @@ async function persistAnalyzerState(newState) {
                         <div class="capacity-bar">
                             <div class="capacity-fill" id="capacityFill" style="width: 0%"></div>
                         </div>
-                        <div class="capacity-text">
+                        <div class="capacity-search-text" id="bankCapacitySearchText" hidden>Buscando padrões...</div>
+                        <div class="capacity-text" id="bankCapacityText">
                             <span id="bankTotal">0</span> / <span id="bankLimit">3000</span> padrões
                             (<span id="bankPercent">0</span>%)
                         </div>
@@ -11698,7 +11729,7 @@ async function persistAnalyzerState(newState) {
                         </div>
                     </div>
                     <div class="bank-buttons">
-                        <button id="refreshBankBtn" class="refresh-bank-btn">Buscar Padrões (30s)</button>
+                        <button id="refreshBankBtn" class="refresh-bank-btn">Buscar Padrões</button>
                         <button id="resetBankBtn" class="reset-bank-btn">Resetar Padrões</button>
                     </div>
                 </div>
@@ -11879,7 +11910,7 @@ async function persistAnalyzerState(newState) {
                         <!-- ═══════════════════════════════════════════════════════ -->
                         <!-- NÍVEL DIAMANTE (IA): CONFIGURAR NÍVEIS -->
                         <!-- ═══════════════════════════════════════════════════════ -->
-                        <div class="setting-item setting-row" id="diamondLevelsContainer" style="margin-top: 20px; padding-top: 15px; border-top: 1px solid #333;">
+                        <div class="setting-item setting-row" id="diamondLevelsContainer" style="margin-top: 20px; padding-top: 0;">
                             <div class="hot-pattern-actions">
                                 <button id="diamondLevelsBtn" class="btn-hot-pattern btn-diamond-levels">
                                     Configurar Níveis
@@ -15148,6 +15179,33 @@ async function persistAnalyzerState(newState) {
         // Portanto: usar o MESMO cutoff da IA (entriesCutoffMs), sem depender de isMaster.
         let entriesByModeForChart = entriesByModeForIA;
 
+        // ✅ Pedido: a aba IA deve respeitar a profundidade REAL (historyDepth) no modo padrão.
+        // Podar qualquer entrada cujo timestamp REAL seja mais antigo que o giro mais velho dentro dos últimos N giros.
+        let depthInfoLabel = '';
+        try {
+            if (currentMode === 'standard') {
+                const rawDepth = latestAnalyzerConfig && latestAnalyzerConfig.historyDepth != null
+                    ? latestAnalyzerConfig.historyDepth
+                    : 500;
+                const depth = clampIntRange(rawDepth, 100, 10000);
+                const spinsArr = Array.isArray(currentHistoryData) ? currentHistoryData : [];
+                const oldestSpin = (spinsArr.length >= depth) ? spinsArr[depth - 1] : null;
+                const newestSpin = spinsArr.length ? spinsArr[0] : null;
+                const oldestTs = oldestSpin && oldestSpin.timestamp != null ? Number(oldestSpin.timestamp) : 0;
+                const newestTs = newestSpin && newestSpin.timestamp != null ? Number(newestSpin.timestamp) : 0;
+                if (Number.isFinite(oldestTs) && oldestTs > 0) {
+                    entriesByModeForIA = entriesByModeForIA.filter(e => getEntryRealTimestampMs(e) >= oldestTs);
+                    entriesByModeForChart = entriesByModeForChart.filter(e => getEntryRealTimestampMs(e) >= oldestTs);
+                }
+                if (Number.isFinite(oldestTs) && oldestTs > 0 && Number.isFinite(newestTs) && newestTs > oldestTs) {
+                    const span = formatCompactDurationFromMs(newestTs - oldestTs);
+                    depthInfoLabel = ` • Janela: ${depth} giros (~${span})`;
+                } else {
+                    depthInfoLabel = ` • Janela: ${depth} giros`;
+                }
+            }
+        } catch (_) {}
+
         // ✅ IA VIVA (HOLD):
         // - Após "Limpar", manter vazio e com a bolinha ATÉ o usuário clicar em "Analisar histórico".
         // - Porém, se chegaram NOVOS ciclos após o cutoff, o HOLD deve ser desligado automaticamente
@@ -15464,7 +15522,7 @@ async function persistAnalyzerState(newState) {
         
         // Mostrar placar WIN/LOSS com porcentagem e total de entradas
         const clearButtonHTML = `<button type="button" class="clear-entries-btn" id="clearEntriesBtn" title="Limpar histórico">Limpar</button>`;
-        hitEl.innerHTML = `<span class="win-score">WIN: ${wins}</span> <span class="loss-score">LOSS: ${losses}</span> <span class="percentage">(${pct}%)</span> <span class="total-entries">• Ciclos: ${totalEntries} ${clearButtonHTML}</span>`;
+        hitEl.innerHTML = `<span class="win-score">WIN: ${wins}</span> <span class="loss-score">LOSS: ${losses}</span> <span class="percentage">(${pct}%)</span> <span class="total-entries">• Ciclos: ${totalEntries}${depthInfoLabel} ${clearButtonHTML}</span>`;
         const inlineClearBtn = document.getElementById('clearEntriesBtn');
         if (inlineClearBtn) {
             inlineClearBtn.addEventListener('click', function(event) {
@@ -17624,34 +17682,29 @@ function logModeSnapshotUI(snapshot) {
             const status = request.data && request.data.status ? request.data.status : request.status;
             updateAnalysisStatus(status);
         } else if (request.type === 'INITIAL_SEARCH_START') {
-            // ✅ BUSCA DE PADRÕES (MODO PADRÃO) - EXIBIR APENAS NO BANCO DE PADRÕES
-            console.log('🔍 Busca inicial de padrões iniciada (30s)');
-            showBankProgressMessage('🔍 Buscando padrões... 30s restantes • 0/5000', { variant: 'info' });
+            // ✅ BUSCA DE PADRÕES (MODO PADRÃO) - progresso REAL (não por tempo)
+            console.log('🔍 Busca de padrões iniciada');
+            startBankSearchProgressUI();
         } else if (request.type === 'INITIAL_SEARCH_PROGRESS') {
-            // ✅ ATUALIZAR CRONÔMETRO DECRESCENTE NO BANCO DE PADRÕES
             const total = request.data.total || 0;
-            const remaining = request.data.remaining || 0;
-            const minutes = Math.floor(remaining / 60000);
-            const seconds = Math.floor((remaining % 60000) / 1000);
-            console.log(`🔍 Busca inicial: ${total}/5000 padrões | ${minutes}m ${seconds}s restantes`);
-            
-            showBankProgressMessage(`🔍 Buscando... ${minutes}m ${seconds}s • ${total}/5000`, { variant: 'info' });
+            const progress01 = (request.data && typeof request.data.progress01 === 'number')
+                ? request.data.progress01
+                : null;
+            if (progress01 != null) {
+                updateBankSearchProgressUIFromProgress(progress01);
+            }
             loadPatternBank(); // Atualizar UI do banco
         } else if (request.type === 'INITIAL_SEARCH_COMPLETE') {
             // ✅ BUSCA CONCLUÍDA
             const total = request.data.total || 0;
             console.log(`✅ Busca inicial concluída: ${total} padrões únicos encontrados!`);
-            
-            showBankProgressMessage(`✅ Busca concluída! ${total} padrão(ões) encontrados.`, {
-                variant: 'success',
-                autoHide: 5000
-            });
+            stopBankSearchProgressUI();
             loadPatternBank(); // Atualizar UI do banco
             
             // Reabilitar botão de busca
             const btn = document.getElementById('refreshBankBtn');
             if (btn) {
-                btn.textContent = 'Buscar Padrões (30s)';
+            btn.textContent = 'Buscar Padrões';
                 btn.disabled = false;
             }
         } else if (request.type === 'MODE_SNAPSHOT') {
@@ -18720,6 +18773,83 @@ function logModeSnapshotUI(snapshot) {
     }
 
     // ========== BANCO DE PADRÕES ==========
+
+    function clamp01(n) {
+        if (typeof n !== 'number' || Number.isNaN(n)) return 0;
+        return Math.max(0, Math.min(1, n));
+    }
+
+    function setBankCapacitySearchingUI(isSearching) {
+        const capacity = document.querySelector('.pattern-bank-section .bank-capacity');
+        const normalText = document.getElementById('bankCapacityText');
+        const searchingText = document.getElementById('bankCapacitySearchText');
+
+        if (!capacity || !normalText || !searchingText) return;
+
+        if (isSearching) {
+            capacity.classList.add('is-searching');
+            capacity.classList.remove('is-search-complete');
+            searchingText.hidden = false;
+            normalText.hidden = true;
+        } else {
+            capacity.classList.remove('is-searching');
+            searchingText.hidden = true;
+            normalText.hidden = false;
+        }
+    }
+
+    function setBankCapacitySearchCompleteUI(isComplete) {
+        const capacity = document.querySelector('.pattern-bank-section .bank-capacity');
+        if (!capacity) return;
+        if (isComplete) {
+            capacity.classList.remove('is-searching');
+            capacity.classList.add('is-search-complete');
+            setBankSearchProgress01(1);
+        } else {
+            capacity.classList.remove('is-search-complete');
+        }
+    }
+
+    function setBankSearchProgress01(progress01) {
+        const fill = document.getElementById('capacityFill');
+        if (!fill) return;
+        fill.style.width = `${clamp01(progress01) * 100}%`;
+    }
+
+    function startBankSearchProgressUI() {
+        bankSearchUiStartTime = Date.now();
+        bankSearchUiDurationMs = 0;
+        bankSearchUiActive = true;
+        bankSearchUiCompleted = false;
+
+        if (bankSearchUiTimer) {
+            clearInterval(bankSearchUiTimer);
+            bankSearchUiTimer = null;
+        }
+
+        setBankCapacitySearchingUI(true);
+        setBankCapacitySearchCompleteUI(false);
+        setBankSearchProgress01(0);
+    }
+
+    function updateBankSearchProgressUIFromProgress(progress01) {
+        if (!bankSearchUiActive) {
+            startBankSearchProgressUI();
+        }
+        setBankSearchProgress01(progress01);
+    }
+
+    function stopBankSearchProgressUI() {
+        bankSearchUiActive = false;
+        bankSearchUiCompleted = true;
+        if (bankSearchUiTimer) {
+            clearInterval(bankSearchUiTimer);
+            bankSearchUiTimer = null;
+        }
+        // ✅ Pedido: ao finalizar, manter a barra cheia e verde indicando conclusão
+        setBankCapacitySearchingUI(false);
+        setBankCapacitySearchCompleteUI(true);
+    }
     
     function showBankProgressMessage(message, options = {}) {
         const container = document.getElementById('bankProgress');
@@ -18780,7 +18910,12 @@ function logModeSnapshotUI(snapshot) {
         if (bankTotal) bankTotal.textContent = total;
         if (bankLimit) bankLimit.textContent = limit;
         if (bankPercent) bankPercent.textContent = percentage;
-        if (capacityFill) capacityFill.style.width = percentage + '%';
+        // ✅ Durante "Buscando padrões", a barrinha vira progresso por tempo (30s).
+        // Evita briga entre updatePatternBankUI e o timer da busca.
+        const capacityWrap = document.querySelector('.pattern-bank-section .bank-capacity');
+        const isSearching = !!capacityWrap && capacityWrap.classList.contains('is-searching');
+        const isSearchComplete = !!capacityWrap && capacityWrap.classList.contains('is-search-complete');
+        if (!isSearching && !isSearchComplete && capacityFill) capacityFill.style.width = percentage + '%';
         if (confHigh) confHigh.textContent = high;
         if (confMedium) confMedium.textContent = medium;
         if (confLow) confLow.textContent = low;
@@ -19623,7 +19758,7 @@ function logModeSnapshotUI(snapshot) {
             suppressAutoPatternSearch = false;
             autoPatternSearchTriggered = false;
             
-            // Enviar mensagem para background.js iniciar busca de 30s
+            // Enviar mensagem para background.js iniciar busca (encerra ao completar a varredura)
             chrome.runtime.sendMessage({ action: 'startPatternSearch' }, function(response) {
                 if (response && response.status === 'started') {
                     console.log('✅ Busca de padrões iniciada!');
@@ -19631,13 +19766,13 @@ function logModeSnapshotUI(snapshot) {
                 } else if (response && response.status === 'already_running') {
                     btn.textContent = 'Busca em andamento...';
                     setTimeout(function() {
-                        btn.textContent = 'Buscar Padrões (30s)';
+                        btn.textContent = 'Buscar Padrões';
                         btn.disabled = false;
                     }, 2000);
                 } else if (response && response.status === 'insufficient_data') {
                     btn.textContent = 'Histórico insuficiente';
                     setTimeout(function() {
-                        btn.textContent = 'Buscar Padrões (30s)';
+                        btn.textContent = 'Buscar Padrões';
                         btn.disabled = false;
                     }, 2000);
                 }
@@ -19647,15 +19782,17 @@ function logModeSnapshotUI(snapshot) {
         if (e.target && e.target.id === 'resetBankBtn') {
             e.preventDefault();
             const btn = e.target;
-            
-            // Confirmação antes de resetar
-            showCustomConfirm('Deseja realmente LIMPAR todos os padrões?\n\nEsta ação não pode ser desfeita.\n\nClique em OK para continuar.', btn).then(confirmar => {
-            if (!confirmar) return;
-            
+
+            // ✅ Pedido: resetar direto (sem modal de confirmação)
             btn.textContent = 'Resetando...';
             btn.disabled = true;
             suppressAutoPatternSearch = true;
             autoPatternSearchTriggered = true;
+            try {
+                // Reset visual do indicador de busca concluída
+                setBankCapacitySearchCompleteUI(false);
+                setBankSearchProgress01(0);
+            } catch (_) {}
             
                 console.log('%c🗑️ LIMPANDO PADRÕES DIRETAMENTE DO LOCALSTORAGE...', 'color: #FF0000; font-weight: bold; font-size: 14px;');
                 
@@ -19698,7 +19835,6 @@ function logModeSnapshotUI(snapshot) {
                         btn.disabled = false;
                     }, 2000);
                 }
-            });
         }
     });
 
