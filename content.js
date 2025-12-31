@@ -946,23 +946,32 @@
             } catch (_) {}
             
             // ✅ RE-RENDERIZAR ENTRADAS PARA FILTRAR POR MODO
-            chrome.storage.local.get(['entriesHistory'], function(res) {
-                if (res && res.entriesHistory) {
+            try {
+                const handleEntries = (entries) => {
+                    const list = Array.isArray(entries) ? entries : [];
                     console.log(`🔄 Re-renderizando entradas para modo ${newAIMode ? 'DIAMANTE' : 'PADRÃO'}...`);
-                    console.log(`   Total de entradas no histórico: ${res.entriesHistory.length}`);
-                    renderEntriesPanel(res.entriesHistory);
+                    console.log(`   Total de entradas no histórico: ${list.length}`);
+                    try { renderEntriesPanel(list); } catch (_) {}
+                    try { renderRecoveryPanel(list); } catch (_) {}
                     // ✅ Atualizar também o painel de saldo (Simulador) ao trocar de modo,
                     // mesmo que não chegue uma nova ENTRIES_UPDATE naquele instante.
                     try {
                         if (autoBetManager && typeof autoBetManager.handleEntriesUpdate === 'function') {
-                            autoBetManager.handleEntriesUpdate(res.entriesHistory);
+                            autoBetManager.handleEntriesUpdate(list);
                         }
                     } catch (_) {}
                     // ✅ Atualizar card dos Sinais de entrada ao trocar de modo (Premium/Diamante)
                     try { scheduleMasterSignalStatsRefresh(0); } catch (_) {}
                     console.log('✅ Entradas filtradas e exibidas!');
+                };
+                if (storageCompat && typeof storageCompat.get === 'function') {
+                    storageCompat.get(['entriesHistory']).then((res = {}) => handleEntries(res.entriesHistory)).catch(() => {});
+                } else {
+                    chrome.storage.local.get(['entriesHistory'], function(res) {
+                        handleEntries(res && res.entriesHistory);
+                    });
                 }
-            });
+            } catch (_) {}
             
             // Notificar background.js
             chrome.runtime.sendMessage({
@@ -1163,6 +1172,7 @@
     // ✅ FONTE ÚNICA DE VERDADE DO MODO (evitar inferir pelo DOM)
     // ═══════════════════════════════════════════════════════════════════════════════
     let lastKnownAiMode = null; // boolean | null
+    let lastKnownAiModeUpdatedAt = 0;
 
     function normalizeAiMode(value) {
         // Segurança: só aceitar boolean true; qualquer outra coisa => false
@@ -1172,6 +1182,11 @@
     function getCurrentAiModeFlag(configHint) {
         // 1) Preferir config explícita (storage/config carregado)
         if (configHint && typeof configHint === 'object' && typeof configHint.aiMode === 'boolean') {
+            const cfgTs = Number.isFinite(Number(configHint._clientUpdatedAt)) ? Number(configHint._clientUpdatedAt) : 0;
+            // Se a UI aplicou um modo mais recente do que o configHint (corrida), preferir o mais novo
+            if (typeof lastKnownAiMode === 'boolean' && lastKnownAiModeUpdatedAt > 0 && cfgTs > 0 && cfgTs < lastKnownAiModeUpdatedAt) {
+                return lastKnownAiMode;
+            }
             return configHint.aiMode;
         }
         // 2) Preferir último valor aplicado
@@ -1188,12 +1203,59 @@
 
     function applyAIModeUIState(isAIMode, toggleEl) {
         const active = !!isAIMode;
+        const now = Date.now();
         lastKnownAiMode = active;
+        lastKnownAiModeUpdatedAt = now;
+        // ✅ Manter cache de config alinhado com a UI (evita filtro usando modo antigo)
+        try {
+            if (latestAnalyzerConfig && typeof latestAnalyzerConfig === 'object') {
+                const prevTs = Number.isFinite(Number(latestAnalyzerConfig._clientUpdatedAt)) ? Number(latestAnalyzerConfig._clientUpdatedAt) : 0;
+                latestAnalyzerConfig = { ...latestAnalyzerConfig, aiMode: active, _clientUpdatedAt: Math.max(prevTs, now) };
+            } else {
+                latestAnalyzerConfig = { aiMode: active, _clientUpdatedAt: now };
+            }
+        } catch (_) {}
         try {
             const el = toggleEl || document.getElementById('aiModeToggle');
             if (el) updateAIModeUI(el, active);
         } catch (_) {}
         try { toggleAIConfigFields(active); } catch (_) {}
+        // ✅ Re-render imediato das telas dependentes do modo (IA/Recuperação/placar)
+        try { scheduleModeDependentPanelsRefresh(0); } catch (_) {}
+    }
+
+    // Debounce para refresh de painéis por modo (evita spam em múltiplas chamadas)
+    let modePanelsRefreshTimer = null;
+    function scheduleModeDependentPanelsRefresh(delayMs = 0) {
+        try {
+            if (modePanelsRefreshTimer) clearTimeout(modePanelsRefreshTimer);
+        } catch (_) {}
+        modePanelsRefreshTimer = setTimeout(() => {
+            modePanelsRefreshTimer = null;
+            // Preferir storageCompat (promises) para funcionar tanto no extension quanto no web/shim
+            try {
+                if (storageCompat && typeof storageCompat.get === 'function') {
+                    storageCompat.get(['entriesHistory']).then((res = {}) => {
+                        const list = res && Array.isArray(res.entriesHistory) ? res.entriesHistory : [];
+                        try { renderEntriesPanel(list); } catch (_) {}
+                        try { renderRecoveryPanel(list); } catch (_) {}
+                        try { scheduleMasterSignalStatsRefresh(0); } catch (_) {}
+                        try { loadObserverStats(); } catch (_) {}
+                    }).catch(() => {});
+                    return;
+                }
+            } catch (_) {}
+            // Fallback (callback)
+            try {
+                chrome.storage.local.get(['entriesHistory'], function(res) {
+                    const list = res && Array.isArray(res.entriesHistory) ? res.entriesHistory : [];
+                    try { renderEntriesPanel(list); } catch (_) {}
+                    try { renderRecoveryPanel(list); } catch (_) {}
+                    try { scheduleMasterSignalStatsRefresh(0); } catch (_) {}
+                    try { loadObserverStats(); } catch (_) {}
+                });
+            } catch (_) {}
+        }, Math.max(0, Number(delayMs) || 0));
     }
 
 
