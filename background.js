@@ -1789,25 +1789,38 @@ function applyUrlsConfigToApiConfig(urls) {
     }
 }
 
-// URLs conhecidas para auto-discovery
-const KNOWN_API_ORIGINS = {
+// Fallback (primeiro acesso/sem cache). Depois do primeiro sync, vem do banco via /api/site/urls.
+const FALLBACK_ORIGINS = {
     auth: [
-        'https://blaze-analyzer-api-v2-p9xb.onrender.com',  // Render 2 (atual)
-        'https://blaze-analyzer-api-v2.onrender.com',        // Render 1
+        'https://blaze-analyzer-api-v2-p9xb.onrender.com',
+        'https://blaze-analyzer-api-v2.onrender.com'
     ],
     giros: [
-        'https://blaze-giros-api-v2-7t0l.onrender.com',      // Render 2 (atual)
-        'https://blaze-giros-api-v2-1.onrender.com',         // Render 1
+        'https://blaze-giros-api-v2-7t0l.onrender.com',
+        'https://blaze-giros-api-v2-1.onrender.com'
     ]
 };
+
+function getCandidateAuthOrigins(cfg) {
+    const fromArray = Array.isArray(cfg?.authApiOrigins) ? cfg.authApiOrigins : [];
+    const fromServers = Array.isArray(cfg?.servers) ? cfg.servers.map((s) => s?.authOrigin) : [];
+    const combined = [...fromArray, ...fromServers, ...FALLBACK_ORIGINS.auth]
+        .map(normalizeOrigin)
+        .filter(Boolean);
+    return [...new Set(combined)];
+}
 
 // Busca URLs de um servidor específico
 async function fetchUrlsFrom(origin) {
     try {
-        const resp = await fetch(`${origin}/api/site/urls`, { 
-            cache: 'no-store',
-            signal: AbortSignal.timeout(5000)
-        });
+        const url = `${origin}/api/site/urls`;
+        const controller = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+        const timeoutId = controller ? setTimeout(() => controller.abort(), 5000) : null;
+
+        const resp = await fetch(url, controller
+            ? { cache: 'no-store', signal: controller.signal }
+            : { cache: 'no-store' }
+        ).finally(() => { if (timeoutId) clearTimeout(timeoutId); });
         if (!resp.ok) return null;
         const data = await resp.json();
         return data.success && data.urls ? data.urls : null;
@@ -1818,23 +1831,15 @@ async function fetchUrlsFrom(origin) {
 
 // Auto-Discovery: tenta todos os servidores conhecidos
 async function autoDiscoverUrls() {
-    // 1. Tenta usar URLs salvas localmente
+    let cached = null;
     try {
-        const cached = await loadUrlsConfig();
-        if (cached?.authApiOrigins?.[0]) {
-            const urls = await fetchUrlsFrom(cached.authApiOrigins[0]);
-            if (urls) {
-                return urls;
-            }
-        }
+        cached = await loadUrlsConfig();
     } catch (_) {}
 
-    // 2. Tenta cada servidor conhecido
-    for (const origin of KNOWN_API_ORIGINS.auth) {
+    const candidates = getCandidateAuthOrigins(cached);
+    for (const origin of candidates) {
         const urls = await fetchUrlsFrom(origin);
-        if (urls) {
-            return urls;
-        }
+        if (urls) return urls;
     }
 
     return null;
@@ -1847,10 +1852,18 @@ async function refreshUrlsFromServer() {
         if (!authOrigin) return;
         
         // Tenta a URL configurada primeiro
-        let resp = await fetch(`${authOrigin}/api/site/urls`, { 
-            cache: 'no-store',
-            signal: AbortSignal.timeout(5000)
-        }).catch(() => null);
+        const configUrl = `${authOrigin}/api/site/urls`;
+        let resp = null;
+        try {
+            const controller = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+            const timeoutId = controller ? setTimeout(() => controller.abort(), 5000) : null;
+            resp = await fetch(configUrl, controller
+                ? { cache: 'no-store', signal: controller.signal }
+                : { cache: 'no-store' }
+            ).finally(() => { if (timeoutId) clearTimeout(timeoutId); });
+        } catch (_) {
+            resp = null;
+        }
         
         // Se falhar, faz auto-discovery
         if (!resp || !resp.ok) {
@@ -1860,7 +1873,10 @@ async function refreshUrlsFromServer() {
                 const merged = {
                     authApiOrigins: Array.isArray(urls.authApiOrigins) ? urls.authApiOrigins.map(normalizeOrigin).filter(Boolean) : [],
                     girosApiOrigins: Array.isArray(urls.girosApiOrigins) ? urls.girosApiOrigins.map(normalizeOrigin).filter(Boolean) : [],
-                    girosWsOrigins: Array.isArray(urls.girosWsOrigins) ? urls.girosWsOrigins.map(normalizeWs).filter(Boolean) : []
+                    girosWsOrigins: Array.isArray(urls.girosWsOrigins) ? urls.girosWsOrigins.map(normalizeWs).filter(Boolean) : [],
+                    servers: Array.isArray(urls.servers) ? urls.servers : [],
+                    activeServerId: String(urls.activeServerId || '').trim() || null,
+                    updatedAt: urls.updatedAt || null
                 };
                 if (merged.authApiOrigins.length || merged.girosApiOrigins.length || merged.girosWsOrigins.length) {
                     await saveUrlsConfig(merged);
@@ -1878,7 +1894,10 @@ async function refreshUrlsFromServer() {
         const merged = {
             authApiOrigins: Array.isArray(urls.authApiOrigins) ? urls.authApiOrigins.map(normalizeOrigin).filter(Boolean) : [],
             girosApiOrigins: Array.isArray(urls.girosApiOrigins) ? urls.girosApiOrigins.map(normalizeOrigin).filter(Boolean) : [],
-            girosWsOrigins: Array.isArray(urls.girosWsOrigins) ? urls.girosWsOrigins.map(normalizeWs).filter(Boolean) : []
+            girosWsOrigins: Array.isArray(urls.girosWsOrigins) ? urls.girosWsOrigins.map(normalizeWs).filter(Boolean) : [],
+            servers: Array.isArray(urls.servers) ? urls.servers : [],
+            activeServerId: String(urls.activeServerId || '').trim() || null,
+            updatedAt: urls.updatedAt || null
         };
         if (merged.authApiOrigins.length || merged.girosApiOrigins.length || merged.girosWsOrigins.length) {
             await saveUrlsConfig(merged);
@@ -2118,9 +2137,13 @@ function startPollingFallback() {
     pollingInterval = setInterval(async () => {
         try {
             // Buscar último giro do servidor
-            const response = await fetch(`${API_CONFIG.baseURL}/api/giros/latest`, {
-                signal: AbortSignal.timeout(5000)
-            });
+            {
+                const url = `${API_CONFIG.baseURL}/api/giros/latest`;
+                const controller = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+                const timeoutId = controller ? setTimeout(() => controller.abort(), 5000) : null;
+                var response = await fetch(url, controller ? { signal: controller.signal } : undefined)
+                    .finally(() => { if (timeoutId) clearTimeout(timeoutId); });
+            }
             
             if (response.ok) {
                 const data = await response.json();
@@ -3599,9 +3622,13 @@ function stopDataCollection() {
 async function collectDoubleData() {
     try {
         // Buscar último giro do SERVIDOR
-        const response = await fetch(`${API_CONFIG.baseURL}/api/giros/latest`, {
-            signal: AbortSignal.timeout(5000) // Timeout de 5s
-        });
+        {
+            const url = `${API_CONFIG.baseURL}/api/giros/latest`;
+            const controller = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+            const timeoutId = controller ? setTimeout(() => controller.abort(), 5000) : null;
+            var response = await fetch(url, controller ? { signal: controller.signal } : undefined)
+                .finally(() => { if (timeoutId) clearTimeout(timeoutId); });
+        }
         
         if (!response.ok) {
             // Se servidor offline, tenta buscar direto da Blaze (fallback)

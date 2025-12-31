@@ -2060,10 +2060,11 @@
 
         const URLS_LOCAL_KEY = 'da_urls_v1';
         
-        // Lista de todas as URLs possíveis (Render 1, Render 2, etc)
-        const KNOWN_API_ORIGINS = [
-            'https://blaze-analyzer-api-v2-p9xb.onrender.com',  // Render 2 (atual)
-            'https://blaze-analyzer-api-v2.onrender.com',        // Render 1
+        // Fallback (primeiro acesso/sem cache).
+        // Após 1 sync, a lista real vem do banco via /api/site/urls (authApiOrigins).
+        const FALLBACK_AUTH_ORIGINS = [
+            'https://blaze-analyzer-api-v2-p9xb.onrender.com',
+            'https://blaze-analyzer-api-v2.onrender.com'
         ];
 
         function normalizeOrigin(raw) {
@@ -2071,6 +2072,15 @@
             if (!v) return '';
             const withoutApi = v.replace(/\/api\/?$/i, '');
             return withoutApi.replace(/\/+$/, '');
+        }
+
+        function getCandidateAuthOrigins(cfg) {
+            const fromArray = Array.isArray(cfg?.authApiOrigins) ? cfg.authApiOrigins : [];
+            const fromServers = Array.isArray(cfg?.servers) ? cfg.servers.map((s) => s?.authOrigin) : [];
+            const combined = [...fromArray, ...fromServers, ...FALLBACK_AUTH_ORIGINS]
+                .map(normalizeOrigin)
+                .filter(Boolean);
+            return [...new Set(combined)];
         }
 
         function loadUrlsLocal() {
@@ -2085,10 +2095,14 @@
         // Tenta buscar URLs de um servidor específico
         async function fetchUrlsFrom(origin) {
             try {
-                const resp = await fetch(`${origin}/api/site/urls`, { 
-                    cache: 'no-store',
-                    signal: AbortSignal.timeout(5000) // timeout de 5s
-                });
+                const url = `${origin}/api/site/urls`;
+                const controller = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+                const timeoutId = controller ? setTimeout(() => controller.abort(), 5000) : null;
+
+                const resp = await fetch(url, controller
+                    ? { cache: 'no-store', signal: controller.signal }
+                    : { cache: 'no-store' }
+                ).finally(() => { if (timeoutId) clearTimeout(timeoutId); });
                 if (!resp.ok) return null;
                 const data = await resp.json();
                 if (!data.success || !data.urls) return null;
@@ -2102,21 +2116,11 @@
         async function autoDiscoverUrls() {
             console.log('🔍 Iniciando auto-discovery de URLs...');
             
-            // 1. Tenta usar URLs salvas localmente
             const cached = loadUrlsLocal();
-            if (cached?.authApiOrigins?.[0]) {
-                console.log('✅ Usando URLs do cache local');
-                const urls = await fetchUrlsFrom(cached.authApiOrigins[0]);
-                if (urls) {
-                    console.log('✅ URLs do cache confirmadas e atualizadas');
-                    saveUrlsLocal(urls);
-                    return urls;
-                }
-                console.log('⚠️ URLs do cache não respondem, tentando descobrir...');
-            }
+            const candidates = getCandidateAuthOrigins(cached);
 
-            // 2. Tenta cada servidor conhecido
-            for (const origin of KNOWN_API_ORIGINS) {
+            // Tenta cada origin conhecida (cache + banco + fallback)
+            for (const origin of candidates) {
                 console.log(`🔍 Testando: ${origin}`);
                 const urls = await fetchUrlsFrom(origin);
                 if (urls) {
@@ -2126,18 +2130,19 @@
                 }
             }
 
-            // 3. Nenhum servidor respondeu - usa cache local se existir
-            if (cached?.authApiOrigins?.[0]) {
-                console.log('⚠️ Nenhum servidor disponível, usando cache local');
+            // Nenhum servidor respondeu: devolver cache (se houver) ou fallback
+            if (cached) {
+                console.log('⚠️ Nenhum servidor respondeu, usando cache local');
                 return cached;
             }
 
-            // 4. Sem cache e sem servidor - usa primeiro da lista como fallback
-            console.log('⚠️ Usando fallback padrão');
+            console.log('⚠️ Sem cache e sem servidor — usando fallback padrão');
             return {
-                authApiOrigins: [KNOWN_API_ORIGINS[0]],
+                authApiOrigins: [FALLBACK_AUTH_ORIGINS[0]],
                 girosApiOrigins: [],
-                girosWsOrigins: []
+                girosWsOrigins: [],
+                servers: [],
+                activeServerId: null
             };
         }
 
@@ -2145,7 +2150,19 @@
             const merged = {
                 authApiOrigins: Array.isArray(urls.authApiOrigins) ? urls.authApiOrigins.map(normalizeOrigin).filter(Boolean) : [],
                 girosApiOrigins: Array.isArray(urls.girosApiOrigins) ? urls.girosApiOrigins.map(normalizeOrigin).filter(Boolean) : [],
-                girosWsOrigins: Array.isArray(urls.girosWsOrigins) ? urls.girosWsOrigins.map((v) => String(v || '').trim()).filter(Boolean) : []
+                girosWsOrigins: Array.isArray(urls.girosWsOrigins) ? urls.girosWsOrigins.map((v) => String(v || '').trim()).filter(Boolean) : [],
+                servers: Array.isArray(urls.servers)
+                    ? urls.servers.map((s) => ({
+                        id: String(s?.id || '').trim(),
+                        name: String(s?.name || '').trim(),
+                        authOrigin: normalizeOrigin(s?.authOrigin),
+                        girosOrigin: normalizeOrigin(s?.girosOrigin),
+                        girosWsOrigin: String(s?.girosWsOrigin || '').trim(),
+                        enabled: s?.enabled === false ? false : true
+                    }))
+                    : [],
+                activeServerId: String(urls.activeServerId || '').trim() || null,
+                updatedAt: urls.updatedAt || null
             };
             if (merged.authApiOrigins.length || merged.girosApiOrigins.length || merged.girosWsOrigins.length) {
                 localStorage.setItem(URLS_LOCAL_KEY, JSON.stringify(merged));
@@ -2158,7 +2175,7 @@
 
         async function initializeUrls() {
             const urls = await autoDiscoverUrls();
-            const authOrigin = normalizeOrigin(urls.authApiOrigins?.[0]) || normalizeOrigin(KNOWN_API_ORIGINS[0]);
+            const authOrigin = normalizeOrigin(urls.authApiOrigins?.[0]) || normalizeOrigin(FALLBACK_AUTH_ORIGINS[0]);
             API_URL = `${authOrigin}/api`;
             urlsReady = true;
             console.log(`✅ API configurada: ${API_URL}`);

@@ -7670,25 +7670,25 @@ function enforceSignalIntensityAvailability(options = {}) {
       
       const URLS_LOCAL_KEY = 'da_urls_v1';
       
-      // URLs conhecidas para auto-discovery
-      const KNOWN_API_ORIGINS = {
+      // Fallback (primeiro acesso/sem cache). Depois do primeiro sync, vem do banco via /api/site/urls.
+      const FALLBACK_ORIGINS = {
           auth: [
-              'https://blaze-analyzer-api-v2-p9xb.onrender.com',  // Render 2 (atual)
-              'https://blaze-analyzer-api-v2.onrender.com',        // Render 1
+              'https://blaze-analyzer-api-v2-p9xb.onrender.com',
+              'https://blaze-analyzer-api-v2.onrender.com'
           ],
           giros: [
-              'https://blaze-giros-api-v2-7t0l.onrender.com',      // Render 2 (atual)
-              'https://blaze-giros-api-v2-1.onrender.com',         // Render 1
+              'https://blaze-giros-api-v2-7t0l.onrender.com',
+              'https://blaze-giros-api-v2-1.onrender.com'
           ]
       };
       
       const API_URLS = {
           giros: window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
               ? 'http://localhost:3001'
-              : KNOWN_API_ORIGINS.giros[0],
+              : FALLBACK_ORIGINS.giros[0],
           auth: window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
               ? 'http://localhost:3000'
-              : KNOWN_API_ORIGINS.auth[0]
+              : FALLBACK_ORIGINS.auth[0]
       };
 
       function normalizeOrigin(raw) {
@@ -7697,14 +7697,27 @@ function enforceSignalIntensityAvailability(options = {}) {
           const withoutApi = v.replace(/\/api\/?$/i, '');
           return withoutApi.replace(/\/+$/, '');
       }
+
+      function getCandidateAuthOrigins(cfg) {
+          const fromArray = Array.isArray(cfg?.authApiOrigins) ? cfg.authApiOrigins : [];
+          const fromServers = Array.isArray(cfg?.servers) ? cfg.servers.map((s) => s?.authOrigin) : [];
+          const combined = [...fromArray, ...fromServers, ...FALLBACK_ORIGINS.auth]
+              .map(normalizeOrigin)
+              .filter(Boolean);
+          return [...new Set(combined)];
+      }
       
       // Busca URLs de um servidor específico
       async function fetchUrlsFrom(origin) {
           try {
-              const resp = await fetch(`${origin}/api/site/urls`, { 
-                  cache: 'no-store',
-                  signal: AbortSignal.timeout(5000)
-              });
+              const url = `${origin}/api/site/urls`;
+              const controller = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+              const timeoutId = controller ? setTimeout(() => controller.abort(), 5000) : null;
+
+              const resp = await fetch(url, controller
+                  ? { cache: 'no-store', signal: controller.signal }
+                  : { cache: 'no-store' }
+              ).finally(() => { if (timeoutId) clearTimeout(timeoutId); });
               if (!resp.ok) return null;
               const data = await resp.json();
               return data.success && data.urls ? data.urls : null;
@@ -7720,21 +7733,14 @@ function enforceSignalIntensityAvailability(options = {}) {
               return null;
           }
           
-          // 1. Tenta usar URLs salvas localmente
+          let cached = null;
           try {
               const raw = localStorage.getItem(URLS_LOCAL_KEY);
-              const cached = raw ? JSON.parse(raw) : null;
-              if (cached?.authApiOrigins?.[0]) {
-                  const urls = await fetchUrlsFrom(cached.authApiOrigins[0]);
-                  if (urls) {
-                      saveUrlsLocal(urls);
-                      return urls;
-                  }
-              }
+              cached = raw ? JSON.parse(raw) : null;
           } catch (_) {}
 
-          // 2. Tenta cada servidor conhecido
-          for (const origin of KNOWN_API_ORIGINS.auth) {
+          const candidates = getCandidateAuthOrigins(cached);
+          for (const origin of candidates) {
               const urls = await fetchUrlsFrom(origin);
               if (urls) {
                   saveUrlsLocal(urls);
@@ -7750,11 +7756,30 @@ function enforceSignalIntensityAvailability(options = {}) {
               const merged = {
                   authApiOrigins: Array.isArray(urls.authApiOrigins) ? urls.authApiOrigins.map(normalizeOrigin).filter(Boolean) : [],
                   girosApiOrigins: Array.isArray(urls.girosApiOrigins) ? urls.girosApiOrigins.map(normalizeOrigin).filter(Boolean) : [],
-                  girosWsOrigins: Array.isArray(urls.girosWsOrigins) ? urls.girosWsOrigins.map((v) => String(v || '').trim()).filter(Boolean) : []
+                  girosWsOrigins: Array.isArray(urls.girosWsOrigins) ? urls.girosWsOrigins.map((v) => String(v || '').trim()).filter(Boolean) : [],
+                  servers: Array.isArray(urls.servers)
+                      ? urls.servers.map((s) => ({
+                          id: String(s?.id || '').trim(),
+                          name: String(s?.name || '').trim(),
+                          authOrigin: normalizeOrigin(s?.authOrigin),
+                          girosOrigin: normalizeOrigin(s?.girosOrigin),
+                          girosWsOrigin: String(s?.girosWsOrigin || '').trim(),
+                          enabled: s?.enabled === false ? false : true
+                      }))
+                      : [],
+                  activeServerId: String(urls.activeServerId || '').trim() || null,
+                  updatedAt: urls.updatedAt || null
               };
               if (merged.authApiOrigins.length || merged.girosApiOrigins.length || merged.girosWsOrigins.length) {
                   localStorage.setItem(URLS_LOCAL_KEY, JSON.stringify(merged));
               }
+
+              // Na extensão, também tentar persistir em chrome.storage.local
+              try {
+                  if (typeof chrome !== 'undefined' && chrome.storage?.local?.set) {
+                      chrome.storage.local.set({ [URLS_LOCAL_KEY]: merged }, () => {});
+                  }
+              } catch (_) {}
           } catch (_) {}
       }
 
@@ -17726,7 +17751,7 @@ function logModeSnapshotUI(snapshot) {
                 headers: {
                     'Authorization': `Bearer ${token}`
                 },
-                signal: AbortSignal.timeout(5000) // Timeout de 5 segundos
+                signal: getTimeoutSignal(5000) // Timeout de 5 segundos (compat)
             });
             
             if (response.ok) {
