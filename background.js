@@ -617,11 +617,12 @@ let memoriaAtivaInicializando = false;  // Flag para evitar inicializações sim
 // Runtime analyzer configuration (overridable via chrome.storage.local)
 // ✅ CONFIGURAÇÕES PADRÃO OTIMIZADAS (Modo de Análise Padrão do Sistema)
 const DEFAULT_ANALYZER_CONFIG = {
-    historyDepth: 500,            // ✅ profundidade de análise em giros (100-10000) - MODO PADRÃO
+    // ✅ Defaults oficiais do Premium (mesmos do botão "Redefinir configurações" no site)
+    historyDepth: 3000,           // profundidade de análise em giros (100-10000) - MODO PADRÃO
     minOccurrences: 2,            // ✅ quantidade mínima de WINS exigida (padrão: 2) - MODO PADRÃO
     maxOccurrences: 0,            // ✅ quantidade MÁXIMA de ocorrências (0 = sem limite)
     minIntervalSpins: 2,          // ✅ intervalo mínimo em GIROS entre OCORRÊNCIAS do MESMO padrão (modo padrão)
-    minPatternSize: 3,            // ✅ tamanho MÍNIMO do padrão (giros)
+    minPatternSize: 4,            // ✅ tamanho MÍNIMO do padrão (giros)
     maxPatternSize: 0,            // ✅ tamanho MÁXIMO do padrão (0 = sem limite)
     winPercentOthers: 100,        // ✅ WIN% mínima para as ocorrências restantes (100% = apenas padrões perfeitos)
     requireTrigger: true,         // ✅ exigir cor de disparo (ATIVADO)
@@ -653,7 +654,7 @@ const DEFAULT_ANALYZER_CONFIG = {
         n3ThresholdPct: 75,       // (LEGADO) N3 - Alternância (rigor da janela) — não usado
         n3AllowBackoff: false,    // N3 - Alternância (tentar janelas menores se não houver dados)
         n3IgnoreWhite: false,     // N3 - Alternância (ignorar previsões de branco)
-        n4Persistence: 2000,      // N4 - Autointeligente (histórico analisado em giros)
+        n4Persistence: 500,       // N4 - Autointeligente (histórico analisado em giros) ✅ default oficial (print)
         n4DynamicGales: true,     // N4 - Permitir mudar a cor no Gale (G1/G2) quando estiver rodando "somente N4"
         n5MinuteBias: 60,         // N5 - Ritmo por Giro / Minuto
         n6RetracementWindow: 80,  // N6 - Retração Histórica (janela de análise)
@@ -668,7 +669,7 @@ const DEFAULT_ANALYZER_CONFIG = {
         // N10 - Walk-forward Não-Sobreposto (janela em giros e histórico base)
         n10Window: 20,            // Tamanho da janela NÃO-SOBREPOSTA (W)
         n10History: 500,          // Quantidade de giros usados no walk-forward
-        n10Analyses: 1000,        // Quantidade alvo de estratégias/variações testadas
+        n10Analyses: 600,         // Quantidade alvo de estratégias/variações testadas
         n10MinWindows: 8,         // Número mínimo de janelas com predição para ser elegível
         n10ConfMin: 60            // Confiança mínima global (%) para N10 votar
     },
@@ -1099,6 +1100,8 @@ function mergeAnalyzerConfig(overrides = {}) {
         standard: { ...(defaults.standard || {}), ...(overrideProfiles.standard || {}) },
         diamond: { ...(defaults.diamond || {}), ...(overrideProfiles.diamond || {}) }
     };
+    // ✅ Intensidade removida (por enquanto): travar sempre em "aggressive"
+    analyzerConfig.signalIntensity = 'aggressive';
     const defaultEnabled = DEFAULT_ANALYZER_CONFIG.diamondLevelEnabled || {};
     const overrideEnabled = (overrides && overrides.diamondLevelEnabled) || {};
     analyzerConfig.diamondLevelEnabled = {};
@@ -6416,7 +6419,8 @@ function evaluateN4WindowOnCachedHistory({ historyMostRecentFirst, windowSize, c
 
     const { maxGales: maxGalesRaw } = getMartingaleSettings('diamond', cfg);
     const maxGales = Math.max(0, Math.min(2, Math.floor(Number(maxGalesRaw) || 0)));
-    const signalIntensity = (cfg && cfg.signalIntensity === 'conservative') ? 'conservative' : 'aggressive';
+    // ✅ Intensidade removida (por enquanto): travar sempre em "aggressive"
+    const signalIntensity = 'aggressive';
     const whiteProtectionAsWin = !!cfg.whiteProtectionAsWin;
     const dynamicGales = shouldUseN4DynamicGalesForConfig(cfg);
 
@@ -10907,6 +10911,8 @@ function validateSequenceBarrier(history, predictedColor, configuredSize, altern
     console.log(`   📊 Maior sequência de ${predictedColor.toUpperCase()} encontrada: ${maxStreakFound} giro(s)`);
     
     let allowed = targetStreak <= maxStreakFound;
+    let gapRuleBlocked = false;
+    const safetyGapRequired = targetStreak >= 4;
 
     // ✅ Ajuste para WHITE:
     // - Se estamos tentando apenas "1 WHITE" (targetStreak=1), não faz sentido bloquear só porque a janela recente
@@ -10915,12 +10921,25 @@ function validateSequenceBarrier(history, predictedColor, configuredSize, altern
         allowed = true;
     }
 
+    // ✅ NOVA REGRA (pedido): acima de 4, exigir sempre "folga" de 1 no máximo histórico.
+    // - alvo 1..3 pode encostar no máximo (alvo == máx)
+    // - alvo >=4 NÃO pode encostar: precisa alvo <= (máx - 1)
+    if (allowed && safetyGapRequired) {
+        const gap = maxStreakFound - targetStreak; // 0 = encosta, 1+ = tem folga
+        if (gap < 1) {
+            allowed = false;
+            gapRuleBlocked = true;
+        }
+    }
+
     let alternanceBlocked = false;
     let reasonText;
     if (allowed) {
         reasonText = (predictedColor === 'white' && targetStreak === 1 && maxStreakFound === 0)
             ? `✅ Sequência de 1 ${predictedColor} permitida (sem precedente na janela)`
-            : `✅ Sequência de ${targetStreak} ${predictedColor} já aconteceu ${maxStreakFound >= targetStreak ? 'antes' : ''}`;
+            : `✅ Sequência de ${targetStreak} ${predictedColor} já aconteceu`;
+    } else if (gapRuleBlocked) {
+        reasonText = `❌ Segurança: alvo ${targetStreak} encosta no máximo histórico (${maxStreakFound}). Exigir folga mínima de 1 para alvo ≥ 4.`;
     } else {
         reasonText = `❌ Sequência de ${targetStreak} ${predictedColor} NUNCA aconteceu (máx: ${maxStreakFound})`;
     }
@@ -10952,7 +10971,9 @@ function validateSequenceBarrier(history, predictedColor, configuredSize, altern
         targetStreak: targetStreak,
         maxStreakFound: maxStreakFound,
         reason: reasonText,
-        alternanceBlocked
+        alternanceBlocked,
+        gapRuleBlocked,
+        safetyGapRequired
     };
 }
 
@@ -17354,7 +17375,8 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
             const alternanceSummaryText = nivel7 && nivel7.details ? nivel7.details : 'Alternância em análise';
             barrierDetailsText = barrierResult.alternanceBlocked
             ? `Alternância bloqueada • ${alternanceSummaryText}`
-            : `Atual ${barrierResult.currentStreak} • alvo ${barrierResult.targetStreak} • máx ${barrierResult.maxStreakFound}`;
+            : `Atual ${barrierResult.currentStreak} • alvo ${barrierResult.targetStreak} • máx ${barrierResult.maxStreakFound}` +
+                (barrierResult.gapRuleBlocked ? ' (sem folga)' : '');
 
         // 🔥 VERIFICAR SE ALTERNÂNCIA ESTÁ BLOQUEADA
         if (alternanceBlocked && alternanceOverrideActive) {
@@ -17463,7 +17485,8 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
         }
         let scoreMagnitude = Math.abs(normalizedScore);
 
-        let signalIntensity = analyzerConfig.signalIntensity === 'conservative' ? 'conservative' : 'aggressive';
+        // ✅ Intensidade removida (por enquanto): travar sempre em "aggressive"
+        let signalIntensity = 'aggressive';
         const votingLevelIds = ['N1','N2','N3','N4','N5','N6','N7','N8'];
         const allVotingLevelsEnabled = votingLevelIds.every(id => diamondLevelEnabledMap[id]);
 
@@ -30179,7 +30202,8 @@ function analyzeDiamondLevelsSimulation(history, config, simState) {
     }
 
     // Intensidade
-    let signalIntensity = config.signalIntensity === 'conservative' ? 'conservative' : 'aggressive';
+    // ✅ Intensidade removida (por enquanto): travar sempre em "aggressive"
+    let signalIntensity = 'aggressive';
     const votingLevelIds = ['N1','N2','N3','N4','N5','N6','N7','N8'];
     const allVotingLevelsEnabled = votingLevelIds.every(id => diamondLevelEnabledMap[id]);
     if (signalIntensity === 'conservative' && !allVotingLevelsEnabled) {

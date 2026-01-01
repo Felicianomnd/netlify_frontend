@@ -1095,25 +1095,7 @@
             }
         }
         
-        // ✅ CONTROLES DO MODO DIAMANTE: visíveis apenas quando IA estiver ativa
-        const diamondLevelsContainer = document.getElementById('diamondLevelsContainer');
-        if (diamondLevelsContainer) {
-            diamondLevelsContainer.style.display = isAIMode ? '' : 'none';
-        }
-        
-        // ✅ INTENSIDADE DE SINAIS: Visível apenas no Nível Diamante
-        const signalIntensityContainer = document.getElementById('signalIntensityContainer');
-        if (signalIntensityContainer) {
-            if (isAIMode) {
-                // Modo Diamante: MOSTRAR seletor de intensidade
-                signalIntensityContainer.style.display = '';
-                console.log('🎚️ Seletor de Intensidade de Sinais visível (Modo Nível Diamante)');
-            } else {
-                // Modo Padrão: OCULTAR seletor de intensidade
-                signalIntensityContainer.style.display = 'none';
-                console.log('🔒 Seletor de Intensidade de Sinais oculto (Modo Padrão)');
-            }
-        }
+        // ✅ IA: Configurar níveis é acessado pelo header do accordion (1 clique).
 
         
     }
@@ -1356,7 +1338,8 @@ const DIAMOND_LEVEL_DEFAULTS = {
     n3MinOccurrences: 3,
     n3AllowBackoff: false,
     n3IgnoreWhite: false,
-    n4Persistence: 2000,
+    // ✅ Default oficial (print): 500 giros
+    n4Persistence: 500,
     // ✅ N4: permitir mudar a cor no Gale (G1/G2) quando estiver rodando "somente N4"
     n4DynamicGales: true,
     n5MinuteBias: 60,
@@ -4199,13 +4182,11 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
             if (!toggle.dataset.listenerAttached) {
                 toggle.addEventListener('change', () => {
                     updateDiamondLevelToggleVisual(toggle);
-                    enforceSignalIntensityAvailability();
                 });
                 toggle.dataset.listenerAttached = '1';
             }
             updateDiamondLevelToggleVisual(toggle);
         });
-        enforceSignalIntensityAvailability();
     }
 
     function refreshDiamondLevelToggleStates() {
@@ -6015,10 +5996,8 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
 
         const storageData = await storageCompat.get(['analyzerConfig']);
         const currentConfig = storageData.analyzerConfig || {};
-        const signalIntensitySelect = document.getElementById('signalIntensitySelect');
-        const signalIntensity = signalIntensitySelect
-            ? (signalIntensitySelect.value === 'conservative' ? 'conservative' : 'aggressive')
-            : (currentConfig.signalIntensity === 'conservative' ? 'conservative' : 'aggressive');
+        // ✅ Intensidade removida (por enquanto). Travar sempre em Agressivo.
+        const signalIntensity = 'aggressive';
 
         // ✅ Incluir MARTINGALE + AUTO-BET no snapshot (para o teste refletir o modo real)
         const baseProfiles = sanitizeMartingaleProfilesFromConfig(currentConfig);
@@ -6627,19 +6606,8 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
         }
     }
 
-const VOTING_LEVEL_DOM_IDS = ['N1','N2','N3','N4','N5','N6','N7','N8'];
-const VOTING_LEVEL_CONFIG_KEYS = ['n1','n2','n3','n4','n5','n6','n7','n8'];
 let latestAnalyzerConfig = null;
-
-function areAllVotingLevelsEnabledFromConfig(config) {
-    const enabledMap = (config && config.diamondLevelEnabled) || {};
-    return VOTING_LEVEL_CONFIG_KEYS.every(key => {
-        if (Object.prototype.hasOwnProperty.call(enabledMap, key)) {
-            return !!enabledMap[key];
-        }
-        return !!DIAMOND_LEVEL_ENABLE_DEFAULTS[key];
-    });
-}
+// ✅ Intensidade de Sinais removida (por enquanto).
 
 function showCenteredNotice(message, options = {}) {
     const existing = document.getElementById('centeredNotice');
@@ -6699,172 +6667,7 @@ function showCenteredNotice(message, options = {}) {
     }
 }
 
-function areAllVotingLevelsEnabled() {
-    const domDisabled = getDisabledVotingLevelsFromDOM();
-    if (domDisabled) {
-        return domDisabled.length === 0;
-    }
-    return getDisabledVotingLevelsFromConfig(latestAnalyzerConfig).length === 0;
-}
-
-function getDisabledVotingLevelsFromConfig(config) {
-    const enabledMap = (config && config.diamondLevelEnabled) || {};
-    const disabled = [];
-    VOTING_LEVEL_CONFIG_KEYS.forEach((key, idx) => {
-        const enabled = Object.prototype.hasOwnProperty.call(enabledMap, key)
-            ? !!enabledMap[key]
-            : !!DIAMOND_LEVEL_ENABLE_DEFAULTS[key];
-        if (!enabled) {
-            disabled.push(VOTING_LEVEL_DOM_IDS[idx]);
-        }
-    });
-    return disabled;
-}
-
-function getDisabledVotingLevelsFromDOM() {
-    let domFound = false;
-    const disabled = [];
-    VOTING_LEVEL_DOM_IDS.forEach(levelId => {
-        const checkbox = document.getElementById(`diamondLevelToggle${levelId}`);
-        if (checkbox) {
-            domFound = true;
-            if (!checkbox.checked) {
-                disabled.push(levelId);
-            }
-        }
-    });
-    return domFound ? disabled : null;
-}
-
-function getDisabledVotingLevelsSnapshot() {
-    const domDisabled = getDisabledVotingLevelsFromDOM();
-    if (domDisabled) return domDisabled;
-    return getDisabledVotingLevelsFromConfig(latestAnalyzerConfig);
-}
-
-function ensureSignalIntensityCustomUI() {
-    const select = document.getElementById('signalIntensitySelect');
-    const uiButton = document.getElementById('signalIntensitySelectUi');
-    const dropdown = document.getElementById('signalIntensityDropdown');
-    const label = document.getElementById('signalIntensitySelectedLabel');
-    if (!select || !uiButton || !dropdown || !label) return;
-
-    const setValue = (value) => {
-        const normalized = value === 'conservative' ? 'conservative' : 'aggressive';
-        select.value = normalized;
-        label.textContent = normalized === 'conservative' ? 'Conservador' : 'Agressivo';
-        dropdown.querySelectorAll('.signal-intensity-option').forEach((opt) => {
-            const isSelected = opt.dataset.value === normalized;
-            opt.classList.toggle('selected', isSelected);
-            opt.setAttribute('aria-selected', isSelected ? 'true' : 'false');
-        });
-    };
-
-    const closeDropdown = () => {
-        dropdown.style.display = 'none';
-        uiButton.setAttribute('aria-expanded', 'false');
-        uiButton.classList.remove('open');
-    };
-
-    const openDropdown = () => {
-        dropdown.style.display = 'block';
-        uiButton.setAttribute('aria-expanded', 'true');
-        uiButton.classList.add('open');
-    };
-
-    if (!uiButton.dataset.listenerAttached) {
-        uiButton.addEventListener('click', (event) => {
-            event.preventDefault();
-            event.stopPropagation();
-            const isOpen = dropdown.style.display !== 'none';
-            if (isOpen) closeDropdown();
-            else openDropdown();
-        });
-
-        uiButton.addEventListener('keydown', (event) => {
-            if (event.key === 'Enter' || event.key === ' ') {
-                event.preventDefault();
-                const isOpen = dropdown.style.display !== 'none';
-                if (isOpen) closeDropdown();
-                else openDropdown();
-            } else if (event.key === 'Escape') {
-                closeDropdown();
-            }
-        });
-
-        dropdown.addEventListener('click', (event) => {
-            const optionEl = event.target.closest('.signal-intensity-option');
-            if (!optionEl) return;
-            const value = optionEl.dataset.value;
-            if (value === 'conservative' && optionEl.classList.contains('disabled')) {
-                event.preventDefault();
-                event.stopPropagation();
-                return;
-            }
-            setValue(value);
-            closeDropdown();
-            enforceSignalIntensityAvailability({ source: 'user' });
-        });
-
-        document.addEventListener('click', (event) => {
-            if (!uiButton.contains(event.target) && !dropdown.contains(event.target)) {
-                closeDropdown();
-            }
-        });
-
-        uiButton.dataset.listenerAttached = '1';
-    }
-
-    // Sync UI with current select value
-    setValue(select.value);
-}
-
-function enforceSignalIntensityAvailability(options = {}) {
-    const select = document.getElementById('signalIntensitySelect');
-    if (!select) return;
-    ensureSignalIntensityCustomUI();
-
-    const conservativeOption = select.querySelector('option[value="conservative"]');
-    const disabledVotingLevels = getDisabledVotingLevelsSnapshot();
-    const allVotingLevelsActive = disabledVotingLevels.length === 0;
-    const disabledText = disabledVotingLevels.length ? disabledVotingLevels.join(', ') : '';
-
-    if (conservativeOption) {
-        conservativeOption.disabled = !allVotingLevelsActive;
-    }
-
-    // Atualizar estado do item "Conservador" dentro do dropdown (com mensagem EMBUTIDA)
-    const conservativeUiOption = document.querySelector('#signalIntensityDropdown .signal-intensity-option[data-value="conservative"]');
-    const hintBox = document.getElementById('signalIntensityConservativeHint');
-    const hintText = document.getElementById('signalIntensityConservativeHintText');
-    if (conservativeUiOption) {
-        conservativeUiOption.classList.toggle('disabled', !allVotingLevelsActive);
-    }
-    if (hintBox && hintText) {
-        if (!allVotingLevelsActive) {
-            hintText.innerHTML =
-                `Para ativar, deixe todos os níveis votantes <strong>N1–N8</strong> ativos em <strong>Configurar Níveis</strong>.` +
-                (disabledText ? `<br><strong>Desativados agora:</strong> ${disabledText}` : '');
-            hintBox.style.display = 'block';
-        } else {
-            hintText.innerHTML = '';
-            hintBox.style.display = 'none';
-        }
-    }
-
-    // Segurança extra: se alguém tentar forçar "conservative", desfaz e opcionalmente notifica
-    if (!allVotingLevelsActive && select.value === 'conservative') {
-        select.value = 'aggressive';
-        ensureSignalIntensityCustomUI();
-        if (options && options.source === 'user') {
-            showCenteredNotice(
-                `Não dá para ativar o modo <strong>Conservador</strong> sem todos os níveis votantes <strong>N1–N8</strong> ativos.` +
-                (disabledText ? `<br><br><strong>Desativados agora:</strong> ${disabledText}` : ''),
-                { title: 'Modo Conservador', autoHide: 6500 }
-            );
-        }
-    }
-}
+// (lógica antiga de "Conservador/Agressivo" removida)
 
     function populateDiamondLevelsForm(config) {
         const windows = (config && config.diamondLevelWindows) || {};
@@ -6977,7 +6780,6 @@ function enforceSignalIntensityAvailability(options = {}) {
         setToggle('diamondLevelToggleN8', 'n8');
         setToggle('diamondLevelToggleN9', 'n9');
         setToggle('diamondLevelToggleN10', 'n10');
-        enforceSignalIntensityAvailability();
         initializeDiamondLevelToggles();
         refreshDiamondLevelToggleStates();
     }
@@ -7181,7 +6983,6 @@ function enforceSignalIntensityAvailability(options = {}) {
                 latestAnalyzerConfig = updatedConfig;
                 // ✅ Atualizar snapshot do "Restaurar" para o estado recém-salvo
                 setDiamondLevelsRestoreSnapshot(updatedConfig);
-                enforceSignalIntensityAvailability();
             try {
                 chrome.runtime.sendMessage({ action: 'applyConfig' });
             } catch (error) {
@@ -8117,7 +7918,6 @@ function enforceSignalIntensityAvailability(options = {}) {
 
 storageCompat.get(['analyzerConfig']).then(res => {
     latestAnalyzerConfig = res.analyzerConfig || null;
-    enforceSignalIntensityAvailability();
 }).catch(() => {});
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -8206,6 +8006,53 @@ function applyDiamondVisibleLevelsToDiamondLevelsModal() {
     } catch (_) {}
 }
 
+function getDiamondEnabledDefaultsRespectingAdmin() {
+    const base = { ...DIAMOND_LEVEL_ENABLE_DEFAULTS };
+    const map = diamondAdminVisibleLevels && typeof diamondAdminVisibleLevels === 'object' ? diamondAdminVisibleLevels : null;
+    if (!map) return base;
+    DIAMOND_LEVEL_KEYS.forEach((k) => {
+        base[k] = (map[k] !== false);
+    });
+    return base;
+}
+
+async function enforceDiamondEnabledMapAgainstAdminVisibility(options = {}) {
+    const { sync = true } = options;
+    try {
+        const stored = await storageCompat.get(['analyzerConfig']);
+        const current = (stored && stored.analyzerConfig && typeof stored.analyzerConfig === 'object') ? stored.analyzerConfig : {};
+        const enabledIn = (current && current.diamondLevelEnabled && typeof current.diamondLevelEnabled === 'object')
+            ? current.diamondLevelEnabled
+            : null;
+
+        const map = diamondAdminVisibleLevels && typeof diamondAdminVisibleLevels === 'object' ? diamondAdminVisibleLevels : null;
+        if (!map) return null;
+
+        const nextEnabled = {};
+        DIAMOND_LEVEL_KEYS.forEach((k) => {
+            const isVisible = map[k] !== false;
+            const raw = enabledIn && Object.prototype.hasOwnProperty.call(enabledIn, k) ? !!enabledIn[k] : true;
+            nextEnabled[k] = isVisible ? raw : false;
+        });
+
+        const same = (() => {
+            try { return JSON.stringify(enabledIn || {}) === JSON.stringify(nextEnabled); } catch (_) { return false; }
+        })();
+        if (same) return current;
+
+        // Persistir local (e sincronizar com servidor se permitido)
+        const updated = await updateAnalyzerConfigPartial(
+            { diamondLevelEnabled: nextEnabled, _clientUpdatedAt: Date.now() },
+            { respectSyncPreference: sync }
+        );
+        try { latestAnalyzerConfig = updated || latestAnalyzerConfig; } catch (_) {}
+        try { chrome.runtime.sendMessage({ action: 'applyConfig' }, function() {}); } catch (_) {}
+        return updated;
+    } catch (_) {
+        return null;
+    }
+}
+
 async function refreshDiamondVisibleLevelsFromServer() {
     try {
         const origin = (typeof getApiUrl === 'function') ? String(getApiUrl() || '').trim() : '';
@@ -8228,6 +8075,8 @@ async function initDiamondVisibleLevels() {
         if (stored && stored[DIAMOND_VISIBLE_LEVELS_KEY]) {
             diamondAdminVisibleLevels = normalizeDiamondVisibleLevelsMap(stored[DIAMOND_VISIBLE_LEVELS_KEY]);
             applyDiamondVisibleLevelsToDiamondLevelsModal();
+            // ✅ Garantia: nível oculto não fica ativo "por trás"
+            enforceDiamondEnabledMapAgainstAdminVisibility({ sync: true }).catch(() => {});
         }
     } catch (_) {}
 
@@ -8237,6 +8086,7 @@ async function initDiamondVisibleLevels() {
         if (fresh) {
             diamondAdminVisibleLevels = fresh;
             applyDiamondVisibleLevelsToDiamondLevelsModal();
+            enforceDiamondEnabledMapAgainstAdminVisibility({ sync: true }).catch(() => {});
         }
     }, 0);
 }
@@ -10707,6 +10557,38 @@ async function resetPremiumModeConfigToDefault() {
     }
 }
 
+async function resetDiamondModeConfigToDefault() {
+    try {
+        try { showGlobalSaveLoading(); } catch (_) {}
+
+        // ✅ Defaults oficiais (prints) + respeitar níveis liberados pelo admin
+        const enabled = getDiamondEnabledDefaultsRespectingAdmin();
+        const defaults = {
+            diamondLevelWindows: { ...DIAMOND_LEVEL_DEFAULTS },
+            diamondLevelEnabled: enabled,
+            _clientUpdatedAt: Date.now()
+        };
+
+        // Atualizar UI imediatamente (modal)
+        populateDiamondLevelsForm(defaults);
+        refreshDiamondLevelToggleStates();
+        try { applyDiamondVisibleLevelsToDiamondLevelsModal(); } catch (_) {}
+
+        const updated = await updateAnalyzerConfigPartial(defaults, { respectSyncPreference: true });
+        try { latestAnalyzerConfig = updated || latestAnalyzerConfig; } catch (_) {}
+        try { chrome.runtime.sendMessage({ action: 'applyConfig' }, function() {}); } catch (_) {}
+        try { showGlobalSaveSuccess(1500); } catch (_) {}
+        return updated;
+    } catch (e) {
+        console.warn('⚠️ Falha ao restaurar configurações padrão do Diamante:', e);
+        try {
+            const overlay = document.getElementById('saveStatusOverlay');
+            if (overlay) overlay.style.display = 'none';
+        } catch (_) {}
+        return null;
+    }
+}
+
 async function persistAnalyzerState(newState) {
     try {
         await updateAnalyzerConfigPartial({ analysisEnabled: !!newState });
@@ -12119,50 +12001,7 @@ async function persistAnalyzerState(newState) {
                             </div>
                         </div>
                         
-                        <!-- ═══════════════════════════════════════════════════════ -->
-                        <!-- NÍVEL DIAMANTE (IA): CONFIGURAR NÍVEIS -->
-                        <!-- ═══════════════════════════════════════════════════════ -->
-                        <div class="setting-item setting-row" id="diamondLevelsContainer" style="margin-top: 20px; padding-top: 0;">
-                            <div class="hot-pattern-actions">
-                                <button id="diamondLevelsBtn" class="btn-hot-pattern btn-diamond-levels">
-                                    Configurar Níveis
-                                </button>
-                            </div>
-                        </div>
-                        
-                        <!-- ═══════════════════════════════════════════════════════ -->
-                        <!-- INTENSIDADE DE SINAIS (NÍVEL DIAMANTE) -->
-                        <!-- ═══════════════════════════════════════════════════════ -->
-                        <div class="setting-item setting-row" id="signalIntensityContainer" style="margin-top: 15px;">
-                            <div style="width: 100%; display: flex; flex-direction: column; gap: 8px;">
-                                <label style="font-size: 13px; color: #ffffff; font-weight: 600; text-align: center;">
-                                    Intensidade de Sinais
-                                </label>
-                                <!-- Select real fica oculto (usado para persistência/config), UI é um dropdown custom -->
-                                <select id="signalIntensitySelect" style="display:none">
-                                    <option value="aggressive" selected>Agressivo</option>
-                                    <option value="conservative">Conservador</option>
-                                </select>
-                                <div class="signal-intensity-select-wrapper">
-                                    <button type="button" id="signalIntensitySelectUi" class="signal-intensity-select-ui" aria-haspopup="listbox" aria-expanded="false">
-                                        <span id="signalIntensitySelectedLabel">Agressivo</span>
-                                        <span class="signal-intensity-caret">▾</span>
-                                    </button>
-                                    <div id="signalIntensityDropdown" class="signal-intensity-dropdown" role="listbox" style="display:none;">
-                                        <button type="button" class="signal-intensity-option" data-value="aggressive" role="option" aria-selected="true">
-                                            <div class="opt-title">Agressivo</div>
-                                        </button>
-                                        <button type="button" class="signal-intensity-option" data-value="conservative" role="option" aria-selected="false">
-                                            <div class="opt-title">Conservador</div>
-                                            <div class="opt-hint" id="signalIntensityConservativeHint" style="display:none;">
-                                                <div class="opt-divider"></div>
-                                                <div class="opt-hint-text" id="signalIntensityConservativeHintText"></div>
-                                            </div>
-                                        </button>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
+                        <!-- ✅ IA: Configurar níveis é acessado direto pelo header "Configuração do modo IA" (1 clique) -->
                         
                     </div>
                 </div>
@@ -13314,11 +13153,12 @@ async function persistAnalyzerState(newState) {
                     // ✅ IMPORTANTE: Mesclar com DEFAULT para garantir que temos todos os campos
                     // ✅ CONFIGURAÇÕES PADRÃO OTIMIZADAS (sincronizadas com background.js)
                     const DEFAULT_CONFIG = {
-                        historyDepth: 500,
+                        // ✅ Defaults oficiais do Premium (mesmos do reset)
+                        historyDepth: 3000,
                         minOccurrences: 2,
                         maxOccurrences: 0,
                         minIntervalSpins: 2,
-                        minPatternSize: 3,
+                        minPatternSize: 4,
                         maxPatternSize: 0,
                         winPercentOthers: 100,
                         requireTrigger: true,
@@ -13329,7 +13169,8 @@ async function persistAnalyzerState(newState) {
                             diamond: { maxGales: 0, consecutiveMartingale: false }
                         },
                         telegramChatId: '',
-                        signalIntensity: 'moderate',
+                        // ✅ Intensidade removida (por enquanto): travar sempre em Agressivo
+                        signalIntensity: 'aggressive',
                         aiApiKey: '',
                         aiMode: false,
                         whiteProtectionAsWin: false
@@ -18584,13 +18425,14 @@ function logModeSnapshotUI(snapshot) {
                 const consecutiveGales = document.getElementById('cfgConsecutiveGales');
                 const maxGales = document.getElementById('cfgMaxGales');
                 const tgChatId = document.getElementById('cfgTgChatId');
-                if (histDepth) histDepth.value = cfg.historyDepth != null ? cfg.historyDepth : 2000;
-                if (minOcc) minOcc.value = cfg.minOccurrences != null ? cfg.minOccurrences : 1;
+                // ✅ Defaults oficiais do Premium (mesmos do botão "Redefinir configurações")
+                if (histDepth) histDepth.value = cfg.historyDepth != null ? cfg.historyDepth : 3000;
+                if (minOcc) minOcc.value = cfg.minOccurrences != null ? cfg.minOccurrences : 2;
                 if (maxOcc) maxOcc.value = cfg.maxOccurrences != null ? cfg.maxOccurrences : 0;
-                if (patternInt) patternInt.value = cfg.minIntervalSpins != null ? cfg.minIntervalSpins : 0;
-                if (minSize) minSize.value = cfg.minPatternSize != null ? cfg.minPatternSize : 3;
+                if (patternInt) patternInt.value = cfg.minIntervalSpins != null ? cfg.minIntervalSpins : 2;
+                if (minSize) minSize.value = cfg.minPatternSize != null ? cfg.minPatternSize : 4;
                 if (maxSize) maxSize.value = cfg.maxPatternSize != null ? cfg.maxPatternSize : 0;
-                if (winPct) winPct.value = cfg.winPercentOthers != null ? cfg.winPercentOthers : 25;
+                if (winPct) winPct.value = cfg.winPercentOthers != null ? cfg.winPercentOthers : 100;
                 if (reqTrig) reqTrig.checked = cfg.requireTrigger != null ? cfg.requireTrigger : true;
                     if (consecutiveMartingale) consecutiveMartingale.checked = !!activeMartingaleProfile.consecutiveMartingale;
                 if (consecutiveGales) consecutiveGales.value = activeMartingaleProfile.consecutiveGales != null ? activeMartingaleProfile.consecutiveGales : 0;
@@ -18635,15 +18477,8 @@ function logModeSnapshotUI(snapshot) {
                 setWhiteProtectionModeAvailability(!!autoBetConfig.whiteProtection);
                 setAutoBetInput('autoBetInverseMode', autoBetConfig.inverseModeEnabled, true);
                 
-                // 🎚️ Carregar intensidade de sinais
+                // ✅ Intensidade de sinais removida (por enquanto). Usar sempre "Agressivo".
                 latestAnalyzerConfig = cfg;
-                const signalIntensitySelect = document.getElementById('signalIntensitySelect');
-                if (signalIntensitySelect) {
-                    const intensityValue = cfg.signalIntensity === 'conservative' ? 'conservative' : 'aggressive';
-                    signalIntensitySelect.value = intensityValue;
-                    console.log(`🎚️ Intensidade carregada: ${intensityValue}`);
-                    enforceSignalIntensityAvailability();
-                }
                 
                     // ✅ Aplicar visibilidade dos campos baseado no modo IA (global)
                     applyAIModeUIState(isAIMode);
@@ -18735,29 +18570,8 @@ function logModeSnapshotUI(snapshot) {
             try {
                 const currentConfig = result.analyzerConfig || {};
                 const previousAutoBetConfig = sanitizeAutoBetConfig(currentConfig.autoBetConfig);
-                const signalIntensitySelect = document.getElementById('signalIntensitySelect');
-                const signalIntensity = signalIntensitySelect ? signalIntensitySelect.value : 'aggressive';
-                const votingLevelsEnabled = areAllVotingLevelsEnabledFromConfig(currentConfig);
-                if (signalIntensity === 'conservative' && !votingLevelsEnabled) {
-                    const overlay = document.getElementById('saveStatusOverlay');
-                    if (overlay) overlay.style.display = 'none';
-                    if (btn) {
-                        btn.textContent = 'Salvar';
-                    }
-                    if (signalIntensitySelect) {
-                        signalIntensitySelect.value = 'aggressive';
-                    }
-                    enforceSignalIntensityAvailability();
-                    const disabledVotingLevels = getDisabledVotingLevelsFromConfig(currentConfig);
-                    const disabledText = disabledVotingLevels.length ? disabledVotingLevels.join(', ') : '';
-                    showCenteredNotice(
-                        `Para usar o modo <strong>Conservador</strong>, ative todos os níveis votantes <strong>N1–N8</strong> em <strong>Configurar Níveis</strong>.` +
-                        (disabledText ? `<br><br><strong>Desativados agora:</strong> ${disabledText}` : ''),
-                        { title: 'Modo Conservador', autoHide: 7000 }
-                    );
-                    resolve(false);
-                    return;
-                }
+                // ✅ Intensidade removida (por enquanto). Travar sempre em Agressivo.
+                const signalIntensity = 'aggressive';
                 const martingaleProfiles = sanitizeMartingaleProfilesFromConfig(currentConfig);
                 console.log('📊 Configuração atual:', currentConfig);
                 
@@ -18784,7 +18598,7 @@ function logModeSnapshotUI(snapshot) {
                 const autoBetWhiteProtectionValue = getElementValue('autoBetWhiteProtection', AUTO_BET_DEFAULTS.whiteProtection, true);
                 const tgChatId = String(getElementValue('cfgTgChatId', '')).trim();
                 
-                // 🎚️ Intensidade de sinais
+                // Auto-bet (simulação)
                 const autoBetRawConfig = {
                     enabled: false, // Auto-bet sempre desabilitado (apenas simulação)
                     simulationOnly: getElementValue('autoBetSimulationOnly', true, true),
@@ -18984,7 +18798,6 @@ function logModeSnapshotUI(snapshot) {
                     console.log('%c✅ SALVO NO STORAGE COM SUCESSO!', 'color: #00FF00; font-weight: bold;');
                     console.log('');
                     latestAnalyzerConfig = cfg;
-                    enforceSignalIntensityAvailability();
                     
                     // ✅ VERIFICAR SE DEVE SINCRONIZAR COM SERVIDOR
                     const syncCheckbox = document.getElementById('syncConfigToAccount');
@@ -20141,7 +19954,22 @@ function logModeSnapshotUI(snapshot) {
         } catch (_) {}
     }
     
-    // Event listener para botão de atualizar
+    // ✅ Pedido: sem "Intensidade de Sinais" e sem botão extra.
+    // Um clique em "Configuração do modo IA" (header) já abre "Configurar Níveis".
+    // (captura para impedir que o accordion abra/feche antes de abrir o modal)
+    document.addEventListener('click', function(e) {
+        try {
+            const header = e.target && typeof e.target.closest === 'function'
+                ? e.target.closest('#autoBetAccordion .auto-bet-acc-section[data-acc-key="mode"][data-mode="ia"] .auto-bet-acc-header')
+                : null;
+            if (!header) return;
+            e.preventDefault();
+            e.stopPropagation();
+            openDiamondLevelsModal();
+        } catch (_) {}
+    }, true);
+
+    // Event listener para botões (bubble)
     document.addEventListener('click', function(e) {
         if (e.target && e.target.id === 'diamondLevelsBtn') {
             e.preventDefault();
@@ -20165,13 +19993,8 @@ function logModeSnapshotUI(snapshot) {
 
         if (e.target && e.target.id === 'diamondLevelsRestoreBtn') {
             e.preventDefault();
-            if (!diamondLevelsRestoreSnapshot) {
-                showCenteredNotice('Não há configurações anteriores para restaurar.', { title: 'Restaurar', autoHide: 3000 });
-                return;
-            }
-            populateDiamondLevelsForm(diamondLevelsRestoreSnapshot);
-            refreshDiamondLevelToggleStates();
-            showCenteredNotice('Configurações restauradas.', { title: 'Restaurar', autoHide: 2000 });
+            // ✅ Pedido do admin: "Restaurar" = defaults oficiais (não snapshot)
+            resetDiamondModeConfigToDefault();
         }
         
         if (e.target && e.target.id === 'refreshBankBtn') {
