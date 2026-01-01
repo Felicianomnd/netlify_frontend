@@ -49,8 +49,9 @@
 
     const MARTINGALE_PROFILE_DEFAULTS = Object.freeze({
         // consecutiveGales = quantos gales são IMEDIATOS (consecutivos) antes de aguardar novo sinal
-        standard: { maxGales: 0, consecutiveMartingale: false, consecutiveGales: 0 },
-        diamond: { maxGales: 0, consecutiveMartingale: false, consecutiveGales: 0 }
+        // ✅ Default desejado (print): maxGales=2 e gales consecutivos até G2 (vale para TODOS os modos)
+        standard: { maxGales: 2, consecutiveMartingale: true, consecutiveGales: 2 },
+        diamond: { maxGales: 2, consecutiveMartingale: true, consecutiveGales: 2 }
     });
 
     function clampMartingaleMax(value, fallback = 0) {
@@ -13175,8 +13176,9 @@ async function persistAnalyzerState(newState) {
                         consecutiveMartingale: false,
                         maxGales: 0,
                         martingaleProfiles: {
-                            standard: { maxGales: 0, consecutiveMartingale: false },
-                            diamond: { maxGales: 0, consecutiveMartingale: false }
+                            // ✅ Default desejado (print): maxGales=2 e gales consecutivos até G2 (vale para TODOS os modos)
+                            standard: { maxGales: 2, consecutiveGales: 2, consecutiveMartingale: true },
+                            diamond: { maxGales: 2, consecutiveGales: 2, consecutiveMartingale: true }
                         },
                         telegramChatId: '',
                         // ✅ Intensidade removida (por enquanto): travar sempre em Agressivo

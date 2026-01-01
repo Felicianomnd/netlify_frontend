@@ -632,8 +632,9 @@ const DEFAULT_ANALYZER_CONFIG = {
     martingaleProfiles: {         // ✅ Perfis independentes por modo
         // consecutiveGales = quantos gales são IMEDIATOS (consecutivos) antes de passar a esperar novo sinal
         // Ex.: maxGales=2 e consecutiveGales=1 => G1 imediato, G2 só no próximo sinal
-        standard: { maxGales: 0, consecutiveMartingale: false, consecutiveGales: 0 },
-        diamond: { maxGales: 0, consecutiveMartingale: false, consecutiveGales: 0 }
+        // ✅ Default desejado (print): maxGales=2 e gales consecutivos até G2 (vale para TODOS os modos)
+        standard: { maxGales: 2, consecutiveMartingale: true, consecutiveGales: 2 },
+        diamond: { maxGales: 2, consecutiveMartingale: true, consecutiveGales: 2 }
     },
     telegramChatId: '',           // Chat ID do Telegram para enviar sinais
     aiMode: false,                // Modo Diamante (true) ou Modo Padrão (false)
