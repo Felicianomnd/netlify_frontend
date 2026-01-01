@@ -9078,9 +9078,16 @@ autoBetHistoryStore.init().catch(error => console.warn('AutoBetHistory: iniciali
                     display: flex;
                     justify-content: space-between;
                     gap: 10px;
-                    padding: 10px 12px;
+                    padding: 0;
                     border-top: none;
-                    background: #1a2332;
+                    background: transparent;
+                }
+
+                /* 🖥️ Desktop dashboard: alinhar no rodapé da sidebar (sem "faixa" atrás) */
+                #blaze-double-analyzer.da-desktop-dashboard .da-desktop-sidebar-scroll .auto-bet-modal-footer {
+                    margin: 12px -14px -14px;     /* cancela padding da sidebar scroll */
+                    padding: 0 14px 14px;         /* mantém respiro só dentro dos botões */
+                    background: transparent;
                 }
                 .auto-bet-modal-footer button {
                     position: relative;
