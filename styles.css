@@ -9008,6 +9008,13 @@ body.da-ext-fullscreen #patternDetailsModal .bank-patterns-modal-content {
    - Mobile permanece com o layout atual
    ═══════════════════════════════════════════════════════════════════════════════ */
 
+/* ✅ Toggle da sidebar (3 barrinhas)
+   - Por padrão: NUNCA aparece (mobile/compact/qualquer layout antigo)
+   - Só aparece no desktop dashboard via @media abaixo */
+#blaze-double-analyzer .da-sidebar-toggle {
+  display: none;
+}
+
 @media (min-width: 769px) {
   #blaze-double-analyzer.da-desktop-dashboard {
     /* Ajustes finos pedidos: cantos menos arredondados e header mais alto */
@@ -9025,11 +9032,6 @@ body.da-ext-fullscreen #patternDetailsModal .bank-patterns-modal-content {
     display: flex !important;
     flex-direction: column !important;
     overflow: hidden !important;
-  }
-
-  /* ✅ Toggle da sidebar (3 barrinhas) — só aparece no desktop dashboard */
-  #blaze-double-analyzer:not(.da-desktop-dashboard) .da-sidebar-toggle {
-    display: none !important;
   }
 
   #blaze-double-analyzer.da-desktop-dashboard .da-sidebar-toggle {

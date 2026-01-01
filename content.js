@@ -9077,8 +9077,8 @@ autoBetHistoryStore.init().catch(error => console.warn('AutoBetHistory: iniciali
                 .auto-bet-modal-footer {
                     display: flex;
                     justify-content: space-between;
-                    gap: 12px;
-                    padding: 16px 20px;
+                    gap: 10px;
+                    padding: 10px 12px;
                     border-top: none;
                     background: #1a2332;
                 }
@@ -9093,6 +9093,8 @@ autoBetHistoryStore.init().catch(error => console.warn('AutoBetHistory: iniciali
                 }
                 .auto-bet-modal-footer button .button-label {
                     pointer-events: none;
+                    white-space: nowrap;
+                    line-height: 1;
                 }
                 .auto-bet-modal-footer button.btn-pressed {
                     transform: translateY(1px) scale(0.98);
@@ -9129,14 +9131,15 @@ autoBetHistoryStore.init().catch(error => console.warn('AutoBetHistory: iniciali
                 .auto-bet-reset,
                 .auto-bet-save-btn {
                     flex: 1;
-                    padding: 14px 20px;
+                    padding: 10px 12px;
                     border-radius: 3px;
-                    font-size: 15px;
+                    font-size: 13px;
                     font-weight: 600;
                     cursor: pointer;
                     border: none;
                     transition: all 0.2s ease;
                     letter-spacing: 0;
+                    min-height: 40px;
                 }
                 .auto-bet-reset {
                     background: #2d3748;
@@ -12160,7 +12163,7 @@ async function persistAnalyzerState(newState) {
                         </div>
                     </div>
                     <div class="auto-bet-modal-footer">
-                        <button type="button" class="auto-bet-reset" id="autoBetResetRuntimeModal"><span class="button-label">Resetar painel de saldo</span></button>
+                        <button type="button" class="auto-bet-reset" id="autoBetResetRuntimeModal"><span class="button-label">Reset Saldo</span></button>
                         <button type="button" class="auto-bet-save-btn" id="autoBetSaveConfig"><span class="button-label">Salvar</span></button>
                     </div>
                 </div>
