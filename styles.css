@@ -1927,11 +1927,13 @@
 
 .refresh-bank-btn {
     flex: 1;
+    width: 100%;
     padding: 8px;
     border-radius: 6px;
     background: rgba(43,108,176,0.2);
     color: #cdd6e8;
-    border: 1px solid rgba(43,108,176,0.3);
+    border: none;
+    box-shadow: 0 6px 18px rgba(0,0,0,0.25);
     cursor: pointer;
     font-weight: 600;
     font-size: 11px;
@@ -1940,7 +1942,7 @@
 
 .refresh-bank-btn:hover {
     background: rgba(43,108,176,0.3);
-    border-color: rgba(43,108,176,0.5);
+    box-shadow: 0 8px 22px rgba(0,0,0,0.28);
 }
 
 .refresh-bank-btn:active {
@@ -1948,33 +1950,6 @@
 }
 
 .refresh-bank-btn:disabled {
-    opacity: 0.6;
-    cursor: not-allowed;
-}
-
-.reset-bank-btn {
-    flex: 1;
-    padding: 8px;
-    border-radius: 6px;
-    background: rgba(220,53,69,0.2);
-    color: #ff8a95;
-    border: 1px solid rgba(220,53,69,0.3);
-    cursor: pointer;
-    font-weight: 600;
-    font-size: 11px;
-    transition: all 0.2s ease;
-}
-
-.reset-bank-btn:hover {
-    background: rgba(220,53,69,0.3);
-    border-color: rgba(220,53,69,0.5);
-}
-
-.reset-bank-btn:active {
-    transform: scale(0.98);
-}
-
-.reset-bank-btn:disabled {
     opacity: 0.6;
     cursor: not-allowed;
 }
@@ -2091,13 +2066,54 @@
 
 .observer-calibration {
     display: flex;
-    justify-content: space-between;
-    align-items: center;
+    flex-direction: column;
+    gap: 8px;
+    align-items: stretch;
     padding: 8px 10px;
     margin-bottom: 10px;
     background: rgba(147,51,234,0.1);
     border-radius: 6px;
     border: 1px solid rgba(147,51,234,0.2);
+}
+
+.observer-calibration-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+}
+
+.recovery-gate-bar {
+    position: relative;
+    height: 8px;
+    border-radius: 999px;
+    background: rgba(255,255,255,0.08);
+    overflow: hidden;
+}
+
+.recovery-gate-fill {
+    height: 100%;
+    width: 0%;
+    border-radius: 999px;
+    background: linear-gradient(90deg, rgba(147,51,234,0.9), rgba(236,72,153,0.95));
+    transition: width 0.25s ease;
+}
+
+.recovery-gate-bar.is-complete .recovery-gate-fill {
+    background: linear-gradient(90deg, rgba(0, 255, 136, 0.9), rgba(16, 185, 129, 0.95));
+}
+
+.recovery-gate-check {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 10px;
+    font-weight: 900;
+    color: rgba(0, 0, 0, 0.65);
+    text-shadow: 0 1px 0 rgba(255,255,255,0.18);
+    pointer-events: none;
 }
 
 .calibration-label {
@@ -3673,9 +3689,25 @@
 
 .diamond-level-pct {
     margin-top: 10px;
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 10px;
     color: var(--da-text);
     font-weight: 800;
-    font-size: 16px;
+    font-size: 13px;
+}
+
+.diamond-level-pct-label {
+    color: var(--da-text-muted);
+    font-weight: 600;
+    font-size: 11px;
+}
+
+.diamond-level-pct-value {
+    color: var(--da-text);
+    font-weight: 800;
+    font-size: 14px;
 }
 
 .diamond-level-detail {
@@ -7042,6 +7074,17 @@ body.da-ext-fullscreen #patternDetailsModal .bank-patterns-modal-content {
     box-shadow: none;
 }
 
+/* Botão secundário: redefinir configs do modo premium para o padrão */
+.btn-standard-reset-config {
+    background: linear-gradient(135deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.04) 100%);
+    color: #cdd6e8;
+}
+
+.btn-standard-reset-config:hover {
+    background: linear-gradient(135deg, rgba(255,255,255,0.12) 0%, rgba(255,255,255,0.06) 100%);
+    color: #ffffff;
+}
+
 .safe-zone-row {
     display: flex;
     justify-content: space-between;
@@ -8975,7 +9018,6 @@ body.da-ext-fullscreen #patternDetailsModal .bank-patterns-modal-content {
     /* Container ocupa toda a tela (o JS também força inline com !important) */
     background:
       radial-gradient(1200px 800px at 25% 0%, rgba(59, 130, 246, 0.14), transparent 60%),
-      radial-gradient(1000px 600px at 80% 10%, rgba(239, 68, 68, 0.12), transparent 55%),
       linear-gradient(180deg, #070a11 0%, #060813 100%);
     border: none !important;
     border-radius: 0 !important;

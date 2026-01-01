@@ -35,8 +35,11 @@
     let currentHistoryDisplayLimit = 500; // Normal: começa exibindo 500 (camadas de 500)
     let currentHistoryDisplayLimitExpanded = 1500; // Fullscreen do Histórico: começa maior para preencher o espaço
     let currentHistoryData = []; // Armazenar histórico atual para re-renderizar
-    let autoPatternSearchTriggered = false; // Impede disparos automáticos repetidos
-    let suppressAutoPatternSearch = false; // Evita busca automática após reset manual
+    let autoPatternSearchTriggered = false; // Impede disparos automáticos repetidos (por carregamento de página)
+    let suppressAutoPatternSearch = false; // Evita busca automática após ações que não devem re-disparar
+    let autoPatternSearchInFlight = false; // Evita múltiplos sendMessage simultâneos
+    let autoPatternSearchRetryTimer = null;
+    let autoPatternSearchRetryMs = 0;
     // ✅ Manter o último sinal de recuperação (por modo) para não “sumir” após desativar (WIN)
     let lastRecoveryEntryByMode = { standard: null, diamond: null };
     
@@ -2656,11 +2659,11 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                                 </label>
                             </div>
                             <div class="diamond-level-note">
-                                Aprende do histórico cru (n-grams adaptativos) e decide RED/BLACK/WHITE ou NULO. Histórico maior = mais contexto; menor = mais sensível ao momento.
+                                Define quantos giros o N4 usa para decidir. Maior = mais contexto; menor = reage mais rápido ao momento.
                             </div>
                             <input type="number" id="diamondN4Persistence" min="10" max="10000" value="2000" />
                             <span class="diamond-level-subnote">
-                                Recomendado: 2000 giros (mín. 10 • máx. 10000)
+                                Recomendado: 2000 (10–10000). Se o desempenho cair, o N4 pode ajustar este valor automaticamente.
                             </span>
                             <label class="checkbox-label" style="margin-top: 10px;">
                                 <input type="checkbox" id="diamondN4DynamicGales" checked />
@@ -10508,6 +10511,72 @@ async function updateAnalyzerConfigPartial(partial, options = {}) {
     }
 }
 
+// ✅ Reset: Configuração do modo premium -> padrão do sistema (valores do "modo padrão")
+async function resetPremiumModeConfigToDefault() {
+    const defaults = {
+        historyDepth: 3000,
+        minOccurrences: 2,
+        maxOccurrences: 0,
+        minIntervalSpins: 2,
+        minPatternSize: 4,
+        maxPatternSize: 0,
+        winPercentOthers: 100,
+        requireTrigger: true
+    };
+
+    try {
+        // Feedback global padrão (mesmo estilo usado no resto do app)
+        try { showGlobalSaveLoading(); } catch (_) {}
+
+        // Atualizar UI imediatamente (inputs)
+        const setVal = (id, v) => {
+            const el = document.getElementById(id);
+            if (!el) return;
+            el.value = String(v);
+        };
+        const setCheck = (id, v) => {
+            const el = document.getElementById(id);
+            if (!el) return;
+            el.checked = !!v;
+        };
+
+        setVal('cfgHistoryDepth', defaults.historyDepth);
+        setVal('cfgMinOccurrences', defaults.minOccurrences);
+        setVal('cfgMaxOccurrences', defaults.maxOccurrences);
+        setVal('cfgPatternInterval', defaults.minIntervalSpins);
+        setVal('cfgMinPatternSize', defaults.minPatternSize);
+        setVal('cfgMaxPatternSize', defaults.maxPatternSize);
+        setVal('cfgWinPercentOthers', defaults.winPercentOthers);
+        setCheck('cfgRequireTrigger', defaults.requireTrigger);
+
+        // Persistir só o necessário (sem mexer no resto das configs)
+        const updated = await updateAnalyzerConfigPartial(
+            { ...defaults, _clientUpdatedAt: Date.now() },
+            { respectSyncPreference: true }
+        );
+
+        try { latestAnalyzerConfig = updated || latestAnalyzerConfig; } catch (_) {}
+
+        // Aplicar no background (além do storage.onChanged)
+        try { chrome.runtime.sendMessage({ action: 'applyConfig' }, function() {}); } catch (_) {}
+
+        try { showGlobalSaveSuccess(1500); } catch (_) {}
+
+        // Atualizar UI dependente (se houver)
+        try { loadPatternBank(); } catch (_) {}
+
+        return updated;
+    } catch (e) {
+        console.warn('⚠️ Falha ao redefinir configurações do modo premium:', e);
+        // Em erro, apenas esconder o overlay (sem toast novo)
+        try {
+            const overlay = document.getElementById('saveStatusOverlay');
+            if (overlay) overlay.style.display = 'none';
+        } catch (_) {}
+        return null;
+    }
+}
+
 async function persistAnalyzerState(newState) {
     try {
         await updateAnalyzerConfigPartial({ analysisEnabled: !!newState });
@@ -11529,7 +11598,7 @@ async function persistAnalyzerState(newState) {
             <div class="analyzer-default-view" id="analyzerDefaultView">
             <div class="auto-bet-summary" id="autoBetSummary">
                 <div class="auto-bet-summary-header">
-                    <span class="auto-bet-summary-title">Painel</span>
+                    <span class="auto-bet-summary-title">Painel de saldo</span>
                     </div>
                 <div class="auto-bet-summary-body">
                     <div class="auto-bet-summary-metrics">
@@ -11730,7 +11799,6 @@ async function persistAnalyzerState(newState) {
                     </div>
                     <div class="bank-buttons">
                         <button id="refreshBankBtn" class="refresh-bank-btn">Buscar Padrões</button>
-                        <button id="resetBankBtn" class="reset-bank-btn">Resetar Padrões</button>
                     </div>
                 </div>
                 
@@ -11762,16 +11830,22 @@ async function persistAnalyzerState(newState) {
                         <div class="observer-loading">Carregando...</div>
                     </div>
                     <div class="observer-calibration">
-                        <div class="calibration-label">Próximo sinal:</div>
+                    <div class="observer-calibration-top">
+                        <div class="calibration-label">Próximo sinal seguro:</div>
                         <div class="calibration-value" id="calibrationFactor">—</div>
+                    </div>
+                    <div class="recovery-gate-bar" id="recoveryGateBar" hidden>
+                        <div class="recovery-gate-fill" id="recoveryGateFill" style="width:0%"></div>
+                        <div class="recovery-gate-check" id="recoveryGateCheck" hidden>✓</div>
+                    </div>
                     </div>
                     <div class="observer-accuracy">
                         <div class="accuracy-item">
-                            <span class="accuracy-label">Sinais analisados:</span>
+                        <span class="accuracy-label">Ciclos analisados:</span>
                             <span class="accuracy-value" id="observerTotal">0</span>
                         </div>
                         <div class="accuracy-item">
-                            <span class="accuracy-label">Alvos/Distâncias:</span>
+                        <span class="accuracy-label">Recuperação:</span>
                             <span class="accuracy-value" id="observerWinRate">0%</span>
                         </div>
                     </div>
@@ -11900,9 +11974,12 @@ async function persistAnalyzerState(newState) {
                         </div>
                         <!-- Simulação no passado (Modo Padrão / Análise Premium) -->
                         <div class="setting-item setting-row" id="standardSimulationContainer" style="margin-top: 10px;">
-                            <div class="hot-pattern-actions">
+                            <div class="hot-pattern-actions" style="display:flex; flex-direction:column; gap:8px; width:100%;">
                                 <button id="standardSimulationBtn" class="btn-hot-pattern btn-standard-test-config" type="button" title="Testar/otimizar esta configuração no passado (sem olhar o futuro)">
                                     Testar configurações
+                                </button>
+                                <button id="standardResetConfigBtn" class="btn-hot-pattern btn-standard-reset-config" type="button" title="Redefinir as configurações do modo premium para o padrão do modo normal">
+                                    Redefinir configurações
                                 </button>
                             </div>
                         </div>
@@ -12109,7 +12186,7 @@ async function persistAnalyzerState(newState) {
                         </div>
                     </div>
                     <div class="auto-bet-modal-footer">
-                        <button type="button" class="auto-bet-reset" id="autoBetResetRuntimeModal"><span class="button-label">Resetar ciclo</span></button>
+                        <button type="button" class="auto-bet-reset" id="autoBetResetRuntimeModal"><span class="button-label">Resetar painel de saldo</span></button>
                         <button type="button" class="auto-bet-save-btn" id="autoBetSaveConfig"><span class="button-label">Salvar</span></button>
                     </div>
                 </div>
@@ -12973,7 +13050,7 @@ async function persistAnalyzerState(newState) {
                 triggerButtonFeedback(autoBetResetRuntimeModalBtn);
                 setButtonBusyState(autoBetResetRuntimeModalBtn, true, 'Resetando...');
                 try {
-                    // ✅ Pedido: "Resetar ciclo" também deve resetar o Painel (saldo/lucro/perdas),
+                    // ✅ Pedido: "Resetar painel de saldo" reseta o Painel (saldo/lucro/perdas),
                     // mas NÃO deve limpar o histórico da IA (sinais).
                     try {
                         if (autoBetHistoryStore && typeof autoBetHistoryStore.clear === 'function') {
@@ -13659,7 +13736,13 @@ async function persistAnalyzerState(newState) {
 
             const decisionText = meta.decision ? colorLabel(meta.decision) : (aiData && aiData.color ? colorLabel(aiData.color) : '—');
             const modeText = meta.mode ? meta.mode : '—';
-            const scoreText = (typeof meta.score === 'number' && Number.isFinite(meta.score)) ? `${meta.score.toFixed(1)}%` : '—';
+            const scoreFallback = (() => {
+                // Se o texto não trouxe um score global, usar o % do N4 (quando existir) como referência de "score interno".
+                const n4 = Array.isArray(levels) ? levels.find(l => l && l.id === 'N4' && typeof l.pct === 'number') : null;
+                return (n4 && typeof n4.pct === 'number' && Number.isFinite(n4.pct)) ? n4.pct : null;
+            })();
+            const scoreValue = (typeof meta.score === 'number' && Number.isFinite(meta.score)) ? meta.score : scoreFallback;
+            const scoreText = (typeof scoreValue === 'number' && Number.isFinite(scoreValue)) ? `${scoreValue.toFixed(1)}%` : '—';
             const confFallback = (aiData && typeof aiData.confidence === 'number' && Number.isFinite(aiData.confidence)) ? aiData.confidence : null;
             const confValue = (typeof meta.confidence === 'number' && Number.isFinite(meta.confidence)) ? meta.confidence : confFallback;
             const confText = (typeof confValue === 'number' && Number.isFinite(confValue)) ? `${confValue.toFixed(0)}%` : '—';
@@ -13671,7 +13754,7 @@ async function persistAnalyzerState(newState) {
                         <div class="diamond-summary-value">${escapeHtml(modeText)}</div>
                     </div>
                     <div class="diamond-summary-card">
-                        <div class="diamond-summary-label">Score</div>
+                        <div class="diamond-summary-label">Score interno</div>
                         <div class="diamond-summary-value">${escapeHtml(scoreText)}</div>
                     </div>
                     <div class="diamond-summary-card">
@@ -13679,7 +13762,7 @@ async function persistAnalyzerState(newState) {
                         <div class="diamond-summary-value">${escapeHtml(decisionText)}</div>
                     </div>
                     <div class="diamond-summary-card">
-                        <div class="diamond-summary-label">Confiança</div>
+                        <div class="diamond-summary-label">Confiança final</div>
                         <div class="diamond-summary-value">${escapeHtml(confText)}</div>
                     </div>
                 </div>
@@ -13688,7 +13771,9 @@ async function persistAnalyzerState(newState) {
             const cards = levels.map((lvl) => {
                 const badgeClass = lvl.voteColor ? `badge-${lvl.voteColor}` : 'badge-neutral';
                 const pctText = fmtPct(lvl.pct);
-                const pctHtml = lvl.pct != null ? `<div class="diamond-level-pct">${escapeHtml(pctText)}</div>` : '';
+                const pctHtml = (lvl.pct != null)
+                    ? `<div class="diamond-level-pct"><span class="diamond-level-pct-label">Score do nível</span><span class="diamond-level-pct-value">${escapeHtml(pctText)}</span></div>`
+                    : '';
                 const detailHtml = lvl.detail ? `<div class="diamond-level-detail">${escapeHtml(lvl.detail)}</div>` : '';
                 return `
                     <div class="diamond-level-card">
@@ -15066,10 +15151,13 @@ async function persistAnalyzerState(newState) {
         return deltas.slice(-800);
     }
 
+    let signalPanelSnapshotBackoffUntil = 0;
+    let signalPanelSnapshotBackoffMs = 0;
+
     async function postSignalPanelSnapshotToServer(payload) {
         try {
             const token = await getAuthTokenForServerSync();
-            if (!token) return;
+            if (!token) return true;
 
             const API_URL = getApiUrl();
             await fetch(`${API_URL}/api/auth/signal-panel/snapshot`, {
@@ -15081,13 +15169,25 @@ async function persistAnalyzerState(newState) {
                 body: JSON.stringify(payload || {}),
                 signal: getTimeoutSignal(6000)
             });
+            signalPanelSnapshotBackoffUntil = 0;
+            signalPanelSnapshotBackoffMs = 0;
+            return true;
         } catch (_) {
-            // silencioso (não poluir console do usuário)
+            // silencioso (não poluir console do usuário) — backoff para reduzir spam de rede no DevTools
+            const now = Date.now();
+            signalPanelSnapshotBackoffMs = signalPanelSnapshotBackoffMs
+                ? Math.min(signalPanelSnapshotBackoffMs * 2, 10 * 60 * 1000)
+                : 30 * 1000;
+            signalPanelSnapshotBackoffUntil = now + signalPanelSnapshotBackoffMs;
+            return false;
         }
     }
 
     function queueSignalPanelSnapshotToServer(payload) {
         try {
+            if (signalPanelSnapshotBackoffUntil && Date.now() < signalPanelSnapshotBackoffUntil) {
+                return;
+            }
             const now = Date.now();
             const key = JSON.stringify(payload || {});
             // throttle:
@@ -16212,7 +16312,7 @@ async function persistAnalyzerState(newState) {
         } else {
             // Histórico agora é gerenciado em cache no background (não no storage)
             console.log('❌ Limpeza parcial não disponível com cache em memória');
-            console.log('💡 Use o botão "Resetar Padrões" para limpar padrões locais');
+            console.log('💡 Use "Buscar novamente" para limpar e refazer a busca de padrões');
         }
     }
     
@@ -17704,7 +17804,6 @@ function logModeSnapshotUI(snapshot) {
             // Reabilitar botão de busca
             const btn = document.getElementById('refreshBankBtn');
             if (btn) {
-            btn.textContent = 'Buscar Padrões';
                 btn.disabled = false;
             }
         } else if (request.type === 'MODE_SNAPSHOT') {
@@ -17886,6 +17985,8 @@ function logModeSnapshotUI(snapshot) {
     let heartbeatInterval = null;
     let heartbeatFailures = 0;
     const MAX_HEARTBEAT_FAILURES = 3;
+    let heartbeatBackoffMs = 0;
+    let heartbeatRestartTimer = null;
     
     async function sendHeartbeat() {
         try {
@@ -17906,11 +18007,13 @@ function logModeSnapshotUI(snapshot) {
             
             if (response.ok) {
                 heartbeatFailures = 0; // Resetar contador de falhas
+                heartbeatBackoffMs = 0;
             } else {
                 heartbeatFailures++;
                 if (heartbeatFailures >= MAX_HEARTBEAT_FAILURES) {
                     console.log('💓 Heartbeat desativado após múltiplas falhas');
                     stopHeartbeat();
+                    scheduleHeartbeatRestart();
                 }
             }
         } catch (error) {
@@ -17918,9 +18021,22 @@ function logModeSnapshotUI(snapshot) {
             if (heartbeatFailures >= MAX_HEARTBEAT_FAILURES) {
                 console.log('💓 Heartbeat desativado após múltiplas falhas de conexão');
                 stopHeartbeat();
+                scheduleHeartbeatRestart();
             }
             // Silencioso - não mostrar erro no console
         }
+    }
+
+    function scheduleHeartbeatRestart() {
+        try {
+            if (heartbeatRestartTimer) return;
+            heartbeatBackoffMs = heartbeatBackoffMs ? Math.min(heartbeatBackoffMs * 2, 10 * 60 * 1000) : 60 * 1000;
+            heartbeatRestartTimer = setTimeout(() => {
+                heartbeatRestartTimer = null;
+                heartbeatFailures = 0;
+                startHeartbeat();
+            }, heartbeatBackoffMs);
+        } catch (_) {}
     }
     
     // Enviar heartbeat a cada 30 segundos
@@ -17938,6 +18054,10 @@ function logModeSnapshotUI(snapshot) {
         if (heartbeatInterval) {
             clearInterval(heartbeatInterval);
             heartbeatInterval = null;
+        }
+        if (heartbeatRestartTimer) {
+            clearTimeout(heartbeatRestartTimer);
+            heartbeatRestartTimer = null;
         }
     }
     
@@ -18816,6 +18936,15 @@ function logModeSnapshotUI(snapshot) {
         fill.style.width = `${clamp01(progress01) * 100}%`;
     }
 
+    function updatePatternBankSearchButtonLabel(totalPatterns = 0) {
+        const btn = document.getElementById('refreshBankBtn');
+        if (!btn) return;
+        // Se estiver buscando, o texto/disabled é controlado pelo fluxo da busca
+        if (bankSearchUiActive) return;
+        const total = Number(totalPatterns) || 0;
+        btn.textContent = total > 0 ? 'Buscar novamente' : 'Buscar Padrões';
+    }
+
     function startBankSearchProgressUI() {
         bankSearchUiStartTime = Date.now();
         bankSearchUiDurationMs = 0;
@@ -18830,6 +18959,12 @@ function logModeSnapshotUI(snapshot) {
         setBankCapacitySearchingUI(true);
         setBankCapacitySearchCompleteUI(false);
         setBankSearchProgress01(0);
+
+        const btn = document.getElementById('refreshBankBtn');
+        if (btn) {
+            btn.textContent = 'Buscando padrões...';
+            btn.disabled = true;
+        }
     }
 
     function updateBankSearchProgressUIFromProgress(progress01) {
@@ -18837,6 +18972,18 @@ function logModeSnapshotUI(snapshot) {
             startBankSearchProgressUI();
         }
         setBankSearchProgress01(progress01);
+    }
+
+    function abortBankSearchProgressUI() {
+        bankSearchUiActive = false;
+        bankSearchUiCompleted = false;
+        if (bankSearchUiTimer) {
+            clearInterval(bankSearchUiTimer);
+            bankSearchUiTimer = null;
+        }
+        // voltar para UI normal (sem marcar como "concluído")
+        try { setBankCapacitySearchingUI(false); } catch (_) {}
+        try { setBankCapacitySearchCompleteUI(false); } catch (_) {}
     }
 
     function stopBankSearchProgressUI() {
@@ -18849,6 +18996,30 @@ function logModeSnapshotUI(snapshot) {
         // ✅ Pedido: ao finalizar, manter a barra cheia e verde indicando conclusão
         setBankCapacitySearchingUI(false);
         setBankCapacitySearchCompleteUI(true);
+    }
+
+    function clearAutoPatternSearchRetry() {
+        autoPatternSearchRetryMs = 0;
+        if (autoPatternSearchRetryTimer) {
+            clearTimeout(autoPatternSearchRetryTimer);
+            autoPatternSearchRetryTimer = null;
+        }
+    }
+
+    function scheduleAutoPatternSearchRetry(reason = '') {
+        // backoff leve (para casos de histórico ainda não pronto / SW acordando)
+        const next = autoPatternSearchRetryMs ? Math.min(autoPatternSearchRetryMs * 2, 30000) : 1500;
+        autoPatternSearchRetryMs = next;
+        if (autoPatternSearchRetryTimer) {
+            clearTimeout(autoPatternSearchRetryTimer);
+        }
+        autoPatternSearchRetryTimer = setTimeout(() => {
+            autoPatternSearchRetryTimer = null;
+            try { loadPatternBank(); } catch (_) {}
+        }, next);
+        try {
+            console.log(`⏳ Auto-busca do Banco de Padrões: retry em ${Math.round(next / 100) / 10}s`, reason ? `(${reason})` : '');
+        } catch (_) {}
     }
     
     function showBankProgressMessage(message, options = {}) {
@@ -18910,8 +19081,8 @@ function logModeSnapshotUI(snapshot) {
         if (bankTotal) bankTotal.textContent = total;
         if (bankLimit) bankLimit.textContent = limit;
         if (bankPercent) bankPercent.textContent = percentage;
-        // ✅ Durante "Buscando padrões", a barrinha vira progresso por tempo (30s).
-        // Evita briga entre updatePatternBankUI e o timer da busca.
+        // ✅ Durante "Buscando padrões", a barrinha vira progresso real (0-100%).
+        // Evita briga entre updatePatternBankUI e o progresso da busca.
         const capacityWrap = document.querySelector('.pattern-bank-section .bank-capacity');
         const isSearching = !!capacityWrap && capacityWrap.classList.contains('is-searching');
         const isSearchComplete = !!capacityWrap && capacityWrap.classList.contains('is-search-complete');
@@ -18934,31 +19105,56 @@ function logModeSnapshotUI(snapshot) {
             const analyzerConfig = result.analyzerConfig || {};
             const isDiamondModeActive = !!analyzerConfig.aiMode;
             
-            if (!isDiamondModeActive) {
-                if (!suppressAutoPatternSearch && total === 0 && !autoPatternSearchTriggered) {
+            // Se já existem padrões, não há necessidade de retry pendente.
+            if (total > 0) {
+                clearAutoPatternSearchRetry();
+            }
+
+            // ✅ Regra (pedido do usuário): ao recarregar a página, deve buscar novamente os padrões (uma vez por carregamento).
+            // - Apenas no modo Premium/Padrão (não no Diamante)
+            // - Com retry/backoff para evitar "falha silenciosa" quando o histórico ainda não está pronto
+            if (!isDiamondModeActive && !suppressAutoPatternSearch) {
+                const canAttempt = !autoPatternSearchInFlight && !bankSearchUiActive;
+                if (!autoPatternSearchTriggered && canAttempt) {
                     autoPatternSearchTriggered = true;
-                    console.log('🔁 Banco de padrões vazio. Iniciando busca automática de padrões (30s)...');
+                    autoPatternSearchInFlight = true;
+                    console.log('🔁 Recarregou: iniciando busca automática do Banco de Padrões...');
+
                     chrome.runtime.sendMessage({ action: 'startPatternSearch' }, function(response) {
-                        if (response && response.status === 'already_running') {
-                            console.log('ℹ️ Busca automática já está em andamento.');
-                        } else if (response && response.status === 'insufficient_data') {
-                            console.warn('⚠️ Histórico insuficiente para busca automática:', response.message || '');
-                            autoPatternSearchTriggered = false; // tentar novamente quando dados chegarem
-                        } else if (response && response.status === 'error') {
-                            console.error('❌ Erro ao iniciar busca automática de padrões:', response.error);
-                            autoPatternSearchTriggered = false; // permitir nova tentativa
-                        } else if (!response) {
-                            console.warn('⚠️ Resposta indefinida ao iniciar busca automática de padrões.');
-                            autoPatternSearchTriggered = false;
+                        autoPatternSearchInFlight = false;
+                        const status = response && response.status ? response.status : null;
+
+                        if (status === 'started') {
+                            clearAutoPatternSearchRetry();
+                            try { startBankSearchProgressUI(); } catch (_) {}
+                            return;
+                        }
+                        if (status === 'already_running') {
+                            clearAutoPatternSearchRetry();
+                            // Garantir UI em "buscando" até chegarem os progress ticks
+                            try { startBankSearchProgressUI(); } catch (_) {}
+                            return;
+                        }
+
+                        // Falhas: permitir nova tentativa + retry automático
+                        autoPatternSearchTriggered = false;
+                        try { abortBankSearchProgressUI(); } catch (_) {}
+
+                        if (status === 'insufficient_data') {
+                            console.warn('⚠️ Histórico insuficiente para auto-busca do Banco de Padrões:', response.message || '');
+                            scheduleAutoPatternSearchRetry('insufficient_data');
+                        } else if (status === 'error') {
+                            console.error('❌ Erro ao iniciar auto-busca do Banco de Padrões:', response.error);
+                            scheduleAutoPatternSearchRetry('error');
+                        } else {
+                            console.warn('⚠️ Resposta indefinida/inesperada ao iniciar auto-busca do Banco de Padrões.');
+                            scheduleAutoPatternSearchRetry('no_response');
                         }
                     });
-                } else if (total > 0) {
-                    autoPatternSearchTriggered = true;
                 }
             } else {
                 // Modo Diamante: nenhuma busca automática deve acontecer.
-                // Mantém flag habilitada apenas se já houver padrões carregados.
-                autoPatternSearchTriggered = total > 0;
+                clearAutoPatternSearchRetry();
             }
             
             // Agrupar por confiança
@@ -18978,6 +19174,11 @@ function logModeSnapshotUI(snapshot) {
                 limit: 5000,
                 byConfidence: byConfidence
             });
+
+            // Atualizar label do botão (Buscar Padrões vs Buscar novamente)
+            try {
+                updatePatternBankSearchButtonLabel(total);
+            } catch (_) {}
         });
     }
     
@@ -19526,6 +19727,16 @@ function logModeSnapshotUI(snapshot) {
         const gateSinceLoss = Number.isFinite(Number(recoveryGateStats && recoveryGateStats.sinceLoss)) ? Number(recoveryGateStats.sinceLoss) : null;
         const gateSafeDistance = Number.isFinite(Number(recoveryGateStats && recoveryGateStats.safeDistance)) ? Number(recoveryGateStats.safeDistance) : null;
         const gateSignalsUntilSafe = Number.isFinite(Number(recoveryGateStats && recoveryGateStats.signalsUntilSafe)) ? Number(recoveryGateStats.signalsUntilSafe) : null;
+        const lossWinGaps = Array.isArray(recoveryGateStats && recoveryGateStats.lossWinGaps)
+            ? recoveryGateStats.lossWinGaps.map(Number).filter(n => Number.isFinite(n) && n >= 0).map(n => Math.floor(n))
+            : [];
+        const winsSinceLoss = Number.isFinite(Number(recoveryGateStats && recoveryGateStats.winsSinceLoss))
+            ? Math.max(0, Math.floor(Number(recoveryGateStats && recoveryGateStats.winsSinceLoss)))
+            : (gateSinceLoss != null ? Math.max(0, Math.floor(gateSinceLoss) - 1) : null);
+        const safeWins = gateSafeDistance != null ? Math.max(0, Math.floor(gateSafeDistance) - 1) : null;
+        const winsUntilSafe = (winsSinceLoss != null && safeWins != null)
+            ? Math.max(0, safeWins - winsSinceLoss)
+            : null;
 
         // Bloco informativo (motivo + distância)
         const reasonText = (recoveryEnabled && recoveryGate && recoveryGate.reason)
@@ -19535,6 +19746,12 @@ function logModeSnapshotUI(snapshot) {
             ? String(gateSinceLoss)
             : (distanceSinceLastRet === null ? 'n/d' : String(distanceSinceLastRet));
         const fmtList = (arr) => (Array.isArray(arr) && arr.length ? arr.join(',') : '—');
+        const fmtWinGaps = (arr) => {
+            if (!Array.isArray(arr) || !arr.length) return '—';
+            const tail = arr.slice(-6);
+            const head = arr.length > tail.length ? '… ' : '';
+            return head + tail.join(' → ');
+        };
         const windowText = decisionWindowCycles != null ? ` (janela=${decisionWindowCycles} • prioriza recente)` : '';
         const streaks = safe.streaks && typeof safe.streaks === 'object' ? safe.streaks : null;
         const streakText = (() => {
@@ -19581,16 +19798,23 @@ function logModeSnapshotUI(snapshot) {
             const top = levels.slice(0, 5).map(fmt).join(' • ');
             return `<div><b>Por nível (sinais):</b> ${top}</div>`;
         })();
+        const lossesCount = Number.isFinite(Number(recoveryGateStats && recoveryGateStats.losses))
+            ? Number(recoveryGateStats && recoveryGateStats.losses)
+            : rets;
         observerStats.innerHTML = `
             <div class="observer-loading" style="padding:0; text-align:left;">
                 <div><b>Modo:</b> ${modeLabel}</div>
                 ${diamondLevelText}
                 ${diamondRankText}
-                <div><b>Distância do último LOSS:</b> ${distText}</div>
-                <div><b>WIN (ciclo):</b> ${totalCycles > 0 ? `${cycleWinRate.toFixed(1)}% (${wins}/${totalCycles})` : '—'}</div>
-                <div><b>LOSS (RED):</b> ${totalCycles > 0 ? `${rets}/${totalCycles}` : '—'}</div>
-                <div><b>Distâncias (gaps reais)</b>${windowText}: ENTR [${fmtList(entryTargets)}] • G1 [${fmtList(g1Targets)}] • G2 [${fmtList(g2Targets)}] • RED [${fmtList(retTargets)}]</div>
-                ${streakText ? `<div><b>Sequências (streaks):</b> ${streakText}</div>` : ''}
+                <div><b>Ciclos:</b> ${totalCycles > 0 ? `${totalCycles} • WIN ${cycleWinRate.toFixed(1)}% (${wins}/${totalCycles}) • LOSS ${lossesCount}/${totalCycles}` : '—'}</div>
+                ${recoveryEnabled
+                    ? `
+                        <div><b>Vitórias desde o último LOSS:</b> ${winsSinceLoss == null ? '—' : winsSinceLoss}</div>
+                        <div><b>Distâncias entre LOSS (vitórias):</b> ${fmtWinGaps(lossWinGaps)}</div>
+                        <div><b>Ponto seguro:</b> ${safeWins == null ? '—' : `≥${safeWins} vitória(s)`}</div>
+                      `
+                    : `<div><b>Recuperação segura:</b> desativada</div>`
+                }
                 <div><b>Status:</b> ${reasonText}</div>
             </div>
         `;
@@ -19610,24 +19834,45 @@ function logModeSnapshotUI(snapshot) {
                     } else if (recoveryGate && recoveryGate.ok === true) {
                         calibrationFactor.textContent = 'Sinal seguro liberado';
                         calibrationFactor.style.color = '#00ff88';
-                    } else if (gateSignalsUntilSafe != null && gateSignalsUntilSafe > 0) {
-                        calibrationFactor.textContent = `Faltam ${gateSignalsUntilSafe}`;
+                    } else if (winsUntilSafe != null && winsUntilSafe > 0) {
+                        calibrationFactor.textContent = `Faltam ${winsUntilSafe}`;
                         calibrationFactor.style.color = '#ffa500';
                     } else {
                         calibrationFactor.textContent = 'Aguardando';
                         calibrationFactor.style.color = '#cdd6e8';
                     }
                 } else {
-                    if (!hasCurrentSignal) {
-                        calibrationFactor.textContent = 'Aguardando';
-                        calibrationFactor.style.color = '#cdd6e8';
-                    } else {
-                        calibrationFactor.textContent = nextIsMaster ? 'Sinal liberado' : 'Normal';
-                        calibrationFactor.style.color = nextIsMaster ? '#00ff88' : '#ef5350';
-                    }
+                    // ✅ Não confundir: este card é de Recuperação segura. Não exibir "Sinal liberado" para sinais normais.
+                    calibrationFactor.textContent = 'Recuperação desativada';
+                    calibrationFactor.style.color = '#8da2bb';
                 }
             }
         }
+
+        // Barra de progresso do "Próximo sinal seguro"
+        try {
+            const bar = document.getElementById('recoveryGateBar');
+            const fill = document.getElementById('recoveryGateFill');
+            const check = document.getElementById('recoveryGateCheck');
+            if (bar && fill) {
+                const shouldShow = !!(recoveryEnabled && !isCollecting && safeWins != null);
+                if (!shouldShow) {
+                    bar.hidden = true;
+                    if (check) check.hidden = true;
+                    bar.classList.remove('is-complete');
+                } else {
+                    bar.hidden = false;
+                    const denom = (safeWins != null ? safeWins : 0);
+                    const prog = denom > 0
+                        ? Math.max(0, Math.min(1, (winsSinceLoss != null ? winsSinceLoss : 0) / denom))
+                        : (recoveryGate && recoveryGate.ok === true ? 1 : 0);
+                    fill.style.width = `${Math.round(prog * 1000) / 10}%`;
+                    const ok = !!(recoveryGate && recoveryGate.ok === true && !safe.currentSignalRecovery);
+                    bar.classList.toggle('is-complete', ok);
+                    if (check) check.hidden = !ok;
+                }
+            }
+        } catch (_) {}
         
         // Atualizar totais
         const observerTotal = document.getElementById('observerTotal');
@@ -19648,15 +19893,18 @@ function logModeSnapshotUI(snapshot) {
                 observerWinRate.style.color = '#ffa500';
             } else {
                 if (recoveryEnabled && gateSinceLoss != null) {
-                    const lossPart = `LOSS atual=${gateSinceLoss}${gateSafeDistance != null ? ` seguro≥${gateSafeDistance}` : ''}${gateSignalsUntilSafe != null ? ` faltam=${gateSignalsUntilSafe}` : ''}`;
-                    const avoidPart = `evitar=${fmtList(retTargets)}`;
-                    observerWinRate.textContent = `${lossPart} • ${avoidPart}`;
+                    const parts = [];
+                    if (winsSinceLoss != null) parts.push(`Vitórias desde LOSS: ${winsSinceLoss}`);
+                    if (safeWins != null) parts.push(`Seguro: ≥${safeWins}`);
+                    if (winsUntilSafe != null) parts.push(`Faltam: ${winsUntilSafe}`);
+                    if (Array.isArray(retTargets) && retTargets.length) parts.push(`Zona típica de LOSS: ${fmtList(retTargets)}`);
+                    observerWinRate.textContent = parts.length ? parts.join(' • ') : reasonText;
+                    observerWinRate.style.color = '#cdd6e8';
                 } else {
-                    const entPart = (sinceEntrada != null) ? `ENTR atual=${sinceEntrada} alvo(s)=${fmtList(entryTargets)}${entryTargetWindow ? `±${entryTargetWindow}` : ''}` : 'ENTR —';
-                    const retPart = (sinceRet != null) ? `RED atual=${sinceRet} evitar=${fmtList(retTargets)}` : 'RED —';
-                    observerWinRate.textContent = `${entPart} • ${retPart}`;
+                    // Recuperação desativada => não poluir com targets/Δ (isso é do módulo de sinais, não do gate)
+                    observerWinRate.textContent = recoveryEnabled ? reasonText : '—';
+                    observerWinRate.style.color = '#8da2bb';
                 }
-                observerWinRate.style.color = '#cdd6e8';
             }
         }
         
@@ -19666,7 +19914,7 @@ function logModeSnapshotUI(snapshot) {
             const pct = Number.isFinite(Number(safe.entryWinPct)) ? Number(safe.entryWinPct) : 0;
             const count = Number.isFinite(Number(safe.entryWinCount)) ? Number(safe.entryWinCount) : 0;
             obsHigh.textContent = totalCycles > 0
-                ? `${pct.toFixed(1)}% (${count}/${totalCycles}) • Δ ${fmtList(entryTargets)}`
+                ? `${pct.toFixed(1)}% (${count}/${totalCycles})`
                 : '—';
         }
         
@@ -19675,7 +19923,7 @@ function logModeSnapshotUI(snapshot) {
             const pct = Number.isFinite(Number(safe.g1WinPct)) ? Number(safe.g1WinPct) : 0;
             const count = Number.isFinite(Number(safe.g1WinCount)) ? Number(safe.g1WinCount) : 0;
             obsMedium.textContent = totalCycles > 0
-                ? `${pct.toFixed(1)}% (${count}/${totalCycles}) • Δ ${fmtList(g1Targets)}`
+                ? `${pct.toFixed(1)}% (${count}/${totalCycles})`
                 : '—';
         }
         
@@ -19684,7 +19932,7 @@ function logModeSnapshotUI(snapshot) {
             const pct = Number.isFinite(Number(safe.g2WinPct)) ? Number(safe.g2WinPct) : 0;
             const count = Number.isFinite(Number(safe.g2WinCount)) ? Number(safe.g2WinCount) : 0;
             obsLow.textContent = totalCycles > 0
-                ? `${pct.toFixed(1)}% (${count}/${totalCycles}) • Δ ${fmtList(g2Targets)}`
+                ? `${pct.toFixed(1)}% (${count}/${totalCycles})`
                 : '—';
         }
     }
@@ -19733,6 +19981,11 @@ function logModeSnapshotUI(snapshot) {
             openStandardSimulationModal();
         }
 
+        if (e.target && e.target.id === 'standardResetConfigBtn') {
+            e.preventDefault();
+            resetPremiumModeConfigToDefault();
+        }
+
         if (e.target && e.target.id === 'diamondLevelsSaveBtn') {
             e.preventDefault();
             saveDiamondLevels();
@@ -19766,75 +20019,17 @@ function logModeSnapshotUI(snapshot) {
                 } else if (response && response.status === 'already_running') {
                     btn.textContent = 'Busca em andamento...';
                     setTimeout(function() {
-                        btn.textContent = 'Buscar Padrões';
                         btn.disabled = false;
+                        try { loadPatternBank(); } catch (_) {}
                     }, 2000);
                 } else if (response && response.status === 'insufficient_data') {
                     btn.textContent = 'Histórico insuficiente';
                     setTimeout(function() {
-                        btn.textContent = 'Buscar Padrões';
                         btn.disabled = false;
+                        try { loadPatternBank(); } catch (_) {}
                     }, 2000);
                 }
             });
-        }
-        
-        if (e.target && e.target.id === 'resetBankBtn') {
-            e.preventDefault();
-            const btn = e.target;
-
-            // ✅ Pedido: resetar direto (sem modal de confirmação)
-            btn.textContent = 'Resetando...';
-            btn.disabled = true;
-            suppressAutoPatternSearch = true;
-            autoPatternSearchTriggered = true;
-            try {
-                // Reset visual do indicador de busca concluída
-                setBankCapacitySearchCompleteUI(false);
-                setBankSearchProgress01(0);
-            } catch (_) {}
-            
-                console.log('%c🗑️ LIMPANDO PADRÕES DIRETAMENTE DO LOCALSTORAGE...', 'color: #FF0000; font-weight: bold; font-size: 14px;');
-                
-                try {
-                    // ✅ LIMPAR DIRETAMENTE DO LOCALSTORAGE (não depende do listener)
-                    const allData = JSON.parse(localStorage.getItem('blazeAnalyzerData') || '{}');
-                    
-                    // Limpar apenas os padrões, preservando o resto
-                    delete allData.patternDB;
-                    delete allData.currentAnalysis;
-                    
-                    // Salvar de volta
-                    localStorage.setItem('blazeAnalyzerData', JSON.stringify(allData));
-                    
-                    console.log('%c✅ PADRÕES LIMPOS COM SUCESSO!', 'color: #00FF88; font-weight: bold; font-size: 14px;');
-                    
-                    chrome.runtime.sendMessage({ action: 'resetPatterns' }, function(response) {
-                        if (response && response.status === 'success') {
-                    btn.textContent = 'Resetado!';
-                    loadPatternBank();
-                        } else {
-                            console.error('%c❌ ERRO AO RESETAR PADRÕES NO BACKGROUND:', 'color: #FF0000; font-weight: bold;', response);
-                            btn.textContent = 'Erro ao resetar';
-                            suppressAutoPatternSearch = false;
-                            autoPatternSearchTriggered = false;
-                        }
-                    
-                    setTimeout(function() {
-                        btn.textContent = 'Resetar Padrões';
-                        btn.disabled = false;
-                    }, 2000);
-                    });
-                } catch (error) {
-                    console.error('%c❌ ERRO AO LIMPAR PADRÕES:', 'color: #FF0000; font-weight: bold;', error);
-                    btn.textContent = 'Erro ao resetar';
-                    suppressAutoPatternSearch = false;
-                    autoPatternSearchTriggered = false;
-                    setTimeout(function() {
-                        btn.textContent = 'Resetar Padrões';
-                        btn.disabled = false;
-                    }, 2000);
-                }
         }
     });
 

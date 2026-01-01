@@ -261,6 +261,9 @@ function computeRecoveryGateFromEntries(entriesHistoryRaw, modeRaw) {
         }
         const losses = lossIdx.length;
         const sinceLoss = losses ? (totalCycles - lossIdx[lossIdx.length - 1]) : null;
+        const winsSinceLoss = losses
+            ? Math.max(0, (totalCycles - 1) - lossIdx[lossIdx.length - 1])
+            : null;
 
         if (losses < 2 || sinceLoss == null) {
             return {
@@ -276,6 +279,8 @@ function computeRecoveryGateFromEntries(entriesHistoryRaw, modeRaw) {
             const g = Math.floor(lossIdx[i] - lossIdx[i - 1]);
             if (Number.isFinite(g) && g > 0) gaps.push(g);
         }
+        // gaps em "vitórias entre LOSS" (mais intuitivo p/ UI)
+        const lossWinGaps = gaps.map(g => Math.max(0, g - 1));
 
         const hazardAt = (arr, d) => {
             const dist = Math.floor(Number(d));
@@ -359,6 +364,8 @@ function computeRecoveryGateFromEntries(entriesHistoryRaw, modeRaw) {
                 totalCycles,
                 losses,
                 sinceLoss,
+                winsSinceLoss,
+                lossWinGaps: lossWinGaps.slice(-12),
                 retTargets,
                 lossHazardNow,
                 hazardBlockAboveEffective,
@@ -3888,19 +3895,25 @@ async function processNewSpinFromServer(spinData) {
             console.log('🎲 Giro atual:');
             console.log('   Cor:', rollColor);
             console.log('   Número:', rollNumber);
-            console.log('   Timestamp:', latestSpin.created_at);
+            console.log('   Timestamp:', latestSpin.created_at ?? latestSpin.timestamp);
             
                 // ✅ Corrigido: algumas análises antigas/alternativas não possuem predictedFor='next'
                 // (ex.: resultados de performPatternAnalysis). Se createdOnTimestamp existe, tratamos como pendente.
                 if (currentAnalysis && currentAnalysis.createdOnTimestamp) {
+                const latestSpinMs = parseSpinTimestamp(latestSpin);
+                const analysisMs = parseSpinTimestamp({ timestamp: currentAnalysis.createdOnTimestamp, created_at: currentAnalysis.createdOnTimestamp });
+                const shouldEvaluate = (Number.isFinite(latestSpinMs) && Number.isFinite(analysisMs))
+                    ? (latestSpinMs !== analysisMs)
+                    : (String(currentAnalysis.createdOnTimestamp) !== String(latestSpin.created_at ?? latestSpin.timestamp ?? ''));
+
                 console.log('✅ Recomendação pendente encontrada!');
-                console.log('🔍 Comparando timestamps:');
-                console.log('   Recomendação:', currentAnalysis.createdOnTimestamp);
-                console.log('   Giro atual:', latestSpin.created_at);
-                console.log('   São diferentes?', currentAnalysis.createdOnTimestamp !== latestSpin.created_at);
+                console.log('🔍 Comparando timestamps (normalizado):');
+                console.log('   Recomendação:', currentAnalysis.createdOnTimestamp, '=>', analysisMs);
+                console.log('   Giro atual:', (latestSpin.created_at ?? latestSpin.timestamp), '=>', latestSpinMs);
+                console.log('   Avaliar agora?', shouldEvaluate);
                 
                     // Novo giro chegou para a recomendação pendente
-                    if (currentAnalysis.createdOnTimestamp !== latestSpin.created_at) {
+                    if (shouldEvaluate) {
                     console.log('🎯 AVALIAR RESULTADO!');
                     console.log('   Esperado:', currentAnalysis.color);
                     console.log('   Real:', rollColor);
@@ -4092,6 +4105,12 @@ async function processNewSpinFromServer(spinData) {
                                     ? martingaleState.analysisData
                                     : currentAnalysis;
                                 await recordN4SelfLearningFromResolvedCycle(learningAnalysis, 'win');
+                                // 💎 N4 (Autointeligente): auto-ajuste de janela (n4Persistence) quando o desempenho cair
+                                try {
+                                    if (!isHiddenInternal) {
+                                        maybeAutoTuneN4HistoryWindow({ entriesHistory, analysisObj: learningAnalysis }).catch(() => {});
+                                    }
+                                } catch (_) {}
                             } catch (_) {}
                             
                             // ✅ RESETAR CICLO DE MARTINGALE - CRÍTICO!
@@ -4321,6 +4340,12 @@ async function processNewSpinFromServer(spinData) {
                                     // 💎 N4 (Autointeligente): registrar resultado final do CICLO (LOSS/RED) para auto-aprendizado
                                     try {
                                         await recordN4SelfLearningFromResolvedCycle(currentAnalysis, 'loss');
+                                        // 💎 N4 (Autointeligente): auto-ajuste de janela (n4Persistence) quando o desempenho cair
+                                        try {
+                                            if (!isHiddenInternal) {
+                                                maybeAutoTuneN4HistoryWindow({ entriesHistory, analysisObj: currentAnalysis }).catch(() => {});
+                                            }
+                                        } catch (_) {}
                                     } catch (_) {}
                                     
                                     resetMartingaleState();
@@ -4500,20 +4525,38 @@ async function processNewSpinFromServer(spinData) {
                                         );
                                     }
                                 } else {
-                                    // ❌ MODO PADRÃO: Aguardar novo padrão para enviar G1
-                                    console.log('⏳ MODO PRÓXIMO SINAL: Aguardando novo sinal para enviar G1...');
-                                    
+                                    // ✅ Correção (pedido do usuário): GALE deve continuar no PRÓXIMO GIRO (não esperar “novo sinal”)
+                                    console.log('✅ GALE AUTOMÁTICO: G1 será enviado no PRÓXIMO GIRO');
+
+                                    const g1Analysis = {
+                                        ...currentAnalysis,
+                                        color: g1Color,
+                                        phase: 'G1',
+                                        predictedFor: 'next',
+                                        createdOnTimestamp: latestSpin.created_at // ✅ usar o giro atual para avaliar no próximo
+                                    };
+                                    g1Analysis.confidence = calculateGaleConfidenceValue(g1Analysis.confidence, g1Analysis);
+
                                     await chrome.storage.local.set({
-                                        analysis: null,
-                                        pattern: null,
-                                        lastBet: { status: 'loss', phase: 'G0', resolvedAtTimestamp: latestSpin.created_at },
+                                        analysis: g1Analysis,
+                                        pattern: { description: g1Analysis.patternDescription, confidence: g1Analysis.confidence },
+                                        lastBet: { status: 'pending', phase: 'G1', createdOnTimestamp: g1Analysis.createdOnTimestamp },
                                         ...(isHiddenInternal ? { [RECOVERY_SECURE_HISTORY_KEY]: recoverySecureHistory } : { entriesHistory }),
                                         martingaleState
                                     });
-                                    
-                                    if (!isHiddenInternal || (currentAnalysis && currentAnalysis.recoveryMode)) {
-                                        sendMessageToContent('CLEAR_ANALYSIS');
+
+                                    emitAnalysisToContent(g1Analysis, analyzerConfig.aiMode ? 'diamond' : 'standard');
+                                    if (!isHiddenInternal) {
                                         sendMessageToContent('ENTRIES_UPDATE', entriesHistory);
+                                    }
+
+                                    // Telegram (manter consistência com o modo consecutivo)
+                                    if (!isHiddenInternal) {
+                                        await sendTelegramMartingaleG1(
+                                            g1Color,
+                                            g1Analysis.confidence,
+                                            { color: rollColor, number: rollNumber, timestamp: latestSpin.created_at }
+                                        );
                                     }
                                 }
                                 
@@ -4558,6 +4601,8 @@ async function processNewSpinFromServer(spinData) {
                                         isMaster: !!(currentAnalysis && currentAnalysis.masterSignal && currentAnalysis.masterSignal.active),
                                         // ✅ NOVO: marcar se este ciclo foi um SINAL DE RECUPERAÇÃO
                                         recoveryMode: !!(currentAnalysis && currentAnalysis.recoveryMode),
+                                        // ✅ NOVO (Diamante): qual nível "mandou" o sinal (origem)
+                                        diamondSourceLevel: currentAnalysis && currentAnalysis.diamondSourceLevel ? currentAnalysis.diamondSourceLevel : null,
                                         // ✅ FINANCEIRO (fixo no tempo)
                                         cycleId,
                                         betColor,
@@ -4597,6 +4642,12 @@ async function processNewSpinFromServer(spinData) {
                                             ? martingaleState.analysisData
                                             : currentAnalysis;
                                         await recordN4SelfLearningFromResolvedCycle(learningAnalysis, 'loss');
+                                        // 💎 N4 (Autointeligente): auto-ajuste de janela (n4Persistence) quando o desempenho cair
+                                        try {
+                                            if (!isHiddenInternal) {
+                                                maybeAutoTuneN4HistoryWindow({ entriesHistory, analysisObj: learningAnalysis }).catch(() => {});
+                                            }
+                                        } catch (_) {}
                                     } catch (_) {}
                                     
                                     resetMartingaleState();
@@ -4735,20 +4786,38 @@ async function processNewSpinFromServer(spinData) {
                                         );
                                     }
                                 } else {
-                                    // ❌ MODO PADRÃO
-                                    console.log(`⏳ MODO PRÓXIMO SINAL: Aguardando novo sinal para enviar G${nextGaleNumber}...`);
-                                    
+                                    // ✅ Correção (pedido do usuário): GALE deve continuar no PRÓXIMO GIRO (não esperar “novo sinal”)
+                                    console.log(`✅ GALE AUTOMÁTICO: G${nextGaleNumber} será enviado no PRÓXIMO GIRO`);
+
+                                    const nextGaleAnalysis = {
+                                        ...currentAnalysis,
+                                        color: nextGaleColor,
+                                        phase: `G${nextGaleNumber}`,
+                                        predictedFor: 'next',
+                                        createdOnTimestamp: latestSpin.created_at
+                                    };
+                                    nextGaleAnalysis.confidence = calculateGaleConfidenceValue(nextGaleAnalysis.confidence, nextGaleAnalysis);
+
                                     await chrome.storage.local.set({
-                                        analysis: null,
-                                        pattern: null,
-                                        lastBet: { status: 'loss', phase: currentStage, resolvedAtTimestamp: latestSpin.created_at },
+                                        analysis: nextGaleAnalysis,
+                                        pattern: { description: nextGaleAnalysis.patternDescription, confidence: nextGaleAnalysis.confidence },
+                                        lastBet: { status: 'pending', phase: `G${nextGaleNumber}`, createdOnTimestamp: nextGaleAnalysis.createdOnTimestamp },
                                         ...(isHiddenInternal ? { [RECOVERY_SECURE_HISTORY_KEY]: recoverySecureHistory } : { entriesHistory }),
                                         martingaleState
                                     });
-                                    
-                                    if (!isHiddenInternal || (currentAnalysis && currentAnalysis.recoveryMode)) {
-                                        sendMessageToContent('CLEAR_ANALYSIS');
+
+                                    emitAnalysisToContent(nextGaleAnalysis, analyzerConfig.aiMode ? 'diamond' : 'standard');
+                                    if (!isHiddenInternal) {
                                         sendMessageToContent('ENTRIES_UPDATE', entriesHistory);
+                                    }
+
+                                    if (!isHiddenInternal) {
+                                        await sendTelegramMartingaleGale(
+                                            nextGaleNumber,
+                                            nextGaleColor,
+                                            nextGaleAnalysis.confidence,
+                                            { color: rollColor, number: rollNumber, timestamp: latestSpin.created_at }
+                                        );
                                     }
                                 }
                                 
@@ -5852,6 +5921,22 @@ let signalsHistory = {
         goodWinRate: 0.60,    // acima disso -> liberar com boost (mais permissivo)
         lastUpdated: null
     },
+    // 💎 N4 (Autointeligente): auto-ajuste do tamanho do histórico (janela) quando o desempenho cair
+    n4AutoTune: {
+        enabled: true,
+        targetWinRate: 0.90,     // alvo mínimo (ciclos) para manter o N4 “saudável”
+        minCycles: 20,           // amostra mínima para disparar ajuste
+        cooldownMs: 10 * 60 * 1000, // não ajustar em loop (10min)
+        // bateria: avalia algumas janelas candidatas em cima do histórico recente
+        lookbackSpins: 5000,
+        stride: 2,
+        maxSignalsToScore: 200,
+        minSignalsToAccept: 25,
+        lastRunAt: null,
+        lastFrom: null,
+        lastTo: null,
+        lastWinRate: null
+    },
     consecutiveLosses: 0,     // 📉 Contador de losses consecutivos GLOBAL
     recentPerformance: [],    // 📊 Últimos 20 sinais (para ajuste dinâmico de minPercentage)
     lastUpdated: null
@@ -5882,6 +5967,37 @@ async function initializeSignalsHistory() {
                     goodWinRate: 0.60,
                     lastUpdated: null
                 };
+            }
+            // ✅ N4 auto-tune: garantir defaults (sem sobrescrever ajustes do usuário)
+            if (!signalsHistory.n4AutoTune || typeof signalsHistory.n4AutoTune !== 'object') {
+                signalsHistory.n4AutoTune = {
+                    enabled: true,
+                    targetWinRate: 0.90,
+                    minCycles: 20,
+                    cooldownMs: 10 * 60 * 1000,
+                    lookbackSpins: 5000,
+                    stride: 2,
+                    maxSignalsToScore: 200,
+                    minSignalsToAccept: 25,
+                    lastRunAt: null,
+                    lastFrom: null,
+                    lastTo: null,
+                    lastWinRate: null
+                };
+            } else {
+                const at = signalsHistory.n4AutoTune;
+                if (at.enabled === undefined) at.enabled = true;
+                if (!Number.isFinite(Number(at.targetWinRate))) at.targetWinRate = 0.90;
+                if (!Number.isFinite(Number(at.minCycles))) at.minCycles = 20;
+                if (!Number.isFinite(Number(at.cooldownMs))) at.cooldownMs = 10 * 60 * 1000;
+                if (!Number.isFinite(Number(at.lookbackSpins))) at.lookbackSpins = 5000;
+                if (!Number.isFinite(Number(at.stride))) at.stride = 2;
+                if (!Number.isFinite(Number(at.maxSignalsToScore))) at.maxSignalsToScore = 200;
+                if (!Number.isFinite(Number(at.minSignalsToAccept))) at.minSignalsToAccept = 25;
+                if (at.lastRunAt === undefined) at.lastRunAt = null;
+                if (at.lastFrom === undefined) at.lastFrom = null;
+                if (at.lastTo === undefined) at.lastTo = null;
+                if (at.lastWinRate === undefined) at.lastWinRate = null;
             }
             if (!signalsHistory.n4SelfLearning.stats || typeof signalsHistory.n4SelfLearning.stats !== 'object') {
                 signalsHistory.n4SelfLearning.stats = {};
@@ -6069,6 +6185,315 @@ async function recordN4SelfLearningFromResolvedCycle(analysisObj, outcome) {
     } catch (e) {
         console.warn('⚠️ Falha ao registrar auto-aprendizado do N4:', e);
         return false;
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// 💎 N4 (Autointeligente): auto-ajuste da janela (n4Persistence)
+// - Quando o desempenho recente do N4 cair abaixo do alvo, roda uma “bateria”
+//   rápida de janelas candidatas e aplica a melhor.
+// - Projetado para ser leve e com cooldown (evita “chacoalhar” config).
+// ═══════════════════════════════════════════════════════════════
+
+let n4AutoTuneInProgress = false;
+
+function normalizeSimpleColorN4(value) {
+    const s = String(value || '').toLowerCase().trim();
+    if (!s) return '';
+    if (s.startsWith('r')) return 'red';
+    if (s.startsWith('b') && s !== 'branco') return 'black';
+    if (s.startsWith('w') || s === 'branco') return 'white';
+    if (s === 'vermelho') return 'red';
+    if (s === 'preto') return 'black';
+    return s;
+}
+
+function getDiamondSourceIdFromEntry(entry) {
+    try {
+        const src = (entry && entry.diamondSourceLevel)
+            || (entry && entry.patternData && entry.patternData.diamondSourceLevel)
+            || null;
+        const id = src && src.id ? String(src.id) : null;
+        return id;
+    } catch (_) {
+        return null;
+    }
+}
+
+function computeRecentCycleWinRateForSource(entriesHistoryRaw, sourceId, maxCycles = 30) {
+    try {
+        const entries = Array.isArray(entriesHistoryRaw) ? entriesHistoryRaw : [];
+        const finals = filterFinalEntries(entries);
+        const want = String(sourceId || '').toUpperCase().trim();
+        let wins = 0;
+        let losses = 0;
+        for (const e of finals) {
+            if (!e || typeof e !== 'object') continue;
+            if (String(e.analysisMode || '').toLowerCase().trim() !== 'diamond') continue;
+            const srcId = getDiamondSourceIdFromEntry(e);
+            if (!srcId || String(srcId).toUpperCase().trim() !== want) continue;
+            const res = String(e.result || '').toUpperCase().trim();
+            if (res === 'WIN') wins++;
+            else if (res === 'LOSS') losses++;
+            if ((wins + losses) >= Math.max(1, Math.floor(Number(maxCycles) || 30))) break;
+        }
+        const total = wins + losses;
+        const winRate = total ? (wins / total) : 0;
+        return { wins, losses, total, winRate };
+    } catch (_) {
+        return { wins: 0, losses: 0, total: 0, winRate: 0 };
+    }
+}
+
+function clampN4WindowSize(raw) {
+    const n = Math.floor(Number(raw));
+    if (!Number.isFinite(n)) return 2000;
+    // ✅ abaixo de 80 o N4 vira “NULO” na prática (tokens insuficientes)
+    return Math.max(80, Math.min(10000, n));
+}
+
+function buildN4WindowCandidates(currentWindow, maxCandidates = 7) {
+    const cur = clampN4WindowSize(currentWindow);
+    const base = [250, 500, 800, 1200, 1600, 2000, 2500, 3000, 4000].map(clampN4WindowSize);
+    const scaled = [
+        Math.round(cur * 0.50),
+        Math.round(cur * 0.75),
+        cur,
+        Math.round(cur * 1.25),
+        Math.round(cur * 1.50)
+    ].map(clampN4WindowSize);
+
+    const uniq = Array.from(new Set([...base, ...scaled].map(clampN4WindowSize)));
+    const must = new Set([clampN4WindowSize(cur), clampN4WindowSize(2000)]);
+    const rest = uniq
+        .filter(v => !must.has(v))
+        .sort((a, b) => Math.abs(a - cur) - Math.abs(b - cur));
+
+    const take = Math.max(3, Math.min(12, Math.floor(Number(maxCandidates) || 7)));
+    const chosen = [...Array.from(must), ...rest.slice(0, Math.max(0, take - must.size))];
+    return chosen.sort((a, b) => a - b);
+}
+
+function evaluateN4WindowOnCachedHistory({ historyMostRecentFirst, windowSize, config, autoTuneCfg }) {
+    const history = Array.isArray(historyMostRecentFirst) ? historyMostRecentFirst : [];
+    const cfg = config && typeof config === 'object' ? config : {};
+    const tune = autoTuneCfg && typeof autoTuneCfg === 'object' ? autoTuneCfg : {};
+
+    const { maxGales: maxGalesRaw } = getMartingaleSettings('diamond', cfg);
+    const maxGales = Math.max(0, Math.min(2, Math.floor(Number(maxGalesRaw) || 0)));
+    const signalIntensity = (cfg && cfg.signalIntensity === 'conservative') ? 'conservative' : 'aggressive';
+    const whiteProtectionAsWin = !!cfg.whiteProtectionAsWin;
+    const dynamicGales = shouldUseN4DynamicGalesForConfig(cfg);
+
+    const lookbackSpins = Math.max(200, Math.min(10000, Math.floor(Number(tune.lookbackSpins) || 5000)));
+    const stride = Math.max(1, Math.min(20, Math.floor(Number(tune.stride) || 2)));
+    const maxSignalsToScore = Math.max(30, Math.min(1000, Math.floor(Number(tune.maxSignalsToScore) || 200)));
+
+    const maxIndex = Math.min(lookbackSpins, history.length - 1 - maxGales);
+    let wins = 0;
+    let losses = 0;
+    let entryWins = 0;
+    let entryLosses = 0;
+    let abstained = 0;
+
+    const compareHit = (expectedColor, actualColor) => {
+        const exp = normalizeSimpleColorN4(expectedColor);
+        const act = normalizeSimpleColorN4(actualColor);
+        if (!exp || !act) return false;
+        if (exp === act) return true;
+        if (whiteProtectionAsWin && act === 'white' && (exp === 'red' || exp === 'black')) return true;
+        return false;
+    };
+
+    // k = offset do "último giro disponível" no passado (history[k] é o mais recente daquele momento)
+    // próximo giro (resultado da entrada) está em history[k-1]
+    for (let k = (maxGales + 1); k <= maxIndex; k += stride) {
+        const histSlice = history.slice(k, k + Math.max(80, Math.min(windowSize, 10000)));
+        const n4 = analyzeAutointeligente(histSlice, {
+            historySize: windowSize,
+            maxGales,
+            signalIntensity,
+            whiteProtectionAsWin,
+            dynamicGales,
+            n4SelfLearning: signalsHistory && signalsHistory.n4SelfLearning ? signalsHistory.n4SelfLearning : null
+        });
+
+        const entryColor = n4 && n4.color ? normalizeSimpleColorN4(n4.color) : null;
+        if (!entryColor) {
+            abstained++;
+            continue;
+        }
+
+        // 1) Entrada
+        const entrySpin = history[k - 1];
+        const entryHit = compareHit(entryColor, entrySpin && entrySpin.color);
+        if (entryHit) {
+            wins++;
+            entryWins++;
+        } else {
+            entryLosses++;
+            // 2) G1/G2 (se houver)
+            let cycleWon = false;
+            for (let stage = 1; stage <= maxGales; stage++) {
+                const spin = history[k - 1 - stage];
+                if (!spin) break;
+
+                let expected = entryColor;
+                if (dynamicGales) {
+                    const startIndex = k - stage; // inclui o LOSS anterior como "mais recente"
+                    const histForGale = history.slice(startIndex, startIndex + Math.max(80, Math.min(windowSize, 10000)));
+                    const picked = pickN4DynamicGaleColor({
+                        history: histForGale,
+                        config: cfg,
+                        stageNumber: stage,
+                        maxGales,
+                        forcePick: true
+                    });
+                    if (picked) expected = normalizeSimpleColorN4(picked);
+                }
+
+                if (compareHit(expected, spin.color)) {
+                    cycleWon = true;
+                    break;
+                }
+            }
+
+            if (cycleWon) wins++;
+            else losses++;
+        }
+
+        if ((wins + losses) >= maxSignalsToScore) break;
+    }
+
+    const totalCycles = wins + losses;
+    const winRate = totalCycles ? wins / totalCycles : 0;
+    const entryTotal = entryWins + entryLosses;
+    const entryWinRate = entryTotal ? entryWins / entryTotal : 0;
+
+    return {
+        windowSize: clampN4WindowSize(windowSize),
+        wins,
+        losses,
+        totalCycles,
+        winRate,
+        entryWins,
+        entryLosses,
+        entryTotal,
+        entryWinRate,
+        abstained
+    };
+}
+
+async function maybeAutoTuneN4HistoryWindow({ entriesHistory, analysisObj } = {}) {
+    try {
+        if (n4AutoTuneInProgress) return;
+        if (!analyzerConfig || !analyzerConfig.aiMode) return;
+        if (!isDiamondLevelEnabled('N4', analyzerConfig)) return;
+        if (!signalsHistory || !signalsHistory.n4AutoTune || signalsHistory.n4AutoTune.enabled === false) return;
+
+        // Se o ciclo resolvido NÃO veio do N4, não disparar bateria aqui (reduz custo/ruído).
+        try {
+            const srcId = analysisObj && analysisObj.diamondSourceLevel && analysisObj.diamondSourceLevel.id
+                ? String(analysisObj.diamondSourceLevel.id).toUpperCase().trim()
+                : null;
+            if (srcId && srcId !== 'N4') return;
+        } catch (_) {}
+
+        const tune = signalsHistory.n4AutoTune;
+        const now = Date.now();
+        const lastRunAt = Number.isFinite(Number(tune.lastRunAt)) ? Number(tune.lastRunAt) : 0;
+        const cooldownMs = Math.max(60 * 1000, Math.min(60 * 60 * 1000, Math.floor(Number(tune.cooldownMs) || (10 * 60 * 1000))));
+        if (lastRunAt && (now - lastRunAt) < cooldownMs) return;
+
+        const srcPerf = computeRecentCycleWinRateForSource(entriesHistory, 'N4', Math.max(10, Math.min(200, Math.floor(Number(tune.minCycles) || 20))));
+        if (srcPerf.total < Math.max(5, Math.floor(Number(tune.minCycles) || 20))) return;
+
+        const target = Math.max(0.5, Math.min(0.99, Number(tune.targetWinRate) || 0.90));
+        if (srcPerf.winRate >= target) return;
+
+        // Precisa de histórico em memória para testar janelas
+        const history = Array.isArray(cachedHistory) ? cachedHistory : [];
+        if (history.length < 200) return;
+
+        n4AutoTuneInProgress = true;
+
+        const currentWindow = clampN4WindowSize(getDiamondWindow('n4Persistence', DEFAULT_ANALYZER_CONFIG.diamondLevelWindows.n4Persistence));
+        const candidates = buildN4WindowCandidates(currentWindow, 7);
+
+        // Avaliar baseline (janela atual) + candidatos
+        const candidateCfgBase = analyzerConfig;
+        const results = [];
+        for (const w of candidates) {
+            const candidateCfg = {
+                ...(candidateCfgBase || {}),
+                aiMode: true,
+                diamondLevelWindows: {
+                    ...((candidateCfgBase && candidateCfgBase.diamondLevelWindows) || {}),
+                    n4Persistence: w
+                }
+            };
+            const r = evaluateN4WindowOnCachedHistory({
+                historyMostRecentFirst: history,
+                windowSize: w,
+                config: candidateCfg,
+                autoTuneCfg: tune
+            });
+            results.push(r);
+            // micro-yield para não travar o background (loop rápido)
+            await new Promise(res => setTimeout(res, 0));
+        }
+
+        const minSignals = Math.max(5, Math.min(300, Math.floor(Number(tune.minSignalsToAccept) || 25)));
+        const eligible = results.filter(r => (r.totalCycles || 0) >= minSignals);
+        if (!eligible.length) return;
+
+        const baseline = eligible.find(r => r.windowSize === currentWindow) || null;
+        const baselineWR = baseline ? baseline.winRate : 0;
+
+        eligible.sort((a, b) => {
+            if ((b.winRate || 0) !== (a.winRate || 0)) return (b.winRate || 0) - (a.winRate || 0);
+            if ((b.totalCycles || 0) !== (a.totalCycles || 0)) return (b.totalCycles || 0) - (a.totalCycles || 0);
+            // menor distância da janela atual (evita chacoalhar)
+            return Math.abs((a.windowSize || 0) - currentWindow) - Math.abs((b.windowSize || 0) - currentWindow);
+        });
+
+        const best = eligible[0];
+        if (!best || !Number.isFinite(Number(best.windowSize))) return;
+
+        const improvement = (best.winRate || 0) - (baselineWR || 0);
+        const bestBeatsTarget = (best.winRate || 0) >= target;
+        const shouldApply = (best.windowSize !== currentWindow) && (bestBeatsTarget || improvement >= 0.02);
+        if (!shouldApply) return;
+
+        // Aplicar no analyzerConfig persistido
+        const stored = await chrome.storage.local.get(['analyzerConfig']);
+        const baseStored = stored && stored.analyzerConfig && typeof stored.analyzerConfig === 'object' ? stored.analyzerConfig : (analyzerConfig || {});
+        const updated = {
+            ...baseStored,
+            diamondLevelWindows: {
+                ...(baseStored.diamondLevelWindows || {}),
+                n4Persistence: best.windowSize
+            },
+            _clientUpdatedAt: Date.now()
+        };
+
+        await chrome.storage.local.set({ analyzerConfig: updated });
+
+        // Persistir telemetria do auto-tune (para debug / transparência futura)
+        try {
+            tune.lastRunAt = now;
+            tune.lastFrom = currentWindow;
+            tune.lastTo = best.windowSize;
+            tune.lastWinRate = Number.isFinite(Number(best.winRate)) ? Number(best.winRate) : null;
+            signalsHistory.n4AutoTune = tune;
+            await saveSignalsHistory();
+        } catch (_) {}
+
+        console.log(`💎 N4 AutoTune: janela ${currentWindow} → ${best.windowSize} | winrate ${(baselineWR * 100).toFixed(1)}% → ${(best.winRate * 100).toFixed(1)}% (amostra ${best.totalCycles})`);
+    } catch (e) {
+        console.warn('⚠️ N4 AutoTune: falha ao ajustar janela:', e);
+    } finally {
+        n4AutoTuneInProgress = false;
     }
 }
 
@@ -18345,8 +18770,11 @@ async function runAnalysisController(history) {
 		const existingAnalysis = existingAnalysisResult['analysis'];
 		
 		if (existingAnalysis && existingAnalysis.createdOnTimestamp && history && history.length > 0) {
-			const latestSpinTimestamp = history[0].timestamp;
-			const isAnalysisPending = existingAnalysis.createdOnTimestamp !== latestSpinTimestamp;
+			const latestSpinTimestamp = parseSpinTimestamp(history[0]);
+			const analysisTs = parseSpinTimestamp({ timestamp: existingAnalysis.createdOnTimestamp, created_at: existingAnalysis.createdOnTimestamp });
+			const isAnalysisPending = (Number.isFinite(latestSpinTimestamp) && Number.isFinite(analysisTs))
+				? (analysisTs !== latestSpinTimestamp)
+				: (String(existingAnalysis.createdOnTimestamp) !== String(history[0].timestamp ?? history[0].created_at ?? ''));
 			
 			if (isAnalysisPending) {
 			console.log('%c⚠️ Análise pendente | ' + existingAnalysis.color + ' (' + existingAnalysis.confidence + '%)', 'color: #FF9900; font-weight: bold; background: #332200; padding: 4px 8px; border-radius: 4px;');
@@ -18612,7 +19040,8 @@ async function runAnalysisController(history) {
 					patternType: 'ai-analysis',
 					phase: aiPhase,
 					predictedFor: 'next',
-					createdOnTimestamp: history[0].timestamp,
+					// ✅ Padronizar timestamp do sinal (evita comparar `timestamp` vs `created_at` e avaliar no mesmo giro)
+					createdOnTimestamp: (history[0] && (history[0].created_at ?? history[0].timestamp)) || Date.now(),
 					aiPattern: null // ✅ Novo fluxo não usa currentPattern
 				};
 				if (analysis.phase && analysis.phase !== 'G0' && analysis.phase !== 'ENTRADA') {
@@ -28128,9 +28557,14 @@ function parseSpinTimestamp(spin) {
     if (!spin) return NaN;
     const raw = spin.timestamp ?? spin.created_at ?? spin.createdAt ?? spin.time ?? null;
     if (raw == null) return NaN;
-    if (typeof raw === 'number') return raw;
+    if (typeof raw === 'number') {
+        // Normalizar: timestamps em segundos (10 dígitos) -> ms
+        return raw > 0 && raw < 1e12 ? raw * 1000 : raw;
+    }
     const n = Number(raw);
-    if (Number.isFinite(n)) return n;
+    if (Number.isFinite(n)) {
+        return n > 0 && n < 1e12 ? n * 1000 : n;
+    }
     const t = Date.parse(String(raw));
     return Number.isFinite(t) ? t : NaN;
 }
@@ -29728,7 +30162,7 @@ function createDiamondAnalysisForNextSpin(history, simState, aiResult) {
         patternType: 'ai-analysis',
         phase: aiPhase,
         predictedFor: 'next',
-        createdOnTimestamp: history[0].timestamp,
+        createdOnTimestamp: (history[0] && (history[0].created_at ?? history[0].timestamp)) || Date.now(),
         aiPattern: null
     };
 
@@ -30969,7 +31403,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         return true;
     } else if (request.action === 'startPatternSearch') {
         console.log('%c✅ ENTROU NO else if startPatternSearch!', 'color: #00FFFF; font-weight: bold; font-size: 16px;');
-        // Iniciar busca manual de padrões (30s)
+        // Iniciar busca manual de padrões (encerra ao completar a varredura; respeita config do usuário)
         (async () => {
             try {
                 console.log('%c🔍 Iniciando busca manual de padrões...', 'color: #00FFFF; font-weight: bold;');
@@ -30978,6 +31412,16 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                     console.log('%c⚠️ Busca já está ativa!', 'color: #FFAA00; font-weight: bold;');
                     sendResponse({ status: 'already_running' });
                     return;
+                }
+
+                // ✅ Garantir que a busca respeita SEMPRE as configs mais recentes do usuário
+                try {
+                    const storedCfg = await chrome.storage.local.get(['analyzerConfig']);
+                    if (storedCfg && storedCfg.analyzerConfig && typeof storedCfg.analyzerConfig === 'object') {
+                        mergeAnalyzerConfig(storedCfg.analyzerConfig);
+                    }
+                } catch (e) {
+                    console.warn('⚠️ Falha ao recarregar analyzerConfig antes da busca de padrões:', e);
                 }
                 
                 // ✅ Usar CACHE EM MEMÓRIA (mais rápido) ou buscar do servidor se vazio
