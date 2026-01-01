@@ -9408,6 +9408,17 @@ body.da-ext-fullscreen #patternDetailsModal .bank-patterns-modal-content {
     height: clamp(260px, 42vh, 420px);
   }
 
+  /* 💎 DIAMANTE (IA): usar o espaço livre à direita do card "Recuperação segura"
+     - No modo Diamante, o Banco de Padrões fica oculto, então sobra uma “linha” no grid.
+     - Faz o card "Padrão" (onde o raciocínio em blocos aparece) descer até o limite,
+       reduzindo/evitando rolagem interna desnecessária. */
+  #blaze-double-analyzer.da-desktop-dashboard.diamond-mode-active #analyzerDefaultView .pattern-section.da-card {
+    grid-row: span 2;
+    align-self: stretch;
+    height: auto !important; /* override do clamp acima (somente no Diamante) */
+    min-height: 0;
+  }
+
   /* IA: preencher a altura do card (sem espaço vazio) */
   #blaze-double-analyzer.da-desktop-dashboard #analyzerDefaultView .entries-section.da-card {
     align-self: stretch;
