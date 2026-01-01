@@ -2867,7 +2867,10 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                 closeModal();
             }
         });
-        
+
+        // ✅ Admin visibility: esconder níveis desativados globalmente (não exibir no site)
+        try { applyDiamondVisibleLevelsToDiamondLevelsModal(); } catch (_) {}
+
         initializeDiamondLevelToggles();
         ensureDiamondSimulationView();
         initializeDiamondSimulationControls();
@@ -6985,6 +6988,8 @@ function enforceSignalIntensityAvailability(options = {}) {
         storageCompat.get(['analyzerConfig']).then(res => {
             const cfg = res.analyzerConfig || {};
             populateDiamondLevelsForm(cfg);
+            // ✅ Admin visibility: garantir que níveis ocultos não apareçam (mesmo se o usuário tiver marcado antes)
+            try { applyDiamondVisibleLevelsToDiamondLevelsModal(); } catch (_) {}
             // ✅ Capturar snapshot para "Restaurar configurações"
             setDiamondLevelsRestoreSnapshot(cfg);
             
@@ -7018,6 +7023,7 @@ function enforceSignalIntensityAvailability(options = {}) {
             }
         }).catch(() => {
             populateDiamondLevelsForm({});
+            try { applyDiamondVisibleLevelsToDiamondLevelsModal(); } catch (_) {}
             
             // ✅ Mobile: manter comportamento atual
             if (!isDesktop()) {
@@ -8113,6 +8119,130 @@ storageCompat.get(['analyzerConfig']).then(res => {
     latestAnalyzerConfig = res.analyzerConfig || null;
     enforceSignalIntensityAvailability();
 }).catch(() => {});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 💎 ADMIN VISIBILITY (Diamond Levels)
+// - Controle global: quais níveis do Diamante aparecem no site.
+// - Fonte de verdade: GET /api/site/diamond-levels (público) + cache local.
+// ═══════════════════════════════════════════════════════════════════════════════
+
+const DIAMOND_VISIBLE_LEVELS_KEY = 'da_diamond_visible_levels_v1';
+const DIAMOND_LEVEL_KEYS = ['n0','n1','n2','n3','n4','n5','n6','n7','n8','n9','n10'];
+
+let diamondAdminVisibleLevels = null; // { n0:true, ... } | null
+
+function normalizeDiamondVisibleLevelsMap(raw) {
+    const base = {};
+    DIAMOND_LEVEL_KEYS.forEach((k) => { base[k] = true; });
+    if (Array.isArray(raw)) {
+        const set = new Set(raw.map((v) => String(v || '').toLowerCase().trim()).filter(Boolean));
+        DIAMOND_LEVEL_KEYS.forEach((k) => { base[k] = set.has(k); });
+        return base;
+    }
+    if (raw && typeof raw === 'object') {
+        DIAMOND_LEVEL_KEYS.forEach((k) => {
+            if (Object.prototype.hasOwnProperty.call(raw, k)) base[k] = !!raw[k];
+        });
+        return base;
+    }
+    return base;
+}
+
+function diamondKeyFromIdLike(idLike) {
+    const raw = String(idLike || '').trim();
+    if (!raw) return '';
+    const up = raw.toUpperCase();
+    const m = up.match(/^N(\d+)$/);
+    if (m) return `n${m[1]}`;
+    const m2 = raw.toLowerCase().match(/^n(\d+)$/);
+    if (m2) return `n${m2[1]}`;
+    return raw.toLowerCase();
+}
+
+function isDiamondLevelVisibleByAdmin(idLike) {
+    const key = diamondKeyFromIdLike(idLike);
+    if (!key) return true;
+    const map = diamondAdminVisibleLevels && typeof diamondAdminVisibleLevels === 'object' ? diamondAdminVisibleLevels : null;
+    if (map && Object.prototype.hasOwnProperty.call(map, key)) return !!map[key];
+    return true; // default: visível
+}
+
+function applyDiamondVisibleLevelsToDiamondLevelsModal() {
+    try {
+        const modal = document.getElementById('diamondLevelsModal');
+        if (!modal) return;
+        const body = modal.querySelector('.custom-pattern-modal-body');
+        if (!body) return;
+
+        const map = diamondAdminVisibleLevels && typeof diamondAdminVisibleLevels === 'object'
+            ? diamondAdminVisibleLevels
+            : null;
+        if (!map) return;
+
+        DIAMOND_LEVEL_KEYS.forEach((key) => {
+            const visible = map[key] !== false;
+            const num = String(key).replace(/^n/i, '');
+            const upperId = `N${num}`;
+
+            // Campo principal do nível
+            const field = body.querySelector(`.diamond-level-field[data-level="${key}"]`);
+            if (field) {
+                field.style.display = visible ? '' : 'none';
+            }
+
+            // Toggle do nível (force-disable se oculto)
+            const toggle = document.getElementById(`diamondLevelToggle${upperId}`);
+            if (toggle) {
+                toggle.disabled = !visible;
+                if (!visible) toggle.checked = false;
+            }
+
+            // Dropdown de simulação (ocultar opção do nível)
+            const simOption = body.querySelector(`.diamond-sim-option[data-level="${upperId}"]`);
+            if (simOption) {
+                simOption.style.display = visible ? '' : 'none';
+            }
+        });
+    } catch (_) {}
+}
+
+async function refreshDiamondVisibleLevelsFromServer() {
+    try {
+        const origin = (typeof getApiUrl === 'function') ? String(getApiUrl() || '').trim() : '';
+        if (!origin) return null;
+        const resp = await fetch(`${origin}/api/site/diamond-levels`, { cache: 'no-store' });
+        if (!resp.ok) return null;
+        const data = await resp.json().catch(() => null);
+        if (!data || !data.success) return null;
+        const normalized = normalizeDiamondVisibleLevelsMap(data.levels);
+        await storageCompat.set({ [DIAMOND_VISIBLE_LEVELS_KEY]: normalized });
+        return normalized;
+    } catch (_) {
+        return null;
+    }
+}
+
+async function initDiamondVisibleLevels() {
+    try {
+        const stored = await storageCompat.get([DIAMOND_VISIBLE_LEVELS_KEY]);
+        if (stored && stored[DIAMOND_VISIBLE_LEVELS_KEY]) {
+            diamondAdminVisibleLevels = normalizeDiamondVisibleLevelsMap(stored[DIAMOND_VISIBLE_LEVELS_KEY]);
+            applyDiamondVisibleLevelsToDiamondLevelsModal();
+        }
+    } catch (_) {}
+
+    // buscar do servidor sem bloquear a UI
+    setTimeout(async () => {
+        const fresh = await refreshDiamondVisibleLevelsFromServer();
+        if (fresh) {
+            diamondAdminVisibleLevels = fresh;
+            applyDiamondVisibleLevelsToDiamondLevelsModal();
+        }
+    }, 0);
+}
+
+// Inicializar (não bloqueia)
+setTimeout(() => { initDiamondVisibleLevels(); }, 0);
 
 const autoBetHistoryStore = (() => {
     let cache = [];
@@ -11459,6 +11589,11 @@ async function persistAnalyzerState(newState) {
             <div class="da-header">
                 <!-- 1. Left: Brand -->
                 <div class="da-brand">
+                    <button type="button" class="header-link da-sidebar-toggle" id="desktopSidebarToggle" title="Ocultar/Mostrar configurações" aria-label="Ocultar/Mostrar configurações" aria-pressed="false">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                            <path d="M4 7h16M4 12h16M4 17h16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                        </svg>
+                    </button>
                     <img id="daAppLogo" class="da-app-logo" alt="Logo" style="display:none;">
                     <span class="da-app-name" id="daAppName">Double</span>
                     <span class="title-badge" id="titleBadge">Análise Premium</span>
@@ -13730,6 +13865,9 @@ async function persistAnalyzerState(newState) {
 
         const renderDiamondReasoningBlocks = (rawReasoning = '') => {
             const { meta, levels } = parseDiamondReasoning(rawReasoning);
+            const visibleLevels = Array.isArray(levels)
+                ? levels.filter((lvl) => lvl && isDiamondLevelVisibleByAdmin(lvl.id))
+                : [];
 
             const fmtPct = (value) => (typeof value === 'number' && Number.isFinite(value)) ? `${value.toFixed(1)}%` : '—';
             const colorLabel = (color) => (color === 'red' ? 'Vermelho' : color === 'black' ? 'Preto' : color === 'white' ? 'Branco' : '—');
@@ -13768,7 +13906,7 @@ async function persistAnalyzerState(newState) {
                 </div>
             `;
 
-            const cards = levels.map((lvl) => {
+            const cards = visibleLevels.map((lvl) => {
                 const badgeClass = lvl.voteColor ? `badge-${lvl.voteColor}` : 'badge-neutral';
                 const pctText = fmtPct(lvl.pct);
                 const pctHtml = (lvl.pct != null)
@@ -13792,7 +13930,7 @@ async function persistAnalyzerState(newState) {
                 <div class="diamond-reasoning">
                     ${summary}
                     <div class="diamond-levels-grid">
-                        ${cards || `<div class="diamond-reasoning-empty">Nenhum nível ativo gerou detalhes para este sinal.</div>`}
+                        ${cards || `<div class="diamond-reasoning-empty">Nenhum nível visível gerou detalhes para este sinal.</div>`}
                     </div>
                 </div>
             `;
@@ -15011,7 +15149,7 @@ async function persistAnalyzerState(newState) {
 
         const colorLabel = color === 'red' ? 'VERMELHO' : color === 'black' ? 'PRETO' : color === 'white' ? 'BRANCO' : '—';
         const confText = confidence != null ? `${confidence.toFixed(1)}%` : '—';
-        const levelText = diamondId
+        const levelText = (diamondId && isDiamondLevelVisibleByAdmin(diamondId))
             ? ` • Nível: <b>${diamondId}</b>${diamondPct ? ` (${diamondPct}%)` : ''}`
             : '';
 
@@ -16707,6 +16845,40 @@ async function persistAnalyzerState(newState) {
 
         // Inicializar cards/expansão (idempotente)
         initDesktopDashboardCards(sidebar);
+
+        // ✅ Toggle: contrair/expandir coluna de configurações (sidebar esquerda)
+        initDesktopSidebarCollapseToggle(sidebar);
+    }
+
+    function initDesktopSidebarCollapseToggle(root) {
+        try {
+            if (!root || !isDesktop()) return;
+            if (root.dataset.daSidebarCollapseInit === '1') return;
+            root.dataset.daSidebarCollapseInit = '1';
+
+            const btn = root.querySelector('#desktopSidebarToggle');
+            if (!btn) return;
+
+            const applyState = (collapsed) => {
+                root.classList.toggle('da-sidebar-collapsed', !!collapsed);
+                try { btn.setAttribute('aria-pressed', collapsed ? 'true' : 'false'); } catch (_) {}
+                try { btn.classList.toggle('is-collapsed', !!collapsed); } catch (_) {}
+            };
+
+            // Padrão: visível. Preferência (se existir) só aplica no desktop.
+            let collapsed = false;
+            try { collapsed = localStorage.getItem('daDesktopSidebarCollapsed') === '1'; } catch (_) {}
+            applyState(collapsed);
+
+            if (btn.dataset.daBound !== '1') {
+                btn.dataset.daBound = '1';
+                btn.addEventListener('click', () => {
+                    collapsed = !root.classList.contains('da-sidebar-collapsed');
+                    applyState(collapsed);
+                    try { localStorage.setItem('daDesktopSidebarCollapsed', collapsed ? '1' : '0'); } catch (_) {}
+                });
+            }
+        } catch (_) {}
     }
 
     function initDesktopDashboardCards(root) {

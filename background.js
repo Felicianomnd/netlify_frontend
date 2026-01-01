@@ -17,6 +17,127 @@ const LOG_STYLE = Object.freeze({
     divider: 'color:#B0BEC5;'
 });
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// 💎 ADMIN VISIBILITY (Diamond Levels)
+// - Controle global: quais níveis aparecem no site e podem rodar.
+// - Fonte de verdade: GET /api/site/diamond-levels (público) + cache local.
+// ═══════════════════════════════════════════════════════════════════════════════
+
+const DIAMOND_VISIBLE_LEVELS_KEY = 'da_diamond_visible_levels_v1';
+let diamondAdminVisibleLevels = null; // { n0: true, ... } | null
+let diamondAdminVisibleLevelsUpdatedAt = 0;
+
+function normalizeDiamondVisibleLevelsMap(raw) {
+    const base = {};
+    try {
+        (Array.isArray(DIAMOND_LEVEL_IDS) ? DIAMOND_LEVEL_IDS : []).forEach((id) => {
+            const k = getDiamondLevelKeyFromId(id);
+            if (k) base[k] = true;
+        });
+    } catch (_) {}
+
+    if (Array.isArray(raw)) {
+        const set = new Set(raw.map((v) => String(v || '').toLowerCase().trim()).filter(Boolean));
+        Object.keys(base).forEach((k) => { base[k] = set.has(k); });
+        return base;
+    }
+
+    if (raw && typeof raw === 'object') {
+        Object.keys(base).forEach((k) => {
+            if (Object.prototype.hasOwnProperty.call(raw, k)) {
+                base[k] = !!raw[k];
+            }
+        });
+        return base;
+    }
+
+    return base;
+}
+
+async function loadDiamondVisibleLevelsConfig() {
+    // Preferir chrome.storage.local (extensão). Fallback: localStorage (web).
+    try {
+        if (typeof chrome !== 'undefined' && chrome.storage?.local?.get) {
+            const result = await new Promise((resolve) => chrome.storage.local.get([DIAMOND_VISIBLE_LEVELS_KEY], resolve));
+            return result && result[DIAMOND_VISIBLE_LEVELS_KEY] ? result[DIAMOND_VISIBLE_LEVELS_KEY] : null;
+        }
+    } catch (_) {}
+
+    try {
+        const raw = localStorage.getItem(DIAMOND_VISIBLE_LEVELS_KEY);
+        return raw ? JSON.parse(raw) : null;
+    } catch (_) {
+        return null;
+    }
+}
+
+async function saveDiamondVisibleLevelsConfig(levels) {
+    try {
+        if (typeof chrome !== 'undefined' && chrome.storage?.local?.set) {
+            await new Promise((resolve) => chrome.storage.local.set({ [DIAMOND_VISIBLE_LEVELS_KEY]: levels }, resolve));
+        }
+    } catch (_) {}
+
+    try {
+        localStorage.setItem(DIAMOND_VISIBLE_LEVELS_KEY, JSON.stringify(levels));
+    } catch (_) {}
+}
+
+async function fetchDiamondVisibleLevelsFrom(origin) {
+    try {
+        const url = `${origin}/api/site/diamond-levels`;
+        const controller = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+        const timeoutId = controller ? setTimeout(() => controller.abort(), 5000) : null;
+        const resp = await fetch(url, controller
+            ? { cache: 'no-store', signal: controller.signal }
+            : { cache: 'no-store' }
+        ).finally(() => { if (timeoutId) clearTimeout(timeoutId); });
+        if (!resp || !resp.ok) return null;
+        const data = await resp.json().catch(() => null);
+        if (!data || !data.success) return null;
+        const normalized = normalizeDiamondVisibleLevelsMap(data.levels);
+        return normalized;
+    } catch (_) {
+        return null;
+    }
+}
+
+async function refreshDiamondVisibleLevelsFromServer() {
+    try {
+        const cachedUrls = await loadUrlsConfig().catch(() => null);
+        const candidates = getCandidateAuthOrigins(cachedUrls);
+        const primary = normalizeOrigin(API_CONFIG.authURL);
+        const ordered = primary ? [primary, ...candidates] : candidates;
+
+        for (const origin of ordered) {
+            const levels = await fetchDiamondVisibleLevelsFrom(origin);
+            if (levels && typeof levels === 'object') {
+                diamondAdminVisibleLevels = levels;
+                diamondAdminVisibleLevelsUpdatedAt = Date.now();
+                await saveDiamondVisibleLevelsConfig(levels);
+                return levels;
+            }
+        }
+    } catch (_) {}
+    return null;
+}
+
+function isDiamondLevelVisibleByAdmin(levelId) {
+    try {
+        const key = getDiamondLevelKeyFromId(levelId);
+        if (!key) return true;
+        const map = diamondAdminVisibleLevels && typeof diamondAdminVisibleLevels === 'object'
+            ? diamondAdminVisibleLevels
+            : null;
+        if (map && Object.prototype.hasOwnProperty.call(map, key)) {
+            return !!map[key];
+        }
+        return true; // default: visível
+    } catch (_) {
+        return true;
+    }
+}
+
 function logBanner(message) {
     originalBackgroundConsoleLog(`%c${message}`, LOG_STYLE.banner);
 }
@@ -103,7 +224,9 @@ const DEFAULT_AUTOBET_CONFIG = Object.freeze({
 
 function buildDiamondLevelSummaries() {
     const list = getDiamondConfigSnapshot();
-    return list.map(([label, detail]) => {
+    // ✅ Admin visibility: não enviar níveis ocultos para a UI do site
+    const visible = list.filter(([label]) => isDiamondLevelVisibleByAdmin(label));
+    return visible.map(([label, detail]) => {
         const id = label;
         return {
             id,
@@ -781,6 +904,8 @@ function getDiamondLevelKeyFromId(levelId = '') {
 }
 
 function isDiamondLevelEnabled(levelId, config = analyzerConfig) {
+    // 🔒 Admin: se o nível estiver oculto globalmente, ele NÃO pode rodar/exibir.
+    if (!isDiamondLevelVisibleByAdmin(levelId)) return false;
     const key = getDiamondLevelKeyFromId(levelId);
     const enabledMap = config && config.diamondLevelEnabled ? config.diamondLevelEnabled : DEFAULT_ANALYZER_CONFIG.diamondLevelEnabled;
     if (enabledMap && Object.prototype.hasOwnProperty.call(enabledMap, key)) {
@@ -1941,6 +2066,16 @@ const API_CONFIG = {
         applyUrlsConfigToApiConfig(urls);
         // Buscar do servidor (fonte de verdade) e persistir
         await refreshUrlsFromServer();
+
+        // 💎 Carregar cache local (rápido) e depois buscar do servidor (fonte de verdade)
+        try {
+            const cachedLevels = await loadDiamondVisibleLevelsConfig();
+            if (cachedLevels) {
+                diamondAdminVisibleLevels = normalizeDiamondVisibleLevelsMap(cachedLevels);
+                diamondAdminVisibleLevelsUpdatedAt = Date.now();
+            }
+        } catch (_) {}
+        refreshDiamondVisibleLevelsFromServer().catch(() => {});
     } catch (_) {}
 })();
 
@@ -12516,7 +12651,18 @@ function analyzeAutointeligente(history, options = {}) {
 /**
  * ⏱️ HELPER: Sleep para delay entre níveis
  */
+// ✅ Em modo "sinal rápido", NUNCA bloquear o loop de análise com sleeps longos.
+// Isso evita o bug relatado pelo usuário: sinal chegando quando a roleta já está “girando”.
+let fastLiveAnalysisDepth = 0;
 function sleep(ms) {
+    try {
+        const n = Math.floor(Number(ms) || 0);
+        // Em contexto de análise ao vivo, ignorar delays “cosméticos” (>=250ms).
+        // Mantemos 0/pequenos yields caso algum trecho dependa disso.
+        if (fastLiveAnalysisDepth > 0 && n >= 250) {
+            return Promise.resolve();
+        }
+    } catch (_) {}
     return new Promise(resolve => setTimeout(resolve, ms));
 }
 
@@ -15836,6 +15982,11 @@ async function analyzeWithPatternSystem(history) {
         await restoreIAStatus();
         return null;
     }
+    
+    // ⚡ Modo "sinal rápido": desativar sleeps longos dentro desta análise (não bloquear o giro atual).
+    // Isso corrige o problema relatado: sinal chegando quando o resultado já está quase saindo.
+    fastLiveAnalysisDepth++;
+    const __fastStartMs = Date.now();
     await sleep(1000);
     
     // VALIDAÇÃO DE DADOS DE ENTRADA
@@ -15969,7 +16120,9 @@ async function analyzeWithPatternSystem(history) {
         
         // Verificar acerto do sinal anterior (se houver)
         if (history.length > 0) {
-            await checkPreviousSignalAccuracy(history[0]);
+            // ✅ Não bloquear a geração do próximo sinal com verificação/telemetria do sinal anterior.
+            // (Essa checagem pode envolver IO + logs; rodar em background.)
+            try { checkPreviousSignalAccuracy(history[0]).catch(() => {}); } catch (_) {}
         }
         
         console.log('');
@@ -17989,6 +18142,14 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
         console.error('Nome:', error.name);
         console.error('');
         return null;
+    } finally {
+        try {
+            const dt = Date.now() - __fastStartMs;
+            if (dt > 2500) {
+                console.warn(`⚠️ Diamante: análise levou ${dt}ms (ideal: <= 5000ms para dar tempo de apostar).`);
+            }
+        } catch (_) {}
+        fastLiveAnalysisDepth = Math.max(0, fastLiveAnalysisDepth - 1);
     }
 }
 
@@ -18760,6 +18921,9 @@ async function runAnalysisController(history) {
 				logInfo('Estágio', martingaleState.stage);
 				logInfo('Cor', martingaleState.entryColor);
 				logInfo('Ação', 'Aguardando resultado anterior');
+				try {
+					sendAnalysisStatus(`⏳ Ciclo em andamento: ${String(martingaleState.stage || 'ENTRADA')} • aguardando resultado`);
+				} catch (_) {}
 				return; // ✅ NÃO executar nova análise em modo consecutivo com Martingale ativo
 			}
 		}
@@ -18778,6 +18942,9 @@ async function runAnalysisController(history) {
 			
 			if (isAnalysisPending) {
 			console.log('%c⚠️ Análise pendente | ' + existingAnalysis.color + ' (' + existingAnalysis.confidence + '%)', 'color: #FF9900; font-weight: bold; background: #332200; padding: 4px 8px; border-radius: 4px;');
+				try {
+					sendAnalysisStatus(`⏳ Aguardando resultado do próximo giro • ${String(existingAnalysis.phase || 'G0').toUpperCase()}`);
+				} catch (_) {}
 				return; // ✅ NÃO executar nova análise se já há uma pendente
 			}
 		}
