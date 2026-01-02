@@ -179,7 +179,7 @@
     // ═══════════════════════════════════════════════════════════════════════════════
     const DA_PROFILE_NUDGE_LAST_SHOWN_KEY = 'da_profile_nudge_last_shown_v1';
     const DA_PROFILE_NUDGE_INTERVAL_MS = 5 * 60 * 1000;
-    const DA_PROFILE_NUDGE_AUTOHIDE_MS = 10 * 1000;
+    const DA_PROFILE_NUDGE_AUTOHIDE_MS = 20 * 1000;
     // Poll curto para captar mudanças do admin (ex.: "todos online") sem esperar 5 min.
     // A regra de exibição continua sendo 5 min (DA_PROFILE_NUDGE_INTERVAL_MS).
     const DA_PROFILE_NUDGE_POLL_MS = 30 * 1000;
@@ -212,20 +212,22 @@
                     <div class="da-profile-nudge__image-wrap" id="daProfileNudgeImageWrap">
                         <img class="da-profile-nudge__image" id="daProfileNudgeImage" alt="" />
                     </div>
-                    <div class="da-profile-nudge__hero">
-                        <div class="da-profile-nudge__headline">Conclua seu cadastro</div>
-                        <div class="da-profile-nudge__subtitle">Libere a <strong>Análise por IA</strong> (Modo Diamante)</div>
-                    </div>
-                    <div class="da-profile-nudge__body">
-                        <div class="da-profile-nudge__text">
-                            <div class="da-profile-nudge__message" id="daProfileNudgeMessage">
-                                Preencha seus dados em <strong>Minha conta</strong> e clique em <strong>Salvar Dados</strong>.
-                            </div>
-                            <div class="da-profile-nudge__missing" id="daProfileNudgeMissing"></div>
+                    <div class="da-profile-nudge__content">
+                        <div class="da-profile-nudge__hero">
+                            <div class="da-profile-nudge__headline">Conclua seu cadastro</div>
+                            <div class="da-profile-nudge__subtitle">Libere a <strong>Análise por IA</strong> (Modo Diamante)</div>
                         </div>
-                        <div class="da-profile-nudge__actions">
-                            <button type="button" class="da-profile-nudge__cta" id="daProfileNudgeCta">CONCLUIR AGORA</button>
-                            <div class="da-profile-nudge__hint">Some em 10s • reaparece a cada 5 min</div>
+                        <div class="da-profile-nudge__body">
+                            <div class="da-profile-nudge__text">
+                                <div class="da-profile-nudge__message" id="daProfileNudgeMessage">
+                                    Preencha seus dados em <strong>Minha conta</strong> e clique em <strong>Salvar Dados</strong>.
+                                </div>
+                                <div class="da-profile-nudge__missing" id="daProfileNudgeMissing"></div>
+                            </div>
+                            <div class="da-profile-nudge__actions">
+                                <button type="button" class="da-profile-nudge__cta" id="daProfileNudgeCta">CONCLUIR AGORA</button>
+                                <div class="da-profile-nudge__hint">Some em 20s • reaparece a cada 5 min</div>
+                            </div>
                         </div>
                     </div>
                     <div class="da-profile-nudge__timer">
@@ -384,6 +386,7 @@
             // Reiniciar animação da barra de tempo (10s)
             const fill = el.querySelector('#daProfileNudgeTimerFill');
             if (fill) {
+                try { fill.style.setProperty('--da-profile-nudge-duration', `${DA_PROFILE_NUDGE_AUTOHIDE_MS}ms`); } catch (_) {}
                 fill.classList.remove('is-running');
                 // Force reflow para reiniciar a animação
                 void fill.offsetWidth;

@@ -3763,6 +3763,17 @@
     overflow: hidden;
 }
 
+.da-profile-nudge__content {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    justify-content: center; /* ✅ centralizar ao meio */
+    align-items: center;     /* ✅ centralizar ao meio */
+    padding: 26px 22px 18px 22px;
+    text-align: center;
+}
+
 .da-profile-nudge__close {
     position: absolute;
     top: 10px;
@@ -3784,16 +3795,17 @@
 }
 
 .da-profile-nudge__hero {
-    padding: 22px 18px 10px 18px;
+    width: 100%;
+    max-width: 320px;
     border-bottom: none;          /* ✅ sem linhas */
     background: transparent;      /* ✅ visual limpo (pedido) */
 }
 
 .da-profile-nudge__headline {
-    margin-top: 10px;
+    margin-top: 0;
     color: #0f172a;
     font-weight: 900;
-    font-size: 22px;
+    font-size: 24px;
     letter-spacing: -0.2px;
 }
 
@@ -3806,17 +3818,24 @@
 }
 
 .da-profile-nudge__body {
-    padding: 12px 18px 14px 18px;
+    width: 100%;
+    max-width: 320px;
+    margin-top: 14px;
     display: flex;
     flex-direction: column;
     gap: 14px;
-    overflow: auto;
+    overflow: visible;
 }
 
 .da-profile-nudge__text {
     color: rgba(15, 23, 42, 0.86);
     font-size: 13px;
     line-height: 1.55;
+}
+
+.da-profile-nudge__message {
+    color: rgba(15, 23, 42, 0.82);
+    font-weight: 650;
 }
 
 .da-profile-nudge__missing {
@@ -3833,6 +3852,7 @@
     display: flex;
     flex-direction: column;
     gap: 10px;
+    align-items: center;
 }
 
 .da-profile-nudge__cta {
@@ -3874,7 +3894,7 @@
 }
 
 .da-profile-nudge__timer-fill.is-running {
-    animation: da-profile-nudge-countdown 10s linear forwards;
+    animation: da-profile-nudge-countdown var(--da-profile-nudge-duration, 20000ms) linear forwards;
 }
 
 /* Somente foto (admin: variant=image)
@@ -3903,8 +3923,7 @@
     display: block;
 }
 
-.da-profile-nudge__card.is-image-only .da-profile-nudge__hero,
-.da-profile-nudge__card.is-image-only .da-profile-nudge__body,
+.da-profile-nudge__card.is-image-only .da-profile-nudge__content,
 .da-profile-nudge__card.is-image-only .da-profile-nudge__timer {
     display: none;
 }
