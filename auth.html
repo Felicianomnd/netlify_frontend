@@ -2389,6 +2389,10 @@
             
             console.log('🔐 [AUTH] Verificando se usuário já está logado...');
             const session = await getStoredSession();
+
+            // 📈 Tracking: registrar acesso à landing (separando logado vs não logado)
+            // - Não deve bloquear nem atrasar o carregamento
+            try { trackLandingVisit(session?.token || null); } catch (_) {}
             
             if (session.token && session.user) {
                 console.log('✅ [AUTH] Já está logado! Redirecionando para index.html...');
@@ -2423,6 +2427,57 @@
         let heroBannerFadeImgs = [];
         let heroBannerFadeActive = 0;
         let heroBannerTrack = null;
+
+        // ═══════════════════════════════════════════════════════════════════════
+        // 📈 Landing Traffic (anônimo): visitorId local + ping para API
+        // ═══════════════════════════════════════════════════════════════════════
+        const LP_VISITOR_ID_KEY = 'da_lp_vid_v1';
+        function getOrCreateLandingVisitorId() {
+            try {
+                const existing = localStorage.getItem(LP_VISITOR_ID_KEY);
+                if (existing && String(existing).trim().length >= 10) return String(existing).trim();
+            } catch (_) {}
+            const gen = () => {
+                try {
+                    const arr = new Uint8Array(16);
+                    crypto.getRandomValues(arr);
+                    return Array.from(arr).map(b => b.toString(16).padStart(2, '0')).join('');
+                } catch (_) {
+                    return `${Date.now().toString(16)}${Math.random().toString(16).slice(2)}${Math.random().toString(16).slice(2)}`;
+                }
+            };
+            const id = gen();
+            try { localStorage.setItem(LP_VISITOR_ID_KEY, id); } catch (_) {}
+            return id;
+        }
+
+        async function trackLandingVisit(sessionTokenOrNull) {
+            try {
+                // Precisa de API_URL pronto
+                await ensureUrlsReady();
+                const url = `${API_URL}/site/traffic/landing`;
+                const payload = {
+                    visitorId: getOrCreateLandingVisitorId(),
+                    path: window.location.pathname || 'auth.html',
+                    referrer: document.referrer || ''
+                };
+
+                const headers = { 'Content-Type': 'application/json' };
+                const token = sessionTokenOrNull ? String(sessionTokenOrNull) : '';
+                if (token) headers['Authorization'] = `Bearer ${token}`;
+
+                // keepalive ajuda quando há redirect rápido (usuário já logado)
+                fetch(url, {
+                    method: 'POST',
+                    headers,
+                    body: JSON.stringify(payload),
+                    cache: 'no-store',
+                    keepalive: true
+                }).catch(() => {});
+            } catch (_) {
+                // silencioso
+            }
+        }
 
         function setTextById(id, value) {
             const el = document.getElementById(id);
