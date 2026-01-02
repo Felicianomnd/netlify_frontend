@@ -3723,6 +3723,219 @@
     padding: 8px 2px;
 }
 
+/* =========================================================================
+   🔔 Modal retrato (notificação): Concluir cadastro para liberar IA (Diamante)
+   - Cantos quadrados (sem border-radius)
+   - Mobile e Desktop (não ocupa tela toda)
+   ========================================================================= */
+
+.da-profile-nudge {
+    position: fixed;
+    inset: 0;
+    display: none; /* controlado via JS */
+    align-items: center;
+    justify-content: center;
+    padding: 18px;
+    z-index: 2147483000; /* acima do painel (z-index 10000) */
+}
+
+.da-profile-nudge__backdrop {
+    position: absolute;
+    inset: 0;
+    background: rgba(0,0,0,0.68);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+}
+
+.da-profile-nudge__card {
+    position: relative;
+    width: min(420px, 75vw);
+    max-height: min(620px, 75vh);
+    display: flex;
+    flex-direction: column;
+    background: linear-gradient(180deg, rgba(10,10,10,0.96), rgba(8,10,18,0.96));
+    border: 1px solid rgba(255,255,255,0.10);
+    border-radius: 0; /* ✅ cantos quadrados */
+    box-shadow: 0 28px 80px rgba(0,0,0,0.65);
+    overflow: hidden;
+}
+
+.da-profile-nudge__close {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    width: 42px;
+    height: 42px;
+    border-radius: 0; /* ✅ cantos quadrados */
+    background: rgba(0,0,0,0.55);
+    border: 1px solid rgba(255,255,255,0.12);
+    color: rgba(255,255,255,0.92);
+    font-size: 16px;
+    font-weight: 800;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.da-profile-nudge__close:hover {
+    background: rgba(255,255,255,0.06);
+    border-color: rgba(239, 68, 68, 0.35);
+}
+
+.da-profile-nudge__hero {
+    padding: 22px 18px 18px 18px;
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+    background:
+        radial-gradient(700px 420px at 25% 0%, rgba(239, 68, 68, 0.22), transparent 65%),
+        radial-gradient(680px 420px at 90% 20%, rgba(59, 130, 246, 0.16), transparent 62%),
+        linear-gradient(180deg, rgba(8,10,16,0.95), rgba(10,10,10,0.85));
+}
+
+.da-profile-nudge__brand {
+    color: rgba(233,242,255,0.78);
+    font-weight: 800;
+    font-size: 14px;
+    letter-spacing: 0.8px;
+    text-transform: uppercase;
+}
+
+.da-profile-nudge__headline {
+    margin-top: 10px;
+    color: rgba(255,255,255,0.98);
+    font-weight: 900;
+    font-size: 22px;
+    letter-spacing: -0.2px;
+}
+
+.da-profile-nudge__subtitle {
+    margin-top: 6px;
+    color: rgba(233,242,255,0.75);
+    font-weight: 600;
+    font-size: 12.5px;
+    line-height: 1.35;
+}
+
+.da-profile-nudge__body {
+    padding: 16px 18px 14px 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    overflow: auto;
+}
+
+.da-profile-nudge__text {
+    color: rgba(233,242,255,0.82);
+    font-size: 13px;
+    line-height: 1.55;
+}
+
+.da-profile-nudge__missing {
+    margin-top: 10px;
+    color: rgba(233,242,255,0.72);
+    font-size: 12px;
+    padding: 10px 12px;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 0; /* ✅ cantos quadrados */
+}
+
+.da-profile-nudge__actions {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.da-profile-nudge__cta {
+    width: 100%;
+    padding: 12px 14px;
+    border-radius: 0; /* ✅ cantos quadrados */
+    border: 1px solid rgba(239, 68, 68, 0.45);
+    background: rgba(239, 68, 68, 0.92);
+    color: rgba(255,255,255,0.98);
+    font-weight: 900;
+    font-size: 12px;
+    letter-spacing: 0.8px;
+    text-transform: uppercase;
+    cursor: pointer;
+}
+
+.da-profile-nudge__cta:hover {
+    background: rgba(220, 38, 38, 0.95);
+    border-color: rgba(239, 68, 68, 0.65);
+}
+
+.da-profile-nudge__hint {
+    color: rgba(233,242,255,0.55);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.2px;
+}
+
+.da-profile-nudge__timer {
+    height: 6px;
+    background: rgba(255,255,255,0.06);
+}
+
+.da-profile-nudge__timer-fill {
+    height: 100%;
+    width: 100%;
+    transform-origin: left center;
+    transform: scaleX(0);
+    background: linear-gradient(90deg, rgba(239, 68, 68, 0.95), rgba(236, 72, 153, 0.92));
+}
+
+.da-profile-nudge__timer-fill.is-running {
+    animation: da-profile-nudge-countdown 10s linear forwards;
+}
+
+/* Somente foto (admin: variant=image)
+   - Sem fundo/borda/caixa, apenas a imagem + botão fechar
+   - Mantém blur do backdrop */
+.da-profile-nudge__image-wrap {
+    display: none;
+}
+
+.da-profile-nudge__image {
+    display: block;
+    width: 100%;
+    height: auto;
+    max-height: 75vh;
+    object-fit: contain;
+}
+
+.da-profile-nudge__card.is-image-only {
+    background: transparent;
+    border: none;
+    box-shadow: none;
+    padding: 0;
+}
+
+.da-profile-nudge__card.is-image-only .da-profile-nudge__image-wrap {
+    display: block;
+}
+
+.da-profile-nudge__card.is-image-only .da-profile-nudge__hero,
+.da-profile-nudge__card.is-image-only .da-profile-nudge__body,
+.da-profile-nudge__card.is-image-only .da-profile-nudge__timer {
+    display: none;
+}
+
+.da-profile-nudge__card.is-image-only .da-profile-nudge__close {
+    background: rgba(0,0,0,0.40);
+    border-color: rgba(255,255,255,0.10);
+}
+
+@keyframes da-profile-nudge-countdown {
+    from { transform: scaleX(0); }
+    to   { transform: scaleX(1); }
+}
+
+@media (max-width: 520px) {
+    .da-profile-nudge__card {
+        width: 75vw;
+        max-height: 75vh;
+    }
+}
+
 @media (max-width: 520px) {
     .ai-entry-head {
         flex-direction: column;

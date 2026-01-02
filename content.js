@@ -170,6 +170,332 @@
         `;
     }
 
+    // ═══════════════════════════════════════════════════════════════════════════════
+    // 🔔 NOTIFICAÇÃO (Modal Retrato): Concluir cadastro para liberar Modo IA (Diamante)
+    // - Só aparece para usuário logado com cadastro incompleto e Modo IA DESATIVADO
+    // - Duração: 10s (auto-hide) / botão fechar
+    // - Reaparece a cada 5 minutos até concluir o cadastro (ou ativar IA)
+    // - Mobile e Desktop (não ocupa tela toda; ~75% no mobile)
+    // ═══════════════════════════════════════════════════════════════════════════════
+    const DA_PROFILE_NUDGE_LAST_SHOWN_KEY = 'da_profile_nudge_last_shown_v1';
+    const DA_PROFILE_NUDGE_INTERVAL_MS = 5 * 60 * 1000;
+    const DA_PROFILE_NUDGE_AUTOHIDE_MS = 10 * 1000;
+    // Poll curto para captar mudanças do admin (ex.: "todos online") sem esperar 5 min.
+    // A regra de exibição continua sendo 5 min (DA_PROFILE_NUDGE_INTERVAL_MS).
+    const DA_PROFILE_NUDGE_POLL_MS = 30 * 1000;
+
+    const DA_PROFILE_NUDGE_REMOTE_CACHE_KEY = 'da_profile_nudge_remote_cache_v1';
+    const DA_PROFILE_NUDGE_REMOTE_CACHE_TTL_MS = 15 * 1000;
+    const DA_PROFILE_NUDGE_LAST_CFG_SIG_KEY = 'da_profile_nudge_last_cfg_sig_v1';
+
+    let daProfileNudgeIntervalId = null;
+    let daProfileNudgeAutoHideTimer = null;
+    let daProfileNudgeEl = null;
+
+    function ensureProfileNudgeUI() {
+        try {
+            if (daProfileNudgeEl && document.contains(daProfileNudgeEl)) return daProfileNudgeEl;
+            const existing = document.getElementById('daProfileNudge');
+            if (existing) {
+                daProfileNudgeEl = existing;
+                return existing;
+            }
+
+            const wrap = document.createElement('div');
+            wrap.id = 'daProfileNudge';
+            wrap.className = 'da-profile-nudge';
+            wrap.style.display = 'none';
+            wrap.innerHTML = `
+                <div class="da-profile-nudge__backdrop" data-da-nudge-close="1"></div>
+                <div class="da-profile-nudge__card" role="dialog" aria-modal="true" aria-label="Concluir cadastro">
+                    <button type="button" class="da-profile-nudge__close" aria-label="Fechar" title="Fechar" data-da-nudge-close="1">✕</button>
+                    <div class="da-profile-nudge__image-wrap" id="daProfileNudgeImageWrap">
+                        <img class="da-profile-nudge__image" id="daProfileNudgeImage" alt="" />
+                    </div>
+                    <div class="da-profile-nudge__hero">
+                        <div class="da-profile-nudge__brand">Double</div>
+                        <div class="da-profile-nudge__headline">Conclua seu cadastro</div>
+                        <div class="da-profile-nudge__subtitle">Libere a <strong>Análise por IA</strong> (Modo Diamante)</div>
+                    </div>
+                    <div class="da-profile-nudge__body">
+                        <div class="da-profile-nudge__text">
+                            <div class="da-profile-nudge__message" id="daProfileNudgeMessage">
+                                Preencha seus dados em <strong>Minha conta</strong> e clique em <strong>Salvar Dados</strong>.
+                            </div>
+                            <div class="da-profile-nudge__missing" id="daProfileNudgeMissing"></div>
+                        </div>
+                        <div class="da-profile-nudge__actions">
+                            <button type="button" class="da-profile-nudge__cta" id="daProfileNudgeCta">Concluir agora</button>
+                            <div class="da-profile-nudge__hint">Some em 10s • reaparece a cada 5 min</div>
+                        </div>
+                    </div>
+                    <div class="da-profile-nudge__timer">
+                        <div class="da-profile-nudge__timer-fill" id="daProfileNudgeTimerFill"></div>
+                    </div>
+                </div>
+            `;
+
+            // Preferir anexar no container da extensão (no desktop ele é fullscreen).
+            // Fallback: body (mantém no centro da tela mesmo que o painel esteja compacto).
+            const root = document.getElementById('blaze-double-analyzer') || document.body;
+            root.appendChild(wrap);
+
+            const closeEls = wrap.querySelectorAll('[data-da-nudge-close="1"]');
+            closeEls.forEach((el) => el.addEventListener('click', () => hideProfileNudge()));
+
+            const cta = wrap.querySelector('#daProfileNudgeCta');
+            if (cta) {
+                cta.addEventListener('click', () => {
+                    try {
+                        const snapshot = wrap.__daProfileStatusSnapshot;
+                        // Abrir Minha Conta
+                        if (typeof setUserMenuState === 'function') {
+                            setUserMenuState(true);
+                        } else {
+                            const userMenuToggle = document.getElementById('userMenuToggle');
+                            if (userMenuToggle) userMenuToggle.click();
+                        }
+                        // Focar no primeiro campo pendente
+                        if (snapshot && Array.isArray(snapshot.missing) && snapshot.missing.length) {
+                            const fieldMap = {
+                                'Telefone': 'profilePhone',
+                                'CPF': 'profileCpf',
+                                'CEP': 'profileZipCode',
+                                'Rua': 'profileStreet',
+                                'Número': 'profileNumber',
+                                'Bairro': 'profileNeighborhood',
+                                'Cidade': 'profileCity',
+                                'Estado': 'profileState'
+                            };
+                            const firstMissing = snapshot.missing[0];
+                            const targetId = firstMissing ? fieldMap[firstMissing] : null;
+                            const el = targetId ? document.getElementById(targetId) : null;
+                            if (el && typeof el.focus === 'function') {
+                                setTimeout(() => el.focus(), 0);
+                            }
+                        }
+                    } catch (_) {}
+                    hideProfileNudge();
+                });
+            }
+
+            daProfileNudgeEl = wrap;
+            return wrap;
+        } catch (error) {
+            console.warn('⚠️ Falha ao criar UI do aviso de cadastro:', error);
+            return null;
+        }
+    }
+
+    function hideProfileNudge() {
+        try {
+            if (daProfileNudgeAutoHideTimer) {
+                clearTimeout(daProfileNudgeAutoHideTimer);
+                daProfileNudgeAutoHideTimer = null;
+            }
+        } catch (_) {}
+        try {
+            if (daProfileNudgeEl) {
+                daProfileNudgeEl.style.display = 'none';
+            }
+        } catch (_) {}
+    }
+
+    function normalizeProfileNudgeRemote(raw) {
+        const obj = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+        const enabled = obj.enabled === false ? false : true;
+        const audience = String(obj.audience || '').trim().toLowerCase() === 'all_online' ? 'all_online' : 'new_incomplete';
+        const variant = String(obj.variant || '').trim().toLowerCase() === 'image' ? 'image' : 'text';
+        const message = typeof obj.message === 'string' ? obj.message : '';
+        const image = typeof obj.image === 'string' ? obj.image.trim() : '';
+        return { enabled, audience, variant, message, image };
+    }
+
+    async function fetchProfileNudgeRemoteConfig({ force = false } = {}) {
+        const now = Date.now();
+        if (!force) {
+            try {
+                const cachedRaw = localStorage.getItem(DA_PROFILE_NUDGE_REMOTE_CACHE_KEY);
+                const cached = cachedRaw ? JSON.parse(cachedRaw) : null;
+                if (cached && cached.ts && (now - cached.ts) < DA_PROFILE_NUDGE_REMOTE_CACHE_TTL_MS) {
+                    return normalizeProfileNudgeRemote(cached.data);
+                }
+            } catch (_) {}
+        }
+
+        try {
+            const origin = (typeof getApiUrl === 'function') ? String(getApiUrl() || '').trim() : '';
+            if (!origin) return null;
+
+            const url = `${origin}/api/site/notifications`;
+            const resp = await fetch(url, { cache: 'no-store' });
+            if (!resp.ok) return null;
+            const json = await resp.json();
+            if (!json || !json.success) return null;
+
+            const normalized = normalizeProfileNudgeRemote(json.profileNudge);
+            try {
+                localStorage.setItem(DA_PROFILE_NUDGE_REMOTE_CACHE_KEY, JSON.stringify({ ts: now, data: normalized }));
+            } catch (_) {}
+            return normalized;
+        } catch (_) {
+            return null;
+        }
+    }
+
+    function showProfileNudge(profileStatus, remoteCfg = null) {
+        const el = ensureProfileNudgeUI();
+        if (!el) return;
+
+        try {
+            // Persistir snapshot para CTA focar no campo correto
+            el.__daProfileStatusSnapshot = profileStatus && typeof profileStatus === 'object' ? profileStatus : null;
+
+            const cfg = normalizeProfileNudgeRemote(remoteCfg);
+
+            const card = el.querySelector('.da-profile-nudge__card');
+            const imgWrap = el.querySelector('#daProfileNudgeImageWrap');
+            const img = el.querySelector('#daProfileNudgeImage');
+            const msgEl = el.querySelector('#daProfileNudgeMessage');
+            const missingEl = el.querySelector('#daProfileNudgeMissing');
+
+            const isImageOnly = cfg.variant === 'image' && !!cfg.image;
+            if (card) card.classList.toggle('is-image-only', isImageOnly);
+
+            if (imgWrap) imgWrap.style.display = isImageOnly ? 'block' : 'none';
+            if (img) img.src = isImageOnly ? cfg.image : '';
+
+            if (msgEl && !isImageOnly) {
+                const m = String(cfg.message || '').trim();
+                if (m) {
+                    msgEl.innerHTML = escapeHtml(m).replace(/\n/g, '<br>');
+                } else {
+                    // fallback: mantém o texto default do template
+                    // (não sobrescrever para evitar perder <strong> etc)
+                }
+            }
+
+            if (missingEl) {
+                const fields = profileStatus && Array.isArray(profileStatus.missing) && profileStatus.missing.length
+                    ? profileStatus.missing.join(', ')
+                    : '';
+                missingEl.innerHTML = fields ? `<strong>Campos pendentes:</strong> ${escapeHtml(fields)}` : '';
+            }
+
+            // Reiniciar animação da barra de tempo (10s)
+            const fill = el.querySelector('#daProfileNudgeTimerFill');
+            if (fill) {
+                fill.classList.remove('is-running');
+                // Force reflow para reiniciar a animação
+                void fill.offsetWidth;
+                fill.classList.add('is-running');
+            }
+
+            el.style.display = 'flex';
+        } catch (_) {}
+
+        // Registrar "last shown" no momento que aparece (reaparece 5min depois)
+        try { localStorage.setItem(DA_PROFILE_NUDGE_LAST_SHOWN_KEY, String(Date.now())); } catch (_) {}
+
+        try {
+            if (daProfileNudgeAutoHideTimer) clearTimeout(daProfileNudgeAutoHideTimer);
+            daProfileNudgeAutoHideTimer = setTimeout(() => hideProfileNudge(), DA_PROFILE_NUDGE_AUTOHIDE_MS);
+        } catch (_) {}
+    }
+
+    async function evaluateProfileNudge({ force = false } = {}) {
+        try {
+            // Só quando autenticado
+            const token = localStorage.getItem('authToken');
+            if (!token) {
+                stopProfileNudgeLoop();
+                return;
+            }
+
+            const data = await (typeof storageCompat?.get === 'function'
+                ? storageCompat.get(['analyzerConfig', 'user'])
+                : new Promise((resolve) => chrome.storage.local.get(['analyzerConfig', 'user'], resolve)));
+
+            const config = data?.analyzerConfig || {};
+            const user = data?.user || getStoredUserData();
+            const isAIMode = normalizeAiMode(config.aiMode);
+            const profileStatus = getProfileCompletionSnapshot(user);
+
+            const remote = await fetchProfileNudgeRemoteConfig({ force: false });
+            const cfg = remote ? normalizeProfileNudgeRemote(remote) : normalizeProfileNudgeRemote(null);
+            if (cfg && cfg.enabled === false) {
+                hideProfileNudge();
+                return;
+            }
+
+            const shouldShow = (() => {
+                if (cfg && cfg.audience === 'all_online') return true; // ✅ modo teste
+                // padrão: apenas novos (cadastro incompleto e IA desligada)
+                return !isAIMode && !profileStatus.complete;
+            })();
+
+            if (!shouldShow) {
+                hideProfileNudge();
+                return;
+            }
+
+            // ✅ Se o admin alterar a config (mensagem/imagem/público), mostrar imediatamente (ignorar cooldown)
+            let sigChanged = false;
+            try {
+                const sig = JSON.stringify(cfg || {});
+                const prev = localStorage.getItem(DA_PROFILE_NUDGE_LAST_CFG_SIG_KEY) || '';
+                if (sig && sig !== prev) {
+                    sigChanged = true;
+                    localStorage.setItem(DA_PROFILE_NUDGE_LAST_CFG_SIG_KEY, sig);
+                }
+            } catch (_) {}
+
+            const lastShown = (() => {
+                try {
+                    const raw = localStorage.getItem(DA_PROFILE_NUDGE_LAST_SHOWN_KEY);
+                    const n = raw ? Number(raw) : 0;
+                    return Number.isFinite(n) ? n : 0;
+                } catch (_) {
+                    return 0;
+                }
+            })();
+
+            const now = Date.now();
+            const effectiveForce = !!force || !!sigChanged;
+            if (!effectiveForce && lastShown && (now - lastShown) < DA_PROFILE_NUDGE_INTERVAL_MS) {
+                return;
+            }
+
+            showProfileNudge(profileStatus, cfg);
+        } catch (error) {
+            console.warn('⚠️ Falha ao avaliar aviso de cadastro:', error);
+        }
+    }
+
+    function startProfileNudgeLoop() {
+        try {
+            if (daProfileNudgeIntervalId) return;
+            // Inicializar UI (idempotente)
+            ensureProfileNudgeUI();
+            // Primeiro check rápido (pequeno delay para não competir com render inicial)
+            setTimeout(() => evaluateProfileNudge({ force: false }), 1800);
+            // Poll curto para captar mudanças do admin; exibição respeita DA_PROFILE_NUDGE_INTERVAL_MS
+            daProfileNudgeIntervalId = setInterval(() => evaluateProfileNudge({ force: false }), DA_PROFILE_NUDGE_POLL_MS);
+        } catch (error) {
+            console.warn('⚠️ Falha ao iniciar loop do aviso de cadastro:', error);
+        }
+    }
+
+    function stopProfileNudgeLoop() {
+        try {
+            if (daProfileNudgeIntervalId) {
+                clearInterval(daProfileNudgeIntervalId);
+                daProfileNudgeIntervalId = null;
+            }
+        } catch (_) {}
+        hideProfileNudge();
+    }
+
     function getPlanLabel(plan, price) {
         const priceDisplay = (() => {
             if (price === null || price === undefined) return null;
@@ -284,6 +610,9 @@
 
         forceLogoutAlreadyTriggered = true;
         console.warn('⚠️ Sessão será encerrada. Motivo:', reason);
+
+        // 🔔 Encerrar qualquer aviso de cadastro pendente ao deslogar
+        try { stopProfileNudgeLoop(); } catch (_) {}
 
         clearSessionStorageKeys();
 
@@ -2830,8 +3159,8 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
 
             // ✅ Pedido: no modo Diamante, quando estiver em "Testar configurações",
             // o botão "Fechar" deve VOLTAR para os níveis (não fechar o modal inteiro).
-            const isSimActive = modal.classList.contains('diamond-sim-active');
-            if (isSimActive) {
+                const isSimActive = modal.classList.contains('diamond-sim-active');
+                if (isSimActive) {
                 try { exitDiamondSimulationView({ cancelIfRunning: true, clear: true, closeModal: false }); } catch (_) {}
                 return; // NÃO fechar o modal de níveis
             }
@@ -2854,7 +3183,7 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
 
         // ✅ Admin visibility: esconder níveis desativados globalmente (não exibir no site)
         try { applyDiamondVisibleLevelsToDiamondLevelsModal(); } catch (_) {}
-
+        
         initializeDiamondLevelToggles();
         ensureDiamondSimulationView();
         initializeDiamondSimulationControls();
@@ -12617,6 +12946,8 @@ async function persistAnalyzerState(newState) {
                     syncProfileFieldState(data.user);
                     showGlobalSaveSuccess(1500);
                     showToast('Dados salvos com sucesso!', 'success');
+                    // ✅ Se o cadastro foi concluído, parar o aviso imediatamente (sem esperar o próximo ciclo)
+                    try { setTimeout(() => evaluateProfileNudge({ force: true }), 800); } catch (_) {}
                 } else {
                     const overlay = document.getElementById('saveStatusOverlay');
                     if (overlay) overlay.style.display = 'none';
@@ -13119,6 +13450,10 @@ async function persistAnalyzerState(newState) {
                 }
                 
                 applyAIModeUIState(isAIMode, aiModeToggle);
+
+                // 🔔 Aviso (modal retrato): cadastro incompleto + IA desativada
+                // Inicia/para automaticamente conforme o estado do usuário.
+                try { startProfileNudgeLoop(); } catch (_) {}
                 
                 // ✅ GARANTIR que o container está oculto se modo está DESATIVADO
                 if (!isAIMode) {
@@ -19134,7 +19469,7 @@ function logModeSnapshotUI(snapshot) {
                         }
 
                         // Falhas: permitir nova tentativa + retry automático
-                        autoPatternSearchTriggered = false;
+                            autoPatternSearchTriggered = false;
                         try { abortBankSearchProgressUI(); } catch (_) {}
 
                         if (status === 'insufficient_data') {
@@ -19867,8 +20202,8 @@ function logModeSnapshotUI(snapshot) {
                     const ok = !!(recoveryGate && recoveryGate.ok === true && !safe.currentSignalRecovery);
                     bar.classList.toggle('is-complete', ok);
                     if (check) check.hidden = !ok;
+                    }
                 }
-            }
         } catch (_) {}
         
         // Atualizar totais
