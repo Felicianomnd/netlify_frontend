@@ -1809,7 +1809,7 @@
             <div class="pricing-grid" id="lpPricingGrid"></div>
         </section>
 
-        <div class="landing-footer" id="lpFooterText">© 2026 Double Análise • Todos os direitos reservados.</div>
+        <div class="landing-footer" id="lpFooterText">© Double Análise</div>
     </main>
 
     <!-- 🔍 Modal para ver prints maiores (50% da tela) -->
@@ -3314,11 +3314,7 @@
             }
 
             // Footer
-            const footerDefault = (() => {
-                const brand = String(cfg?.header?.brand || 'Double Análise').trim() || 'Double Análise';
-                return `© 2026 ${brand} • Todos os direitos reservados.`;
-            })();
-            setTextById('lpFooterText', cfg?.footer?.text || footerDefault);
+            setTextById('lpFooterText', cfg?.footer?.text || '© Double Análise');
         }
 
         function switchTab(tab, el) {
