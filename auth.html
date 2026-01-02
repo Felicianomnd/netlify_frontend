@@ -695,40 +695,38 @@
             background: rgba(255, 0, 63, 0.06);
         }
 
-        /* ✅ Selo: Promoção de lançamento (topo de cada plano) */
+        /* ✅ Selo: Promoção de lançamento (topo de cada plano) — estilo profissional (pill) */
         .pricing-promo-badge {
+            align-self: flex-start;
             display: inline-flex;
-            flex-direction: column;
-            align-items: flex-start;
-            gap: 2px;
+            align-items: center;
+            gap: 8px;
             width: fit-content;
             max-width: 100%;
-            padding: 8px 10px;
-            border-radius: 8px;
-            background: linear-gradient(135deg, rgba(255, 0, 63, 0.98) 0%, rgba(220, 38, 38, 0.98) 70%, rgba(239, 68, 68, 0.98) 100%);
-            color: #ffffff;
-            box-shadow: none;
-            border: 1px solid rgba(255, 255, 255, 0.10);
-        }
-
-        .pricing-promo-badge__title {
+            padding: 7px 10px;
+            border-radius: 999px;
+            background: linear-gradient(135deg, rgba(255, 0, 63, 0.20) 0%, rgba(255, 0, 63, 0.10) 60%, rgba(255, 0, 63, 0.06) 100%);
+            border: 1px solid rgba(255, 0, 63, 0.35);
+            color: rgba(255, 255, 255, 0.94);
             font-weight: 900;
-            font-size: 12px;
-            letter-spacing: 0.6px;
+            font-size: 11px;
+            letter-spacing: 0.8px;
             text-transform: uppercase;
-            line-height: 1.05;
             white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
+            user-select: none;
         }
 
-        .pricing-promo-badge__sub {
-            font-weight: 800;
-            font-size: 11px;
-            letter-spacing: 0.3px;
-            line-height: 1.1;
-            color: rgba(255,255,255,0.92);
-            white-space: nowrap;
+        .pricing-promo-badge::before {
+            content: "";
+            width: 7px;
+            height: 7px;
+            border-radius: 999px;
+            background: #ff003f;
+            box-shadow: 0 0 0 3px rgba(255, 0, 63, 0.18);
+            flex: 0 0 auto;
+        }
+
+        .pricing-promo-badge {
             overflow: hidden;
             text-overflow: ellipsis;
         }
@@ -3259,10 +3257,7 @@
                     // ✅ Selo fixo: "Promoção de lançamento" (pedido)
                     const promo = document.createElement('div');
                     promo.className = 'pricing-promo-badge';
-                    promo.innerHTML = `
-                        <div class="pricing-promo-badge__title">Promoção de lançamento</div>
-                        <div class="pricing-promo-badge__sub">Depois o preço vai mudar</div>
-                    `;
+                    promo.textContent = 'Promoção de lançamento';
 
                     const name = document.createElement('div');
                     name.className = 'pricing-name';
