@@ -677,6 +677,14 @@
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
             gap: 12px;
+            overflow: visible;
+        }
+
+        /* Wrapper do plano para permitir selo "flutuante" acima do card */
+        .pricing-card-wrap {
+            position: relative;
+            overflow: visible;
+            padding-top: 14px; /* espaço para o selo ficar fora do card */
         }
 
         .pricing-card {
@@ -687,7 +695,6 @@
             display: flex;
             flex-direction: column;
             gap: 10px;
-            position: relative;
         }
 
         .pricing-card.highlight {
@@ -695,40 +702,75 @@
             background: rgba(255, 0, 63, 0.06);
         }
 
-        /* ✅ Selo: Promoção de lançamento (topo de cada plano) — estilo profissional (pill) */
+        /* ✅ Selo: Promoção de lançamento (flutuante acima do card) — estilo premium */
         .pricing-promo-badge {
-            align-self: flex-start;
+            position: absolute;
+            top: 14px;
+            left: 18px;
+            transform: translateY(-50%);
+            z-index: 2;
+
             display: inline-flex;
             align-items: center;
-            gap: 8px;
+            gap: 10px;
             width: fit-content;
-            max-width: 100%;
-            padding: 7px 10px;
+            max-width: calc(100% - 24px);
+
+            padding: 10px 14px;
             border-radius: 999px;
-            background: linear-gradient(135deg, rgba(255, 0, 63, 0.20) 0%, rgba(255, 0, 63, 0.10) 60%, rgba(255, 0, 63, 0.06) 100%);
-            border: 1px solid rgba(255, 0, 63, 0.35);
-            color: rgba(255, 255, 255, 0.94);
-            font-weight: 900;
+
+            /* visual "pro" */
+            background: linear-gradient(135deg, rgba(255, 0, 63, 0.95) 0%, rgba(220, 38, 38, 0.92) 55%, rgba(239, 68, 68, 0.90) 100%);
+            border: 1px solid rgba(255, 255, 255, 0.16);
+            box-shadow:
+                0 10px 22px rgba(0, 0, 0, 0.35),
+                0 0 0 4px rgba(255, 0, 63, 0.14);
+
+            color: rgba(255, 255, 255, 0.98);
+            font-weight: 950;
             font-size: 11px;
-            letter-spacing: 0.8px;
+            letter-spacing: 0.9px;
             text-transform: uppercase;
             white-space: nowrap;
             user-select: none;
+
+            /* micro-efeito */
+            backdrop-filter: blur(6px);
+            -webkit-backdrop-filter: blur(6px);
+            overflow: hidden;
+            text-overflow: ellipsis;
+            transition: transform 0.22s ease, box-shadow 0.22s ease, filter 0.22s ease;
         }
 
         .pricing-promo-badge::before {
             content: "";
-            width: 7px;
-            height: 7px;
+            width: 8px;
+            height: 8px;
             border-radius: 999px;
-            background: #ff003f;
-            box-shadow: 0 0 0 3px rgba(255, 0, 63, 0.18);
+            background: rgba(255,255,255,0.95);
+            box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.18);
             flex: 0 0 auto;
         }
 
-        .pricing-promo-badge {
-            overflow: hidden;
-            text-overflow: ellipsis;
+        /* brilho diagonal suave */
+        .pricing-promo-badge::after {
+            content: "";
+            position: absolute;
+            inset: -40% -60%;
+            background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.22) 45%, transparent 60%);
+            transform: rotate(18deg);
+            opacity: 0.35;
+            pointer-events: none;
+        }
+
+        @media (hover: hover) and (pointer: fine) {
+            .pricing-card-wrap:hover .pricing-promo-badge {
+                transform: translateY(-55%);
+                filter: saturate(1.05);
+                box-shadow:
+                    0 14px 28px rgba(0, 0, 0, 0.40),
+                    0 0 0 5px rgba(255, 0, 63, 0.16);
+            }
         }
 
         .pricing-name {
@@ -3306,6 +3348,9 @@
 
                 const sortedPlans = Array.isArray(plans) ? [...plans].sort((a, b) => (a.days || 0) - (b.days || 0)) : [];
                 for (const plan of sortedPlans) {
+                    const wrap = document.createElement('div');
+                    wrap.className = 'pricing-card-wrap';
+
                     const card = document.createElement('div');
                     card.className = `pricing-card${highlight && plan.duration === highlight ? ' highlight' : ''}`;
 
@@ -3332,12 +3377,14 @@
                     btn.textContent = ctaText;
                     btn.addEventListener('click', () => openAuthModal('register', { planDuration: plan.duration }));
 
-                    card.appendChild(promo);
                     card.appendChild(name);
                     card.appendChild(price);
                     card.appendChild(desc);
                     card.appendChild(btn);
-                    pricingGrid.appendChild(card);
+
+                    wrap.appendChild(promo);
+                    wrap.appendChild(card);
+                    pricingGrid.appendChild(wrap);
                 }
             }
 
