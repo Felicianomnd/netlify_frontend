@@ -226,7 +226,6 @@
                             </div>
                             <div class="da-profile-nudge__actions">
                                 <button type="button" class="da-profile-nudge__cta" id="daProfileNudgeCta">CONCLUIR AGORA</button>
-                                <div class="da-profile-nudge__hint">Some em 20s • reaparece a cada 5 min</div>
                             </div>
                         </div>
                     </div>
@@ -479,8 +478,9 @@
             if (daProfileNudgeIntervalId) return;
             // Inicializar UI (idempotente)
             ensureProfileNudgeUI();
-            // Primeiro check rápido (pequeno delay para não competir com render inicial)
-            setTimeout(() => evaluateProfileNudge({ force: false }), 1800);
+            // ✅ Sempre que carregar/recarregar a página: exibir logo em seguida (ignora cooldown)
+            // (A validação de público-alvo ainda se aplica.)
+            setTimeout(() => evaluateProfileNudge({ force: true }), 700);
             // Poll curto para captar mudanças do admin; exibição respeita DA_PROFILE_NUDGE_INTERVAL_MS
             daProfileNudgeIntervalId = setInterval(() => evaluateProfileNudge({ force: false }), DA_PROFILE_NUDGE_POLL_MS);
         } catch (error) {
