@@ -430,6 +430,14 @@
             border-radius: 0;
             background: rgba(0, 0, 0, 0.22);
             padding: 16px;
+            /* ✅ Evitar "texto invadindo o card ao lado":
+               - Alguns textos do admin podem vir com &nbsp; (espaço não quebrável), o que impede wrap normal.
+               - min-width:0 permite o grid item encolher corretamente.
+               - overflow-wrap/word-break força quebra quando necessário. */
+            min-width: 0;
+            overflow: hidden;
+            overflow-wrap: anywhere;
+            word-break: break-word;
         }
 
         .feature-badge-row {
@@ -482,6 +490,16 @@
             color: #9aa9c6;
             line-height: 1.45;
             white-space: normal;
+            max-width: 100%;
+            overflow-wrap: anywhere;
+            word-break: break-word;
+        }
+
+        /* Garantir que qualquer elemento inserido via HTML (ul/li/div/p/strong/span) também respeite wrap */
+        .feature-card .feature-desc * {
+            max-width: 100%;
+            overflow-wrap: anywhere;
+            word-break: break-word;
         }
 
         .gallery-row-wrap {
