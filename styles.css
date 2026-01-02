@@ -3966,7 +3966,7 @@
 }
 
 /* ✅ No modo foto: botão "Concluir cadastro" acima da barra, sem fundo/caixa */
-.da-profile-nudge__card.is-image-only .da-profile-nudge__image-actions {
+.da-profile-nudge__card.is-image-only.has-image-cta .da-profile-nudge__image-actions {
     display: flex;
     position: absolute;
     left: 0;
@@ -3977,7 +3977,7 @@
     pointer-events: none;
 }
 
-.da-profile-nudge__card.is-image-only .da-profile-nudge__image-actions .da-profile-nudge__cta {
+.da-profile-nudge__card.is-image-only.has-image-cta .da-profile-nudge__image-actions .da-profile-nudge__cta {
     pointer-events: all;
     width: min(320px, 88%);
 }

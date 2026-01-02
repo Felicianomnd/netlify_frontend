@@ -177,20 +177,23 @@
     // - Reaparece a cada 5 minutos até concluir o cadastro (ou ativar IA)
     // - Mobile e Desktop (não ocupa tela toda; ~75% no mobile)
     // ═══════════════════════════════════════════════════════════════════════════════
-    const DA_PROFILE_NUDGE_LAST_SHOWN_KEY = 'da_profile_nudge_last_shown_v1';
-    const DA_PROFILE_NUDGE_INTERVAL_MS = 5 * 60 * 1000;
-    const DA_PROFILE_NUDGE_AUTOHIDE_MS = 20 * 1000;
-    // Poll curto para captar mudanças do admin (ex.: "todos online") sem esperar 5 min.
-    // A regra de exibição continua sendo 5 min (DA_PROFILE_NUDGE_INTERVAL_MS).
-    const DA_PROFILE_NUDGE_POLL_MS = 30 * 1000;
+    // ⏱️ Poll curto para captar mudanças do admin (e testar "todos online")
+    const DA_NOTIF_POLL_MS = 30 * 1000;
+    const DA_NOTIF_REMOTE_CACHE_KEY = 'da_notifications_remote_cache_v1';
+    const DA_NOTIF_REMOTE_CACHE_TTL_MS = 15 * 1000;
 
-    const DA_PROFILE_NUDGE_REMOTE_CACHE_KEY = 'da_profile_nudge_remote_cache_v1';
-    const DA_PROFILE_NUDGE_REMOTE_CACHE_TTL_MS = 15 * 1000;
-    const DA_PROFILE_NUDGE_LAST_CFG_SIG_KEY = 'da_profile_nudge_last_cfg_sig_v1';
+    // Persistência por tipo de notificação
+    const DA_NOTIF_LAST_SHOWN_PROFILE_KEY = 'da_notif_last_shown_profile_v1';
+    const DA_NOTIF_LAST_SHOWN_PROMO_KEY = 'da_notif_last_shown_promo_v1';
+    const DA_NOTIF_LAST_CFG_SIG_PROFILE_KEY = 'da_notif_last_cfg_sig_profile_v1';
+    const DA_NOTIF_LAST_CFG_SIG_PROMO_KEY = 'da_notif_last_cfg_sig_promo_v1';
+    // Compat (antigo)
+    const DA_PROFILE_NUDGE_LAST_SHOWN_KEY = 'da_profile_nudge_last_shown_v1';
 
     let daProfileNudgeIntervalId = null;
     let daProfileNudgeAutoHideTimer = null;
     let daProfileNudgeEl = null;
+    let daActiveNotifKind = null; // 'profile' | 'promo' | null
 
     function ensureProfileNudgeUI() {
         try {
@@ -217,15 +220,17 @@
                     </div>
                     <div class="da-profile-nudge__content">
                         <div class="da-profile-nudge__hero">
-                            <div class="da-profile-nudge__headline">Conclua seu cadastro</div>
-                            <div class="da-profile-nudge__subtitle">Libere a <strong>Análise por IA</strong> (Modo Diamante)</div>
+                            <div class="da-profile-nudge__headline" id="daProfileNudgeHeadline">Conclua seu cadastro</div>
+                            <div class="da-profile-nudge__subtitle" id="daProfileNudgeSubtitle">Libere a <strong>Análise por IA</strong> (Modo Diamante)</div>
                         </div>
                         <div class="da-profile-nudge__body">
                             <div class="da-profile-nudge__text">
                                 <div class="da-profile-nudge__message" id="daProfileNudgeMessage">
                                     Preencha seus dados em <strong>Minha conta</strong> e clique em <strong>Salvar Dados</strong>.
                                 </div>
-                                <div class="da-profile-nudge__missing" id="daProfileNudgeMissing"></div>
+                                <div class="da-profile-nudge__missing" id="daProfileNudgeMissingWrap">
+                                    <div id="daProfileNudgeMissing"></div>
+                                </div>
                             </div>
                             <div class="da-profile-nudge__actions">
                                 <button type="button" class="da-profile-nudge__cta" id="daProfileNudgeCta">CONCLUIR AGORA</button>
@@ -306,26 +311,39 @@
                 daProfileNudgeEl.style.display = 'none';
             }
         } catch (_) {}
+        daActiveNotifKind = null;
     }
 
-    function normalizeProfileNudgeRemote(raw) {
+    function normalizeRemoteNotification(raw, kind) {
         const obj = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
         const enabled = obj.enabled === false ? false : true;
-        const audience = String(obj.audience || '').trim().toLowerCase() === 'all_online' ? 'all_online' : 'new_incomplete';
+        const audienceRaw = String(obj.audience || '').trim().toLowerCase();
+        const audience = (audienceRaw === 'all_online') ? 'all_online' : (kind === 'profile' ? 'new_incomplete' : 'all_online');
         const variant = String(obj.variant || '').trim().toLowerCase() === 'image' ? 'image' : 'text';
         const message = typeof obj.message === 'string' ? obj.message : '';
         const image = typeof obj.image === 'string' ? obj.image.trim() : '';
-        return { enabled, audience, variant, message, image };
+        const durationSeconds = (() => {
+            const n = Number(obj.durationSeconds);
+            if (!Number.isFinite(n)) return 20;
+            return Math.max(5, Math.min(120, n));
+        })();
+        const repeatMinutes = (() => {
+            const n = Number(obj.repeatMinutes);
+            if (!Number.isFinite(n)) return 0;
+            return Math.max(0, Math.min(1440, n));
+        })();
+        const forceOnPageLoad = obj.forceOnPageLoad === true;
+        return { enabled, audience, variant, message, image, durationSeconds, repeatMinutes, forceOnPageLoad };
     }
 
-    async function fetchProfileNudgeRemoteConfig({ force = false } = {}) {
+    async function fetchRemoteNotifications({ force = false } = {}) {
         const now = Date.now();
         if (!force) {
             try {
-                const cachedRaw = localStorage.getItem(DA_PROFILE_NUDGE_REMOTE_CACHE_KEY);
+                const cachedRaw = localStorage.getItem(DA_NOTIF_REMOTE_CACHE_KEY);
                 const cached = cachedRaw ? JSON.parse(cachedRaw) : null;
-                if (cached && cached.ts && (now - cached.ts) < DA_PROFILE_NUDGE_REMOTE_CACHE_TTL_MS) {
-                    return normalizeProfileNudgeRemote(cached.data);
+                if (cached && cached.ts && (now - cached.ts) < DA_NOTIF_REMOTE_CACHE_TTL_MS) {
+                    return cached.data || null;
                 }
             } catch (_) {}
         }
@@ -369,9 +387,12 @@
                     if (!resp.ok) continue;
                     const json = await resp.json();
                     if (!json || !json.success) continue;
-                    const normalized = normalizeProfileNudgeRemote(json.profileNudge);
+                    const normalized = {
+                        profileNudge: normalizeRemoteNotification(json.profileNudge, 'profile'),
+                        promo: normalizeRemoteNotification(json.promo, 'promo')
+                    };
                     try {
-                        localStorage.setItem(DA_PROFILE_NUDGE_REMOTE_CACHE_KEY, JSON.stringify({ ts: now, data: normalized }));
+                        localStorage.setItem(DA_NOTIF_REMOTE_CACHE_KEY, JSON.stringify({ ts: now, data: normalized }));
                     } catch (_) {}
                     return normalized;
                 } catch (_) {
@@ -385,7 +406,7 @@
         }
     }
 
-    function showProfileNudge(profileStatus, remoteCfg = null) {
+    function showNotificationModal(kind, profileStatus, remoteCfg = null) {
         const el = ensureProfileNudgeUI();
         if (!el) return;
 
@@ -393,17 +414,23 @@
             // Persistir snapshot para CTA focar no campo correto
             el.__daProfileStatusSnapshot = profileStatus && typeof profileStatus === 'object' ? profileStatus : null;
 
-            const cfg = normalizeProfileNudgeRemote(remoteCfg);
+            const cfg = normalizeRemoteNotification(remoteCfg, kind);
 
             const card = el.querySelector('.da-profile-nudge__card');
             const imgWrap = el.querySelector('#daProfileNudgeImageWrap');
             const img = el.querySelector('#daProfileNudgeImage');
             const msgEl = el.querySelector('#daProfileNudgeMessage');
+            const missingWrap = el.querySelector('#daProfileNudgeMissingWrap');
             const missingEl = el.querySelector('#daProfileNudgeMissing');
+            const headlineEl = el.querySelector('#daProfileNudgeHeadline');
+            const subtitleEl = el.querySelector('#daProfileNudgeSubtitle');
+            const ctaText = el.querySelector('#daProfileNudgeCta');
+            const ctaImageText = el.querySelector('#daProfileNudgeCtaImage');
 
             // ✅ Regra do produto: se tiver foto, exibir somente a foto (independente do select)
             const isImageOnly = !!cfg.image;
             if (card) card.classList.toggle('is-image-only', isImageOnly);
+            if (card) card.classList.toggle('has-image-cta', kind === 'profile'); // promo não precisa de CTA em cima
 
             if (imgWrap) imgWrap.style.display = isImageOnly ? 'block' : 'none';
             if (img) img.src = isImageOnly ? cfg.image : '';
@@ -418,17 +445,35 @@
                 }
             }
 
-            if (missingEl) {
+            if (headlineEl) {
+                headlineEl.textContent = kind === 'promo' ? 'Aviso' : 'Conclua seu cadastro';
+            }
+            if (subtitleEl) {
+                subtitleEl.innerHTML = kind === 'promo'
+                    ? 'Confira o aviso na tela'
+                    : 'Libere a <strong>Análise por IA</strong> (Modo Diamante)';
+            }
+
+            // CTA e missing: só no aviso de cadastro
+            const showCta = kind === 'profile' && !isImageOnly;
+            const showMissing = kind === 'profile' && !isImageOnly;
+            if (ctaText) ctaText.style.display = showCta ? '' : 'none';
+            if (ctaImageText) ctaImageText.textContent = 'CONCLUIR CADASTRO';
+
+            if (missingWrap) missingWrap.style.display = showMissing ? '' : 'none';
+            if (missingEl && showMissing) {
                 const fields = profileStatus && Array.isArray(profileStatus.missing) && profileStatus.missing.length
                     ? profileStatus.missing.join(', ')
                     : '';
                 missingEl.innerHTML = fields ? `<strong>Campos pendentes:</strong> ${escapeHtml(fields)}` : '';
             }
 
-            // Reiniciar animação da barra de tempo (10s)
+            const durationMs = Math.max(5000, Math.min(120000, Math.round(cfg.durationSeconds * 1000)));
+
+            // Reiniciar animação da barra de tempo
             const fill = el.querySelector('#daProfileNudgeTimerFill');
             if (fill) {
-                try { fill.style.setProperty('--da-profile-nudge-duration', `${DA_PROFILE_NUDGE_AUTOHIDE_MS}ms`); } catch (_) {}
+                try { fill.style.setProperty('--da-profile-nudge-duration', `${durationMs}ms`); } catch (_) {}
                 fill.classList.remove('is-running');
                 // Force reflow para reiniciar a animação
                 void fill.offsetWidth;
@@ -436,18 +481,51 @@
             }
 
             el.style.display = 'flex';
+            daActiveNotifKind = kind;
         } catch (_) {}
-
-        // Registrar "last shown" no momento que aparece (reaparece 5min depois)
-        try { localStorage.setItem(DA_PROFILE_NUDGE_LAST_SHOWN_KEY, String(Date.now())); } catch (_) {}
 
         try {
             if (daProfileNudgeAutoHideTimer) clearTimeout(daProfileNudgeAutoHideTimer);
-            daProfileNudgeAutoHideTimer = setTimeout(() => hideProfileNudge(), DA_PROFILE_NUDGE_AUTOHIDE_MS);
+            const durationMs = (() => {
+                const cfg = normalizeRemoteNotification(remoteCfg, kind);
+                return Math.max(5000, Math.min(120000, Math.round(cfg.durationSeconds * 1000)));
+            })();
+            daProfileNudgeAutoHideTimer = setTimeout(() => hideProfileNudge(), durationMs);
         } catch (_) {}
     }
 
-    async function evaluateProfileNudge({ force = false } = {}) {
+    function getNotifStorageKeys(kind) {
+        return {
+            lastShownKey: kind === 'promo' ? DA_NOTIF_LAST_SHOWN_PROMO_KEY : DA_NOTIF_LAST_SHOWN_PROFILE_KEY,
+            lastSigKey: kind === 'promo' ? DA_NOTIF_LAST_CFG_SIG_PROMO_KEY : DA_NOTIF_LAST_CFG_SIG_PROFILE_KEY
+        };
+    }
+
+    function readLastShown(kind) {
+        const { lastShownKey } = getNotifStorageKeys(kind);
+        const raw = localStorage.getItem(lastShownKey);
+        const n = raw ? Number(raw) : 0;
+        if (Number.isFinite(n) && n > 0) return n;
+        // compat: antigo perfil
+        if (kind === 'profile') {
+            const legacy = localStorage.getItem(DA_PROFILE_NUDGE_LAST_SHOWN_KEY);
+            const ln = legacy ? Number(legacy) : 0;
+            if (Number.isFinite(ln) && ln > 0) return ln;
+        }
+        return 0;
+    }
+
+    function writeLastShown(kind) {
+        const { lastShownKey } = getNotifStorageKeys(kind);
+        const now = Date.now();
+        try { localStorage.setItem(lastShownKey, String(now)); } catch (_) {}
+        if (kind === 'profile') {
+            try { localStorage.setItem(DA_PROFILE_NUDGE_LAST_SHOWN_KEY, String(now)); } catch (_) {}
+        }
+        return now;
+    }
+
+    async function evaluateNotifications({ onPageLoad = false } = {}) {
         try {
             // Só quando autenticado
             const token = localStorage.getItem('authToken');
@@ -465,52 +543,56 @@
             const isAIMode = normalizeAiMode(config.aiMode);
             const profileStatus = getProfileCompletionSnapshot(user);
 
-            const remote = await fetchProfileNudgeRemoteConfig({ force: false });
-            const cfg = remote ? normalizeProfileNudgeRemote(remote) : normalizeProfileNudgeRemote(null);
-            if (cfg && cfg.enabled === false) {
-                hideProfileNudge();
+            const remote = await fetchRemoteNotifications({ force: false });
+            const profileCfg = remote && remote.profileNudge ? normalizeRemoteNotification(remote.profileNudge, 'profile') : normalizeRemoteNotification(null, 'profile');
+            const promoCfg = remote && remote.promo ? normalizeRemoteNotification(remote.promo, 'promo') : normalizeRemoteNotification(null, 'promo');
+
+            // Não empilhar: se já tem modal aberto, não tentar outro agora
+            if (daProfileNudgeEl && daProfileNudgeEl.style.display === 'flex') {
                 return;
             }
 
-            const shouldShow = (() => {
-                if (cfg && cfg.audience === 'all_online') return true; // ✅ modo teste
-                // padrão: apenas novos (cadastro incompleto e IA desligada)
-                return !isAIMode && !profileStatus.complete;
-            })();
+            const tryShow = (kind, cfg) => {
+                if (!cfg || cfg.enabled === false) return false;
 
-            if (!shouldShow) {
-                hideProfileNudge();
-                return;
-            }
+                const shouldShow = (() => {
+                    if (cfg.audience === 'all_online') return true;
+                    // profile: apenas cadastro incompleto e IA desligada
+                    return kind === 'profile' ? (!isAIMode && !profileStatus.complete) : false;
+                })();
+                if (!shouldShow) return false;
 
-            // ✅ Se o admin alterar a config (mensagem/imagem/público), mostrar imediatamente (ignorar cooldown)
-            let sigChanged = false;
-            try {
-                const sig = JSON.stringify(cfg || {});
-                const prev = localStorage.getItem(DA_PROFILE_NUDGE_LAST_CFG_SIG_KEY) || '';
-                if (sig && sig !== prev) {
-                    sigChanged = true;
-                    localStorage.setItem(DA_PROFILE_NUDGE_LAST_CFG_SIG_KEY, sig);
-                }
-            } catch (_) {}
-
-            const lastShown = (() => {
+                // Assinatura: se mudou, mostrar sem esperar
+                let sigChanged = false;
                 try {
-                    const raw = localStorage.getItem(DA_PROFILE_NUDGE_LAST_SHOWN_KEY);
-                    const n = raw ? Number(raw) : 0;
-                    return Number.isFinite(n) ? n : 0;
-                } catch (_) {
-                    return 0;
+                    const sig = JSON.stringify(cfg || {});
+                    const { lastSigKey } = getNotifStorageKeys(kind);
+                    const prev = localStorage.getItem(lastSigKey) || '';
+                    if (sig && sig !== prev) {
+                        sigChanged = true;
+                        localStorage.setItem(lastSigKey, sig);
+                    }
+                } catch (_) {}
+
+                const repeatMs = Math.max(0, Math.round(cfg.repeatMinutes * 60 * 1000));
+                const lastShown = readLastShown(kind);
+                const now = Date.now();
+
+                const effectiveForce = (onPageLoad && cfg.forceOnPageLoad) || sigChanged;
+                if (!effectiveForce) {
+                    if (repeatMs <= 0) return false;
+                    if (lastShown && (now - lastShown) < repeatMs) return false;
                 }
-            })();
 
-            const now = Date.now();
-            const effectiveForce = !!force || !!sigChanged;
-            if (!effectiveForce && lastShown && (now - lastShown) < DA_PROFILE_NUDGE_INTERVAL_MS) {
-                return;
-            }
+                // Marcar exibida e mostrar
+                writeLastShown(kind);
+                showNotificationModal(kind, kind === 'profile' ? profileStatus : null, cfg);
+                return true;
+            };
 
-            showProfileNudge(profileStatus, cfg);
+            // Prioridade: cadastro primeiro, depois promo
+            if (tryShow('profile', profileCfg)) return;
+            tryShow('promo', promoCfg);
         } catch (error) {
             console.warn('⚠️ Falha ao avaliar aviso de cadastro:', error);
         }
@@ -523,9 +605,9 @@
             ensureProfileNudgeUI();
             // ✅ Sempre que carregar/recarregar a página: exibir logo em seguida (ignora cooldown)
             // (A validação de público-alvo ainda se aplica.)
-            setTimeout(() => evaluateProfileNudge({ force: true }), 700);
+            setTimeout(() => evaluateNotifications({ onPageLoad: true }), 700);
             // Poll curto para captar mudanças do admin; exibição respeita DA_PROFILE_NUDGE_INTERVAL_MS
-            daProfileNudgeIntervalId = setInterval(() => evaluateProfileNudge({ force: false }), DA_PROFILE_NUDGE_POLL_MS);
+            daProfileNudgeIntervalId = setInterval(() => evaluateNotifications({ onPageLoad: false }), DA_NOTIF_POLL_MS);
         } catch (error) {
             console.warn('⚠️ Falha ao iniciar loop do aviso de cadastro:', error);
         }
@@ -12992,7 +13074,7 @@ async function persistAnalyzerState(newState) {
                     showGlobalSaveSuccess(1500);
                     showToast('Dados salvos com sucesso!', 'success');
                     // ✅ Se o cadastro foi concluído, parar o aviso imediatamente (sem esperar o próximo ciclo)
-                    try { setTimeout(() => evaluateProfileNudge({ force: true }), 800); } catch (_) {}
+                    try { setTimeout(() => evaluateNotifications({ onPageLoad: false }), 800); } catch (_) {}
                 } else {
                     const overlay = document.getElementById('saveStatusOverlay');
                     if (overlay) overlay.style.display = 'none';
