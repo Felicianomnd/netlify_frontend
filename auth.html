@@ -687,11 +687,50 @@
             display: flex;
             flex-direction: column;
             gap: 10px;
+            position: relative;
         }
 
         .pricing-card.highlight {
             border-color: rgba(255, 0, 63, 0.38);
             background: rgba(255, 0, 63, 0.06);
+        }
+
+        /* ✅ Selo: Promoção de lançamento (topo de cada plano) */
+        .pricing-promo-badge {
+            display: inline-flex;
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 2px;
+            width: fit-content;
+            max-width: 100%;
+            padding: 8px 10px;
+            border-radius: 8px;
+            background: linear-gradient(135deg, rgba(255, 0, 63, 0.98) 0%, rgba(220, 38, 38, 0.98) 70%, rgba(239, 68, 68, 0.98) 100%);
+            color: #ffffff;
+            box-shadow: none;
+            border: 1px solid rgba(255, 255, 255, 0.10);
+        }
+
+        .pricing-promo-badge__title {
+            font-weight: 900;
+            font-size: 12px;
+            letter-spacing: 0.6px;
+            text-transform: uppercase;
+            line-height: 1.05;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .pricing-promo-badge__sub {
+            font-weight: 800;
+            font-size: 11px;
+            letter-spacing: 0.3px;
+            line-height: 1.1;
+            color: rgba(255,255,255,0.92);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
         }
 
         .pricing-name {
@@ -3217,6 +3256,14 @@
                     const card = document.createElement('div');
                     card.className = `pricing-card${highlight && plan.duration === highlight ? ' highlight' : ''}`;
 
+                    // ✅ Selo fixo: "Promoção de lançamento" (pedido)
+                    const promo = document.createElement('div');
+                    promo.className = 'pricing-promo-badge';
+                    promo.innerHTML = `
+                        <div class="pricing-promo-badge__title">Promoção de lançamento</div>
+                        <div class="pricing-promo-badge__sub">Depois o preço vai mudar</div>
+                    `;
+
                     const name = document.createElement('div');
                     name.className = 'pricing-name';
                     name.textContent = String(plan.name || plan.duration);
@@ -3235,6 +3282,7 @@
                     btn.textContent = ctaText;
                     btn.addEventListener('click', () => openAuthModal('register', { planDuration: plan.duration }));
 
+                    card.appendChild(promo);
                     card.appendChild(name);
                     card.appendChild(price);
                     card.appendChild(desc);
