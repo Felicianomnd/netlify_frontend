@@ -48,6 +48,10 @@
             overflow: hidden; /* Impede barra de rolagem externa criar faixa na direita em tela cheia */
         }
 
+        :root {
+            --app-footer-h: 38px;
+        }
+
         /* Área principal onde a sidebar será renderizada */
         #app-container {
             width: 100%;
@@ -127,13 +131,34 @@
             top: 0 !important;
             left: 0 !important;
             right: 0 !important;
-            bottom: 0 !important;
+            bottom: var(--app-footer-h) !important; /* ✅ espaço para o rodapé (desktop) */
             width: 100% !important;
             height: 100% !important;
             z-index: 10000 !important;
             display: flex !important;
             flex-direction: column !important;
             max-height: 100vh !important;
+        }
+
+        /* ✅ Rodapé profissional (desktop) */
+        #appFooter {
+            position: fixed;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            height: var(--app-footer-h);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+            color: rgba(255, 255, 255, 0.60);
+            letter-spacing: 0.3px;
+            background: rgba(0, 0, 0, 0.14);
+            border-top: 1px solid rgba(255, 255, 255, 0.06);
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+            z-index: 10001;
+            pointer-events: none; /* não atrapalhar interação */
         }
         
         /* ✅ SCROLLBAR INVISÍVEL MAS FUNCIONAL - para acesso remoto via celular */
@@ -239,6 +264,10 @@
                 width: 100% !important;
                 height: 100% !important;
             }
+
+            #appFooter {
+                display: none !important; /* ✅ mobile: não ocupar espaço */
+            }
             
             body {
                 overflow: hidden !important;
@@ -260,6 +289,7 @@
 
     <!-- Container onde a sidebar será renderizada -->
     <div id="app-container"></div>
+    <div id="appFooter">© 2026 Double Análise • Todos os direitos reservados.</div>
 
     <!-- ═══════════════════════════════════════════════════════════════════════════════ -->
     <!-- ORDEM DE CARREGAMENTO IMPORTANTE:                                              -->
@@ -613,6 +643,12 @@
                 }
 
                 if (brand) document.title = brand;
+
+                // ✅ Atualizar rodapé do app com a marca (profissional)
+                try {
+                    const footer = document.getElementById('appFooter');
+                    if (footer) footer.textContent = `© 2026 ${brand || 'Double Análise'} • Todos os direitos reservados.`;
+                } catch (_) {}
 
                 // ✅ Favicon dinâmico (mesma regra do auth.html) para atualizar em todos os navegadores
                 const getMimeFromDataUrl = (dataUrl) => {

@@ -673,18 +673,21 @@
             color: #b4c2d8;
         }
 
+        /* ✅ Promo global (vale para TODOS os planos) */
+        .pricing-promo-global {
+            margin: 0 0 10px 0;
+            color: rgba(255, 255, 255, 0.92);
+            font-weight: 800;
+            font-size: 12px;
+            letter-spacing: 0.8px;
+            text-transform: uppercase;
+        }
+
         .pricing-grid {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
             gap: 12px;
             overflow: visible;
-        }
-
-        /* Wrapper do plano para permitir selo "flutuante" acima do card */
-        .pricing-card-wrap {
-            position: relative;
-            overflow: visible;
-            padding-top: 14px; /* espaço para o selo ficar fora do card */
         }
 
         .pricing-card {
@@ -702,76 +705,7 @@
             background: rgba(255, 0, 63, 0.06);
         }
 
-        /* ✅ Selo: Promoção de lançamento (flutuante acima do card) — estilo premium */
-        .pricing-promo-badge {
-            position: absolute;
-            top: 14px;
-            left: 18px;
-            transform: translateY(-50%);
-            z-index: 2;
-
-            display: inline-flex;
-            align-items: center;
-            gap: 10px;
-            width: fit-content;
-            max-width: calc(100% - 24px);
-
-            padding: 10px 14px;
-            border-radius: 999px;
-
-            /* visual "pro" */
-            background: linear-gradient(135deg, rgba(255, 0, 63, 0.95) 0%, rgba(220, 38, 38, 0.92) 55%, rgba(239, 68, 68, 0.90) 100%);
-            border: 1px solid rgba(255, 255, 255, 0.16);
-            box-shadow:
-                0 10px 22px rgba(0, 0, 0, 0.35),
-                0 0 0 4px rgba(255, 0, 63, 0.14);
-
-            color: rgba(255, 255, 255, 0.98);
-            font-weight: 950;
-            font-size: 11px;
-            letter-spacing: 0.9px;
-            text-transform: uppercase;
-            white-space: nowrap;
-            user-select: none;
-
-            /* micro-efeito */
-            backdrop-filter: blur(6px);
-            -webkit-backdrop-filter: blur(6px);
-            overflow: hidden;
-            text-overflow: ellipsis;
-            transition: transform 0.22s ease, box-shadow 0.22s ease, filter 0.22s ease;
-        }
-
-        .pricing-promo-badge::before {
-            content: "";
-            width: 8px;
-            height: 8px;
-            border-radius: 999px;
-            background: rgba(255,255,255,0.95);
-            box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.18);
-            flex: 0 0 auto;
-        }
-
-        /* brilho diagonal suave */
-        .pricing-promo-badge::after {
-            content: "";
-            position: absolute;
-            inset: -40% -60%;
-            background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.22) 45%, transparent 60%);
-            transform: rotate(18deg);
-            opacity: 0.35;
-            pointer-events: none;
-        }
-
-        @media (hover: hover) and (pointer: fine) {
-            .pricing-card-wrap:hover .pricing-promo-badge {
-                transform: translateY(-55%);
-                filter: saturate(1.05);
-                box-shadow:
-                    0 14px 28px rgba(0, 0, 0, 0.40),
-                    0 0 0 5px rgba(255, 0, 63, 0.16);
-            }
-        }
+        /* (removido) selo por-plano — agora existe um texto único acima de todos os planos */
 
         .pricing-name {
             color: #ffffff;
@@ -1871,10 +1805,11 @@
         <section class="landing-section" id="planos">
             <h2 class="section-title" id="lpPricingTitle">Planos</h2>
             <p class="section-subtitle" id="lpPricingSubtitle">Escolha o melhor para você</p>
+            <div class="pricing-promo-global" id="lpPricingPromoGlobal">Promoção de lançamento</div>
             <div class="pricing-grid" id="lpPricingGrid"></div>
         </section>
 
-        <div class="landing-footer" id="lpFooterText">© Double Análise</div>
+        <div class="landing-footer" id="lpFooterText">© 2026 Double Análise • Todos os direitos reservados.</div>
     </main>
 
     <!-- 🔍 Modal para ver prints maiores (50% da tela) -->
@@ -3348,16 +3283,8 @@
 
                 const sortedPlans = Array.isArray(plans) ? [...plans].sort((a, b) => (a.days || 0) - (b.days || 0)) : [];
                 for (const plan of sortedPlans) {
-                    const wrap = document.createElement('div');
-                    wrap.className = 'pricing-card-wrap';
-
                     const card = document.createElement('div');
                     card.className = `pricing-card${highlight && plan.duration === highlight ? ' highlight' : ''}`;
-
-                    // ✅ Selo fixo: "Promoção de lançamento" (pedido)
-                    const promo = document.createElement('div');
-                    promo.className = 'pricing-promo-badge';
-                    promo.textContent = 'Promoção de lançamento';
 
                     const name = document.createElement('div');
                     name.className = 'pricing-name';
@@ -3382,14 +3309,16 @@
                     card.appendChild(desc);
                     card.appendChild(btn);
 
-                    wrap.appendChild(promo);
-                    wrap.appendChild(card);
-                    pricingGrid.appendChild(wrap);
+                    pricingGrid.appendChild(card);
                 }
             }
 
             // Footer
-            setTextById('lpFooterText', cfg?.footer?.text || '© Double Análise');
+            const footerDefault = (() => {
+                const brand = String(cfg?.header?.brand || 'Double Análise').trim() || 'Double Análise';
+                return `© 2026 ${brand} • Todos os direitos reservados.`;
+            })();
+            setTextById('lpFooterText', cfg?.footer?.text || footerDefault);
         }
 
         function switchTab(tab, el) {
