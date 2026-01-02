@@ -324,20 +324,55 @@
         }
 
         try {
-            const origin = (typeof getApiUrl === 'function') ? String(getApiUrl() || '').trim() : '';
-            if (!origin) return null;
+            const normalizeOrigin = (raw) => String(raw || '').trim().replace(/\/api\/?$/i, '').replace(/\/+$/, '');
 
-            const url = `${origin}/api/site/notifications`;
-            const resp = await fetch(url, { cache: 'no-store' });
-            if (!resp.ok) return null;
-            const json = await resp.json();
-            if (!json || !json.success) return null;
-
-            const normalized = normalizeProfileNudgeRemote(json.profileNudge);
+            const candidates = [];
             try {
-                localStorage.setItem(DA_PROFILE_NUDGE_REMOTE_CACHE_KEY, JSON.stringify({ ts: now, data: normalized }));
+                const primary = (typeof getApiUrl === 'function') ? String(getApiUrl() || '').trim() : '';
+                if (primary) candidates.push(normalizeOrigin(primary));
             } catch (_) {}
-            return normalized;
+
+            // Tentar também o cache de URLs (pode apontar para outro Render ativo)
+            try {
+                const rawUrls = localStorage.getItem('da_urls_v1');
+                const cfg = rawUrls ? JSON.parse(rawUrls) : null;
+                const authOrigins = Array.isArray(cfg?.authApiOrigins) ? cfg.authApiOrigins : [];
+                const serverOrigins = Array.isArray(cfg?.servers) ? cfg.servers.map((s) => s?.authOrigin) : [];
+                [...authOrigins, ...serverOrigins].forEach((o) => {
+                    const n = normalizeOrigin(o);
+                    if (n) candidates.push(n);
+                });
+            } catch (_) {}
+
+            // Fallbacks (caso URLs não estejam prontas)
+            try {
+                if (typeof FALLBACK_ORIGINS === 'object' && Array.isArray(FALLBACK_ORIGINS.auth)) {
+                    FALLBACK_ORIGINS.auth.forEach((o) => {
+                        const n = normalizeOrigin(o);
+                        if (n) candidates.push(n);
+                    });
+                }
+            } catch (_) {}
+
+            const uniq = [...new Set(candidates)].filter(Boolean);
+            for (const origin of uniq) {
+                try {
+                    const url = `${origin}/api/site/notifications`;
+                    const resp = await fetch(url, { cache: 'no-store' });
+                    if (!resp.ok) continue;
+                    const json = await resp.json();
+                    if (!json || !json.success) continue;
+                    const normalized = normalizeProfileNudgeRemote(json.profileNudge);
+                    try {
+                        localStorage.setItem(DA_PROFILE_NUDGE_REMOTE_CACHE_KEY, JSON.stringify({ ts: now, data: normalized }));
+                    } catch (_) {}
+                    return normalized;
+                } catch (_) {
+                    // tentar próximo origin
+                }
+            }
+
+            return null;
         } catch (_) {
             return null;
         }
@@ -359,7 +394,8 @@
             const msgEl = el.querySelector('#daProfileNudgeMessage');
             const missingEl = el.querySelector('#daProfileNudgeMissing');
 
-            const isImageOnly = cfg.variant === 'image' && !!cfg.image;
+            // ✅ Regra do produto: se tiver foto, exibir somente a foto (independente do select)
+            const isImageOnly = !!cfg.image;
             if (card) card.classList.toggle('is-image-only', isImageOnly);
 
             if (imgWrap) imgWrap.style.display = isImageOnly ? 'block' : 'none';
