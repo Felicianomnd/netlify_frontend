@@ -3879,6 +3879,24 @@ async function processNewSpinFromServer(spinData) {
                         cachedHistory[0].number !== rollNumber;
             
             if (isNewSpin) {
+            // 🔎 Diagnóstico de latência: quanto tempo depois do timestamp do giro estamos detectando isso?
+            // (Só loga quando passar de 5s para não poluir o console)
+            try {
+                const spinMs = parseSpinTimestamp(latestSpin);
+                const nowMs = Date.now();
+                if (Number.isFinite(spinMs) && spinMs > 0) {
+                    const delta = nowMs - spinMs;
+                    if (delta > 5000) {
+                        console.warn(`⏱️ [LATÊNCIA] Novo giro detectado com atraso de ~${Math.round(delta)}ms (ideal: <= 2000ms).`, {
+                            number: rollNumber,
+                            color: rollColor,
+                            spinTimestamp: latestSpin.created_at,
+                            now: new Date(nowMs).toISOString()
+                        });
+                    }
+                }
+            } catch (_) {}
+
             console.log('🎯 NOVO GIRO DETECTADO!', {
                     number: rollNumber,
                     color: rollColor,
@@ -5196,9 +5214,14 @@ async function processNewSpinFromServer(spinData) {
             console.log('%c║       🤖 Modo IA ativo:', 'color: #FFD700; font-weight: bold; background: #333300; padding: 5px;', analyzerConfig.aiMode);
             console.log('%c║                                                                               ║', 'color: #FFD700; font-weight: bold; font-size: 16px; background: #333300; padding: 5px;');
             
+            const __analysisStartMs = Date.now();
             const executed = await runAnalysisIfEnabled(cachedHistory, 'NEW_SPIN');
             if (!executed) {
                 return;
+            }
+            const __analysisElapsedMs = Date.now() - __analysisStartMs;
+            if (__analysisElapsedMs > 5000) {
+                console.warn(`⏱️ [LATÊNCIA] Análise levou ~${Math.round(__analysisElapsedMs)}ms (orçamento: 5000ms).`);
             }
             
             console.log('%c✅ runAnalysisController() FINALIZADO!', 'color: #00FF88; font-weight: bold; font-size: 16px; background: #003300; padding: 5px;');
@@ -8651,8 +8674,13 @@ async function inicializarMemoriaAtiva(history) {
     console.log('%c║  🧠 INICIALIZANDO MEMÓRIA ATIVA                          ║', 'color: #00CED1; font-weight: bold; font-size: 14px;');
     
     try {
+        // ✅ FAST INIT (crítico para tempo-real):
+        // Antigamente esta rotina fazia varreduras pesadas (detectAllPatternTypes + estatísticas globais),
+        // o que podia bloquear o event-loop e atrasar o envio do sinal.
+        // Para tempo-real, basta ter cache + distribuição + padrão atual (últimos 20).
+
         // 1. COPIAR HISTÓRICO
-        console.log('%c📊 ETAPA 1/5: Copiando histórico...', 'color: #00CED1; font-weight: bold;');
+        console.log('%c📊 ETAPA 1/3: Copiando histórico...', 'color: #00CED1; font-weight: bold;');
         const cap = getMemoriaAtivaHistoryCap();
         memoriaAtiva.giros = [...history].slice(0, cap);
         memoriaAtiva.ultimos20 = memoriaAtiva.giros.slice(0, 20);
@@ -8660,7 +8688,7 @@ async function inicializarMemoriaAtiva(history) {
         console.log(`%c   ✅ ${memoriaAtiva.giros.length} giros copiados`, 'color: #00FF88;');
         
         // 2. CALCULAR DISTRIBUIÇÃO
-        console.log('%c📊 ETAPA 2/5: Calculando distribuição de cores...', 'color: #00CED1; font-weight: bold;');
+        console.log('%c📊 ETAPA 2/3: Calculando distribuição de cores...', 'color: #00CED1; font-weight: bold;');
         const distribuicao = { red: 0, black: 0, white: 0 };
         for (const giro of memoriaAtiva.giros) {
             if (giro.color) {
@@ -8677,64 +8705,21 @@ async function inicializarMemoriaAtiva(history) {
         console.log(`%c   ⚫ Preto: ${distribuicao.black} (${memoriaAtiva.estatisticas.distribuicao.black.percent.toFixed(2)}%)`, 'color: #888;');
         console.log(`%c   ⚪ Branco: ${distribuicao.white} (${memoriaAtiva.estatisticas.distribuicao.white.percent.toFixed(2)}%)`, 'color: #FFF;');
         
-        // 3. DETECTAR TODOS OS PADRÕES NO HISTÓRICO
-        console.log('%c🔍 ETAPA 3/5: Detectando todos os padrões...', 'color: #00CED1; font-weight: bold;');
-        const todosOsPadroes = detectAllPatternTypes(memoriaAtiva.giros);
-        
-        // Organizar por tipo
+        // 3. PADRÃO ATUAL (últimos 20) + placeholders (evita undefined e mantém telemetria ok)
+        console.log('%c🔍 ETAPA 3/3: Preparando snapshot rápido...', 'color: #00CED1; font-weight: bold;');
+        try {
+            memoriaAtiva.padraoAtual = findActivePattern(memoriaAtiva.ultimos20);
+        } catch (_) {
+            memoriaAtiva.padraoAtual = null;
+        }
         memoriaAtiva.padroesDetectados = {
-            alternanciaSimples: todosOsPadroes.filter(p => p.type === 'alternancia_simples'),
-            alternanciasDupla: todosOsPadroes.filter(p => p.type === 'alternancia_dupla'),
-            alternanciasTripla: todosOsPadroes.filter(p => p.type === 'alternancia_tripla'),
-            sequenciasRed: todosOsPadroes.filter(p => p.type === 'sequencia_red'),
-            sequenciasBlack: todosOsPadroes.filter(p => p.type === 'sequencia_black')
+            alternanciaSimples: [],
+            alternanciasDupla: [],
+            alternanciasTripla: [],
+            sequenciasRed: [],
+            sequenciasBlack: []
         };
-        
-        console.log(`%c   🔄 Alternância Simples: ${memoriaAtiva.padroesDetectados.alternanciaSimples.length}`, 'color: #00FF88;');
-        console.log(`%c   🔄 Alternância Dupla: ${memoriaAtiva.padroesDetectados.alternanciasDupla.length}`, 'color: #00FF88;');
-        console.log(`%c   🔄 Alternância Tripla: ${memoriaAtiva.padroesDetectados.alternanciasTripla.length}`, 'color: #00FF88;');
-        console.log(`%c   🔴 Sequências Vermelhas: ${memoriaAtiva.padroesDetectados.sequenciasRed.length}`, 'color: #FF6B6B;');
-        console.log(`%c   ⚫ Sequências Pretas: ${memoriaAtiva.padroesDetectados.sequenciasBlack.length}`, 'color: #888;');
-        
-        // 4. CALCULAR ESTATÍSTICAS POR PADRÃO
-        console.log('%c📊 ETAPA 4/5: Calculando estatísticas por padrão...', 'color: #00CED1; font-weight: bold;');
         memoriaAtiva.estatisticas.porPadrao = {};
-        
-        // Para cada padrão detectado, calcular o que veio depois
-        for (const padroes of Object.values(memoriaAtiva.padroesDetectados)) {
-            for (const padrao of padroes) {
-                const chave = `${padrao.type}_${padrao.size}`;
-                
-                if (!memoriaAtiva.estatisticas.porPadrao[chave]) {
-                    memoriaAtiva.estatisticas.porPadrao[chave] = {
-                        type: padrao.type,
-                        size: padrao.size,
-                        ocorrencias: 0,
-                        proximaCor: { red: 0, black: 0, white: 0 }
-                    };
-                }
-                
-                memoriaAtiva.estatisticas.porPadrao[chave].ocorrencias++;
-                
-                // Registrar o que veio depois
-                if (padrao.whatCameNext) {
-                    memoriaAtiva.estatisticas.porPadrao[chave].proximaCor[padrao.whatCameNext]++;
-                }
-            }
-        }
-        
-        // Calcular percentuais
-        for (const stats of Object.values(memoriaAtiva.estatisticas.porPadrao)) {
-            const total = stats.proximaCor.red + stats.proximaCor.black + stats.proximaCor.white;
-            if (total > 0) {
-                stats.proximaCor.redPercent = (stats.proximaCor.red / total) * 100;
-                stats.proximaCor.blackPercent = (stats.proximaCor.black / total) * 100;
-                stats.proximaCor.whitePercent = (stats.proximaCor.white / total) * 100;
-            }
-        }
-        
-        const totalPadroesCadastrados = Object.keys(memoriaAtiva.estatisticas.porPadrao).length;
-        console.log(`%c   ✅ ${totalPadroesCadastrados} tipos de padrões cadastrados`, 'color: #00FF88;');
         
         // 5. MARCAR COMO INICIALIZADA
         memoriaAtiva.inicializada = true;
@@ -8745,8 +8730,6 @@ async function inicializarMemoriaAtiva(history) {
         console.log('%c║  ✅ MEMÓRIA ATIVA INICIALIZADA COM SUCESSO!              ║', 'color: #00FF00; font-weight: bold; font-size: 14px;');
         console.log(`%c║  ⏱️  Tempo: ${memoriaAtiva.tempoInicializacao.toFixed(2)}ms                                    ║`, 'color: #00FF88;');
         console.log(`%c║  📊 Giros: ${memoriaAtiva.giros.length}                                          ║`, 'color: #00FF88;');
-        console.log(`%c║  🎯 Padrões detectados: ${todosOsPadroes.length}                             ║`, 'color: #00FF88;');
-        console.log(`%c║  📈 Tipos únicos: ${totalPadroesCadastrados}                                      ║`, 'color: #00FF88;');
         
         memoriaAtivaInicializando = false;
         return true;
