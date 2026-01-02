@@ -161,6 +161,30 @@
         return { complete: missing.length === 0, missing };
     }
 
+    // 🇧🇷 CPF: validação (dígitos verificadores)
+    function isValidCPF(value) {
+        const cpf = String(value || '').replace(/\D/g, '');
+        if (cpf.length !== 11) return false;
+        if (/^(\d)\1{10}$/.test(cpf)) return false;
+        const digits = cpf.split('').map((c) => Number(c));
+        if (digits.some((n) => !Number.isFinite(n))) return false;
+
+        const calc1 = () => {
+            let sum = 0;
+            for (let i = 0; i < 9; i++) sum += digits[i] * (10 - i);
+            const mod = (sum * 10) % 11;
+            return mod === 10 ? 0 : mod;
+        };
+        const calc2 = () => {
+            let sum = 0;
+            for (let i = 0; i < 10; i++) sum += digits[i] * (11 - i);
+            const mod = (sum * 10) % 11;
+            return mod === 10 ? 0 : mod;
+        };
+
+        return digits[9] === calc1() && digits[10] === calc2();
+    }
+
     function buildProfileIncompleteMessage(missingFields = []) {
         const fields = missingFields.length ? missingFields.join(', ') : 'Dados do cadastro';
         return `
@@ -13019,6 +13043,11 @@ async function persistAnalyzerState(newState) {
 
             const phone = profilePhoneInput?.value.replace(/\D/g, '') || '';
             const cpf = profileCpfInput?.value.replace(/\D/g, '') || '';
+            if (cpf && !isValidCPF(cpf)) {
+                showToast('⚠️ CPF inválido. Verifique e tente novamente.', 'error');
+                try { profileCpfInput?.focus(); } catch (_) {}
+                return;
+            }
             const address = {
                 zipCode: profileZipCodeInput?.value.replace(/\D/g, '') || '',
                 street: profileStreetInput?.value || '',
