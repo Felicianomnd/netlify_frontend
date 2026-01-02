@@ -777,12 +777,11 @@
 
         const loginUrl = getAuthPageUrl();
         try {
-            const newWindow = window.open(loginUrl, '_blank');
-            if (!newWindow) {
-                window.location.href = loginUrl;
-            }
+            // ✅ Pedido: ao clicar em "Sair", deslogar NA MESMA ABA (não abrir outra).
+            // Usar replace para evitar voltar para a aba antiga "logada" no histórico.
+            window.location.replace(loginUrl);
         } catch (error) {
-            console.warn('⚠️ Não foi possível abrir nova aba. Redirecionando...');
+            console.warn('⚠️ Não foi possível redirecionar via replace(). Tentando href...', error);
             window.location.href = loginUrl;
         }
     }
