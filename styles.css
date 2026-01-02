@@ -3749,11 +3749,12 @@
 
 .da-profile-nudge__card {
     position: relative;
-    /* ✅ Formato retrato (tipo anúncio). No print o usuário chama de "16:9", mas é retrato.
-       Mantemos uma proporção vertical fixa para o card (evita ficar quadrado). */
+    /* ✅ Proporção exata do modelo enviado: 1080x1920 (9:16 retrato) */
     width: min(380px, 75vw);
-    max-height: 75vh;
-    aspect-ratio: 9 / 16;
+    /* ✅ Importante: 75vh estava "achatando" o card em desktops/notebooks com viewport mais baixo,
+       quebrando a proporção da arte (parecia 16:9 "errado"). */
+    max-height: 92vh;
+    aspect-ratio: 1080 / 1920;
     display: flex;
     flex-direction: column;
     background: #ffffff;          /* ✅ fundo branco (pedido) */
@@ -3937,7 +3938,7 @@
     display: block;
     width: 100%;
     height: auto;
-    max-height: 75vh;
+    max-height: 92vh;
     object-fit: cover; /* ✅ preencher como anúncio */
 }
 
@@ -4005,7 +4006,7 @@
 @media (max-width: 520px) {
     .da-profile-nudge__card {
         width: 75vw;
-        max-height: 75vh;
+        max-height: 92vh;
     }
 }
 
