@@ -3904,6 +3904,17 @@
     display: none;
 }
 
+.da-profile-nudge__image-actions {
+    display: none;
+}
+
+/* Para permitir overlays (botão/barra) no modo foto */
+.da-profile-nudge__image-wrap {
+    position: relative;
+    height: 100%;
+    width: 100%;
+}
+
 .da-profile-nudge__image {
     display: block;
     width: 100%;
@@ -3923,9 +3934,44 @@
     display: block;
 }
 
-.da-profile-nudge__card.is-image-only .da-profile-nudge__content,
-.da-profile-nudge__card.is-image-only .da-profile-nudge__timer {
+.da-profile-nudge__card.is-image-only .da-profile-nudge__content {
     display: none;
+}
+
+/* ✅ No modo foto: manter barra de progresso no rodapé (mesma posição do modo texto) */
+.da-profile-nudge__card.is-image-only .da-profile-nudge__timer {
+    display: block;
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+}
+
+/* ✅ No modo foto: botão "Concluir cadastro" acima da barra, sem fundo/caixa */
+.da-profile-nudge__card.is-image-only .da-profile-nudge__image-actions {
+    display: flex;
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 14px; /* acima da barra */
+    justify-content: center;
+    padding: 0 18px;
+    pointer-events: none;
+}
+
+.da-profile-nudge__card.is-image-only .da-profile-nudge__image-actions .da-profile-nudge__cta {
+    pointer-events: all;
+    width: min(320px, 88%);
+}
+
+.da-profile-nudge__card.is-image-only .da-profile-nudge__image-wrap {
+    position: relative;
+}
+
+.da-profile-nudge__card.is-image-only .da-profile-nudge__image {
+    max-height: none;
+    height: 100%;
+    width: 100%;
 }
 
 .da-profile-nudge__card.is-image-only .da-profile-nudge__close {

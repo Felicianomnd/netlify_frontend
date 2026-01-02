@@ -212,6 +212,9 @@
                     <div class="da-profile-nudge__image-wrap" id="daProfileNudgeImageWrap">
                         <img class="da-profile-nudge__image" id="daProfileNudgeImage" alt="" />
                     </div>
+                    <div class="da-profile-nudge__image-actions" id="daProfileNudgeImageActions">
+                        <button type="button" class="da-profile-nudge__cta da-profile-nudge__cta--image" id="daProfileNudgeCtaImage">CONCLUIR CADASTRO</button>
+                    </div>
                     <div class="da-profile-nudge__content">
                         <div class="da-profile-nudge__hero">
                             <div class="da-profile-nudge__headline">Conclua seu cadastro</div>
@@ -243,9 +246,10 @@
             const closeEls = wrap.querySelectorAll('[data-da-nudge-close="1"]');
             closeEls.forEach((el) => el.addEventListener('click', () => hideProfileNudge()));
 
-            const cta = wrap.querySelector('#daProfileNudgeCta');
-            if (cta) {
-                cta.addEventListener('click', () => {
+            const bindCta = (btn) => {
+                if (!btn || btn.dataset.daBound === '1') return;
+                btn.dataset.daBound = '1';
+                btn.addEventListener('click', () => {
                     try {
                         const snapshot = wrap.__daProfileStatusSnapshot;
                         // Abrir Minha Conta
@@ -277,7 +281,10 @@
                     } catch (_) {}
                     hideProfileNudge();
                 });
-            }
+            };
+
+            bindCta(wrap.querySelector('#daProfileNudgeCta'));
+            bindCta(wrap.querySelector('#daProfileNudgeCtaImage'));
 
             daProfileNudgeEl = wrap;
             return wrap;
