@@ -213,7 +213,6 @@
                         <img class="da-profile-nudge__image" id="daProfileNudgeImage" alt="" />
                     </div>
                     <div class="da-profile-nudge__hero">
-                        <div class="da-profile-nudge__brand">Double</div>
                         <div class="da-profile-nudge__headline">Conclua seu cadastro</div>
                         <div class="da-profile-nudge__subtitle">Libere a <strong>Análise por IA</strong> (Modo Diamante)</div>
                     </div>
@@ -225,7 +224,7 @@
                             <div class="da-profile-nudge__missing" id="daProfileNudgeMissing"></div>
                         </div>
                         <div class="da-profile-nudge__actions">
-                            <button type="button" class="da-profile-nudge__cta" id="daProfileNudgeCta">Concluir agora</button>
+                            <button type="button" class="da-profile-nudge__cta" id="daProfileNudgeCta">CONCLUIR AGORA</button>
                             <div class="da-profile-nudge__hint">Some em 10s • reaparece a cada 5 min</div>
                         </div>
                     </div>
