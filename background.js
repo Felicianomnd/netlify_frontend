@@ -3851,6 +3851,20 @@ async function collectDoubleData() {
                 return 'unknown';
             }
 
+// 🔥 NÃO BLOQUEAR O SINAL (tempo real):
+// Tarefas de IO (Telegram, observador, métricas) NÃO podem travar o pipeline do giro.
+function detachPromise(promise, label = 'detached') {
+    try {
+        Promise.resolve(promise).catch((err) => {
+            const msg = err && err.message ? err.message : String(err);
+            console.warn(`⚠️ [${label}] falhou (detached):`, msg);
+        });
+    } catch (err) {
+        const msg = err && err.message ? err.message : String(err);
+        console.warn(`⚠️ [${label}] falhou (detached wrapper):`, msg);
+    }
+}
+
 // Processar novo giro vindo do servidor
 async function processNewSpinFromServer(spinData) {
     try {
@@ -3949,32 +3963,45 @@ async function processNewSpinFromServer(spinData) {
             // 📦 OPERAÇÕES NECESSÁRIAS (UI já foi atualizado instantaneamente acima!)
             // ═══════════════════════════════════════════════════════════════════════════════
             
-            // Salvar lastSpin no storage (para persistência)
-            await chrome.storage.local.set({
-                lastSpin: {
-                    number: rollNumber,
-                    color: rollColor,
-                    timestamp: latestSpin.created_at
-                }
-            });
-            
-            // Buscar entriesHistory
-            let entriesHistory = [];
+            // ✅ OTIMIZAÇÃO CRÍTICA (Premium + Diamante):
+            // Vários gets em sequência somam latência e podem “engasgar” o sinal (especialmente em mobile).
+            // Aqui fazemos UMA leitura e UM set em paralelo.
+            const storageKeys = ['entriesHistory', RECOVERY_SECURE_HISTORY_KEY, 'analyzerConfig', 'martingaleState', 'analysis'];
+            let storageSnapshot = {};
             try {
-                const result = await chrome.storage.local.get(['entriesHistory']);
-                entriesHistory = result['entriesHistory'] || [];
+                const [got] = await Promise.all([
+                    chrome.storage.local.get(storageKeys),
+                    chrome.storage.local.set({
+                        lastSpin: {
+                            number: rollNumber,
+                            color: rollColor,
+                            timestamp: latestSpin.created_at
+                        }
+                    })
+                ]);
+                storageSnapshot = got || {};
             } catch (e) {
-                console.warn('⚠️ Erro ao buscar entriesHistory:', e);
+                console.warn('⚠️ Storage batch (get+set) falhou, usando fallback parcial:', e && e.message ? e.message : e);
+                // Fallback: ao menos persistir lastSpin; o resto fica com defaults
+                try {
+                    await chrome.storage.local.set({
+                        lastSpin: {
+                            number: rollNumber,
+                            color: rollColor,
+                            timestamp: latestSpin.created_at
+                        }
+                    });
+                } catch (_) {}
+                try {
+                    storageSnapshot = await chrome.storage.local.get(storageKeys);
+                } catch (_) {
+                    storageSnapshot = {};
+                }
             }
 
-            // Buscar histórico interno da Recuperação (fase 1 silenciosa)
-            let recoverySecureHistory = [];
-            try {
-                const result = await chrome.storage.local.get([RECOVERY_SECURE_HISTORY_KEY]);
-                recoverySecureHistory = result && Array.isArray(result[RECOVERY_SECURE_HISTORY_KEY]) ? result[RECOVERY_SECURE_HISTORY_KEY] : [];
-            } catch (e) {
-                console.warn('⚠️ Erro ao buscar recoverySecureHistory:', e);
-            }
+            // entriesHistory + recoverySecureHistory (uma única leitura)
+            let entriesHistory = Array.isArray(storageSnapshot.entriesHistory) ? storageSnapshot.entriesHistory : [];
+            let recoverySecureHistory = Array.isArray(storageSnapshot[RECOVERY_SECURE_HISTORY_KEY]) ? storageSnapshot[RECOVERY_SECURE_HISTORY_KEY] : [];
             
             // ⚡ ATUALIZAR MEMÓRIA ATIVA INCREMENTALMENTE (super rápido!)
             if (memoriaAtiva.inicializada) {
@@ -3999,11 +4026,9 @@ async function processNewSpinFromServer(spinData) {
             
             // ✅ CARREGAR CONFIGURAÇÕES E ESTADO DO MARTINGALE DO STORAGE
             try {
-                const storageData = await chrome.storage.local.get(['analyzerConfig', 'martingaleState']);
-                
                 // Carregar configurações
-                if (storageData.analyzerConfig) {
-                    mergeAnalyzerConfig(storageData.analyzerConfig);
+                if (storageSnapshot.analyzerConfig) {
+                    mergeAnalyzerConfig(storageSnapshot.analyzerConfig);
                     const activeModeKey = getModeKey();
                     const otherModeKey = activeModeKey === 'diamond' ? 'standard' : 'diamond';
                     console.log('⚙️ Configurações carregadas:', {
@@ -4017,8 +4042,8 @@ async function processNewSpinFromServer(spinData) {
                 }
                 
                 // ⚠️ CRÍTICO: Carregar estado do Martingale do storage
-                if (storageData.martingaleState) {
-                    martingaleState = storageData.martingaleState;
+                if (storageSnapshot.martingaleState) {
+                    martingaleState = storageSnapshot.martingaleState;
                     console.log('🔄 Estado do Martingale carregado:', {
                         active: martingaleState.active,
                         stage: martingaleState.stage,
@@ -4033,12 +4058,11 @@ async function processNewSpinFromServer(spinData) {
             console.log('🔍 Buscando currentAnalysis de chrome.storage.local...');
                 
                 // Avaliar recomendação pendente (WIN / G1 / G2)
-            const currentAnalysisResult = await chrome.storage.local.get(['analysis']);
-            const currentAnalysis = currentAnalysisResult['analysis'];
+            const currentAnalysis = storageSnapshot ? storageSnapshot.analysis : null;
             const isHiddenInternal = !!(currentAnalysis && currentAnalysis.hiddenInternal);
             const activeHistory = isHiddenInternal ? recoverySecureHistory : entriesHistory;
             
-            console.log('📊 Resultado da busca:', currentAnalysisResult);
+            console.log('📊 Resultado da busca:', { analysis: currentAnalysis ? '[ok]' : null });
             console.log('📊 currentAnalysis existe?', currentAnalysis ? 'SIM' : 'NÃO');
             
             if (currentAnalysis) {
@@ -4217,23 +4241,22 @@ async function processNewSpinFromServer(spinData) {
                             console.log(`📊 Placar ${currentMode}: ${filteredWins} wins / ${filteredLosses} losses`);
                             
                             if (!isHiddenInternal) {
-                                // ✅ Enviar confirmação de WIN ao Telegram (com informação de Martingale e modo)
-                                await sendTelegramMartingaleWin(
-                                    martingaleStage, 
+                                // ✅ CRÍTICO: NÃO bloquear o próximo sinal por IO externo (Telegram/Observer).
+                                detachPromise(sendTelegramMartingaleWin(
+                                    martingaleStage,
                                     { color: rollColor, number: rollNumber, timestamp: latestSpin.created_at },
                                     filteredWins,
                                     filteredLosses,
                                     currentMode,
                                     currentAnalysis.confidence
-                                );
+                                ), 'telegram-martingale-win');
                                 
-                                // Registrar no observador inteligente
-                                await registerEntryInObserver(
+                                detachPromise(registerEntryInObserver(
                                     currentAnalysis.confidence,
                                     'win',
                                     currentAnalysis.createdOnTimestamp,
                                     { type: currentAnalysis.patternType, occurrences: currentAnalysis.occurrences }
-                                );
+                                ), 'observer-register-win');
                             }
                             
                             // ✅ ATUALIZAR HISTÓRICO DE CORES QUENTES
@@ -4253,7 +4276,8 @@ async function processNewSpinFromServer(spinData) {
                                 
                                 console.log('   Sequência de cores dos giros:', colorSequence.map(c => c.color).join(' → '));
                                 
-                                await updateHotColorsHistory(patternKey, colorSequence);
+                                // ✅ Não bloquear tempo-real com atualização auxiliar
+                                detachPromise(updateHotColorsHistory(patternKey, colorSequence), 'hot-colors-update-win');
                             }
 
                             // 💎 N4 (Autointeligente): registrar resultado final do CICLO (WIN) para auto-aprendizado
@@ -4491,7 +4515,10 @@ async function processNewSpinFromServer(spinData) {
                                     if (!isHiddenInternal) {
                                         // ✅ ENVIAR MENSAGEM DE RED AO TELEGRAM (sem Gales)
                                         console.log('📤 Enviando mensagem de RED ao Telegram (0 Gales configurados)...');
-                                        await sendTelegramMartingaleRET(filteredWins, filteredLosses, currentMode, currentAnalysis.confidence);
+                                        detachPromise(
+                                            sendTelegramMartingaleRET(filteredWins, filteredLosses, currentMode, currentAnalysis.confidence),
+                                            'telegram-martingale-ret'
+                                        );
                                     }
 
                                     // 💎 N4 (Autointeligente): registrar resultado final do CICLO (LOSS/RED) para auto-aprendizado
@@ -4569,10 +4596,13 @@ async function processNewSpinFromServer(spinData) {
                                 
                                 if (!isHiddenInternal) {
                                     // ✅ ENVIAR MENSAGEM DE LOSS ENTRADA (vai tentar G1)
-                                    await sendTelegramMartingaleLoss(
-                                        currentStage,
-                                        { color: rollColor, number: rollNumber, timestamp: latestSpin.created_at },
-                                        currentAnalysis.confidence
+                                    detachPromise(
+                                        sendTelegramMartingaleLoss(
+                                            currentStage,
+                                            { color: rollColor, number: rollNumber, timestamp: latestSpin.created_at },
+                                            currentAnalysis.confidence
+                                        ),
+                                        'telegram-martingale-loss'
                                     );
                                 }
                                 
@@ -4675,10 +4705,13 @@ async function processNewSpinFromServer(spinData) {
 
                                     // ✅ Telegram com confiança REAL do G1
                                     if (!isHiddenInternal) {
-                                        await sendTelegramMartingaleG1(
-                                            g1Color,
-                                            g1Analysis.confidence,
-                                            { color: rollColor, number: rollNumber, timestamp: latestSpin.created_at }
+                                        detachPromise(
+                                            sendTelegramMartingaleG1(
+                                                g1Color,
+                                                g1Analysis.confidence,
+                                                { color: rollColor, number: rollNumber, timestamp: latestSpin.created_at }
+                                            ),
+                                            'telegram-martingale-g1'
                                         );
                                     }
                                 } else {
@@ -4709,10 +4742,13 @@ async function processNewSpinFromServer(spinData) {
 
                                     // Telegram (manter consistência com o modo consecutivo)
                                     if (!isHiddenInternal) {
-                                        await sendTelegramMartingaleG1(
-                                            g1Color,
-                                            g1Analysis.confidence,
-                                            { color: rollColor, number: rollNumber, timestamp: latestSpin.created_at }
+                                        detachPromise(
+                                            sendTelegramMartingaleG1(
+                                                g1Color,
+                                                g1Analysis.confidence,
+                                                { color: rollColor, number: rollNumber, timestamp: latestSpin.created_at }
+                                            ),
+                                            'telegram-martingale-g1'
                                         );
                                     }
                                 }
@@ -4782,7 +4818,10 @@ async function processNewSpinFromServer(spinData) {
                                     console.log(`📊 Placar ${currentMode}: ${filteredWins} wins / ${filteredLosses} losses`);
                                     
                                     if (!isHiddenInternal) {
-                                        await sendTelegramMartingaleRET(filteredWins, filteredLosses, currentMode, currentAnalysis.confidence);
+                                        detachPromise(
+                                            sendTelegramMartingaleRET(filteredWins, filteredLosses, currentMode, currentAnalysis.confidence),
+                                            'telegram-martingale-ret'
+                                        );
                                     }
                                     
                                     // ✅ ATUALIZAR HISTÓRICO DE CORES QUENTES
@@ -4791,7 +4830,7 @@ async function processNewSpinFromServer(spinData) {
                                         colorSequence.push({ color });
                                     });
                                     colorSequence.push({ color: rollColor });
-                                    await updateHotColorsHistory(patternKey, colorSequence);
+                                    detachPromise(updateHotColorsHistory(patternKey, colorSequence), 'hot-colors-update-red');
 
                                     // 💎 N4 (Autointeligente): registrar resultado final do CICLO (LOSS/RED) para auto-aprendizado
                                     try {
@@ -4848,10 +4887,13 @@ async function processNewSpinFromServer(spinData) {
                                 
                                 if (!isHiddenInternal) {
                                     // ✅ ENVIAR MENSAGEM DE LOSS (vai tentar próximo Gale)
-                                    await sendTelegramMartingaleLoss(
-                                        currentStage,
-                                        { color: rollColor, number: rollNumber, timestamp: latestSpin.created_at },
-                                        currentAnalysis.confidence
+                                    detachPromise(
+                                        sendTelegramMartingaleLoss(
+                                            currentStage,
+                                            { color: rollColor, number: rollNumber, timestamp: latestSpin.created_at },
+                                            currentAnalysis.confidence
+                                        ),
+                                        'telegram-martingale-loss'
                                     );
                                 }
                                 
@@ -4935,11 +4977,14 @@ async function processNewSpinFromServer(spinData) {
 
                                     // ✅ Telegram com confiança REAL do Gale
                                     if (!isHiddenInternal) {
-                                        await sendTelegramMartingaleGale(
-                                            nextGaleNumber,
-                                            nextGaleColor,
-                                            nextGaleAnalysis.confidence,
-                                            { color: rollColor, number: rollNumber, timestamp: latestSpin.created_at }
+                                        detachPromise(
+                                            sendTelegramMartingaleGale(
+                                                nextGaleNumber,
+                                                nextGaleColor,
+                                                nextGaleAnalysis.confidence,
+                                                { color: rollColor, number: rollNumber, timestamp: latestSpin.created_at }
+                                            ),
+                                            'telegram-martingale-gale'
                                         );
                                     }
                                 } else {
@@ -4969,11 +5014,14 @@ async function processNewSpinFromServer(spinData) {
                                     }
 
                                     if (!isHiddenInternal) {
-                                        await sendTelegramMartingaleGale(
-                                            nextGaleNumber,
-                                            nextGaleColor,
-                                            nextGaleAnalysis.confidence,
-                                            { color: rollColor, number: rollNumber, timestamp: latestSpin.created_at }
+                                        detachPromise(
+                                            sendTelegramMartingaleGale(
+                                                nextGaleNumber,
+                                                nextGaleColor,
+                                                nextGaleAnalysis.confidence,
+                                                { color: rollColor, number: rollNumber, timestamp: latestSpin.created_at }
+                                            ),
+                                            'telegram-martingale-gale'
                                         );
                                     }
                                 }
@@ -5024,8 +5072,7 @@ async function processNewSpinFromServer(spinData) {
                                 if (consecutiveMartingale) {
                                     // ✅ MODO CONSECUTIVO: Enviar G2 IMEDIATAMENTE no próximo giro
                                     console.log('🎯 MODO CONSECUTIVO: G2 será enviado no PRÓXIMO GIRO');
-                                    
-                                    await sendTelegramMartingaleG2(g2Color, null);
+                                    detachPromise(sendTelegramMartingaleG2(g2Color, null), 'telegram-martingale-g2');
                                     
                                     // Criar análise G2 com timestamp do próximo giro
                                     const g2Analysis = {
@@ -5122,7 +5169,10 @@ async function processNewSpinFromServer(spinData) {
                                 console.log(`📊 Placar ${currentMode}: ${filteredWins} wins / ${filteredLosses} losses`);
                                 
                                 if (!isHiddenInternal) {
-                                    await sendTelegramMartingaleRET(filteredWins, filteredLosses, currentMode);
+                                    detachPromise(
+                                        sendTelegramMartingaleRET(filteredWins, filteredLosses, currentMode),
+                                        'telegram-martingale-ret'
+                                    );
                                 }
                                 
                                 // ✅ ATUALIZAR HISTÓRICO DE CORES QUENTES
@@ -5140,8 +5190,7 @@ async function processNewSpinFromServer(spinData) {
                                 colorSequence.push({ color: rollColor });
                                 
                                 console.log('   Sequência de cores dos giros:', colorSequence.map(c => c.color).join(' → '));
-                                
-                                await updateHotColorsHistory(patternKey, colorSequence);
+                                detachPromise(updateHotColorsHistory(patternKey, colorSequence), 'hot-colors-update-g2-red');
                                 
                                 resetMartingaleState();
 
@@ -19059,7 +19108,12 @@ async function runAnalysisController(history) {
 			// 2. Enviar para Telegram (INDEPENDENTE)
 			try {
 			if (history && history.length > 0 && !(verifyResult && verifyResult.hiddenInternal)) {
-					sendResults.telegram = await sendTelegramEntrySignal(verifyResult.color, history[0], verifyResult.confidence, verifyResult);
+					// ✅ Não bloquear o sinal por IO externo (Telegram pode demorar)
+					detachPromise(
+						sendTelegramEntrySignal(verifyResult.color, history[0], verifyResult.confidence, verifyResult),
+						'telegram-entry-signal'
+					);
+					sendResults.telegram = true; // queued
 				}
 			} catch (e) {
 				console.error('❌ Erro crítico ao enviar para Telegram:', e);
@@ -19269,7 +19323,12 @@ async function runAnalysisController(history) {
 				// 2. Enviar para Telegram (INDEPENDENTE)
 				try {
 					if (history && history.length > 0 && !(analysis && analysis.hiddenInternal)) {
-						sendResults.telegram = await sendTelegramEntrySignal(analysis.color, history[0], analysis.confidence, analysis);
+						// ✅ Não bloquear o sinal por IO externo (Telegram pode demorar)
+						detachPromise(
+							sendTelegramEntrySignal(analysis.color, history[0], analysis.confidence, analysis),
+							'telegram-entry-signal'
+						);
+						sendResults.telegram = true; // queued
 					}
 				} catch (e) {
 					console.error('❌ Erro crítico ao enviar para Telegram:', e);
@@ -19376,7 +19435,12 @@ async function runAnalysisController(history) {
 				// 2. Enviar para Telegram (INDEPENDENTE)
 				try {
 					if (history && history.length > 0 && !(analysis && analysis.hiddenInternal)) {
-						sendResults.telegram = await sendTelegramEntrySignal(analysis.color, history[0], analysis.confidence, analysis);
+						// ✅ Não bloquear o sinal por IO externo (Telegram pode demorar)
+						detachPromise(
+							sendTelegramEntrySignal(analysis.color, history[0], analysis.confidence, analysis),
+							'telegram-entry-signal'
+						);
+						sendResults.telegram = true; // queued
 					}
 				} catch (e) {
 					console.error('❌ Erro crítico ao enviar para Telegram:', e);
