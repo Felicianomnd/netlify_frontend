@@ -7973,6 +7973,27 @@ body.da-ext-fullscreen #patternDetailsModal .bank-patterns-modal-content {
         font-size: 13px !important;
         line-height: 1.1 !important;
     }
+
+    /* ✅ Botão criado via JS no mobile (content.js): garantir canto direito de verdade
+       (senão pega `button{width:100%!important}` e o texto parece ficar no meio) */
+    .da-mobile-close-btn {
+        position: absolute !important;
+        right: calc(16px + env(safe-area-inset-right, 0px)) !important;
+        left: auto !important;
+        top: 50% !important;
+        transform: translateY(-50%) !important;
+        width: auto !important;
+        max-width: none !important;
+        min-width: 0 !important;
+        min-height: 0 !important;
+        display: inline-flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        padding: 6px 10px !important;
+        font-size: 13px !important;
+        line-height: 1.1 !important;
+        white-space: nowrap !important;
+    }
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════════ */

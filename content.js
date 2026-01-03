@@ -16978,9 +16978,18 @@ async function persistAnalyzerState(newState) {
                     mobileBtn.setAttribute('aria-label', 'Fechar');
                     mobileBtn.style.cssText = [
                         'position:absolute',
-                        'right:16px',
+                        'right:calc(16px + env(safe-area-inset-right, 0px))',
+                        'left:auto',
                         'top:50%',
                         'transform:translateY(-50%)',
+                        // ✅ CRÍTICO: existe regra global no mobile `button{width:100%!important}`
+                        // que fazia o texto "Fechar" parecer centralizado. Garantir largura compacta.
+                        'width:auto',
+                        'max-width:none',
+                        'min-width:0',
+                        'display:inline-flex',
+                        'align-items:center',
+                        'justify-content:center',
                         'background:transparent',
                         'border:none',
                         'color:var(--da-text-muted, #7a7a7a)',
