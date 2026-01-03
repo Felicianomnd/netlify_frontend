@@ -2232,6 +2232,71 @@
         let verificationCountdownInterval = null;
         let verificationCooldownRemaining = 0;
 
+        // ═══════════════════════════════════════════════════════════════════════
+        // 🤝 Afiliados / Influenciadores (tracking por link)
+        // - Captura ?ref=CODE (ou ?aff=CODE) e salva por 30 dias
+        // - Envia affiliateCode no cadastro (/auth/register)
+        // ═══════════════════════════════════════════════════════════════════════
+        const AFFILIATE_STORAGE_KEY = 'da_aff_ref_v1';
+        const AFFILIATE_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 dias
+
+        function normalizeAffiliateCode(raw) {
+            const v = raw == null ? '' : String(raw);
+            const trimmed = v.trim();
+            if (!trimmed) return null;
+            const upper = trimmed.toUpperCase();
+            const cleaned = upper.replace(/[^A-Z0-9_-]/g, '');
+            if (!cleaned) return null;
+            return cleaned.slice(0, 32);
+        }
+
+        function storeAffiliateCode(code) {
+            const normalized = normalizeAffiliateCode(code);
+            if (!normalized) return;
+            try {
+                localStorage.setItem(AFFILIATE_STORAGE_KEY, JSON.stringify({ code: normalized, ts: Date.now() }));
+            } catch (_) {}
+        }
+
+        function getStoredAffiliateCode() {
+            try {
+                const raw = localStorage.getItem(AFFILIATE_STORAGE_KEY);
+                if (!raw) return null;
+                const data = JSON.parse(raw);
+                const code = normalizeAffiliateCode(data && data.code);
+                const ts = Number(data && data.ts);
+                if (!code || !Number.isFinite(ts)) return null;
+                if ((Date.now() - ts) > AFFILIATE_TTL_MS) {
+                    localStorage.removeItem(AFFILIATE_STORAGE_KEY);
+                    return null;
+                }
+                return code;
+            } catch (_) {
+                return null;
+            }
+        }
+
+        function captureAffiliateFromUrl() {
+            try {
+                const qs = window.location.search || '';
+                if (!qs || qs === '?') return null;
+                const params = new URLSearchParams(qs);
+                const code = normalizeAffiliateCode(
+                    params.get('ref') ||
+                    params.get('aff') ||
+                    params.get('affiliate') ||
+                    params.get('influencer')
+                );
+                if (code) {
+                    storeAffiliateCode(code);
+                    return code;
+                }
+                return null;
+            } catch (_) {
+                return null;
+            }
+        }
+
         function chromeStorageGet(keys) {
             return new Promise((resolve) => {
                 try {
@@ -2361,6 +2426,9 @@
 
         // Verificar se já está logado - SIMPLIFICADO
         window.addEventListener('DOMContentLoaded', async () => {
+            // Capturar afiliado o quanto antes (antes de redirect/requests)
+            try { captureAffiliateFromUrl(); } catch (_) {}
+
             // PRIMEIRO: Inicializar URLs (auto-discovery)
             await initializeUrls();
             
@@ -2436,7 +2504,8 @@
                 const payload = {
                     visitorId: getOrCreateLandingVisitorId(),
                     path: window.location.pathname || 'auth.html',
-                    referrer: document.referrer || ''
+                    referrer: document.referrer || '',
+                    affiliateCode: getStoredAffiliateCode()
                 };
 
                 const headers = { 'Content-Type': 'application/json' };
@@ -4151,7 +4220,7 @@
                 const response = await fetch(`${API_URL}/auth/register`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ ...userData, selectedPlan, verificationToken: emailVerificationToken })
+                    body: JSON.stringify({ ...userData, selectedPlan, verificationToken: emailVerificationToken, affiliateCode: getStoredAffiliateCode() })
                 });
                 
                 const data = await response.json();

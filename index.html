@@ -275,6 +275,77 @@
         (async function() {
             const SESSION_STORAGE_KEYS = ['authToken', 'user', 'lastAuthCheck'];
 
+            // ═══════════════════════════════════════════════════════════════════════
+            // 🤝 Afiliados / Influenciadores (tracking por link)
+            // - Captura ?ref=CODE (ou ?aff=CODE) e salva por 30 dias
+            // - Preserva ref no redirect para auth.html (fallback quando localStorage falhar)
+            // ═══════════════════════════════════════════════════════════════════════
+            const AFFILIATE_STORAGE_KEY = 'da_aff_ref_v1';
+            const AFFILIATE_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 dias
+
+            function normalizeAffiliateCode(raw) {
+                const v = raw == null ? '' : String(raw);
+                const trimmed = v.trim();
+                if (!trimmed) return null;
+                const upper = trimmed.toUpperCase();
+                const cleaned = upper.replace(/[^A-Z0-9_-]/g, '');
+                if (!cleaned) return null;
+                return cleaned.slice(0, 32);
+            }
+
+            function storeAffiliateCode(code) {
+                const normalized = normalizeAffiliateCode(code);
+                if (!normalized) return;
+                try {
+                    localStorage.setItem(AFFILIATE_STORAGE_KEY, JSON.stringify({ code: normalized, ts: Date.now() }));
+                } catch (_) {}
+            }
+
+            function getStoredAffiliateCode() {
+                try {
+                    const raw = localStorage.getItem(AFFILIATE_STORAGE_KEY);
+                    if (!raw) return null;
+                    const data = JSON.parse(raw);
+                    const code = normalizeAffiliateCode(data && data.code);
+                    const ts = Number(data && data.ts);
+                    if (!code || !Number.isFinite(ts)) return null;
+                    if ((Date.now() - ts) > AFFILIATE_TTL_MS) {
+                        localStorage.removeItem(AFFILIATE_STORAGE_KEY);
+                        return null;
+                    }
+                    return code;
+                } catch (_) {
+                    return null;
+                }
+            }
+
+            function captureAffiliateFromUrl() {
+                try {
+                    const qs = window.location.search || '';
+                    if (!qs || qs === '?') return null;
+                    const params = new URLSearchParams(qs);
+                    const code = normalizeAffiliateCode(
+                        params.get('ref') ||
+                        params.get('aff') ||
+                        params.get('affiliate') ||
+                        params.get('influencer')
+                    );
+                    if (code) {
+                        storeAffiliateCode(code);
+                        return code;
+                    }
+                    return null;
+                } catch (_) {
+                    return null;
+                }
+            }
+
+            const __affiliateFromUrl = captureAffiliateFromUrl();
+            const buildAuthRedirectUrl = () => {
+                const code = __affiliateFromUrl || getStoredAffiliateCode();
+                return code ? `auth.html?ref=${encodeURIComponent(code)}` : 'auth.html';
+            };
+
             function chromeStorageGet(keys) {
                 return new Promise((resolve) => {
                     try {
@@ -409,7 +480,7 @@
             if (!authToken || !storedUser) {
                 console.log('⚠️ Usuário não autenticado - redirecionando...');
                 await clearStoredSession();
-                window.location.href = 'auth.html';
+                window.location.href = buildAuthRedirectUrl();
                 return;
             }
             
@@ -533,13 +604,13 @@
                                         : 'Sua conta foi bloqueada. Entre em contato com o suporte.';
                                     alert(msg);
                         await clearStoredSession();
-                                    window.location.href = 'auth.html';
+                                    window.location.href = buildAuthRedirectUrl();
                                 }
                 } catch (error) {
                     console.warn('⚠️ Verificação de sessão falhou:', error.message);
                     alert('Sua sessão não é mais válida. Faça login novamente.');
                     await clearStoredSession();
-                    window.location.href = 'auth.html';
+                    window.location.href = buildAuthRedirectUrl();
                     }
             };
 
