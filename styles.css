@@ -1300,7 +1300,8 @@
     align-items: center;
     justify-content: center;
     gap: 0;
-    min-height: 40px;
+    /* ✅ Evitar “apertar” o quadrado (iOS flex-shrink) */
+    min-height: 42px;
 }
 .suggestion-color-wrapper.has-stage {
     gap: 10px;
@@ -1319,6 +1320,11 @@
     justify-content: center;
     width: 42px;
     height: 42px;
+    min-width: 42px;
+    max-width: 42px;
+    flex: 0 0 42px; /* não permitir encolher no flex (corrige “achatado” no iOS) */
+    aspect-ratio: 1 / 1;
+    box-sizing: border-box;
     border-radius: 10px;
     font-weight: bold;
     background: #252736;
@@ -1381,8 +1387,9 @@
     top: 50%;
     left: 50%;
     transform: translate(-50%, -50%);
-    width: 22px;
-    height: 22px;
+    /* ✅ Mais “aberto” (igual ao anel do histórico) — não espremer o G1 */
+    width: 30px;
+    height: 30px;
     border: 3px solid rgba(255, 255, 255, 0.35);
     border-top-color: #00ffa3;
     border-radius: 50%;
@@ -1413,7 +1420,9 @@
 .gale-active-indicator .entry-item {
     /* largura do card: caixa (36) + gap (2) + barrinha (4) */
     width: calc((36px + 2px + 4px) * var(--icon-scale, 1));
-    height: calc(36px * var(--icon-scale, 1));
+    /* ✅ Não travar altura: no mobile a entry-box vira 42px e isso estava “subindo” o quadrado */
+    min-height: calc(36px * var(--icon-scale, 1));
+    height: auto;
     justify-content: center;
 }
 
@@ -4427,6 +4436,12 @@
   /* No mobile o .entry-box vira 42px; manter o card com largura fixa para evitar linhas “faltando 1” */
   #blaze-double-analyzer .entry-item-wrap {
     width: calc((42px + 2px + 4px) * var(--icon-scale, 1)) !important;
+  }
+
+  /* ✅ Pending (gale-active-indicator): acompanhar o novo tamanho 42px (evita desalinhamento/squash) */
+  #blaze-double-analyzer .gale-active-indicator .entry-item {
+    width: calc((42px + 2px + 4px) * var(--icon-scale, 1)) !important;
+    min-height: calc(42px * var(--icon-scale, 1)) !important;
   }
 }
 
