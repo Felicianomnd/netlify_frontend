@@ -12031,7 +12031,7 @@ async function persistAnalyzerState(newState) {
                         <span class="user-info-label">Dias restantes</span>
                         <span class="user-info-value" id="userMenuDays">—</span>
                     </div>
-                    <div class="user-info-item">
+                    <div class="user-info-item user-menu-betmode">
                         <button type="button" class="view-mode-toggle-btn" id="betModeToggleBtn" title="Alternar entre modo completo e modo aposta">
                             <span id="betViewLabel">Modo Completo</span>
                         </button>
@@ -12416,7 +12416,7 @@ async function persistAnalyzerState(newState) {
                 <div class="auto-bet-modal-overlay"></div>
                 <div class="auto-bet-modal-content">
                 <div class="auto-bet-modal-header modal-header-minimal">
-                        <h3>Configurações ativas</h3>
+                        <h3>Configurações</h3>
                     <button type="button" class="auto-bet-modal-close modal-header-close" id="closeAutoBetModal">
                             Fechar
                         </button>

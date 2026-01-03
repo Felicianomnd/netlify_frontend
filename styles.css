@@ -7935,8 +7935,89 @@ body.da-ext-fullscreen #patternDetailsModal .bank-patterns-modal-content {
     }
 
     #autoBetModal .auto-bet-modal-body {
-        padding: 16px !important;
+        /* ✅ Usar mais largura na tela (menos recuo lateral) */
+        padding: 10px 10px 16px !important;
     }
+
+    /* ✅ Toggle "Sincronização ativa": label + switch na MESMA LINHA (mais estreito e bonito) */
+    #autoBetModal #syncConfigToggleBtn.toggle-analyzer-btn {
+        flex-direction: row !important;
+        align-items: center !important;
+        justify-content: space-between !important;
+        gap: 12px !important;
+        padding: 10px 12px !important;
+        width: 100% !important;
+    }
+    #autoBetModal #syncConfigToggleBtn .toggle-label {
+        flex: 1 1 auto !important;
+        min-width: 0 !important;
+        text-align: left !important;
+        white-space: nowrap !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+    }
+    #autoBetModal #syncConfigToggleBtn .toggle-indicator {
+        flex: 0 0 auto !important;
+    }
+
+    /* ✅ Modal header (mobile): botões "Fechar" NUNCA podem virar width:100% */
+    .modal-header-minimal .modal-header-close,
+    .modal-header-minimal .pattern-modal-close,
+    .modal-header-minimal .custom-pattern-modal-close,
+    .modal-header-minimal .auto-bet-modal-close,
+    .modal-header-minimal .bank-patterns-modal-close {
+        width: auto !important;
+        max-width: none !important;
+        min-height: 0 !important;
+        padding: 6px 10px !important;
+        font-size: 13px !important;
+        line-height: 1.1 !important;
+    }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════════ */
+/* 📱 MOBILE: "MINHA CONTA" — header 1 linha + Fechar pequeno à direita            */
+/* ═══════════════════════════════════════════════════════════════════════════════ */
+@media (max-width: 520px) {
+  .user-menu-header {
+    position: relative !important;
+    padding: 14px 16px !important;
+    align-items: center !important;
+    justify-content: flex-start !important;
+    gap: 10px !important;
+  }
+  .user-menu-title {
+    flex: 1 1 auto !important;
+    min-width: 0 !important;
+    padding-right: 96px !important; /* espaço do botão Fechar */
+    padding-right: calc(96px + env(safe-area-inset-right, 0px)) !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+  }
+  .user-menu-close {
+    position: absolute !important;
+    right: 16px !important;
+    right: calc(16px + env(safe-area-inset-right, 0px)) !important;
+    top: 50% !important;
+    transform: translateY(-50%) !important;
+    width: auto !important;
+    max-width: none !important;
+    min-height: 0 !important;
+    padding: 6px 10px !important;
+    font-size: 13px !important;
+    line-height: 1.1 !important;
+    margin: 0 !important;
+  }
+
+  /* ✅ "Modo Aposta": subir pro topo (logo abaixo do header) */
+  .user-menu-body .user-menu-betmode {
+    order: -100 !important;
+    margin-top: 0 !important;
+  }
+  .user-menu-body .user-menu-betmode .view-mode-toggle-btn {
+    width: 100% !important;
+  }
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════════ */
