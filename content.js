@@ -16016,6 +16016,14 @@ async function persistAnalyzerState(newState) {
                     const reason = !hasTimestamp ? 'missing_timestamp_ui' : 'stale_pending_ui';
                     try { chrome.runtime.sendMessage({ action: 'FORCE_CLEAR_PENDING', reason }, () => {}); } catch (_) {}
                 } else {
+                    const pendingTime = (() => {
+                        try {
+                            if (!aMs || !Number.isFinite(aMs)) return '';
+                            return new Date(aMs).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                        } catch (_) {
+                            return '';
+                        }
+                    })();
                     const color = normColor(hasAnalysisPending ? analysis?.color : (ms?.currentColor || ms?.entryColor));
                     const stage = String((hasAnalysisPending ? (analysis?.phase || '') : stageFromMs) || '').toUpperCase().trim();
                     const galeLabel = (stage && stage.startsWith('G') && stage !== 'G0') ? stage : '';
@@ -16025,7 +16033,9 @@ async function persistAnalyzerState(newState) {
                         const galeAttr = galeLabel ? ` data-gale="${galeLabel}"` : '';
                         const titleBase = isMasterPending ? 'Sinal de entrada' : 'IA';
                         const titleAction = hasAnalysisPending ? 'Aguardando resultado' : 'Aguardando sinal';
-                        const title = galeLabel ? `${titleBase} • ${titleAction} (${galeLabel})` : `${titleBase} • ${titleAction}`;
+                        const title = galeLabel
+                            ? `${titleBase} • ${titleAction} (${galeLabel})${pendingTime ? ` • ${pendingTime}` : ''}`
+                            : `${titleBase} • ${titleAction}${pendingTime ? ` • ${pendingTime}` : ''}`;
                         pendingIndicator = `
                             <div class="entry-item-wrap gale-active-indicator" title="${title}">
                                 <div class="entry-conf-top gale-placeholder">&nbsp;</div>
@@ -16034,7 +16044,7 @@ async function persistAnalyzerState(newState) {
                                     <div class="entry-box ${color} pending-ring"${galeAttr}></div>
                                     <div class="entry-result-bar win" style="opacity:0;"></div>
                                 </div>
-                                <div class="entry-time gale-placeholder">&nbsp;</div>
+                                <div class="entry-time">${pendingTime || '&nbsp;'}</div>
                             </div>
                         `;
                     }
@@ -16343,9 +16353,33 @@ async function persistAnalyzerState(newState) {
                 if (aMode !== currentMode) return '';
                 const color = normColor(analysis.color);
                 if (!color) return '';
+                const parseMs = (v) => {
+                    try {
+                        if (v == null) return 0;
+                        if (typeof v === 'number') return Number.isFinite(v) ? v : 0;
+                        const n = Number(v);
+                        if (Number.isFinite(n)) return n;
+                        const ms = Date.parse(String(v));
+                        return Number.isFinite(ms) ? ms : 0;
+                    } catch (_) {
+                        return 0;
+                    }
+                };
+                const rawTs = analysis && analysis.createdOnTimestamp != null ? analysis.createdOnTimestamp : null;
+                const aMs = parseMs(rawTs);
+                const pendingTime = (() => {
+                    try {
+                        if (!aMs || !Number.isFinite(aMs)) return '';
+                        return new Date(aMs).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                    } catch (_) {
+                        return '';
+                    }
+                })();
                 const galeLabel = stageLabelFrom(analysis, martingaleState);
                 const galeAttr = galeLabel ? ` data-gale="${galeLabel}"` : '';
-                const title = galeLabel ? `Recuperação • Aguardando resultado (${galeLabel})` : 'Recuperação • Aguardando resultado';
+                const title = galeLabel
+                    ? `Recuperação • Aguardando resultado (${galeLabel})${pendingTime ? ` • ${pendingTime}` : ''}`
+                    : `Recuperação • Aguardando resultado${pendingTime ? ` • ${pendingTime}` : ''}`;
                 return `
                     <div class="entry-item-wrap gale-active-indicator" title="${title}">
                         <div class="entry-conf-top gale-placeholder">&nbsp;</div>
@@ -16354,7 +16388,7 @@ async function persistAnalyzerState(newState) {
                             <div class="entry-box ${color} pending-ring"${galeAttr}></div>
                             <div class="entry-result-bar win" style="opacity:0;"></div>
                         </div>
-                        <div class="entry-time gale-placeholder">&nbsp;</div>
+                        <div class="entry-time">${pendingTime || '&nbsp;'}</div>
                     </div>
                 `;
             } catch (_) {
