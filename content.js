@@ -12172,6 +12172,21 @@ async function persistAnalyzerState(newState) {
                 </div>
             </div>
             
+            <!-- ═══════════════════════════════════════════════════════════════
+                 📊 Momento (Qualidade dos sinais) — Ruim / Bom / Muito bom
+                 Baseado nos últimos ciclos FINALIZADOS (WIN/LOSS) da aba IA
+                 ═══════════════════════════════════════════════════════════════ -->
+            <div class="moment-quality-bar" id="momentQualityBar" data-level="none" title="Aguardando base de sinais...">
+                <div class="moment-quality-track" aria-hidden="true">
+                    <div class="moment-quality-fill" id="momentQualityFill" style="width:0%"></div>
+                </div>
+                <div class="moment-quality-labels" aria-hidden="true">
+                    <span class="mq-label" data-mq="bad">Ruim</span>
+                    <span class="mq-label" data-mq="good">Bom</span>
+                    <span class="mq-label" data-mq="great">Muito bom</span>
+                </div>
+            </div>
+
             <div class="entries-section">
             <div class="entries-panel" id="entriesPanel">
                     <div class="entries-tabs-bar" id="entriesTabs">
@@ -15709,6 +15724,74 @@ async function persistAnalyzerState(newState) {
             // silencioso
         }
     }
+
+    // ═══════════════════════════════════════════════════════════════
+    // 📊 Momento (Qualidade dos sinais) — Ruim / Bom / Muito bom
+    // - Base: últimos ciclos FINALIZADOS exibidos na IA (filteredEntries)
+    // - Só começa a classificar com pelo menos 10 ciclos
+    // - Com 20+ ciclos, usa a janela 20 (mais estável)
+    // ═══════════════════════════════════════════════════════════════
+    const MOMENT_QUALITY_MIN_CYCLES = 10;
+    const MOMENT_QUALITY_FULL_CYCLES = 20;
+    const MOMENT_QUALITY_BAD_BELOW = 70;   // < 70% = Ruim
+    const MOMENT_QUALITY_GREAT_FROM = 85;  // >= 85% = Muito bom (entre = Bom)
+
+    function clampPct(value) {
+        const n = Number(value);
+        if (!Number.isFinite(n)) return 0;
+        return Math.max(0, Math.min(100, n));
+    }
+
+    function formatPct(value) {
+        const n = Number(value);
+        const v = Number.isFinite(n) ? (Math.round(n * 10) / 10) : 0;
+        // manter 1 casa apenas quando necessário
+        return (Math.abs(v - Math.round(v)) < 0.0001) ? `${Math.round(v)}%` : `${v.toFixed(1).replace('.', ',')}%`;
+    }
+
+    function updateMomentQualityBar(finalCycles) {
+        const bar = document.getElementById('momentQualityBar');
+        const fill = document.getElementById('momentQualityFill');
+        if (!bar || !fill) return;
+
+        const labels = bar.querySelectorAll('.mq-label');
+        labels.forEach((el) => el.classList.remove('active'));
+
+        const cycles = Array.isArray(finalCycles)
+            ? finalCycles.filter((e) => e && (e.result === 'WIN' || e.result === 'LOSS'))
+            : [];
+
+        const total = cycles.length;
+
+        // Antes da base mínima: mostrar progresso até 10 (sem classificar)
+        if (total < MOMENT_QUALITY_MIN_CYCLES) {
+            const progress = clampPct((total / MOMENT_QUALITY_MIN_CYCLES) * 100);
+            bar.setAttribute('data-level', 'none');
+            fill.style.width = `${progress}%`;
+            bar.title = `Aguardando base: ${total}/${MOMENT_QUALITY_MIN_CYCLES} ciclos finalizados`;
+            return;
+        }
+
+        const windowSize = Math.min(MOMENT_QUALITY_FULL_CYCLES, total);
+        const sample = cycles.slice(0, windowSize); // mais recentes (array é newest-first)
+        const wins = sample.reduce((acc, e) => acc + (e.result === 'WIN' ? 1 : 0), 0);
+        const winRate = windowSize ? (wins / windowSize) * 100 : 0;
+        const pct = clampPct(winRate);
+
+        let level = 'bad';
+        if (pct >= MOMENT_QUALITY_GREAT_FROM) level = 'great';
+        else if (pct >= MOMENT_QUALITY_BAD_BELOW) level = 'good';
+
+        bar.setAttribute('data-level', level);
+        fill.style.width = `${pct}%`;
+
+        const activeLabel = bar.querySelector(`.mq-label[data-mq="${level}"]`);
+        if (activeLabel) activeLabel.classList.add('active');
+
+        const labelText = level === 'great' ? 'Muito bom' : (level === 'good' ? 'Bom' : 'Ruim');
+        const baseHint = total < MOMENT_QUALITY_FULL_CYCLES ? ` • base parcial ${total}/${MOMENT_QUALITY_FULL_CYCLES}` : '';
+        bar.title = `Momento: ${labelText} • ${formatPct(pct)} (${wins}/${windowSize})${baseHint}`;
+    }
     
     // Render de lista de entradas (WIN/LOSS)
     function renderEntriesPanel(entries) {
@@ -15849,6 +15932,9 @@ async function persistAnalyzerState(newState) {
         } catch (_) {}
         
         console.log(`📊 Entradas: ${entries.length} total | IA ${entriesByModeForIA.length} do modo ${currentMode} | ${filteredEntries.length} exibidas (${entriesByModeForIA.length - filteredEntries.length} LOSSes intermediários ocultos)`);
+
+        // ✅ Atualizar barra "Momento" (qualidade dos sinais) com os ciclos finais exibidos na IA
+        try { updateMomentQualityBar(filteredEntries); } catch (_) {}
         
         // Renderizar apenas as entradas filtradas
         const items = filteredEntries.map((e, idx) => {
