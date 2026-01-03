@@ -1414,7 +1414,11 @@
     align-items: center;
     gap: 2px;
     margin: 0;
-    padding: 0;
+    /* ✅ Igual aos cards normais (.clickable-entry tem padding:2px):
+       sem isso o “pendente” fica alguns px mais pra cima. */
+    padding: 2px;
+    border-radius: 8px;
+    box-sizing: border-box;
 }
 
 .gale-active-indicator .entry-item {
