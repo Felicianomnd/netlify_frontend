@@ -16942,13 +16942,15 @@ async function persistAnalyzerState(newState) {
             const applyToHeader = (header) => {
                 try {
                     if (!header || header.nodeType !== 1) return;
-                    if (header.dataset && header.dataset.daMobileCloseFix === '1') return;
 
                     const title = header.querySelector('h3');
                     const oldClose = header.querySelector(
                         '.modal-header-close, .pattern-modal-close, .custom-pattern-modal-close, .auto-bet-modal-close, .bank-patterns-modal-close'
                     );
-                    if (!oldClose) return;
+                    // Se já existe o botão mobile criado em execuções antigas, reaplicar estilos nele
+                    const existingMobileBtn = header.querySelector('.da-mobile-close-btn');
+                    const closeBtn = existingMobileBtn || oldClose;
+                    if (!closeBtn) return;
 
                     // Deixar header "responsivo" e previsível
                     header.style.position = 'relative';
@@ -16970,48 +16972,40 @@ async function persistAnalyzerState(newState) {
                         title.style.textAlign = 'left';
                     }
 
-                    // Criar um NOVO botão de fechar (mobile), no canto direito
-                    const mobileBtn = document.createElement('button');
-                    mobileBtn.type = 'button';
-                    mobileBtn.className = 'da-mobile-close-btn';
-                    mobileBtn.textContent = (oldClose.textContent || 'Fechar').trim() || 'Fechar';
-                    mobileBtn.setAttribute('aria-label', 'Fechar');
-                    mobileBtn.style.cssText = [
-                        'position:absolute',
-                        'right:calc(16px + env(safe-area-inset-right, 0px))',
-                        'left:auto',
-                        'top:50%',
-                        'transform:translateY(-50%)',
-                        // ✅ CRÍTICO: existe regra global no mobile `button{width:100%!important}`
-                        // que fazia o texto "Fechar" parecer centralizado. Garantir largura compacta.
-                        'width:auto',
-                        'max-width:none',
-                        'min-width:0',
-                        'display:inline-flex',
-                        'align-items:center',
-                        'justify-content:center',
-                        'background:transparent',
-                        'border:none',
-                        'color:var(--da-text-muted, #7a7a7a)',
-                        'font-size:13px',
-                        'font-weight:600',
-                        'padding:6px 10px',
-                        'border-radius:4px',
-                        'white-space:nowrap',
-                        'cursor:pointer',
-                        '-webkit-tap-highlight-color: transparent'
-                    ].join(';');
+                    // ✅ Forçar botão de fechar no canto direito via INLINE + !important
+                    // Motivo: existe regra global `button { width:100% !important; }` no mobile,
+                    // que fazia o texto "Fechar" parecer centralizado.
+                    const setImp = (prop, value) => {
+                        try { closeBtn.style.setProperty(prop, value, 'important'); } catch (_) {}
+                    };
+                    setImp('position', 'absolute');
+                    setImp('right', 'calc(16px + env(safe-area-inset-right, 0px))');
+                    setImp('left', 'auto');
+                    setImp('top', '50%');
+                    setImp('transform', 'translateY(-50%)');
+                    setImp('width', 'auto');
+                    setImp('max-width', 'none');
+                    setImp('min-width', '0');
+                    setImp('min-height', '0');
+                    setImp('display', 'inline-flex');
+                    setImp('align-items', 'center');
+                    setImp('justify-content', 'center');
+                    setImp('padding', '6px 10px');
+                    setImp('margin', '0');
+                    setImp('white-space', 'nowrap');
+                    setImp('line-height', '1.1');
 
-                    // Esconder o botão antigo (mantendo o handler original)
-                    oldClose.style.display = 'none';
-                    oldClose.setAttribute('aria-hidden', 'true');
+                    // Se for o botão antigo, também garantir que ele NÃO fique com aparência de "botão gigante"
+                    try {
+                        closeBtn.style.setProperty('background', 'transparent', 'important');
+                        closeBtn.style.setProperty('border', 'none', 'important');
+                        closeBtn.style.setProperty('font-size', '13px', 'important');
+                        closeBtn.style.setProperty('font-weight', '600', 'important');
+                        closeBtn.style.setProperty('cursor', 'pointer', 'important');
+                        closeBtn.style.setProperty('-webkit-tap-highlight-color', 'transparent', 'important');
+                    } catch (_) {}
 
-                    mobileBtn.addEventListener('click', (event) => {
-                        try { event.preventDefault(); event.stopPropagation(); } catch (_) {}
-                        try { oldClose.click(); } catch (_) {}
-                    });
-
-                    header.appendChild(mobileBtn);
+                    // Se existe um botão mobile antigo, manter handler. Se não existe e estamos usando o oldClose, não criar duplicado.
                     if (header.dataset) header.dataset.daMobileCloseFix = '1';
                 } catch (_) {}
             };
