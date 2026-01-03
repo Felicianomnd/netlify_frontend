@@ -6178,9 +6178,26 @@
         font-size: calc(18px * var(--font-scale, 1)) !important;
     }
     
-    .entry-time,
-    .entry-stage {
+    /* ✅ Mobile: manter horário legível, mas NÃO “estourar” o label WIN G1/G2.
+       O card é estreito; se aumentar demais o font-size, vira "..." (ellipsis) e some o G1/G2. */
+    .entry-time {
         font-size: calc(11px * var(--font-scale, 1)) !important;
+    }
+
+    .entry-stage {
+        font-size: calc(9px * var(--font-scale, 1)) !important;
+        padding: 1px 2px !important;
+        line-height: 1.05 !important;
+        /* não truncar com "..." — permitir quebrar em 2 linhas se precisar */
+        white-space: normal !important;
+        text-overflow: clip !important;
+        overflow: hidden !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        text-align: center !important;
+        min-height: 18px; /* espaço suficiente para "WIN G1" sem mexer no alinhamento */
+        box-sizing: border-box !important;
     }
     
     /* ✅ AJUSTAR MODAL */
