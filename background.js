@@ -4305,6 +4305,8 @@ async function processNewSpinFromServer(spinData) {
                                     ? martingaleState.analysisData
                                     : currentAnalysis;
                                 await recordN4SelfLearningFromResolvedCycle(learningAnalysis, 'win');
+                                // ⚪ N0 (Detector de Branco): registrar auto-aprendizado quando o N0 foi o sinal final
+                                await recordN0SelfLearningFromResolvedCycle(learningAnalysis, 'win');
                                 // 💎 N4 (Autointeligente): auto-ajuste de janela (n4Persistence) quando o desempenho cair
                                 try {
                                     if (!isHiddenInternal) {
@@ -4543,6 +4545,8 @@ async function processNewSpinFromServer(spinData) {
                                     // 💎 N4 (Autointeligente): registrar resultado final do CICLO (LOSS/RED) para auto-aprendizado
                                     try {
                                         await recordN4SelfLearningFromResolvedCycle(currentAnalysis, 'loss');
+                                        // ⚪ N0 (Detector de Branco): registrar auto-aprendizado quando o N0 foi o sinal final
+                                        await recordN0SelfLearningFromResolvedCycle(currentAnalysis, 'loss');
                                         // 💎 N4 (Autointeligente): auto-ajuste de janela (n4Persistence) quando o desempenho cair
                                         try {
                                             if (!isHiddenInternal) {
@@ -4857,6 +4861,8 @@ async function processNewSpinFromServer(spinData) {
                                             ? martingaleState.analysisData
                                             : currentAnalysis;
                                         await recordN4SelfLearningFromResolvedCycle(learningAnalysis, 'loss');
+                                        // ⚪ N0 (Detector de Branco): registrar auto-aprendizado quando o N0 foi o sinal final
+                                        await recordN0SelfLearningFromResolvedCycle(learningAnalysis, 'loss');
                                         // 💎 N4 (Autointeligente): auto-ajuste de janela (n4Persistence) quando o desempenho cair
                                         try {
                                             if (!isHiddenInternal) {
@@ -6140,6 +6146,21 @@ let signalsHistory = {
     patternStats: {},         // Estatísticas por tipo de padrão
     contextStats: {},         // Estatísticas por contexto
     blockedPatterns: {},      // 🚫 Padrões bloqueados temporariamente {patternKey: {until: timestamp, reason: string}}
+    // ⚪ N0 (Detector de Branco): auto-aprendizado por contexto + ação (block_all/soft_block)
+    // Objetivo: permitir que o N0 "aprenda" o que funciona no histórico da conta e ajuste o bloqueio dinamicamente.
+    n0SelfLearning: {
+        version: 1,
+        stats: {},            // { [key]: { total, wins, losses, recent: boolean[], lastTs } }
+        maxRecent: 40,        // janela de recência por key
+        maxKeys: 600,         // limite de chaves (evita crescer infinito)
+        minSamples: 8,        // mínimo de ciclos para ativar bloqueio/boost
+        // Fatores relativos ao baseline de branco (ex.: baseline ~6.7%):
+        // - badFactor 0.8 => bloqueia se performance <= baseline*0.8 (pior que aleatório)
+        // - goodFactor 1.8 => considera "bom" se performance >= baseline*1.8 (lift forte)
+        badFactor: 0.8,
+        goodFactor: 1.8,
+        lastUpdated: null
+    },
     // 💎 N4 (Autointeligente): auto-aprendizado por "tipo de sinal" do próprio N4 (contexto n-gram + cor + setup)
     n4SelfLearning: {
         version: 2,
@@ -6186,6 +6207,18 @@ async function initializeSignalsHistory() {
             if (!signalsHistory.patternStats) signalsHistory.patternStats = {};
             if (!signalsHistory.contextStats) signalsHistory.contextStats = {};
             if (!signalsHistory.blockedPatterns) signalsHistory.blockedPatterns = {};
+            if (!signalsHistory.n0SelfLearning || typeof signalsHistory.n0SelfLearning !== 'object') {
+                signalsHistory.n0SelfLearning = {
+                    version: 1,
+                    stats: {},
+                    maxRecent: 40,
+                    maxKeys: 600,
+                    minSamples: 8,
+                    badFactor: 0.8,
+                    goodFactor: 1.8,
+                    lastUpdated: null
+                };
+            }
             if (!signalsHistory.n4SelfLearning || typeof signalsHistory.n4SelfLearning !== 'object') {
                 signalsHistory.n4SelfLearning = {
                     version: 2,
@@ -6232,6 +6265,14 @@ async function initializeSignalsHistory() {
             if (!signalsHistory.n4SelfLearning.stats || typeof signalsHistory.n4SelfLearning.stats !== 'object') {
                 signalsHistory.n4SelfLearning.stats = {};
             }
+            if (!signalsHistory.n0SelfLearning.stats || typeof signalsHistory.n0SelfLearning.stats !== 'object') {
+                signalsHistory.n0SelfLearning.stats = {};
+            }
+            if (!Number.isFinite(Number(signalsHistory.n0SelfLearning.maxRecent))) signalsHistory.n0SelfLearning.maxRecent = 40;
+            if (!Number.isFinite(Number(signalsHistory.n0SelfLearning.maxKeys))) signalsHistory.n0SelfLearning.maxKeys = 600;
+            if (!Number.isFinite(Number(signalsHistory.n0SelfLearning.minSamples))) signalsHistory.n0SelfLearning.minSamples = 8;
+            if (!Number.isFinite(Number(signalsHistory.n0SelfLearning.badFactor))) signalsHistory.n0SelfLearning.badFactor = 0.8;
+            if (!Number.isFinite(Number(signalsHistory.n0SelfLearning.goodFactor))) signalsHistory.n0SelfLearning.goodFactor = 1.8;
             if (!Number.isFinite(Number(signalsHistory.n4SelfLearning.maxRecent))) signalsHistory.n4SelfLearning.maxRecent = 30;
             if (!Number.isFinite(Number(signalsHistory.n4SelfLearning.maxKeys))) signalsHistory.n4SelfLearning.maxKeys = 400;
             if (!Number.isFinite(Number(signalsHistory.n4SelfLearning.minSamples))) signalsHistory.n4SelfLearning.minSamples = 8;
@@ -6259,6 +6300,16 @@ async function initializeSignalsHistory() {
             patternStats: {},
             contextStats: {},
             blockedPatterns: {},
+            n0SelfLearning: {
+                version: 1,
+                stats: {},
+                maxRecent: 40,
+                maxKeys: 600,
+                minSamples: 8,
+                badFactor: 0.8,
+                goodFactor: 1.8,
+                lastUpdated: null
+            },
             n4SelfLearning: {
                 version: 2,
                 stats: {},
@@ -6285,6 +6336,150 @@ async function saveSignalsHistory() {
         await chrome.storage.local.set({ signalsHistory });
     } catch (error) {
         console.error('%c❌ Erro ao salvar histórico de sinais:', 'color: #FF0000;', error);
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ⚪ N0 (Detector de Branco): auto-aprendizado por contexto + ação
+// - Aprende apenas quando o N0 realmente gerou o sinal final (WHITE).
+// - Usa baseline de branco para decidir o que é "bom/ruim" (evento raro).
+// ═══════════════════════════════════════════════════════════════
+
+function buildN0LearningContextKey({ windowChars, dominantNonWhite, maxTail = 12 }) {
+    try {
+        const w = Array.isArray(windowChars) ? windowChars : [];
+        if (!w.length) return '';
+
+        const limit = Math.max(6, Math.min(30, Math.floor(Number(maxTail) || 12)));
+        const tailRaw = w.slice(-limit);
+        const lastWInTail = tailRaw.lastIndexOf('W');
+        const tail = lastWInTail >= 0 ? tailRaw.slice(lastWInTail) : tailRaw;
+
+        const lastWFull = w.lastIndexOf('W');
+        const gap = lastWFull >= 0 ? (w.length - 1 - lastWFull) : w.length;
+        const gapBucket = gap <= 4 ? '0-4'
+            : gap <= 9 ? '5-9'
+            : gap <= 19 ? '10-19'
+            : gap <= 39 ? '20-39'
+            : '40+';
+
+        const dom = dominantNonWhite ? String(dominantNonWhite).toLowerCase().trim() : '';
+        const domTag = (dom === 'red' || dom === 'black') ? dom : '';
+
+        return `tail=${tail.join('')}|gap=${gapBucket}` + (domTag ? `|dom=${domTag}` : '');
+    } catch (_) {
+        return '';
+    }
+}
+
+function buildN0SelfLearningKey(ctxKey, action, cfg) {
+    try {
+        const ctx = String(ctxKey || '').trim().toUpperCase();
+        const act = String(action || '').toLowerCase().trim();
+        const fam = cfg && cfg.family ? String(cfg.family).toLowerCase().trim() : 'unknown';
+        if (!ctx) return null;
+        if (!(act === 'block_all' || act === 'soft_block')) return null;
+        if (!fam) return null;
+        return `N0|ctx=${ctx}|act=${act}|fam=${fam}`;
+    } catch (_) {
+        return null;
+    }
+}
+
+function getN0SelfLearningStatsForKey(key) {
+    try {
+        const store = signalsHistory && signalsHistory.n0SelfLearning ? signalsHistory.n0SelfLearning : null;
+        const map = store && store.stats ? store.stats : null;
+        if (!map || !key) return null;
+        const row = map[key];
+        if (!row || typeof row !== 'object') return null;
+        const total = Math.max(0, Math.floor(Number(row.total) || 0));
+        const wins = Math.max(0, Math.floor(Number(row.wins) || 0));
+        const losses = Math.max(0, Math.floor(Number(row.losses) || 0));
+        const recent = Array.isArray(row.recent) ? row.recent : [];
+        const recentN = recent.length;
+        const recentWins = recent.filter(Boolean).length;
+        const recentWinRate = recentN > 0 ? (recentWins / recentN) : null;
+        const totalWinRate = total > 0 ? (wins / total) : null;
+        return { total, wins, losses, recentN, recentWins, recentWinRate, totalWinRate, lastTs: row.lastTs || null };
+    } catch (_) {
+        return null;
+    }
+}
+
+function pruneN0SelfLearningIfNeeded() {
+    try {
+        if (!signalsHistory || !signalsHistory.n0SelfLearning || !signalsHistory.n0SelfLearning.stats) return;
+        const store = signalsHistory.n0SelfLearning;
+        const maxKeys = Math.max(50, Math.min(3000, Math.floor(Number(store.maxKeys) || 600)));
+        const keys = Object.keys(store.stats || {});
+        if (keys.length <= maxKeys) return;
+        const ranked = keys.map(k => ({ k, ts: Number(store.stats[k]?.lastTs) || 0 }))
+            .sort((a, b) => a.ts - b.ts);
+        const toRemove = ranked.slice(0, Math.max(0, keys.length - maxKeys));
+        toRemove.forEach(({ k }) => { try { delete store.stats[k]; } catch (_) {} });
+    } catch (_) {}
+}
+
+async function recordN0SelfLearningFromResolvedCycle(analysisObj, outcome) {
+    try {
+        const analysis = analysisObj && typeof analysisObj === 'object' ? analysisObj : null;
+        if (!analysis) return false;
+        // ✅ Aprender apenas de sinais "visíveis" (não contam ciclos silenciosos da Recuperação).
+        const isHiddenInternal = !!analysis.hiddenInternal;
+        const isRecoveryVisible = !!analysis.recoveryMode;
+        if (isHiddenInternal && !isRecoveryVisible) return false;
+
+        const n0 = analysis.diamondN0 && typeof analysis.diamondN0 === 'object' ? analysis.diamondN0 : null;
+        if (!n0) return false;
+        const usedInFinal = !!n0.usedInFinal;
+        if (!usedInFinal) return false;
+        const key = typeof n0.key === 'string' ? n0.key : null;
+        if (!key) return false;
+
+        const isWin = String(outcome || '').toLowerCase().trim() === 'win';
+        const isLoss = String(outcome || '').toLowerCase().trim() === 'loss';
+        if (!isWin && !isLoss) return false;
+
+        if (!signalsHistory.n0SelfLearning || typeof signalsHistory.n0SelfLearning !== 'object') {
+            signalsHistory.n0SelfLearning = {
+                version: 1,
+                stats: {},
+                maxRecent: 40,
+                maxKeys: 600,
+                minSamples: 8,
+                badFactor: 0.8,
+                goodFactor: 1.8,
+                lastUpdated: null
+            };
+        }
+        if (!signalsHistory.n0SelfLearning.stats || typeof signalsHistory.n0SelfLearning.stats !== 'object') {
+            signalsHistory.n0SelfLearning.stats = {};
+        }
+
+        const store = signalsHistory.n0SelfLearning;
+        const maxRecent = Math.max(10, Math.min(300, Math.floor(Number(store.maxRecent) || 40)));
+        const now = Date.now();
+        const row = store.stats[key] && typeof store.stats[key] === 'object'
+            ? store.stats[key]
+            : { total: 0, wins: 0, losses: 0, recent: [], lastTs: 0 };
+
+        row.total = Math.max(0, Math.floor(Number(row.total) || 0)) + 1;
+        row.wins = Math.max(0, Math.floor(Number(row.wins) || 0)) + (isWin ? 1 : 0);
+        row.losses = Math.max(0, Math.floor(Number(row.losses) || 0)) + (isLoss ? 1 : 0);
+        row.recent = Array.isArray(row.recent) ? row.recent.slice(-maxRecent + 1) : [];
+        row.recent.push(!!isWin);
+        row.lastTs = now;
+
+        store.stats[key] = row;
+        store.lastUpdated = now;
+        pruneN0SelfLearningIfNeeded();
+
+        await saveSignalsHistory();
+        return true;
+    } catch (e) {
+        console.warn('⚠️ Falha ao registrar auto-aprendizado do N0:', e);
+        return false;
     }
 }
 
@@ -12816,6 +13011,15 @@ let n8ConfigLibrarySeed = null;
 function normalizeN0History(entries) {
     if (!Array.isArray(entries)) return [];
     const normalized = [];
+    const mapNumberToChar = (value) => {
+        const n = Math.floor(Number(value));
+        if (!Number.isFinite(n)) return null;
+        // Blaze Double: 0 = white, 1-7 = red, 8-14 = black
+        if (n === 0) return 'W';
+        if (n >= 1 && n <= 7) return 'R';
+        if (n >= 8 && n <= 14) return 'B';
+        return null;
+    };
     for (const item of entries) {
         if (item == null) {
             normalized.push('W');
@@ -12837,10 +13041,11 @@ function normalizeN0History(entries) {
             }
             const numeric = Number(parsed);
             if (Number.isFinite(numeric)) {
-                normalized.push(Math.abs(numeric) % 2 === 0 ? 'B' : 'R');
+                const mapped = mapNumberToChar(numeric);
+                if (mapped) normalized.push(mapped);
                 continue;
             }
-            normalized.push('W');
+            // valor desconhecido → ignorar (não inferir como branco)
             continue;
         }
         if (typeof item === 'object') {
@@ -12861,31 +13066,36 @@ function normalizeN0History(entries) {
                 }
                 const numeric = Number(parsed);
                 if (Number.isFinite(numeric)) {
-                    normalized.push(Math.abs(numeric) % 2 === 0 ? 'B' : 'R');
-                    continue;
+                    const mapped = mapNumberToChar(numeric);
+                    if (mapped) {
+                        normalized.push(mapped);
+                        continue;
+                    }
                 }
             }
             const numberValue = item.number ?? item.numero ?? item.slot ?? null;
             if (Number.isFinite(Number(numberValue))) {
-                normalized.push(Math.abs(Number(numberValue)) % 2 === 0 ? 'B' : 'R');
+                const mapped = mapNumberToChar(numberValue);
+                if (mapped) normalized.push(mapped);
                 continue;
             }
         }
-        normalized.push('W');
+        // item desconhecido → ignorar (não inferir como branco)
     }
     return normalized;
 }
 
-function buildN0Windows(sequence, windowSize) {
+function buildN0Windows(sequence, windowSize, stepSize = windowSize) {
     const windows = [];
     if (!Array.isArray(sequence) || sequence.length < windowSize + 1) return windows;
     const total = sequence.length;
-    const totalWindows = Math.floor(total / windowSize);
-    for (let k = 0; k < totalWindows; k++) {
-        const start = k * windowSize;
+    const step = Math.max(1, Math.floor(Number(stepSize) || windowSize));
+    const maxStart = total - (windowSize + 1); // precisa existir alvo em `end`
+    let k = 0;
+    for (let start = 0; start <= maxStart; start += step) {
         const end = start + windowSize;
         const targetIndex = end;
-        if (targetIndex >= total) continue;
+        if (targetIndex >= total) break;
         windows.push({
             index: k,
             window: sequence.slice(start, end),
@@ -12893,6 +13103,7 @@ function buildN0Windows(sequence, windowSize) {
             start,
             targetIndex
         });
+        k += 1;
     }
     return windows;
 }
@@ -14027,7 +14238,14 @@ function runN0DetectorLegacy(history, options = {}) {
             seed: Number.isFinite(Number(options.seed)) ? Number(options.seed) : N0_DEFAULTS.seed
         };
 
-        const chronologicalHistory = Array.isArray(history) ? history.slice().reverse() : [];
+        // ✅ Determinismo + ordem correta + dedup:
+        // o histórico pode vir com duplicados e fora de ordem (cache/servidor).
+        const desiredHistory = Math.max(settings.historySize, settings.windowSize * 3);
+        const stableWindow = getStableChronologicalHistoryWindow({
+            limit: Math.min(desiredHistory, Array.isArray(history) ? history.length : 0),
+            sourceHistory: Array.isArray(history) ? history : []
+        });
+        const chronologicalHistory = stableWindow.chronological; // antigo -> recente
         const normalizedHistory = normalizeN0History(chronologicalHistory).slice(-settings.historySize);
 
         if (normalizedHistory.length < settings.windowSize * 2) {
@@ -14038,7 +14256,27 @@ function runN0DetectorLegacy(history, options = {}) {
             };
         }
 
-        const windows = buildN0Windows(normalizedHistory, settings.windowSize);
+        // ⚠️ Importante: com histórico 2000 e W=100, janelas 100% não-sobrepostas geram pouquíssimas amostras (~19).
+        // Para o N0 (evento raro), isso torna a validação instável e o nível tende a nunca disparar.
+        // Solução: manter janelas NÃO-sobrepostas, mas coletar múltiplos "offsets" (ex.: 0,10,20...),
+        // aumentando n de amostras sem mudar W.
+        const offsetStep = Math.max(1, Math.min(settings.windowSize, Math.floor(settings.windowSize / 10)));
+        const stride = settings.windowSize; // não-sobreposto dentro de cada offset
+        const windows = [];
+        let windowIndex = 0;
+        for (let offset = 0; offset < settings.windowSize; offset += offsetStep) {
+            const sliced = normalizedHistory.slice(offset);
+            const chunk = buildN0Windows(sliced, settings.windowSize, stride);
+            for (const entry of chunk) {
+                windows.push({
+                    ...entry,
+                    index: windowIndex++,
+                    start: entry.start + offset,
+                    targetIndex: entry.targetIndex + offset,
+                    offset
+                });
+            }
+        }
         if (windows.length < settings.minWindowsRequired) {
             return {
                 enabled: false,
@@ -14046,6 +14284,13 @@ function runN0DetectorLegacy(history, options = {}) {
                 code: 'insufficient_windows'
             };
         }
+
+        const n0DataStats = {
+            history_total: normalizedHistory.length,
+            history_whites: normalizedHistory.filter(c => c === 'W').length,
+            windows_total: windows.length,
+            target_whites: windows.filter(w => w && w.target === 'W').length
+        };
 
         const holdoutPossible = settings.holdoutEnabled && windows.length >= settings.minWindowsRequired * 2;
         const trainingWindows = holdoutPossible ? windows.filter((_, idx) => idx % 2 === 0) : windows;
@@ -14209,7 +14454,14 @@ function runN0Detector(history, options = {}) {
             seed: Number.isFinite(Number(options.seed)) ? Number(options.seed) : N0_DEFAULTS.seed
         };
 
-        const chronologicalHistory = Array.isArray(history) ? history.slice().reverse() : [];
+        // ✅ Determinismo + ordem correta + dedup:
+        // o histórico pode vir com duplicados e fora de ordem (cache/servidor).
+        const desiredHistory = Math.max(settings.historySize, settings.windowSize * 3);
+        const stableWindow = getStableChronologicalHistoryWindow({
+            limit: Math.min(desiredHistory, Array.isArray(history) ? history.length : 0),
+            sourceHistory: Array.isArray(history) ? history : []
+        });
+        const chronologicalHistory = stableWindow.chronological; // antigo -> recente
         const normalizedHistory = normalizeN0History(chronologicalHistory).slice(-settings.historySize);
 
         if (normalizedHistory.length < settings.windowSize * 2) {
@@ -14220,7 +14472,27 @@ function runN0Detector(history, options = {}) {
             };
         }
 
-        const windows = buildN0Windows(normalizedHistory, settings.windowSize);
+        // ⚠️ Importante: com histórico 2000 e W=100, janelas 100% não-sobrepostas geram pouquíssimas amostras (~19).
+        // Para o N0 (evento raro), isso torna a validação instável e o nível tende a nunca disparar.
+        // Solução: manter janelas NÃO-sobrepostas, mas coletar múltiplos "offsets" (ex.: 0,10,20...),
+        // aumentando n de amostras sem mudar W.
+        const offsetStep = Math.max(1, Math.min(settings.windowSize, Math.floor(settings.windowSize / 10)));
+        const stride = settings.windowSize; // não-sobreposto dentro de cada offset
+        const windows = [];
+        let windowIndex = 0;
+        for (let offset = 0; offset < settings.windowSize; offset += offsetStep) {
+            const sliced = normalizedHistory.slice(offset);
+            const chunk = buildN0Windows(sliced, settings.windowSize, stride);
+            for (const entry of chunk) {
+                windows.push({
+                    ...entry,
+                    index: windowIndex++,
+                    start: entry.start + offset,
+                    targetIndex: entry.targetIndex + offset,
+                    offset
+                });
+            }
+        }
         if (windows.length < settings.minWindowsRequired) {
             return {
                 enabled: false,
@@ -14228,6 +14500,13 @@ function runN0Detector(history, options = {}) {
                 code: 'insufficient_windows'
             };
         }
+
+        const n0DataStats = {
+            history_total: normalizedHistory.length,
+            history_whites: normalizedHistory.filter(c => c === 'W').length,
+            windows_total: windows.length,
+            target_whites: windows.filter(w => w && w.target === 'W').length
+        };
 
         const holdoutPossible = settings.holdoutEnabled && windows.length >= settings.minWindowsRequired * 2;
         const trainingWindows = holdoutPossible ? windows.filter((_, idx) => idx % 2 === 0) : windows;
@@ -14281,12 +14560,43 @@ function runN0Detector(history, options = {}) {
         const bestConfList = bestDetailed.confList;
         const perWindowLog = bestDetailed.perWindowLog || [];
 
-        const grid = settings.confidenceGrid.length > 0 ? settings.confidenceGrid : [...N0_DEFAULTS.confidenceGrid];
+        // ✅ Para N0 (evento raro), calibrar "precisão mínima" em cima do baseline observado.
+        // Se exigirmos 45% de precisão "absoluta" para BRANCO, o nível tende a nunca disparar.
+        // Aqui mantemos `precisionMin` como fator de melhoria sobre o baseline (lift), não como valor absoluto.
+        const BASELINE_WHITE_FALLBACK = 1 / 15; // Blaze Double (0..14)
+        const observedBaseRate = Array.isArray(bestConfList) && bestConfList.length > 0
+            ? bestConfList.filter(entry => entry && entry.isWhite).length / bestConfList.length
+            : 0;
+        const baselineWhite = (Number.isFinite(observedBaseRate) && observedBaseRate > 0) ? observedBaseRate : BASELINE_WHITE_FALLBACK;
+        const minPrecisionForWhite = clamp01(baselineWhite * (1 + settings.precisionMin));
+
+        // Grade de thresholds: se a distribuição de confiança for "baixa" (ex.: < 0.5),
+        // adaptamos a grade para cobrir a faixa real de confidences do melhor modelo.
+        const baseGrid = settings.confidenceGrid.length > 0 ? settings.confidenceGrid : [...N0_DEFAULTS.confidenceGrid];
+        const confValuesSorted = bestConfList
+            .map(entry => entry && entry.confidence)
+            .filter(Number.isFinite)
+            .sort((a, b) => a - b);
+        const confMax = confValuesSorted.length > 0 ? confValuesSorted[confValuesSorted.length - 1] : 1;
+        const gridMin = baseGrid.length > 0 ? baseGrid[0] : 0.5;
+        let grid = baseGrid;
+        if (confMax < gridMin) {
+            const quantiles = [0.5, 0.6, 0.7, 0.75, 0.8, 0.85, 0.9, 0.92, 0.94, 0.95];
+            const derived = quantiles
+                .map((q) => {
+                    if (confValuesSorted.length === 0) return null;
+                    const idx = Math.max(0, Math.min(confValuesSorted.length - 1, Math.floor((confValuesSorted.length - 1) * q)));
+                    return confValuesSorted[idx];
+                })
+                .filter((v) => Number.isFinite(v));
+            grid = [...new Set(derived.map(v => Number(v.toFixed(4))))].sort((a, b) => a - b);
+        }
+
         let chosenThreshold = null;
         let chosenMetrics = null;
         grid.forEach(candidate => {
             const metrics = calculateN0BlockMetrics(bestConfList, candidate);
-            if (metrics.precision >= settings.precisionMin) {
+            if (metrics.precision >= minPrecisionForWhite) {
                 if (!chosenMetrics || metrics.f1 > chosenMetrics.f1) {
                     chosenMetrics = { ...metrics, threshold: candidate };
                     chosenThreshold = candidate;
@@ -14295,13 +14605,10 @@ function runN0Detector(history, options = {}) {
         });
 
         if (!chosenMetrics) {
-            const confValues = bestConfList
-                .map(entry => entry.confidence)
-                .filter(Number.isFinite)
-                .sort((a, b) => a - b);
-            const percentileIndex = Math.max(0, Math.min(confValues.length - 1, Math.floor(confValues.length * 0.9)));
-            const percentile90 = confValues.length > 0 ? confValues[percentileIndex] : 0.8;
-            chosenThreshold = Math.max(0.8, percentile90);
+            const percentileIndex = Math.max(0, Math.min(confValuesSorted.length - 1, Math.floor(confValuesSorted.length * 0.9)));
+            const percentile90 = confValuesSorted.length > 0 ? confValuesSorted[percentileIndex] : 0.5;
+            // fallback: usar p90 da distribuição real (não travar em 0.8, o que pode tornar o N0 impossível)
+            chosenThreshold = clamp01(percentile90);
             const fallbackMetrics = calculateN0BlockMetrics(bestConfList, chosenThreshold);
             chosenMetrics = { ...fallbackMetrics, threshold: chosenThreshold, fallback: true };
         } else if (!('threshold' in chosenMetrics)) {
@@ -14316,6 +14623,12 @@ function runN0Detector(history, options = {}) {
             validation: null
         };
         const warnings = [];
+        if (n0DataStats.history_whites === 0) {
+            warnings.push(`Histórico normalizado sem BRANCOS (W=0/${n0DataStats.history_total}) — verifique o mapeamento de cores/números.`);
+        }
+        if (n0DataStats.target_whites === 0) {
+            warnings.push(`Nenhum BRANCO nos alvos das janelas (targets W=0/${n0DataStats.windows_total}). A validação pode ficar instável.`);
+        }
 
         if (holdoutPossible && validationWindows.length >= settings.minWindowsRequired) {
             const validationContext = buildN0WindowContext(validationWindows);
@@ -14324,9 +14637,16 @@ function runN0Detector(history, options = {}) {
             holdoutInfo.validation = { ...validationMetrics, threshold: chosenThreshold };
             const trainingF1 = chosenMetrics.f1 ?? 0;
             const validationF1 = validationMetrics.f1 ?? 0;
-            if (validationMetrics.precision < settings.precisionMin) {
+            const validationWhiteTargets = validationWindows.filter(w => w && w.target === 'W').length;
+            // Se a validação tem pouquíssimos brancos, a métrica fica instável e vira "falso negativo" constante.
+            // Nesses casos, tratamos o holdout como inconclusivo (não vetar a ação), mas avisamos.
+            if (validationWhiteTargets < 2) {
+                holdoutInfo.passed = true;
+                holdoutInfo.reason = `Holdout inconclusivo: poucos brancos na validação (${validationWhiteTargets})`;
+                warnings.push(holdoutInfo.reason);
+            } else if (validationMetrics.precision < minPrecisionForWhite) {
                 holdoutInfo.passed = false;
-                holdoutInfo.reason = `Precisão da validação abaixo do mínimo (${(validationMetrics.precision * 100).toFixed(1)}% < ${(settings.precisionMin * 100).toFixed(1)}%)`;
+                holdoutInfo.reason = `Precisão da validação abaixo do mínimo (prec ${(validationMetrics.precision * 100).toFixed(1)}% < min ${(minPrecisionForWhite * 100).toFixed(1)}% • baseline ${(baselineWhite * 100).toFixed(1)}%)`;
                 warnings.push(holdoutInfo.reason);
             } else if (validationF1 < (trainingF1 - settings.holdoutTolerance)) {
                 holdoutInfo.passed = false;
@@ -14371,6 +14691,47 @@ function runN0Detector(history, options = {}) {
         }
 
         const dominantNonWhite = determineDominantNonWhite(liveWindow);
+        // ⚪ N0 Auto-aprendizado: bloquear/downgrade quando um "tipo de alerta" estiver ruim no histórico da conta.
+        // Importante: aqui NÃO relaxamos thresholds; apenas evitamos repetir contextos que dão LOSS sistemático.
+        let learningContext = '';
+        let learningKey = null;
+        let learningDecision = 'none'; // 'none' | 'blocked'
+        let learningRecentN = 0;
+        let learningRecentWinRate = null;
+        try {
+            if (livePrediction === 'W' && blockingAction !== 'no_block') {
+                learningContext = buildN0LearningContextKey({
+                    windowChars: liveWindow,
+                    dominantNonWhite,
+                    maxTail: 12
+                });
+                learningKey = buildN0SelfLearningKey(learningContext, blockingAction, bestDetailed.cfg);
+                const st = learningKey ? getN0SelfLearningStatsForKey(learningKey) : null;
+                if (st) {
+                    learningRecentN = st.recentN || 0;
+                    learningRecentWinRate = st.recentWinRate;
+                }
+
+                const store = signalsHistory && signalsHistory.n0SelfLearning ? signalsHistory.n0SelfLearning : null;
+                const clampFactor = (v, min, max, fallback) => {
+                    const n = Number(v);
+                    if (!Number.isFinite(n)) return fallback;
+                    return Math.max(min, Math.min(max, n));
+                };
+                const minSamples = Math.max(3, Math.min(120, Math.floor(Number(store?.minSamples) || 8)));
+                const badFactor = clampFactor(store?.badFactor, 0.1, 2.0, 0.8);
+                const baseline = clamp01(baselineWhite);
+                const badWinRate = clamp01(baseline * badFactor);
+
+                if (learningRecentWinRate != null && learningRecentN >= minSamples && learningRecentWinRate <= badWinRate) {
+                    blockingAction = 'no_block';
+                    learningDecision = 'blocked';
+                    warnings.push(
+                        `AutoApr N0: bloqueado (${(learningRecentWinRate * 100).toFixed(1)}% em ${learningRecentN} • base ${(baseline * 100).toFixed(1)}%)`
+                    );
+                }
+            }
+        } catch (_) {}
 
         const topCandidates = topEvaluations.slice(0, Math.min(10, topEvaluations.length)).map(entry => ({
             id: entry.cfg.id,
@@ -14383,7 +14744,14 @@ function runN0Detector(history, options = {}) {
             run_id: runId,
             timestamp: runTimestamp,
             history_size: settings.historySize,
+            available_history: stableWindow && stableWindow.meta ? stableWindow.meta.availableHistory : undefined,
+            unique_history: stableWindow && stableWindow.meta ? stableWindow.meta.uniqueCount : undefined,
+            dropped_duplicates: stableWindow && stableWindow.meta ? stableWindow.meta.droppedDuplicates : undefined,
+            dropped_invalid_ts: stableWindow && stableWindow.meta ? stableWindow.meta.droppedInvalidTs : undefined,
+            used_history_size: stableWindow && stableWindow.meta ? stableWindow.meta.usedHistoryLimit : undefined,
             window_size: settings.windowSize,
+            window_stride: stride,
+            offset_step: offsetStep,
             analyses_to_run: settings.analysesToRun,
             min_windows_required: settings.minWindowsRequired,
             seed: settings.seed
@@ -14394,14 +14762,14 @@ function runN0Detector(history, options = {}) {
         const precisionDisplay = bestMetrics.precision != null ? (bestMetrics.precision * 100).toFixed(1) : 'n/d';
         const recallDisplay = bestMetrics.recall != null ? (bestMetrics.recall * 100).toFixed(1) : 'n/d';
         const coverageDisplay = bestMetrics.coverage != null ? (bestMetrics.coverage * 100).toFixed(1) : 'n/d';
-        console.log(`✅ [N8] Melhor análise: ${bestDescription} | F1 ${f1Display}% | prec ${precisionDisplay}% | rec ${recallDisplay}% | coverage ${coverageDisplay}% | n_preds ${bestMetrics.n_preds}/${bestMetrics.n_windows}`);
+        console.log(`✅ [N0] Melhor análise: ${bestDescription} | F1 ${f1Display}% | prec ${precisionDisplay}% | rec ${recallDisplay}% | coverage ${coverageDisplay}% | n_preds ${bestMetrics.n_preds}/${bestMetrics.n_windows}`);
         const finalColor = livePrediction === 'W' ? 'white' : null;
         const finalConfidence = liveConfidence;
         const thresholdGate = chosenThreshold;
         if (finalColor) {
-            console.log(`🎯 [N8] Voto ao vivo: ${finalColor.toUpperCase()} (confiança ${(finalConfidence * 100).toFixed(1)}%) | conf_live ${Math.round(liveConfidence * 100)}% | t* ${Math.round(thresholdGate * 100)}%`);
+            console.log(`🎯 [N0] Voto ao vivo: ${finalColor.toUpperCase()} (confiança ${(finalConfidence * 100).toFixed(1)}%) | conf_live ${Math.round(liveConfidence * 100)}% | t* ${Math.round(thresholdGate * 100)}%`);
         } else {
-            console.log(`⚠️ [N8] Sem voto ao vivo (conf ${Math.round(liveConfidence * 100)}% | limiar ${Math.round(thresholdGate * 100)}%${holdoutInfo.passed ? '' : ' | holdout reprovado'})`);
+            console.log(`⚠️ [N0] Sem voto ao vivo (conf ${Math.round(liveConfidence * 100)}% | limiar ${Math.round(thresholdGate * 100)}%${holdoutInfo.passed ? '' : ' | holdout reprovado'})`);
         }
 
         return {
@@ -14423,6 +14791,12 @@ function runN0Detector(history, options = {}) {
             n_windows: windows.length,
             holdout: holdoutInfo,
             config_library: candidateConfigs,
+            // Auto-aprendizado (N0)
+            learning_context: learningContext || null,
+            learning_key: learningKey || null,
+            learning_decision: learningDecision,
+            learning_recent_n: learningRecentN || 0,
+            learning_recent_win_rate: learningRecentWinRate,
             warnings
         };
     } catch (error) {
@@ -17323,6 +17697,25 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
                 `Configs: ${n0Result && n0Result.effective_configs != null ? `${n0Result.effective_configs}/${n0Result.tested_configs}` : (n0Result && n0Result.tested_configs != null ? n0Result.tested_configs : 'n/d')}\n` +
                 `Ação: BLOCK ALL${n0ActionSuppressed ? ' (modo informativo)' : ''}`;
 
+            const diamondN0 = (() => {
+                try {
+                    if (!n0Enabled) return null;
+                    if (!n0Result || n0Result.enabled === false) return null;
+                    const key = (n0Result && typeof n0Result.learning_key === 'string') ? n0Result.learning_key : null;
+                    const ctx = (n0Result && typeof n0Result.learning_context === 'string') ? n0Result.learning_context : null;
+                    return {
+                        voteColor: 'white',
+                        key,
+                        ctx,
+                        usedInFinal: true,
+                        decision: (n0Result && typeof n0Result.learning_decision === 'string') ? n0Result.learning_decision : 'none',
+                        action: (n0Result && typeof n0Result.blocking_action === 'string') ? n0Result.blocking_action : 'block_all'
+                    };
+                } catch (_) {
+                    return null;
+                }
+            })();
+
             const signal = {
                 timestamp: Date.now(),
                 patternType: 'nivel-diamante',
@@ -17366,7 +17759,8 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
                 probability: whiteConfidencePct,
                 reasoning,
                 patternDescription: 'Detector de Branco (N0)',
-                diamondSourceLevel
+                diamondSourceLevel,
+                diamondN0
             };
         }
 
@@ -17708,6 +18102,26 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
                 return null;
             }
         })();
+        const diamondN0 = (() => {
+            try {
+                if (!n0Enabled) return null;
+                if (!n0Result || n0Result.enabled === false) return null;
+                const pred = (n0Result && n0Result.pred_live === 'W') ? 'white' : null;
+                if (!pred) return null;
+                const key = (n0Result && typeof n0Result.learning_key === 'string') ? n0Result.learning_key : null;
+                const ctx = (n0Result && typeof n0Result.learning_context === 'string') ? n0Result.learning_context : null;
+                return {
+                    voteColor: 'white',
+                    key,
+                    ctx,
+                    usedInFinal: String(finalColor || '').toLowerCase() === 'white',
+                    decision: (n0Result && typeof n0Result.learning_decision === 'string') ? n0Result.learning_decision : 'none',
+                    action: (n0Result && typeof n0Result.blocking_action === 'string') ? n0Result.blocking_action : 'no_block'
+                };
+            } catch (_) {
+                return null;
+            }
+        })();
 
         const intensityLabel = signalIntensity === 'conservative' ? 'Conservador' : 'Agressivo';
         const reasoning =
@@ -17766,7 +18180,8 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
             patternDescription: patternDescription,
             safeZone: safeZoneMeta,
             diamondSourceLevel,
-            diamondN4
+            diamondN4,
+            diamondN0
         };
 
         /* LEGACY VOTING BLOCK (COMENTADO)
@@ -19259,6 +19674,8 @@ async function runAnalysisController(history) {
                     diamondSourceLevel: aiResult.diamondSourceLevel || null,
                     // 💎 N4: meta do auto-aprendizado (para auditoria/debug; não afeta UI se não usado)
                     diamondN4: aiResult.diamondN4 || null,
+                    // ⚪ N0: meta do auto-aprendizado (para auditoria/debug; não afeta UI se não usado)
+                    diamondN0: aiResult.diamondN0 || null,
 					last10Spins: last10SpinsForDescription,
 					last5Spins: last10SpinsForDescription ? last10SpinsForDescription.slice(0, 10) : [], // ✅ Mostrando últimos 10 giros
 					reasoning: aiResult.reasoning || aiResult.patternDescription || 'Análise baseada nos últimos ' + aiHistorySizeUsed + ' giros do histórico.',
@@ -19281,6 +19698,7 @@ async function runAnalysisController(history) {
 					confidence: aiResult.confidence,
                     diamondSourceLevel: aiResult.diamondSourceLevel || null,
                     diamondN4: aiResult.diamondN4 || null,
+                    diamondN0: aiResult.diamondN0 || null,
 					patternDescription: aiDescription,
 					last10Spins: last10SpinsForDescription, // ✅ INCLUIR DIRETAMENTE para facilitar acesso
 					last5Spins: last10SpinsForDescription ? last10SpinsForDescription.slice(0, 10) : [], // ✅ Mostrando últimos 10 giros
