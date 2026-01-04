@@ -1135,56 +1135,106 @@
    ═══════════════════════════════════════════════════════════════ */
 
 .moment-quality-bar {
+  width: 100%;
+  box-sizing: border-box;
   margin: 10px 0 8px 0;
   padding: 0;
   user-select: none;
 }
 
+.moment-quality-title {
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+  color: rgba(233, 242, 255, 0.92);
+  margin: 0;
+}
+
+.moment-quality-header {
+  position: relative;
+  display: flex;
+  align-items: center;
+  height: 18px;
+  margin: 0 0 6px 0;
+}
+
+.moment-quality-track-wrap {
+  position: relative;
+  padding-top: 18px; /* espaço para o texto na ponta (sem ser cortado pela track) */
+}
+
 .moment-quality-track {
   height: 6px;
   width: 100%;
-  background: rgba(255, 255, 255, 0.10);
-  border-radius: 999px;
+  /* ✅ mais visível no fundo escuro (barra vazia deve aparecer) */
+  background: rgba(255, 255, 255, 0.14);
+  border-radius: 4px;
   overflow: hidden;
   border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .moment-quality-fill {
+  --mq-progress: 1;
   height: 100%;
   width: 0%;
-  background: #facc15; /* default (base/aguardando) */
-  transition: width 220ms ease, background 220ms ease, filter 220ms ease;
+  background: linear-gradient(90deg, #F44336 0%, #FF9800 50%, #4CAF50 100%);
+  /* manter o gradiente “ancorado” na barra inteira (igual ao medidor de confiança) */
+  background-size: calc(100% / var(--mq-progress, 1)) 100%;
+  background-position: left;
+  border-radius: 4px;
+  transition: width 0.5s ease;
   will-change: width;
+  max-width: 100%;
 }
 
-.moment-quality-bar[data-level="bad"] .moment-quality-fill {
-  background: #ef4444;
+.moment-quality-tip {
+  position: absolute;
+  top: 0;
+  left: 0%;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+  color: rgba(233, 242, 255, 0.92);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 55%;
+  pointer-events: none;
+  transition: left 0.5s ease, color 0.2s ease;
 }
 
-.moment-quality-bar[data-level="good"] .moment-quality-fill {
-  background: linear-gradient(90deg, rgba(250, 204, 21, 0.95) 0%, rgba(34, 197, 94, 0.95) 100%);
+.moment-quality-title,
+.moment-quality-tip {
+  line-height: 18px; /* garante alinhamento vertical perfeito entre os dois */
 }
 
-.moment-quality-bar[data-level="great"] .moment-quality-fill {
-  background: #22c55e;
+.moment-quality-tip[data-level="bad"] {
+  color: rgba(244, 67, 54, 0.95);
+}
+.moment-quality-tip[data-level="good"] {
+  color: rgba(255, 152, 0, 0.95);
+}
+.moment-quality-tip[data-level="great"] {
+  color: rgba(76, 175, 80, 0.95);
 }
 
 .moment-quality-labels {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 10px;
-  margin-top: 6px;
-  font-size: 10px;
-  letter-spacing: 0.5px;
-  text-transform: uppercase;
-  color: rgba(205, 214, 232, 0.72);
+  display: none;
 }
 
 .moment-quality-labels .mq-label {
   opacity: 0.55;
   font-weight: 800;
+  white-space: nowrap; /* ✅ nunca quebrar "MUITO BOM" */
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
+
+.moment-quality-labels .mq-label[data-mq="bad"] { text-align: left; }
+.moment-quality-labels .mq-label[data-mq="good"] { text-align: center; }
+.moment-quality-labels .mq-label[data-mq="great"] { text-align: right; }
 
 .moment-quality-labels .mq-label.active {
   opacity: 1;
@@ -10074,6 +10124,15 @@ body.da-ext-fullscreen #patternDetailsModal .bank-patterns-modal-content {
 
   #blaze-double-analyzer.da-desktop-dashboard #analyzerDefaultView .entries-section.da-card { grid-column: span 8; }
   #blaze-double-analyzer.da-desktop-dashboard #analyzerDefaultView .pattern-section.da-card { grid-column: span 4; }
+
+  /* ✅ Momento (barra Ruim/Bom/Muito bom): ocupar a linha toda (12 colunas) */
+  #blaze-double-analyzer.da-desktop-dashboard #analyzerDefaultView #momentQualityBar.moment-quality-bar {
+    /* ocupar somente a largura do bloco IA/Recuperação/Gráfico (span 8) */
+    grid-column: 1 / span 8;
+    margin: 2px 0 0 0;
+    justify-self: stretch;
+    align-self: stretch;
+  }
 
   #blaze-double-analyzer.da-desktop-dashboard #analyzerDefaultView .pattern-bank-section.da-card { grid-column: span 4; }
   #blaze-double-analyzer.da-desktop-dashboard #analyzerDefaultView .observer-section.da-card { grid-column: span 8; }

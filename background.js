@@ -726,10 +726,29 @@ function filterEntriesHistoryByCutoff(entriesHistoryRaw, cutoffMs) {
     const list = Array.isArray(entriesHistoryRaw) ? entriesHistoryRaw : [];
     const c = Number(cutoffMs);
     if (!Number.isFinite(c) || c <= 0) return list;
-    return list.filter(e => {
+    // ✅ Otimização: entriesHistory é newest-first; parar assim que cruzar o cutoff (evita varrer histórico enorme)
+    const out = [];
+    let prevTs = Infinity;
+    let monotonic = true;
+    for (let i = 0; i < list.length; i++) {
+        const e = list[i];
         const ts = getEntryTimestampMsForHistory(e);
-        return ts >= c;
-    });
+        if (!Number.isFinite(ts) || ts <= 0) {
+            // comportamento anterior: ts inválido seria filtrado fora (0 < cutoff)
+            continue;
+        }
+        if (ts > prevTs + 2000) {
+            // timestamps fora de ordem → não podemos fazer early-break com segurança
+            monotonic = false;
+        }
+        prevTs = ts;
+        if (ts < c) {
+            if (monotonic) break;
+            continue;
+        }
+        out.push(e);
+    }
+    return out;
 }
 
 const SAFE_ZONE_DEFAULTS = Object.freeze({
@@ -19538,7 +19557,14 @@ ${Object.keys(byType).length > 10 ? `║     • ... e mais ${Object.keys(byType
 }
 
 // Carrega o banco de padrões salvos
+// ✅ Cache em memória: evita chrome.storage.get a cada giro (hot-path do sinal)
+let __patternDBCache = null;
+let __patternDBCacheAt = 0;
 async function loadPatternDB(silent = false) {
+	// Cache simples (o banco só muda via savePatternDB/clearAllPatterns nesta sessão)
+	if (__patternDBCache && __patternDBCache.patterns_found) {
+		return __patternDBCache;
+	}
 	const res = await chrome.storage.local.get(['patternDB']);
 	const db = res.patternDB && Array.isArray(res.patternDB.patterns_found)
 		? res.patternDB
@@ -19585,12 +19611,19 @@ async function loadPatternDB(silent = false) {
 	if (!silent && !initialSearchActive) {
 		logPatternDBStats(db, 'load');
 	}
-	
+
+	// Persistir no cache em memória
+	__patternDBCache = db;
+	__patternDBCacheAt = Date.now();
 	return db;
 }
 
 // Salva o banco de padrões (APENAS LOCALMENTE)
 async function savePatternDB(db) {
+	// Atualizar cache em memória imediatamente
+	__patternDBCache = db;
+	__patternDBCacheAt = Date.now();
+
 	// Salvar APENAS localmente (não envia para servidor)
 	await chrome.storage.local.set({ patternDB: db });
 	
@@ -19609,6 +19642,8 @@ async function clearAllPatterns() {
 	console.log('🗑️ Limpando banco de padrões...');
 	const emptyDB = { patterns_found: [], version: 1 };
 	await chrome.storage.local.set({ patternDB: emptyDB });
+	// ✅ Cache em memória: invalidar imediatamente (evita usar padrões antigos no hot-path)
+	try { __patternDBCache = emptyDB; __patternDBCacheAt = Date.now(); } catch (_) {}
 	
 	// 2. ✅ NÃO LIMPAR análise pendente (ela deve persistir se estiver aguardando resultado)
 	// A análise só deve ser limpa quando:
@@ -19647,6 +19682,8 @@ async function clearAllPatternsAndAnalysis() {
 	console.log('🗑️ Limpando banco de padrões...');
 	const emptyDB = { patterns_found: [], version: 1 };
 	await chrome.storage.local.set({ patternDB: emptyDB });
+	// ✅ Cache em memória: invalidar imediatamente (evita usar padrões antigos no hot-path)
+	try { __patternDBCache = emptyDB; __patternDBCacheAt = Date.now(); } catch (_) {}
 	
 	// 2. ✅ LIMPAR análise e padrão atual (incluindo análise pendente)
 	console.log('🗑️ Limpando análise pendente e padrão atual...');
@@ -20015,7 +20052,146 @@ function isDuplicatePattern(newPattern, existingPatterns) {
 
 // Verificação: compara head do histórico com padrões salvos e retorna melhor sinal
 // ✅ Aceita db opcional para simulações/otimizações (evita loadPatternDB a cada giro)
+// ✅ Premium: manter o algoritmo LEGACY como padrão (idêntico ao comportamento anterior),
+// porque o modo FAST pode alterar confiança/seleção em alguns cenários.
 async function verifyWithSavedPatterns(history, dbOverride = null) {
+	return verifyWithSavedPatternsLegacy(history, dbOverride);
+}
+
+// FAST (tempo real) — opcional (não usado por padrão)
+async function verifyWithSavedPatternsFast(history, dbOverride = null) {
+	try {
+		if (!history || !Array.isArray(history) || history.length < 3) return null;
+
+		// Banco de padrões (cache em memória via loadPatternDB)
+		const db = dbOverride || await loadPatternDB(true);
+		const patterns = db && Array.isArray(db.patterns_found) ? db.patterns_found : [];
+		if (!patterns.length) return null;
+
+		const requireTrigger = !!(analyzerConfig && analyzerConfig.requireTrigger);
+		const minPatternSizeGate = clampInt(
+			analyzerConfig?.minPatternSize ?? DEFAULT_ANALYZER_CONFIG.minPatternSize,
+			2,
+			50
+		);
+		const minWinsGate = Math.max(analyzerConfig?.minOccurrences || 1, 1);
+		const winPercentOthersThreshold = Number(analyzerConfig?.winPercentOthers || 0) || 0;
+
+		const createdOnTimestamp = (history[0] && (history[0].created_at ?? history[0].timestamp)) || new Date().toISOString();
+
+		let best = null;
+		let bestOcc = -1;
+		let bestWins = -1;
+
+		for (const pat of patterns) {
+			if (!pat || !Array.isArray(pat.pattern) || pat.pattern.length === 0) continue;
+			const need = pat.pattern.length;
+			if (need < minPatternSizeGate) continue;
+			if (history.length < need) continue;
+
+			// Match do HEAD sem slice/map (zero alocação)
+			let headMatch = true;
+			for (let j = 0; j < need; j++) {
+				const c = history[j] ? history[j].color : null;
+				if (c !== pat.pattern[j]) { headMatch = false; break; }
+			}
+			if (!headMatch) continue;
+
+			let suggested = pat.expected_next || pat.suggestedColor;
+			if (!suggested) continue;
+			suggested = normalizeColorName(suggested) || suggested;
+
+			// Cor de disparo atual (antes do padrão head)
+			const currentTrigger = (history[need] && history[need].color) ? history[need].color : null;
+			const currentTriggerNorm = normalizeColorName(currentTrigger);
+			const firstPatternNorm = normalizeColorName(getInitialPatternColor(pat.pattern));
+			if (!firstPatternNorm) continue;
+
+			if (requireTrigger) {
+				if (!currentTriggerNorm) continue;
+				const validation = validateDisparoColor(firstPatternNorm, currentTriggerNorm);
+				if (!validation.valid) continue;
+			}
+
+			// Estatísticas pré-computadas do banco (evita varrer 10k giros no hot-path)
+			const wins = Number.isFinite(Number(pat.total_wins)) ? Number(pat.total_wins) : 0;
+			const losses = Number.isFinite(Number(pat.total_losses)) ? Number(pat.total_losses) : 0;
+			const total = wins + losses;
+			const occ = Math.max(Number(pat.occurrences) || total || 0, 0);
+			const balance = total > 0 ? (wins - losses) : null;
+			const winPct = total > 0 ? (wins / total) * 100 : null;
+
+			if (total > 0 && wins < minWinsGate) continue;
+			if (total > 0 && balance !== null && balance <= 0) continue;
+
+			// Gate por WIN% (aproximação robusta pelo winPct global do padrão)
+			if (winPercentOthersThreshold > 0) {
+				if (winPct !== null) {
+					if (winPct < winPercentOthersThreshold) continue;
+				} else {
+					const rawFallback = typeof pat.confidence === 'number' ? pat.confidence : 0;
+					if (rawFallback < winPercentOthersThreshold) continue;
+				}
+			}
+
+			const patternName = identifyPatternType(pat.pattern, null);
+			const rawPatternConfidence = typeof pat.confidence === 'number' ? pat.confidence : 70;
+			const patternConfidence = applyCalibratedConfidence(rawPatternConfidence);
+
+			const patternDesc = {
+				colorAnalysis: {
+					pattern: pat.pattern,
+					occurrences: occ,
+					patternType: patternName,
+					triggerColor: currentTrigger || null,
+					summary: {
+						occurrences: occ,
+						wins,
+						losses,
+						winPct,
+						lossPct: (winPct !== null) ? Math.max(0, 100 - winPct) : null,
+						balance,
+						sampleMin: minWinsGate,
+						patternLength: need
+					}
+				},
+				patternType: patternName,
+				expected_next: suggested,
+				id: pat.id,
+				found_at: pat.found_at
+			};
+
+			const candidate = {
+				color: suggested,
+				suggestion: 'Padrão salvo',
+				confidence: patternConfidence,
+				patternDescription: JSON.stringify(patternDesc),
+				createdOnTimestamp,
+				predictedFor: 'next',
+				phase: 'G0'
+			};
+
+			if (
+				!best ||
+				(candidate.confidence > best.confidence) ||
+				(candidate.confidence === best.confidence && occ > bestOcc) ||
+				(candidate.confidence === best.confidence && occ === bestOcc && wins > bestWins)
+			) {
+				best = candidate;
+				bestOcc = occ;
+				bestWins = wins;
+			}
+		}
+
+		return best;
+	} catch (e) {
+		console.warn('⚠️ verifyWithSavedPatterns(fast) falhou - retornando null:', e && e.message ? e.message : e);
+		return null;
+	}
+}
+
+// Legacy (mantido para auditoria / comparações)
+async function verifyWithSavedPatternsLegacy(history, dbOverride = null) {
 	if (!history || history.length < 3) return null;
 	const db = dbOverride || await loadPatternDB();
 	if (!db.patterns_found || db.patterns_found.length === 0) return null;
@@ -27803,7 +27979,70 @@ async function attachMasterSignalToAnalysis(analysis, mode) {
         const stored = await chrome.storage.local.get(['entriesHistory', ENTRIES_CLEAR_CUTOFF_KEY]);
         const entriesHistoryAll = stored && Array.isArray(stored.entriesHistory) ? stored.entriesHistory : [];
         const cutoffMs = getMasterCutoffMsForMode(stored ? stored[ENTRIES_CLEAR_CUTOFF_KEY] : null, mode);
-        const entriesHistory = filterEntriesHistoryByCutoff(entriesHistoryAll, cutoffMs);
+
+        // ✅ Hot-path: para o Diamante também, NÃO podemos varrer histórico inteiro.
+        // Montar uma janela curta (por ciclos) e parar cedo (newest-first).
+        const buildEntriesWindowForMaster = (all, cutoff, modeRaw) => {
+            try {
+                const list = Array.isArray(all) ? all : [];
+                const modeKey = normalizeMasterMode(modeRaw);
+                const c = Number(cutoff);
+                const hasCutoff = Number.isFinite(c) && c > 0;
+
+                // Quantos ciclos a Fase 2 usa no máximo (V2 > V1)
+                let maxCycles = 200;
+                try {
+                    if (typeof MASTER_SIGNAL_CONFIG_V2 !== 'undefined' && MASTER_SIGNAL_CONFIG_V2 && MASTER_SIGNAL_CONFIG_V2.maxCyclesForStats) {
+                        maxCycles = Math.floor(Number(MASTER_SIGNAL_CONFIG_V2.maxCyclesForStats) || maxCycles);
+                    } else if (typeof MASTER_SIGNAL_CONFIG !== 'undefined' && MASTER_SIGNAL_CONFIG && MASTER_SIGNAL_CONFIG.maxCyclesForStats) {
+                        maxCycles = Math.floor(Number(MASTER_SIGNAL_CONFIG.maxCyclesForStats) || maxCycles);
+                    }
+                } catch (_) {}
+                maxCycles = Math.max(50, Math.min(1000, maxCycles || 200));
+                const targetFinals = maxCycles;
+                const hardCapEntries = Math.max(500, targetFinals * 8); // segurança: inclui intermediários se existirem
+
+                const hasExplicitMode = list.some(e => e && (e.analysisMode === 'diamond' || e.analysisMode === 'standard'));
+                let finals = 0;
+                const out = [];
+                let prevTs = Infinity;
+                let monotonic = true;
+
+                for (let i = 0; i < list.length; i++) {
+                    const e = list[i];
+                    if (!e || typeof e !== 'object') continue;
+
+                    const ts = getEntryTimestampMsForHistory(e);
+                    if (Number.isFinite(ts) && ts > 0) {
+                        if (ts > prevTs + 2000) monotonic = false;
+                        prevTs = ts;
+                        if (hasCutoff && ts < c) {
+                            if (monotonic) break;
+                            continue;
+                        }
+                    } else {
+                        // cutoff ativo: ts inválido seria filtrado fora → ignorar
+                        if (hasCutoff) continue;
+                    }
+
+                    const entryMode = resolveEntryModeMaster(e, hasExplicitMode);
+                    if (entryMode !== modeKey) continue;
+                    out.push(e);
+
+                    if (isFinalCycleMaster(e)) {
+                        finals++;
+                        if (finals >= targetFinals) break;
+                    }
+                    if (out.length >= hardCapEntries) break;
+                }
+
+                return out;
+            } catch (_) {
+                return Array.isArray(all) ? all : [];
+            }
+        };
+
+        const entriesHistory = buildEntriesWindowForMaster(entriesHistoryAll, cutoffMs, mode);
         const masterSignal = computeMasterSignalDecision(entriesHistory, mode, analysis);
 
         const updated = { ...analysis, masterSignal };

@@ -5528,7 +5528,85 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
         const baseStake = Math.max(0.01, Number(autoBetConfig.baseStake ?? 2) || 2);
         const whitePayoutMultiplier = Math.max(2, Number(autoBetConfig.whitePayoutMultiplier ?? 14) || 14);
 
-        const deltas = attemptsChron.map(e => {
+        // ✅ Correção: garantir consistência financeira no gráfico (sem "saldo maluco")
+        // Problema real: entradas intermediárias (LOSS em G1/G2...) podem não ter stakeAmount/baseStakeSnapshot
+        // e então o gráfico recalcula com a CONFIG ATUAL (errado quando o usuário mudou a configuração).
+        // Solução: preencher stakeAmount/baseStakeSnapshot/galeMultiplierSnapshot usando o ciclo (cycleId) quando possível.
+        const patchedAttemptsChron = (() => {
+            try {
+                const out = attemptsChron.map((e) => (e && typeof e === 'object') ? { ...e } : e);
+                let currentCycleId = null;
+                let currentBase = null;
+                let currentMult = null;
+
+                const isFinalCycleEntry = (e) => {
+                    const fr = e && e.finalResult ? String(e.finalResult).toUpperCase().trim() : '';
+                    return fr === 'WIN' || fr === 'RED' || fr === 'RET';
+                };
+
+                for (let i = 0; i < out.length; i++) {
+                    const e = out[i];
+                    if (!e || typeof e !== 'object') continue;
+
+                    const cycleId = (e.cycleId != null && String(e.cycleId).trim().length > 0) ? e.cycleId : null;
+                    if (cycleId != null) {
+                        currentCycleId = cycleId;
+                        const b = Number(e.baseStakeSnapshot);
+                        const m = Number(e.galeMultiplierSnapshot);
+                        if (Number.isFinite(b) && b > 0) currentBase = b;
+                        if (Number.isFinite(m) && m > 0) currentMult = m;
+                    } else if (currentCycleId != null) {
+                        e.cycleId = currentCycleId;
+                    }
+
+                    if ((!Number.isFinite(Number(e.baseStakeSnapshot)) || Number(e.baseStakeSnapshot) <= 0) && currentBase != null) {
+                        e.baseStakeSnapshot = currentBase;
+                    }
+                    if ((!Number.isFinite(Number(e.galeMultiplierSnapshot)) || Number(e.galeMultiplierSnapshot) <= 0) && currentMult != null) {
+                        e.galeMultiplierSnapshot = currentMult;
+                    }
+
+                    const stageIdx = stageIndexFromEntry(e);
+                    const baseForStake = (Number.isFinite(Number(e.baseStakeSnapshot)) && Number(e.baseStakeSnapshot) > 0)
+                        ? Number(e.baseStakeSnapshot)
+                        : baseStake;
+                    const multForStake = (Number.isFinite(Number(e.galeMultiplierSnapshot)) && Number(e.galeMultiplierSnapshot) > 0)
+                        ? Number(e.galeMultiplierSnapshot)
+                        : galeMult;
+
+                    // Preencher stakeAmount quando ausente (principalmente LOSS intermediário)
+                    if (!Number.isFinite(Number(e.stakeAmount)) || Number(e.stakeAmount) <= 0) {
+                        e.stakeAmount = Number((baseForStake * Math.pow(multForStake, stageIdx)).toFixed(2));
+                    }
+
+                    // Preencher betColor/payoutMultiplier em casos legados (evita white payout errado)
+                    if (!e.betColor) {
+                        const bc = String(e?.patternData?.color || e?.analysis?.color || '').toLowerCase().trim();
+                        if (bc) e.betColor = bc;
+                    }
+                    if (e.result === 'WIN') {
+                        const pm = Number(e.payoutMultiplier);
+                        if (!Number.isFinite(pm) || pm <= 0) {
+                            const bc = String(e.betColor || '').toLowerCase();
+                            e.payoutMultiplier = (bc === 'white') ? whitePayoutMultiplier : 2;
+                        }
+                    }
+
+                    if (isFinalCycleEntry(e)) {
+                        // Encerrar contexto do ciclo (evita “vazar” snapshots para o ciclo seguinte)
+                        currentCycleId = null;
+                        currentBase = null;
+                        currentMult = null;
+                    }
+                }
+
+                return out;
+            } catch (_) {
+                return attemptsChron;
+            }
+        })();
+
+        const deltas = patchedAttemptsChron.map(e => {
             const stageIdx = stageIndexFromEntry(e);
             const stake = Number(e?.stakeAmount) || Number((baseStake * Math.pow(galeMult, stageIdx)).toFixed(2));
             const betColor = String(e?.betColor || (e?.patternData?.color ?? '')).toLowerCase() || resolveBetColor(e);
@@ -12176,14 +12254,15 @@ async function persistAnalyzerState(newState) {
                  📊 Momento (Qualidade dos sinais) — Ruim / Bom / Muito bom
                  Baseado nos últimos ciclos FINALIZADOS (WIN/LOSS) da aba IA
                  ═══════════════════════════════════════════════════════════════ -->
-            <div class="moment-quality-bar" id="momentQualityBar" data-level="none" title="Aguardando base de sinais...">
-                <div class="moment-quality-track" aria-hidden="true">
-                    <div class="moment-quality-fill" id="momentQualityFill" style="width:0%"></div>
+            <div class="moment-quality-bar" id="momentQualityBar" data-level="none" title="Assertividade no momento (aguardando base de sinais)...">
+                <div class="moment-quality-header">
+                    <div class="moment-quality-title">Assertividade do momento</div>
+                    <div class="moment-quality-tip" id="momentQualityTip" data-level="none" style="display:none;">&nbsp;</div>
                 </div>
-                <div class="moment-quality-labels" aria-hidden="true">
-                    <span class="mq-label" data-mq="bad">Ruim</span>
-                    <span class="mq-label" data-mq="good">Bom</span>
-                    <span class="mq-label" data-mq="great">Muito bom</span>
+                <div class="moment-quality-track-wrap" aria-hidden="true">
+                    <div class="moment-quality-track">
+                        <div class="moment-quality-fill" id="momentQualityFill" style="width:0%"></div>
+                    </div>
                 </div>
             </div>
 
@@ -15732,9 +15811,8 @@ async function persistAnalyzerState(newState) {
     // - Com 20+ ciclos, usa a janela 20 (mais estável)
     // ═══════════════════════════════════════════════════════════════
     const MOMENT_QUALITY_MIN_CYCLES = 10;
-    const MOMENT_QUALITY_FULL_CYCLES = 20;
-    const MOMENT_QUALITY_BAD_BELOW = 70;   // < 70% = Ruim
-    const MOMENT_QUALITY_GREAT_FROM = 85;  // >= 85% = Muito bom (entre = Bom)
+    const MOMENT_QUALITY_FULL_CYCLES = 25; // janela de "momento" (mais conservadora)
+    const MOMENT_QUALITY_GOOD_FROM = 88;   // >= 88% = Bom
 
     function clampPct(value) {
         const n = Number(value);
@@ -15752,10 +15830,56 @@ async function persistAnalyzerState(newState) {
     function updateMomentQualityBar(finalCycles) {
         const bar = document.getElementById('momentQualityBar');
         const fill = document.getElementById('momentQualityFill');
+        const tip = document.getElementById('momentQualityTip');
         if (!bar || !fill) return;
 
-        const labels = bar.querySelectorAll('.mq-label');
-        labels.forEach((el) => el.classList.remove('active'));
+        const headerEl = bar.querySelector('.moment-quality-header');
+        const titleEl = bar.querySelector('.moment-quality-title');
+        const setTip = (text, level = 'none', posPct = 0, visible = true) => {
+            if (!tip) return;
+            try {
+                tip.textContent = String(text || '');
+                tip.setAttribute('data-level', String(level || 'none'));
+                tip.style.display = visible ? 'block' : 'none';
+                if (!visible) return;
+
+                const pos = clampPct(posPct);
+                if (!headerEl) return;
+
+                // ✅ Alinhar a última letra do texto na ponta do preenchimento:
+                // rightEdge(px) = pos% do header
+                requestAnimationFrame(() => {
+                    try {
+                        const wrap = headerEl.getBoundingClientRect();
+                        const wrapW = Math.max(1, wrap.width);
+
+                        // medir tip (já com texto atualizado)
+                        const tipRect = tip.getBoundingClientRect();
+                        const tipW = Math.max(1, tipRect.width);
+
+                        // direita desejada (px, relativo ao header)
+                        const desiredRight = (pos / 100) * wrapW;
+
+                        // limite para não invadir o título
+                        let minLeftEdge = 0;
+                        if (titleEl) {
+                            const tr = titleEl.getBoundingClientRect();
+                            minLeftEdge = Math.max(0, (tr.right - wrap.left) + 10); // 10px gap
+                        }
+                        const minRight = Math.min(wrapW, minLeftEdge + tipW);
+
+                        // clamp final do rightEdge
+                        let rightEdge = desiredRight;
+                        if (rightEdge < minRight) rightEdge = minRight;
+                        if (rightEdge > wrapW) rightEdge = wrapW;
+                        if (rightEdge < tipW) rightEdge = tipW;
+
+                        tip.style.left = `${rightEdge}px`;
+                        tip.style.transform = 'translateX(-100%)';
+                    } catch (_) {}
+                });
+            } catch (_) {}
+        };
 
         const cycles = Array.isArray(finalCycles)
             ? finalCycles.filter((e) => e && (e.result === 'WIN' || e.result === 'LOSS'))
@@ -15765,32 +15889,59 @@ async function persistAnalyzerState(newState) {
 
         // Antes da base mínima: mostrar progresso até 10 (sem classificar)
         if (total < MOMENT_QUALITY_MIN_CYCLES) {
-            const progress = clampPct((total / MOMENT_QUALITY_MIN_CYCLES) * 100);
             bar.setAttribute('data-level', 'none');
-            fill.style.width = `${progress}%`;
-            bar.title = `Aguardando base: ${total}/${MOMENT_QUALITY_MIN_CYCLES} ciclos finalizados`;
+            // ✅ Pedido: barra vazia e SEM mensagem (apenas título)
+            fill.style.width = `0%`;
+            fill.style.setProperty('--mq-progress', String(0.001));
+            setTip('', 'none', 0, false);
+            bar.title = `Assertividade do momento • Aguardando base: ${total}/${MOMENT_QUALITY_MIN_CYCLES} ciclos finalizados`;
             return;
         }
 
         const windowSize = Math.min(MOMENT_QUALITY_FULL_CYCLES, total);
         const sample = cycles.slice(0, windowSize); // mais recentes (array é newest-first)
         const wins = sample.reduce((acc, e) => acc + (e.result === 'WIN' ? 1 : 0), 0);
+        const losses = windowSize - wins;
         const winRate = windowSize ? (wins / windowSize) * 100 : 0;
         const pct = clampPct(winRate);
 
+        // Regras do usuário:
+        // - Muito bom: 0 LOSS na janela (100%)
+        // - Bom: >= 88%
+        // - Ruim: abaixo de 88%
         let level = 'bad';
-        if (pct >= MOMENT_QUALITY_GREAT_FROM) level = 'great';
-        else if (pct >= MOMENT_QUALITY_BAD_BELOW) level = 'good';
+        if (losses === 0 && windowSize > 0) level = 'great';
+        else if (pct >= MOMENT_QUALITY_GOOD_FROM) level = 'good';
 
         bar.setAttribute('data-level', level);
-        fill.style.width = `${pct}%`;
+        // ✅ Medidor de qualidade (visual):
+        // - Ruim ocupa 0–50 (corte "Bom" fica no meio visual)
+        // - Bom ocupa 50–100
+        // - Muito bom: 100
+        let gaugePct = 0;
+        if (level === 'great') {
+            gaugePct = 100;
+        } else if (level === 'good') {
+            gaugePct = 50 + ((pct - MOMENT_QUALITY_GOOD_FROM) / (100 - MOMENT_QUALITY_GOOD_FROM)) * 50;
+        } else {
+            gaugePct = (pct / MOMENT_QUALITY_GOOD_FROM) * 50;
+        }
+        gaugePct = clampPct(gaugePct);
 
-        const activeLabel = bar.querySelector(`.mq-label[data-mq="${level}"]`);
-        if (activeLabel) activeLabel.classList.add('active');
+        fill.style.width = `${gaugePct}%`;
+        // ancorar gradiente à largura total da barra
+        const g = Math.max(0.001, gaugePct / 100);
+        fill.style.setProperty('--mq-progress', String(g));
 
         const labelText = level === 'great' ? 'Muito bom' : (level === 'good' ? 'Bom' : 'Ruim');
+        // Texto “humano” no topo, na pontinha da barra
+        const tipText = level === 'great'
+            ? 'Alta assertividade'
+            : (level === 'good' ? 'Momento favorável' : 'Cuidado');
+        setTip(tipText, level, gaugePct);
+
         const baseHint = total < MOMENT_QUALITY_FULL_CYCLES ? ` • base parcial ${total}/${MOMENT_QUALITY_FULL_CYCLES}` : '';
-        bar.title = `Momento: ${labelText} • ${formatPct(pct)} (${wins}/${windowSize})${baseHint}`;
+        bar.title = `Assertividade no momento: ${labelText} • ${formatPct(pct)} (${wins}/${windowSize}) • LOSS: ${losses} • Medidor: ${formatPct(gaugePct)}${baseHint}`;
     }
     
     // Render de lista de entradas (WIN/LOSS)
@@ -18616,6 +18767,97 @@ function logModeSnapshotUI(snapshot) {
     setInterval(loadInitialData, 30000); // 30 segundos em vez de 3
     
     // ✅ [OTIMIZAÇÃO] Interval redundante removido - atualização já acontece via WebSocket e updateHistoryUIFromServer()
+
+    // ═══════════════════════════════════════════════════════════════
+    // ⚡ PRIORIDADE: atualização CRÍTICA (último giro + sinal) em tempo recorde
+    // - Objetivo: no máximo ~1s para refletir novo `analysis/lastSpin` na UI
+    // - Motivo: em alguns ambientes (mobile/web shim) mensagens do runtime podem falhar/atrasar
+    // - Estratégia: storage.onChanged (quando existir) + fallback polling leve (sem re-render pesado)
+    // ═══════════════════════════════════════════════════════════════
+    const CRITICAL_UI_POLL_MS = 1000;
+    let criticalLastSpinKey = null;
+    let criticalAnalysisKey = null;
+
+    function computeSpinKey(spin) {
+        try {
+            if (!spin || typeof spin !== 'object') return null;
+            return spin.timestamp || spin.created_at || `${spin.number ?? ''}-${spin.color ?? ''}`;
+        } catch (_) { return null; }
+    }
+
+    function computeAnalysisKey(a) {
+        try {
+            if (!a || typeof a !== 'object') return null;
+            const ts = a.createdOnTimestamp || a.timestamp || null;
+            const phase = a.phase || 'G0';
+            const color = a.color || '';
+            return `${ts || ''}|${phase}|${color}`;
+        } catch (_) { return null; }
+    }
+
+    function applyCriticalSnapshot(snapshot) {
+        if (!snapshot || typeof snapshot !== 'object') return;
+        // updateSidebar depende de hasOwnProperty para algumas chaves; normalizar.
+        const normalized = { ...(snapshot || {}) };
+        if (!Object.prototype.hasOwnProperty.call(normalized, 'analysis')) normalized.analysis = null;
+        if (!Object.prototype.hasOwnProperty.call(normalized, 'pattern')) normalized.pattern = null;
+        if (!Object.prototype.hasOwnProperty.call(normalized, 'martingaleState')) normalized.martingaleState = null;
+        if (!Object.prototype.hasOwnProperty.call(normalized, 'lastSpin')) normalized.lastSpin = null;
+        try { updateSidebar(normalized); } catch (_) {}
+    }
+
+    function loadCriticalUIData() {
+        try {
+            // Runtime/storage pode não existir em alguns contextos (ex.: web sem shim)
+            if (!chrome?.storage?.local?.get) return;
+            chrome.storage.local.get(['lastSpin', 'analysis', 'pattern', 'martingaleState'], function (result) {
+                try {
+                    const nextSpinKey = computeSpinKey(result && result.lastSpin);
+                    const nextAnalysisKey = computeAnalysisKey(result && result.analysis);
+
+                    const changed =
+                        (nextSpinKey && nextSpinKey !== criticalLastSpinKey) ||
+                        (nextAnalysisKey && nextAnalysisKey !== criticalAnalysisKey);
+
+                    // Nada para aplicar ainda
+                    if (!nextSpinKey && !nextAnalysisKey) return;
+                    if (!changed) return;
+
+                    criticalLastSpinKey = nextSpinKey || criticalLastSpinKey;
+                    criticalAnalysisKey = nextAnalysisKey || criticalAnalysisKey;
+
+                    applyCriticalSnapshot(result || {});
+                } catch (_) {}
+            });
+        } catch (_) {}
+    }
+
+    // 1) Evento do storage (instantâneo quando suportado)
+    try {
+        if (chrome?.storage?.onChanged?.addListener) {
+            chrome.storage.onChanged.addListener((changes, areaName) => {
+                try {
+                    if (areaName !== 'local') return;
+                    const snapshot = {};
+                    if (changes.lastSpin) snapshot.lastSpin = changes.lastSpin.newValue || null;
+                    if (changes.analysis) snapshot.analysis = changes.analysis.newValue || null;
+                    if (changes.pattern) snapshot.pattern = changes.pattern.newValue || null;
+                    if (changes.martingaleState) snapshot.martingaleState = changes.martingaleState.newValue || null;
+                    if (!Object.keys(snapshot).length) return;
+
+                    const spinKey = computeSpinKey(snapshot.lastSpin);
+                    const analysisKey = computeAnalysisKey(snapshot.analysis);
+                    if (spinKey) criticalLastSpinKey = spinKey;
+                    if (analysisKey) criticalAnalysisKey = analysisKey;
+
+                    applyCriticalSnapshot(snapshot);
+                } catch (_) {}
+            });
+        }
+    } catch (_) {}
+
+    // 2) Fallback: polling leve a cada 1s (não renderiza histórico/entries)
+    setInterval(loadCriticalUIData, CRITICAL_UI_POLL_MS);
     
     // ═══════════════════════════════════════════════════════════════════════════════
     // 💓 HEARTBEAT - Sistema de detecção de usuários online
