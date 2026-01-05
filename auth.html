@@ -3915,7 +3915,14 @@
                     }
 
                     if (data.expired) {
-                        showMessage('Sua assinatura expirou. Entre em contato para renovar.', 'error');
+                        // ✅ Conta expirada: direcionar para renovação (mostrar planos e depois PIX)
+                        userData = { email: email.trim().toLowerCase() };
+                        pendingUserId = null;
+                        emailVerificationToken = null; // não é cadastro novo
+                        selectedPlan = null; // força escolher plano
+                        await loadPlans();
+                        showScreen('planScreen');
+                        showMessage('Sua assinatura expirou. Selecione um plano para renovar e gerar o PIX.', 'info');
                     } else {
                         showMessage(data.error || 'Email ou senha incorretos', 'error');
                     }
@@ -4207,6 +4214,13 @@
                         throw new Error(updateData.error || 'Não foi possível atualizar o plano.');
                     }
 
+                    showScreen('paymentScreen');
+                    await loadPaymentInfo();
+                    return;
+                }
+
+                // ✅ Renovação (conta expirada): usuário já existe, não precisa verificação de email novamente
+                if (userData?.email && !emailVerificationToken) {
                     showScreen('paymentScreen');
                     await loadPaymentInfo();
                     return;
