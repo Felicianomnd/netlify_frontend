@@ -31937,6 +31937,12 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         })();
         return true;
     } else if (request.action === 'IA_BOOTSTRAP_HISTORY') {
+        // ✅ Desativado a pedido do usuário:
+        // - Removida a bolinha/CTA "Analisar histórico"
+        // - Removido o bootstrap de histórico (ex.: 20 ciclos iniciais)
+        sendResponse({ status: 'error', error: 'IA_BOOTSTRAP_HISTORY desativado' });
+        return true;
+
         // 🤖 IA VIVA: bootstrap do histórico via simulação no passado, usando a config atual (sem alterar config)
         (async () => {
             try {

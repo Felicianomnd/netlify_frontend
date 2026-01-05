@@ -12318,22 +12318,7 @@ async function persistAnalyzerState(newState) {
                                         </svg>
                                     </button>
                                 </div>
-                                <!-- ✅ Vidro desfocado (mostra apenas o "vulto" do conteúdo) -->
-                                <div class="ia-bootstrap-glass" id="iaBootstrapGlass" style="display:none;"></div>
-                                <!-- ✅ IA VIVA: aparece quando a aba IA está vazia (após Limpar ou primeira abertura) -->
-                                <div class="ia-bootstrap-overlay" id="iaBootstrapOverlay" style="display:none;">
-                                    <div class="ia-bootstrap-orb" id="iaBootstrapOrb" data-state="idle">
-                                        <button type="button" class="ai-orb-btn" id="iaBootstrapBtn" title="Analisar histórico">
-                                            <span class="ai-orb-smoke" aria-hidden="true"></span>
-                                            <span class="ai-orb-liquid" aria-hidden="true"></span>
-                                            <span class="ai-orb-fog fog1" aria-hidden="true"></span>
-                                            <span class="ai-orb-fog fog2" aria-hidden="true"></span>
-                                            <span class="ai-orb-label">IA</span>
-                                            <span class="ai-orb-check" aria-hidden="true">✓</span>
-                                        </button>
-                                        <div class="ia-bootstrap-text" id="iaBootstrapText" role="status" aria-live="polite">Analisar histórico</div>
-                                    </div>
-                                </div>
+                                <!-- ✅ IA Bootstrap (bolinha/CTA) removido a pedido do usuário -->
                             </div>
                         </div>
                         <div class="entries-view" data-view="chart" hidden>
@@ -17012,12 +16997,7 @@ async function persistAnalyzerState(newState) {
                 });
             } catch (_) {}
 
-            // ✅ Pedido: após limpar, voltar e manter a bolinha/CTA até o usuário clicar em "Analisar histórico"
-            try { setIABootstrapHoldActive(currentMode, true); } catch (_) {}
-            try {
-                iaBootstrapBusy = false;
-                setIABootstrapState('idle', 'Analisar histórico');
-            } catch (_) {}
+            // ✅ IA Bootstrap (bolinha/CTA) removido: não manter HOLD nem resetar estado de overlay
 
             // ✅ Pedido: ao clicar em "Limpar" na IA, resetar o Painel (saldo/lucro/perdas).
             // O Painel é calculado via autoBetHistory + runtime (pendências), então zeramos ambos.
@@ -20623,18 +20603,8 @@ function logModeSnapshotUI(snapshot) {
     }
 
     function shouldShowIABootstrapOverlay(filteredEntriesCount, pendingIndicatorHtml) {
-        // Só faz sentido na aba IA (entries)
-        if (activeEntriesTab !== 'entries') return false;
-        const mode = getCurrentModeKey(latestAnalyzerConfig);
-        // Se está rodando, manter overlay visível (para animação), mesmo que a lista atualize por trás
-        if (iaBootstrapBusy) return true;
-        // ✅ Se existe placeholder pendente no topo, nunca sobrepor (mesmo se HOLD estiver ativo)
-        if (pendingIndicatorHtml && String(pendingIndicatorHtml).trim()) return false;
-        // Se há itens, não mostrar
-        if ((Number(filteredEntriesCount) || 0) > 0) return false;
-        // ✅ Se a IA foi "limpa", manter a bolinha até o usuário clicar em Analisar histórico
-        if (isIABootstrapHoldActive(mode)) return true;
-        return true;
+        // ✅ Removido a pedido do usuário: não exibir mais a “bolinha/CTA” de bootstrap na aba IA.
+        return false;
     }
 
     // IA Viva: o “vidro” fica SEMPRE por cima da aba IA.
