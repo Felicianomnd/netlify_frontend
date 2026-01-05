@@ -7,7 +7,8 @@
     gap: 6px;
     padding: 8px 10px;
     border-radius: 8px;
-    background: rgba(255, 255, 255, 0.08);
+    /* ✅ Remover “fundo mais claro” interno (fica apenas o fundo base do card externo) */
+    background: transparent;
     min-height: 110px;
     height: 100%;
     box-shadow: none;
@@ -489,6 +490,130 @@
     box-sizing: border-box;
 }
 
+/* ═══════════════════════════════════════════════════════════════════════════════ */
+/* 🖥️ DESKTOP DASHBOARD: header limpo (logo + Double centralizado)                 */
+/* - Remove seletor de modo do cabeçalho (vai para a coluna esquerda)              */
+/* - Mantém versão mobile como está                                               */
+/* ═══════════════════════════════════════════════════════════════════════════════ */
+
+#blaze-double-analyzer.da-desktop-dashboard .da-header {
+    grid-template-columns: 1fr;
+    justify-content: center;
+    padding: 0 24px;
+}
+
+#blaze-double-analyzer.da-desktop-dashboard .da-header::after {
+    /* no desktop, o modo não deve ficar "marcado" no cabeçalho */
+    display: none !important;
+}
+
+#blaze-double-analyzer.da-desktop-dashboard .da-controls-group,
+#blaze-double-analyzer.da-desktop-dashboard .da-user-actions,
+#blaze-double-analyzer.da-desktop-dashboard .da-sidebar-toggle,
+#blaze-double-analyzer.da-desktop-dashboard #titleBadge {
+    display: none !important;
+}
+
+#blaze-double-analyzer.da-desktop-dashboard .da-brand {
+    justify-content: center;
+    width: 100%;
+}
+
+#blaze-double-analyzer.da-desktop-dashboard .da-app-name {
+    font-size: 18px;
+    font-weight: 700;
+    letter-spacing: -0.2px;
+}
+
+/* 🖥️ Desktop: logo maior e melhor alinhada com o texto */
+#blaze-double-analyzer.da-desktop-dashboard .da-app-logo {
+    width: 26px;
+    height: 26px;
+    display: block;
+    transform: translateY(1px);
+}
+
+#blaze-double-analyzer.da-desktop-dashboard .da-brand {
+    gap: 12px;
+}
+
+/* Seletor de modos (Premium / IA) - fica abaixo do "Modo Aposta" na coluna esquerda */
+#blaze-double-analyzer.da-desktop-dashboard .analysis-mode-selector {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 10px 0 6px;
+    border-bottom: none;
+}
+
+#blaze-double-analyzer.da-desktop-dashboard .analysis-mode-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    background: #0f1720;
+    border-radius: 3px;
+}
+
+#blaze-double-analyzer.da-desktop-dashboard .analysis-mode-text {
+    font-size: 12px;
+    font-weight: 600;
+    color: rgba(255,255,255,0.85);
+    letter-spacing: -0.1px;
+    white-space: nowrap;
+}
+
+#blaze-double-analyzer.da-desktop-dashboard .analysis-mode-row[data-mode="diamond"] .analysis-mode-text {
+    color: rgba(255,255,255,0.92);
+}
+
+/* Reaproveitar visual do switch do sistema */
+#blaze-double-analyzer.da-desktop-dashboard .analysis-mode-row .ai-mode-switch input[type="checkbox"] {
+    width: 44px;
+    height: 24px;
+}
+
+#blaze-double-analyzer.da-desktop-dashboard .analysis-mode-row .ai-mode-switch input[type="checkbox"]::after {
+    width: 18px;
+    height: 18px;
+}
+
+#blaze-double-analyzer.da-desktop-dashboard .analysis-mode-row .ai-mode-switch input[type="checkbox"]:checked::after {
+    transform: translateX(20px);
+}
+
+/* 🖥️ Desktop: linha divisória deve ficar ABAIXO de "Sincronização ativa" */
+#blaze-double-analyzer.da-desktop-dashboard .da-desktop-sidebar-actions #syncConfigToggleWrap {
+    padding-bottom: 10px;
+    margin-bottom: 10px;
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+
+/* 🖥️ Desktop: "Análise ativa" e "Sincronização ativa" com switch NA FRENTE do texto (inline) */
+#blaze-double-analyzer.da-desktop-dashboard .da-desktop-sidebar-actions #toggleAnalyzerBtn.toggle-analyzer-btn,
+#blaze-double-analyzer.da-desktop-dashboard .da-desktop-sidebar-actions #syncConfigToggleBtn.toggle-analyzer-btn {
+    flex-direction: row;
+    justify-content: flex-start;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 12px;
+    min-height: 44px;
+    text-align: left;
+}
+
+#blaze-double-analyzer.da-desktop-dashboard .da-desktop-sidebar-actions #toggleAnalyzerBtn .toggle-indicator,
+#blaze-double-analyzer.da-desktop-dashboard .da-desktop-sidebar-actions #syncConfigToggleBtn .toggle-indicator {
+    order: 0;
+}
+
+#blaze-double-analyzer.da-desktop-dashboard .da-desktop-sidebar-actions #toggleAnalyzerBtn .toggle-label,
+#blaze-double-analyzer.da-desktop-dashboard .da-desktop-sidebar-actions #syncConfigToggleBtn .toggle-label {
+    order: 1;
+    text-transform: none;
+    letter-spacing: 0;
+    font-size: 12px;
+}
+
 /* Reusable modal header that mimics the main header */
 .modal-header-minimal {
     display: flex;
@@ -572,6 +697,86 @@
     min-width: 0;
 }
 
+/* IA MODE (HEADER): status + switch (mesmo padrão visual dos toggles do sistema) */
+.ai-mode-toggle-wrap {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    min-width: 92px;
+    padding: 2px 0;
+    user-select: none;
+}
+
+.ai-mode-status {
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.9px;
+    text-transform: uppercase;
+    color: rgba(255, 255, 255, 0.70);
+    line-height: 1;
+}
+
+.ai-mode-toggle-wrap.active .ai-mode-status {
+    color: #ef4444;
+}
+
+.ai-mode-action {
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--da-text-muted);
+    line-height: 1;
+    white-space: nowrap;
+}
+
+.ai-mode-toggle-wrap.active .ai-mode-action {
+    color: rgba(255, 255, 255, 0.82);
+}
+
+.ai-mode-switch {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+}
+
+.ai-mode-switch input[type="checkbox"] {
+    appearance: none;
+    -webkit-appearance: none;
+    width: 44px;
+    height: 24px;
+    border-radius: 999px;
+    background: #3d4859;
+    position: relative;
+    cursor: pointer;
+    border: none;
+    outline: none;
+    flex-shrink: 0;
+    transition: background 0.2s ease;
+}
+
+.ai-mode-switch input[type="checkbox"]::after {
+    content: '';
+    position: absolute;
+    top: 3px;
+    left: 3px;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: #8d95a5;
+    transition: transform 0.2s ease, background 0.2s ease;
+}
+
+.ai-mode-switch input[type="checkbox"]:checked {
+    background: #ef4444;
+}
+
+.ai-mode-switch input[type="checkbox"]:checked::after {
+    transform: translateX(20px);
+    background: #ffffff;
+}
+
 /* CLEAN TEXT LINKS - NO BORDERS, NO BACKGROUNDS */
 .header-link {
     display: inline-flex;
@@ -603,10 +808,7 @@
     opacity: 1;
 }
 
-/* AI MODE TOGGLE - JUST TEXT */
-.header-link.ai-mode-toggle.active {
-    color: #ef4444;
-}
+/* legacy: o toggle antigo era texto (mantido vazio para não conflitar) */
 
 /* HEADER COM IA ATIVA - LINHA EMBAIXO */
 .da-header::after {
@@ -952,7 +1154,8 @@
 /* RESPONSIVE */
 @media (max-width: 768px) {
     .da-header {
-        grid-template-columns: 1fr auto auto;
+        /* manter modo centralizado no meio (nome + switch) */
+        grid-template-columns: auto 1fr auto;
         padding: 0 16px;
         height: 52px;
         gap: 16px;
@@ -983,7 +1186,7 @@
     
     .da-controls-group {
         gap: 16px;
-        justify-content: flex-end;
+        justify-content: center;
     }
 
     .header-link {
@@ -1001,9 +1204,30 @@
     .header-link:not(.ai-mode-toggle) span {
         display: none;
     }
-    
-    .header-link.ai-mode-toggle span {
-        font-size: 11px;
+
+    .ai-mode-toggle-wrap {
+        min-width: 86px;
+        gap: 1px;
+    }
+    .ai-mode-status {
+        font-size: 10px;
+        letter-spacing: 0.8px;
+    }
+    .ai-mode-action {
+        font-size: 9px;
+    }
+    .ai-mode-switch input[type="checkbox"] {
+        width: 40px;
+        height: 22px;
+    }
+    .ai-mode-switch input[type="checkbox"]::after {
+        width: 16px;
+        height: 16px;
+        top: 3px;
+        left: 3px;
+    }
+    .ai-mode-switch input[type="checkbox"]:checked::after {
+        transform: translateX(18px);
     }
     
     .da-user-actions {
@@ -1058,6 +1282,10 @@
     
     .da-controls-group {
         gap: 12px;
+    }
+
+    .ai-mode-toggle-wrap {
+        min-width: 78px;
     }
 }
 
@@ -1390,7 +1618,8 @@
 .confidence-bar {
     width: 100%;
     height: 6px;
-    background: rgba(5, 10, 20, 0.45);
+    /* ✅ Mais visível quando o card interno não tem fundo próprio */
+    background: rgba(255, 255, 255, 0.12);
     border-radius: 4px;
     overflow: hidden;
     margin-bottom: 6px;
@@ -1409,6 +1638,17 @@
     font-size: 14px;
     font-weight: 600;
     color: #e0e0e0;
+}
+
+/* ✅ Reset suave da barra (evita “engasgo” ao sumir e voltar) — mobile + desktop */
+.confidence-meter,
+.bet-mode-meter {
+    transition: opacity 180ms ease, transform 180ms ease;
+}
+.confidence-meter.da-resetting,
+.bet-mode-meter.da-resetting {
+    opacity: 0;
+    transform: translateY(2px);
 }
 
 /* ✅ WRAPPER PARA CÍRCULO + INDICADOR LADO A LADO */

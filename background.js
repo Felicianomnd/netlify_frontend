@@ -3736,6 +3736,19 @@ async function startDataCollection() {
         console.warn('⚠️ Falha no auto-heal de análise pendente:', e);
     }
     
+    // ✅ Rodar análise imediatamente após o bootstrap.
+    // Isso evita o “travamento” percebido onde só começa após clicar em "Salvar".
+    // (Não depende do próximo giro.)
+    try {
+        if (cachedHistory && cachedHistory.length >= 10) {
+            await runAnalysisIfEnabled(cachedHistory, 'STARTUP_BOOTSTRAP');
+        } else {
+            console.log('ℹ️ Histórico insuficiente para análise imediata no startup (mín. 10 giros).');
+        }
+    } catch (e) {
+        console.warn('⚠️ Falha ao executar análise inicial no startup:', e);
+    }
+
     // 5. Busca de padrões agora é MANUAL (usuário clica no botão)
     // ⏱️ Duração atual: 30s (busca rápida e intensiva)
     console.log('💡 Para buscar padrões, clique em "🔍 Buscar Padrões (30s)" na interface.');

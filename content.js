@@ -1587,6 +1587,10 @@
         // Obter elementos principais
         const aiSwitch = document.getElementById('aiModeToggle');
         const aiLabel = document.getElementById('aiToggleLabel');
+        const aiActionLabel = document.getElementById('aiToggleActionLabel');
+        const aiWrap = document.getElementById('aiModeToggleWrap');
+        const premiumModeToggle = document.getElementById('analysisModePremiumToggle');
+        const iaModeToggle = document.getElementById('analysisModeIAToggle');
         const titleBadge = document.getElementById('titleBadge');
         const header = document.querySelector('.da-header');
 
@@ -1597,9 +1601,12 @@
         
         if (isActive) {
             // ATIVAR MODO IA
+            try { targetElement.checked = true; } catch (_) {}
             targetElement.classList.add('active');
+            if (aiWrap) aiWrap.classList.add('active');
             
-            if (aiLabel) aiLabel.textContent = 'AI ON';
+            if (aiLabel) aiLabel.textContent = 'IA ON';
+            if (aiActionLabel) aiActionLabel.textContent = 'Desativar IA';
             
             if (titleBadge) {
                 titleBadge.textContent = 'Análise por IA';
@@ -1610,11 +1617,20 @@
             if (header) {
                 header.classList.add('ai-active');
                 }
+
+            // 🖥️ Desktop: selector de modo (Premium vs IA) deve refletir aiMode
+            try {
+                if (premiumModeToggle) premiumModeToggle.checked = false;
+                if (iaModeToggle) iaModeToggle.checked = true;
+            } catch (_) {}
         } else {
             // DESATIVAR MODO (Análise Padrão)
+            try { targetElement.checked = false; } catch (_) {}
             targetElement.classList.remove('active');
+            if (aiWrap) aiWrap.classList.remove('active');
             
-            if (aiLabel) aiLabel.textContent = 'AI OFF';
+            if (aiLabel) aiLabel.textContent = 'IA OFF';
+            if (aiActionLabel) aiActionLabel.textContent = 'Ligar IA';
 
             if (titleBadge) {
                 titleBadge.textContent = 'Análise Premium';
@@ -1625,6 +1641,12 @@
             if (header) {
                 header.classList.remove('ai-active');
             }
+
+            // 🖥️ Desktop: selector de modo (Premium vs IA) deve refletir aiMode
+            try {
+                if (premiumModeToggle) premiumModeToggle.checked = true;
+                if (iaModeToggle) iaModeToggle.checked = false;
+            } catch (_) {}
             
             // Parar updates se houver
             if (intervaloAtualizacaoMemoria) {
@@ -12051,9 +12073,13 @@ async function persistAnalyzerState(newState) {
 
                 <!-- 2. Center: Simple Controls -->
                 <div class="da-controls-group">
-                    <button type="button" class="header-link ai-mode-toggle" id="aiModeToggle" title="Ativar/Desativar IA">
-                        <span id="aiToggleLabel">AI OFF</span>
-                    </button>
+                    <div class="ai-mode-toggle-wrap" id="aiModeToggleWrap">
+                        <div class="ai-mode-status" id="aiToggleLabel">IA OFF</div>
+                        <label class="ai-mode-switch" title="Ativar/Desativar IA">
+                            <input type="checkbox" class="ai-mode-toggle" id="aiModeToggle" aria-label="Ativar/Desativar IA" />
+                        </label>
+                        <div class="ai-mode-action" id="aiToggleActionLabel">Ligar IA</div>
+                    </div>
                         </div>
 
                 <!-- 3. Right: User -->
@@ -13287,7 +13313,10 @@ async function persistAnalyzerState(newState) {
             const nameEl = sidebar.querySelector('#daAppName');
             const logoEl = sidebar.querySelector('#daAppLogo');
             const shortBrand = String(brand || '').trim().split(/\s+/)[0] || 'Double';
-            if (nameEl) nameEl.textContent = shortBrand;
+            // ✅ Desktop: exibir "Double Análise" no cabeçalho (pedido).
+            // Mobile permanece como está.
+            const headerBrand = isDesktop() ? `${shortBrand} Análise` : shortBrand;
+            if (nameEl) nameEl.textContent = headerBrand;
 
             if (logo && logoEl) {
                 logoEl.src = logo;
@@ -13911,6 +13940,50 @@ async function persistAnalyzerState(newState) {
     let lastAnalysisSignature = '';
     let currentAnalysisStatus = 'Aguardando análise...';
     let modeApiStatusTypingInterval = null;
+
+    // ✅ UI: reset suave da barra de progresso (evita “engasgo” ao limpar após resultado)
+    let lastTopSignalVisible = false;
+    let confidenceResetTimer = null;
+    function smoothResetConfidenceUI() {
+        try {
+            if (confidenceResetTimer) {
+                clearTimeout(confidenceResetTimer);
+                confidenceResetTimer = null;
+            }
+
+            const applyReset = (meterEl, fillEl, textEl) => {
+                if (!fillEl || !textEl) return;
+                if (meterEl) meterEl.classList.add('da-resetting');
+
+                // Fade-out rápido, depois resetar largura sem transição e voltar com fade-in
+                const FADE_MS = 180;
+                confidenceResetTimer = setTimeout(() => {
+                    try {
+                        const prevTransition = fillEl.style.transition;
+                        fillEl.style.transition = 'none';
+                        fillEl.style.width = '0%';
+                        // force reflow
+                        void fillEl.offsetHeight;
+                        fillEl.style.transition = prevTransition || '';
+                        textEl.textContent = '0%';
+                    } catch (_) {}
+                    try { if (meterEl) meterEl.classList.remove('da-resetting'); } catch (_) {}
+                }, FADE_MS);
+            };
+
+            applyReset(
+                document.querySelector('.analysis-section .confidence-meter'),
+                document.getElementById('confidenceFill'),
+                document.getElementById('confidenceText')
+            );
+
+            applyReset(
+                document.querySelector('.bet-mode-meter'),
+                document.getElementById('betModeConfidenceFill'),
+                document.getElementById('betModeConfidenceText')
+            );
+        } catch (_) {}
+    }
 
     const escapeHtml = (text = '') => String(text)
         .replace(/&/g, '&amp;')
@@ -15150,6 +15223,9 @@ async function persistAnalyzerState(newState) {
             syncBetModeView();
         }
         
+        // track para reset suave ao “limpar” sinal
+        let topSignalVisibleNow = false;
+
         if (Object.prototype.hasOwnProperty.call(data, 'analysis')) {
             // ✅ Recuperação: sinais internos (fase 1 "silenciosa") nunca devem aparecer no UI.
             if (data.analysis && data.analysis.hiddenInternal) {
@@ -15161,6 +15237,7 @@ async function persistAnalyzerState(newState) {
             }
 
             if (data.analysis) {
+                topSignalVisibleNow = true;
                 const analysis = data.analysis;
                 const confidenceRaw = analysis ? analysis.confidence : 0;
                 const confidenceNum = Number(confidenceRaw);
@@ -15436,6 +15513,7 @@ async function persistAnalyzerState(newState) {
 
                 let didRender = false;
                 try { didRender = renderFromMartingale(msFromData); } catch (_) {}
+                if (didRender) topSignalVisibleNow = true;
                 if (!didRender) {
                     try {
                         storageCompat.get(['martingaleState']).then((res = {}) => {
@@ -15807,10 +15885,10 @@ async function persistAnalyzerState(newState) {
     // ═══════════════════════════════════════════════════════════════
     // 📊 Momento (Qualidade dos sinais) — Ruim / Bom / Muito bom
     // - Base: últimos ciclos FINALIZADOS exibidos na IA (filteredEntries)
-    // - Só começa a classificar com pelo menos 10 ciclos
+    // - Só começa a classificar com pelo menos 5 ciclos
     // - Com 20+ ciclos, usa a janela 20 (mais estável)
     // ═══════════════════════════════════════════════════════════════
-    const MOMENT_QUALITY_MIN_CYCLES = 10;
+    const MOMENT_QUALITY_MIN_CYCLES = 5;
     const MOMENT_QUALITY_FULL_CYCLES = 25; // janela de "momento" (mais conservadora)
     const MOMENT_QUALITY_GOOD_FROM = 88;   // >= 88% = Bom
 
@@ -17425,17 +17503,123 @@ async function persistAnalyzerState(newState) {
                     actions.insertAdjacentElement('afterbegin', betWrapper);
                 }
 
+                // ✅ 1.5) Seletor de modo (Premium vs IA) — pedido do usuário (DESKTOP)
+                // - Fica abaixo do botão "Modo Aposta"
+                // - Não permite ativar os dois ao mesmo tempo (sempre 1 ativo)
+                try {
+                    let modeSelector = sidebar.querySelector('#analysisModeSelector');
+                    if (!modeSelector) {
+                        modeSelector = document.createElement('div');
+                        modeSelector.className = 'analysis-mode-selector';
+                        modeSelector.id = 'analysisModeSelector';
+                        modeSelector.innerHTML = `
+                            <div class="analysis-mode-row" data-mode="premium">
+                                <label class="ai-mode-switch" title="Ativar Análise Premium">
+                                    <input type="checkbox" id="analysisModePremiumToggle" aria-label="Ativar Análise Premium" />
+                                </label>
+                                <div class="analysis-mode-text">Análise Premium</div>
+                            </div>
+                            <div class="analysis-mode-row" data-mode="diamond">
+                                <label class="ai-mode-switch" title="Ativar Análise por IA">
+                                    <input type="checkbox" id="analysisModeIAToggle" aria-label="Ativar Análise por IA" />
+                                </label>
+                                <div class="analysis-mode-text">Análise por IA</div>
+                            </div>
+                        `;
+                    }
+                    if (modeSelector && modeSelector.parentNode !== actions) {
+                        if (betWrapper && betWrapper.parentNode === actions) {
+                            betWrapper.insertAdjacentElement('afterend', modeSelector);
+                        } else {
+                            actions.insertAdjacentElement('afterbegin', modeSelector);
+                        }
+                    }
+
+                    // Bind de eventos (idempotente)
+                    const premiumToggle = modeSelector ? modeSelector.querySelector('#analysisModePremiumToggle') : null;
+                    const iaToggle = modeSelector ? modeSelector.querySelector('#analysisModeIAToggle') : null;
+                    const headerToggle = document.getElementById('aiModeToggle'); // fonte única (mesmo oculto no desktop)
+
+                    const syncModeSelector = (isAiMode) => {
+                        try {
+                            if (premiumToggle) premiumToggle.checked = !isAiMode;
+                            if (iaToggle) iaToggle.checked = !!isAiMode;
+                        } catch (_) {}
+                    };
+
+                    // Estado inicial
+                    try { syncModeSelector(getCurrentAiModeFlag(latestAnalyzerConfig)); } catch (_) {}
+
+                    if (premiumToggle && premiumToggle.dataset.daBound !== '1') {
+                        premiumToggle.dataset.daBound = '1';
+                        premiumToggle.addEventListener('change', () => {
+                            const isAiMode = getCurrentAiModeFlag(latestAnalyzerConfig);
+                            // Nunca permitir "desmarcar" o ativo e ficar sem modo
+                            if (!premiumToggle.checked) {
+                                syncModeSelector(isAiMode);
+                                return;
+                            }
+                            // Garantir exclusividade visual imediata
+                            if (iaToggle) iaToggle.checked = false;
+                            // Se já está premium, nada a fazer
+                            if (!isAiMode) return;
+                            // Trocar para premium usando o toggle principal (reusa validações/fluxo)
+                            if (headerToggle && typeof headerToggle.click === 'function') headerToggle.click();
+                            // Re-sincronizar (ex.: se houver falha de sync)
+                            setTimeout(() => {
+                                try { syncModeSelector(getCurrentAiModeFlag(latestAnalyzerConfig)); } catch (_) {}
+                            }, 0);
+                        });
+                    }
+
+                    if (iaToggle && iaToggle.dataset.daBound !== '1') {
+                        iaToggle.dataset.daBound = '1';
+                        iaToggle.addEventListener('change', () => {
+                            const isAiMode = getCurrentAiModeFlag(latestAnalyzerConfig);
+                            // Nunca permitir "desmarcar" o ativo e ficar sem modo
+                            if (!iaToggle.checked) {
+                                syncModeSelector(isAiMode);
+                                return;
+                            }
+                            // Garantir exclusividade visual imediata
+                            if (premiumToggle) premiumToggle.checked = false;
+                            // Se já está IA, nada a fazer
+                            if (isAiMode) return;
+                            // Trocar para IA usando o toggle principal (reusa validações/fluxo)
+                            if (headerToggle && typeof headerToggle.click === 'function') headerToggle.click();
+                            // Re-sincronizar (ex.: cadastro incompleto pode bloquear IA e reverter para Premium)
+                            setTimeout(() => {
+                                try { syncModeSelector(getCurrentAiModeFlag(latestAnalyzerConfig)); } catch (_) {}
+                            }, 0);
+                        });
+                    }
+                } catch (_) {}
+
                 // ✅ Pedido: mover o botão "Ativar análise" para a coluna esquerda,
                 // acima de todas as configurações (sem alterar lógica do toggle).
                 const analyzerToggleBtn = sidebar.querySelector('#toggleAnalyzerBtn');
                 if (analyzerToggleBtn && analyzerToggleBtn.parentNode !== actions) {
-                    // Inserir logo abaixo do "Modo Aposta"
-                    if (betWrapper && betWrapper.parentNode === actions) {
-                        betWrapper.insertAdjacentElement('afterend', analyzerToggleBtn);
-                    } else {
-                        actions.insertAdjacentElement('afterbegin', analyzerToggleBtn);
-                    }
+                    // Inserir logo abaixo do seletor de modo (se existir); caso contrário, abaixo do "Modo Aposta"
+                    const modeSelectorEl = sidebar.querySelector('#analysisModeSelector');
+                    const anchor = (modeSelectorEl && modeSelectorEl.parentNode === actions) ? modeSelectorEl
+                        : ((betWrapper && betWrapper.parentNode === actions) ? betWrapper : null);
+                    if (anchor) anchor.insertAdjacentElement('afterend', analyzerToggleBtn);
+                    else actions.insertAdjacentElement('afterbegin', analyzerToggleBtn);
                 }
+                // Garantir ordem mesmo se já estiver dentro de actions (idempotente)
+                try {
+                    const modeSelectorEl = sidebar.querySelector('#analysisModeSelector');
+                    const anchorA = (betWrapper && betWrapper.parentNode === actions) ? betWrapper : null;
+                    if (anchorA && modeSelectorEl && modeSelectorEl.parentNode === actions) {
+                        anchorA.insertAdjacentElement('afterend', modeSelectorEl);
+                    }
+                    const analyzerEl = sidebar.querySelector('#toggleAnalyzerBtn');
+                    if (analyzerEl && analyzerEl.parentNode === actions) {
+                        const anchorB = (modeSelectorEl && modeSelectorEl.parentNode === actions) ? modeSelectorEl
+                            : ((betWrapper && betWrapper.parentNode === actions) ? betWrapper : null);
+                        if (anchorB) anchorB.insertAdjacentElement('afterend', analyzerEl);
+                    }
+                } catch (_) {}
 
                 // ✅ Pedido: mover "Sincronizar configurações" para fora e deixar de fácil acesso (igual Análise ativa)
                 const syncWrap = sidebar.querySelector('#syncConfigToggleWrap');
@@ -20699,6 +20883,14 @@ function logModeSnapshotUI(snapshot) {
                     calibrationFactor.style.color = '#8da2bb';
                 }
             }
+
+            // ✅ Se acabou de “limpar” um sinal (resultado chegou), reset suave da barra
+            try {
+                if (lastTopSignalVisible && !topSignalVisibleNow) {
+                    smoothResetConfidenceUI();
+                }
+                lastTopSignalVisible = !!topSignalVisibleNow;
+            } catch (_) {}
         }
 
         // Barra de progresso do "Próximo sinal seguro"
