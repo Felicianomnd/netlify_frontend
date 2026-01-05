@@ -17775,6 +17775,140 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
             };
         }
 
+        // ✅ MODO "SOMENTE N0":
+        // Se NÃO houver nenhum nível votante (N1–N8) ativo, o N0 deve conseguir operar de forma independente.
+        // Antes: o sistema ficava mudo porque o N0 só gerava sinal quando era BLOCK ALL (n0ForceWhite).
+        // Agora: se o N0 prever WHITE (mesmo em ALERTA/SOFT BLOCK/informativo), emitimos sinal WHITE.
+        const anyVotingLevelEnabled = (() => {
+            try {
+                const votingIds = ['N1','N2','N3','N4','N5','N6','N7','N8'];
+                return votingIds.some((id) => isLevelEnabledLocal(id));
+            } catch (_) {
+                return false;
+            }
+        })();
+        const n0PredictedWhite = !!(n0Enabled && n0Result && n0Result.enabled !== false && n0Result.pred_live === 'W');
+
+        if (!anyVotingLevelEnabled && n0PredictedWhite) {
+            levelReports.sort((a, b) => {
+                const aIndex = displayOrder.indexOf(a.id);
+                const bIndex = displayOrder.indexOf(b.id);
+                const safeA = aIndex === -1 ? displayOrder.length : aIndex;
+                const safeB = bIndex === -1 ? displayOrder.length : bIndex;
+                return safeA - safeB;
+            });
+
+            if (intervalBlocked) {
+                sendAnalysisStatus(intervalMessage || '⏳ Aguardando intervalo configurado...');
+                await sleep(2000);
+                await restoreIAStatus();
+                console.log('%c   ❌ SINAL CANCELADO PELO INTERVALO!', 'color: #FF0000; font-weight: bold; font-size: 14px;');
+                return null;
+            }
+
+            const whiteConfidencePct = Math.max(0, Math.min(100, Math.round(n0WhiteStrength * 100)));
+            const thresholdPct = n0Result && n0Result.blocking_threshold != null
+                ? Math.round(n0Result.blocking_threshold * 100)
+                : null;
+            const actionLabel =
+                n0SoftBlockActive ? 'SOFT BLOCK'
+                : (n0ActionSuppressed ? 'ALERTA (informativo)' : 'ALERTA');
+
+            console.log('%c⚪ N0 (somente) PREVIU WHITE — emitindo sinal independente', 'color: #FFFFFF; font-weight: bold; font-size: 15px; background: #000000;');
+            sendAnalysisStatus(`⚪ N0 - Detector de Branco: ${actionLabel} (${whiteConfidencePct}%${thresholdPct !== null ? ` • t* ${thresholdPct}%` : ''})`);
+            await sleep(1500);
+            sendAnalysisStatus('Sinal de entrada');
+            await sleep(1500);
+
+            const scoreSummary = levelReports.map(level => ({
+                id: level.id,
+                name: level.name,
+                color: level.color,
+                strength: Number((level.strength || 0).toFixed(3)),
+                weight: Number((level.weight || 0).toFixed(3)),
+                contribution: Number(((level.score || 0) * (level.weight || 0)).toFixed(3)),
+                details: level.details
+            }));
+            const diamondSourceLevel = pickDiamondSourceLevel(scoreSummary, 'white');
+
+            const holdoutReasoning = n0Result && n0Result.holdout && n0Result.holdout.enabled
+                ? `Holdout: ${n0Result.holdout.passed ? 'OK' : 'Falhou'}${n0Result.holdout.reason ? ` (${n0Result.holdout.reason})` : ''}\n`
+                : '';
+            const reasoning =
+                `${levelReports.map(level => describeLevel(level, { includeEmoji: false })).join('\n')}\n` +
+                `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+                `Detector de Branco (N0)\n` +
+                `Modo: somente N0\n` +
+                `Confiança: ${whiteConfidencePct}%\n` +
+                `t*: ${thresholdPct !== null ? `${thresholdPct}%` : 'n/d'}\n` +
+                holdoutReasoning +
+                `Ação: ${actionLabel}`;
+
+            const diamondN0 = (() => {
+                try {
+                    const key = (n0Result && typeof n0Result.learning_key === 'string') ? n0Result.learning_key : null;
+                    const ctx = (n0Result && typeof n0Result.learning_context === 'string') ? n0Result.learning_context : null;
+                    return {
+                        voteColor: 'white',
+                        key,
+                        ctx,
+                        usedInFinal: true,
+                        decision: (n0Result && typeof n0Result.learning_decision === 'string') ? n0Result.learning_decision : 'none',
+                        action: (n0Result && typeof n0Result.blocking_action === 'string') ? n0Result.blocking_action : 'no_block'
+                    };
+                } catch (_) {
+                    return null;
+                }
+            })();
+
+            const signal = {
+                timestamp: Date.now(),
+                patternType: 'nivel-diamante',
+                patternName: 'Detector de Branco (N0)',
+                colorRecommended: 'white',
+                normalizedScore: Number(n0WhiteStrength.toFixed(4)),
+                scoreMagnitude: Number(n0WhiteStrength.toFixed(4)),
+                intensityMode: analyzerConfig.signalIntensity || 'aggressive',
+                rawConfidence: whiteConfidencePct,
+                finalConfidence: whiteConfidencePct,
+                levelBreakdown: scoreSummary,
+                sourceLevel: diamondSourceLevel,
+                reasoning,
+                verified: false,
+                colorThatCame: null,
+                hit: null
+            };
+
+            if (signalsHistory && signalsHistory.signals) {
+                signalsHistory.signals.push(signal);
+                if (signalsHistory.signals.length > 200) {
+                    signalsHistory.signals = signalsHistory.signals.slice(-200);
+                }
+                await saveSignalsHistory();
+            }
+
+            if (!memoriaAtiva.inicializada) {
+                memoriaAtiva.inicializada = true;
+                memoriaAtiva.ultimaAtualizacao = Date.now();
+                memoriaAtiva.totalAtualizacoes = 1;
+                memoriaAtiva.giros = history.slice(0, getMemoriaAtivaHistoryCap());
+                console.log('%c✅ Memória Ativa marcada como INICIALIZADA!', 'color: #00FF00; font-weight: bold;');
+            } else {
+                memoriaAtiva.totalAtualizacoes++;
+                memoriaAtiva.ultimaAtualizacao = Date.now();
+            }
+
+            return {
+                color: 'white',
+                confidence: whiteConfidencePct,
+                probability: whiteConfidencePct,
+                reasoning,
+                patternDescription: 'Detector de Branco (N0)',
+                diamondSourceLevel,
+                diamondN0
+            };
+        }
+
         const scoreWithoutBarrier = levelReports.reduce((sum, lvl) => sum + (lvl.score * lvl.weight), 0);
         if (n0SoftBlockActive) {
             console.log('%c⚠️ Soft block ativo: pesos dos níveis reduzidos em 50% para este giro', 'color: #FFAA00; font-weight: bold;');
