@@ -2023,10 +2023,6 @@
                     </button>
 
                     <div id="mpPaymentStatus" class="mp-payment-status">Gerando cobrança...</div>
-
-                    <div class="link" style="margin-top: 14px;">
-                        <a href="#" onclick="showActivationScreen(); return false;">Já tenho um código de ativação</a>
-                        </div>
                 </div>
 
                 <!-- Suporte: aparece somente se o pagamento for confirmado e der erro na ativação/login -->
@@ -2042,9 +2038,6 @@
                         <a id="mpSupportEmailLink" class="btn btn-secondary" href="#" aria-disabled="true">
                             Enviar e-mail
                         </a>
-                        <button type="button" class="btn btn-secondary" onclick="showActivationScreen()">
-                            Inserir código de ativação
-                        </button>
                     </div>
                 </div>
             </div>
@@ -2231,6 +2224,45 @@
         let emailVerificationToken = null;
         let verificationCountdownInterval = null;
         let verificationCooldownRemaining = 0;
+
+        // ═══════════════════════════════════════════════════════════════════════
+        // 🔁 Auto-login após ativação manual (ADMIN)
+        // - Cenário: usuário ficou no pagamento (pending), você ativou no Admin e ele recarregou a página.
+        // - Guardamos email/senha APENAS na sessionStorage (só nesta aba), por tempo curto.
+        // - Assim, ao recarregar, o sistema tenta logar sozinho. Se já estiver ACTIVE, entra direto.
+        // ═══════════════════════════════════════════════════════════════════════
+        const PENDING_AUTOLOGIN_KEY = 'da_pending_autologin_v1';
+        const PENDING_AUTOLOGIN_TTL_MS = 6 * 60 * 60 * 1000; // 6 horas
+
+        function readPendingAutoLogin() {
+            try {
+                const raw = sessionStorage.getItem(PENDING_AUTOLOGIN_KEY);
+                if (!raw) return null;
+                const data = JSON.parse(raw);
+                if (!data || !data.email || !data.password) return null;
+                const ts = Number(data.ts) || 0;
+                if (ts && (Date.now() - ts) > PENDING_AUTOLOGIN_TTL_MS) return null;
+                return data;
+            } catch (_) {
+                return null;
+            }
+        }
+
+        function writePendingAutoLogin({ email, password, pendingUserId, selectedPlan }) {
+            try {
+                sessionStorage.setItem(PENDING_AUTOLOGIN_KEY, JSON.stringify({
+                    email: String(email || '').trim().toLowerCase(),
+                    password: String(password || ''),
+                    pendingUserId: pendingUserId || null,
+                    selectedPlan: selectedPlan || null,
+                    ts: Date.now()
+                }));
+            } catch (_) {}
+        }
+
+        function clearPendingAutoLogin() {
+            try { sessionStorage.removeItem(PENDING_AUTOLOGIN_KEY); } catch (_) {}
+        }
 
         // ═══════════════════════════════════════════════════════════════════════
         // 🤝 Afiliados / Influenciadores (tracking por link)
@@ -2443,9 +2475,82 @@
                 console.log('✅ [AUTH] Já está logado! Redirecionando para index.html...');
                 window.location.href = 'index.html';
                 return;
-            } else {
-                console.log('ℹ️ [AUTH] Não está logado - exibindo tela de login');
             }
+
+            // ✅ Se estava no pagamento (pendente) e o Admin ativou:
+            // ao recarregar, tenta logar automaticamente.
+            const pendingAuto = readPendingAutoLogin();
+            if (pendingAuto?.email && pendingAuto?.password) {
+                try {
+                    console.log('🔄 [AUTH] Tentando auto-login após ativação manual (pending → active)...');
+                    await ensureUrlsReady();
+                    const hardwareInfo = await generateHardwareFingerprint();
+
+                    const response = await fetch(`${API_URL}/auth/login`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            email: pendingAuto.email,
+                            password: pendingAuto.password,
+                            hardwareInfo
+                        })
+                    });
+
+                    const data = await response.json().catch(() => ({}));
+
+                    // ✅ Ativou: login normal e entra
+                    if (data && data.success && data.token && data.user) {
+                        clearPendingAutoLogin();
+                        await saveSession(data.token, data.user);
+                        window.location.href = 'index.html';
+                        return;
+                    }
+
+                    // Se por algum motivo vier como expirado, garantir fluxo correto: sempre mostrar planos
+                    if (data && data.expired) {
+                        userData = { email: String(pendingAuto.email).trim().toLowerCase() };
+                        pendingUserId = null;
+                        emailVerificationToken = null;
+                        selectedPlan = null;
+                        clearPendingAutoLogin();
+                        await loadPlans();
+                        showScreen('planScreen');
+                        showMessage('Sua assinatura expirou. Selecione um plano para renovar e gerar o PIX.', 'info');
+                        return;
+                    }
+
+                    // Ainda pendente: restaurar fluxo de pagamento automaticamente
+                    if (data && (data.requiresPayment || data.requiresActivation)) {
+                        userData = { email: String(pendingAuto.email).trim().toLowerCase() };
+                        pendingUserId = data.userId || pendingAuto.pendingUserId || null;
+                        selectedPlan = data.selectedPlan || pendingAuto.selectedPlan || null;
+
+                        // manter no sessionStorage para tentar novamente após ativação
+                        writePendingAutoLogin({
+                            email: pendingAuto.email,
+                            password: pendingAuto.password,
+                            pendingUserId,
+                            selectedPlan
+                        });
+
+                        if (!selectedPlan) {
+                            await loadPlans();
+                            showScreen('planScreen');
+                        } else {
+                            showScreen('paymentScreen');
+                            await loadPaymentInfo();
+                        }
+                        return;
+                    }
+
+                    // Evitar loop se senha mudou/erro
+                    clearPendingAutoLogin();
+                } catch (e) {
+                    console.warn('⚠️ [AUTH] Auto-login falhou (pending):', e);
+                }
+            }
+
+            console.log('ℹ️ [AUTH] Não está logado - exibindo tela de login');
 
             // Landing (conteúdo dinâmico via Admin)
             loadLandingPage().catch(() => {});
@@ -3862,6 +3967,7 @@
                     
                     console.log('💾 SALVANDO DADOS NA SESSÃO:');
                     try {
+                        clearPendingAutoLogin();
                         await saveSession(data.token, data.user);
                         console.log('   ✅ Sessão persistida com sucesso');
                     } catch (e) {
@@ -3898,11 +4004,34 @@
                     console.log('🔄 Redirecionando para index.html...');
                         window.location.href = 'index.html';
                 } else {
+                    // ✅ IMPORTANTE: expirado também vem com requiresPayment=true no backend.
+                    // Então precisamos tratar expired ANTES de requiresPayment, senão pula direto pro QR do plano atual.
+                    if (data.expired) {
+                        // ✅ Conta expirada: direcionar para renovação (mostrar planos e depois PIX)
+                        userData = { email: email.trim().toLowerCase() };
+                        pendingUserId = null;
+                        emailVerificationToken = null; // não é cadastro novo
+                        selectedPlan = null; // força escolher plano (permite trocar de plano)
+                        clearPendingAutoLogin();
+                        await loadPlans();
+                        showScreen('planScreen');
+                        showMessage('Sua assinatura expirou. Selecione um plano para renovar e gerar o PIX.', 'info');
+                        return;
+                    }
+
                     if (data.requiresPayment || data.requiresActivation) {
                         // Conta pendente: direcionar para pagamento Mercado Pago (sem liberar login)
                         userData = { email: email.trim().toLowerCase() };
                         pendingUserId = data.userId || null;
                         selectedPlan = data.selectedPlan || null;
+
+                        // ✅ Guardar email/senha apenas nesta aba (sessionStorage) para auto-login após ativação manual no Admin
+                        writePendingAutoLogin({
+                            email,
+                            password,
+                            pendingUserId,
+                            selectedPlan
+                        });
 
                         if (!selectedPlan) {
                             await loadPlans();
@@ -3914,18 +4043,7 @@
                         return;
                     }
 
-                    if (data.expired) {
-                        // ✅ Conta expirada: direcionar para renovação (mostrar planos e depois PIX)
-                        userData = { email: email.trim().toLowerCase() };
-                        pendingUserId = null;
-                        emailVerificationToken = null; // não é cadastro novo
-                        selectedPlan = null; // força escolher plano
-                        await loadPlans();
-                        showScreen('planScreen');
-                        showMessage('Sua assinatura expirou. Selecione um plano para renovar e gerar o PIX.', 'info');
-                    } else {
-                        showMessage(data.error || 'Email ou senha incorretos', 'error');
-                    }
+                    showMessage(data.error || 'Email ou senha incorretos', 'error');
                 }
             } catch (error) {
                 console.error('❌ Erro no login:', error);
@@ -4215,6 +4333,14 @@
                     }
 
                     showScreen('paymentScreen');
+                    if (userData?.password) {
+                        writePendingAutoLogin({
+                            email: userData.email,
+                            password: userData.password,
+                            pendingUserId,
+                            selectedPlan
+                        });
+                    }
                     await loadPaymentInfo();
                     return;
                 }
@@ -4242,6 +4368,14 @@
                 if (data.success) {
                     showScreen('paymentScreen');
                     pendingUserId = data.userId || pendingUserId;
+                    if (userData?.email && userData?.password) {
+                        writePendingAutoLogin({
+                            email: userData.email,
+                            password: userData.password,
+                            pendingUserId,
+                            selectedPlan
+                        });
+                    }
                     await loadPaymentInfo();
                 } else {
                     showMessage(data.error || 'Erro ao criar conta', 'error');
@@ -4464,12 +4598,13 @@
                     throw new Error(data.error || 'Não foi possível ativar a conta automaticamente.');
                 }
 
+                clearPendingAutoLogin();
                 await saveSession(data.token, data.user);
                 window.location.href = 'index.html';
             } catch (error) {
                 console.error('Erro ao ativar automaticamente:', error);
                 setMpPaymentStatus('Pagamento confirmado, mas houve um erro para liberar o acesso automaticamente.', 'warn');
-                showMessage('Pagamento confirmado, mas não foi possível ativar automaticamente. Você pode inserir o código ou falar com o suporte.', 'info');
+                showMessage('Pagamento confirmado, mas não foi possível liberar o acesso automaticamente. Fale com o suporte e envie o comprovante.', 'info');
                 await showMpSupportCard();
             }
         }
@@ -4742,6 +4877,7 @@
                     console.log('✅ Conta ativada com sucesso!');
                     console.log('💾 Persistindo sessão após ativação...');
                     
+                    clearPendingAutoLogin();
                     await saveSession(data.token, data.user);
                     
                     console.log('✅ Dados salvos!');
