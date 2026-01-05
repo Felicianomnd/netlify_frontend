@@ -13,6 +13,26 @@
     height: 100%;
     box-shadow: none;
 }
+
+/* 📱 Mobile/compact: precisa de “card” (senão fica tudo solto).
+   Desktop dashboard continua sem o fundo interno (pedido anterior). */
+#blaze-double-analyzer:not(.da-desktop-dashboard) .analysis-card,
+#blaze-double-analyzer:not(.da-desktop-dashboard) .analysis-lastspin-row .last-spin-section .spin-display {
+    background: rgba(0, 0, 0, 0.18);
+}
+
+#blaze-double-analyzer:not(.da-desktop-dashboard) .entries-panel {
+    background: rgba(0, 0, 0, 0.18);
+    border: none;
+    border-radius: 10px;
+    padding: 10px 12px 12px 12px;
+}
+
+/* manter tabs/headers “dentro do card” sem criar borda fina */
+#blaze-double-analyzer:not(.da-desktop-dashboard) .entries-tabs-bar {
+    background: transparent;
+    border: none;
+}
 /* ═══════════════════════════════════════════════════════════════════════════════ */
 /* 🎨 PALETA DE CORES DA BLAZE                                                     */
 /* ═══════════════════════════════════════════════════════════════════════════════ */
@@ -1173,15 +1193,15 @@
         flex-shrink: 0;
     }
     
-    .da-app-name {
-        font-size: 14px;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
+    /* ✅ Pedido: no mobile remover o texto "Double" para caber badge + toggle IA */
+    #blaze-double-analyzer:not(.da-desktop-dashboard) .da-app-name {
+        display: none !important;
     }
     
-    .title-badge {
-        display: none;
+    /* o badge precisa ficar visível no mobile (fica perto da logo) */
+    #blaze-double-analyzer:not(.da-desktop-dashboard) .title-badge {
+        display: inline-block !important;
+        margin-left: 0 !important;
     }
     
     .da-controls-group {
@@ -1205,16 +1225,22 @@
         display: none;
     }
 
-    .ai-mode-toggle-wrap {
-        min-width: 86px;
-        gap: 1px;
+    /* ✅ Pedido: tirar "IA ON/OFF" e deixar só: switch + Ativar/Desativar IA (linha única) */
+    #blaze-double-analyzer:not(.da-desktop-dashboard) .ai-mode-toggle-wrap {
+        min-width: 0;
+        flex-direction: row;
+        gap: 10px;
+        align-items: center;
+        justify-content: flex-end;
+        padding: 0;
     }
-    .ai-mode-status {
-        font-size: 10px;
-        letter-spacing: 0.8px;
+    #blaze-double-analyzer:not(.da-desktop-dashboard) .ai-mode-status {
+        display: none !important;
     }
-    .ai-mode-action {
-        font-size: 9px;
+    #blaze-double-analyzer:not(.da-desktop-dashboard) .ai-mode-action {
+        font-size: 11px;
+        font-weight: 700;
+        color: rgba(255,255,255,0.82);
     }
     .ai-mode-switch input[type="checkbox"] {
         width: 40px;

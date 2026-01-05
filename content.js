@@ -1630,7 +1630,7 @@
             if (aiWrap) aiWrap.classList.remove('active');
             
             if (aiLabel) aiLabel.textContent = 'IA OFF';
-            if (aiActionLabel) aiActionLabel.textContent = 'Ligar IA';
+            if (aiActionLabel) aiActionLabel.textContent = 'Ativar IA';
 
             if (titleBadge) {
                 titleBadge.textContent = 'Análise Premium';
@@ -12078,7 +12078,7 @@ async function persistAnalyzerState(newState) {
                         <label class="ai-mode-switch" title="Ativar/Desativar IA">
                             <input type="checkbox" class="ai-mode-toggle" id="aiModeToggle" aria-label="Ativar/Desativar IA" />
                         </label>
-                        <div class="ai-mode-action" id="aiToggleActionLabel">Ligar IA</div>
+                        <div class="ai-mode-action" id="aiToggleActionLabel">Ativar IA</div>
                     </div>
                         </div>
 
