@@ -7,7 +7,7 @@
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <meta name="theme-color" content="#1a1a2e">
+    <meta name="theme-color" content="#0f1923">
     <title>Double Análise</title>
 
     <!-- Ícones / Favicon -->
@@ -43,7 +43,7 @@
             margin: 0;
             padding: 0;
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: #1a1a2e;
+            background: #0f1923;
             color: white;
             overflow: hidden; /* Impede barra de rolagem externa criar faixa na direita em tela cheia */
         }
@@ -63,7 +63,7 @@
             display: flex;
             align-items: center;
             justify-content: center;
-            background: #151924; /* fundo limpo e consistente */
+            background: #0f1923; /* fundo chapado (sem gradiente) */
         }
 
         .app-loading-inner {
@@ -96,10 +96,9 @@
             font-size: 16px;
             font-weight: 900;
             letter-spacing: 0.6px;
-            background: linear-gradient(90deg, #ff003f, #9945ff);
-            background-clip: text;
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
+            background: none;
+            -webkit-text-fill-color: currentColor;
+            color: #ffffff;
             white-space: nowrap;
             display: block;
         }

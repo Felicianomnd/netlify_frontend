@@ -38,9 +38,10 @@
 /* ═══════════════════════════════════════════════════════════════════════════════ */
 
 :root {
-    --bg-primary: #151b28;
-    --bg-secondary: #212838;
-    --bg-tertiary: #2a3548;
+    /* ✅ Tema chapado (pedido do usuário): cores base SEM gradiente/sem sombra */
+    --bg-primary: #0f1923;   /* fundo do fundo (atrás dos containers) */
+    --bg-secondary: #111c27; /* superfície/container */
+    --bg-tertiary: #132131;  /* variação levemente mais clara para seções internas */
     --text-primary: #ffffff;
     --text-secondary: #8b92a8;
     /* ✅ Remover “linhas fininhas” (bordas) do layout: usar contraste/sombra em vez de stroke */
@@ -360,12 +361,22 @@
     color: var(--text-primary);
     font-family: var(--font-primary);
     z-index: 10000;
-    box-shadow: 0 28px 70px rgba(0, 0, 0, 0.55);
+    box-shadow: none;
     border: none;
     border-radius: 0;
     overflow: hidden;
     resize: none;
     transition: background 0.4s ease;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   🚫 TEMA "FLAT": SEM SOMBRAS EM ABSOLUTAMENTE NADA (painel inteiro)
+   - remove box-shadow e text-shadow até de estilos inline (via !important)
+   ═══════════════════════════════════════════════════════════════════════════════ */
+#blaze-double-analyzer,
+#blaze-double-analyzer * {
+    box-shadow: none !important;
+    text-shadow: none !important;
 }
 
 /* 💎 MODO NÍVEL DIAMANTE ATIVO - Fundo 15% mais claro */
@@ -485,7 +496,7 @@
 /* ═══════════════════════════════════════════════════════════════════════════════ */
 
 :root {
-    --da-header-bg: #0a0a0a;
+    --da-header-bg: #0f1923; /* ✅ cor do cabeçalho (pedido do usuário) */
     --da-header-border: transparent;
     --da-primary: #FF003F;
     --da-text: #ffffff;
@@ -500,7 +511,7 @@
     height: var(--da-header-height);
     background: var(--da-header-bg);
     border-bottom: none;
-    box-shadow: 0 10px 26px rgba(0, 0, 0, 0.55);
+    box-shadow: none;
     display: grid;
     grid-template-columns: auto 1fr auto;
     align-items: center;
@@ -9913,9 +9924,9 @@ body.da-ext-fullscreen #patternDetailsModal .bank-patterns-modal-content {
   #blaze-double-analyzer.da-desktop-dashboard .da-desktop-sidebar {
     min-height: 0;
     border-radius: var(--da-desktop-radius);
-    background: rgba(13, 18, 28, 0.72);
-    border: none;
-    box-shadow: 0 18px 50px rgba(0, 0, 0, 0.35);
+    background: var(--bg-secondary);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    box-shadow: none;
     overflow: hidden;
     display: flex;
     flex-direction: column;
@@ -9930,9 +9941,9 @@ body.da-ext-fullscreen #patternDetailsModal .bank-patterns-modal-content {
   #blaze-double-analyzer.da-desktop-dashboard .da-desktop-main {
     min-height: 0;
     border-radius: var(--da-desktop-radius);
-    background: rgba(13, 18, 28, 0.35);
+    background: var(--bg-secondary);
     border: 1px solid rgba(255, 255, 255, 0.06);
-    box-shadow: 0 18px 50px rgba(0, 0, 0, 0.25);
+    box-shadow: none;
     position: relative; /* ✅ referência para overlays/modais acoplados */
     overflow: hidden;
     display: flex;
@@ -9987,8 +9998,8 @@ body.da-ext-fullscreen #patternDetailsModal .bank-patterns-modal-content {
     position: sticky;
     top: 0;
     z-index: 10;
-    backdrop-filter: blur(10px);
-    -webkit-backdrop-filter: blur(10px);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
     border-bottom: 1px solid rgba(255, 255, 255, 0.06);
     /* ✅ Forçar altura vertical (evita override de outras regras) */
     height: var(--da-header-height) !important;
@@ -10148,9 +10159,9 @@ body.da-ext-fullscreen #patternDetailsModal .bank-patterns-modal-content {
   #blaze-double-analyzer.da-desktop-dashboard .da-card {
     position: relative;
     border-radius: var(--da-desktop-radius);
-    background: rgba(15, 23, 32, 0.55);
-    border: none;
-    box-shadow: 0 22px 52px rgba(0, 0, 0, 0.35);
+    background: var(--bg-secondary);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    box-shadow: none;
     padding: 14px;
     overflow: hidden;
   }
