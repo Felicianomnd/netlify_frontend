@@ -17915,17 +17915,27 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
 
         console.log('%c✅ BARREIRA LIBERADA! Sequência é viável.', 'color: #00FF88; font-weight: bold; font-size: 14px;');
         
-        // ✅ VERIFICAÇÃO CRÍTICA: Se apenas N9/N10 estão ativos (sem outros níveis votando), cancelar sinal
-        const votingLevelsOnly = levelReports.filter(lvl => 
-            lvl.id !== 'N0' && lvl.id !== 'N9' && lvl.id !== 'N10' && 
+        // ✅ VERIFICAÇÃO CRÍTICA:
+        // Se não houver nenhum voto vindo dos níveis "votantes" (N1..N8), cancelar o sinal.
+        // - N9/N10 são validadores/veto (não são voto).
+        // - N0 é detector de branco (só vira "sinal" quando FORÇA WHITE via BLOCK ALL).
+        const votingLevelsOnly = levelReports.filter(lvl =>
+            lvl.id !== 'N0' && lvl.id !== 'N9' && lvl.id !== 'N10' &&
             !lvl.disabled && lvl.color && (lvl.strength || 0) > 0
         );
-        
+
         if (votingLevelsOnly.length === 0) {
-            console.log('%c🚫 NENHUM NÍVEL VOTANTE ATIVO (apenas barreiras N9/N10)', 'color: #FF6666; font-weight: bold; font-size: 16px;');
-            console.log('%c   N9 e N10 são apenas validadores, não podem votar sozinhos!', 'color: #FF6666; font-weight: bold;');
-            console.log('%c   ❌ SINAL CANCELADO - sem votos válidos dos níveis 1-8', 'color: #FF0000; font-weight: bold;');
-            sendAnalysisStatus('❌ Sem votos: apenas barreiras ativas (N9/N10 não votam sozinhas)');
+            const n0EnabledNow = !!diamondLevelEnabledMap['N0'];
+            const activeEnabledIds = DIAMOND_LEVEL_IDS.filter(id => !!diamondLevelEnabledMap[id]);
+            const activeEnabledLabel = activeEnabledIds.length > 0 ? activeEnabledIds.join(', ') : 'nenhum';
+            const hint = n0EnabledNow
+                ? 'Dica: com só N0 (Detector de Branco) ativo, sinais podem ficar horas sem aparecer — ele só dispara quando prevê WHITE com confiança suficiente.'
+                : 'Dica: ative pelo menos um nível votante (N1–N8) para gerar sinais.';
+
+            console.log('%c🚫 NENHUM VOTO DOS NÍVEIS VOTANTES (N1–N8)', 'color: #FF6666; font-weight: bold; font-size: 16px;');
+            console.log(`%c   Níveis ativos: ${activeEnabledLabel}`, 'color: #FF6666; font-weight: bold;');
+            console.log('%c   ❌ SINAL CANCELADO - sem votos válidos (N1–N8)', 'color: #FF0000; font-weight: bold;');
+            sendAnalysisStatus(`❌ Sem votos (N1–N8). Ativos: ${activeEnabledLabel}. ${hint}`);
             await sleep(2000);
             await restoreIAStatus();
             return null;
