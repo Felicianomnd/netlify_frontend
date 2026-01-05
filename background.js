@@ -11988,11 +11988,9 @@ function analyzeWhiteRadar(fullHistory) {
 function shouldUseN4DynamicGalesForConfig(config = analyzerConfig) {
     try {
         if (!config || !config.aiMode) return false;
-        const enabledIds = DIAMOND_LEVEL_IDS.filter(id => isDiamondLevelEnabled(id, config));
-        // N9 é "barreira/veto" (validador), não um nível de voto.
-        // Permitir N4-only mesmo com N9 ativo, para não matar a reanálise dinâmica em setups comuns.
-        const voteIds = enabledIds.filter(id => id !== 'N9');
-        if (!(voteIds.length === 1 && voteIds[0] === 'N4')) return false;
+        // ✅ Só o N4 tem o comportamento de trocar a cor no Gale (G1/G2).
+        // Se o N4 estiver desativado, nunca permitir gales dinâmicos.
+        if (!isDiamondLevelEnabled('N4', config)) return false;
         // ✅ Toggle do usuário: permitir ou não mudar a cor no Gale (G1/G2)
         try {
             const fallback = !!(DEFAULT_ANALYZER_CONFIG && DEFAULT_ANALYZER_CONFIG.diamondLevelWindows && DEFAULT_ANALYZER_CONFIG.diamondLevelWindows.n4DynamicGales);
