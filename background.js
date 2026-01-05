@@ -31937,9 +31937,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         })();
         return true;
     } else if (request.action === 'IA_BOOTSTRAP_HISTORY') {
-        // 🤖 IA VIVA: DESATIVADO (pedido)
-        // Não fazer varredura real/simulação nem popular UI com ciclos passados.
-        // Mantido apenas por compatibilidade: responder "success" imediatamente.
+        // 🤖 IA VIVA: bootstrap do histórico via simulação no passado, usando a config atual (sem alterar config)
         (async () => {
             try {
                 const mode = String(request && request.mode ? request.mode : (analyzerConfig && analyzerConfig.aiMode ? 'diamond' : 'standard'))
@@ -31947,17 +31945,165 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                     .trim() === 'diamond'
                     ? 'diamond'
                     : 'standard';
+                // ✅ Pedido: bootstrap inicial = 20 ciclos (mais recentes). Sem cap permanente no histórico.
                 const targetCycles = Math.max(1, Math.min(200, Math.floor(Number(request && request.targetCycles) || 20)));
+
+                const stored = await chrome.storage.local.get(['analyzerConfig', 'entriesHistory', 'analysis', ENTRIES_CLEAR_CUTOFF_KEY]);
+                const cfg = stored && stored.analyzerConfig && typeof stored.analyzerConfig === 'object'
+                    ? stored.analyzerConfig
+                    : (typeof analyzerConfig !== 'undefined' ? analyzerConfig : {});
+                const entriesHistoryAll = stored && Array.isArray(stored.entriesHistory) ? stored.entriesHistory : [];
+                const cutoffMs = getMasterCutoffMsForMode(stored ? stored[ENTRIES_CLEAR_CUTOFF_KEY] : null, mode);
+
+                // Definir historyLimit inicial (reaproveita a lógica do simulador)
+                const computeInitialHistoryLimit = () => {
+                    if (mode === 'diamond') {
+                        const windows = cfg && cfg.diamondLevelWindows ? cfg.diamondLevelWindows : {};
+                        const enabled = cfg && cfg.diamondLevelEnabled ? cfg.diamondLevelEnabled : {};
+                        const requiredHistory = Math.max(
+                            enabled.n0 ? (Number(windows.n0History) || 0) : 0,
+                            enabled.n3 ? (Number(windows.n3Alternance) || 0) : 0,
+                            enabled.n4 ? (Number(windows.n4Persistence) || 0) : 0,
+                            enabled.n7 ? (Number(windows.n7HistoryWindow) || 0) : 0,
+                            enabled.n8 ? (Number(windows.n10History) || 0) : 0,
+                            enabled.n10 ? (Number(windows.n9History) || 0) : 0
+                        );
+                        return Math.max(1440, requiredHistory || 0, 2000);
+                    }
+                    // ✅ Pedido: respeitar a profundidade REAL configurada (historyDepth) no modo padrão
+                    // (não “estourar” para 2000/10k só para gerar mais ciclos no bootstrap)
+                    const rawDepth = Number(cfg && cfg.historyDepth != null ? cfg.historyDepth : 500) || 500;
+                    const depth = clampInt(rawDepth, 100, 10000);
+                    return depth;
+                };
+
+                const runSim = async (historyLimit) => {
+                    if (mode === 'diamond') {
+                        const jobId = `ia-boot-dia-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+                        return await runDiamondPastSimulation({
+                            config: cfg,
+                            mode: 'all',
+                            levelId: null,
+                            senderTabId: null,
+                            jobId,
+                            historyLimit
+                        });
+                    }
+                    const jobId = `ia-boot-std-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+                    return await runStandardPastSimulation({
+                        config: cfg,
+                        senderTabId: null,
+                        jobId,
+                        historyLimit
+                    });
+                };
+
+                let historyLimit = Math.min(10000, computeInitialHistoryLimit());
+                let simResult = await runSim(historyLimit);
+                let simEntries = simResult && simResult.simState && Array.isArray(simResult.simState.entriesHistory)
+                    ? simResult.simState.entriesHistory
+                    : [];
+
+                // ✅ Pedido: não aumentar historyLimit acima do configurado só para “forçar” ciclos.
+                // Se não houver ciclos suficientes, bootstrap parcial é OK (mantém consistência com historyDepth).
+
+                const hasExplicitModeSim2 = simEntries.some(e => e && (e.analysisMode === 'diamond' || e.analysisMode === 'standard'));
+                const inModeSim2 = (e) => resolveEntryModeMaster(e, hasExplicitModeSim2) === mode;
+                const finals = filterFinalEntries(simEntries).filter(inModeSim2);
+
+                // Selecionar os 100 ciclos mais recentes (CICLOS = entradas finais WIN/RED/RET),
+                // mas manter TODAS as "entradas/tentativas" dentro desses ciclos.
+                // (Evita depender de cycleId/patternData, e garante que 100 CICLOS podem gerar >100 ENTRADAS)
+                const isFinalEntry = (e) => {
+                    try {
+                        if (typeof isFinalCycleMaster === 'function') return !!isFinalCycleMaster(e);
+                    } catch (_) {}
+                    const isWin = String(e && e.result || '').toUpperCase().trim() === 'WIN';
+                    if (isWin) return true;
+                    const isLoss = String(e && e.result || '').toUpperCase().trim() === 'LOSS';
+                    if (!isLoss) return false;
+                    const fr = e && e.finalResult ? String(e.finalResult).toUpperCase().trim() : '';
+                    if (fr === 'RED' || fr === 'RET') return true;
+                    try {
+                        return !hasContinuationFlagMaster(e);
+                    } catch (_) {
+                        let isContinuing = false;
+                        for (let k in (e || {})) {
+                            if (String(k).startsWith('continuingToG')) { isContinuing = true; break; }
+                        }
+                        return !isContinuing;
+                    }
+                };
+
+                let keptEntriesRaw = [];
+                let createdCycles = 0;
+                let started = false;
+                for (let i = 0; i < simEntries.length; i++) {
+                    const e = simEntries[i];
+                    if (!inModeSim2(e)) continue;
+                    const isFinal = isFinalEntry(e);
+                    if (isFinal) {
+                        if (!started) started = true;
+                        if (createdCycles >= targetCycles) {
+                            break; // este seria o (target+1)º ciclo final
+                        }
+                        createdCycles++;
+                    }
+                    if (started) {
+                        keptEntriesRaw.push(e);
+                    }
+                }
+
+                if (createdCycles < Math.max(10, targetCycles)) {
+                    // Ainda assim permite bootstrap parcial (ex.: pouco histórico), mas mantém coerência
+                    console.warn(`⚠️ IA_BOOTSTRAP_HISTORY: ciclos insuficientes (${createdCycles}/${targetCycles}) para modo ${mode}`);
+                }
+
+                // Carimbar "visibilidade" para passar no cutoff após "Limpar", MAS sem destruir o timestamp real.
+                // - `timestamp` permanece o original (para exibir hora correta no UI)
+                // - `visibleAtTimestamp` é usado só para filtro/cutoff (content.js)
+                const stampMs = Math.max(Date.now(), (Number(cutoffMs) || 0) + 1);
+                const keptEntries = keptEntriesRaw.map((e, idx) => ({
+                    ...(e && typeof e === 'object' ? e : {}),
+                    bootstrap: true,
+                    visibleAtTimestamp: stampMs + idx // pequeno offset para estabilidade
+                }));
+
+                // Remover do histórico antigo tudo que for do modo alvo ANTES do cutoff (limpeza real, para não misturar)
+                const hasExplicitExisting = entriesHistoryAll.some(e => e && (e.analysisMode === 'diamond' || e.analysisMode === 'standard'));
+                const cleanedExisting = entriesHistoryAll.filter(e => {
+                    const isMode = resolveEntryModeMaster(e, hasExplicitExisting) === mode;
+                    if (!isMode) return true;
+                    const ts = getEntryTimestampMsForHistory(e);
+                    return !(Number.isFinite(Number(cutoffMs)) && cutoffMs > 0 && ts < cutoffMs);
+                });
+
+                // Inserir as entradas bootstrap como as mais antigas da janela atual (sem bagunçar o topo atual)
+                // entriesHistory é newest-first, então anexar no fim preserva "mais recente" no topo.
+                let merged = cleanedExisting.concat(keptEntries);
+
+                // ✅ Sem cap após bootstrap: manter histórico acumulando normalmente (sem limitar em 20/200).
+
+                await chrome.storage.local.set({ entriesHistory: merged });
+
+                // Atualizar UI imediatamente
+                try { sendMessageToContent('ENTRIES_UPDATE', merged); } catch (_) {}
+                try {
+                    const currentAnalysis = stored && stored.analysis ? stored.analysis : null;
+                    const annotated = await attachMasterSignalToAnalysis(currentAnalysis, mode);
+                    if (annotated) {
+                        const payload = { ...attachLatestSpinsSnapshot(annotated) };
+                        payload.analysisMode = mode;
+                        sendMessageToContent('NEW_ANALYSIS', payload);
+                    }
+                } catch (_) {}
 
                 sendResponse({
                     status: 'success',
                     mode,
                     targetCycles,
-                    createdCycles: 0,
-                    availableCycles: 0,
-                    usedHistoryLimit: 0,
-                    uiInjected: false,
-                    disabled: true
+                    createdCycles,
+                    usedHistoryLimit: historyLimit
                 });
             } catch (e) {
                 console.error('❌ IA_BOOTSTRAP_HISTORY falhou:', e);
