@@ -4313,6 +4313,12 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
         list.innerHTML = items || '<div class="no-history">Sem entradas registradas</div>';
 
         const totalCycles = filteredEntries.length;
+        // ✅ Base para liberar Recuperação: ciclos finalizados visíveis na aba IA (respeita cutoff/limpar)
+        try {
+            if (currentMode === 'diamond' || currentMode === 'standard') {
+                iaCyclesCountByMode[currentMode] = totalCycles;
+            }
+        } catch (_) {}
         const wins = filteredEntries.filter(e => e.result === 'WIN').length;
         const losses = totalCycles - wins;
         const pct = totalCycles ? ((wins / totalCycles) * 100).toFixed(1) : '0.0';
@@ -12323,15 +12329,20 @@ async function persistAnalyzerState(newState) {
                                 <!-- ✅ IA VIVA: aparece quando a aba IA está vazia (após Limpar ou primeira abertura) -->
                                 <div class="ia-bootstrap-overlay" id="iaBootstrapOverlay" style="display:none;">
                                     <div class="ia-bootstrap-orb" id="iaBootstrapOrb" data-state="idle">
-                                        <button type="button" class="ai-orb-btn" id="iaBootstrapBtn" title="Analisar histórico">
+                                        <button type="button" class="ai-orb-btn" id="iaBootstrapBtn" title="Ativar IA" aria-label="Ativar IA">
                                             <span class="ai-orb-smoke" aria-hidden="true"></span>
                                             <span class="ai-orb-liquid" aria-hidden="true"></span>
                                             <span class="ai-orb-fog fog1" aria-hidden="true"></span>
                                             <span class="ai-orb-fog fog2" aria-hidden="true"></span>
                                             <span class="ai-orb-label">IA</span>
-                                            <span class="ai-orb-check" aria-hidden="true">✓</span>
+                                            <span class="ai-orb-check" aria-hidden="true">
+                                                <svg class="ai-orb-check-icon" viewBox="0 0 24 24" focusable="false" aria-hidden="true">
+                                                    <circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="2" opacity="0.9"></circle>
+                                                    <path d="M7 12.5l3 3 7-7" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"></path>
+                                                </svg>
+                                            </span>
                                         </button>
-                                        <div class="ia-bootstrap-text" id="iaBootstrapText" role="status" aria-live="polite">Analisar histórico</div>
+                                        <div class="ia-bootstrap-text" id="iaBootstrapText" role="status" aria-live="polite"></div>
                                     </div>
                                 </div>
                             </div>
@@ -16058,6 +16069,8 @@ async function persistAnalyzerState(newState) {
         // ═══════════════════════════════════════════════════════════════
         // Mostrar apenas entradas do modo ativo
         const entriesByMode = entries.filter(e => {
+            // ✅ Remover "bootstrap" (histórico antigo simulado) da UI — não mostrar passado
+            if (e && e.bootstrap) return false;
             // Mostrar apenas se for do modo ativo
             const entryMode = resolveEntryMode(e);
             return entryMode === currentMode;
@@ -16100,7 +16113,7 @@ async function persistAnalyzerState(newState) {
         } catch (_) {}
 
         // ✅ IA VIVA (HOLD):
-        // - Após "Limpar", manter vazio e com a bolinha ATÉ o usuário clicar em "Analisar histórico".
+        // - Após "Limpar", manter vazio e com a bolinha ATÉ o usuário clicar em "Ativar IA".
         // - Porém, se chegaram NOVOS ciclos após o cutoff, o HOLD deve ser desligado automaticamente
         //   (pedido do usuário: se veio sinal/resultado, a bolinha deve sumir e o histórico não pode "sumir").
         if (iaHold && entriesByModeForIA.length > 0) {
@@ -16375,8 +16388,12 @@ async function persistAnalyzerState(newState) {
                     bindIABootstrapButton();
                     setIABootstrapHasHistory(filteredEntries.length > 0);
                     // Mostrar CTA apenas quando não há histórico visível (cutoff) e não está rodando
-                    const showCta = !iaBootstrapBusy && filteredEntries.length === 0;
-                    setIABootstrapState(iaBootstrapBusy ? 'loading' : 'idle', showCta ? 'Analisar histórico' : '');
+                    const analyzed = (() => {
+                        try { return isIABootstrapAnalyzed(currentMode); } catch (_) { return false; }
+                    })();
+                    const showCta = !iaBootstrapBusy && filteredEntries.length === 0 && !analyzed;
+                    // ✅ Pedido: sem texto/nome embaixo da bolinha (somente "Buscando..." durante loading)
+                    setIABootstrapState(iaBootstrapBusy ? 'loading' : 'idle', showCta ? '' : '');
                 }
             } catch (_) {}
 
@@ -16490,6 +16507,9 @@ async function persistAnalyzerState(newState) {
     }
 
     // ✅ Nova aba: Recuperação (ativação manual)
+    const RECOVERY_MIN_CYCLES_TO_ENABLE = 10;
+    // Base (ciclos finalizados) da aba IA, por modo — usada para liberar o botão "Recuperar"
+    let iaCyclesCountByMode = { standard: 0, diamond: 0 };
     let recoveryModeEnabled = false;
     let recoveryModeStatusText = 'Desativada';
     // Snapshot do entriesHistory mais recente (para renderizar o histórico de Recuperação sem depender de fetch async)
@@ -16548,9 +16568,15 @@ async function persistAnalyzerState(newState) {
         const currentMode = getCurrentModeKey(latestAnalyzerConfig);
 
         const btnLabel = recoveryModeEnabled ? 'Desativar' : 'Recuperar';
+        const baseCycles = (() => {
+            try { return Number(iaCyclesCountByMode && iaCyclesCountByMode[currentMode]) || 0; } catch (_) { return 0; }
+        })();
+        const hasMinCycles = baseCycles >= RECOVERY_MIN_CYCLES_TO_ENABLE;
         const statusText = recoveryModeEnabled
             ? (recoveryModeStatusText || '')
-            : 'Desativada • clique em “Recuperar” após um RED';
+            : (!hasMinCycles
+                ? `Desativada • mínimo ${RECOVERY_MIN_CYCLES_TO_ENABLE} ciclos (${baseCycles}/${RECOVERY_MIN_CYCLES_TO_ENABLE})`
+                : 'Desativada • clique em “Recuperar” após um RED');
 
         const allEntries = Array.isArray(entriesOverride)
             ? entriesOverride
@@ -16738,6 +16764,21 @@ async function persistAnalyzerState(newState) {
         if (btn) {
             btn.onclick = (event) => {
                 try { event.preventDefault(); event.stopPropagation(); } catch (_) {}
+                // ✅ Gate: só permitir ATIVAR Recuperação após ter base mínima de ciclos
+                if (!recoveryModeEnabled) {
+                    const mode = getCurrentModeKey(latestAnalyzerConfig);
+                    const cyclesNow = (() => {
+                        try { return Number(iaCyclesCountByMode && iaCyclesCountByMode[mode]) || 0; } catch (_) { return 0; }
+                    })();
+                    if (cyclesNow < RECOVERY_MIN_CYCLES_TO_ENABLE) {
+                        const missing = Math.max(0, RECOVERY_MIN_CYCLES_TO_ENABLE - cyclesNow);
+                        showToast(`⚠️ Para ativar a Recuperação, aguarde ${RECOVERY_MIN_CYCLES_TO_ENABLE} ciclos finalizados. Faltam ${missing} (${cyclesNow}/${RECOVERY_MIN_CYCLES_TO_ENABLE}).`, 3600);
+                        // Re-render para garantir status atualizado
+                        try { renderRecoveryPanel(recoveryEntriesSourceCache); } catch (_) {}
+                        return;
+                    }
+                }
+
                 const next = !recoveryModeEnabled;
                 recoveryModeEnabled = next;
                 recoveryModeStatusText = next ? '' : 'Desativada';
@@ -16833,7 +16874,7 @@ async function persistAnalyzerState(newState) {
             applyIAVisibilityState();
             if (isIA) {
                 bindIABootstrapButton();
-                // Heurística: se já há cards na lista, ocultar o CTA ("Analisar histórico")
+                // Heurística: se já há cards na lista, ocultar o CTA ("Ativar IA")
                 let hasAny = false;
                 try {
                     const list = document.getElementById('entriesList');
@@ -16841,7 +16882,8 @@ async function persistAnalyzerState(newState) {
                 } catch (_) {}
                 setIABootstrapHasHistory(hasAny);
                 const showCta = !iaBootstrapBusy && !hasAny;
-                setIABootstrapState(iaBootstrapBusy ? 'loading' : 'idle', showCta ? 'Analisar histórico' : '');
+                // ✅ Pedido: sem texto/nome embaixo da bolinha (somente "Buscando..." durante loading)
+                setIABootstrapState(iaBootstrapBusy ? 'loading' : 'idle', showCta ? '' : '');
             }
         } catch (_) {}
     }
@@ -17012,11 +17054,14 @@ async function persistAnalyzerState(newState) {
                 });
             } catch (_) {}
 
-            // ✅ Pedido: após limpar, voltar e manter a bolinha/CTA até o usuário clicar em "Analisar histórico"
+            // ✅ Pedido: após limpar, voltar e manter a bolinha/CTA até o usuário clicar em "Ativar IA"
             try { setIABootstrapHoldActive(currentMode, true); } catch (_) {}
+            // ✅ Novo comportamento: após "Limpar", considerar que ainda NÃO foi analisado (bolinha volta)
+            try { setIABootstrapAnalyzed(currentMode, false); } catch (_) {}
             try {
                 iaBootstrapBusy = false;
-                setIABootstrapState('idle', 'Analisar histórico');
+                // ✅ Pedido: sem texto/nome embaixo da bolinha
+                setIABootstrapState('idle', '');
             } catch (_) {}
 
             // ✅ Pedido: ao clicar em "Limpar" na IA, resetar o Painel (saldo/lucro/perdas).
@@ -20343,7 +20388,7 @@ function logModeSnapshotUI(snapshot) {
 
     // ✅ UX (pedido atual):
     // - Ao clicar em "Limpar" na IA, deve voltar a bolinha/CTA.
-    // - Ela deve PERMANECER mesmo após F5, até o usuário clicar em "Analisar histórico".
+    // - Ela deve PERMANECER mesmo após F5, até o usuário clicar em "Ativar IA".
     // - Após analisar, o CTA some (porque já há histórico visível).
     const IA_BOOTSTRAP_HOLD_KEY_PREFIX = 'daIABootstrapHold_';
     function getIABootstrapHoldKey(mode) {
@@ -20632,9 +20677,12 @@ function logModeSnapshotUI(snapshot) {
         if (pendingIndicatorHtml && String(pendingIndicatorHtml).trim()) return false;
         // Se há itens, não mostrar
         if ((Number(filteredEntriesCount) || 0) > 0) return false;
-        // ✅ Se a IA foi "limpa", manter a bolinha até o usuário clicar em Analisar histórico
+        // ✅ Se a IA foi "limpa", manter a bolinha até o usuário clicar em Ativar IA
         if (isIABootstrapHoldActive(mode)) return true;
-        return true;
+        // ✅ Novo: antes do usuário analisar (primeira vez), mostrar a bolinha.
+        // Depois de analisar, esconder mesmo com a lista vazia.
+        if (!isIABootstrapAnalyzed(mode)) return true;
+        return false;
     }
 
     // IA Viva: o “vidro” fica SEMPRE por cima da aba IA.
@@ -20653,63 +20701,44 @@ function logModeSnapshotUI(snapshot) {
             setIABootstrapState('loading', 'Buscando');
 
             const mode = getCurrentModeKey(latestAnalyzerConfig);
-            try {
-                chrome.runtime.sendMessage({
-                    action: 'IA_BOOTSTRAP_HISTORY',
-                    mode,
-                    // ✅ Novo pedido: bootstrap inicial = 20 ciclos mais recentes
-                    targetCycles: 20
-                }, async (response) => {
-                    const err = chrome.runtime.lastError;
-                    if (err) {
-                        iaBootstrapBusy = false;
-                        try { btn.disabled = false; } catch (_) {}
-                        try { btn.removeAttribute('aria-busy'); } catch (_) {}
-                        setIABootstrapState('idle', 'Analisar histórico');
-                        showToast(`❌ Falha ao analisar histórico: ${err.message || err}`, 3200);
-                        return;
-                    }
-                    if (!response || response.status !== 'success') {
-                        iaBootstrapBusy = false;
-                        try { btn.disabled = false; } catch (_) {}
-                        try { btn.removeAttribute('aria-busy'); } catch (_) {}
-                        setIABootstrapState('idle', 'Analisar histórico');
-                        const msg = response && response.error ? response.error : 'resposta inválida';
-                        showToast(`❌ Falha ao analisar histórico: ${msg}`, 3200);
-                        return;
-                    }
-
-                    // ✅ Animação de concluído e sumir
-                    setIABootstrapState('done', '');
-                    setTimeout(() => {
-                        // ✅ Bootstrap concluído: liberar render normal (bolinha some quando houver histórico visível)
-                        setIABootstrapHoldActive(mode, false);
-                        iaBootstrapBusy = false;
-                        try { btn.disabled = false; } catch (_) {}
-                        try { btn.removeAttribute('aria-busy'); } catch (_) {}
-                        // Após concluir, manter apenas a bolinha (CTA some quando houver histórico visível)
-                        setIABootstrapState('idle', '');
-                        // ✅ Importante: forçar re-render imediatamente após liberar o HOLD,
-                        // porque o ENTRIES_UPDATE pode ter chegado antes (evita precisar dar F5).
-                        try {
-                            storageCompat.get(['entriesHistory']).then((res = {}) => {
-                                const entries = Array.isArray(res.entriesHistory) ? res.entriesHistory : [];
-                                renderEntriesPanel(entries);
-                            }).catch(() => {});
-                        } catch (_) {}
-                        // Forçar reavaliação do overlay (some imediatamente após o 1º carregamento)
-                        try { applyIAVisibilityState(iaBootstrapLastEntriesCount, iaBootstrapLastPendingIndicatorHtml); } catch (_) {}
-                    }, 850);
-                });
-            } catch (e) {
-                iaBootstrapBusy = false;
-                try { btn.disabled = false; } catch (_) {}
-                try { btn.removeAttribute('aria-busy'); } catch (_) {}
-                setIABootstrapState('idle', 'Analisar histórico');
-                showToast(`❌ Falha ao analisar histórico: ${e.message || e}`, 3200);
-            }
+            // ✅ NOVO: bolinha é apenas UX (sem buscar/analisar histórico de verdade).
+            // Simula uma varredura curta e finaliza com "concluído" (check), depois desaparece.
+            setTimeout(() => {
+                try { setIABootstrapState('done', ''); } catch (_) {}
+                setTimeout(() => {
+                    try { setIABootstrapHoldActive(mode, false); } catch (_) {}
+                    try { setIABootstrapAnalyzed(mode, true); } catch (_) {}
+                    iaBootstrapBusy = false;
+                    try { btn.disabled = false; } catch (_) {}
+                    try { btn.removeAttribute('aria-busy'); } catch (_) {}
+                    // Após concluir, CTA some; overlay desaparece pela regra de visibilidade.
+                    try { setIABootstrapState('idle', ''); } catch (_) {}
+                    try { applyIAVisibilityState(iaBootstrapLastEntriesCount, iaBootstrapLastPendingIndicatorHtml); } catch (_) {}
+                }, 650);
+            }, 900);
         });
         iaBootstrapBound = true;
+    }
+
+    // ✅ IA VIVA — flag persistente: usuário já “analisou” (bolinha não deve voltar sozinha)
+    function getIABootstrapAnalyzedKey(mode) {
+        const IA_BOOTSTRAP_ANALYZED_KEY_PREFIX = 'daIABootstrapAnalyzed_';
+        const mk = String(mode || '').toLowerCase().trim() === 'diamond' ? 'diamond' : 'standard';
+        return `${IA_BOOTSTRAP_ANALYZED_KEY_PREFIX}${mk}`;
+    }
+    function isIABootstrapAnalyzed(mode) {
+        try {
+            return localStorage.getItem(getIABootstrapAnalyzedKey(mode)) === '1';
+        } catch (_) {
+            return false;
+        }
+    }
+    function setIABootstrapAnalyzed(mode, analyzed) {
+        try {
+            const key = getIABootstrapAnalyzedKey(mode);
+            if (analyzed) localStorage.setItem(key, '1');
+            else localStorage.removeItem(key);
+        } catch (_) {}
     }
 
     // Função para atualizar UI do observador
