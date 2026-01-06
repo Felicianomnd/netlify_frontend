@@ -4479,6 +4479,39 @@
     .diamond-reasoning-summary {
         grid-template-columns: repeat(2, minmax(0, 1fr));
     }
+
+    /* ✅ MOBILE: "Padrão" (Últimos 14 giros) deve ficar 7 + 7 (sem 3ª linha sobrando) */
+    #blaze-double-analyzer #analyzerDefaultView .pattern-section #patternInfo #patternLastSpinsRow.ai-entry-spins,
+    #blaze-double-analyzer #analyzerDefaultView .pattern-section .ai-entry-section--pattern-spins .ai-entry-spins {
+        display: grid !important;
+        grid-template-columns: repeat(7, minmax(0, 1fr)) !important;
+        justify-items: center;
+        align-items: start;
+        column-gap: 8px !important;
+        row-gap: 10px !important;
+        /* Ajuste fino para telas menores: encolher ícones via variáveis já usadas */
+        --icon-scale: 0.92;
+        --font-scale: 0.92;
+        --spacing-scale: 0.95;
+    }
+
+    #blaze-double-analyzer #analyzerDefaultView .pattern-section #patternInfo #patternLastSpinsRow.ai-entry-spins .spin-history-item-wrap {
+        margin: 0 !important;
+        width: 100%;
+        min-width: 0;
+    }
+}
+
+/* Telas MUITO estreitas: reduzir um pouco mais para 7 colunas caberem bem */
+@media (max-width: 360px) {
+    #blaze-double-analyzer #analyzerDefaultView .pattern-section #patternInfo #patternLastSpinsRow.ai-entry-spins,
+    #blaze-double-analyzer #analyzerDefaultView .pattern-section .ai-entry-section--pattern-spins .ai-entry-spins {
+        --icon-scale: 0.86;
+        --font-scale: 0.88;
+        --spacing-scale: 0.90;
+        column-gap: 6px !important;
+        row-gap: 8px !important;
+    }
 }
 
 /* Estilos para modal de padrão não disponível */

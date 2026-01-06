@@ -8143,10 +8143,22 @@ function showCenteredNotice(message, options = {}) {
             // Remover padrão
             patterns.splice(originalIndex, 1);
             
-            // Salvar de volta
+            // Salvar de volta (usar storageCompat/chrome.storage para respeitar o shim e evitar QuotaExceededError)
             db.patterns_found = patterns;
-            allData.patternDB = db;
-            localStorage.setItem('blazeAnalyzerData', JSON.stringify(allData));
+            try {
+                if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local && chrome.storage.local.set) {
+                    chrome.storage.local.set({ patternDB: db }, () => {});
+                } else {
+                    allData.patternDB = db;
+                    localStorage.setItem('blazeAnalyzerData', JSON.stringify(allData));
+                }
+            } catch (_) {
+                // fallback best-effort
+                try {
+                    allData.patternDB = db;
+                    localStorage.setItem('blazeAnalyzerData', JSON.stringify(allData));
+                } catch (_) {}
+            }
         
             console.log(`✅ Padrão deletado! Total restante: ${patterns.length}`);
             
@@ -14119,9 +14131,12 @@ async function persistAnalyzerState(newState) {
             return;
         }
 
-        // ✅ Diamante: quando só 1–2 níveis de voto estiverem ativos, a "Confiança" deve ser igual ao "Score interno"
+        // ✅ Diamante: exibir confiança como o MAIOR valor entre:
+        // - score interno (Score combinado / fallback N4)
+        // - confiança do nível que mandou o sinal (ex.: N0 no branco), quando disponível
+        // - confiança do entry (fallback)
         // (Premium não muda)
-        const tryExtractDiamondScoreFromPatternDescription = (patternDescriptionRaw) => {
+        const tryExtractDiamondScoreFromPatternDescription = (patternDescriptionRaw, sourceLevelId = null) => {
             try {
                 const obj = (() => {
                     if (!patternDescriptionRaw) return null;
@@ -14169,8 +14184,26 @@ async function persistAnalyzerState(newState) {
                     return count;
                 })();
 
+                const sourcePct = (() => {
+                    const src = String(sourceLevelId || '').toUpperCase().trim();
+                    if (!src) return null;
+                    for (const line of lines) {
+                        if (!new RegExp(`\\b${src}\\b`, 'i').test(line)) continue;
+                        const m = line.match(/([0-9]+(?:\.[0-9]+)?)\s*%/);
+                        if (m) {
+                            const n = Number(m[1]);
+                            if (Number.isFinite(n)) return n;
+                        }
+                    }
+                    return null;
+                })();
+
                 if (typeof score === 'number' && Number.isFinite(score)) {
-                    return { score, voteCount };
+                    return { score, voteCount, sourcePct };
+                }
+                // Mesmo sem score, sourcePct pode existir (ex.: N0)
+                if (typeof sourcePct === 'number' && Number.isFinite(sourcePct)) {
+                    return { score: null, voteCount, sourcePct };
                 }
                 return null;
             } catch (_) {
@@ -14205,13 +14238,22 @@ async function persistAnalyzerState(newState) {
                 return false;
             })();
 
+            const sourceLevelId = entry && entry.diamondSourceLevel ? String(entry.diamondSourceLevel).toUpperCase().trim() : null;
             const diamondScoreInfo = (entry && entry.analysisMode === 'diamond')
-                ? tryExtractDiamondScoreFromPatternDescription(entry.patternData && entry.patternData.patternDescription)
+                ? tryExtractDiamondScoreFromPatternDescription(entry.patternData && entry.patternData.patternDescription, sourceLevelId)
                 : null;
-            const shouldLockDiamondConfidence = !!(diamondScoreInfo && typeof diamondScoreInfo.score === 'number'
-                && Number.isFinite(diamondScoreInfo.score)
-                && (diamondScoreInfo.voteCount <= 2));
-            const confidenceToShow = shouldLockDiamondConfidence ? diamondScoreInfo.score : entry.confidence;
+            const confidenceToShow = (() => {
+                if (!entry || entry.analysisMode !== 'diamond') return entry && typeof entry.confidence === 'number' ? entry.confidence : 0;
+                const candidates = [];
+                const ec = Number(entry.confidence);
+                if (Number.isFinite(ec)) candidates.push(ec);
+                const sc = Number(diamondScoreInfo && diamondScoreInfo.score);
+                if (Number.isFinite(sc)) candidates.push(sc);
+                const src = Number(diamondScoreInfo && diamondScoreInfo.sourcePct);
+                if (Number.isFinite(src)) candidates.push(src);
+                const best = candidates.length ? Math.max(...candidates) : 0;
+                return Math.max(0, Math.min(100, best));
+            })();
 
             const resultInlineHtml = (!isAIEntry && entry && entry.result)
                 ? `<span class="entry-inline-sep">•</span><span class="entry-label">Resultado:</span> <span class="entry-result-value ${entry.result === 'WIN' ? 'win-text' : 'loss-text'}">${entry.result}</span>`
@@ -14573,13 +14615,25 @@ async function persistAnalyzerState(newState) {
             const confFallback = (aiData && typeof aiData.confidence === 'number' && Number.isFinite(aiData.confidence)) ? aiData.confidence : null;
             const confBase = (typeof meta.confidence === 'number' && Number.isFinite(meta.confidence)) ? meta.confidence : confFallback;
 
-            // ✅ Regra pedida: com 1–2 níveis de voto ativos (N1–N8), "Confiança final" = "Score interno"
-            const votingCount = Array.isArray(levels) ? levels.filter(l => l && l.voteColor).length : 0;
-            const lockConfidenceToScore = (votingCount <= 2) && (typeof scoreValue === 'number' && Number.isFinite(scoreValue));
-            const confValue = lockConfidenceToScore ? scoreValue : confBase;
-            const confText = lockConfidenceToScore
-                ? scoreText
-                : ((typeof confValue === 'number' && Number.isFinite(confValue)) ? `${confValue.toFixed(0)}%` : '—');
+            // ✅ Regra pedida: exibir a MAIOR entre score interno e a confiança do nível que mandou o sinal.
+            const sourceLevelId = entryMeta && entryMeta.diamondSourceLevel ? String(entryMeta.diamondSourceLevel).toUpperCase().trim() : null;
+            const sourcePct = (() => {
+                if (!sourceLevelId) return null;
+                const lvl = Array.isArray(levels) ? levels.find(l => l && String(l.id).toUpperCase() === sourceLevelId && typeof l.pct === 'number') : null;
+                return (lvl && typeof lvl.pct === 'number' && Number.isFinite(lvl.pct)) ? lvl.pct : null;
+            })();
+            const signalConf = (typeof sourcePct === 'number' && Number.isFinite(sourcePct)) ? sourcePct : confBase;
+            const finalConfValue = (() => {
+                const a = (typeof scoreValue === 'number' && Number.isFinite(scoreValue)) ? scoreValue : null;
+                const b = (typeof signalConf === 'number' && Number.isFinite(signalConf)) ? signalConf : null;
+                if (a == null && b == null) return null;
+                if (a == null) return b;
+                if (b == null) return a;
+                return Math.max(a, b);
+            })();
+            const confText = (typeof finalConfValue === 'number' && Number.isFinite(finalConfValue))
+                ? `${Math.max(0, Math.min(100, finalConfValue)).toFixed(1)}%`
+                : '—';
 
             const summary = `
                 <div class="diamond-reasoning-summary">
@@ -14630,7 +14684,7 @@ async function persistAnalyzerState(newState) {
                     </div>
                 </div>
             `;
-            return { html, lockConfidenceToScore, scoreValue, scoreText };
+            return { html, scoreValue, scoreText, finalConfValue };
         };
 
         const spinsRaw = Array.isArray(last5Spins) ? last5Spins : [];
@@ -14701,10 +14755,10 @@ async function persistAnalyzerState(newState) {
 
         const diamond = renderDiamondReasoningBlocks(aiData.reasoning || '');
         const topConfidenceText = (() => {
-            if (diamond && diamond.lockConfidenceToScore && typeof diamond.scoreValue === 'number' && Number.isFinite(diamond.scoreValue)) {
-                return `${diamond.scoreValue.toFixed(1)}%`;
+            if (diamond && typeof diamond.finalConfValue === 'number' && Number.isFinite(diamond.finalConfValue)) {
+                return `${Math.max(0, Math.min(100, diamond.finalConfValue)).toFixed(1)}%`;
             }
-            return `${Number(aiData.confidence || 0).toFixed(1)}%`;
+            return `${Math.max(0, Math.min(100, Number(aiData.confidence || 0))).toFixed(1)}%`;
         })();
 
         const resultInlineHtml = (() => {

@@ -13,11 +13,162 @@
     // ═══════════════════════════════════════════════════════════════════════════════
     // STORAGE API SIMULATION
     // ═══════════════════════════════════════════════════════════════════════════════
+    const STORAGE_KEY = 'blazeAnalyzerData';
+
+    const isQuotaExceededError = (err) => {
+        try {
+            const name = err && err.name ? String(err.name) : '';
+            const msg = err && err.message ? String(err.message) : '';
+            return /QuotaExceededError/i.test(name) || /exceeded the quota/i.test(msg);
+        } catch (_) {
+            return false;
+        }
+    };
+
+    const shallowClone = (obj) => {
+        try {
+            return (obj && typeof obj === 'object') ? { ...obj } : {};
+        } catch (_) {
+            return {};
+        }
+    };
+
+    const capArray = (value, max = 200) => {
+        if (!Array.isArray(value)) return value;
+        const n = Math.max(0, Math.floor(Number(max) || 0));
+        if (value.length <= n) return value;
+        return value.slice(value.length - n);
+    };
+
+    const slimPatternDB = (db, maxPatterns = 500) => {
+        try {
+            if (!db || typeof db !== 'object') return db;
+            const patterns = Array.isArray(db.patterns_found) ? db.patterns_found : [];
+            const n = Math.max(0, Math.floor(Number(maxPatterns) || 0));
+            const tail = n > 0 ? patterns.slice(patterns.length - n) : [];
+            const slim = tail.map((p) => ({
+                pattern: p && p.pattern,
+                triggerColor: p && p.triggerColor,
+                confidence: p && p.confidence,
+                occurrences: p && p.occurrences,
+                lastOccurrence: p && p.lastOccurrence
+            }));
+            return { ...db, patterns_found: slim };
+        } catch (_) {
+            return db;
+        }
+    };
+
+    const slimEntriesHistory = (history, { max = 200, keepFullLast = 30 } = {}) => {
+        try {
+            if (!Array.isArray(history)) return history;
+            const maxN = Math.max(0, Math.floor(Number(max) || 0));
+            const keepN = Math.max(0, Math.floor(Number(keepFullLast) || 0));
+            const tail = maxN > 0 ? history.slice(history.length - maxN) : [];
+            const cut = Math.max(0, tail.length - keepN);
+            const older = tail.slice(0, cut).map((e) => {
+                if (!e || typeof e !== 'object') return e;
+                const pd = e.patternData && typeof e.patternData === 'object' ? { ...e.patternData } : null;
+                if (pd) {
+                    delete pd.last14Spins;
+                    delete pd.last10Spins;
+                    delete pd.last5Spins;
+                }
+                return {
+                    id: e.id,
+                    createdAt: e.createdAt,
+                    updatedAt: e.updatedAt,
+                    color: e.color,
+                    result: e.result,
+                    confidence: e.confidence,
+                    analysisMode: e.analysisMode,
+                    diamondSourceLevel: e.diamondSourceLevel,
+                    diamondN0: e.diamondN0,
+                    patternData: pd || undefined
+                };
+            });
+            const newer = tail.slice(cut);
+            return [...older, ...newer];
+        } catch (_) {
+            return history;
+        }
+    };
+
+    const pruneStoreForQuota = (store, pass = 1) => {
+        const next = shallowClone(store);
+        try {
+            if (next.signalsHistory) next.signalsHistory = capArray(next.signalsHistory, pass === 1 ? 200 : 80);
+            if (next.entriesHistory) next.entriesHistory = slimEntriesHistory(next.entriesHistory, { max: pass === 1 ? 200 : 80, keepFullLast: pass === 1 ? 30 : 15 });
+            if (next.hotColorsHistory) next.hotColorsHistory = capArray(next.hotColorsHistory, pass === 1 ? 200 : 80);
+            if (next.realtimeHistory) next.realtimeHistory = capArray(next.realtimeHistory, pass === 1 ? 300 : 120);
+            if (next.cachedHistory) next.cachedHistory = capArray(next.cachedHistory, pass === 1 ? 300 : 120);
+            if (next.patternDB) next.patternDB = slimPatternDB(next.patternDB, pass === 1 ? 500 : 250);
+
+            if (pass >= 3) {
+                return {
+                    analyzerConfig: next.analyzerConfig,
+                    user: next.user,
+                    analysis: next.analysis,
+                    pattern: next.pattern,
+                    lastSpin: next.lastSpin,
+                    recoveryModeEnabled: next.recoveryModeEnabled,
+                    recoverySecure: next.recoverySecure,
+                    recoveryData: next.recoveryData
+                };
+            }
+        } catch (_) {}
+        return next;
+    };
+
+    const tryPersistStore = (store) => {
+        try {
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(store || {}));
+            return { ok: true, pruned: false };
+        } catch (err) {
+            if (!isQuotaExceededError(err)) return { ok: false, pruned: false, err };
+        }
+
+        // Passo 1
+        const p1 = pruneStoreForQuota(store || {}, 1);
+        try {
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(p1));
+            return { ok: true, pruned: true };
+        } catch (err2) {
+            if (!isQuotaExceededError(err2)) return { ok: false, pruned: false, err: err2 };
+        }
+
+        // Passo 2
+        const p2 = pruneStoreForQuota(store || {}, 2);
+        try {
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(p2));
+            return { ok: true, pruned: true };
+        } catch (err3) {
+            if (!isQuotaExceededError(err3)) return { ok: false, pruned: false, err: err3 };
+        }
+
+        // Passo 3 (essencial)
+        const p3 = pruneStoreForQuota(store || {}, 3);
+        try {
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(p3));
+            return { ok: true, pruned: true };
+        } catch (err4) {
+            return { ok: false, pruned: false, err: err4 };
+        }
+    };
+
+    // Fonte da verdade em memória (evita travar UI quando quota estoura)
+    let memoryStore = {};
+    try {
+        memoryStore = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}') || {};
+    } catch (_) {
+        memoryStore = {};
+    }
+
     const storage = {
         local: {
             get: function(keys, callback) {
                 try {
-                    const allData = JSON.parse(localStorage.getItem('blazeAnalyzerData') || '{}');
+                    const allData = memoryStore || {};
                     
                     if (typeof keys === 'string') {
                         // Single key
@@ -59,11 +210,16 @@
 
             set: function(data, callback) {
                 try {
-                    const currentLocalStorage = localStorage.getItem('blazeAnalyzerData');
-                    const allData = JSON.parse(currentLocalStorage || '{}');
-                    
+                    const allData = memoryStore || {};
                     Object.assign(allData, data);
-                    localStorage.setItem('blazeAnalyzerData', JSON.stringify(allData));
+                    memoryStore = allData;
+
+                    const persisted = tryPersistStore(allData);
+                    if (!persisted.ok) {
+                        console.error('❌ ERRO CRÍTICO NO STORAGE.SET:', persisted.err);
+                    } else if (persisted.pruned) {
+                        console.warn('⚠️ STORAGE.SET: quota estourada — dados foram podados para o painel continuar funcionando.');
+                    }
                     
                     // Dispatch event for listeners
                     window.dispatchEvent(new CustomEvent('storage-changed', { 
@@ -81,14 +237,20 @@
 
             remove: function(keys, callback) {
                 try {
-                    const allData = JSON.parse(localStorage.getItem('blazeAnalyzerData') || '{}');
+                    const allData = memoryStore || {};
                     const keysArray = Array.isArray(keys) ? keys : [keys];
                     
                     keysArray.forEach(key => {
                         delete allData[key];
                     });
-                    
-                    localStorage.setItem('blazeAnalyzerData', JSON.stringify(allData));
+
+                    memoryStore = allData;
+                    const persisted = tryPersistStore(allData);
+                    if (!persisted.ok) {
+                        console.error('Storage remove error:', persisted.err);
+                    } else if (persisted.pruned) {
+                        console.warn('⚠️ STORAGE.REMOVE: quota estourada — dados foram podados.');
+                    }
                     if (callback) callback();
                     return Promise.resolve();
                 } catch (error) {
@@ -100,7 +262,8 @@
 
             clear: function(callback) {
                 try {
-                    localStorage.removeItem('blazeAnalyzerData');
+                    memoryStore = {};
+                    localStorage.removeItem(STORAGE_KEY);
                     if (callback) callback();
                     return Promise.resolve();
                 } catch (error) {
@@ -366,8 +529,9 @@
     }
 
     // Initialize storage if empty
-    if (!localStorage.getItem('blazeAnalyzerData')) {
-        localStorage.setItem('blazeAnalyzerData', JSON.stringify({}));
+    if (!localStorage.getItem(STORAGE_KEY)) {
+        tryPersistStore({});
+        memoryStore = {};
         console.log('✅ Storage inicializado');
     }
 
