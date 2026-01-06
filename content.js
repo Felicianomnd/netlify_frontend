@@ -15502,6 +15502,104 @@ async function persistAnalyzerState(newState) {
             // ✅ Não mostrar mensagem quando não há padrão (pedido do usuário)
         } catch (_) {}
     }
+
+    // ✅ Diamante: confiança exibida para o usuário (TOPO e cards) deve seguir a regra:
+    // exibir o MAIOR entre score interno (Score combinado / fallback N4) e a confiança do sinal/fonte.
+    function computeDiamondDisplayConfidence(analysisLike) {
+        try {
+            const a = analysisLike && typeof analysisLike === 'object' ? analysisLike : null;
+            if (!a) return 0;
+
+            const base = (() => {
+                const n = Number(a.confidence);
+                return Number.isFinite(n) ? n : 0;
+            })();
+
+            const isDiamond = (() => {
+                const m = a.analysisMode ? String(a.analysisMode).toLowerCase().trim() : '';
+                if (m === 'diamond') return true;
+                // Fallback: alguns fluxos não trazem analysisMode, mas trazem metadados do diamante
+                return !!(a.diamondSourceLevel || a.diamondN0 || (a.summary && /\bN[0-9]/i.test(String(a.summary))));
+            })();
+            if (!isDiamond) return Math.max(0, Math.min(100, base));
+
+            const srcId = a.diamondSourceLevel ? String(a.diamondSourceLevel).toUpperCase().trim() : '';
+            const descRaw = (a.patternDescription != null) ? a.patternDescription : (a.summary != null ? a.summary : '');
+
+            const reasoningText = (() => {
+                try {
+                    if (typeof descRaw === 'string') {
+                        const s = descRaw.trim();
+                        if (!s) return '';
+                        // Pode ser JSON (AI_ANALYSIS) OU string legada (🤖...)
+                        if (s[0] === '{' || s[0] === '[') {
+                            const obj = JSON.parse(s);
+                            if (obj && typeof obj === 'object') {
+                                if (typeof obj.reasoning === 'string') return obj.reasoning;
+                                if (typeof obj.text === 'string') return obj.text;
+                            }
+                        }
+                        return s;
+                    }
+                    if (typeof descRaw === 'object' && descRaw) {
+                        if (typeof descRaw.reasoning === 'string') return descRaw.reasoning;
+                        if (typeof descRaw.text === 'string') return descRaw.text;
+                    }
+                } catch (_) {}
+                return '';
+            })();
+
+            const lines = reasoningText
+                ? String(reasoningText).split('\n').map(l => String(l || '').trim()).filter(Boolean)
+                : [];
+
+            const scoreInternal = (() => {
+                for (const line of lines) {
+                    const m = line.match(/Score combinado:\s*([0-9]+(?:\.[0-9]+)?)\s*%/i);
+                    if (m) {
+                        const n = Number(m[1]);
+                        if (Number.isFinite(n)) return n;
+                    }
+                }
+                // fallback N4
+                for (const line of lines) {
+                    if (!/\bN4\b/i.test(line)) continue;
+                    const m = line.match(/([0-9]+(?:\.[0-9]+)?)\s*%/);
+                    if (m) {
+                        const n = Number(m[1]);
+                        if (Number.isFinite(n)) return n;
+                    }
+                }
+                return null;
+            })();
+
+            const sourcePct = (() => {
+                if (!srcId) return null;
+                const re = new RegExp(`\\b${srcId}\\b`, 'i');
+                for (const line of lines) {
+                    if (!re.test(line)) continue;
+                    const m = line.match(/([0-9]+(?:\.[0-9]+)?)\s*%/);
+                    if (m) {
+                        const n = Number(m[1]);
+                        if (Number.isFinite(n)) return n;
+                    }
+                }
+                return null;
+            })();
+
+            const candidates = [];
+            if (Number.isFinite(base)) candidates.push(base);
+            if (typeof scoreInternal === 'number' && Number.isFinite(scoreInternal)) candidates.push(scoreInternal);
+            if (typeof sourcePct === 'number' && Number.isFinite(sourcePct)) candidates.push(sourcePct);
+
+            const best = candidates.length ? Math.max(...candidates) : 0;
+            return Math.max(0, Math.min(100, best));
+        } catch (_) {
+            const n = Number(analysisLike && analysisLike.confidence);
+            return Math.max(0, Math.min(100, Number.isFinite(n) ? n : 0));
+        }
+    }
+
     // Update sidebar with new data
     function updateSidebar(data) {
         // ═══════════════════════════════════════════════════════════════
@@ -15560,10 +15658,7 @@ async function persistAnalyzerState(newState) {
             if (data.analysis) {
                 topSignalVisibleNow = true;
                 const analysis = data.analysis;
-                const confidenceRaw = analysis ? analysis.confidence : 0;
-                const confidenceNum = Number(confidenceRaw);
-                const confidence = Number.isFinite(confidenceNum) ? confidenceNum : 0;
-                const confidenceClamped = Math.max(0, Math.min(100, confidence));
+                const confidenceClamped = computeDiamondDisplayConfidence(analysis);
                 // ✅ Nova regra: IA é a "fase principal". Sempre tratar o sinal como aposta do usuário.
                 // (Fase 2 / "Sinal de entrada" deixa de ser o fluxo principal.)
                 const isEntrySignal = false;
@@ -15776,9 +15871,9 @@ async function persistAnalyzerState(newState) {
                         if (!(color === 'red' || color === 'black' || color === 'white')) return false;
 
                         // Confiança (se existir) + spinner
-                        const conf = (a && typeof a.confidence === 'number') ? a.confidence : 0;
-                        confidenceFill.style.width = `${Math.max(0, Math.min(100, Number(conf) || 0))}%`;
-                        confidenceText.textContent = `${Number(conf || 0).toFixed(1)}%`;
+                        const conf = computeDiamondDisplayConfidence(a || {});
+                        confidenceFill.style.width = `${conf}%`;
+                        confidenceText.textContent = `${conf.toFixed(1)}%`;
 
                         if (suggestionColor) {
                             suggestionColor.className = `suggestion-color suggestion-color-box ${color}`;
