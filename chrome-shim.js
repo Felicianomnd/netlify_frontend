@@ -243,7 +243,7 @@
                     keysArray.forEach(key => {
                         delete allData[key];
                     });
-
+                    
                     memoryStore = allData;
                     const persisted = tryPersistStore(allData);
                     if (!persisted.ok) {

@@ -4267,6 +4267,13 @@ async function processNewSpinFromServer(spinData) {
                                 ? ensureMartingaleCycleConfig(snapshotAutoBetConfig(analyzerConfig))
                                 : snapshotAutoBetConfig(analyzerConfig);
                             const betColor = currentAnalysis.color;
+                            // ✅ UI/Histórico: manter a confiança ORIGINAL do sinal de entrada (não a confiança recalculada do GALE)
+                            const entryAnalysisForUI = (martingaleState && martingaleState.active && martingaleState.analysisData)
+                                ? martingaleState.analysisData
+                                : currentAnalysis;
+                            const entryConfidenceForUI = (entryAnalysisForUI && typeof entryAnalysisForUI.confidence === 'number' && Number.isFinite(entryAnalysisForUI.confidence))
+                                ? entryAnalysisForUI.confidence
+                                : ((typeof currentAnalysis.confidence === 'number' && Number.isFinite(currentAnalysis.confidence)) ? currentAnalysis.confidence : 0);
                             const payoutMultiplier = getPayoutMultiplierForBetColor(betColor, cycleAutoBetCfg);
                             const stakeAmount = calcStakeForStage(martingaleStage, cycleAutoBetCfg);
                             const cycleId = (martingaleState && martingaleState.active && martingaleState.entryTimestamp)
@@ -4284,12 +4291,12 @@ async function processNewSpinFromServer(spinData) {
                                 color: rollColor,
                                 phase: currentAnalysis.phase || 'G0',
                                 result: 'WIN',
-                                confidence: currentAnalysis.confidence,
+                                confidence: entryConfidenceForUI,
                                 patternData: {
-                                    patternDescription: currentAnalysis.patternDescription,
-                                    confidence: currentAnalysis.confidence,
-                                    color: currentAnalysis.color,
-                                    createdOnTimestamp: currentAnalysis.createdOnTimestamp,
+                                    patternDescription: entryAnalysisForUI ? entryAnalysisForUI.patternDescription : currentAnalysis.patternDescription,
+                                    confidence: entryConfidenceForUI,
+                                    color: entryAnalysisForUI ? entryAnalysisForUI.color : currentAnalysis.color,
+                                    createdOnTimestamp: entryAnalysisForUI ? entryAnalysisForUI.createdOnTimestamp : currentAnalysis.createdOnTimestamp,
                                     // ✅ Snapshot de giros (para o modal "Padrão da Entrada"): manter 14, igual ao card "Últimos giros"
                                     last5Spins: entrySpinsSnapshot
                                 },
@@ -4300,11 +4307,11 @@ async function processNewSpinFromServer(spinData) {
                                 // ✅ NOVO: IDENTIFICAR MODO DE ANÁLISE
                                 analysisMode: analyzerConfig.aiMode ? 'diamond' : 'standard', // 'diamond' | 'standard'
                                 // ✅ NOVO: marcar se este ciclo era SINAL DE ENTRADA
-                                isMaster: !!(currentAnalysis && currentAnalysis.masterSignal && currentAnalysis.masterSignal.active),
+                                isMaster: !!(entryAnalysisForUI && entryAnalysisForUI.masterSignal && entryAnalysisForUI.masterSignal.active),
                                 // ✅ NOVO: marcar se este ciclo foi um SINAL DE RECUPERAÇÃO (para exibir na aba Recuperação)
-                                recoveryMode: !!(currentAnalysis && currentAnalysis.recoveryMode),
+                                recoveryMode: !!(entryAnalysisForUI && entryAnalysisForUI.recoveryMode),
                                 // ✅ NOVO (Diamante): qual nível "mandou" o sinal (origem)
-                                diamondSourceLevel: currentAnalysis && currentAnalysis.diamondSourceLevel ? currentAnalysis.diamondSourceLevel : null,
+                                diamondSourceLevel: entryAnalysisForUI && entryAnalysisForUI.diamondSourceLevel ? entryAnalysisForUI.diamondSourceLevel : null,
                                 // ✅ FINANCEIRO (fixo no tempo)
                                 cycleId,
                                 betColor,
@@ -4551,6 +4558,13 @@ async function processNewSpinFromServer(spinData) {
                                     // ✅ Fix financeiro: congelar config e calcular valores do ciclo (RED)
                                     const cycleAutoBetCfg = snapshotAutoBetConfig(analyzerConfig);
                                     const betColor = currentAnalysis.color;
+                                    // ✅ UI/Histórico: manter a confiança ORIGINAL do sinal de entrada (não a confiança recalculada do GALE)
+                                    const entryAnalysisForUI = (martingaleState && martingaleState.active && martingaleState.analysisData)
+                                        ? martingaleState.analysisData
+                                        : currentAnalysis;
+                                    const entryConfidenceForUI = (entryAnalysisForUI && typeof entryAnalysisForUI.confidence === 'number' && Number.isFinite(entryAnalysisForUI.confidence))
+                                        ? entryAnalysisForUI.confidence
+                                        : ((typeof currentAnalysis.confidence === 'number' && Number.isFinite(currentAnalysis.confidence)) ? currentAnalysis.confidence : 0);
                                     const payoutMultiplier = getPayoutMultiplierForBetColor(betColor, cycleAutoBetCfg);
                                     const stakeAmount = calcStakeForStage('ENTRADA', cycleAutoBetCfg);
                                     const cycleId = currentAnalysis.createdOnTimestamp || latestSpin.created_at || Date.now();
@@ -4567,12 +4581,12 @@ async function processNewSpinFromServer(spinData) {
                                         color: rollColor,
                                         phase: 'G0',
                                         result: 'LOSS',
-                                        confidence: currentAnalysis.confidence,
+                                        confidence: entryConfidenceForUI,
                                         patternData: {
-                                            patternDescription: currentAnalysis.patternDescription,
-                                            confidence: currentAnalysis.confidence,
-                                            color: currentAnalysis.color,
-                                            createdOnTimestamp: currentAnalysis.createdOnTimestamp,
+                                            patternDescription: entryAnalysisForUI ? entryAnalysisForUI.patternDescription : currentAnalysis.patternDescription,
+                                            confidence: entryConfidenceForUI,
+                                            color: entryAnalysisForUI ? entryAnalysisForUI.color : currentAnalysis.color,
+                                            createdOnTimestamp: entryAnalysisForUI ? entryAnalysisForUI.createdOnTimestamp : currentAnalysis.createdOnTimestamp,
                                             // ✅ Snapshot de giros (para o modal "Padrão da Entrada"): manter 14, igual ao card "Últimos giros"
                                             last5Spins: entrySpinsSnapshot
                                         },
@@ -4581,11 +4595,11 @@ async function processNewSpinFromServer(spinData) {
                                         // ✅ NOVO: IDENTIFICAR MODO DE ANÁLISE
                                         analysisMode: analyzerConfig.aiMode ? 'diamond' : 'standard',
                                         // ✅ NOVO: marcar se este ciclo era SINAL DE ENTRADA
-                                        isMaster: !!(currentAnalysis && currentAnalysis.masterSignal && currentAnalysis.masterSignal.active),
+                                        isMaster: !!(entryAnalysisForUI && entryAnalysisForUI.masterSignal && entryAnalysisForUI.masterSignal.active),
                                         // ✅ NOVO: marcar se este ciclo foi um SINAL DE RECUPERAÇÃO
-                                        recoveryMode: !!(currentAnalysis && currentAnalysis.recoveryMode),
+                                        recoveryMode: !!(entryAnalysisForUI && entryAnalysisForUI.recoveryMode),
                                         // ✅ NOVO (Diamante): qual nível "mandou" o sinal (origem)
-                                        diamondSourceLevel: currentAnalysis && currentAnalysis.diamondSourceLevel ? currentAnalysis.diamondSourceLevel : null,
+                                        diamondSourceLevel: entryAnalysisForUI && entryAnalysisForUI.diamondSourceLevel ? entryAnalysisForUI.diamondSourceLevel : null,
                                         // ✅ FINANCEIRO (fixo no tempo)
                                         cycleId,
                                         betColor,
@@ -4744,16 +4758,21 @@ async function processNewSpinFromServer(spinData) {
                                     { color: rollColor, number: rollNumber, timestamp: latestSpin.created_at },
                                     14
                                 );
+                                // ✅ UI/Histórico: manter a confiança ORIGINAL do sinal de entrada (não a confiança recalculada do GALE)
+                                const entryAnalysisForUI = currentAnalysis;
+                                const entryConfidenceForUI = (entryAnalysisForUI && typeof entryAnalysisForUI.confidence === 'number' && Number.isFinite(entryAnalysisForUI.confidence))
+                                    ? entryAnalysisForUI.confidence
+                                    : ((typeof currentAnalysis.confidence === 'number' && Number.isFinite(currentAnalysis.confidence)) ? currentAnalysis.confidence : 0);
                                 const entradaLossEntry = {
                             timestamp: latestSpin.created_at,
                             number: rollNumber,
                             color: rollColor,
                                     phase: 'G0',
                             result: 'LOSS',
-                            confidence: currentAnalysis.confidence,
+                            confidence: entryConfidenceForUI,
                             patternData: {
                                 patternDescription: currentAnalysis.patternDescription,
-                                confidence: currentAnalysis.confidence,
+                                confidence: entryConfidenceForUI,
                                 color: currentAnalysis.color,
                                 createdOnTimestamp: currentAnalysis.createdOnTimestamp,
                                 // ✅ Snapshot de giros (para o modal "Padrão da Entrada")
@@ -4808,7 +4827,11 @@ async function processNewSpinFromServer(spinData) {
                                         predictedFor: 'next',
                                         createdOnTimestamp: latestSpin.created_at  // ✅ Usar giro atual
                                     };
-                                    g1Analysis.confidence = calculateGaleConfidenceValue(g1Analysis.confidence, g1Analysis);
+                                    {
+                                        const baseConf = Number.isFinite(Number(g1Analysis.confidence)) ? Number(g1Analysis.confidence) : 0;
+                                        g1Analysis.confidence = baseConf; // ✅ manter no UI
+                                        g1Analysis.galeConfidence = calculateGaleConfidenceValue(baseConf, g1Analysis); // ✅ interno/telegram
+                                    }
                                     
                                     await chrome.storage.local.set({
                                         analysis: g1Analysis,
@@ -4828,7 +4851,7 @@ async function processNewSpinFromServer(spinData) {
                                         detachPromise(
                                             sendTelegramMartingaleG1(
                                                 g1Color,
-                                                g1Analysis.confidence,
+                                                (typeof g1Analysis.galeConfidence === 'number' && Number.isFinite(g1Analysis.galeConfidence)) ? g1Analysis.galeConfidence : g1Analysis.confidence,
                                                 { color: rollColor, number: rollNumber, timestamp: latestSpin.created_at }
                                             ),
                                             'telegram-martingale-g1'
@@ -4845,7 +4868,11 @@ async function processNewSpinFromServer(spinData) {
                                         predictedFor: 'next',
                                         createdOnTimestamp: latestSpin.created_at // ✅ usar o giro atual para avaliar no próximo
                                     };
-                                    g1Analysis.confidence = calculateGaleConfidenceValue(g1Analysis.confidence, g1Analysis);
+                                    {
+                                        const baseConf = Number.isFinite(Number(g1Analysis.confidence)) ? Number(g1Analysis.confidence) : 0;
+                                        g1Analysis.confidence = baseConf; // ✅ manter no UI
+                                        g1Analysis.galeConfidence = calculateGaleConfidenceValue(baseConf, g1Analysis); // ✅ interno/telegram
+                                    }
 
                                     await chrome.storage.local.set({
                                         analysis: g1Analysis,
@@ -4865,7 +4892,7 @@ async function processNewSpinFromServer(spinData) {
                                         detachPromise(
                                             sendTelegramMartingaleG1(
                                                 g1Color,
-                                                g1Analysis.confidence,
+                                                (typeof g1Analysis.galeConfidence === 'number' && Number.isFinite(g1Analysis.galeConfidence)) ? g1Analysis.galeConfidence : g1Analysis.confidence,
                                                 { color: rollColor, number: rollNumber, timestamp: latestSpin.created_at }
                                             ),
                                             'telegram-martingale-g1'
@@ -4897,18 +4924,25 @@ async function processNewSpinFromServer(spinData) {
                                         14
                                     );
                                     
+                                    // ✅ UI/Histórico: manter a confiança ORIGINAL do sinal de entrada (não a confiança recalculada do GALE)
+                                    const entryAnalysisForUI = (martingaleState && martingaleState.active && martingaleState.analysisData)
+                                        ? martingaleState.analysisData
+                                        : currentAnalysis;
+                                    const entryConfidenceForUI = (entryAnalysisForUI && typeof entryAnalysisForUI.confidence === 'number' && Number.isFinite(entryAnalysisForUI.confidence))
+                                        ? entryAnalysisForUI.confidence
+                                        : ((typeof currentAnalysis.confidence === 'number' && Number.isFinite(currentAnalysis.confidence)) ? currentAnalysis.confidence : 0);
                                     const retEntry = {
                                         timestamp: latestSpin.created_at,
                                         number: rollNumber,
                                         color: rollColor,
                                         phase: currentStage,
                                         result: 'LOSS',
-                                        confidence: currentAnalysis.confidence,
+                                        confidence: entryConfidenceForUI,
                                         patternData: {
-                                            patternDescription: currentAnalysis.patternDescription,
-                                            confidence: currentAnalysis.confidence,
-                                            color: currentAnalysis.color,
-                                            createdOnTimestamp: currentAnalysis.createdOnTimestamp,
+                                            patternDescription: entryAnalysisForUI ? entryAnalysisForUI.patternDescription : currentAnalysis.patternDescription,
+                                            confidence: entryConfidenceForUI,
+                                            color: entryAnalysisForUI ? entryAnalysisForUI.color : currentAnalysis.color,
+                                            createdOnTimestamp: entryAnalysisForUI ? entryAnalysisForUI.createdOnTimestamp : currentAnalysis.createdOnTimestamp,
                                             // ✅ Snapshot de giros (para o modal "Padrão da Entrada")
                                             last5Spins: entrySpinsSnapshot
                                         },
@@ -4917,11 +4951,11 @@ async function processNewSpinFromServer(spinData) {
                                         // ✅ NOVO: IDENTIFICAR MODO DE ANÁLISE
                                         analysisMode: analyzerConfig.aiMode ? 'diamond' : 'standard',
                                         // ✅ NOVO: marcar se este ciclo era SINAL DE ENTRADA
-                                        isMaster: !!(currentAnalysis && currentAnalysis.masterSignal && currentAnalysis.masterSignal.active),
+                                        isMaster: !!(entryAnalysisForUI && entryAnalysisForUI.masterSignal && entryAnalysisForUI.masterSignal.active),
                                         // ✅ NOVO: marcar se este ciclo foi um SINAL DE RECUPERAÇÃO
-                                        recoveryMode: !!(currentAnalysis && currentAnalysis.recoveryMode),
+                                        recoveryMode: !!(entryAnalysisForUI && entryAnalysisForUI.recoveryMode),
                                         // ✅ NOVO (Diamante): qual nível "mandou" o sinal (origem)
-                                        diamondSourceLevel: currentAnalysis && currentAnalysis.diamondSourceLevel ? currentAnalysis.diamondSourceLevel : null,
+                                        diamondSourceLevel: entryAnalysisForUI && entryAnalysisForUI.diamondSourceLevel ? entryAnalysisForUI.diamondSourceLevel : null,
                                         // ✅ FINANCEIRO (fixo no tempo)
                                         cycleId,
                                         betColor,
@@ -5049,18 +5083,25 @@ async function processNewSpinFromServer(spinData) {
                                     { color: rollColor, number: rollNumber, timestamp: latestSpin.created_at },
                                     14
                                 );
+                                // ✅ UI/Histórico: manter a confiança ORIGINAL do sinal de entrada (não a confiança recalculada do GALE)
+                                const entryAnalysisForUI = (martingaleState && martingaleState.active && martingaleState.analysisData)
+                                    ? martingaleState.analysisData
+                                    : currentAnalysis;
+                                const entryConfidenceForUI = (entryAnalysisForUI && typeof entryAnalysisForUI.confidence === 'number' && Number.isFinite(entryAnalysisForUI.confidence))
+                                    ? entryAnalysisForUI.confidence
+                                    : ((typeof currentAnalysis.confidence === 'number' && Number.isFinite(currentAnalysis.confidence)) ? currentAnalysis.confidence : 0);
                                 const galeLossEntry = {
                                     timestamp: latestSpin.created_at,
                                     number: rollNumber,
                                     color: rollColor,
                                     phase: currentStage,
                                     result: 'LOSS',
-                                    confidence: currentAnalysis.confidence,
+                                    confidence: entryConfidenceForUI,
                                     patternData: {
-                                        patternDescription: currentAnalysis.patternDescription,
-                                        confidence: currentAnalysis.confidence,
-                                        color: currentAnalysis.color,
-                                        createdOnTimestamp: currentAnalysis.createdOnTimestamp,
+                                        patternDescription: entryAnalysisForUI ? entryAnalysisForUI.patternDescription : currentAnalysis.patternDescription,
+                                        confidence: entryConfidenceForUI,
+                                        color: entryAnalysisForUI ? entryAnalysisForUI.color : currentAnalysis.color,
+                                        createdOnTimestamp: entryAnalysisForUI ? entryAnalysisForUI.createdOnTimestamp : currentAnalysis.createdOnTimestamp,
                                         // ✅ Snapshot de giros (para o modal "Padrão da Entrada")
                                         last5Spins: entrySpinsSnapshot
                                     },
@@ -5070,7 +5111,7 @@ async function processNewSpinFromServer(spinData) {
                                     // ✅ IDENTIFICAR MODO DE ANÁLISE (crítico para UI filtrar corretamente no gráfico)
                                     analysisMode: analyzerConfig.aiMode ? 'diamond' : 'standard',
                                     // ✅ NOVO: marcar se este ciclo era SINAL DE ENTRADA
-                                    isMaster: !!(currentAnalysis && currentAnalysis.masterSignal && currentAnalysis.masterSignal.active)
+                                    isMaster: !!(entryAnalysisForUI && entryAnalysisForUI.masterSignal && entryAnalysisForUI.masterSignal.active)
                                 };
                                 
                                 activeHistory.unshift(galeLossEntry);
@@ -5094,7 +5135,11 @@ async function processNewSpinFromServer(spinData) {
                                         predictedFor: 'next',
                                         createdOnTimestamp: latestSpin.created_at
                                     };
-                                    nextGaleAnalysis.confidence = calculateGaleConfidenceValue(nextGaleAnalysis.confidence, nextGaleAnalysis);
+                                    {
+                                        const baseConf = Number.isFinite(Number(nextGaleAnalysis.confidence)) ? Number(nextGaleAnalysis.confidence) : 0;
+                                        nextGaleAnalysis.confidence = baseConf; // ✅ manter no UI
+                                        nextGaleAnalysis.galeConfidence = calculateGaleConfidenceValue(baseConf, nextGaleAnalysis); // ✅ interno/telegram
+                                    }
                                     
                                     await chrome.storage.local.set({
                                         analysis: nextGaleAnalysis,
@@ -5115,7 +5160,7 @@ async function processNewSpinFromServer(spinData) {
                                             sendTelegramMartingaleGale(
                                                 nextGaleNumber,
                                                 nextGaleColor,
-                                                nextGaleAnalysis.confidence,
+                                                (typeof nextGaleAnalysis.galeConfidence === 'number' && Number.isFinite(nextGaleAnalysis.galeConfidence)) ? nextGaleAnalysis.galeConfidence : nextGaleAnalysis.confidence,
                                                 { color: rollColor, number: rollNumber, timestamp: latestSpin.created_at }
                                             ),
                                             'telegram-martingale-gale'
@@ -5132,7 +5177,11 @@ async function processNewSpinFromServer(spinData) {
                                         predictedFor: 'next',
                                         createdOnTimestamp: latestSpin.created_at
                                     };
-                                    nextGaleAnalysis.confidence = calculateGaleConfidenceValue(nextGaleAnalysis.confidence, nextGaleAnalysis);
+                                    {
+                                        const baseConf = Number.isFinite(Number(nextGaleAnalysis.confidence)) ? Number(nextGaleAnalysis.confidence) : 0;
+                                        nextGaleAnalysis.confidence = baseConf; // ✅ manter no UI
+                                        nextGaleAnalysis.galeConfidence = calculateGaleConfidenceValue(baseConf, nextGaleAnalysis); // ✅ interno/telegram
+                                    }
 
                                     await chrome.storage.local.set({
                                         analysis: nextGaleAnalysis,
@@ -5152,7 +5201,7 @@ async function processNewSpinFromServer(spinData) {
                                             sendTelegramMartingaleGale(
                                                 nextGaleNumber,
                                                 nextGaleColor,
-                                                nextGaleAnalysis.confidence,
+                                                (typeof nextGaleAnalysis.galeConfidence === 'number' && Number.isFinite(nextGaleAnalysis.galeConfidence)) ? nextGaleAnalysis.galeConfidence : nextGaleAnalysis.confidence,
                                                 { color: rollColor, number: rollNumber, timestamp: latestSpin.created_at }
                                             ),
                                             'telegram-martingale-gale'
@@ -5264,18 +5313,25 @@ async function processNewSpinFromServer(spinData) {
                                     14
                                 );
                                 
+                                // ✅ UI/Histórico: manter a confiança ORIGINAL do sinal de entrada (não a confiança recalculada do GALE)
+                                const entryAnalysisForUI = (martingaleState && martingaleState.active && martingaleState.analysisData)
+                                    ? martingaleState.analysisData
+                                    : currentAnalysis;
+                                const entryConfidenceForUI = (entryAnalysisForUI && typeof entryAnalysisForUI.confidence === 'number' && Number.isFinite(entryAnalysisForUI.confidence))
+                                    ? entryAnalysisForUI.confidence
+                                    : ((typeof currentAnalysis.confidence === 'number' && Number.isFinite(currentAnalysis.confidence)) ? currentAnalysis.confidence : 0);
                                 const retEntry = {
                                     timestamp: latestSpin.created_at,
                                     number: rollNumber,
                                     color: rollColor,
                                     phase: 'G2',
                                     result: 'LOSS',
-                                    confidence: currentAnalysis.confidence,
+                                    confidence: entryConfidenceForUI,
                                     patternData: {
-                                        patternDescription: currentAnalysis.patternDescription,
-                                        confidence: currentAnalysis.confidence,
-                                        color: currentAnalysis.color,
-                                        createdOnTimestamp: currentAnalysis.createdOnTimestamp,
+                                        patternDescription: entryAnalysisForUI ? entryAnalysisForUI.patternDescription : currentAnalysis.patternDescription,
+                                        confidence: entryConfidenceForUI,
+                                        color: entryAnalysisForUI ? entryAnalysisForUI.color : currentAnalysis.color,
+                                        createdOnTimestamp: entryAnalysisForUI ? entryAnalysisForUI.createdOnTimestamp : currentAnalysis.createdOnTimestamp,
                                         // ✅ Snapshot de giros (para o modal "Padrão da Entrada")
                                         last5Spins: entrySpinsSnapshot
                                     },
@@ -5284,9 +5340,9 @@ async function processNewSpinFromServer(spinData) {
                                     // ✅ NOVO: IDENTIFICAR MODO DE ANÁLISE
                                     analysisMode: analyzerConfig.aiMode ? 'diamond' : 'standard',
                                     // ✅ NOVO: marcar se este ciclo era SINAL DE ENTRADA
-                                    isMaster: !!(currentAnalysis && currentAnalysis.masterSignal && currentAnalysis.masterSignal.active),
+                                    isMaster: !!(entryAnalysisForUI && entryAnalysisForUI.masterSignal && entryAnalysisForUI.masterSignal.active),
                                     // ✅ NOVO: marcar se este ciclo foi um SINAL DE RECUPERAÇÃO
-                                    recoveryMode: !!(currentAnalysis && currentAnalysis.recoveryMode),
+                                    recoveryMode: !!(entryAnalysisForUI && entryAnalysisForUI.recoveryMode),
                                     // ✅ FINANCEIRO (fixo no tempo)
                                     cycleId,
                                     betColor,
@@ -18163,11 +18219,11 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
         // Se não houver nenhum voto vindo dos níveis "votantes" (N1..N8), cancelar o sinal.
         // - N9/N10 são validadores/veto (não são voto).
         // - N0 é detector de branco (só vira "sinal" quando FORÇA WHITE via BLOCK ALL).
-        const votingLevelsOnly = levelReports.filter(lvl =>
-            lvl.id !== 'N0' && lvl.id !== 'N9' && lvl.id !== 'N10' &&
+        const votingLevelsOnly = levelReports.filter(lvl => 
+            lvl.id !== 'N0' && lvl.id !== 'N9' && lvl.id !== 'N10' && 
             !lvl.disabled && lvl.color && (lvl.strength || 0) > 0
         );
-
+        
         if (votingLevelsOnly.length === 0) {
             const n0EnabledNow = !!diamondLevelEnabledMap['N0'];
             const activeEnabledIds = DIAMOND_LEVEL_IDS.filter(id => !!diamondLevelEnabledMap[id]);
@@ -19740,7 +19796,8 @@ async function runAnalysisController(history) {
 					console.log('║  ✅ COR LIVRE (próximo sinal)                             ║');
 				}
 
-                verifyResult.confidence = calculateGaleConfidenceValue(verifyResult.confidence, verifyResult);
+                // ✅ Não sobrescrever a confiança exibida do sinal; guardar apenas a confiança condicional do GALE (interno)
+                verifyResult.galeConfidence = calculateGaleConfidenceValue(verifyResult.confidence, verifyResult);
 			}
 			
 			console.log('%c║  💾 SALVANDO SINAL/ENTRADA EM CHROME.STORAGE.LOCAL                         ║', 'color: #FFD700; font-weight: bold; font-size: 16px;');
@@ -19975,7 +20032,8 @@ async function runAnalysisController(history) {
 					aiPattern: null // ✅ Novo fluxo não usa currentPattern
 				};
 				if (analysis.phase && analysis.phase !== 'G0' && analysis.phase !== 'ENTRADA') {
-					analysis.confidence = calculateGaleConfidenceValue(analysis.confidence, analysis);
+					// ✅ Não sobrescrever a confiança exibida do sinal; guardar apenas a confiança condicional do GALE (interno)
+					analysis.galeConfidence = calculateGaleConfidenceValue(analysis.confidence, analysis);
 				}
 				
 				console.log('%c║  💾 SALVANDO ANÁLISE IA EM CHROME.STORAGE.LOCAL          ║', 'color: #00FF00; font-weight: bold;');
@@ -20101,7 +20159,8 @@ async function runAnalysisController(history) {
 					// ✅ SOBRESCREVER A COR PARA USAR A COR ATUAL DO CICLO
 					analysis.color = forcedColor;
 					analysis.phase = martingaleState.stage;
-					analysis.confidence = calculateGaleConfidenceValue(analysis.confidence, analysis);
+					// ✅ Não sobrescrever a confiança exibida do sinal; guardar apenas a confiança condicional do GALE (interno)
+					analysis.galeConfidence = calculateGaleConfidenceValue(analysis.confidence, analysis);
 				}
 				
 				console.log('║  💾 SALVANDO ANÁLISE EM CHROME.STORAGE.LOCAL (DESCOBERTA)║');

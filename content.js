@@ -8149,8 +8149,8 @@ function showCenteredNotice(message, options = {}) {
                 if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local && chrome.storage.local.set) {
                     chrome.storage.local.set({ patternDB: db }, () => {});
                 } else {
-                    allData.patternDB = db;
-                    localStorage.setItem('blazeAnalyzerData', JSON.stringify(allData));
+            allData.patternDB = db;
+            localStorage.setItem('blazeAnalyzerData', JSON.stringify(allData));
                 }
             } catch (_) {
                 // fallback best-effort
@@ -14819,12 +14819,14 @@ async function persistAnalyzerState(newState) {
         const resolveEntrySpins = (aiObj, pd, limit = 14) => {
             const safeLimit = Math.max(1, Math.floor(Number(limit) || 14));
             const candidates = [
-                aiObj && aiObj.last14Spins,
+                // ✅ Prioridade: snapshot salvo no patternData (especialmente para entrada resolvida),
+                // pois ele inclui o GIRO que resolveu o ciclo (WIN/LOSS) na posição 0.
                 pd && pd.last14Spins,
-                aiObj && aiObj.last10Spins,
                 pd && pd.last10Spins,
-                aiObj && aiObj.last5Spins,
-                pd && pd.last5Spins
+                pd && pd.last5Spins,
+                aiObj && aiObj.last14Spins,
+                aiObj && aiObj.last10Spins,
+                aiObj && aiObj.last5Spins
             ];
             for (const c of candidates) {
                 if (Array.isArray(c) && c.length) return c.slice(0, safeLimit);
@@ -15523,7 +15525,20 @@ async function persistAnalyzerState(newState) {
             })();
             if (!isDiamond) return Math.max(0, Math.min(100, base));
 
-            const srcId = a.diamondSourceLevel ? String(a.diamondSourceLevel).toUpperCase().trim() : '';
+            const srcId = (() => {
+                try {
+                    const dsl = a.diamondSourceLevel;
+                    if (!dsl) return '';
+                    if (typeof dsl === 'string') return dsl.toUpperCase().trim();
+                    if (typeof dsl === 'object') {
+                        const id = dsl.id || dsl.levelId || dsl.level || dsl.name || null;
+                        if (id) return String(id).toUpperCase().trim();
+                    }
+                    return String(dsl).toUpperCase().trim();
+                } catch (_) {
+                    return '';
+                }
+            })();
             const descRaw = (a.patternDescription != null) ? a.patternDescription : (a.summary != null ? a.summary : '');
 
             const reasoningText = (() => {
@@ -16653,13 +16668,33 @@ async function persistAnalyzerState(newState) {
                 }
             }
             
+            const displayConf = (() => {
+                try {
+                    const patternDesc = e && e.patternData ? e.patternData.patternDescription : null;
+                    return computeDiamondDisplayConfidence({
+                        confidence: (typeof e.confidence === 'number' && Number.isFinite(e.confidence)) ? e.confidence : 0,
+                        analysisMode: e.analysisMode,
+                        diamondSourceLevel: e.diamondSourceLevel,
+                        patternDescription: patternDesc
+                    });
+                } catch (_) {
+                    const n = Number(e && e.confidence);
+                    return Number.isFinite(n) ? Math.max(0, Math.min(100, n)) : 0;
+                }
+            })();
+            const confTitle = (typeof displayConf === 'number' && Number.isFinite(displayConf) && displayConf > 0)
+                ? ` • Confiança: ${displayConf.toFixed(1)}%`
+                : '';
+
             const title = `Giro: ${e.number} • Cor: ${e.color} • ${time} • Resultado: ${e.result}` +
                 `${e.martingaleStage ? ' • Estágio: '+e.martingaleStage : ''}` +
-                `${e.confidence? ' • Confiança: '+e.confidence.toFixed(1)+'%' : ''}` +
+                `${confTitle}` +
                 `${e.isMaster ? ' • SINAL DE ENTRADA' : ''}`;
             
-            // CORREÇÃO: Sempre usar a confidence original que foi exibida no sinal
-            const confTop = (typeof e.confidence === 'number') ? `${e.confidence.toFixed(0)}%` : '';
+            // ✅ Diamante: mesma regra do modal/topo (max entre score interno e nível fonte)
+            const confTop = (typeof displayConf === 'number' && Number.isFinite(displayConf) && displayConf > 0)
+                ? `${displayConf.toFixed(0)}%`
+                : '';
             
             // Barrinha visual (sem texto)
             const resultBar = `<div class="entry-result-bar ${barClass}"></div>`;
