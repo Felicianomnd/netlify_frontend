@@ -510,6 +510,69 @@ let cachedHistory = [];  // Histórico de giros em memória (até 10k)
 let historyInitialized = false;  // Flag de inicialização
 
 // ═══════════════════════════════════════════════════════════════════════════════
+// 🧊 BOOTSTRAP ROBUSTO (WEB): cold start do servidor pode retornar vazio/timeout
+// - Antes: um timeout marcava historyInitialized=true com cache vazio → nunca mais tentava.
+// - Agora: timeout maior no bootstrap + retry com backoff até conseguir histórico.
+// ═══════════════════════════════════════════════════════════════════════════════
+const BOOTSTRAP_HISTORY_TIMEOUT_MS = 45000; // tolera cold start / payload grande
+const IS_WEB_RUNTIME = (() => {
+    try {
+        return typeof window !== 'undefined' && typeof document !== 'undefined';
+    } catch (_) {
+        return false;
+    }
+})();
+let historyBootstrapRetryTimer = null;
+let historyBootstrapRetryMs = 0;
+let historyBootstrapInFlight = false;
+
+function clearHistoryBootstrapRetry() {
+    if (historyBootstrapRetryTimer) {
+        try { clearTimeout(historyBootstrapRetryTimer); } catch (_) {}
+    }
+    historyBootstrapRetryTimer = null;
+    historyBootstrapRetryMs = 0;
+}
+
+function scheduleHistoryBootstrapRetry(reason = 'unknown') {
+    // Retry agressivo só no runtime WEB (no service worker da extensão evitamos loops de fetch 10k).
+    if (!IS_WEB_RUNTIME) return;
+    if (historyBootstrapInFlight) return;
+    if (historyBootstrapRetryTimer) return;
+
+    // backoff: 2.5s → 5s → 10s → 20s → 40s → 60s (cap)
+    historyBootstrapRetryMs = historyBootstrapRetryMs > 0
+        ? Math.min(60000, Math.floor(historyBootstrapRetryMs * 2))
+        : 2500;
+
+    console.warn(`🧊 [BOOTSTRAP] Histórico indisponível. Retry em ${Math.round(historyBootstrapRetryMs / 1000)}s. Motivo: ${reason}`);
+    try { sendAnalysisStatus('⏳ Inicializando... aguardando servidor'); } catch (_) {}
+
+    historyBootstrapRetryTimer = setTimeout(async () => {
+        historyBootstrapRetryTimer = null;
+        historyBootstrapInFlight = true;
+        try {
+            const ok = await initializeHistoryIfNeeded(true).catch(() => false);
+            if (!ok) {
+                historyBootstrapInFlight = false;
+                scheduleHistoryBootstrapRetry('retry_failed');
+                return;
+            }
+            // Se conseguiu histórico, tentar rodar análise imediatamente (sem depender de novo giro)
+            try {
+                if (analysisEnabled && cachedHistory && cachedHistory.length >= 10) {
+                    await runAnalysisIfEnabled(cachedHistory, 'BOOTSTRAP_RETRY');
+                }
+            } catch (_) {}
+            historyBootstrapInFlight = false;
+        } catch (_) {
+            historyBootstrapInFlight = false;
+            scheduleHistoryBootstrapRetry('retry_exception');
+        }
+    }, historyBootstrapRetryMs);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
 // 🧠 MEMÓRIA ATIVA - SISTEMA INCREMENTAL DE ANÁLISE
 // Sistema inteligente que mantém análises pré-calculadas em memória
 // Atualiza apenas o delta (novo giro) ao invés de recalcular tudo
@@ -2617,21 +2680,22 @@ function displaySystemFooter() {
 async function syncInitialData() {
     console.log('%c🌐 SINCRONIZAÇÃO COM SERVIDOR RENDER.COM', 'color: #00d4ff; font-weight: bold; font-size: 16px;');
     
-    // Verificar se API está online
+    // Verificar se API está online (tolerar cold start)
     const isOnline = await checkAPIStatus();
-    
     if (!isOnline) {
-        console.log('%c⚠️ MODO OFFLINE - Usando apenas dados locais', 'color: #ffaa00; font-weight: bold; font-size: 14px;');
+        console.log('%c⚠️ MODO OFFLINE / COLD START - Tentará novamente em background', 'color: #ffaa00; font-weight: bold; font-size: 14px;');
+        scheduleHistoryBootstrapRetry('api_offline_or_cold_start');
         return;
     }
     
     // Buscar giros do servidor e popular cache em memória
     console.log('📥 Baixando histórico de giros para cache em memória...');
-    const serverGiros = await fetchGirosFromAPI(REALTIME_HISTORY_CAP);
+    const serverGiros = await fetchGirosFromAPI(REALTIME_HISTORY_CAP, BOOTSTRAP_HISTORY_TIMEOUT_MS);
     if (serverGiros && serverGiros.length > 0) {
         // Popular cache em memória (SEM salvar em chrome.storage.local)
         cachedHistory = [...serverGiros].slice(0, REALTIME_HISTORY_CAP);
         historyInitialized = true;
+        clearHistoryBootstrapRetry();
         console.log(`%c✅ Cache em memória populado: ${cachedHistory.length} giros`, 'color: #00ff00; font-weight: bold;');
         
         // ✅ INICIALIZAR MEMÓRIA ATIVA SE MODO IA ESTIVER ATIVO
@@ -2658,7 +2722,9 @@ async function syncInitialData() {
     } else {
         console.log('ℹ️ Nenhum giro no servidor ainda');
         cachedHistory = [];
-        historyInitialized = true;
+        // Não marcar como "inicializado" se veio vazio: permite retry automático no web.
+        historyInitialized = false;
+        scheduleHistoryBootstrapRetry('empty_server_history');
     }
     
     // Padrões NÃO são mais sincronizados do servidor (apenas locais)
@@ -4219,7 +4285,20 @@ async function processNewSpinFromServer(spinData) {
                                     patternDescription: currentAnalysis.patternDescription,
                                     confidence: currentAnalysis.confidence,
                                     color: currentAnalysis.color,
-                                    createdOnTimestamp: currentAnalysis.createdOnTimestamp
+                                    createdOnTimestamp: currentAnalysis.createdOnTimestamp,
+                                    // ✅ Snapshot de giros (para o modal "Padrão da Entrada"): manter 14, igual ao card "Últimos giros"
+                                    last5Spins: (() => {
+                                        try {
+                                            if (!Array.isArray(cachedHistory)) return [];
+                                            return cachedHistory.slice(0, 14).map(spin => ({
+                                                color: spin.color,
+                                                number: spin.number,
+                                                timestamp: spin.timestamp
+                                            }));
+                                        } catch (_) {
+                                            return [];
+                                        }
+                                    })()
                                 },
                                 // ✅ CAMPOS DO MARTINGALE
                                 martingaleStage: martingaleStage,  // 'ENTRADA' | 'G1' | 'G2'
@@ -4496,7 +4575,20 @@ async function processNewSpinFromServer(spinData) {
                                             patternDescription: currentAnalysis.patternDescription,
                                             confidence: currentAnalysis.confidence,
                                             color: currentAnalysis.color,
-                                            createdOnTimestamp: currentAnalysis.createdOnTimestamp
+                                            createdOnTimestamp: currentAnalysis.createdOnTimestamp,
+                                            // ✅ Snapshot de giros (para o modal "Padrão da Entrada"): manter 14, igual ao card "Últimos giros"
+                                            last5Spins: (() => {
+                                                try {
+                                                    if (!Array.isArray(cachedHistory)) return [];
+                                                    return cachedHistory.slice(0, 14).map(spin => ({
+                                                        color: spin.color,
+                                                        number: spin.number,
+                                                        timestamp: spin.timestamp
+                                                    }));
+                                                } catch (_) {
+                                                    return [];
+                                                }
+                                            })()
                                         },
                                         martingaleStage: 'ENTRADA',
                                         finalResult: 'RED',
@@ -4673,7 +4765,20 @@ async function processNewSpinFromServer(spinData) {
                                 patternDescription: currentAnalysis.patternDescription,
                                 confidence: currentAnalysis.confidence,
                                 color: currentAnalysis.color,
-                                createdOnTimestamp: currentAnalysis.createdOnTimestamp
+                                createdOnTimestamp: currentAnalysis.createdOnTimestamp,
+                                // ✅ Snapshot de giros (para o modal "Padrão da Entrada")
+                                last5Spins: (() => {
+                                    try {
+                                        if (!Array.isArray(cachedHistory)) return [];
+                                        return cachedHistory.slice(0, 14).map(spin => ({
+                                            color: spin.color,
+                                            number: spin.number,
+                                            timestamp: spin.timestamp
+                                        }));
+                                    } catch (_) {
+                                        return [];
+                                    }
+                                })()
                                     },
                                     martingaleStage: 'ENTRADA',
                                     finalResult: null,  // Ainda não é final, vai tentar G1
@@ -4820,7 +4925,20 @@ async function processNewSpinFromServer(spinData) {
                                             patternDescription: currentAnalysis.patternDescription,
                                             confidence: currentAnalysis.confidence,
                                             color: currentAnalysis.color,
-                                            createdOnTimestamp: currentAnalysis.createdOnTimestamp
+                                            createdOnTimestamp: currentAnalysis.createdOnTimestamp,
+                                            // ✅ Snapshot de giros (para o modal "Padrão da Entrada")
+                                            last5Spins: (() => {
+                                                try {
+                                                    if (!Array.isArray(cachedHistory)) return [];
+                                                    return cachedHistory.slice(0, 14).map(spin => ({
+                                                        color: spin.color,
+                                                        number: spin.number,
+                                                        timestamp: spin.timestamp
+                                                    }));
+                                                } catch (_) {
+                                                    return [];
+                                                }
+                                            })()
                                         },
                                         martingaleStage: currentStage,
                                         finalResult: 'RED',
@@ -4966,7 +5084,20 @@ async function processNewSpinFromServer(spinData) {
                                         patternDescription: currentAnalysis.patternDescription,
                                         confidence: currentAnalysis.confidence,
                                         color: currentAnalysis.color,
-                                        createdOnTimestamp: currentAnalysis.createdOnTimestamp
+                                        createdOnTimestamp: currentAnalysis.createdOnTimestamp,
+                                        // ✅ Snapshot de giros (para o modal "Padrão da Entrada")
+                                        last5Spins: (() => {
+                                            try {
+                                                if (!Array.isArray(cachedHistory)) return [];
+                                                return cachedHistory.slice(0, 14).map(spin => ({
+                                                    color: spin.color,
+                                                    number: spin.number,
+                                                    timestamp: spin.timestamp
+                                                }));
+                                            } catch (_) {
+                                                return [];
+                                            }
+                                        })()
                                     },
                                     martingaleStage: currentStage,
                                     finalResult: null,
@@ -5175,7 +5306,20 @@ async function processNewSpinFromServer(spinData) {
                                         patternDescription: currentAnalysis.patternDescription,
                                         confidence: currentAnalysis.confidence,
                                         color: currentAnalysis.color,
-                                        createdOnTimestamp: currentAnalysis.createdOnTimestamp
+                                        createdOnTimestamp: currentAnalysis.createdOnTimestamp,
+                                        // ✅ Snapshot de giros (para o modal "Padrão da Entrada")
+                                        last5Spins: (() => {
+                                            try {
+                                                if (!Array.isArray(cachedHistory)) return [];
+                                                return cachedHistory.slice(0, 14).map(spin => ({
+                                                    color: spin.color,
+                                                    number: spin.number,
+                                                    timestamp: spin.timestamp
+                                                }));
+                                            } catch (_) {
+                                                return [];
+                                            }
+                                        })()
                                     },
                                     martingaleStage: 'G2',
                                     finalResult: 'RED',
@@ -5348,19 +5492,20 @@ function processNewSpin(spinData) {
 }
 
 // Tenta carregar os últimos 10k giros de uma vez do SERVIDOR e popular cache em memória
-async function initializeHistoryIfNeeded() {
-    if (historyInitialized) return; // já inicializado nesta sessão
+async function initializeHistoryIfNeeded(force = false) {
+    if (historyInitialized && !force) return true; // já inicializado nesta sessão
 
     try {
         // Buscar giros do SERVIDOR primeiro
         console.log('📥 Buscando histórico inicial do servidor para cache em memória...');
-        const serverGiros = await fetchGirosFromAPI(REALTIME_HISTORY_CAP);
+        const serverGiros = await fetchGirosFromAPI(REALTIME_HISTORY_CAP, BOOTSTRAP_HISTORY_TIMEOUT_MS);
         
         if (serverGiros && serverGiros.length > 0) {
             console.log(`✅ ${serverGiros.length} giros recebidos do servidor!`);
             // ✅ Popular CACHE EM MEMÓRIA (não salvar em chrome.storage.local)
             cachedHistory = [...serverGiros].slice(0, REALTIME_HISTORY_CAP);
             historyInitialized = true;
+            clearHistoryBootstrapRetry();
             console.log(`📊 Cache em memória inicializado: ${cachedHistory.length} giros`);
             
             // ✅ INICIALIZAR MEMÓRIA ATIVA SE MODO IA ESTIVER ATIVO
@@ -5383,7 +5528,7 @@ async function initializeHistoryIfNeeded() {
                 sendMessageToContent('NEW_SPIN', { lastSpin: lastSpin });
                 console.log('%c✅ UI atualizada com histórico do servidor (initializeHistoryIfNeeded)', 'color: #00ff00; font-weight: bold;');
             }
-            return;
+            return true;
         }
         
         // Se servidor não tiver dados, buscar direto da Blaze (fallback)
@@ -5423,20 +5568,27 @@ async function initializeHistoryIfNeeded() {
             // ✅ Popular CACHE EM MEMÓRIA (não salvar em chrome.storage.local)
             cachedHistory = mapped;
             historyInitialized = true;
+            clearHistoryBootstrapRetry();
             
             await chrome.storage.local.set({ lastSpin: last });
             sendMessageToContent('NEW_SPIN', { lastSpin: last });
             console.log(`📊 Cache em memória inicializado (fallback Blaze): ${mapped.length} giros`);
+            return true;
         } else {
             cachedHistory = [];
-            historyInitialized = true;
+            historyInitialized = false;
             console.log('⚠️ Nenhum giro disponível - cache em memória vazio');
+            scheduleHistoryBootstrapRetry('no_spins_available');
+            return false;
         }
     } catch (err) {
         console.warn('Não foi possível carregar giros iniciais. Mantendo coleta incremental.', err);
         cachedHistory = [];
-        historyInitialized = true;
+        historyInitialized = false;
+        scheduleHistoryBootstrapRetry(err && err.message ? `bootstrap_error:${err.message}` : 'bootstrap_error');
+        return false;
     }
+    return false;
 }
 
 // Analyze patterns in the data - ONLY triggered when new spin detected
@@ -25660,14 +25812,16 @@ function attachLatestSpinsSnapshot(analysis) {
     }
     try {
         const payload = { ...analysis };
-        const last10 = cachedHistory.slice(0, 10).map(spin => ({
+        const last14 = cachedHistory.slice(0, 14).map(spin => ({
             color: spin.color,
             number: spin.number,
             timestamp: spin.timestamp
         }));
+        const last10 = last14.slice(0, 10);
 
         payload.last10Spins = last10;
-        payload.last5Spins = last10;
+        payload.last14Spins = last14;
+        payload.last5Spins = last14;
 
         if (!payload.phase && martingaleState && martingaleState.active) {
             payload.phase = martingaleState.stage || 'G0';
@@ -25677,7 +25831,9 @@ function attachLatestSpinsSnapshot(analysis) {
             try {
                 const parsed = JSON.parse(payload.patternDescription);
                 if (parsed && typeof parsed === 'object') {
-                    parsed.last5Spins = last10;
+                    parsed.last14Spins = last14;
+                    parsed.last10Spins = last10;
+                    parsed.last5Spins = last14;
                     payload.patternDescription = JSON.stringify(parsed);
                 }
             } catch (_) {
@@ -25686,7 +25842,9 @@ function attachLatestSpinsSnapshot(analysis) {
         } else if (payload.patternDescription && typeof payload.patternDescription === 'object') {
             payload.patternDescription = {
                 ...payload.patternDescription,
-                last5Spins: last10
+                last14Spins: last14,
+                last10Spins: last10,
+                last5Spins: last14
             };
         }
 

@@ -216,8 +216,98 @@
 
     let daProfileNudgeIntervalId = null;
     let daProfileNudgeAutoHideTimer = null;
+    let daProfileNudgeAutoHideDeadline = 0;
+    let daProfileNudgeAutoHideRemainingMs = 0;
+    let daProfileNudgePaused = false;
     let daProfileNudgeEl = null;
     let daActiveNotifKind = null; // 'profile' | 'promo' | null
+
+    function openMyAccountAndFocusFirstMissing(missing = []) {
+        try {
+            // Abrir Minha Conta
+            if (typeof setUserMenuState === 'function') {
+                setUserMenuState(true);
+            } else {
+                const userMenuToggle = document.getElementById('userMenuToggle');
+                if (userMenuToggle) userMenuToggle.click();
+            }
+
+            // Focar no primeiro campo pendente
+            if (Array.isArray(missing) && missing.length) {
+                const fieldMap = {
+                    'Telefone': 'profilePhone',
+                    'CPF': 'profileCpf',
+                    'CEP': 'profileZipCode',
+                    'Rua': 'profileStreet',
+                    'Número': 'profileNumber',
+                    'Bairro': 'profileNeighborhood',
+                    'Cidade': 'profileCity',
+                    'Estado': 'profileState'
+                };
+                const firstMissing = missing[0];
+                const targetId = firstMissing ? fieldMap[firstMissing] : null;
+                const el = targetId ? document.getElementById(targetId) : null;
+                if (el && typeof el.focus === 'function') {
+                    setTimeout(() => el.focus(), 0);
+                }
+            }
+        } catch (_) {}
+    }
+
+    function setProfileNudgePausedUI(paused) {
+        try {
+            if (daProfileNudgeEl) {
+                daProfileNudgeEl.classList.toggle('is-paused', !!paused);
+            }
+        } catch (_) {}
+    }
+
+    function startProfileNudgeAutoHide(durationMs) {
+        const safeDuration = Math.max(0, Number(durationMs) || 0);
+        daProfileNudgePaused = false;
+        daProfileNudgeAutoHideRemainingMs = safeDuration;
+        daProfileNudgeAutoHideDeadline = Date.now() + safeDuration;
+        setProfileNudgePausedUI(false);
+        try {
+            if (daProfileNudgeAutoHideTimer) clearTimeout(daProfileNudgeAutoHideTimer);
+        } catch (_) {}
+        if (safeDuration <= 0) return;
+        daProfileNudgeAutoHideTimer = setTimeout(() => hideProfileNudge(), safeDuration);
+    }
+
+    function pauseProfileNudgeAutoHide() {
+        try {
+            if (!daProfileNudgeEl || daProfileNudgeEl.style.display !== 'flex') return;
+            if (daProfileNudgePaused) return;
+            daProfileNudgePaused = true;
+            const now = Date.now();
+            const remaining = Math.max(0, (daProfileNudgeAutoHideDeadline || now) - now);
+            daProfileNudgeAutoHideRemainingMs = remaining;
+            if (daProfileNudgeAutoHideTimer) {
+                clearTimeout(daProfileNudgeAutoHideTimer);
+                daProfileNudgeAutoHideTimer = null;
+            }
+            setProfileNudgePausedUI(true);
+        } catch (_) {}
+    }
+
+    function resumeProfileNudgeAutoHide() {
+        try {
+            if (!daProfileNudgeEl || daProfileNudgeEl.style.display !== 'flex') return;
+            if (!daProfileNudgePaused) return;
+            daProfileNudgePaused = false;
+            const remaining = Math.max(0, Number(daProfileNudgeAutoHideRemainingMs) || 0);
+            daProfileNudgeAutoHideDeadline = Date.now() + remaining;
+            setProfileNudgePausedUI(false);
+            if (daProfileNudgeAutoHideTimer) {
+                clearTimeout(daProfileNudgeAutoHideTimer);
+                daProfileNudgeAutoHideTimer = null;
+            }
+            if (remaining > 0) {
+                daProfileNudgeAutoHideTimer = setTimeout(() => hideProfileNudge(), remaining);
+            }
+        } catch (_) {}
+    }
 
     function ensureProfileNudgeUI() {
         try {
@@ -281,32 +371,7 @@
                 btn.addEventListener('click', () => {
                     try {
                         const snapshot = wrap.__daProfileStatusSnapshot;
-                        // Abrir Minha Conta
-                        if (typeof setUserMenuState === 'function') {
-                            setUserMenuState(true);
-                        } else {
-                            const userMenuToggle = document.getElementById('userMenuToggle');
-                            if (userMenuToggle) userMenuToggle.click();
-                        }
-                        // Focar no primeiro campo pendente
-                        if (snapshot && Array.isArray(snapshot.missing) && snapshot.missing.length) {
-                            const fieldMap = {
-                                'Telefone': 'profilePhone',
-                                'CPF': 'profileCpf',
-                                'CEP': 'profileZipCode',
-                                'Rua': 'profileStreet',
-                                'Número': 'profileNumber',
-                                'Bairro': 'profileNeighborhood',
-                                'Cidade': 'profileCity',
-                                'Estado': 'profileState'
-                            };
-                            const firstMissing = snapshot.missing[0];
-                            const targetId = firstMissing ? fieldMap[firstMissing] : null;
-                            const el = targetId ? document.getElementById(targetId) : null;
-                            if (el && typeof el.focus === 'function') {
-                                setTimeout(() => el.focus(), 0);
-                            }
-                        }
+                        openMyAccountAndFocusFirstMissing(snapshot && Array.isArray(snapshot.missing) ? snapshot.missing : []);
                     } catch (_) {}
                     hideProfileNudge();
                 });
@@ -314,6 +379,28 @@
 
             bindCta(wrap.querySelector('#daProfileNudgeCta'));
             bindCta(wrap.querySelector('#daProfileNudgeCtaImage'));
+
+            // ⏸️ Pausar o cronômetro enquanto o usuário estiver pressionando o card
+            try {
+                const card = wrap.querySelector('.da-profile-nudge__card');
+                if (card && card.dataset.daPauseBound !== '1') {
+                    card.dataset.daPauseBound = '1';
+                    const onDown = (e) => {
+                        pauseProfileNudgeAutoHide();
+                    };
+                    const onUp = () => resumeProfileNudgeAutoHide();
+                    card.addEventListener('pointerdown', onDown);
+                    // ✅ Registrar o "soltar" no window para garantir resume mesmo se soltar fora do card
+                    window.addEventListener('pointerup', onUp);
+                    window.addEventListener('pointercancel', onUp);
+                    // Fallback (caso algum ambiente não dispare pointer events)
+                    card.addEventListener('mousedown', onDown);
+                    window.addEventListener('mouseup', onUp);
+                    card.addEventListener('touchstart', onDown, { passive: true });
+                    card.addEventListener('touchend', onUp);
+                    card.addEventListener('touchcancel', onUp);
+                }
+            } catch (_) {}
 
             daProfileNudgeEl = wrap;
             return wrap;
@@ -330,6 +417,10 @@
                 daProfileNudgeAutoHideTimer = null;
             }
         } catch (_) {}
+        daProfileNudgeAutoHideDeadline = 0;
+        daProfileNudgeAutoHideRemainingMs = 0;
+        daProfileNudgePaused = false;
+        setProfileNudgePausedUI(false);
         try {
             if (daProfileNudgeEl) {
                 daProfileNudgeEl.style.display = 'none';
@@ -434,6 +525,7 @@
         const el = ensureProfileNudgeUI();
         if (!el) return;
 
+        let durationMs = 0;
         try {
             // Persistir snapshot para CTA focar no campo correto
             el.__daProfileStatusSnapshot = profileStatus && typeof profileStatus === 'object' ? profileStatus : null;
@@ -492,7 +584,7 @@
                 missingEl.innerHTML = fields ? `<strong>Campos pendentes:</strong> ${escapeHtml(fields)}` : '';
             }
 
-            const durationMs = Math.max(5000, Math.min(120000, Math.round(cfg.durationSeconds * 1000)));
+            durationMs = Math.max(5000, Math.min(120000, Math.round(cfg.durationSeconds * 1000)));
 
             // Reiniciar animação da barra de tempo
             const fill = el.querySelector('#daProfileNudgeTimerFill');
@@ -508,14 +600,69 @@
             daActiveNotifKind = kind;
         } catch (_) {}
 
+        // ⏱️ Auto-hide com pause/resume (segurar no card)
+        try { startProfileNudgeAutoHide(durationMs); } catch (_) {}
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════════
+    // 🔒 Modal "Cadastro incompleto" (ao tentar ativar IA): mesmo estilo do banner
+    // ═══════════════════════════════════════════════════════════════════════════════
+    function showProfileIncompleteModal(missingFields = []) {
         try {
-            if (daProfileNudgeAutoHideTimer) clearTimeout(daProfileNudgeAutoHideTimer);
-            const durationMs = (() => {
-                const cfg = normalizeRemoteNotification(remoteCfg, kind);
-                return Math.max(5000, Math.min(120000, Math.round(cfg.durationSeconds * 1000)));
-            })();
-            daProfileNudgeAutoHideTimer = setTimeout(() => hideProfileNudge(), durationMs);
+            const existing = document.getElementById('daProfileIncompleteModal');
+            if (existing) existing.remove();
         } catch (_) {}
+
+        const missing = Array.isArray(missingFields) ? missingFields : [];
+        const fieldsText = missing.length ? missing.join(', ') : 'Dados do cadastro';
+
+        const wrap = document.createElement('div');
+        wrap.id = 'daProfileIncompleteModal';
+        wrap.className = 'da-profile-nudge';
+        wrap.style.display = 'flex';
+        wrap.style.zIndex = '2147483001';
+        wrap.innerHTML = `
+            <div class="da-profile-nudge__backdrop" data-da-pi-close="1"></div>
+            <div class="da-profile-nudge__card da-profile-nudge__card--compact" role="dialog" aria-modal="true" aria-label="Cadastro incompleto">
+                <button type="button" class="da-profile-nudge__close" aria-label="Fechar" title="Fechar" data-da-pi-close="1">✕</button>
+                <div class="da-profile-nudge__content">
+                    <div class="da-profile-nudge__hero">
+                        <div class="da-profile-nudge__headline">Cadastro incompleto</div>
+                        <div class="da-profile-nudge__subtitle">Libere a <strong>Análise por IA</strong> (Modo Diamante)</div>
+                    </div>
+                    <div class="da-profile-nudge__body">
+                        <div class="da-profile-nudge__text">
+                            <div class="da-profile-nudge__message">
+                                Para ativar a <strong>Análise por IA</strong>, finalize seu cadastro na aba <strong>Minha Conta</strong> e clique em <strong>Salvar Dados</strong>.
+                            </div>
+                            <div class="da-profile-nudge__missing">
+                                <strong>Campos pendentes:</strong> ${(() => { try { return escapeHtml(fieldsText); } catch (_) { return String(fieldsText); } })()}
+                            </div>
+                        </div>
+                        <div class="da-profile-nudge__actions">
+                            <button type="button" class="da-profile-nudge__cta" id="daProfileIncompleteCta">CONCLUIR AGORA</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        const root = document.getElementById('blaze-double-analyzer') || document.body;
+        root.appendChild(wrap);
+
+        const close = () => { try { wrap.remove(); } catch (_) {} };
+        try {
+            const closeEls = wrap.querySelectorAll('[data-da-pi-close="1"]');
+            closeEls.forEach((el) => el.addEventListener('click', close));
+        } catch (_) {}
+
+        const cta = wrap.querySelector('#daProfileIncompleteCta');
+        if (cta) {
+            cta.addEventListener('click', () => {
+                openMyAccountAndFocusFirstMissing(missing);
+                close();
+            });
+        }
     }
 
     function getNotifStorageKeys(kind) {
@@ -13795,38 +13942,7 @@ async function persistAnalyzerState(newState) {
                     if (newAIMode) {
                         const profileStatus = getProfileCompletionSnapshot(user);
                         if (!profileStatus.complete) {
-                            showCenteredNotice(buildProfileIncompleteMessage(profileStatus.missing), {
-                                title: 'Cadastro incompleto',
-                                autoHide: 0
-                            });
-                            try {
-                                // Abrir Minha Conta para o usuário completar o cadastro
-                                if (typeof setUserMenuState === 'function') {
-                                    setUserMenuState(true);
-                                } else {
-                                    const userMenuToggle = document.getElementById('userMenuToggle');
-                                    if (userMenuToggle) userMenuToggle.click();
-                                }
-                                // Focar no primeiro campo pendente (se existir no DOM)
-                                const fieldMap = {
-                                    'Telefone': 'profilePhone',
-                                    'CPF': 'profileCpf',
-                                    'CEP': 'profileZipCode',
-                                    'Rua': 'profileStreet',
-                                    'Número': 'profileNumber',
-                                    'Bairro': 'profileNeighborhood',
-                                    'Cidade': 'profileCity',
-                                    'Estado': 'profileState'
-                                };
-                                const firstMissing = profileStatus.missing[0];
-                                const targetId = firstMissing ? fieldMap[firstMissing] : null;
-                                const el = targetId ? document.getElementById(targetId) : null;
-                                if (el && typeof el.focus === 'function') {
-                                    setTimeout(() => el.focus(), 0);
-                                }
-                            } catch (error) {
-                                console.warn('⚠️ Falha ao abrir Minha Conta após bloqueio do IA:', error);
-                            }
+                            showProfileIncompleteModal(profileStatus.missing);
                             return;
                         }
                     }
@@ -14002,6 +14118,65 @@ async function persistAnalyzerState(newState) {
             showNoPatternModal(entry);
             return;
         }
+
+        // ✅ Diamante: quando só 1–2 níveis de voto estiverem ativos, a "Confiança" deve ser igual ao "Score interno"
+        // (Premium não muda)
+        const tryExtractDiamondScoreFromPatternDescription = (patternDescriptionRaw) => {
+            try {
+                const obj = (() => {
+                    if (!patternDescriptionRaw) return null;
+                    if (typeof patternDescriptionRaw === 'object') return patternDescriptionRaw;
+                    if (typeof patternDescriptionRaw === 'string') {
+                        const s = patternDescriptionRaw.trim();
+                        if (!s) return null;
+                        return JSON.parse(s);
+                    }
+                    return null;
+                })();
+                const reasoning = obj && typeof obj.reasoning === 'string'
+                    ? obj.reasoning
+                    : (obj && typeof obj.text === 'string' ? obj.text : '');
+                if (!reasoning) return null;
+
+                const lines = String(reasoning).split('\n').map(l => String(l || '').trim()).filter(Boolean);
+                const score = (() => {
+                    for (const line of lines) {
+                        const m = line.match(/Score combinado:\s*([0-9]+(?:\.[0-9]+)?)\s*%/i);
+                        if (m) {
+                            const n = Number(m[1]);
+                            if (Number.isFinite(n)) return n;
+                        }
+                    }
+                    // Fallback: usar % do N4 (quando existir)
+                    for (const line of lines) {
+                        if (!/\bN4\b/i.test(line)) continue;
+                        const m = line.match(/([0-9]+(?:\.[0-9]+)?)\s*%/);
+                        if (m) {
+                            const n = Number(m[1]);
+                            if (Number.isFinite(n)) return n;
+                        }
+                    }
+                    return null;
+                })();
+
+                const voteCount = (() => {
+                    let count = 0;
+                    for (const line of lines) {
+                        const lvl = line.match(/\bN([1-8])\b/i);
+                        if (!lvl) continue;
+                        if (/\b(RED|BLACK|WHITE)\b/i.test(line)) count += 1;
+                    }
+                    return count;
+                })();
+
+                if (typeof score === 'number' && Number.isFinite(score)) {
+                    return { score, voteCount };
+                }
+                return null;
+            } catch (_) {
+                return null;
+            }
+        };
         
         try {
             // Parsear o padrão
@@ -14021,6 +14196,27 @@ async function persistAnalyzerState(newState) {
             const modal = document.createElement('div');
             modal.id = 'daEntryPatternModal';
             modal.className = 'pattern-modal';
+
+            const isAIEntry = (() => {
+                try {
+                    if (typeof desc === 'string' && desc.trim().startsWith('🤖')) return true;
+                    if (typeof parsed === 'object' && parsed && parsed.type === 'AI_ANALYSIS') return true;
+                } catch (_) {}
+                return false;
+            })();
+
+            const diamondScoreInfo = (entry && entry.analysisMode === 'diamond')
+                ? tryExtractDiamondScoreFromPatternDescription(entry.patternData && entry.patternData.patternDescription)
+                : null;
+            const shouldLockDiamondConfidence = !!(diamondScoreInfo && typeof diamondScoreInfo.score === 'number'
+                && Number.isFinite(diamondScoreInfo.score)
+                && (diamondScoreInfo.voteCount <= 2));
+            const confidenceToShow = shouldLockDiamondConfidence ? diamondScoreInfo.score : entry.confidence;
+
+            const resultInlineHtml = (!isAIEntry && entry && entry.result)
+                ? `<span class="entry-inline-sep">•</span><span class="entry-label">Resultado:</span> <span class="entry-result-value ${entry.result === 'WIN' ? 'win-text' : 'loss-text'}">${entry.result}</span>`
+                : '';
+
             modal.innerHTML = `
                 <div class="pattern-modal-content">
                     <div class="pattern-modal-header modal-header-minimal">
@@ -14035,18 +14231,14 @@ async function persistAnalyzerState(newState) {
                                     ${entry.color === 'white' ? blazeWhiteSVG(18) : ''}
                                 </div>
                                 <span class="entry-color-name">${entry.color === 'red' ? 'Vermelho' : entry.color === 'black' ? 'Preto' : 'Branco'}</span>
-                            </div>
-                            <div class="entry-confidence">
+                                <span class="entry-inline-sep">•</span>
                                 <span class="entry-label">Confiança:</span>
-                                <span class="entry-confidence-value">${entry.confidence.toFixed(1)}%</span>
-                            </div>
-                            <div class="entry-result">
-                                <span class="entry-label">Resultado:</span>
-                                <span class="entry-result-value ${entry.result === 'WIN' ? 'win-text' : 'loss-text'}">${entry.result}</span>
+                                <span class="entry-confidence-value">${Number(confidenceToShow || 0).toFixed(1)}%</span>
+                                ${resultInlineHtml}
                             </div>
                         </div>
                         <div class="pattern-details">
-                            ${renderPatternVisual(parsed)}
+                            ${renderPatternVisual(parsed, { ...(entry.patternData || {}), __daEntryMeta: entry, __daEntryModal: true })}
                         </div>
                     </div>
                 </div>
@@ -14244,6 +14436,8 @@ async function persistAnalyzerState(newState) {
     function renderAIAnalysisWithSpins(aiData, last5Spins, options = {}) {
         console.log('%c🎨 RENDERIZANDO IA COM CÍRCULOS!', 'color: #00FF00; font-weight: bold; font-size: 14px;');
         const showSpins = !((options && typeof options === 'object') && options.showSpins === false);
+        const entryMeta = (options && typeof options === 'object') ? (options.__daEntryMeta || options.entryMeta || null) : null;
+        const desiredSpinsLimit = Math.max(1, Math.min(14, Math.floor((options && typeof options === 'object' && options.spinsLimit != null) ? Number(options.spinsLimit) : 14)));
 
         const parseDiamondReasoning = (raw = '') => {
             const meta = { mode: null, score: null, decision: null, confidence: null };
@@ -14377,8 +14571,15 @@ async function persistAnalyzerState(newState) {
             const scoreValue = (typeof meta.score === 'number' && Number.isFinite(meta.score)) ? meta.score : scoreFallback;
             const scoreText = (typeof scoreValue === 'number' && Number.isFinite(scoreValue)) ? `${scoreValue.toFixed(1)}%` : '—';
             const confFallback = (aiData && typeof aiData.confidence === 'number' && Number.isFinite(aiData.confidence)) ? aiData.confidence : null;
-            const confValue = (typeof meta.confidence === 'number' && Number.isFinite(meta.confidence)) ? meta.confidence : confFallback;
-            const confText = (typeof confValue === 'number' && Number.isFinite(confValue)) ? `${confValue.toFixed(0)}%` : '—';
+            const confBase = (typeof meta.confidence === 'number' && Number.isFinite(meta.confidence)) ? meta.confidence : confFallback;
+
+            // ✅ Regra pedida: com 1–2 níveis de voto ativos (N1–N8), "Confiança final" = "Score interno"
+            const votingCount = Array.isArray(levels) ? levels.filter(l => l && l.voteColor).length : 0;
+            const lockConfidenceToScore = (votingCount <= 2) && (typeof scoreValue === 'number' && Number.isFinite(scoreValue));
+            const confValue = lockConfidenceToScore ? scoreValue : confBase;
+            const confText = lockConfidenceToScore
+                ? scoreText
+                : ((typeof confValue === 'number' && Number.isFinite(confValue)) ? `${confValue.toFixed(0)}%` : '—');
 
             const summary = `
                 <div class="diamond-reasoning-summary">
@@ -14421,7 +14622,7 @@ async function persistAnalyzerState(newState) {
                 `;
             }).join('');
 
-            return `
+            const html = `
                 <div class="diamond-reasoning">
                     ${summary}
                     <div class="diamond-levels-grid">
@@ -14429,17 +14630,63 @@ async function persistAnalyzerState(newState) {
                     </div>
                 </div>
             `;
+            return { html, lockConfidenceToScore, scoreValue, scoreText };
         };
 
-        const spinsCount = Array.isArray(last5Spins) ? last5Spins.length : 0;
-        const spinsHTML = (Array.isArray(last5Spins) ? last5Spins : []).map((spin, index) => {
+        const spinsRaw = Array.isArray(last5Spins) ? last5Spins : [];
+        const spinsList = spinsRaw.slice(0, desiredSpinsLimit);
+        const spinsCount = spinsList.length;
+
+        // ✅ Labels do ciclo (Entrada/G1/G2/WIN/LOSS) no topo de cada giro (quando aplicável)
+        const stageLabelsByIndex = (() => {
+            const map = new Map();
+            if (!entryMeta || typeof entryMeta !== 'object') return map;
+
+            const stageIdx = getStageIndexFromEntryLike(entryMeta);
+            if (stageIdx === 0) {
+                map.set(0, entryMeta.result === 'LOSS' ? 'LOSS' : 'WIN');
+                return map;
+            }
+
+            // Ex.: WIN em G2 => idx2=ENTRADA, idx1=G1, idx0=WIN G2
+            map.set(stageIdx, 'ENTRADA');
+            for (let k = 1; k < stageIdx; k++) {
+                const idx = stageIdx - k;
+                if (idx < 0) break;
+                map.set(idx, `G${k}`);
+            }
+
+            // Final: marcar o giro final como WIN/LOSS + estágio (igual ao histórico)
+            if (entryMeta.result === 'LOSS') {
+                map.set(0, `LOSS G${stageIdx}`);
+            } else if (entryMeta.result === 'WIN') {
+                map.set(0, `WIN G${stageIdx}`);
+            }
+            return map;
+        })();
+
+        const spinsHTML = spinsList.map((spin, index) => {
             const isWhite = spin.color === 'white';
             const colorName = spin.color === 'red' ? 'Vermelho' : spin.color === 'black' ? 'Preto' : 'Branco';
+            const time = (() => {
+                try {
+                    const t = spin && spin.timestamp != null ? spin.timestamp : null;
+                    return t ? new Date(t).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : '';
+                } catch (_) {
+                    return '';
+                }
+            })();
+            const stageLabel = stageLabelsByIndex.get(index) || '';
+            const upperStage = String(stageLabel || '').toUpperCase();
+            const stageClass = upperStage.startsWith('LOSS')
+                ? 'loss'
+                : (upperStage.startsWith('WIN') ? 'win' : (stageLabel ? 'stage' : ''));
             return `<div class="spin-history-item-wrap" title="${colorName}: ${spin.number}">
+                <div class="spin-history-stage ${stageClass}">${escapeHtml(stageLabel)}</div>
                 <div class="spin-history-quadrado ${spin.color}">
                     ${isWhite ? blazeWhiteSVG(24) : `<span>${spin.number}</span>`}
                 </div>
-                <div class="spin-history-time">${index === 0 ? 'Recente' : `${index + 1}º`}</div>
+                <div class="spin-history-time">${escapeHtml(time)}</div>
             </div>`;
         }).join('');
 
@@ -14452,6 +14699,22 @@ async function persistAnalyzerState(newState) {
                     ? 'BRANCA'
                     : '—';
 
+        const diamond = renderDiamondReasoningBlocks(aiData.reasoning || '');
+        const topConfidenceText = (() => {
+            if (diamond && diamond.lockConfidenceToScore && typeof diamond.scoreValue === 'number' && Number.isFinite(diamond.scoreValue)) {
+                return `${diamond.scoreValue.toFixed(1)}%`;
+            }
+            return `${Number(aiData.confidence || 0).toFixed(1)}%`;
+        })();
+
+        const resultInlineHtml = (() => {
+            if (!entryMeta || typeof entryMeta !== 'object') return '';
+            const r = String(entryMeta.result || '').toUpperCase().trim();
+            if (r !== 'WIN' && r !== 'LOSS') return '';
+            const cls = r === 'WIN' ? 'win-text' : 'loss-text';
+            return ` <span class="ai-entry-action-sep">|</span> Resultado: <span class="${cls}">${escapeHtml(r)}</span>`;
+        })();
+
         const spinsSection = (showSpins && spinsCount > 0) ? `
             <div class="ai-entry-section">
                 <div class="ai-entry-section-title">Últimos ${spinsCount} giros</div>
@@ -14463,10 +14726,10 @@ async function persistAnalyzerState(newState) {
             <div class="ai-entry-analysis">
                 <div class="ai-entry-head">
                     <div class="ai-entry-action">
-                        Entrar na cor <span class="ai-entry-action-color ${safeColorClass}">${escapeHtml(entryColorText)}</span>
+                        Entrar na cor <span class="ai-entry-action-color ${safeColorClass}">${escapeHtml(entryColorText)}</span>${resultInlineHtml}
                     </div>
                     <div class="ai-entry-confidence">
-                        Confiança <span class="ai-entry-confidence-value">${escapeHtml(Number(aiData.confidence || 0).toFixed(1))}%</span>
+                        Confiança <span class="ai-entry-confidence-value">${escapeHtml(topConfidenceText)}</span>
                     </div>
                 </div>
 
@@ -14474,7 +14737,7 @@ async function persistAnalyzerState(newState) {
 
                 <div class="ai-entry-section">
                     <div class="ai-entry-section-title">Raciocínio</div>
-                    ${renderDiamondReasoningBlocks(aiData.reasoning || '')}
+                    ${diamond && diamond.html ? diamond.html : ''}
                 </div>
             </div>
         `;
@@ -14497,6 +14760,23 @@ async function persistAnalyzerState(newState) {
     function renderPatternVisual(parsed, patternData = null) {
         console.log('🔍 renderPatternVisual chamado com:', typeof parsed, parsed);
         console.log('🔍 patternData:', patternData);
+
+        const entryMeta = (patternData && patternData.__daEntryMeta) ? patternData.__daEntryMeta : null;
+        const resolveEntrySpins = (aiObj, pd, limit = 14) => {
+            const safeLimit = Math.max(1, Math.floor(Number(limit) || 14));
+            const candidates = [
+                aiObj && aiObj.last14Spins,
+                pd && pd.last14Spins,
+                aiObj && aiObj.last10Spins,
+                pd && pd.last10Spins,
+                aiObj && aiObj.last5Spins,
+                pd && pd.last5Spins
+            ];
+            for (const c of candidates) {
+                if (Array.isArray(c) && c.length) return c.slice(0, safeLimit);
+            }
+            return [];
+        };
         
         // ✅ VERIFICAR SE JÁ É UM OBJETO JSON ESTRUTURADO DE IA
         if (typeof parsed === 'object' && parsed !== null && parsed.type === 'AI_ANALYSIS') {
@@ -14505,13 +14785,13 @@ async function persistAnalyzerState(newState) {
             console.log('%c   🎲 patternData:', 'color: #00FF00;', patternData);
             
             // Usar last5Spins do parsed OU do patternData
-            const last5Spins = parsed.last5Spins || (patternData && patternData.last5Spins) || [];
-            console.log('%c   🎯 last5Spins final a usar:', 'color: #00FFFF; font-weight: bold;', last5Spins);
+            const lastSpins = resolveEntrySpins(parsed, patternData, 14);
+            console.log('%c   🎯 lastSpins final a usar:', 'color: #00FFFF; font-weight: bold;', lastSpins);
             const hideInlineSpins = !!(patternData && patternData.__daPatternCard);
             
-            if (last5Spins.length > 0) {
+            if (lastSpins.length > 0) {
                 // Renderizar com círculos coloridos
-                return renderAIAnalysisWithSpins(parsed, last5Spins, { showSpins: !hideInlineSpins });
+                return renderAIAnalysisWithSpins(parsed, lastSpins, { showSpins: !hideInlineSpins, entryMeta, spinsLimit: 14 });
             } else {
                 console.log('%c⚠️ last5Spins vazio - renderizando formato antigo', 'color: #FFAA00;');
                 return renderAIAnalysisOldFormat(parsed);
@@ -14526,10 +14806,11 @@ async function persistAnalyzerState(newState) {
             
             // ✅ PRIORIDADE 1: Verificar se last5Spins vem direto no objeto patternData
             let aiData = null;
-            if (patternData && patternData.last5Spins && patternData.last5Spins.length > 0) {
+            const patternSpins = (patternData && (patternData.last14Spins || patternData.last10Spins || patternData.last5Spins)) || null;
+            if (Array.isArray(patternSpins) && patternSpins.length > 0) {
                 console.log('%c🎯 [PRIORITY 1] last5Spins ENCONTRADO DIRETO NO OBJETO!', 'color: #00FF00; font-weight: bold;');
-                console.log('%c   📊 Quantidade:', 'color: #00FF00;', patternData.last5Spins.length);
-                console.log('%c   🎲 Dados:', 'color: #00FF00;', patternData.last5Spins);
+                console.log('%c   📊 Quantidade:', 'color: #00FF00;', patternSpins.length);
+                console.log('%c   🎲 Dados:', 'color: #00FF00;', patternSpins);
                 
                 // Criar aiData com os dados diretos
                 try {
@@ -14538,7 +14819,7 @@ async function persistAnalyzerState(newState) {
                         type: 'AI_ANALYSIS',
                         color: jsonParsed.color || 'unknown',
                         confidence: jsonParsed.confidence || 0,
-                        last5Spins: patternData.last5Spins, // ✅ USAR DIRETO DO OBJETO
+                        last5Spins: patternSpins, // ✅ USAR DIRETO DO OBJETO
                         reasoning: jsonParsed.reasoning || 'Análise por IA'
                     };
                 } catch (e) {
@@ -14547,7 +14828,7 @@ async function persistAnalyzerState(newState) {
                         type: 'AI_ANALYSIS',
                         color: 'unknown',
                         confidence: 0,
-                        last5Spins: patternData.last5Spins,
+                        last5Spins: patternSpins,
                         reasoning: 'Análise por IA'
                     };
                 }
@@ -14586,7 +14867,8 @@ async function persistAnalyzerState(newState) {
                 
                 // Se for formato novo (estruturado com last5Spins)
                 if (aiData.last5Spins && aiData.last5Spins.length > 0) {
-                    return renderAIAnalysisWithSpins(aiData, aiData.last5Spins, { showSpins: !hideInlineSpins });
+                    const resolved = resolveEntrySpins(aiData, patternData, 14);
+                    return renderAIAnalysisWithSpins(aiData, resolved.length ? resolved : aiData.last5Spins, { showSpins: !hideInlineSpins, entryMeta, spinsLimit: 14 });
                 } else {
                     return renderAIAnalysisOldFormat(aiData);
                 }
@@ -18646,10 +18928,7 @@ function logModeSnapshotUI(snapshot) {
                     updateAIModeUI(aiToggle, false);
                 }
                 toggleAIConfigFields(false);
-                showCenteredNotice(buildProfileIncompleteMessage(missing), {
-                    title: 'Cadastro incompleto',
-                    autoHide: 0
-                });
+                showProfileIncompleteModal(missing);
             } catch (err) {
                 console.warn('⚠️ Falha ao processar AI_MODE_BLOCKED_PROFILE:', err);
             }
