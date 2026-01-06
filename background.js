@@ -4274,6 +4274,10 @@ async function processNewSpinFromServer(spinData) {
                                 : (currentAnalysis.createdOnTimestamp || latestSpin.created_at || Date.now());
                             const cycleTotalInvested = calcTotalInvestedThroughStage(martingaleStage, cycleAutoBetCfg);
                             const cycleNetProfit = roundMoney((stakeAmount * payoutMultiplier) - cycleTotalInvested);
+                            const entrySpinsSnapshot = buildEntrySpinsSnapshot(
+                                { color: rollColor, number: rollNumber, timestamp: latestSpin.created_at },
+                                14
+                            );
                             const winEntry = {
                                 timestamp: latestSpin.created_at,
                                 number: rollNumber,
@@ -4287,18 +4291,7 @@ async function processNewSpinFromServer(spinData) {
                                     color: currentAnalysis.color,
                                     createdOnTimestamp: currentAnalysis.createdOnTimestamp,
                                     // ✅ Snapshot de giros (para o modal "Padrão da Entrada"): manter 14, igual ao card "Últimos giros"
-                                    last5Spins: (() => {
-                                        try {
-                                            if (!Array.isArray(cachedHistory)) return [];
-                                            return cachedHistory.slice(0, 14).map(spin => ({
-                                                color: spin.color,
-                                                number: spin.number,
-                                                timestamp: spin.timestamp
-                                            }));
-                                        } catch (_) {
-                                            return [];
-                                        }
-                                    })()
+                                    last5Spins: entrySpinsSnapshot
                                 },
                                 // ✅ CAMPOS DO MARTINGALE
                                 martingaleStage: martingaleStage,  // 'ENTRADA' | 'G1' | 'G2'
@@ -4563,6 +4556,10 @@ async function processNewSpinFromServer(spinData) {
                                     const cycleId = currentAnalysis.createdOnTimestamp || latestSpin.created_at || Date.now();
                                     const cycleTotalInvested = calcTotalInvestedThroughStage('ENTRADA', cycleAutoBetCfg);
                                     const cycleNetProfit = roundMoney(-cycleTotalInvested);
+                                    const entrySpinsSnapshot = buildEntrySpinsSnapshot(
+                                        { color: rollColor, number: rollNumber, timestamp: latestSpin.created_at },
+                                        14
+                                    );
                                     
                                     const lossEntry = {
                                         timestamp: latestSpin.created_at,
@@ -4577,18 +4574,7 @@ async function processNewSpinFromServer(spinData) {
                                             color: currentAnalysis.color,
                                             createdOnTimestamp: currentAnalysis.createdOnTimestamp,
                                             // ✅ Snapshot de giros (para o modal "Padrão da Entrada"): manter 14, igual ao card "Últimos giros"
-                                            last5Spins: (() => {
-                                                try {
-                                                    if (!Array.isArray(cachedHistory)) return [];
-                                                    return cachedHistory.slice(0, 14).map(spin => ({
-                                                        color: spin.color,
-                                                        number: spin.number,
-                                                        timestamp: spin.timestamp
-                                                    }));
-                                                } catch (_) {
-                                                    return [];
-                                                }
-                                            })()
+                                            last5Spins: entrySpinsSnapshot
                                         },
                                         martingaleStage: 'ENTRADA',
                                         finalResult: 'RED',
@@ -4754,6 +4740,10 @@ async function processNewSpinFromServer(spinData) {
                                 const payoutMultiplier = getPayoutMultiplierForBetColor(betColor, cycleAutoBetCfg);
                                 const stakeAmount = calcStakeForStage('ENTRADA', cycleAutoBetCfg);
                                 const cycleId = currentAnalysis.createdOnTimestamp || latestSpin.created_at || Date.now();
+                                const entrySpinsSnapshot = buildEntrySpinsSnapshot(
+                                    { color: rollColor, number: rollNumber, timestamp: latestSpin.created_at },
+                                    14
+                                );
                                 const entradaLossEntry = {
                             timestamp: latestSpin.created_at,
                             number: rollNumber,
@@ -4767,18 +4757,7 @@ async function processNewSpinFromServer(spinData) {
                                 color: currentAnalysis.color,
                                 createdOnTimestamp: currentAnalysis.createdOnTimestamp,
                                 // ✅ Snapshot de giros (para o modal "Padrão da Entrada")
-                                last5Spins: (() => {
-                                    try {
-                                        if (!Array.isArray(cachedHistory)) return [];
-                                        return cachedHistory.slice(0, 14).map(spin => ({
-                                            color: spin.color,
-                                            number: spin.number,
-                                            timestamp: spin.timestamp
-                                        }));
-                                    } catch (_) {
-                                        return [];
-                                    }
-                                })()
+                                last5Spins: entrySpinsSnapshot
                                     },
                                     martingaleStage: 'ENTRADA',
                                     finalResult: null,  // Ainda não é final, vai tentar G1
@@ -4913,6 +4892,10 @@ async function processNewSpinFromServer(spinData) {
                                         : (currentAnalysis.createdOnTimestamp || latestSpin.created_at || Date.now());
                                     const cycleTotalInvested = calcTotalInvestedThroughStage(currentStage, cycleAutoBetCfg);
                                     const cycleNetProfit = roundMoney(-cycleTotalInvested);
+                                    const entrySpinsSnapshot = buildEntrySpinsSnapshot(
+                                        { color: rollColor, number: rollNumber, timestamp: latestSpin.created_at },
+                                        14
+                                    );
                                     
                                     const retEntry = {
                                         timestamp: latestSpin.created_at,
@@ -4927,18 +4910,7 @@ async function processNewSpinFromServer(spinData) {
                                             color: currentAnalysis.color,
                                             createdOnTimestamp: currentAnalysis.createdOnTimestamp,
                                             // ✅ Snapshot de giros (para o modal "Padrão da Entrada")
-                                            last5Spins: (() => {
-                                                try {
-                                                    if (!Array.isArray(cachedHistory)) return [];
-                                                    return cachedHistory.slice(0, 14).map(spin => ({
-                                                        color: spin.color,
-                                                        number: spin.number,
-                                                        timestamp: spin.timestamp
-                                                    }));
-                                                } catch (_) {
-                                                    return [];
-                                                }
-                                            })()
+                                            last5Spins: entrySpinsSnapshot
                                         },
                                         martingaleStage: currentStage,
                                         finalResult: 'RED',
@@ -5073,6 +5045,10 @@ async function processNewSpinFromServer(spinData) {
                                 console.log(`🎯 COR CONFIRMADA PARA G${nextGaleNumber}: ${nextGaleColor}`);
                                 
                                 // ⚠️ CRÍTICO: Registrar LOSS do Gale atual
+                                const entrySpinsSnapshot = buildEntrySpinsSnapshot(
+                                    { color: rollColor, number: rollNumber, timestamp: latestSpin.created_at },
+                                    14
+                                );
                                 const galeLossEntry = {
                                     timestamp: latestSpin.created_at,
                                     number: rollNumber,
@@ -5086,18 +5062,7 @@ async function processNewSpinFromServer(spinData) {
                                         color: currentAnalysis.color,
                                         createdOnTimestamp: currentAnalysis.createdOnTimestamp,
                                         // ✅ Snapshot de giros (para o modal "Padrão da Entrada")
-                                        last5Spins: (() => {
-                                            try {
-                                                if (!Array.isArray(cachedHistory)) return [];
-                                                return cachedHistory.slice(0, 14).map(spin => ({
-                                                    color: spin.color,
-                                                    number: spin.number,
-                                                    timestamp: spin.timestamp
-                                                }));
-                                            } catch (_) {
-                                                return [];
-                                            }
-                                        })()
+                                        last5Spins: entrySpinsSnapshot
                                     },
                                     martingaleStage: currentStage,
                                     finalResult: null,
@@ -5294,6 +5259,10 @@ async function processNewSpinFromServer(spinData) {
                                     : (currentAnalysis.createdOnTimestamp || latestSpin.created_at || Date.now());
                                 const cycleTotalInvested = calcTotalInvestedThroughStage('G2', cycleAutoBetCfg);
                                 const cycleNetProfit = roundMoney(-cycleTotalInvested);
+                                const entrySpinsSnapshot = buildEntrySpinsSnapshot(
+                                    { color: rollColor, number: rollNumber, timestamp: latestSpin.created_at },
+                                    14
+                                );
                                 
                                 const retEntry = {
                                     timestamp: latestSpin.created_at,
@@ -5308,18 +5277,7 @@ async function processNewSpinFromServer(spinData) {
                                         color: currentAnalysis.color,
                                         createdOnTimestamp: currentAnalysis.createdOnTimestamp,
                                         // ✅ Snapshot de giros (para o modal "Padrão da Entrada")
-                                        last5Spins: (() => {
-                                            try {
-                                                if (!Array.isArray(cachedHistory)) return [];
-                                                return cachedHistory.slice(0, 14).map(spin => ({
-                                                    color: spin.color,
-                                                    number: spin.number,
-                                                    timestamp: spin.timestamp
-                                                }));
-                                            } catch (_) {
-                                                return [];
-                                            }
-                                        })()
+                                        last5Spins: entrySpinsSnapshot
                                     },
                                     martingaleStage: 'G2',
                                     finalResult: 'RED',
@@ -25853,6 +25811,37 @@ function attachLatestSpinsSnapshot(analysis) {
         console.warn('⚠️ Não foi possível anexar últimos giros ao payload da análise:', error);
         return analysis;
     }
+}
+
+// ✅ Para o modal "Padrão da Entrada":
+// garantir que o snapshot de giros inclua o GIRO QUE RESOLVEU a entrada (WIN/LOSS) no índice 0,
+// mesmo se o cachedHistory ainda não tiver atualizado.
+function buildEntrySpinsSnapshot(resolvedSpin, limit = 14) {
+    const safeLimit = Math.max(1, Math.min(30, Math.floor(Number(limit) || 14)));
+    const out = [];
+    const norm = (s) => {
+        const color = s && s.color != null ? s.color : null;
+        const number = s && s.number != null ? s.number : null;
+        const timestamp = (s && (s.timestamp != null ? s.timestamp : (s.created_at != null ? s.created_at : null))) || null;
+        return { color, number, timestamp };
+    };
+    try {
+        if (resolvedSpin && typeof resolvedSpin === 'object') {
+            out.push(norm(resolvedSpin));
+        }
+    } catch (_) {}
+
+    try {
+        const resTs = out[0] && out[0].timestamp != null ? out[0].timestamp : null;
+        const arr = Array.isArray(cachedHistory) ? cachedHistory : [];
+        for (const s of arr) {
+            if (out.length >= safeLimit) break;
+            const ns = norm(s);
+            if (resTs != null && ns.timestamp != null && ns.timestamp === resTs) continue;
+            out.push(ns);
+        }
+    } catch (_) {}
+    return out.slice(0, safeLimit);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
