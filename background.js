@@ -12935,7 +12935,7 @@ function analyzeAutointeligente(history, options = {}) {
 
     const adaptiveScoreMinBase = computeAdaptiveScoreThreshold();
     let adaptiveScoreMin = adaptiveScoreMinBase;
-    const requiredPHit = adaptiveScoreMin; // compat: exibimos o limiar usado
+    let requiredPHit = adaptiveScoreMin; // compat: exibir o limiar realmente usado
 
     let currentScore = computeScore(bestPick, secondPick);
 
@@ -13015,6 +13015,7 @@ function analyzeAutointeligente(history, options = {}) {
                     if (boostedOk) {
                         allowed = true;
                         adaptiveScoreMin = Math.max(0, adaptiveScoreMinBase - boostMargin);
+                        requiredPHit = adaptiveScoreMin;
                         learningDecision = 'boost';
                     }
                 }
@@ -13032,6 +13033,89 @@ function analyzeAutointeligente(history, options = {}) {
             learningKey = candidateKey;
         }
     } catch (_) {}
+
+    // ✅ Risk Guard (N4 - ao vivo):
+    // Quando o N4 entra em "linha de erro" (LOSS seguidos / performance ruim), apertar a seletividade
+    // para proteger o usuário, sem impactar picks forçados (gales dinâmicos).
+    let riskGuardSuffix = '';
+    if (!forcePick && options && options.liveRiskGuard) {
+        try {
+            const entriesForGuard = Array.isArray(options.entriesHistoryForGuard)
+                ? options.entriesHistoryForGuard
+                : (Array.isArray(entriesHistory) ? entriesHistory : []);
+
+            const baseline = clamp01(baselinePcycle);
+            const perf = computeRecentCycleWinRateForSource(entriesForGuard, 'N4', 30);
+
+            // LOSS streak real (ciclos) do N4, olhando do mais recente para trás
+            let lossStreak = 0;
+            try {
+                const finals = filterFinalEntries(entriesForGuard);
+                const want = 'N4';
+                let scanned = 0;
+                for (const e of finals) {
+                    if (!e || typeof e !== 'object') continue;
+                    if (String(e.analysisMode || '').toLowerCase().trim() !== 'diamond') continue;
+                    const srcId = getDiamondSourceIdFromEntry(e);
+                    if (!srcId || String(srcId).toUpperCase().trim() !== want) continue;
+                    const res = String(e.result || '').toUpperCase().trim();
+                    if (res === 'LOSS') lossStreak++;
+                    else if (res === 'WIN') break;
+                    scanned++;
+                    if (scanned >= 30) break;
+                }
+            } catch (_) {}
+
+            const wr = (perf && typeof perf.winRate === 'number' && Number.isFinite(perf.winRate) && perf.total > 0)
+                ? perf.winRate
+                : null;
+            const underBy = (wr != null) ? (baseline - wr) : 0;
+            const gl = Number(signalsHistory && signalsHistory.consecutiveLosses);
+
+            let rg = 'off'; // 'off' | 'medium' | 'high'
+            if (lossStreak >= 2) rg = 'high';
+            else if (lossStreak === 1 || (Number.isFinite(underBy) && underBy >= 0.05)) rg = 'medium';
+            else if (wr == null) {
+                // fallback (entrada-only): se a performance global estiver muito ruim, apertar também
+                if (Number.isFinite(gl) && gl >= 3) rg = 'high';
+                else if (Number.isFinite(gl) && gl >= 2) rg = 'medium';
+            }
+
+            if (rg !== 'off') {
+                const bump = rg === 'high' ? 0.06 : 0.03; // +6pp ou +3pp no score mínimo
+                adaptiveScoreMin = Math.min(0.99, Math.max(adaptiveScoreMin, adaptiveScoreMinBase + bump));
+                requiredPHit = adaptiveScoreMin;
+
+                // Revalidar com limiar mais alto
+                allowed = !!bestPick
+                    && passesNonScoreFilters(bestPick, secondPick, evidence.total)
+                    && (currentScore.score >= adaptiveScoreMin)
+                    && (Number(bestPick.mean || 0) >= volumeProfile.minP1Mean);
+
+                // Filtros adicionais (aproxima do perfil conservador, mas só durante RG)
+                if (allowed && bestPick) {
+                    const marginNow = secondPick ? Math.max(0, (bestPick.lcb - secondPick.lcb)) : Math.max(0, bestPick.lcb);
+                    const edgeNow = Math.max(0, bestPick.edgeLcb || 0);
+                    const supportNow = Number(evidence.total || 0);
+                    const minMarginRG = rg === 'high' ? 0.006 : 0.003;
+                    const minEdgeRG = rg === 'high' ? 0.002 : 0.001;
+                    const minSupportRG = rg === 'high' ? 10 : 6;
+                    const minMeanRG = rg === 'high' ? 0.52 : 0.50;
+                    if (marginNow < minMarginRG) allowed = false;
+                    else if (edgeNow < minEdgeRG) allowed = false;
+                    else if (supportNow < minSupportRG) allowed = false;
+                    else if (Number(bestPick.mean || 0) < minMeanRG) allowed = false;
+                }
+
+                const wrTxt = (wr != null) ? `${(wr * 100).toFixed(1)}%` : 'n/d';
+                const baseTxt = `${(baseline * 100).toFixed(1)}%`;
+                const streakTxt = lossStreak > 0
+                    ? `streak ${lossStreak}`
+                    : (Number.isFinite(gl) && gl > 0 ? `streakG ${gl}` : '');
+                riskGuardSuffix = ` • RG ${rg.toUpperCase()} (${streakTxt}${streakTxt ? ' • ' : ''}WR ${wrTxt} vs BaseP${stepsToWin} ${baseTxt})`;
+            }
+        } catch (_) {}
+    }
 
     const chosenTok = allowed ? (bestPick ? bestPick.tok : null) : (forcePick ? forcedTok : null);
     const chosenColor = chosenTok ? tokToColor[chosenTok] : null;
@@ -13061,10 +13145,10 @@ function analyzeAutointeligente(history, options = {}) {
     })();
 
     const details = chosenTok && allowed
-        ? `P1 ${(p1 * 100).toFixed(1)}% • P${stepsToWin}est ${(p3 * 100).toFixed(1)}% • BaseP${stepsToWin} ${(baselinePcycle * 100).toFixed(1)}% • LCB ${(lcb1 * 100).toFixed(1)}% • Score ${(currentScore.score * 100).toFixed(1)}≥${(adaptiveScoreMin * 100).toFixed(1)} • ${ctxLabel} • ${signalIntensity}/${learningPolicy}${learningSuffix}`
+        ? `P1 ${(p1 * 100).toFixed(1)}% • P${stepsToWin}est ${(p3 * 100).toFixed(1)}% • BaseP${stepsToWin} ${(baselinePcycle * 100).toFixed(1)}% • LCB ${(lcb1 * 100).toFixed(1)}% • Score ${(currentScore.score * 100).toFixed(1)}≥${(adaptiveScoreMin * 100).toFixed(1)} • ${ctxLabel} • ${signalIntensity}/${learningPolicy}${learningSuffix}${riskGuardSuffix}`
         : chosenTok && forcePick
-        ? `FORCE • P1 ${(p1 * 100).toFixed(1)}% • ${ctxLabel} • ${signalIntensity}/${learningPolicy}`
-        : `NULO • ${bestPick ? `Score ${(currentScore.score * 100).toFixed(1)} < ${(adaptiveScoreMin * 100).toFixed(1)} • LCB ${(bestPick.lcb * 100).toFixed(1)}% • BaseP${stepsToWin} ${(baselinePcycle * 100).toFixed(1)}% • ${ctxLabel}` : 'sem contexto útil'} • ${signalIntensity}/${learningPolicy}${learningSuffix}`;
+        ? `FORCE • P1 ${(p1 * 100).toFixed(1)}% • ${ctxLabel} • ${signalIntensity}/${learningPolicy}${riskGuardSuffix}`
+        : `NULO • ${bestPick ? `Score ${(currentScore.score * 100).toFixed(1)} < ${(adaptiveScoreMin * 100).toFixed(1)} • LCB ${(bestPick.lcb * 100).toFixed(1)}% • BaseP${stepsToWin} ${(baselinePcycle * 100).toFixed(1)}% • ${ctxLabel}` : 'sem contexto útil'} • ${signalIntensity}/${learningPolicy}${learningSuffix}${riskGuardSuffix}`;
 
     return {
         color: chosenColor,
@@ -17062,7 +17146,10 @@ async function analyzeWithPatternSystem(history) {
             whiteProtectionAsWin: !!analyzerConfig.whiteProtectionAsWin,
             dynamicGales: shouldUseN4DynamicGalesForConfig(analyzerConfig),
             // ✅ passar estado de aprendizado do N4 (somente leitura) para filtrar/boost
-            n4SelfLearning: signalsHistory && signalsHistory.n4SelfLearning ? signalsHistory.n4SelfLearning : null
+            n4SelfLearning: signalsHistory && signalsHistory.n4SelfLearning ? signalsHistory.n4SelfLearning : null,
+            // ✅ Proteção extra (ao vivo): reduzir "linha de erro" ajustando seletividade quando o N4 estiver em baixa
+            liveRiskGuard: true,
+            entriesHistoryForGuard: entriesHistory
         });
         
         const n4Decision = nivel9 && nivel9.color ? String(nivel9.color).toUpperCase() : 'NULO';
