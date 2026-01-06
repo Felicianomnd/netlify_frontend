@@ -13117,6 +13117,39 @@ function analyzeAutointeligente(history, options = {}) {
         } catch (_) {}
     }
 
+    // ✅ Fallback RB (não derrubar volume):
+    // Se o N4 não passou os filtros (ou RG apertou demais), em vez de virar NULO, escolher RED/BLACK
+    // pelo próprio modelo (ignorando WHITE). Isso mantém o fluxo de sinais e evita quedas bruscas na taxa de acerto.
+    let fallbackSuffix = '';
+    if (!forcePick && !allowed && stepsToWin >= 2) {
+        try {
+            const ctxKey = Array.isArray(ctxTail) ? ctxTail.join('') : '';
+            const rbTok = (Number(forcedDist.B || 0) >= Number(forcedDist.R || 0)) ? 'B' : 'R';
+            const fallbackPick = scored.find(s => s && s.tok === rbTok) || null;
+            const fallbackSecond = fallbackPick ? (scored.find(s => s && s.tok !== rbTok) || null) : null;
+            if (fallbackPick) {
+                bestPick = fallbackPick;
+                secondPick = fallbackSecond;
+                marginLcb = bestPick && secondPick ? Math.max(0, (bestPick.lcb - secondPick.lcb)) : (bestPick ? bestPick.lcb : 0);
+                currentScore = computeScore(bestPick, secondPick);
+                allowed = true;
+
+                // Atualizar chave de aprendizado (para não poluir com chave antiga)
+                learningDecision = 'fallback';
+                learningKey = buildN4SelfLearningKey(ctxKey, rbTok, stepsToWin, signalIntensity, learningPolicy);
+                try {
+                    const st = learningKey ? getN4SelfLearningStatsForKey(learningKey) : null;
+                    if (st) {
+                        learningRecentN = st.recentN || 0;
+                        learningRecentWinRate = st.recentWinRate;
+                    }
+                } catch (_) {}
+
+                fallbackSuffix = ` • FB ${rbTok === 'B' ? 'BLACK' : 'RED'}`;
+            }
+        } catch (_) {}
+    }
+
     const chosenTok = allowed ? (bestPick ? bestPick.tok : null) : (forcePick ? forcedTok : null);
     const chosenColor = chosenTok ? tokToColor[chosenTok] : null;
 
@@ -13145,10 +13178,10 @@ function analyzeAutointeligente(history, options = {}) {
     })();
 
     const details = chosenTok && allowed
-        ? `P1 ${(p1 * 100).toFixed(1)}% • P${stepsToWin}est ${(p3 * 100).toFixed(1)}% • BaseP${stepsToWin} ${(baselinePcycle * 100).toFixed(1)}% • LCB ${(lcb1 * 100).toFixed(1)}% • Score ${(currentScore.score * 100).toFixed(1)}≥${(adaptiveScoreMin * 100).toFixed(1)} • ${ctxLabel} • ${signalIntensity}/${learningPolicy}${learningSuffix}${riskGuardSuffix}`
+        ? `P1 ${(p1 * 100).toFixed(1)}% • P${stepsToWin}est ${(p3 * 100).toFixed(1)}% • BaseP${stepsToWin} ${(baselinePcycle * 100).toFixed(1)}% • LCB ${(lcb1 * 100).toFixed(1)}% • Score ${(currentScore.score * 100).toFixed(1)}≥${(adaptiveScoreMin * 100).toFixed(1)} • ${ctxLabel} • ${signalIntensity}/${learningPolicy}${learningSuffix}${riskGuardSuffix}${fallbackSuffix}`
         : chosenTok && forcePick
-        ? `FORCE • P1 ${(p1 * 100).toFixed(1)}% • ${ctxLabel} • ${signalIntensity}/${learningPolicy}${riskGuardSuffix}`
-        : `NULO • ${bestPick ? `Score ${(currentScore.score * 100).toFixed(1)} < ${(adaptiveScoreMin * 100).toFixed(1)} • LCB ${(bestPick.lcb * 100).toFixed(1)}% • BaseP${stepsToWin} ${(baselinePcycle * 100).toFixed(1)}% • ${ctxLabel}` : 'sem contexto útil'} • ${signalIntensity}/${learningPolicy}${learningSuffix}${riskGuardSuffix}`;
+        ? `FORCE • P1 ${(p1 * 100).toFixed(1)}% • ${ctxLabel} • ${signalIntensity}/${learningPolicy}${riskGuardSuffix}${fallbackSuffix}`
+        : `NULO • ${bestPick ? `Score ${(currentScore.score * 100).toFixed(1)} < ${(adaptiveScoreMin * 100).toFixed(1)} • LCB ${(bestPick.lcb * 100).toFixed(1)}% • BaseP${stepsToWin} ${(baselinePcycle * 100).toFixed(1)}% • ${ctxLabel}` : 'sem contexto útil'} • ${signalIntensity}/${learningPolicy}${learningSuffix}${riskGuardSuffix}${fallbackSuffix}`;
 
     return {
         color: chosenColor,
@@ -17157,12 +17190,16 @@ async function analyzeWithPatternSystem(history) {
                 entriesHistoryForGuard = [];
             }
         }
+        // ✅ Se N0 (Detector de Branco) está ativo, deixe WHITE exclusivo dele.
+        // Isso evita o N4 "inventar" WHITE e derrubar a consistência do ciclo.
+        const allowWhiteInN4 = !isLevelEnabledLocal('N0');
         const nivel9 = analyzeAutointeligente(history, {
             historySize: n4HistoryWindow,
             maxGales: n4MaxGalesConfigured,
             signalIntensity: analyzerConfig.signalIntensity || 'aggressive',
             whiteProtectionAsWin: !!analyzerConfig.whiteProtectionAsWin,
             dynamicGales: shouldUseN4DynamicGalesForConfig(analyzerConfig),
+            allowWhite: allowWhiteInN4,
             // ✅ passar estado de aprendizado do N4 (somente leitura) para filtrar/boost
             n4SelfLearning: signalsHistory && signalsHistory.n4SelfLearning ? signalsHistory.n4SelfLearning : null,
             // ✅ Proteção extra (ao vivo): reduzir "linha de erro" ajustando seletividade quando o N4 estiver em baixa
