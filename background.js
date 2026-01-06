@@ -17139,6 +17139,24 @@ async function analyzeWithPatternSystem(history) {
         
         const { maxGales: n4MaxGalesConfigured } = getMartingaleSettings('diamond', analyzerConfig);
         const n4HistoryWindow = getDiamondWindow('n4Persistence', DEFAULT_ANALYZER_CONFIG.diamondLevelWindows.n4Persistence);
+        // ✅ Snapshot seguro do histórico de entradas (para o Risk Guard do N4).
+        // Não assumir que `entriesHistory` existe neste escopo (evita ReferenceError em web runtime).
+        let entriesHistoryForGuard = [];
+        try {
+            // Se existir global (extensão), usar.
+            // Se não existir, cai no catch e buscamos no storage.
+            entriesHistoryForGuard = Array.isArray(entriesHistory) ? entriesHistory : [];
+        } catch (_) {
+            entriesHistoryForGuard = [];
+        }
+        if (!Array.isArray(entriesHistoryForGuard) || entriesHistoryForGuard.length === 0) {
+            try {
+                const stored = await chrome.storage.local.get(['entriesHistory']);
+                entriesHistoryForGuard = (stored && Array.isArray(stored.entriesHistory)) ? stored.entriesHistory : [];
+            } catch (_) {
+                entriesHistoryForGuard = [];
+            }
+        }
         const nivel9 = analyzeAutointeligente(history, {
             historySize: n4HistoryWindow,
             maxGales: n4MaxGalesConfigured,
@@ -17149,7 +17167,7 @@ async function analyzeWithPatternSystem(history) {
             n4SelfLearning: signalsHistory && signalsHistory.n4SelfLearning ? signalsHistory.n4SelfLearning : null,
             // ✅ Proteção extra (ao vivo): reduzir "linha de erro" ajustando seletividade quando o N4 estiver em baixa
             liveRiskGuard: true,
-            entriesHistoryForGuard: entriesHistory
+            entriesHistoryForGuard
         });
         
         const n4Decision = nivel9 && nivel9.color ? String(nivel9.color).toUpperCase() : 'NULO';
