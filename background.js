@@ -221,7 +221,7 @@ const DEFAULT_AUTOBET_CONFIG = Object.freeze({
     simulationBankRoll: 5000,
     whitePayoutMultiplier: 14,
     // ✅ Branco (config exclusiva)
-    // - whiteMaxGales: 0..5 (0 = somente 1 entrada)
+    // - whiteMaxGales: 0..200 (0 = somente 1 entrada)
     // - whiteGaleMode: 'double' (dobrar) | 'same' (manter)
     whiteMaxGales: 2,
     whiteGaleMode: 'double'
@@ -1156,7 +1156,7 @@ function sanitizeAutoBetConfig(rawConfig) {
     sanitized.whitePayoutMultiplier = Math.max(2, parseNumber(source.whitePayoutMultiplier, DEFAULT_AUTOBET_CONFIG.whitePayoutMultiplier || 14));
     sanitized.whiteMaxGales = Math.max(
         0,
-        Math.min(5, Math.floor(parseNumber(source.whiteMaxGales, DEFAULT_AUTOBET_CONFIG.whiteMaxGales || 2)))
+        Math.min(200, Math.floor(parseNumber(source.whiteMaxGales, DEFAULT_AUTOBET_CONFIG.whiteMaxGales || 2)))
     );
     sanitized.whiteGaleMode = normalizeWhiteGaleMode(source.whiteGaleMode);
     return sanitized;
@@ -1204,7 +1204,7 @@ function getMartingaleSettingsForEntryColor(entryColor, modeKey = getModeKey(), 
 
     // ✅ Branco: usar configuração exclusiva (não afeta vermelho/preto)
     const autoBetCfg = sanitizeAutoBetConfig(config && config.autoBetConfig ? config.autoBetConfig : null);
-    const max = Math.max(0, Math.min(5, Math.floor(Number(autoBetCfg.whiteMaxGales) || 0)));
+    const max = Math.max(0, Math.min(200, Math.floor(Number(autoBetCfg.whiteMaxGales) || 0)));
     return {
         maxGales: max,
         consecutiveGales: max,

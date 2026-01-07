@@ -2030,7 +2030,7 @@ const AUTO_BET_DEFAULTS = Object.freeze({
     simulationBankRoll: 5000,
     whitePayoutMultiplier: 14,
     // ✅ Config exclusivo do Branco (aposta no Branco como cor principal)
-    // - whiteMaxGales: 0..5 (0 = somente 1 entrada)
+    // - whiteMaxGales: 0..200 (0 = somente 1 entrada)
     // - whiteGaleMode: 'double' (dobrar) | 'same' (manter o mesmo valor)
     whiteMaxGales: 2,
     whiteGaleMode: WHITE_GALE_MODE.DOUBLE,
@@ -2216,7 +2216,7 @@ function sanitizeAutoBetConfig(raw) {
     sanitized.whiteMaxGales = clampIntRange(
         getNumber(base.whiteMaxGales, AUTO_BET_DEFAULTS.whiteMaxGales),
         0,
-        5
+        200
     );
     sanitized.whiteGaleMode = normalizeWhiteGaleMode(base.whiteGaleMode);
     sanitized.whiteProtectionMode = normalizeWhiteProtectionMode(base.whiteProtectionMode);
@@ -12657,7 +12657,7 @@ async function persistAnalyzerState(newState) {
                                 <div class="white-bet-setting-row">
                                     <div class="white-bet-setting-label">Gales do branco</div>
                                     <div class="white-bet-setting-control">
-                                        <input id="whiteMaxGalesInput" class="white-bet-input" type="number" inputmode="numeric" min="0" max="5" step="1" placeholder="2" />
+                                        <input id="whiteMaxGalesInput" class="white-bet-input" type="number" inputmode="numeric" min="0" max="200" step="1" placeholder="2" />
                                         <button type="button" class="white-bet-save-btn" id="whiteMaxGalesSaveBtn">Salvar</button>
                     </div>
                     </div>
@@ -21285,8 +21285,8 @@ function logModeSnapshotUI(snapshot) {
 
     function clampWhiteMaxGales(value, fallback = AUTO_BET_DEFAULTS.whiteMaxGales) {
         const n = Math.floor(Number(value));
-        if (!Number.isFinite(n)) return clampIntRange(fallback, 0, 5);
-        return Math.max(0, Math.min(5, n));
+        if (!Number.isFinite(n)) return clampIntRange(fallback, 0, 200);
+        return Math.max(0, Math.min(200, n));
     }
 
     async function persistWhiteAutoBetSettingsPatch(patch = {}) {
@@ -21334,10 +21334,10 @@ function logModeSnapshotUI(snapshot) {
         // Campo numérico (0..5), com botão "Salvar"
         try {
             maxInput.min = '0';
-            maxInput.max = '5';
+            maxInput.max = '200';
             maxInput.step = '1';
             maxInput.value = String(maxGales);
-            maxInput.title = '0 = somente 1 entrada (sem gales). 1..5 = até G1..G5.';
+            maxInput.title = '0 = somente 1 entrada (sem gales). 1..200 = até G1..G200.';
         } catch (_) {}
 
         if (!modeEl.dataset.listenerAttached) {
