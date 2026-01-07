@@ -16576,6 +16576,23 @@ async function persistAnalyzerState(newState) {
         // ✅ Regra do usuário:
         // - Se estiver somente o nível do Branco (N0) ativo, o branco NÃO aparece na aba IA (apenas na aba Branco).
         // - Se houver outros níveis ativos junto, o branco aparece normalmente na IA.
+        // ⚠️ IMPORTANTE: `entry.color` é a cor que SAIU no giro.
+        // Para decidir se é um "sinal de branco", precisamos usar a cor RECOMENDADA do sinal (betColor/patternData.color).
+        const normBetColorFromEntry = (e) => {
+            try {
+                const raw = String(
+                    (e && (e.betColor != null ? e.betColor : (e.patternData && e.patternData.color != null ? e.patternData.color : e.color))) || ''
+                ).toLowerCase().trim();
+                if (raw === 'branco') return 'white';
+                if (raw.startsWith('w')) return 'white';
+                if (raw.startsWith('r')) return 'red';
+                // "branco" não é black
+                if (raw.startsWith('b') && raw !== 'branco') return 'black';
+                return raw;
+            } catch (_) {
+                return '';
+            }
+        };
         const isWhiteOnlyMode = (() => {
             try {
                 if (currentMode !== 'diamond') return false;
@@ -16591,26 +16608,94 @@ async function persistAnalyzerState(newState) {
                 return false;
             }
         })();
-        if (isWhiteOnlyMode) {
-            // ⚠️ IMPORTANTE: `entry.color` é a cor que SAIU no giro.
-            // Para a regra "somente N0", precisamos filtrar pela cor RECOMENDADA do sinal (betColor/patternData.color).
-            const normBetColorFromEntry = (e) => {
-                try {
-                    const raw = String(
-                        (e && (e.betColor != null ? e.betColor : (e.patternData && e.patternData.color != null ? e.patternData.color : e.color))) || ''
-                    ).toLowerCase().trim();
-                    if (raw === 'branco') return 'white';
-                    if (raw.startsWith('w')) return 'white';
-                    if (raw.startsWith('r')) return 'red';
-                    // "branco" não é black
-                    if (raw.startsWith('b') && raw !== 'branco') return 'black';
-                    return raw;
-                } catch (_) {
-                    return '';
+
+        // ✅ Regra adicional do usuário (NÃO retroativo):
+        // - Se um sinal de BRANCO foi gerado enquanto estava "somente N0", ele deve ficar APENAS na aba BRANCO,
+        //   mesmo que o usuário ative outros níveis depois.
+        // Implementação: marcar localmente quais ciclos de BRANCO nasceram em "somente N0" e nunca permitir
+        // que eles apareçam na IA retroativamente.
+        const WHITE_IA_HIDDEN_KEYS_STORAGE = 'da_white_ia_hidden_entry_keys_v1';
+        const WHITE_IA_HIDDEN_LAST_SEEN_TS_STORAGE = 'da_white_ia_hidden_last_seen_ts_v1';
+        const getWhiteIaHiddenSet = () => {
+            try {
+                const raw = localStorage.getItem(WHITE_IA_HIDDEN_KEYS_STORAGE);
+                const arr = raw ? JSON.parse(raw) : [];
+                if (!Array.isArray(arr)) return new Set();
+                return new Set(arr.filter(Boolean).map(String));
+            } catch (_) {
+                return new Set();
+            }
+        };
+        const persistWhiteIaHiddenSet = (set) => {
+            try {
+                const arr = Array.from(set || []);
+                // evitar crescer infinito (apenas brancos em "somente N0"); manter os mais recentes
+                const MAX = 2000;
+                const trimmed = arr.length > MAX ? arr.slice(arr.length - MAX) : arr;
+                localStorage.setItem(WHITE_IA_HIDDEN_KEYS_STORAGE, JSON.stringify(trimmed));
+            } catch (_) {}
+        };
+        const getStableEntryKey = (e) => {
+            try {
+                const cycleId = (e && e.cycleId != null) ? String(e.cycleId) : '';
+                const ts = String(getEntryTimestampMs(e) || '');
+                const num = (e && e.number != null) ? String(e.number) : '';
+                const stage = (e && (e.martingaleStage || e.phase || e.wonAt) != null) ? String(e.martingaleStage || e.phase || e.wonAt) : '';
+                // chave estável por ciclo; prefixar com modo para não colidir
+                return `${currentMode}|${cycleId || ts}|${num}|${stage}`;
+            } catch (_) {
+                return `${currentMode}|unknown`;
+            }
+        };
+        const markRecentWhiteOnlyEntriesAsHidden = () => {
+            try {
+                if (currentMode !== 'diamond') return;
+                if (!isWhiteOnlyMode) return;
+                const hidden = getWhiteIaHiddenSet();
+                const lastSeen = Number(localStorage.getItem(WHITE_IA_HIDDEN_LAST_SEEN_TS_STORAGE)) || 0;
+                let newest = lastSeen;
+
+                // entriesByMode é do modo atual e vem do mais recente para o mais antigo
+                for (let i = 0; i < entriesByMode.length; i++) {
+                    const e = entriesByMode[i];
+                    const ts = getEntryTimestampMs(e);
+                    if (!ts || !Number.isFinite(ts)) continue;
+                    if (ts <= lastSeen) break;
+                    if (normBetColorFromEntry(e) === 'white') {
+                        hidden.add(getStableEntryKey(e));
+                    }
+                    if (ts > newest) newest = ts;
                 }
-            };
+
+                if (newest > lastSeen) {
+                    localStorage.setItem(WHITE_IA_HIDDEN_LAST_SEEN_TS_STORAGE, String(newest));
+                }
+                persistWhiteIaHiddenSet(hidden);
+            } catch (_) {}
+        };
+
+        // Marcar (somente N0) ANTES de filtrar a lista da IA.
+        try { markRecentWhiteOnlyEntriesAsHidden(); } catch (_) {}
+
+        if (isWhiteOnlyMode) {
             entriesByModeForIA = entriesByModeForIA.filter(e => normBetColorFromEntry(e) !== 'white');
             entriesByModeForChart = entriesByModeForChart.filter(e => normBetColorFromEntry(e) !== 'white');
+        } else if (currentMode === 'diamond') {
+            // ✅ Não retroativo: esconder brancos que nasceram em "somente N0", mesmo após ativar outros níveis
+            const hidden = getWhiteIaHiddenSet();
+            const keepIfNotHiddenWhite = (e) => {
+                try {
+                    if (normBetColorFromEntry(e) !== 'white') return true;
+                    // se o background já marcar no futuro, respeitar também
+                    if (e && e.hideFromIA === true) return false;
+                    const key = getStableEntryKey(e);
+                    return !hidden.has(key);
+                } catch (_) {
+                    return true;
+                }
+            };
+            entriesByModeForIA = entriesByModeForIA.filter(keepIfNotHiddenWhite);
+            entriesByModeForChart = entriesByModeForChart.filter(keepIfNotHiddenWhite);
         }
         
         console.log(`   Total de entradas: ${entries.length}`);
