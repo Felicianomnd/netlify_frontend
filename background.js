@@ -6524,10 +6524,11 @@ async function saveSignalsHistory() {
 // - Usa baseline de branco para decidir o que é "bom/ruim" (evento raro).
 // ═══════════════════════════════════════════════════════════════
 
-function buildN0LearningContextKey({ windowChars, dominantNonWhite, maxTail = 12 }) {
+function buildN0LearningContextKey({ windowChars, windowNumbers, dominantNonWhite, maxTail = 12 }) {
     try {
         const w = Array.isArray(windowChars) ? windowChars : [];
         if (!w.length) return '';
+        const nums = Array.isArray(windowNumbers) ? windowNumbers : null;
 
         const limit = Math.max(6, Math.min(30, Math.floor(Number(maxTail) || 12)));
         const tailRaw = w.slice(-limit);
@@ -6536,16 +6537,20 @@ function buildN0LearningContextKey({ windowChars, dominantNonWhite, maxTail = 12
 
         const lastWFull = w.lastIndexOf('W');
         const gap = lastWFull >= 0 ? (w.length - 1 - lastWFull) : w.length;
-        const gapBucket = gap <= 4 ? '0-4'
-            : gap <= 9 ? '5-9'
-            : gap <= 19 ? '10-19'
-            : gap <= 39 ? '20-39'
-            : '40+';
+        const gapBucket = bucketGapForN0(gap);
 
         const dom = dominantNonWhite ? String(dominantNonWhite).toLowerCase().trim() : '';
         const domTag = (dom === 'red' || dom === 'black') ? dom : '';
 
-        return `tail=${tail.join('')}|gap=${gapBucket}` + (domTag ? `|dom=${domTag}` : '');
+        const tailNum = getTailNonWhiteNumberFromWindow(w, nums);
+        const numTag = (tailNum != null) ? `|num=${tailNum}` : '';
+
+        const br = computeBreakAfterStreak(w);
+        const breakTag = (br && br.broke)
+            ? `|br=${bucketRunLenForN0(br.prevRunLen || 0)}:${br.from || '-'}>${br.to || '-'}`
+            : '';
+
+        return `tail=${tail.join('')}|gap=${gapBucket}` + (domTag ? `|dom=${domTag}` : '') + numTag + breakTag;
     } catch (_) {
         return '';
     }
@@ -13132,6 +13137,10 @@ const N0_FAMILY_LIST = Object.freeze([
     'run_stats',
     'markov',
     'n_gram_pattern',
+    'tail_ngram',
+    'gap_hazard',
+    'number_puller',
+    'break_after_streak',
     'burst_detector',
     'entropy_change',
     'lagged_sum',
@@ -13262,23 +13271,122 @@ function normalizeN0History(entries) {
     return normalized;
 }
 
-function buildN0Windows(sequence, windowSize, stepSize = windowSize) {
+// ✅ Variante do N0 que preserva o número (para "puxadores" de branco / contexto).
+// Retorna array de { c:'R'|'B'|'W', n:number|null } alinhado 1:1.
+function normalizeN0HistoryPairs(entries) {
+    if (!Array.isArray(entries)) return [];
+    const out = [];
+    const mapNumberToChar = (value) => {
+        const n = Math.floor(Number(value));
+        if (!Number.isFinite(n)) return null;
+        // Blaze Double: 0 = white, 1-7 = red, 8-14 = black
+        if (n === 0) return 'W';
+        if (n >= 1 && n <= 7) return 'R';
+        if (n >= 8 && n <= 14) return 'B';
+        return null;
+    };
+    const parseNumber = (value) => {
+        const n = Math.floor(Number(value));
+        return Number.isFinite(n) ? n : null;
+    };
+    const push = (c, n) => {
+        if (!(c === 'R' || c === 'B' || c === 'W')) return;
+        const num = (c === 'W') ? 0 : (Number.isFinite(Number(n)) ? Math.floor(Number(n)) : null);
+        out.push({ c, n: num });
+    };
+
+    for (const item of entries) {
+        // compat: algumas fontes podem enviar null para branco
+        if (item == null) {
+            push('W', 0);
+            continue;
+        }
+
+        if (typeof item === 'string' || typeof item === 'number') {
+            const parsed = String(item).trim().toLowerCase();
+            if (parsed.includes('branc') || parsed === 'w' || parsed.includes('white')) {
+                push('W', 0);
+                continue;
+            }
+            if (parsed.includes('verm') || parsed === 'r' || parsed.includes('red')) {
+                push('R', null);
+                continue;
+            }
+            if (parsed.includes('pret') || parsed === 'b' || parsed.includes('black')) {
+                push('B', null);
+                continue;
+            }
+            const numeric = parseNumber(parsed);
+            if (numeric != null) {
+                const mapped = mapNumberToChar(numeric);
+                if (mapped) push(mapped, numeric);
+            }
+            continue;
+        }
+
+        if (typeof item === 'object') {
+            // Preferir número, pois é a fonte mais confiável (0..14)
+            const numberValue = item.number ?? item.numero ?? item.slot ?? item.value ?? null;
+            const numeric = parseNumber(numberValue);
+            if (numeric != null) {
+                const mapped = mapNumberToChar(numeric);
+                if (mapped) {
+                    push(mapped, numeric);
+                    continue;
+                }
+            }
+
+            const colorValue = item.color || item.result || item.Color || item.cor || null;
+            if (colorValue != null) {
+                const parsed = String(colorValue).trim().toLowerCase();
+                if (parsed.includes('branc') || parsed === 'w' || parsed.includes('white')) {
+                    push('W', 0);
+                    continue;
+                }
+                if (parsed.includes('verm') || parsed === 'r' || parsed.includes('red')) {
+                    push('R', null);
+                    continue;
+                }
+                if (parsed.includes('pret') || parsed === 'b' || parsed.includes('black')) {
+                    push('B', null);
+                    continue;
+                }
+                const maybeNum = parseNumber(parsed);
+                if (maybeNum != null) {
+                    const mapped = mapNumberToChar(maybeNum);
+                    if (mapped) push(mapped, maybeNum);
+                }
+            }
+        }
+    }
+
+    return out;
+}
+
+function buildN0Windows(sequence, windowSize, stepSize = windowSize, lookaheadSpins = 1) {
     const windows = [];
     if (!Array.isArray(sequence) || sequence.length < windowSize + 1) return windows;
     const total = sequence.length;
     const step = Math.max(1, Math.floor(Number(stepSize) || windowSize));
-    const maxStart = total - (windowSize + 1); // precisa existir alvo em `end`
+    const lookahead = Math.max(1, Math.min(20, Math.floor(Number(lookaheadSpins) || 1)));
+    const maxStart = total - (windowSize + lookahead); // precisa existir alvo em `end` (com lookahead)
     let k = 0;
     for (let start = 0; start <= maxStart; start += step) {
         const end = start + windowSize;
         const targetIndex = end;
-        if (targetIndex >= total) break;
+        if (targetIndex + lookahead - 1 >= total) break;
+        const targetSlice = sequence.slice(targetIndex, targetIndex + lookahead);
+        const targetHasWhite = targetSlice.includes('W');
         windows.push({
             index: k,
             window: sequence.slice(start, end),
-            target: sequence[targetIndex],
+            // ✅ target = WHITE se sair em qualquer um dos próximos `lookahead` giros (Entrada/G1/G2...).
+            // Caso contrário, manter a cor do primeiro giro pós-janela (útil para logs).
+            target: targetHasWhite ? 'W' : sequence[targetIndex],
             start,
-            targetIndex
+            targetIndex,
+            lookahead,
+            target_has_white: targetHasWhite
         });
         k += 1;
     }
@@ -13509,7 +13617,7 @@ function encodeN0ConfigVector(cfg) {
     vector[baseIndex + 3] = clamp01(params.decay ?? 0);
     vector[baseIndex + 4] = clamp01((params.min_run ?? params.min_max_run ?? 0) / 15);
     vector[baseIndex + 5] = clamp01((params.min_run_count ?? params.min_occurrences ?? 0) / 12);
-    vector[baseIndex + 6] = clamp01((params.order ?? params.k ?? 0) / 5);
+    vector[baseIndex + 6] = clamp01((params.order ?? params.k ?? params.L ?? 0) / 8);
     vector[baseIndex + 7] = clamp01(params.prob_thresh ?? params.next_thresh ?? 0);
     vector[baseIndex + 8] = clamp01(hashStringToUnit(params.pattern ?? params.pattern_code));
     vector[baseIndex + 9] = clamp01((params.sub_window ?? params.subW ?? 0) / 50);
@@ -13584,6 +13692,38 @@ function buildN0BaseConfigs() {
     patternLibrary.forEach(pattern => {
         [0.55, 0.6, 0.65, 0.7, 0.75].forEach(next_thresh => {
             push('n_gram_pattern', { pattern, next_thresh: Number(next_thresh.toFixed(2)) });
+        });
+    });
+
+    // ✅ Tail n-gram: condicionado ao contexto atual (tail) e alinhado ao horizonte de lookahead.
+    [2, 3, 4, 5].forEach(L => {
+        [0.52, 0.56, 0.6, 0.64, 0.68].forEach(next_thresh => {
+            [2, 3, 4].forEach(min_occurrences => {
+                push('tail_ngram', {
+                    L,
+                    next_thresh: Number(next_thresh.toFixed(2)),
+                    min_occurrences
+                });
+            });
+        });
+    });
+
+    // ✅ Observadores "inteligentes" do branco (puxadores / gap / quebra) — guiados pelo histórico.
+    [0.26, 0.28, 0.3, 0.32, 0.35].forEach(prob_thresh => {
+        [6, 8, 10, 12].forEach(min_occurrences => {
+            push('number_puller', { prob_thresh: Number(prob_thresh.toFixed(2)), min_occurrences });
+            push('gap_hazard', { prob_thresh: Number(prob_thresh.toFixed(2)), min_occurrences });
+        });
+    });
+    [4, 5, 6, 7, 8, 9].forEach(min_run => {
+        [0.28, 0.3, 0.32, 0.35].forEach(prob_thresh => {
+            [5, 7, 9].forEach(min_occurrences => {
+                push('break_after_streak', {
+                    min_run,
+                    prob_thresh: Number(prob_thresh.toFixed(2)),
+                    min_occurrences
+                });
+            });
         });
     });
 
@@ -13703,6 +13843,40 @@ function sampleRandomN0Config(rng, forcedFamily) {
                 }
             };
         }
+        case 'tail_ngram':
+            return {
+                family,
+                params: {
+                    L: randInt(2, 6),
+                    next_thresh: randBetween(0.48, 0.78, 2),
+                    min_occurrences: randInt(2, 6)
+                }
+            };
+        case 'gap_hazard':
+            return {
+                family,
+                params: {
+                    prob_thresh: randBetween(0.24, 0.38, 2),
+                    min_occurrences: randInt(6, 16)
+                }
+            };
+        case 'number_puller':
+            return {
+                family,
+                params: {
+                    prob_thresh: randBetween(0.24, 0.4, 2),
+                    min_occurrences: randInt(6, 18)
+                }
+            };
+        case 'break_after_streak':
+            return {
+                family,
+                params: {
+                    min_run: randInt(3, 10),
+                    prob_thresh: randBetween(0.24, 0.4, 2),
+                    min_occurrences: randInt(5, 14)
+                }
+            };
         case 'burst_detector':
             return {
                 family,
@@ -14011,14 +14185,146 @@ function getWeightedWhiteness(stats, windowChars, decay) {
     return result;
 }
 
-function buildN0WindowContext(windows) {
-    const stats = windows.map(entry => computeWindowStats(entry.window));
+function getTailNonWhiteNumberFromWindow(windowChars, windowNumbers) {
+    try {
+        if (!Array.isArray(windowChars) || !Array.isArray(windowNumbers)) return null;
+        for (let i = windowChars.length - 1; i >= 0; i--) {
+            const c = windowChars[i];
+            if (!(c === 'R' || c === 'B')) continue;
+            const n = windowNumbers[i];
+            const num = Number.isFinite(Number(n)) ? Math.floor(Number(n)) : null;
+            // puxadores: 1..14 (0 = branco)
+            if (num != null && num > 0 && num <= 14) return num;
+        }
+        return null;
+    } catch (_) {
+        return null;
+    }
+}
+
+function computeGapSinceLastWhite(windowChars) {
+    try {
+        if (!Array.isArray(windowChars) || windowChars.length === 0) return 0;
+        let gap = 0;
+        for (let i = windowChars.length - 1; i >= 0; i--) {
+            const c = windowChars[i];
+            if (c === 'W') return gap;
+            gap += 1;
+        }
+        return gap;
+    } catch (_) {
+        return 0;
+    }
+}
+
+function bucketGapForN0(gapValue) {
+    const g = Math.max(0, Math.floor(Number(gapValue) || 0));
+    if (g <= 2) return '0-2';
+    if (g <= 5) return '3-5';
+    if (g <= 9) return '6-9';
+    if (g <= 14) return '10-14';
+    if (g <= 19) return '15-19';
+    return '20+';
+}
+
+function bucketRunLenForN0(lenValue) {
+    const n = Math.max(0, Math.floor(Number(lenValue) || 0));
+    if (n >= 10) return '10+';
+    if (n >= 7) return '7-9';
+    if (n >= 5) return '5-6';
+    if (n >= 3) return '3-4';
+    return '0-2';
+}
+
+function computeBreakAfterStreak(windowChars) {
+    try {
+        const w = Array.isArray(windowChars) ? windowChars : [];
+        let last = null;
+        let lastIdx = -1;
+        for (let i = w.length - 1; i >= 0; i--) {
+            if (w[i] === 'R' || w[i] === 'B') { last = w[i]; lastIdx = i; break; }
+        }
+        if (!last) return { broke: false, from: null, to: null, prevRunLen: 0 };
+        let prev = null;
+        let prevIdx = -1;
+        for (let i = lastIdx - 1; i >= 0; i--) {
+            if (w[i] === 'R' || w[i] === 'B') { prev = w[i]; prevIdx = i; break; }
+        }
+        if (!prev || prev === last) return { broke: false, from: prev, to: last, prevRunLen: 0 };
+        // contar streak anterior ignorando brancos (espécie de "streak de cor" real)
+        let runLen = 0;
+        for (let i = prevIdx; i >= 0; i--) {
+            const c = w[i];
+            if (c === 'W') continue;
+            if (c === prev) runLen += 1;
+            else break;
+        }
+        return { broke: true, from: prev, to: last, prevRunLen: runLen };
+    } catch (_) {
+        return { broke: false, from: null, to: null, prevRunLen: 0 };
+    }
+}
+
+function buildN0WindowContext(windows, options = {}) {
+    const winList = Array.isArray(windows) ? windows : [];
+    const loo = options && Object.prototype.hasOwnProperty.call(options, 'loo') ? !!options.loo : true;
+    const stats = winList.map(entry => computeWindowStats(entry.window));
     const whitenessSeries = stats.map(s => s.pW);
     const whiteCounts = stats.map(s => s.whites);
+
+    // Mapas de contexto (aprendizado leve) — usados por famílias do N0 que observam "como o branco saiu".
+    const numberStats = {}; // { [num]: { occ, white } }
+    const gapStats = {};    // { [bucket]: { occ, white } }
+    const breakStats = {};  // { [key]: { occ, white } }
+    let labeledTotal = 0;
+    let labeledWhite = 0;
+
+    const bump = (map, key, isWhite) => {
+        if (!key) return;
+        if (!map[key]) map[key] = { occ: 0, white: 0 };
+        map[key].occ += 1;
+        if (isWhite) map[key].white += 1;
+    };
+
+    winList.forEach((entry) => {
+        if (!entry || typeof entry !== 'object') return;
+        const hasLabel = entry.target === 'W' || entry.target === 'R' || entry.target === 'B' || entry.target === 'N';
+        if (!hasLabel) return; // live window (target=null) não entra no aprendizado
+
+        const isWhite = entry.target === 'W';
+        labeledTotal += 1;
+        if (isWhite) labeledWhite += 1;
+
+        const wChars = Array.isArray(entry.window) ? entry.window : [];
+        const wNums = Array.isArray(entry.window_numbers) ? entry.window_numbers : null;
+
+        const tailNum = getTailNonWhiteNumberFromWindow(wChars, wNums);
+        if (tailNum != null) bump(numberStats, String(tailNum), isWhite);
+
+        const gap = computeGapSinceLastWhite(wChars);
+        bump(gapStats, bucketGapForN0(gap), isWhite);
+
+        const br = computeBreakAfterStreak(wChars);
+        if (br && br.broke) {
+            const bucket = bucketRunLenForN0(br.prevRunLen);
+            const key = `prev=${bucket}|from=${br.from}|to=${br.to}`;
+            bump(breakStats, key, isWhite);
+            // também guardar uma versão mais geral (sem direção)
+            bump(breakStats, `prev=${bucket}`, isWhite);
+        }
+    });
+
+    const baseWhiteRate = labeledTotal > 0 ? (labeledWhite / labeledTotal) : 0;
+
     return {
         stats,
         whitenessSeries,
-        whiteCounts
+        whiteCounts,
+        loo,
+        base_white_rate: clamp01(baseWhiteRate),
+        number_stats: numberStats,
+        gap_stats: gapStats,
+        break_stats: breakStats
     };
 }
 
@@ -14031,6 +14337,9 @@ function applyN0Config(cfg, windowChars, idxWindow, windows, context, depth = 0)
     }
     const params = cfg.params || {};
     const stats = context.stats[idxWindow];
+    const meta = (Array.isArray(windows) && windows[idxWindow]) ? windows[idxWindow] : null;
+    const lookahead = Math.max(1, Math.min(5, Math.floor(Number(meta && meta.lookahead) || 1)));
+    const leaveOneOut = !!(context && context.loo);
 
     switch (cfg.family) {
         case 'freq_threshold': {
@@ -14083,12 +14392,14 @@ function applyN0Config(cfg, windowChars, idxWindow, windows, context, depth = 0)
             const order = Math.max(1, Math.min(3, Number(params.order) || 1));
             const probThresh = clamp01(params.prob_thresh ?? 0.55);
             const transitions = {};
-            for (let i = 0; i + order < windowChars.length; i++) {
+            // ✅ Para N0, considerar WHITE em até `lookahead` giros após o estado, não só no próximo giro.
+            for (let i = 0; i + order + lookahead - 1 < windowChars.length; i++) {
                 const key = windowChars.slice(i, i + order).join('');
-                const next = windowChars[i + order];
+                const future = windowChars.slice(i + order, i + order + lookahead);
+                const hasWhite = future.includes('W');
                 if (!transitions[key]) transitions[key] = { W: 0, N: 0 };
-                if (next === 'W') transitions[key].W += 1;
-                else if (next === 'R' || next === 'B') transitions[key].N += 1;
+                if (hasWhite) transitions[key].W += 1;
+                else transitions[key].N += 1;
             }
             const lastKey = windowChars.slice(-order).join('');
             const statsKey = transitions[lastKey];
@@ -14109,13 +14420,21 @@ function applyN0Config(cfg, windowChars, idxWindow, windows, context, depth = 0)
             if (!pattern || L < 2 || windowChars.length <= L) {
                 return { prediction: null, confidence: 0 };
             }
+            // ✅ IMPORTANTÍSSIMO: só faz sentido se o padrão for o CONTEXTO ATUAL (tail).
+            // Antes, o N0 "via" o padrão em qualquer lugar da janela e chutava WHITE — isso gera falso positivo.
+            const tail = windowChars.slice(-L).join('');
+            if (tail !== pattern) {
+                return { prediction: null, confidence: 0 };
+            }
+            const minOcc = Math.max(1, Math.min(20, Math.floor(Number(params.min_occurrences) || 2)));
             let occurrences = 0;
-            let whiteFollowers = 0;
-            for (let i = 0; i + L < windowChars.length; i++) {
+            let whiteFollowers = 0; // WHITE em até `lookahead` giros após o padrão
+            for (let i = 0; i + L + lookahead - 1 < windowChars.length; i++) {
                 const candidate = windowChars.slice(i, i + L).join('');
                 if (candidate === pattern) {
                     occurrences += 1;
-                    if (windowChars[i + L] === 'W') {
+                    const future = windowChars.slice(i + L, i + L + lookahead);
+                    if (future.includes('W')) {
                         whiteFollowers += 1;
                     }
                 }
@@ -14123,10 +14442,144 @@ function applyN0Config(cfg, windowChars, idxWindow, windows, context, depth = 0)
             if (occurrences === 0) {
                 return { prediction: null, confidence: 0 };
             }
-            const confidence = whiteFollowers / occurrences;
+            // Laplace smoothing (evita 100% com 1 ocorrência)
+            const alpha = 1;
+            const confidence = (whiteFollowers + alpha) / (occurrences + 2 * alpha);
             return {
-                prediction: confidence >= nextThresh ? 'W' : null,
+                prediction: (occurrences >= minOcc && confidence >= nextThresh) ? 'W' : null,
                 confidence: clamp01(confidence)
+            };
+        }
+        case 'tail_ngram': {
+            const L = Math.max(2, Math.min(10, Math.floor(Number(params.L) || 3)));
+            const nextThresh = clamp01(params.next_thresh ?? 0.6);
+            const minOcc = Math.max(1, Math.min(25, Math.floor(Number(params.min_occurrences) || 3)));
+            if (windowChars.length <= L) {
+                return { prediction: null, confidence: 0 };
+            }
+            const tailPattern = windowChars.slice(-L).join('');
+            if (!tailPattern) {
+                return { prediction: null, confidence: 0 };
+            }
+            let occurrences = 0;
+            let whiteFollowers = 0;
+            for (let i = 0; i + L + lookahead - 1 < windowChars.length; i++) {
+                const candidate = windowChars.slice(i, i + L).join('');
+                if (candidate === tailPattern) {
+                    occurrences += 1;
+                    const future = windowChars.slice(i + L, i + L + lookahead);
+                    if (future.includes('W')) {
+                        whiteFollowers += 1;
+                    }
+                }
+            }
+            if (occurrences === 0) {
+                return { prediction: null, confidence: 0 };
+            }
+            const alpha = 1;
+            const confidence = (whiteFollowers + alpha) / (occurrences + 2 * alpha);
+            return {
+                prediction: (occurrences >= minOcc && confidence >= nextThresh) ? 'W' : null,
+                confidence: clamp01(confidence)
+            };
+        }
+        case 'number_puller': {
+            const probThresh = clamp01(params.prob_thresh ?? 0.3);
+            const minOcc = Math.max(3, Math.min(300, Math.floor(Number(params.min_occurrences) || 10)));
+            const wNums = meta && Array.isArray(meta.window_numbers) ? meta.window_numbers : null;
+            const tailNum = getTailNonWhiteNumberFromWindow(windowChars, wNums);
+            if (tailNum == null) return { prediction: null, confidence: 0 };
+            const key = String(tailNum);
+            const rowRaw = context && context.number_stats ? context.number_stats[key] : null;
+            if (!rowRaw) return { prediction: null, confidence: 0 };
+            let occ = Math.max(0, Math.floor(Number(rowRaw.occ) || 0));
+            let whites = Math.max(0, Math.floor(Number(rowRaw.white) || 0));
+            if (leaveOneOut && meta && (meta.target === 'W' || meta.target === 'R' || meta.target === 'B' || meta.target === 'N')) {
+                // excluir a própria janela (evita vazamento de label no treino)
+                occ = Math.max(0, occ - 1);
+                if (meta.target === 'W') {
+                    whites = Math.max(0, whites - 1);
+                }
+            }
+            if (occ <= 0) return { prediction: null, confidence: 0 };
+            const alpha = 1;
+            const p = (whites + alpha) / (occ + 2 * alpha);
+            return {
+                prediction: (occ >= minOcc && p >= probThresh) ? 'W' : null,
+                confidence: clamp01(p)
+            };
+        }
+        case 'gap_hazard': {
+            const probThresh = clamp01(params.prob_thresh ?? 0.3);
+            const minOcc = Math.max(3, Math.min(300, Math.floor(Number(params.min_occurrences) || 10)));
+            const gap = computeGapSinceLastWhite(windowChars);
+            const key = bucketGapForN0(gap);
+            const rowRaw = context && context.gap_stats ? context.gap_stats[key] : null;
+            if (!rowRaw) return { prediction: null, confidence: 0 };
+            let occ = Math.max(0, Math.floor(Number(rowRaw.occ) || 0));
+            let whites = Math.max(0, Math.floor(Number(rowRaw.white) || 0));
+            if (leaveOneOut && meta && (meta.target === 'W' || meta.target === 'R' || meta.target === 'B' || meta.target === 'N')) {
+                occ = Math.max(0, occ - 1);
+                if (meta.target === 'W') {
+                    whites = Math.max(0, whites - 1);
+                }
+            }
+            if (occ <= 0) return { prediction: null, confidence: 0 };
+            const alpha = 1;
+            const p = (whites + alpha) / (occ + 2 * alpha);
+            return {
+                prediction: (occ >= minOcc && p >= probThresh) ? 'W' : null,
+                confidence: clamp01(p)
+            };
+        }
+        case 'break_after_streak': {
+            const minRun = Math.max(2, Math.min(30, Math.floor(Number(params.min_run) || 5)));
+            const probThresh = clamp01(params.prob_thresh ?? 0.3);
+            const minOcc = Math.max(3, Math.min(300, Math.floor(Number(params.min_occurrences) || 8)));
+            const br = computeBreakAfterStreak(windowChars);
+            if (!br || !br.broke) return { prediction: null, confidence: 0 };
+            if ((br.prevRunLen || 0) < minRun) return { prediction: null, confidence: 0 };
+            const bucket = bucketRunLenForN0(br.prevRunLen || 0);
+            const dirKey = `prev=${bucket}|from=${br.from}|to=${br.to}`;
+            const genKey = `prev=${bucket}`;
+            const map = context && context.break_stats ? context.break_stats : null;
+            if (!map) return { prediction: null, confidence: 0 };
+
+            const pickRow = (key) => {
+                const row = map[key];
+                if (!row) return null;
+                return {
+                    occ: Math.max(0, Math.floor(Number(row.occ) || 0)),
+                    white: Math.max(0, Math.floor(Number(row.white) || 0)),
+                    key
+                };
+            };
+            let row = pickRow(dirKey);
+            const rowGen = pickRow(genKey);
+            if (!row && rowGen) row = rowGen;
+            // se direção tem pouca amostra, cair para o geral
+            if (row && rowGen && row.key === dirKey && row.occ < Math.max(minOcc, 8) && rowGen.occ >= row.occ) {
+                row = rowGen;
+            }
+            if (!row) return { prediction: null, confidence: 0 };
+
+            let occ = row.occ;
+            let whites = row.white;
+            if (leaveOneOut && meta && (meta.target === 'W' || meta.target === 'R' || meta.target === 'B' || meta.target === 'N')) {
+                // excluir a própria janela se ela contribui para esta chave
+                const curKey = row.key === dirKey ? dirKey : genKey;
+                // A janela atual sempre cairá na mesma chave escolhida (por construção)
+                occ = Math.max(0, occ - 1);
+                if (meta.target === 'W') whites = Math.max(0, whites - 1);
+                // Evitar usar curKey apenas para clareza (sem efeito funcional)
+                void curKey;
+            }
+            if (occ <= 0) return { prediction: null, confidence: 0 };
+            const alpha = 1;
+            const p = (whites + alpha) / (occ + 2 * alpha);
+            return {
+                prediction: (occ >= minOcc && p >= probThresh) ? 'W' : null,
+                confidence: clamp01(p)
             };
         }
         case 'burst_detector': {
@@ -14615,12 +15068,17 @@ function runN0Detector(history, options = {}) {
     const runTimestamp = Date.now();
     const runId = `N0-${runTimestamp}-${Math.floor(Math.random() * 1e6).toString(16)}`;
     try {
+        const lookaheadRaw = Math.floor(Number(options.lookaheadSpins));
+        // ✅ N0 agora otimiza para WHITE em até N giros (Entrada/G1/G2...), não só "no próximo giro".
+        // Default = 3 (ENTRADA + G1 + G2). Mantém compatibilidade e alinha com o ciclo real.
+        const lookaheadSpins = Number.isFinite(lookaheadRaw) && lookaheadRaw > 0 ? lookaheadRaw : 3;
         const settings = {
             historySize: Number(options.historySize) > 0 ? Math.floor(options.historySize) : N0_DEFAULTS.historySize,
             windowSize: Number(options.windowSize) > 0 ? Math.floor(options.windowSize) : N0_DEFAULTS.windowSize,
             analysesToRun: Number(options.analysesToRun) > 0 ? Math.floor(options.analysesToRun) : N0_DEFAULTS.analysesToRun,
             minWindowsRequired: Number(options.minWindowsRequired) > 0 ? Math.floor(options.minWindowsRequired) : N0_DEFAULTS.minWindowsRequired,
             precisionMin: typeof options.precisionMin === 'number' ? clamp01(options.precisionMin) : N0_DEFAULTS.precisionMin,
+            lookaheadSpins: Math.max(1, Math.min(5, lookaheadSpins)),
             confidenceGrid: Array.isArray(options.confidenceGrid) && options.confidenceGrid.length > 0
                 ? options.confidenceGrid.map(Number).filter(v => Number.isFinite(v) && v > 0 && v < 1).sort((a, b) => a - b)
                 : [...N0_DEFAULTS.confidenceGrid],
@@ -14633,18 +15091,19 @@ function runN0Detector(history, options = {}) {
 
         // ✅ Determinismo + ordem correta + dedup:
         // o histórico pode vir com duplicados e fora de ordem (cache/servidor).
-        const desiredHistory = Math.max(settings.historySize, settings.windowSize * 3);
+        const desiredHistory = Math.max(settings.historySize, settings.windowSize * 3 + settings.lookaheadSpins);
         const stableWindow = getStableChronologicalHistoryWindow({
             limit: Math.min(desiredHistory, Array.isArray(history) ? history.length : 0),
             sourceHistory: Array.isArray(history) ? history : []
         });
         const chronologicalHistory = stableWindow.chronological; // antigo -> recente
-        const normalizedHistory = normalizeN0History(chronologicalHistory).slice(-settings.historySize);
+        const normalizedPairs = normalizeN0HistoryPairs(chronologicalHistory).slice(-settings.historySize);
+        const normalizedHistory = normalizedPairs.map((e) => (e ? e.c : null));
 
-        if (normalizedHistory.length < settings.windowSize * 2) {
+        if (normalizedHistory.length < (settings.windowSize * 2 + settings.lookaheadSpins)) {
             return {
                 enabled: false,
-                reason: `Histórico insuficiente: ${normalizedHistory.length}/${settings.windowSize * 2}`,
+                reason: `Histórico insuficiente: ${normalizedHistory.length}/${settings.windowSize * 2 + settings.lookaheadSpins}`,
                 code: 'insufficient_history'
             };
         }
@@ -14659,14 +15118,19 @@ function runN0Detector(history, options = {}) {
         let windowIndex = 0;
         for (let offset = 0; offset < settings.windowSize; offset += offsetStep) {
             const sliced = normalizedHistory.slice(offset);
-            const chunk = buildN0Windows(sliced, settings.windowSize, stride);
+            const chunk = buildN0Windows(sliced, settings.windowSize, stride, settings.lookaheadSpins);
             for (const entry of chunk) {
+                const globalStart = entry.start + offset;
+                const windowNumbers = normalizedPairs
+                    .slice(globalStart, globalStart + settings.windowSize)
+                    .map((p) => (p && Number.isFinite(Number(p.n)) ? Math.floor(Number(p.n)) : null));
                 windows.push({
                     ...entry,
                     index: windowIndex++,
-                    start: entry.start + offset,
+                    start: globalStart,
                     targetIndex: entry.targetIndex + offset,
-                    offset
+                    offset,
+                    window_numbers: windowNumbers
                 });
             }
         }
@@ -14740,7 +15204,8 @@ function runN0Detector(history, options = {}) {
         // ✅ Para N0 (evento raro), calibrar "precisão mínima" em cima do baseline observado.
         // Se exigirmos 45% de precisão "absoluta" para BRANCO, o nível tende a nunca disparar.
         // Aqui mantemos `precisionMin` como fator de melhoria sobre o baseline (lift), não como valor absoluto.
-        const BASELINE_WHITE_FALLBACK = 1 / 15; // Blaze Double (0..14)
+        const BASELINE_WHITE_SPIN = 1 / 15; // Blaze Double (0..14)
+        const BASELINE_WHITE_FALLBACK = 1 - Math.pow(1 - BASELINE_WHITE_SPIN, Math.max(1, settings.lookaheadSpins));
         const observedBaseRate = Array.isArray(bestConfList) && bestConfList.length > 0
             ? bestConfList.filter(entry => entry && entry.isWhite).length / bestConfList.length
             : 0;
@@ -14808,7 +15273,16 @@ function runN0Detector(history, options = {}) {
         }
 
         if (holdoutPossible && validationWindows.length >= settings.minWindowsRequired) {
-            const validationContext = buildN0WindowContext(validationWindows);
+            // ✅ Holdout real: validar usando o "aprendizado" do TREINO (sem vazar labels da validação).
+            // Ainda precisamos das stats por janela da validação para os modelos que dependem disso.
+            const validationStats = validationWindows.map((entry) => computeWindowStats(entry.window));
+            const validationContext = {
+                ...trainingContext,
+                stats: validationStats,
+                whitenessSeries: validationStats.map(s => s.pW),
+                whiteCounts: validationStats.map(s => s.whites),
+                loo: false
+            };
             const validationEval = evaluateN0Config(validationWindows, bestDetailed.cfg, validationContext);
             const validationMetrics = calculateN0BlockMetrics(validationEval.confList, chosenThreshold);
             holdoutInfo.validation = { ...validationMetrics, threshold: chosenThreshold };
@@ -14841,14 +15315,27 @@ function runN0Detector(history, options = {}) {
             };
         }
 
+        const liveWindowNumbers = normalizedPairs
+            .slice(-settings.windowSize)
+            .map((p) => (p && Number.isFinite(Number(p.n)) ? Math.floor(Number(p.n)) : null));
         const liveWindows = [{
             window: liveWindow,
             target: null,
             index: windows.length,
             start: Math.max(0, normalizedHistory.length - settings.windowSize),
-            targetIndex: normalizedHistory.length
+            targetIndex: normalizedHistory.length,
+            lookahead: settings.lookaheadSpins,
+            window_numbers: liveWindowNumbers
         }];
-        const liveContext = buildN0WindowContext(liveWindows);
+        // ✅ Previsão ao vivo: usar "aprendizado" do treino + stats da janela atual (sem LOO).
+        const liveStats = computeWindowStats(liveWindow);
+        const liveContext = {
+            ...trainingContext,
+            stats: [liveStats],
+            whitenessSeries: [liveStats.pW],
+            whiteCounts: [liveStats.whites],
+            loo: false
+        };
         const liveResult = applyN0Config(bestDetailed.cfg, liveWindow, 0, liveWindows, liveContext);
         const liveConfidence = clamp01(liveResult.confidence ?? 0);
         const livePrediction = liveResult.prediction === 'W' ? 'W' : null;
@@ -14879,6 +15366,7 @@ function runN0Detector(history, options = {}) {
             if (livePrediction === 'W' && blockingAction !== 'no_block') {
                 learningContext = buildN0LearningContextKey({
                     windowChars: liveWindow,
+                    windowNumbers: liveWindowNumbers,
                     dominantNonWhite,
                     maxTail: 12
                 });
@@ -14927,6 +15415,7 @@ function runN0Detector(history, options = {}) {
             dropped_invalid_ts: stableWindow && stableWindow.meta ? stableWindow.meta.droppedInvalidTs : undefined,
             used_history_size: stableWindow && stableWindow.meta ? stableWindow.meta.usedHistoryLimit : undefined,
             window_size: settings.windowSize,
+            lookahead_spins: settings.lookaheadSpins,
             window_stride: stride,
             offset_step: offsetStep,
             analyses_to_run: settings.analysesToRun,
@@ -17130,9 +17619,15 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
         let diamondSequenceDisplayed = false;
 
         const n0Settings = getN0SettingsFromAnalyzerConfig();
+        const { maxGales: n0MaxGalesConfigured } = getMartingaleSettings('diamond', analyzerConfig);
+        const n0LookaheadSpins = Math.max(
+            1,
+            Math.min(5, (Math.floor(Number(n0MaxGalesConfigured) || 0) + 1))
+        );
         const n0Options = {
             historySize: n0Settings.historySize,
             windowSize: n0Settings.windowSize,
+            lookaheadSpins: n0LookaheadSpins,
             analysesToRun: N0_DEFAULTS.analysesToRun,
             minWindowsRequired: N0_DEFAULTS.minWindowsRequired,
             precisionMin: N0_DEFAULTS.precisionMin,
@@ -17162,6 +17657,7 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
             try {
                 console.log('%c║  ⚪ NÍVEL 0 - DETECTOR DE BRANCO                         ║', 'color: #FFFFFF; font-weight: bold; font-size: 14px;');
                 console.log(`%c   Histórico analisado: ${n0Options.historySize} giros | Janela: ${n0Options.windowSize} giros`, 'color: #FFFFFF; font-weight: bold;');
+                console.log(`%c   Horizonte alvo: ${n0Options.lookaheadSpins} giro(s) (Entrada/G1/G2...)`, 'color: #FFFFFF; font-weight: bold;');
                 console.log(`%c   Modelos avaliados: ${n0Options.analysesToRun} | Holdout: ${n0Options.holdoutEnabled ? 'ATIVO' : 'DESATIVADO'}`, 'color: #FFFFFF; font-weight: bold;');
 
                 n0Result = runN0Detector(history, n0Options);

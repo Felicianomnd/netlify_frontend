@@ -3139,7 +3139,7 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                                 </label>
                             </div>
                             <div class="diamond-level-note">
-                                Roda 1000 estratégias em janelas NÃO-sobrepostas para detectar BRANCO com alta confiança. Pode bloquear todos os demais níveis quando a probabilidade é alta.
+                                Usa observadores de contexto (gap desde o último branco, puxadores por número, quebra de sequência e n-grams do tail) e valida em janelas NÃO-sobrepostas. Otimiza para pegar BRANCO em até 3 giros (Entrada/G1/G2) e pode bloquear os demais níveis quando a confiança é alta.
                             </div>
                             <div class="diamond-level-double">
                                 <div>
