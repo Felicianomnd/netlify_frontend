@@ -40,8 +40,7 @@
     let autoPatternSearchInFlight = false; // Evita múltiplos sendMessage simultâneos
     let autoPatternSearchRetryTimer = null;
     let autoPatternSearchRetryMs = 0;
-    // ✅ Manter o último sinal de recuperação (por modo) para não “sumir” após desativar (WIN)
-    let lastRecoveryEntryByMode = { standard: null, diamond: null };
+    
     
     const SESSION_STORAGE_KEYS = ['authToken', 'user', 'lastAuthCheck'];
     let forceLogoutAlreadyTriggered = false;
@@ -1582,7 +1581,7 @@
                     console.log(`🔄 Re-renderizando entradas para modo ${newAIMode ? 'DIAMANTE' : 'PADRÃO'}...`);
                     console.log(`   Total de entradas no histórico: ${list.length}`);
                     try { renderEntriesPanel(list); } catch (_) {}
-                    try { renderRecoveryPanel(list); } catch (_) {}
+                    try { renderMasterEntriesPanel(list); } catch (_) {}
                     // ✅ Atualizar também o painel de saldo (Simulador) ao trocar de modo,
                     // mesmo que não chegue uma nova ENTRIES_UPDATE naquele instante.
                     try {
@@ -1855,7 +1854,7 @@
             if (el) updateAIModeUI(el, active);
         } catch (_) {}
         try { toggleAIConfigFields(active); } catch (_) {}
-        // ✅ Re-render imediato das telas dependentes do modo (IA/Recuperação/placar)
+        // ✅ Re-render imediato das telas dependentes do modo (IA/Branco/placar)
         try { scheduleModeDependentPanelsRefresh(0); } catch (_) {}
     }
 
@@ -1873,9 +1872,8 @@
                     storageCompat.get(['entriesHistory']).then((res = {}) => {
                         const list = res && Array.isArray(res.entriesHistory) ? res.entriesHistory : [];
                         try { renderEntriesPanel(list); } catch (_) {}
-                        try { renderRecoveryPanel(list); } catch (_) {}
+                        try { renderMasterEntriesPanel(list); } catch (_) {}
                         try { scheduleMasterSignalStatsRefresh(0); } catch (_) {}
-                        try { loadObserverStats(); } catch (_) {}
                     }).catch(() => {});
                     return;
                 }
@@ -1885,9 +1883,8 @@
                 chrome.storage.local.get(['entriesHistory'], function(res) {
                     const list = res && Array.isArray(res.entriesHistory) ? res.entriesHistory : [];
                     try { renderEntriesPanel(list); } catch (_) {}
-                    try { renderRecoveryPanel(list); } catch (_) {}
+                    try { renderMasterEntriesPanel(list); } catch (_) {}
                     try { scheduleMasterSignalStatsRefresh(0); } catch (_) {}
-                    try { loadObserverStats(); } catch (_) {}
                 });
             } catch (_) {}
         }, Math.max(0, Number(delayMs) || 0));
@@ -2012,6 +2009,11 @@ const WHITE_PROTECTION_MODE = Object.freeze({
     NEUTRAL: 'neutral'
 });
 
+const WHITE_GALE_MODE = Object.freeze({
+    DOUBLE: 'double',
+    SAME: 'same'
+});
+
 const WHITE_PROTECTION_MODE_DESCRIPTIONS = Object.freeze({
     [WHITE_PROTECTION_MODE.PROFIT]: 'O branco cobre todas as perdas acumuladas e ainda entrega o mesmo lucro do estágio atual.',
     [WHITE_PROTECTION_MODE.NEUTRAL]: 'O branco apenas devolve tudo que foi apostado (cor + brancos), finalizando zerado neste ciclo.'
@@ -2027,6 +2029,11 @@ const AUTO_BET_DEFAULTS = Object.freeze({
     stopLoss: 0,
     simulationBankRoll: 5000,
     whitePayoutMultiplier: 14,
+    // ✅ Config exclusivo do Branco (aposta no Branco como cor principal)
+    // - whiteMaxGales: 0..5 (0 = somente 1 entrada)
+    // - whiteGaleMode: 'double' (dobrar) | 'same' (manter o mesmo valor)
+    whiteMaxGales: 2,
+    whiteGaleMode: WHITE_GALE_MODE.DOUBLE,
     whiteProtection: false,
     inverseModeEnabled: false,
     whiteProtectionMode: WHITE_PROTECTION_MODE.PROFIT
@@ -2206,9 +2213,20 @@ function sanitizeAutoBetConfig(raw) {
     sanitized.simulationBankRoll = Math.max(0, getNumber(base.simulationBankRoll, AUTO_BET_DEFAULTS.simulationBankRoll));
     sanitized.whiteProtection = !!base.whiteProtection;
     sanitized.whitePayoutMultiplier = Math.max(2, getNumber(base.whitePayoutMultiplier, AUTO_BET_DEFAULTS.whitePayoutMultiplier));
+    sanitized.whiteMaxGales = clampIntRange(
+        getNumber(base.whiteMaxGales, AUTO_BET_DEFAULTS.whiteMaxGales),
+        0,
+        5
+    );
+    sanitized.whiteGaleMode = normalizeWhiteGaleMode(base.whiteGaleMode);
     sanitized.whiteProtectionMode = normalizeWhiteProtectionMode(base.whiteProtectionMode);
     sanitized.inverseModeEnabled = !!base.inverseModeEnabled;
     return sanitized;
+}
+
+function normalizeWhiteGaleMode(mode) {
+    const raw = String(mode || '').toLowerCase().trim();
+    return raw === WHITE_GALE_MODE.SAME ? WHITE_GALE_MODE.SAME : WHITE_GALE_MODE.DOUBLE;
 }
 
 function normalizeWhiteProtectionMode(mode) {
@@ -4551,6 +4569,9 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
             stopLoss: getNum('autoBetStopLoss', currentAutoBet.stopLoss),
             simulationBankRoll: getNum('autoBetSimulationBank', currentAutoBet.simulationBankRoll),
             whitePayoutMultiplier: currentAutoBet.whitePayoutMultiplier,
+            // ✅ Branco (config exclusiva)
+            whiteMaxGales: currentAutoBet.whiteMaxGales,
+            whiteGaleMode: currentAutoBet.whiteGaleMode,
             whiteProtectionMode: normalizeWhiteProtectionMode(getStr('autoBetWhiteMode', currentAutoBet.whiteProtectionMode)),
             inverseModeEnabled: getBool('autoBetInverseMode', currentAutoBet.inverseModeEnabled),
             whiteProtection: getBool('autoBetWhiteProtection', currentAutoBet.whiteProtection)
@@ -5540,7 +5561,12 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
 
         const inferNetFromSnapshots = (e) => {
             const base = Math.max(0.01, Number(e?.baseStakeSnapshot ?? cfg.baseStake ?? 2) || 2);
-            const mult = Math.max(1, Number(e?.galeMultiplierSnapshot ?? cfg.galeMultiplier ?? 2) || 2);
+            const betColor = e?.betColor ?? e?.patternData?.color ?? null;
+            const betColorKey = String(betColor || '').toLowerCase();
+            const fallbackMult = (betColorKey === 'white' || betColorKey === 'branco')
+                ? (normalizeWhiteGaleMode(cfg.whiteGaleMode) === WHITE_GALE_MODE.SAME ? 1 : 2)
+                : Number(cfg.galeMultiplier ?? 2);
+            const mult = Math.max(1, Number(e?.galeMultiplierSnapshot ?? fallbackMult ?? 2) || 2);
             const stageIdx = getStageIndexFromEntryLike(e);
             const stake = Number(e?.stakeAmount) || Number((base * Math.pow(mult, stageIdx)).toFixed(2));
             const totalInvested = (() => {
@@ -6765,6 +6791,9 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
             stopLoss: getNumber('autoBetStopLoss', 0, null, currentAutoBet.stopLoss),
             simulationBankRoll: getNumber('autoBetSimulationBank', 0, null, currentAutoBet.simulationBankRoll),
             whitePayoutMultiplier: currentAutoBet.whitePayoutMultiplier,
+            // ✅ Branco (config exclusiva)
+            whiteMaxGales: currentAutoBet.whiteMaxGales,
+            whiteGaleMode: currentAutoBet.whiteGaleMode,
             whiteProtectionMode,
             inverseModeEnabled: getCheckboxValue('autoBetInverseMode', currentAutoBet.inverseModeEnabled),
             whiteProtection: getCheckboxValue('autoBetWhiteProtection', currentAutoBet.whiteProtection)
@@ -6918,13 +6947,13 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                                 `Baseline (histórico): <strong>WHITE</strong> ~ <strong>${(pWhite * 100).toFixed(1)}%</strong> • BaseP(ciclo ${steps} tent.) <strong>${(pCycleWhite * 100).toFixed(1)}%</strong>`;
                         } else {
                             const pBest = Number(baseline.pBest || 0);
-                            const pCycle = Number(baseline.pCycle || 0);
-                            const breakEven = (baseline.breakEvenPcycle != null) ? Number(baseline.breakEvenPcycle) : null;
-                            const bestColor = baseline.bestColor ? String(baseline.bestColor).toUpperCase() : 'RB';
-                            baselineText =
-                                `<br>` +
-                                `Baseline (histórico): <strong>${bestColor}</strong> ~ <strong>${(pBest * 100).toFixed(1)}%</strong> • BaseP(ciclo ${steps} tent.) <strong>${(pCycle * 100).toFixed(1)}%</strong>` +
-                                (breakEven != null ? ` • Break-even (martingale 2x): <strong>${(breakEven * 100).toFixed(1)}%</strong>` : '');
+                        const pCycle = Number(baseline.pCycle || 0);
+                        const breakEven = (baseline.breakEvenPcycle != null) ? Number(baseline.breakEvenPcycle) : null;
+                        const bestColor = baseline.bestColor ? String(baseline.bestColor).toUpperCase() : 'RB';
+                        baselineText =
+                            `<br>` +
+                            `Baseline (histórico): <strong>${bestColor}</strong> ~ <strong>${(pBest * 100).toFixed(1)}%</strong> • BaseP(ciclo ${steps} tent.) <strong>${(pCycle * 100).toFixed(1)}%</strong>` +
+                            (breakEven != null ? ` • Break-even (martingale 2x): <strong>${(breakEven * 100).toFixed(1)}%</strong>` : '');
                         }
                     }
                     summary.innerHTML =
@@ -10944,7 +10973,10 @@ autoBetHistoryStore.init().catch(error => console.warn('AutoBetHistory: iniciali
             if (config.inverseModeEnabled) {
                 return calculateInverseBetAmount();
             }
-            const multiplier = Math.max(1, Number(config.galeMultiplier) || 1);
+            const cycleColor = normalizeColor(runtime.openCycle && runtime.openCycle.color ? runtime.openCycle.color : null);
+            const multiplier = cycleColor === 'white'
+                ? (normalizeWhiteGaleMode(config.whiteGaleMode) === WHITE_GALE_MODE.SAME ? 1 : 2)
+                : Math.max(1, Number(config.galeMultiplier) || 1);
             const base = Math.max(0.01, Number(config.baseStake) || AUTO_BET_DEFAULTS.baseStake);
             const exponent = getNextColorStageIndex(stageIndex);
             return Number((base * Math.pow(multiplier, exponent)).toFixed(2));
@@ -10967,7 +10999,10 @@ autoBetHistoryStore.init().catch(error => console.warn('AutoBetHistory: iniciali
             if (betsCount === 1) {
                 return initialAmount;
             }
-            const multiplier = Math.max(1, Number(config.galeMultiplier) || 1);
+            const cycleColor = normalizeColor(runtime.openCycle && runtime.openCycle.color ? runtime.openCycle.color : null);
+            const multiplier = cycleColor === 'white'
+                ? (normalizeWhiteGaleMode(config.whiteGaleMode) === WHITE_GALE_MODE.SAME ? 1 : 2)
+                : Math.max(1, Number(config.galeMultiplier) || 1);
             const lastBet = runtime.openCycle.bets[betsCount - 1];
             const prevAmount = Number(lastBet.amount || initialAmount);
             return Number((prevAmount * multiplier).toFixed(2));
@@ -11193,8 +11228,9 @@ autoBetHistoryStore.init().catch(error => console.warn('AutoBetHistory: iniciali
                 const currentConfig = stored?.analyzerConfig || {};
                 const updatedConfig = { ...currentConfig, syncConfigToAccount: next };
                 await storageCompat.set({ analyzerConfig: updatedConfig });
-                // Sempre enviar para o servidor (mesmo ao desativar), pois é a própria preferência
-                await syncConfigToServer(updatedConfig);
+                // Sempre enviar para o servidor (mesmo ao desativar), pois é a própria preferência.
+                // (Forçar: ao desativar, a preferência local vira false e o sync normal seria bloqueado.)
+                await syncConfigToServer(updatedConfig, { force: true });
             } catch (error) {
                 console.warn('⚠️ Não foi possível persistir preferência de sincronização na conta:', error);
             }
@@ -11579,7 +11615,20 @@ async function persistAnalyzerState(newState) {
     // ═══════════════════════════════════════════════════════════════════════════════
     
     // Salvar configurações no servidor
-    async function syncConfigToServer(config) {
+    async function syncConfigToServer(config, options = {}) {
+        // ✅ Respeitar a preferência "Sincronização ativa" em QUALQUER lugar que tentar syncar config.
+        // (Bug reportado: mesmo desligando, ainda aparecia no outro dispositivo.)
+        const { force = false } = (options && typeof options === 'object') ? options : {};
+        if (!force) {
+            try {
+                if (!getSyncConfigPreference()) {
+                    return false;
+                }
+            } catch (_) {
+                // Se não conseguirmos ler a preferência, melhor NÃO sincronizar por segurança.
+                return false;
+            }
+        }
         const token = await getAuthTokenForServerSync();
         if (!token) {
             console.log('⚠️ Usuário não autenticado - salvando apenas localmente');
@@ -12468,12 +12517,12 @@ async function persistAnalyzerState(newState) {
             <div class="entries-panel" id="entriesPanel">
                     <div class="entries-tabs-bar" id="entriesTabs">
                         <button type="button" class="entries-tab active" data-tab="entries">IA</button>
-                        <button type="button" class="entries-tab" data-tab="master">Recuperação</button>
+                        <button type="button" class="entries-tab" data-tab="master">Branco</button>
                         <button type="button" class="entries-tab" data-tab="chart">Gráfico</button>
                     </div>
                 <div class="entries-header">
                     <span class="entries-hit" id="entriesHit">Acertos: 0/0 (0%)</span>
-                    <span class="entries-hit" id="masterEntriesHit" style="display:none;">Recuperação: desativada</span>
+                    <span class="entries-hit" id="masterEntriesHit" style="display:none;">Branco: —</span>
                 </div>
                     <div class="entries-content">
                         <div class="entries-view" data-view="master" hidden>
@@ -12587,67 +12636,35 @@ async function persistAnalyzerState(newState) {
                 </div>
                 
                 <div class="observer-section">
-                    <h4>Recuperação segura</h4>
-                    <!-- ✅ Sistema Híbrido (FASE 2): legado. Mantido apenas por compatibilidade, mas oculto em todas as telas. -->
-                    <div class="observer-hybrid" id="observerHybrid" style="display:none;">
-                        <div class="observer-hybrid-row">
-                            <span class="observer-hybrid-label">Sistema híbrido</span>
-                            <select class="observer-hybrid-select" id="entryGateHybridMode" title="Camadas da Fase 2 (todas juntas ou somente um nível)">
-                                <option value="auto">Híbrido (todos)</option>
-                                <option value="manual">Somente 1 nível</option>
-                            </select>
+                    <h4>Branco</h4>
+                    <div class="white-insights" id="whiteInsights">
+                        <div class="white-insights-block">
+                            <div class="white-insights-title">24 horas</div>
+                            <div class="white-hours-grid" id="whiteHoursGrid"></div>
+                            <div class="white-hours-summary" id="whiteHoursSummary">Carregando...</div>
                         </div>
-                        <div class="observer-hybrid-row" id="entryGateHybridManualRow">
-                            <span class="observer-hybrid-label">Nível</span>
-                            <select class="observer-hybrid-select" id="entryGateHybridManualLevel" title="Operar SOMENTE neste nível (1 = mais rígido, 3 = mais volume)">
-                                <option value="1">Nível 1</option>
-                                <option value="2">Nível 2</option>
-                                <option value="3">Nível 3</option>
-                            </select>
+                        <div class="white-insights-block">
+                            <div class="white-pullers-header">
+                                <div class="white-insights-title">Puxadores de branco</div>
+                                <div class="white-pullers-filter" id="whitePullersFilter"></div>
                         </div>
-                        <div class="observer-hybrid-row" id="entryGateHybridAutoRow" style="display:none;">
-                            <span class="observer-hybrid-label">Meta</span>
-                            <input class="observer-hybrid-input" id="entryGateHybridTarget" type="number" min="10" max="200" step="1" inputmode="numeric" title="Meta aproximada de sinais (modo híbrido)" />
+                            <div class="white-pullers-list" id="whitePullersList">Carregando...</div>
+                            <div class="white-bet-settings" id="whiteBetSettings">
+                                <div class="white-bet-setting-row">
+                                    <div class="white-bet-setting-label">Valor do gale</div>
+                                    <div class="white-bet-setting-control" id="whiteGaleModeToggle"></div>
                         </div>
-                    </div>
-                    <div class="observer-stats" id="observerStats">
-                        <div class="observer-loading">Carregando...</div>
-                    </div>
-                    <div class="observer-calibration">
-                    <div class="observer-calibration-top">
-                        <div class="calibration-label">Próximo sinal seguro:</div>
-                        <div class="calibration-value" id="calibrationFactor">—</div>
-                    </div>
-                    <div class="recovery-gate-bar" id="recoveryGateBar" hidden>
-                        <div class="recovery-gate-fill" id="recoveryGateFill" style="width:0%"></div>
-                        <div class="recovery-gate-check" id="recoveryGateCheck" hidden>✓</div>
+                                <div class="white-bet-setting-row">
+                                    <div class="white-bet-setting-label">Gales do branco</div>
+                                    <div class="white-bet-setting-control">
+                                        <input id="whiteMaxGalesInput" class="white-bet-input" type="number" inputmode="numeric" min="0" max="5" step="1" placeholder="2" />
+                                        <button type="button" class="white-bet-save-btn" id="whiteMaxGalesSaveBtn">Salvar</button>
                     </div>
                     </div>
-                    <div class="observer-accuracy">
-                        <div class="accuracy-item">
-                        <span class="accuracy-label">Ciclos analisados:</span>
-                            <span class="accuracy-value" id="observerTotal">0</span>
-                        </div>
-                        <div class="accuracy-item">
-                        <span class="accuracy-label">Recuperação:</span>
-                            <span class="accuracy-value" id="observerWinRate">0%</span>
-                        </div>
+                                <div class="white-bet-setting-note">Essas regras valem para qualquer sinal de Branco (N0 ou outros níveis).</div>
                     </div>
-                    <div class="observer-by-confidence">
-                        <div class="obs-conf-item">
-                            <span class="obs-conf-label">Entrada:</span>
-                            <span class="obs-conf-stat" id="obsHigh">—</span>
-                        </div>
-                        <div class="obs-conf-item">
-                            <span class="obs-conf-label">G1:</span>
-                            <span class="obs-conf-stat" id="obsMedium">—</span>
-                        </div>
-                        <div class="obs-conf-item">
-                            <span class="obs-conf-label">G2:</span>
-                            <span class="obs-conf-stat" id="obsLow">—</span>
-                        </div>
                     </div>
-                    <!-- Atualização é automática (debounce). Botão removido. -->
+                    </div>
                 </div>
                 
                 <div class="stats-section">
@@ -15674,7 +15691,7 @@ async function persistAnalyzerState(newState) {
         let topSignalVisibleNow = false;
 
         if (Object.prototype.hasOwnProperty.call(data, 'analysis')) {
-            // ✅ Recuperação: sinais internos (fase 1 "silenciosa") nunca devem aparecer no UI.
+            // ✅ Sinais internos (uso técnico) nunca devem aparecer no UI.
             if (data.analysis && data.analysis.hiddenInternal) {
                 data.analysis = null;
                 // também não renderizar padrão/overlay vindo desse sinal
@@ -15756,8 +15773,8 @@ async function persistAnalyzerState(newState) {
                     // Sincronizar visual do modo aposta
                     syncBetModeView();
 
-                    // ✅ Recuperação: a aba mostra apenas o sinal de recuperação (quando existir)
-                    try { renderRecoverySignalPreview(analysis); } catch (_) {}
+                    // ✅ Branco: manter a aba "Branco" atualizada (inclui preview pendente)
+                    try { renderWhiteSignalPreview(analysis); } catch (_) {}
                 }
                 
                 // Update pattern info - renderizar para sinais IA (fase principal)
@@ -15881,8 +15898,8 @@ async function persistAnalyzerState(newState) {
                 // Resetar também o resumo do modo aposta
                 syncBetModeView();
 
-                // ✅ Recuperação: se estava mostrando um sinal de recuperação, limpar quando não houver análise
-                try { renderRecoverySignalPreview(null); } catch (_) {}
+                // ✅ Branco: se estava mostrando preview pendente, limpar quando não houver análise
+                try { renderWhiteSignalPreview(null); } catch (_) {}
 
                 // ✅ Se houver Martingale ativo (G1/G2...) no storage, reconstruir o "sinal em andamento"
                 // mesmo após refresh/atualização, para não sumir do topo e do card de Padrão.
@@ -16555,6 +16572,46 @@ async function persistAnalyzerState(newState) {
             entriesByModeForIA = [];
             entriesByModeForChart = [];
         }
+
+        // ✅ Regra do usuário:
+        // - Se estiver somente o nível do Branco (N0) ativo, o branco NÃO aparece na aba IA (apenas na aba Branco).
+        // - Se houver outros níveis ativos junto, o branco aparece normalmente na IA.
+        const isWhiteOnlyMode = (() => {
+            try {
+                if (currentMode !== 'diamond') return false;
+                const enabled = latestAnalyzerConfig && typeof latestAnalyzerConfig === 'object'
+                    ? latestAnalyzerConfig.diamondLevelEnabled
+                    : null;
+                if (!enabled || typeof enabled !== 'object') return false;
+                if (!enabled.n0) return false;
+                const keys = Object.keys(enabled);
+                const otherEnabled = keys.some(k => k !== 'n0' && !!enabled[k]);
+                return !otherEnabled;
+            } catch (_) {
+                return false;
+            }
+        })();
+        if (isWhiteOnlyMode) {
+            // ⚠️ IMPORTANTE: `entry.color` é a cor que SAIU no giro.
+            // Para a regra "somente N0", precisamos filtrar pela cor RECOMENDADA do sinal (betColor/patternData.color).
+            const normBetColorFromEntry = (e) => {
+                try {
+                    const raw = String(
+                        (e && (e.betColor != null ? e.betColor : (e.patternData && e.patternData.color != null ? e.patternData.color : e.color))) || ''
+                    ).toLowerCase().trim();
+                    if (raw === 'branco') return 'white';
+                    if (raw.startsWith('w')) return 'white';
+                    if (raw.startsWith('r')) return 'red';
+                    // "branco" não é black
+                    if (raw.startsWith('b') && raw !== 'branco') return 'black';
+                    return raw;
+                } catch (_) {
+                    return '';
+                }
+            };
+            entriesByModeForIA = entriesByModeForIA.filter(e => normBetColorFromEntry(e) !== 'white');
+            entriesByModeForChart = entriesByModeForChart.filter(e => normBetColorFromEntry(e) !== 'white');
+        }
         
         console.log(`   Total de entradas: ${entries.length}`);
         console.log(`   Entradas do modo ${currentMode}: ${entriesByMode.length} (IA>=cutoff=${entriesByModeForIA.length})`);
@@ -16596,13 +16653,7 @@ async function persistAnalyzerState(newState) {
             return true;
         });
 
-        // ✅ Guardar o último sinal de recuperação visível (para exibir na aba "Recuperação" mesmo após desativar)
-        try {
-            const latestRecovery = filteredEntries.find(e => e && e.recoveryMode);
-            if (latestRecovery) {
-                lastRecoveryEntryByMode[currentMode] = latestRecovery;
-            }
-        } catch (_) {}
+        
         
         console.log(`📊 Entradas: ${entries.length} total | IA ${entriesByModeForIA.length} do modo ${currentMode} | ${filteredEntries.length} exibidas (${entriesByModeForIA.length - filteredEntries.length} LOSSes intermediários ocultos)`);
 
@@ -16808,6 +16859,12 @@ async function persistAnalyzerState(newState) {
                     const galeLabel = (stage && stage.startsWith('G') && stage !== 'G0') ? stage : '';
 
                     if (color) {
+                        // ✅ Regra do usuário:
+                        // - Em "somente N0" (Branco-only), NÃO mostrar o indicador pendente na aba IA
+                        //   quando o sinal é BRANCO. O preview pendente deve aparecer apenas na aba BRANCO.
+                        if (isWhiteOnlyMode && color === 'white') {
+                            pendingIndicator = '';
+                        } else {
                         const isMasterPending = hasAnalysisPending ? isEntrySignal(analysis) : false;
                         const galeAttr = galeLabel ? ` data-gale="${galeLabel}"` : '';
                         const titleBase = isMasterPending ? 'Sinal de entrada' : 'IA';
@@ -16826,6 +16883,7 @@ async function persistAnalyzerState(newState) {
                                 <div class="entry-time">${pendingTime || '&nbsp;'}</div>
                             </div>
                         `;
+                        }
                     }
                 }
             }
@@ -16846,7 +16904,7 @@ async function persistAnalyzerState(newState) {
 
             // Inserir indicador no TOPO + itens (o vidro desfoca o conteúdo real)
             list.innerHTML = pendingIndicator + (items || (isIA ? '' : '<div class="no-history">Sem entradas registradas</div>'));
-            // (Recuperação) não espelhar lista completa da IA — a aba Recuperação mostra apenas 1 sinal (o de recuperação).
+            
             
             // ✅ CORREÇÃO: Adicionar evento de clique para mostrar padrão usando o array filtrado correto
             const clickableEntries = list.querySelectorAll('.clickable-entry');
@@ -16953,31 +17011,15 @@ async function persistAnalyzerState(newState) {
         try { renderMasterEntriesPanel(entries); } catch (_) {}
     }
 
-    // ✅ Nova aba: Recuperação (ativação manual)
-    let recoveryModeEnabled = false;
-    let recoveryModeStatusText = 'Desativada';
-    // Snapshot do entriesHistory mais recente (para renderizar o histórico de Recuperação sem depender de fetch async)
-    let recoveryEntriesSourceCache = [];
+    // ✅ Nova aba: Branco (N0 + sinais WHITE)
+    // Snapshot do entriesHistory mais recente (para renderizar o histórico do Branco sem depender de fetch async)
+    let whiteEntriesSourceCache = [];
 
-    function renderRecoverySignalPreview(analysisOverride = null) {
-        try {
-            if (!recoveryModeEnabled) return;
-            // ✅ Não sobrescrever a lista (histórico) aqui.
-            // Apenas re-renderizar o painel completo com o "preview pendente" no topo.
-            const hasOverride = arguments.length > 0;
-            if (hasOverride) {
-                renderRecoveryPanel(recoveryEntriesSourceCache, analysisOverride);
-            } else {
-                renderRecoveryPanel(recoveryEntriesSourceCache);
-            }
-        } catch (_) {}
-    }
-
-    function clearRecoveryEntriesHistory(modeKey) {
+    function clearWhiteEntriesHistory(modeKey) {
         const key = modeKey === 'diamond' ? 'diamond' : 'standard';
         const now = Date.now();
 
-        // 1) Cutoff do painel Recuperação (não apagar entriesHistory; só esconder do painel)
+        // Cutoff do painel Branco (não apagar entriesHistory; só esconder do painel)
         masterEntriesClearCutoffByMode = {
             standard: Number(masterEntriesClearCutoffByMode.standard) || 0,
             diamond: Number(masterEntriesClearCutoffByMode.diamond) || 0
@@ -16987,23 +17029,21 @@ async function persistAnalyzerState(newState) {
             chrome.storage.local.set({ [MASTER_CLEAR_CUTOFF_KEY]: masterEntriesClearCutoffByMode }, function() {});
         } catch (_) {}
 
-        // 2) Limpar fallback persistente do "último sinal" (para não reaparecer após refresh)
-        try { lastRecoveryEntryByMode[key] = null; } catch (_) {}
-        try {
-            storageCompat.get(['lastRecoveryEntryByMode']).then((res = {}) => {
-                const raw = res && res.lastRecoveryEntryByMode && typeof res.lastRecoveryEntryByMode === 'object'
-                    ? res.lastRecoveryEntryByMode
-                    : {};
-                const next = { ...raw, [key]: null };
-                try { chrome.storage.local.set({ lastRecoveryEntryByMode: next }, function() {}); } catch (_) {}
-            }).catch(() => {});
-        } catch (_) {}
-
-        // 3) Re-render imediato (usa cache)
-        try { renderRecoveryPanel(recoveryEntriesSourceCache); } catch (_) {}
+        try { renderWhitePanel(whiteEntriesSourceCache); } catch (_) {}
     }
 
-    function renderRecoveryPanel(entriesOverride, analysisOverride) {
+    function renderWhiteSignalPreview(analysisOverride = null) {
+        try {
+            const hasOverride = arguments.length > 0;
+            if (hasOverride) {
+                renderWhitePanel(whiteEntriesSourceCache, analysisOverride);
+            } else {
+                renderWhitePanel(whiteEntriesSourceCache);
+            }
+        } catch (_) {}
+    }
+
+    function renderWhitePanel(entriesOverride, analysisOverride) {
         const hasAnalysisOverride = arguments.length >= 2;
         const list = document.getElementById('masterEntriesList');
         const hitEl = document.getElementById('masterEntriesHit');
@@ -17011,14 +17051,9 @@ async function persistAnalyzerState(newState) {
 
         const currentMode = getCurrentModeKey(latestAnalyzerConfig);
 
-        const btnLabel = recoveryModeEnabled ? 'Desativar' : 'Recuperar';
-        const statusText = recoveryModeEnabled
-            ? (recoveryModeStatusText || '')
-            : 'Desativada • clique em “Recuperar” após um RED';
-
         const allEntries = Array.isArray(entriesOverride)
             ? entriesOverride
-            : (Array.isArray(recoveryEntriesSourceCache) ? recoveryEntriesSourceCache : []);
+            : (Array.isArray(whiteEntriesSourceCache) ? whiteEntriesSourceCache : []);
 
         // Mesmo resolveEntryMode da IA (para separar standard/diamond corretamente)
         const hasExplicitMode = Array.isArray(allEntries) && allEntries.some(e =>
@@ -17030,38 +17065,53 @@ async function persistAnalyzerState(newState) {
             return hasExplicitMode ? 'legacy' : 'standard';
         };
 
-        // Cutoff do painel Recuperação (limpar sem afetar IA)
+        // Cutoff do painel Branco (limpar sem afetar IA)
         const cutoffMs = getMasterEntriesCutoffMs(currentMode);
-        const recoveryEntries = allEntries
+        const whiteEntries = allEntries
             .filter(e => resolveEntryMode(e) === currentMode)
             .filter(e => getEntryTimestampMs(e) >= cutoffMs)
-            .filter(e => e && e.recoveryMode);
+            // ⚠️ IMPORTANTE: `entry.color` é a cor que SAIU no giro.
+            // O painel BRANCO deve mostrar ciclos cujo SINAL era BRANCO (betColor/patternData.color).
+            .filter(e => {
+                try {
+                    const raw = String(
+                        (e && (e.betColor != null ? e.betColor : (e.patternData && e.patternData.color != null ? e.patternData.color : e.color))) || ''
+                    ).toLowerCase().trim();
+                    if (!raw) return false;
+                    if (raw === 'branco') return true;
+                    return raw === 'white' || raw.startsWith('w');
+                } catch (_) {
+                    return false;
+                }
+            })
+            .filter(e => {
+                // Mostrar somente ciclos finais (mesma regra da IA)
+                if (e.result === 'WIN') return true;
+                if (e.result === 'LOSS') {
+                    if (e.finalResult === 'RED' || e.finalResult === 'RET') return true;
+                    let isContinuing = false;
+                    for (let key in e) {
+                        if (String(key).startsWith('continuingToG')) { isContinuing = true; break; }
+                    }
+                    return !isContinuing;
+                }
+                return true;
+            });
 
-        // Atualizar "último" (fallback) — agora é o primeiro do histórico
-        try {
-            if (recoveryEntries && recoveryEntries.length > 0) {
-                lastRecoveryEntryByMode[currentMode] = recoveryEntries[0];
-            }
-        } catch (_) {}
-
-        // Estatísticas do histórico de Recuperação
-        const totalCycles = recoveryEntries.length;
-        const wins = recoveryEntries.filter(e => e && e.result === 'WIN').length;
+        const totalCycles = whiteEntries.length;
+        const wins = whiteEntries.filter(e => e && e.result === 'WIN').length;
         const losses = totalCycles - wins;
         const pct = totalCycles ? ((wins / totalCycles) * 100).toFixed(1) : '0.0';
 
-        const clearButtonHTML = `<button type="button" class="clear-entries-btn" id="clearRecoveryBtn" title="Limpar histórico de recuperação">Limpar</button>`;
+        const clearButtonHTML = `<button type="button" class="clear-entries-btn" id="clearWhiteBtn" title="Limpar histórico do branco">Limpar</button>`;
         hitEl.innerHTML = `
-            <button type="button" class="recovery-toggle-btn" id="recoveryToggleBtn" aria-pressed="${recoveryModeEnabled ? 'true' : 'false'}">${btnLabel}</button>
-            <span class="recovery-status" id="recoveryStatusText">${statusText}</span>
             <span class="win-score">WIN: ${wins}</span>
             <span class="loss-score">LOSS: ${losses}</span>
             <span class="percentage">(${pct}%)</span>
             <span class="total-entries">• Ciclos: ${totalCycles} ${clearButtonHTML}</span>
         `;
 
-        // Render do histórico (múltiplos sinais) — NÃO pode sumir ao ativar Recuperar.
-        const items = recoveryEntries.map((entry) => {
+        const items = whiteEntries.map((entry) => {
             try {
                 const time = new Date(entry.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
                 const cls = entry.color;
@@ -17069,7 +17119,6 @@ async function persistAnalyzerState(newState) {
                 const isWin = entry.result === 'WIN';
                 const barClass = isWin ? 'win' : 'loss';
 
-                // Reaproveitar lógica de label (G1/G2...) igual IA
                 const stageRaw = (entry.martingaleStage || entry.phase || entry.wonAt || '').toString().toUpperCase().trim();
                 let stageText = isWin ? 'WIN' : 'LOSS';
                 if (stageRaw && stageRaw.startsWith('G') && stageRaw !== 'G0' && stageRaw !== 'ENTRADA') {
@@ -17080,7 +17129,7 @@ async function persistAnalyzerState(newState) {
                 }
 
                 const confTop = (typeof entry.confidence === 'number') ? `${entry.confidence.toFixed(0)}%` : '';
-                const title = `Recuperação • Giro: ${entry.number} • ${time} • Resultado: ${entry.result}`;
+                const title = `Branco • Giro: ${entry.number} • ${time} • Resultado: ${entry.result}`;
                 return `
                     <div class="entry-item-wrap" title="${title}">
                         ${confTop ? `<div class="entry-conf-top">${confTop}</div>` : ''}
@@ -17097,9 +17146,9 @@ async function persistAnalyzerState(newState) {
             }
         }).join('');
 
-        const historyHtml = items || '<div class="no-history">Sem sinais de recuperação registrados</div>';
+        const historyHtml = items || '<div class="no-history">Sem sinais de branco registrados</div>';
 
-        // Preview pendente (quando Recuperar está ativo e já existe sinal liberado aguardando resultado)
+        // Preview pendente (quando existe sinal WHITE em andamento)
         const normColor = (value) => {
             const raw = String(value || '').toLowerCase().trim();
             if (raw === 'red' || raw === 'vermelho') return 'red';
@@ -17127,11 +17176,12 @@ async function persistAnalyzerState(newState) {
         const buildPendingIndicator = (analysis, martingaleState) => {
             try {
                 if (!analysis || typeof analysis !== 'object') return '';
-                if (!analysis.recoveryMode || analysis.hiddenInternal) return '';
                 const aMode = resolveAnalysisMode(analysis);
                 if (aMode !== currentMode) return '';
                 const color = normColor(analysis.color);
-                if (!color) return '';
+                if (color !== 'white') return '';
+                if (analysis.hiddenInternal) return '';
+
                 const parseMs = (v) => {
                     try {
                         if (v == null) return 0;
@@ -17157,8 +17207,8 @@ async function persistAnalyzerState(newState) {
                 const galeLabel = stageLabelFrom(analysis, martingaleState);
                 const galeAttr = galeLabel ? ` data-gale="${galeLabel}"` : '';
                 const title = galeLabel
-                    ? `Recuperação • Aguardando resultado (${galeLabel})${pendingTime ? ` • ${pendingTime}` : ''}`
-                    : `Recuperação • Aguardando resultado${pendingTime ? ` • ${pendingTime}` : ''}`;
+                    ? `Branco • Aguardando resultado (${galeLabel})${pendingTime ? ` • ${pendingTime}` : ''}`
+                    : `Branco • Aguardando resultado${pendingTime ? ` • ${pendingTime}` : ''}`;
                 return `
                     <div class="entry-item-wrap gale-active-indicator" title="${title}">
                         <div class="entry-conf-top gale-placeholder">&nbsp;</div>
@@ -17180,7 +17230,6 @@ async function persistAnalyzerState(newState) {
             list.innerHTML = pending + historyHtml;
         };
 
-        if (recoveryModeEnabled) {
             if (hasAnalysisOverride) {
                 storageCompat.get(['martingaleState']).then((res = {}) => {
                     applyListHtml(buildPendingIndicator(analysisOverride, res.martingaleState));
@@ -17193,45 +17242,23 @@ async function persistAnalyzerState(newState) {
                 }).catch(() => {
                     applyListHtml('');
                 });
-            }
-        } else {
-            applyListHtml('');
         }
 
-        const btn = document.getElementById('recoveryToggleBtn');
-        if (btn) {
-            btn.onclick = (event) => {
-                try { event.preventDefault(); event.stopPropagation(); } catch (_) {}
-                const next = !recoveryModeEnabled;
-                recoveryModeEnabled = next;
-                recoveryModeStatusText = next ? '' : 'Desativada';
-                renderRecoveryPanel(recoveryEntriesSourceCache);
-                try {
-                    chrome.runtime.sendMessage({ action: 'SET_RECOVERY_MODE', enabled: next }, function() {});
-                } catch (_) {}
-            };
-        }
-
-        const clearBtn = document.getElementById('clearRecoveryBtn');
+        const clearBtn = document.getElementById('clearWhiteBtn');
         if (clearBtn) {
             clearBtn.onclick = (event) => {
                 try { event.preventDefault(); event.stopPropagation(); } catch (_) {}
-                clearRecoveryEntriesHistory(currentMode);
+                clearWhiteEntriesHistory(currentMode);
             };
         }
     }
 
     function renderMasterEntriesPanel(entries) {
-        // Master virou "Recuperação": não renderizar mais o histórico antigo de Sinal de entrada
+        // Aba "Branco"
         if (Array.isArray(entries)) {
-            recoveryEntriesSourceCache = entries;
+            whiteEntriesSourceCache = entries;
         }
-        storageCompat.get(['recoveryMode']).then((res = {}) => {
-            recoveryModeEnabled = !!(res.recoveryMode && res.recoveryMode.enabled);
-            renderRecoveryPanel(recoveryEntriesSourceCache);
-        }).catch(() => {
-            renderRecoveryPanel(recoveryEntriesSourceCache);
-        });
+        renderWhitePanel(whiteEntriesSourceCache);
     }
 
     function initEntriesTabs() {
@@ -17255,7 +17282,7 @@ async function persistAnalyzerState(newState) {
     }
 
     function setEntriesTab(tab) {
-        // ✅ Aba "Apostas" removida (pedido): manter apenas IA / Recuperação / Gráfico
+        // ✅ Aba "Apostas" removida (pedido): manter apenas IA / Branco / Gráfico
         if (tab === 'bets') {
             tab = 'entries';
         }
@@ -17927,15 +17954,10 @@ async function persistAnalyzerState(newState) {
             main.appendChild(analyzerContent);
         }
 
-        // ✅ Desktop: renomear card "Sinais de entrada" (onde ficam os dados do print) para "Recuperação segura"
-        // e remover/ocultar UI do "Sistema híbrido" (não usado).
+        // ✅ Desktop: manter o card como "Branco" (painel 24h + puxadores)
         try {
             const h = sidebar.querySelector('.observer-section > h4');
-            if (h) h.textContent = 'Recuperação segura';
-        } catch (_) {}
-        try {
-            const hybrid = sidebar.querySelector('#observerHybrid');
-            if (hybrid) hybrid.style.display = 'none';
+            if (h) h.textContent = 'Branco';
         } catch (_) {}
 
         const userMenuPanel = sidebar.querySelector('#userMenuPanel');
@@ -17962,8 +17984,20 @@ async function persistAnalyzerState(newState) {
                     actions.insertAdjacentElement('afterbegin', betWrapper);
                 }
 
-                // ✅ 1.5) Seletor de modo (Premium vs IA) — pedido do usuário (DESKTOP)
-                // - Fica abaixo do botão "Modo Aposta"
+                // ✅ Pedido NOVO: "Análise ativa" deve ser o PRIMEIRO toggle (antes de Premium/IA)
+                // (o usuário reclamou que o primeiro estava sendo "Análise Premium")
+                const analyzerToggleBtn = sidebar.querySelector('#toggleAnalyzerBtn');
+                if (analyzerToggleBtn && analyzerToggleBtn.parentNode !== actions) {
+                    // Inserir logo abaixo do botão "Modo Aposta"
+                    if (betWrapper && betWrapper.parentNode === actions) {
+                        betWrapper.insertAdjacentElement('afterend', analyzerToggleBtn);
+                    } else {
+                        actions.insertAdjacentElement('afterbegin', analyzerToggleBtn);
+                    }
+                }
+
+                // ✅ 1.5) Seletor de modo (Premium vs IA) — DESKTOP
+                // - Fica abaixo de "Análise ativa"
                 // - Não permite ativar os dois ao mesmo tempo (sempre 1 ativo)
                 try {
                     let modeSelector = sidebar.querySelector('#analysisModeSelector');
@@ -17987,11 +18021,12 @@ async function persistAnalyzerState(newState) {
                         `;
                     }
                     if (modeSelector && modeSelector.parentNode !== actions) {
-                        if (betWrapper && betWrapper.parentNode === actions) {
-                            betWrapper.insertAdjacentElement('afterend', modeSelector);
-                        } else {
-                            actions.insertAdjacentElement('afterbegin', modeSelector);
-                        }
+                        // âncora: abaixo de "Análise ativa" (ou abaixo do "Modo Aposta" se não existir)
+                        const anchor = (analyzerToggleBtn && analyzerToggleBtn.parentNode === actions)
+                            ? analyzerToggleBtn
+                            : ((betWrapper && betWrapper.parentNode === actions) ? betWrapper : null);
+                        if (anchor) anchor.insertAdjacentElement('afterend', modeSelector);
+                        else actions.insertAdjacentElement('afterbegin', modeSelector);
                     }
 
                     // Bind de eventos (idempotente)
@@ -18054,37 +18089,28 @@ async function persistAnalyzerState(newState) {
                     }
                 } catch (_) {}
 
-                // ✅ Pedido: mover o botão "Ativar análise" para a coluna esquerda,
-                // acima de todas as configurações (sem alterar lógica do toggle).
-                const analyzerToggleBtn = sidebar.querySelector('#toggleAnalyzerBtn');
-                if (analyzerToggleBtn && analyzerToggleBtn.parentNode !== actions) {
-                    // Inserir logo abaixo do seletor de modo (se existir); caso contrário, abaixo do "Modo Aposta"
-                    const modeSelectorEl = sidebar.querySelector('#analysisModeSelector');
-                    const anchor = (modeSelectorEl && modeSelectorEl.parentNode === actions) ? modeSelectorEl
-                        : ((betWrapper && betWrapper.parentNode === actions) ? betWrapper : null);
-                    if (anchor) anchor.insertAdjacentElement('afterend', analyzerToggleBtn);
-                    else actions.insertAdjacentElement('afterbegin', analyzerToggleBtn);
-                }
-                // Garantir ordem mesmo se já estiver dentro de actions (idempotente)
+                // Garantir ordem no actions (idempotente):
+                // Modo Aposta -> Análise ativa -> Premium/IA -> (depois vem Sync)
                 try {
                     const modeSelectorEl = sidebar.querySelector('#analysisModeSelector');
-                    const anchorA = (betWrapper && betWrapper.parentNode === actions) ? betWrapper : null;
-                    if (anchorA && modeSelectorEl && modeSelectorEl.parentNode === actions) {
-                        anchorA.insertAdjacentElement('afterend', modeSelectorEl);
-                    }
+                    const betAnchor = (betWrapper && betWrapper.parentNode === actions) ? betWrapper : null;
                     const analyzerEl = sidebar.querySelector('#toggleAnalyzerBtn');
-                    if (analyzerEl && analyzerEl.parentNode === actions) {
-                        const anchorB = (modeSelectorEl && modeSelectorEl.parentNode === actions) ? modeSelectorEl
-                            : ((betWrapper && betWrapper.parentNode === actions) ? betWrapper : null);
-                        if (anchorB) anchorB.insertAdjacentElement('afterend', analyzerEl);
+                    if (betAnchor && analyzerEl && analyzerEl.parentNode === actions) {
+                        betAnchor.insertAdjacentElement('afterend', analyzerEl);
+                    }
+                    if (analyzerEl && modeSelectorEl && modeSelectorEl.parentNode === actions) {
+                        analyzerEl.insertAdjacentElement('afterend', modeSelectorEl);
                     }
                 } catch (_) {}
 
-                // ✅ Pedido: mover "Sincronizar configurações" para fora e deixar de fácil acesso (igual Análise ativa)
+                // ✅ Pedido: mover "Sincronizar configurações" para fora e deixar de fácil acesso
                 const syncWrap = sidebar.querySelector('#syncConfigToggleWrap');
                 if (syncWrap && syncWrap.parentNode !== actions) {
-                    // Colocar logo após o botão "Análise ativa"
-                    if (analyzerToggleBtn && analyzerToggleBtn.parentNode === actions) {
+                    // Colocar logo após Premium/IA (ou após Análise ativa se ainda não existir seletor)
+                    const modeSelectorEl = sidebar.querySelector('#analysisModeSelector');
+                    if (modeSelectorEl && modeSelectorEl.parentNode === actions) {
+                        modeSelectorEl.insertAdjacentElement('afterend', syncWrap);
+                    } else if (analyzerToggleBtn && analyzerToggleBtn.parentNode === actions) {
                         analyzerToggleBtn.insertAdjacentElement('afterend', syncWrap);
                     } else {
                         actions.insertAdjacentElement('afterbegin', syncWrap);
@@ -19035,18 +19061,13 @@ function logModeSnapshotUI(snapshot) {
                 }
             });
 
-            // ✅ Recuperação segura: sinais internos (hiddenInternal) não podem acionar auto-bet nem "vazar" para UI normal.
+            // ✅ Sinais internos (hiddenInternal) não podem acionar auto-bet nem "vazar" para UI normal.
             if (!isHiddenInternal && autoBetManager && typeof autoBetManager.handleAnalysis === 'function') {
                 autoBetManager.handleAnalysis(analysisPayload);
             }
 
-            // ✅ Atualizar card dos Sinais de entrada (pode mudar status/contador)
-            if (!isHiddenInternal) {
+            // ✅ Atualizar painel do Branco (24h + puxadores)
                 try { scheduleMasterSignalStatsRefresh(); } catch (_) {}
-            } else {
-                // Mesmo oculto, se for sinal de recuperação (recoveryMode=true), garantir refresh do painel.
-                try { renderRecoveryPanel(); } catch (_) {}
-            }
         } else if (request.type === 'NEW_SPIN') {
             console.log('%c⚡ NOVO GIRO!', 'color: #00ff88; font-weight: bold;');
             
@@ -19079,6 +19100,12 @@ function logModeSnapshotUI(snapshot) {
                 requestAnimationFrame(() => {
                     updateHistoryUIInstant(newSpin);
                 });
+
+                // ✅ 3. Atualizar painel do Branco (24h + puxadores)
+                // Se já temos o cache do painel carregado, ingere o giro novo.
+                // (Se ainda não carregou, o refresh puxará do histórico completo em seguida.)
+                try { ingestWhiteInsightsSpin(newSpin); } catch (_) {}
+                try { scheduleMasterSignalStatsRefresh(120); } catch (_) {}
                 
                 // ✅ SE O HISTÓRICO COMPLETO FOI ENVIADO, USAR ELE (sincronização inicial)
                 if (request.data.history && request.data.history.length > 0) {
@@ -19174,23 +19201,6 @@ function logModeSnapshotUI(snapshot) {
                     updateSidebar(payload);
                 }).catch(() => {});
             } catch (_) {}
-        } else if (request.type === 'RECOVERY_MODE_UPDATE') {
-            // ✅ Atualização do modo Recuperação (ativação manual)
-            try {
-                const data = request.data || {};
-                if (typeof data.enabled === 'boolean') {
-                    recoveryModeEnabled = !!data.enabled;
-                }
-                if (typeof data.statusText === 'string') {
-                    recoveryModeStatusText = data.statusText;
-                } else if (typeof data.state === 'string') {
-                    // fallback simples
-                    recoveryModeStatusText = data.state;
-                }
-                try { renderRecoveryPanel(); } catch (_) {}
-            } catch (err) {
-                console.warn('⚠️ Falha ao processar RECOVERY_MODE_UPDATE:', err);
-            }
         } else if (request.type === 'OBSERVER_UPDATE') {
             // ✅ Compat: OBSERVER_UPDATE antigo pode continuar chegando.
             // O card agora mostra dados do SINAL DE ENTRADA, então fazemos refresh via action dedicada.
@@ -19366,9 +19376,8 @@ function logModeSnapshotUI(snapshot) {
                         autoBetManager.handleAnalysis(result.analysis);
                     }
                     
-                    // ✅ CARREGAR CALIBRADOR DE PORCENTAGENS
-                    console.log('📊 Carregando estatísticas do Calibrador de porcentagens...');
-                    loadObserverStats();
+                    // ✅ Carregar painel do Branco (24h + puxadores)
+                    try { scheduleMasterSignalStatsRefresh(0); } catch (_) {}
                 } catch (err) {
                     console.warn('⚠️ Falha ao processar loadInitialData (provável context invalidated). Tentando novamente...', err);
                     setTimeout(loadInitialData, 1500);
@@ -19983,6 +19992,7 @@ function logModeSnapshotUI(snapshot) {
                 setWhiteProtectionModeUI(autoBetConfig.whiteProtectionMode);
                 setWhiteProtectionModeAvailability(!!autoBetConfig.whiteProtection);
                 setAutoBetInput('autoBetInverseMode', autoBetConfig.inverseModeEnabled, true);
+                try { renderWhiteBetSettingsControls(autoBetConfig); } catch (_) {}
                 
                 // ✅ Intensidade de sinais removida (por enquanto). Usar sempre "Agressivo".
                 latestAnalyzerConfig = cfg;
@@ -20115,6 +20125,9 @@ function logModeSnapshotUI(snapshot) {
                     stopLoss: getElementValue('autoBetStopLoss', AUTO_BET_DEFAULTS.stopLoss),
                     simulationBankRoll: getElementValue('autoBetSimulationBank', AUTO_BET_DEFAULTS.simulationBankRoll),
                     whitePayoutMultiplier: AUTO_BET_DEFAULTS.whitePayoutMultiplier,
+                    // ✅ Branco (config exclusiva) — preservar ao salvar outras configs
+                    whiteMaxGales: previousAutoBetConfig.whiteMaxGales,
+                    whiteGaleMode: previousAutoBetConfig.whiteGaleMode,
                     whiteProtectionMode: normalizeWhiteProtectionMode(getElementValue('autoBetWhiteMode', AUTO_BET_DEFAULTS.whiteProtectionMode)),
                     inverseModeEnabled: getElementValue('autoBetInverseMode', AUTO_BET_DEFAULTS.inverseModeEnabled, true),
                     whiteProtection: autoBetWhiteProtectionValue
@@ -20153,6 +20166,13 @@ function logModeSnapshotUI(snapshot) {
                             }
                             return 2;
                         };
+                        const multiplierForColor = (betColor) => {
+                            const c = String(betColor || '').toLowerCase();
+                            if (c === 'white' || c === 'branco') {
+                                return normalizeWhiteGaleMode(prevCfg?.whiteGaleMode) === WHITE_GALE_MODE.SAME ? 1 : 2;
+                            }
+                            return Math.max(1, Number(prevCfg?.galeMultiplier) || AUTO_BET_DEFAULTS.galeMultiplier);
+                        };
 
                         const patched = entries.map((e) => {
                             if (!e || (e.finalResult !== 'WIN' && e.finalResult !== 'RED' && e.finalResult !== 'RET')) return e;
@@ -20162,13 +20182,13 @@ function logModeSnapshotUI(snapshot) {
                             }
                             const stageIdx = getStageIndexFromEntryLike(e);
                             const base = Math.max(0.01, Number(prevCfg?.baseStake) || AUTO_BET_DEFAULTS.baseStake);
-                            const mult = Math.max(1, Number(prevCfg?.galeMultiplier) || AUTO_BET_DEFAULTS.galeMultiplier);
+                            const betColor = e.betColor || e.patternData?.color || null;
+                            const mult = multiplierForColor(betColor);
                             const stakeAmount = round2(base * Math.pow(mult, stageIdx));
                             let totalInvested = 0;
                             for (let i = 0; i <= stageIdx; i++) totalInvested += base * Math.pow(mult, i);
                             totalInvested = round2(totalInvested);
 
-                            const betColor = e.betColor || e.patternData?.color || null;
                             const payoutMultiplier = Math.max(2, Number(e.payoutMultiplier) || payoutForColor(betColor));
                             const cycleNetProfit = e.finalResult === 'WIN'
                                 ? round2((stakeAmount * payoutMultiplier) - totalInvested)
@@ -21149,303 +21169,391 @@ function logModeSnapshotUI(snapshot) {
         iaBootstrapBound = true;
     }
 
-    // Função para atualizar UI do observador
-    function updateObserverUI(stats) {
-        const observerStats = document.getElementById('observerStats');
-        if (!observerStats) return;
-        // Manter controles híbridos sincronizados (apenas quando a UI existir; no desktop dashboard fica oculto)
+    // ═══════════════════════════════════════════════════════════════
+    // ⚪ PAINEL BRANCO (24h + puxadores)
+    // ═══════════════════════════════════════════════════════════════
+    let whiteInsightsHistoryCache = null; // array newest-first
+    let whiteInsightsHistoryLoading = false;
+    let whiteInsightsSelectedHour = null; // 0..23
+    let whitePullersWindowHours = 1; // ✅ default: 1h mais recente
+    let whitePullersWindowHoursLoaded = false;
+    const WHITE_PULLERS_WINDOW_HOURS_KEY = 'whitePullersWindowHours';
+
+    function clampWhitePullersWindowHours(value, fallback = 1) {
+        const n = Math.floor(Number(value));
+        if (!Number.isFinite(n)) return fallback;
+        return Math.max(1, Math.min(5, n));
+    }
+
+    async function loadWhitePullersWindowHoursIfNeeded() {
         try {
-            const hybrid = document.getElementById('observerHybrid');
-            if (hybrid && hybrid.offsetParent !== null) {
-                initEntryGateHybridControls();
-            }
-        } catch (_) {}
-        
-        // Limpar loading
-        observerStats.innerHTML = '';
+            if (whitePullersWindowHoursLoaded) return;
+            whitePullersWindowHoursLoaded = true;
+            const res = await storageCompat.get([WHITE_PULLERS_WINDOW_HOURS_KEY]);
+            const raw = res ? res[WHITE_PULLERS_WINDOW_HOURS_KEY] : null;
+            whitePullersWindowHours = clampWhitePullersWindowHours(raw, 1);
+        } catch (_) {
+            whitePullersWindowHoursLoaded = true;
+            whitePullersWindowHours = 1;
+        }
+    }
 
-        const safe = stats && typeof stats === 'object' ? stats : {};
-        const totalCycles = Number.isFinite(Number(safe.totalCycles)) ? Number(safe.totalCycles) : 0;
-        const wins = Number.isFinite(Number(safe.wins)) ? Number(safe.wins) : 0;
-        const rets = Number.isFinite(Number(safe.rets)) ? Number(safe.rets) : 0;
-        const cycleWinRate = Number.isFinite(Number(safe.cycleWinRate)) ? Number(safe.cycleWinRate) : 0;
-        const minCycles = Number.isFinite(Number(safe.minCycles)) ? Number(safe.minCycles) : 10;
-        const nextIsMaster = !!safe.nextIsMaster;
-        const hasCurrentSignal = !!safe.hasCurrentSignal;
-        const decisionWindowCycles = Number.isFinite(Number(safe.decisionWindowCycles)) ? Number(safe.decisionWindowCycles) : null;
-        const entryTargets = Array.isArray(safe.entryTargets) ? safe.entryTargets.map(Number).filter(n => Number.isFinite(n) && n > 0) : [];
-        const g1Targets = Array.isArray(safe.g1Targets) ? safe.g1Targets.map(Number).filter(n => Number.isFinite(n) && n > 0) : [];
-        const g2Targets = Array.isArray(safe.g2Targets) ? safe.g2Targets.map(Number).filter(n => Number.isFinite(n) && n > 0) : [];
-        const retTargets = Array.isArray(safe.retTargets) ? safe.retTargets.map(Number).filter(n => Number.isFinite(n) && n > 0) : [];
-        const entryTargetWindow = Number.isFinite(Number(safe.entryTargetWindow)) ? Number(safe.entryTargetWindow) : 0;
-        const sinceEntrada = Number.isFinite(Number(safe.sinceEntrada)) ? Number(safe.sinceEntrada) : null;
-        const sinceRet = Number.isFinite(Number(safe.sinceRet)) ? Number(safe.sinceRet) : null;
-        const neededToStart = Number.isFinite(Number(safe.neededToStart)) ? Number(safe.neededToStart) : Math.max(0, minCycles - totalCycles);
-        const distanceSinceLastRet = Number.isFinite(Number(safe.distanceSinceLastRet)) ? Number(safe.distanceSinceLastRet) : null;
-        const modeLabel = safe.mode === 'diamond' ? 'Diamante' : 'Premium';
-        const diamondSrc = safe && safe.diamondCurrentSourceLevel ? safe.diamondCurrentSourceLevel : null;
-        const diamondSrcId = diamondSrc && diamondSrc.id ? String(diamondSrc.id) : '';
-        const diamondSrcStats = safe && safe.diamondCurrentSourceStats ? safe.diamondCurrentSourceStats : null;
-        const diamondSrcPct = (diamondSrcStats && typeof diamondSrcStats.hitRate === 'number')
-            ? (Number(diamondSrcStats.hitRate) * 100).toFixed(1)
-            : '';
-        const diamondSignalsByLevel = safe && safe.diamondSignalsByLevel ? safe.diamondSignalsByLevel : null;
+    function clampWhiteMaxGales(value, fallback = AUTO_BET_DEFAULTS.whiteMaxGales) {
+        const n = Math.floor(Number(value));
+        if (!Number.isFinite(n)) return clampIntRange(fallback, 0, 5);
+        return Math.max(0, Math.min(5, n));
+    }
 
-        const isCollecting = totalCycles < minCycles;
-
-        // Recuperação segura (gate + contador)
-        const recoveryEnabled = !!safe.recoveryEnabled;
-        const recoveryGate = safe && safe.recoveryGate && typeof safe.recoveryGate === 'object' ? safe.recoveryGate : null;
-        const recoveryGateStats = recoveryGate && recoveryGate.stats && typeof recoveryGate.stats === 'object' ? recoveryGate.stats : null;
-        const gateSinceLoss = Number.isFinite(Number(recoveryGateStats && recoveryGateStats.sinceLoss)) ? Number(recoveryGateStats.sinceLoss) : null;
-        const gateSafeDistance = Number.isFinite(Number(recoveryGateStats && recoveryGateStats.safeDistance)) ? Number(recoveryGateStats.safeDistance) : null;
-        const gateSignalsUntilSafe = Number.isFinite(Number(recoveryGateStats && recoveryGateStats.signalsUntilSafe)) ? Number(recoveryGateStats.signalsUntilSafe) : null;
-        const lossWinGaps = Array.isArray(recoveryGateStats && recoveryGateStats.lossWinGaps)
-            ? recoveryGateStats.lossWinGaps.map(Number).filter(n => Number.isFinite(n) && n >= 0).map(n => Math.floor(n))
-            : [];
-        const winsSinceLoss = Number.isFinite(Number(recoveryGateStats && recoveryGateStats.winsSinceLoss))
-            ? Math.max(0, Math.floor(Number(recoveryGateStats && recoveryGateStats.winsSinceLoss)))
-            : (gateSinceLoss != null ? Math.max(0, Math.floor(gateSinceLoss) - 1) : null);
-        const safeWins = gateSafeDistance != null ? Math.max(0, Math.floor(gateSafeDistance) - 1) : null;
-        const winsUntilSafe = (winsSinceLoss != null && safeWins != null)
-            ? Math.max(0, safeWins - winsSinceLoss)
-            : null;
-
-        // Bloco informativo (motivo + distância)
-        const reasonText = (recoveryEnabled && recoveryGate && recoveryGate.reason)
-            ? String(recoveryGate.reason)
-            : (safe.reason ? String(safe.reason) : (isCollecting ? 'Coletando dados...' : '—'));
-        const distText = gateSinceLoss != null
-            ? String(gateSinceLoss)
-            : (distanceSinceLastRet === null ? 'n/d' : String(distanceSinceLastRet));
-        const fmtList = (arr) => (Array.isArray(arr) && arr.length ? arr.join(',') : '—');
-        const fmtWinGaps = (arr) => {
-            if (!Array.isArray(arr) || !arr.length) return '—';
-            const tail = arr.slice(-6);
-            const head = arr.length > tail.length ? '… ' : '';
-            return head + tail.join(' → ');
-        };
-        const windowText = decisionWindowCycles != null ? ` (janela=${decisionWindowCycles} • prioriza recente)` : '';
-        const streaks = safe.streaks && typeof safe.streaks === 'object' ? safe.streaks : null;
-        const streakText = (() => {
-            if (!streaks) return '';
-            const minSamples = Number.isFinite(Number(streaks.minSamples)) ? Number(streaks.minSamples) : 0;
-            const parts = [];
-            const red = streaks.red || null;
-            if (red && Number.isFinite(Number(red.samples)) && red.samples >= minSamples && red.continueProb != null) {
-                const p = Math.max(0, Math.min(1, Number(red.continueProb))) * 100;
-                parts.push(`REDx${Number(red.current) || 0} → P(próx RED|≥${Number(red.k) || 1}RED)=${p.toFixed(0)}% (${Number(red.hits) || 0}/${Number(red.samples) || 0})`);
-            }
-            const g1 = streaks.g1 || null;
-            if (g1 && Number.isFinite(Number(g1.samples)) && g1.samples >= minSamples && g1.nextWinProb != null) {
-                const p = Math.max(0, Math.min(1, Number(g1.nextWinProb))) * 100;
-                parts.push(`G1x${Number(g1.current) || 0} → P(WIN|≥${Number(g1.k) || 1}xG1)=${p.toFixed(0)}% (${Number(g1.hits) || 0}/${Number(g1.samples) || 0})`);
-            }
-            const g2 = streaks.g2 || null;
-            if (g2 && Number.isFinite(Number(g2.samples)) && g2.samples >= minSamples && g2.nextWinProb != null) {
-                const p = Math.max(0, Math.min(1, Number(g2.nextWinProb))) * 100;
-                parts.push(`G2+x${Number(g2.current) || 0} → P(WIN|≥${Number(g2.k) || 1}xG2+)=${p.toFixed(0)}% (${Number(g2.hits) || 0}/${Number(g2.samples) || 0})`);
-            }
-            if (!parts.length) return '';
-            return parts.join(' • ');
-        })();
-        const diamondLevelText = (() => {
-            if (safe.mode !== 'diamond') return '';
-            if (!diamondSrcId) return '<div><b>Nível (origem do sinal):</b> —</div>';
-            const extra = diamondSrcPct ? ` (${diamondSrcPct}%)` : '';
-            return `<div><b>Nível (origem do sinal):</b> ${diamondSrcId}${extra}</div>`;
-        })();
-
-        const diamondRankText = (() => {
-            if (safe.mode !== 'diamond') return '';
-            const total = Number(diamondSignalsByLevel && diamondSignalsByLevel.totalMasterCycles) || 0;
-            const levels = diamondSignalsByLevel && Array.isArray(diamondSignalsByLevel.levels) ? diamondSignalsByLevel.levels : [];
-            if (!total || !levels.length) return '<div><b>Por nível (sinais):</b> —</div>';
-            const fmt = (x) => {
-                const id = x && x.id ? String(x.id) : '—';
-                const pct = x && typeof x.pct === 'number' ? (x.pct * 100).toFixed(0) : '0';
-                const cnt = Number(x && x.count) || 0;
-                return `${id} ${pct}% (${cnt})`;
+    async function persistWhiteAutoBetSettingsPatch(patch = {}) {
+        try {
+            const stored = await storageCompat.get(['analyzerConfig']);
+            const currentConfig = stored && stored.analyzerConfig ? stored.analyzerConfig : {};
+            const currentAuto = sanitizeAutoBetConfig(currentConfig.autoBetConfig || {});
+            const nextAuto = sanitizeAutoBetConfig({ ...currentAuto, ...(patch || {}) });
+            const merged = {
+                ...currentConfig,
+                autoBetConfig: nextAuto,
+                _clientUpdatedAt: Date.now()
             };
-            // Mostrar top 5 para não poluir
-            const top = levels.slice(0, 5).map(fmt).join(' • ');
-            return `<div><b>Por nível (sinais):</b> ${top}</div>`;
-        })();
-        const lossesCount = Number.isFinite(Number(recoveryGateStats && recoveryGateStats.losses))
-            ? Number(recoveryGateStats && recoveryGateStats.losses)
-            : rets;
-        observerStats.innerHTML = `
-            <div class="observer-loading" style="padding:0; text-align:left;">
-                <div><b>Modo:</b> ${modeLabel}</div>
-                ${diamondLevelText}
-                ${diamondRankText}
-                <div><b>Ciclos:</b> ${totalCycles > 0 ? `${totalCycles} • WIN ${cycleWinRate.toFixed(1)}% (${wins}/${totalCycles}) • LOSS ${lossesCount}/${totalCycles}` : '—'}</div>
-                ${recoveryEnabled
-                    ? `
-                        <div><b>Vitórias desde o último LOSS:</b> ${winsSinceLoss == null ? '—' : winsSinceLoss}</div>
-                        <div><b>Distâncias entre LOSS (vitórias):</b> ${fmtWinGaps(lossWinGaps)}</div>
-                        <div><b>Ponto seguro:</b> ${safeWins == null ? '—' : `≥${safeWins} vitória(s)`}</div>
-                      `
-                    : `<div><b>Recuperação segura:</b> desativada</div>`
-                }
-                <div><b>Status:</b> ${reasonText}</div>
-            </div>
-        `;
-
-        // Atualizar "Próximo sinal" (contador da Recuperação segura)
-        const calibrationFactor = document.getElementById('calibrationFactor');
-        if (calibrationFactor) {
-            if (isCollecting) {
-                calibrationFactor.textContent = `Coletando ${totalCycles}/${minCycles}`;
-                calibrationFactor.style.color = '#ffa500'; // Laranja
-            } else {
-                if (recoveryEnabled) {
-                    const isRecoveryPending = !!safe.currentSignalRecovery;
-                    if (isRecoveryPending) {
-                        calibrationFactor.textContent = 'Aguardando resultado';
-                        calibrationFactor.style.color = '#cdd6e8';
-                    } else if (recoveryGate && recoveryGate.ok === true) {
-                        calibrationFactor.textContent = 'Sinal seguro liberado';
-                        calibrationFactor.style.color = '#00ff88';
-                    } else if (winsUntilSafe != null && winsUntilSafe > 0) {
-                        calibrationFactor.textContent = `Faltam ${winsUntilSafe}`;
-                        calibrationFactor.style.color = '#ffa500';
-                    } else {
-                        calibrationFactor.textContent = 'Aguardando';
-                        calibrationFactor.style.color = '#cdd6e8';
-                    }
-                } else {
-                    // ✅ Não confundir: este card é de Recuperação segura. Não exibir "Sinal liberado" para sinais normais.
-                    calibrationFactor.textContent = 'Recuperação desativada';
-                    calibrationFactor.style.color = '#8da2bb';
-                }
-            }
-
-            // ✅ Se acabou de “limpar” um sinal (resultado chegou), reset suave da barra
-            try {
-                if (lastTopSignalVisible && !topSignalVisibleNow) {
-                    smoothResetConfidenceUI();
-                }
-                lastTopSignalVisible = !!topSignalVisibleNow;
-            } catch (_) {}
+            await storageCompat.set({ analyzerConfig: merged });
+            // Atualizar referência local (evita esperar onChanged)
+            latestAnalyzerConfig = merged;
+            try { renderWhiteBetSettingsControls(nextAuto); } catch (_) {}
+        } catch (err) {
+            console.warn('⚠️ Falha ao salvar configuração exclusiva do Branco:', err);
+            try { showToast('❌ Não foi possível salvar a configuração do Branco.', 2800); } catch (_) {}
         }
+    }
 
-        // Barra de progresso do "Próximo sinal seguro"
+    function renderWhiteBetSettingsControls(autoBetCfg = null) {
+        const modeEl = document.getElementById('whiteGaleModeToggle');
+        const maxInput = document.getElementById('whiteMaxGalesInput');
+        const maxSaveBtn = document.getElementById('whiteMaxGalesSaveBtn');
+        if (!modeEl || !maxInput || !maxSaveBtn) return;
+
+        const cfg = autoBetCfg && typeof autoBetCfg === 'object'
+            ? autoBetCfg
+            : sanitizeAutoBetConfig(latestAnalyzerConfig && latestAnalyzerConfig.autoBetConfig ? latestAnalyzerConfig.autoBetConfig : {});
+
+        const mode = normalizeWhiteGaleMode(cfg.whiteGaleMode);
+        const maxGales = clampWhiteMaxGales(cfg.whiteMaxGales, AUTO_BET_DEFAULTS.whiteMaxGales);
+
+        modeEl.innerHTML = [
+            { key: WHITE_GALE_MODE.DOUBLE, label: 'Dobrar' },
+            { key: WHITE_GALE_MODE.SAME, label: 'Manter' }
+        ].map(opt => {
+            const active = opt.key === mode;
+            return `<button type="button" class="white-bet-setting-btn${active ? ' active' : ''}" data-white-gale-mode="${opt.key}">${opt.label}</button>`;
+        }).join('');
+
+        // Campo numérico (0..5), com botão "Salvar"
         try {
-            const bar = document.getElementById('recoveryGateBar');
-            const fill = document.getElementById('recoveryGateFill');
-            const check = document.getElementById('recoveryGateCheck');
-            if (bar && fill) {
-                const shouldShow = !!(recoveryEnabled && !isCollecting && safeWins != null);
-                if (!shouldShow) {
-                    bar.hidden = true;
-                    if (check) check.hidden = true;
-                    bar.classList.remove('is-complete');
-                } else {
-                    bar.hidden = false;
-                    const denom = (safeWins != null ? safeWins : 0);
-                    const prog = denom > 0
-                        ? Math.max(0, Math.min(1, (winsSinceLoss != null ? winsSinceLoss : 0) / denom))
-                        : (recoveryGate && recoveryGate.ok === true ? 1 : 0);
-                    fill.style.width = `${Math.round(prog * 1000) / 10}%`;
-                    const ok = !!(recoveryGate && recoveryGate.ok === true && !safe.currentSignalRecovery);
-                    bar.classList.toggle('is-complete', ok);
-                    if (check) check.hidden = !ok;
-                    }
-                }
+            maxInput.min = '0';
+            maxInput.max = '5';
+            maxInput.step = '1';
+            maxInput.value = String(maxGales);
+            maxInput.title = '0 = somente 1 entrada (sem gales). 1..5 = até G1..G5.';
         } catch (_) {}
-        
-        // Atualizar totais
-        const observerTotal = document.getElementById('observerTotal');
-        if (observerTotal) {
-            if (isCollecting) {
-                observerTotal.textContent = `${totalCycles}/${minCycles}`;
-                observerTotal.style.color = '#ffa500'; // Laranja
-            } else {
-                observerTotal.textContent = String(totalCycles);
-                observerTotal.style.color = ''; // Cor padrão
-            }
+
+        if (!modeEl.dataset.listenerAttached) {
+            modeEl.addEventListener('click', async (event) => {
+                const btn = event.target && event.target.closest ? event.target.closest('.white-bet-setting-btn') : null;
+                if (!btn) return;
+                const nextMode = normalizeWhiteGaleMode(btn.dataset.whiteGaleMode);
+                await persistWhiteAutoBetSettingsPatch({ whiteGaleMode: nextMode });
+                try { showToast('✅ Configuração do Branco atualizada.', 1500); } catch (_) {}
+            });
+            modeEl.dataset.listenerAttached = '1';
         }
-        
-        const observerWinRate = document.getElementById('observerWinRate');
-        if (observerWinRate) {
-            if (isCollecting) {
-                observerWinRate.textContent = `${neededToStart} sinal(is) p/ iniciar`;
-                observerWinRate.style.color = '#ffa500';
-            } else {
-                if (recoveryEnabled && gateSinceLoss != null) {
-                    const parts = [];
-                    if (winsSinceLoss != null) parts.push(`Vitórias desde LOSS: ${winsSinceLoss}`);
-                    if (safeWins != null) parts.push(`Seguro: ≥${safeWins}`);
-                    if (winsUntilSafe != null) parts.push(`Faltam: ${winsUntilSafe}`);
-                    if (Array.isArray(retTargets) && retTargets.length) parts.push(`Zona típica de LOSS: ${fmtList(retTargets)}`);
-                    observerWinRate.textContent = parts.length ? parts.join(' • ') : reasonText;
-                    observerWinRate.style.color = '#cdd6e8';
-                } else {
-                    // Recuperação desativada => não poluir com targets/Δ (isso é do módulo de sinais, não do gate)
-                    observerWinRate.textContent = recoveryEnabled ? reasonText : '—';
-                    observerWinRate.style.color = '#8da2bb';
+        if (!maxSaveBtn.dataset.listenerAttached) {
+            const doSave = async () => {
+                const nextMax = clampWhiteMaxGales(maxInput.value, AUTO_BET_DEFAULTS.whiteMaxGales);
+                await persistWhiteAutoBetSettingsPatch({ whiteMaxGales: nextMax });
+                try { showToast('✅ Configuração do Branco atualizada.', 1500); } catch (_) {}
+            };
+            maxSaveBtn.addEventListener('click', () => { doSave().catch(() => {}); });
+            maxInput.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') {
+                    try { e.preventDefault(); } catch (_) {}
+                    doSave().catch(() => {});
                 }
-            }
-        }
-        
-        // Atualizar probabilidades por estágio (ciclo)
-        const obsHigh = document.getElementById('obsHigh');
-        if (obsHigh) {
-            const pct = Number.isFinite(Number(safe.entryWinPct)) ? Number(safe.entryWinPct) : 0;
-            const count = Number.isFinite(Number(safe.entryWinCount)) ? Number(safe.entryWinCount) : 0;
-            obsHigh.textContent = totalCycles > 0
-                ? `${pct.toFixed(1)}% (${count}/${totalCycles})`
-                : '—';
-        }
-        
-        const obsMedium = document.getElementById('obsMedium');
-        if (obsMedium) {
-            const pct = Number.isFinite(Number(safe.g1WinPct)) ? Number(safe.g1WinPct) : 0;
-            const count = Number.isFinite(Number(safe.g1WinCount)) ? Number(safe.g1WinCount) : 0;
-            obsMedium.textContent = totalCycles > 0
-                ? `${pct.toFixed(1)}% (${count}/${totalCycles})`
-                : '—';
-        }
-        
-        const obsLow = document.getElementById('obsLow');
-        if (obsLow) {
-            const pct = Number.isFinite(Number(safe.g2WinPct)) ? Number(safe.g2WinPct) : 0;
-            const count = Number.isFinite(Number(safe.g2WinCount)) ? Number(safe.g2WinCount) : 0;
-            obsLow.textContent = totalCycles > 0
-                ? `${pct.toFixed(1)}% (${count}/${totalCycles})`
-                : '—';
+            });
+            maxSaveBtn.dataset.listenerAttached = '1';
         }
     }
-    
-    // Função para carregar dados do observador
-    function loadObserverStats() {
-        const currentMode = getCurrentModeKey(latestAnalyzerConfig);
-        console.log('📡 Enviando mensagem: getMasterSignalStats...', currentMode);
-        chrome.runtime.sendMessage({ action: 'getMasterSignalStats', mode: currentMode }, function(response) {
-            console.log('📡 Resposta recebida:', response);
-            if (response && response.status === 'success') {
-                console.log('✅ Stats do observador recebidas:', response.stats);
-                updateObserverUI(response.stats);
-            } else {
-                console.error('❌ Erro ao carregar stats do observador:', response);
+
+    function parseSpinTimestampMsLocal(spin) {
+        try {
+            const raw = spin && (spin.timestamp ?? spin.created_at ?? spin.createdAt ?? spin.time ?? null);
+            if (raw == null) return 0;
+            if (typeof raw === 'number') {
+                // Normalizar: timestamps em segundos (10 dígitos) -> ms
+                return raw > 0 && raw < 1e12 ? raw * 1000 : raw;
             }
-        });
+            const n = Number(raw);
+            if (Number.isFinite(n)) {
+                return n > 0 && n < 1e12 ? n * 1000 : n;
+            }
+            const t = Date.parse(String(raw));
+            return Number.isFinite(t) ? t : 0;
+        } catch (_) {
+            return 0;
+        }
+    }
+
+    function normalizeSpinForInsights(spinRaw) {
+        const s = spinRaw && typeof spinRaw === 'object' ? spinRaw : {};
+        const rawNumber = (s.number ?? s.roll ?? s.n ?? null);
+        const number = Number.isFinite(Number(rawNumber)) ? Number(rawNumber) : null;
+        let color = s.color ? String(s.color).toLowerCase().trim() : null;
+        if (color) {
+            if (color === 'branco' || color === 'w') color = 'white';
+            else if (color === 'preto' || color === 'b') color = 'black';
+            else if (color === 'vermelho' || color === 'r') color = 'red';
+        }
+        if (!color && number != null) {
+            color = number === 0 ? 'white' : (number >= 1 && number <= 7 ? 'red' : 'black');
+        }
+        const timestamp = s.timestamp ?? s.created_at ?? s.createdAt ?? s.time ?? null;
+        return { number, color, timestamp };
+    }
+
+    function computeWhiteInsightsFromHistory(historyRaw, nowMs = Date.now(), pullersHours = 1) {
+        const history = Array.isArray(historyRaw) ? historyRaw : [];
+        const hourCounts = new Array(24).fill(0);
+        const pullerCounts = {}; // num -> count
+        const pullersH = clampWhitePullersWindowHours(pullersHours, 1);
+        const fromMsPullers = nowMs - (pullersH * 60 * 60 * 1000);
+        const nowDate = new Date(nowMs);
+        const startOfDayMs = new Date(nowDate.getFullYear(), nowDate.getMonth(), nowDate.getDate()).getTime();
+        const nowHour = nowDate.getHours();
+        const minRelevantMs = Math.min(startOfDayMs, fromMsPullers);
+        let totalWhitesToday = 0;
+
+        for (let i = 0; i < history.length; i++) {
+            const spin = normalizeSpinForInsights(history[i]);
+            const ms = parseSpinTimestampMsLocal(spin);
+            if (!ms) continue;
+            if (spin.color !== 'white') continue;
+
+            // Otimização: histórico é newest-first. Se já passou do que nos interessa (hoje + 2h), parar cedo.
+            if (ms < minRelevantMs) {
+                break;
+            }
+
+            // 24h do painel = 00h do dia atual -> hora atual (horas futuras ficam vazias)
+            if (ms >= startOfDayMs && ms <= nowMs) {
+                totalWhitesToday += 1;
+                const h = new Date(ms).getHours();
+                hourCounts[h] = (hourCounts[h] || 0) + 1;
+            }
+
+            // Puxadores: apenas as últimas 2 horas
+            if (ms >= fromMsPullers) {
+                const prev = (i + 1 < history.length) ? normalizeSpinForInsights(history[i + 1]) : null;
+                const prevNum = prev && prev.number != null ? Number(prev.number) : null;
+                const prevColor = prev && prev.color ? String(prev.color) : null;
+                if (prevNum != null && Number.isFinite(prevNum) && prevNum >= 1 && prevNum <= 14 && prevColor !== 'white') {
+                    pullerCounts[prevNum] = (pullerCounts[prevNum] || 0) + 1;
+                }
+            }
+        }
+
+        return { nowMs, startOfDayMs, fromMsPullers, nowHour, totalWhitesToday, hourCounts, pullerCounts, pullersHours: pullersH };
+    }
+
+    function numberToColorClass(num) {
+        const n = Number(num);
+        if (!Number.isFinite(n)) return 'red';
+        if (n === 0) return 'white';
+        if (n >= 1 && n <= 7) return 'red';
+        return 'black';
+    }
+
+    function renderWhiteInsightsPanel(data) {
+        const grid = document.getElementById('whiteHoursGrid');
+        const summary = document.getElementById('whiteHoursSummary');
+        const pullersEl = document.getElementById('whitePullersList');
+        const pullersFilterEl = document.getElementById('whitePullersFilter');
+        if (!grid || !summary || !pullersEl) return;
+
+        const safe = data && typeof data === 'object' ? data : null;
+        if (!safe) {
+            summary.textContent = 'Carregando...';
+            pullersEl.textContent = 'Carregando...';
+            return;
+        }
+
+        const hourCounts = Array.isArray(safe.hourCounts) ? safe.hourCounts : new Array(24).fill(0);
+        const pullerCounts = safe.pullerCounts && typeof safe.pullerCounts === 'object' ? safe.pullerCounts : {};
+        const totalWhites = Number.isFinite(Number(safe.totalWhitesToday)) ? Number(safe.totalWhitesToday) : 0;
+        const nowHour = Number.isFinite(Number(safe.nowHour)) ? Number(safe.nowHour) : new Date(Number(safe.nowMs) || Date.now()).getHours();
+        const pullersHours = clampWhitePullersWindowHours(safe.pullersHours, whitePullersWindowHours);
+        let selected = (whiteInsightsSelectedHour != null) ? whiteInsightsSelectedHour : nowHour;
+        if (selected > nowHour) selected = nowHour;
+        const selectedCount = Number(hourCounts[selected] || 0);
+
+        const pad2 = (n) => String(n).padStart(2, '0');
+        const hourLabel = `${pad2(selected)}h`;
+        summary.innerHTML = `<span class="white-hours-total">Total hoje: <b>${totalWhites}</b></span> • <span class="white-hours-picked">Brancos em <b>${hourLabel}</b>: <b>${selectedCount}</b></span>`;
+
+        // Grid 24h
+        const buttonsHtml = Array.from({ length: 24 }).map((_, h) => {
+            const isFuture = h > nowHour;
+            const cnt = Number(hourCounts[h] || 0);
+            const label = `${pad2(h)}h`;
+            const isActive = h === selected;
+            const has = cnt > 0;
+            const countText = isFuture ? '—' : String(cnt);
+            return `
+                <button type="button" class="white-hour-btn${isActive ? ' active' : ''}${has && !isFuture ? ' has-white' : ''}${isFuture ? ' future' : ''}" data-hour="${h}" ${isFuture ? 'disabled aria-disabled="true"' : ''}>
+                    <span class="white-hour-label">${label}</span>
+                    <span class="white-hour-count">${countText}</span>
+                </button>
+            `;
+        }).join('');
+        grid.innerHTML = buttonsHtml;
+        if (!grid.dataset.listenerAttached) {
+            grid.addEventListener('click', (event) => {
+                const btn = event.target && event.target.closest ? event.target.closest('.white-hour-btn') : null;
+                if (!btn) return;
+                if (btn.disabled) return;
+                const h = Number(btn.dataset.hour);
+                if (!Number.isFinite(h) || h < 0 || h > 23) return;
+                whiteInsightsSelectedHour = Math.floor(h);
+                try { scheduleMasterSignalStatsRefresh(0); } catch (_) {}
+            });
+            grid.dataset.listenerAttached = '1';
+        }
+
+        // Pullers
+        if (pullersFilterEl) {
+            const opts = [1, 2, 3, 4, 5];
+            pullersFilterEl.innerHTML = opts.map(h => {
+                const active = h === pullersHours;
+                return `<button type="button" class="white-pullers-filter-btn${active ? ' active' : ''}" data-hours="${h}">${h}h</button>`;
+            }).join('');
+            if (!pullersFilterEl.dataset.listenerAttached) {
+                pullersFilterEl.addEventListener('click', async (event) => {
+                    const btn = event.target && event.target.closest ? event.target.closest('.white-pullers-filter-btn') : null;
+                    if (!btn) return;
+                    const h = clampWhitePullersWindowHours(btn.dataset.hours, whitePullersWindowHours);
+                    whitePullersWindowHours = h;
+                    try { await storageCompat.set({ [WHITE_PULLERS_WINDOW_HOURS_KEY]: h }); } catch (_) {}
+                    try { scheduleMasterSignalStatsRefresh(0); } catch (_) {}
+                });
+                pullersFilterEl.dataset.listenerAttached = '1';
+            }
+        }
+
+        const pullersArr = Object.keys(pullerCounts)
+            .map(k => ({ num: Number(k), count: Number(pullerCounts[k] || 0) }))
+            .filter(x => Number.isFinite(x.num) && x.num >= 1 && x.num <= 14 && Number.isFinite(x.count) && x.count > 0)
+            .sort((a, b) => (b.count - a.count) || (a.num - b.num))
+            .slice(0, 10);
+
+        if (!pullersArr.length) {
+            pullersEl.innerHTML = `<div class="white-pullers-empty">Sem puxadores nas últimas ${pullersHours}h</div>`;
+            try { renderWhiteBetSettingsControls(); } catch (_) {}
+            return;
+        }
+
+        pullersEl.innerHTML = pullersArr.map(p => {
+            const cls = numberToColorClass(p.num);
+            const badge = `<span>${p.num}</span>`;
+            const title = `${p.num} puxou branco ${p.count}x (últimas ${pullersHours}h)`;
+            return `
+                <div class="white-puller-item" title="${title}">
+                    <div class="entry-box ${cls}">${badge}</div>
+                    <div class="white-puller-count">x${p.count}</div>
+                </div>
+            `;
+        }).join('');
+
+        try { renderWhiteBetSettingsControls(); } catch (_) {}
+    }
+
+    function requestWhiteInsightsHistoryIfNeeded() {
+        try {
+            if (whiteInsightsHistoryLoading) return;
+            if (Array.isArray(whiteInsightsHistoryCache) && whiteInsightsHistoryCache.length) return;
+
+            // ✅ Primeiro: usar o histórico já carregado no content.js (10k giros) — instantâneo no carregamento.
+            try {
+                if (Array.isArray(currentHistoryData) && currentHistoryData.length > 0) {
+                    whiteInsightsHistoryCache = currentHistoryData.slice(0, 10000);
+                    return;
+                }
+            } catch (_) {}
+
+            if (!chrome?.runtime?.sendMessage) return;
+            whiteInsightsHistoryLoading = true;
+            chrome.runtime.sendMessage({ action: 'getFullHistory' }, (resp) => {
+                whiteInsightsHistoryLoading = false;
+                const err = chrome.runtime.lastError;
+                if (err) {
+                    renderWhiteInsightsPanel(null);
+                    return;
+                }
+                const list = resp && Array.isArray(resp.history) ? resp.history : [];
+                whiteInsightsHistoryCache = list;
+                try { scheduleMasterSignalStatsRefresh(0); } catch (_) {}
+            });
+        } catch (_) {
+            whiteInsightsHistoryLoading = false;
+        }
+    }
+
+    function refreshWhiteInsightsPanelNow() {
+        if (!document.getElementById('whiteHoursGrid')) return;
+        // Garantir preferência carregada antes de computar
+        try { loadWhitePullersWindowHoursIfNeeded(); } catch (_) {}
+        if (!Array.isArray(whiteInsightsHistoryCache) || whiteInsightsHistoryCache.length === 0) {
+            // ✅ Se o histórico do painel ainda não foi carregado, tentar usar currentHistoryData e/ou background.
+            requestWhiteInsightsHistoryIfNeeded();
+        }
+        if (!Array.isArray(whiteInsightsHistoryCache) || whiteInsightsHistoryCache.length === 0) {
+            renderWhiteInsightsPanel(null);
+            return;
+        }
+
+        // ✅ Ancorar o "agora" no timestamp do último giro (evita depender do relógio local do PC)
+        let nowMs = Date.now();
+        try {
+            const head = whiteInsightsHistoryCache[0];
+            const headMs = parseSpinTimestampMsLocal(normalizeSpinForInsights(head));
+            if (Number.isFinite(headMs) && headMs > 0) nowMs = headMs;
+        } catch (_) {}
+
+        const data = computeWhiteInsightsFromHistory(whiteInsightsHistoryCache, nowMs, whitePullersWindowHours);
+        renderWhiteInsightsPanel(data);
+        try { renderWhiteBetSettingsControls(); } catch (_) {}
+    }
+
+    function ingestWhiteInsightsSpin(newSpinRaw) {
+        try {
+            if (!Array.isArray(whiteInsightsHistoryCache)) return;
+            const s = normalizeSpinForInsights(newSpinRaw);
+            if (!s || s.timestamp == null) return;
+            const head = whiteInsightsHistoryCache.length ? normalizeSpinForInsights(whiteInsightsHistoryCache[0]) : null;
+            if (head && head.timestamp === s.timestamp && head.number === s.number) return;
+            whiteInsightsHistoryCache.unshift(s);
+            if (whiteInsightsHistoryCache.length > 10000) {
+                whiteInsightsHistoryCache.length = 10000;
+            }
+        } catch (_) {}
     }
 
     // ═══════════════════════════════════════════════════════════════
-    // 👑 SINAL DE ENTRADA - Refresh com debounce (não spammar runtime)
+    // Refresh com debounce (não spammar)
     // ═══════════════════════════════════════════════════════════════
-    // ⚠️ Usar var para evitar TDZ caso mensagens cheguem antes do fim do carregamento do content.js
     var masterStatsRefreshTimer = null;
     function scheduleMasterSignalStatsRefresh(delayMs = 250) {
         try {
-            if (masterStatsRefreshTimer) {
-                clearTimeout(masterStatsRefreshTimer);
-            }
+            if (masterStatsRefreshTimer) clearTimeout(masterStatsRefreshTimer);
             masterStatsRefreshTimer = setTimeout(() => {
                 masterStatsRefreshTimer = null;
-                loadObserverStats();
+                refreshWhiteInsightsPanelNow();
             }, Math.max(0, Number(delayMs) || 0));
         } catch (_) {}
     }
@@ -21846,6 +21954,9 @@ function logModeSnapshotUI(snapshot) {
         // ✅ ATUALIZAR currentHistoryData com os giros do servidor
         if (spins && spins.length > 0) {
             currentHistoryData = spins;
+            // ✅ Painel Branco: sem esperar giro novo, usar imediatamente os 10k giros carregados
+            try { whiteInsightsHistoryCache = currentHistoryData.slice(0, 10000); } catch (_) {}
+            try { scheduleMasterSignalStatsRefresh(0); } catch (_) {}
         }
         
         if (spins && spins.length > 0) {
@@ -22033,7 +22144,7 @@ function logModeSnapshotUI(snapshot) {
     // ✅ Melhor UX (pedido): aplicar config logo após iniciar (evita UI “zerada” após refresh)
     setTimeout(loadSettings, 300);
     setTimeout(loadPatternBank, 2000);
-    setTimeout(loadObserverStats, 2200);
+    setTimeout(() => { try { scheduleMasterSignalStatsRefresh(0); } catch (_) {} }, 2200);
     
     // ⚠️ REMOVIDO: O histórico agora é carregado APÓS a sidebar ser criada
     // Ver createSidebar() para o novo local de inicialização

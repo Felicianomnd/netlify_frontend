@@ -219,7 +219,12 @@ const DEFAULT_AUTOBET_CONFIG = Object.freeze({
     stopWin: 0,
     stopLoss: 0,
     simulationBankRoll: 5000,
-    whitePayoutMultiplier: 14
+    whitePayoutMultiplier: 14,
+    // ✅ Branco (config exclusiva)
+    // - whiteMaxGales: 0..5 (0 = somente 1 entrada)
+    // - whiteGaleMode: 'double' (dobrar) | 'same' (manter)
+    whiteMaxGales: 2,
+    whiteGaleMode: 'double'
 });
 
 function buildDiamondLevelSummaries() {
@@ -1042,6 +1047,16 @@ function getPayoutMultiplierForBetColor(betColor, autoBetCfg) {
     return 2;
 }
 
+function getGaleMultiplierForBetColor(betColor, autoBetCfg) {
+    const c = String(betColor || '').toLowerCase();
+    const cfg = autoBetCfg && typeof autoBetCfg === 'object' ? autoBetCfg : snapshotAutoBetConfig();
+    if (c === 'white' || c === 'branco') {
+        return normalizeWhiteGaleMode(cfg.whiteGaleMode) === 'same' ? 1 : 2;
+    }
+    const m = Number(cfg.galeMultiplier);
+    return Math.max(1, Number.isFinite(m) ? m : 2);
+}
+
 function calcStakeForStage(stageLabel, autoBetCfg) {
     const cfg = autoBetCfg && typeof autoBetCfg === 'object' ? autoBetCfg : snapshotAutoBetConfig();
     const base = Math.max(0.01, Number(cfg.baseStake) || 0.01);
@@ -1062,14 +1077,15 @@ function calcTotalInvestedThroughStage(stageLabel, autoBetCfg) {
     return roundMoney(sum);
 }
 
-function ensureMartingaleCycleConfig(autoBetCfg) {
+function ensureMartingaleCycleConfig(autoBetCfg, betColor = null) {
     try {
         const cfg = autoBetCfg && typeof autoBetCfg === 'object' ? autoBetCfg : snapshotAutoBetConfig();
         if (!martingaleState || typeof martingaleState !== 'object') return cfg;
         if (!martingaleState.cycleAutoBetConfig || typeof martingaleState.cycleAutoBetConfig !== 'object') {
+            const entryColor = betColor || martingaleState.entryColor || null;
             martingaleState.cycleAutoBetConfig = {
                 baseStake: Number(cfg.baseStake) || 0,
-                galeMultiplier: Number(cfg.galeMultiplier) || 0,
+                galeMultiplier: getGaleMultiplierForBetColor(entryColor, cfg),
                 whitePayoutMultiplier: Number(cfg.whitePayoutMultiplier) || 14
             };
         }
@@ -1138,7 +1154,17 @@ function sanitizeAutoBetConfig(rawConfig) {
     sanitized.stopLoss = Math.max(0, parseNumber(source.stopLoss, DEFAULT_AUTOBET_CONFIG.stopLoss || 0));
     sanitized.simulationBankRoll = Math.max(0, parseNumber(source.simulationBankRoll, DEFAULT_AUTOBET_CONFIG.simulationBankRoll || 0));
     sanitized.whitePayoutMultiplier = Math.max(2, parseNumber(source.whitePayoutMultiplier, DEFAULT_AUTOBET_CONFIG.whitePayoutMultiplier || 14));
+    sanitized.whiteMaxGales = Math.max(
+        0,
+        Math.min(5, Math.floor(parseNumber(source.whiteMaxGales, DEFAULT_AUTOBET_CONFIG.whiteMaxGales || 2)))
+    );
+    sanitized.whiteGaleMode = normalizeWhiteGaleMode(source.whiteGaleMode);
     return sanitized;
+}
+
+function normalizeWhiteGaleMode(mode) {
+    const raw = String(mode || '').toLowerCase().trim();
+    return raw === 'same' ? 'same' : 'double';
 }
 
 function getModeKey(config = analyzerConfig) {
@@ -1158,6 +1184,31 @@ function getMartingaleSettings(modeKey = getModeKey(), config = analyzerConfig) 
         maxGales,
         consecutiveGales,
         consecutiveMartingale: consecutiveGales > 0
+    };
+}
+
+function normalizeSimpleBetColor(value) {
+    const s = String(value || '').toLowerCase().trim();
+    if (!s) return '';
+    if (s.startsWith('r')) return 'red';
+    if (s.startsWith('w') || s === 'branco') return 'white';
+    // "branco" não é black
+    if (s.startsWith('b') && s !== 'branco') return 'black';
+    return s;
+}
+
+function getMartingaleSettingsForEntryColor(entryColor, modeKey = getModeKey(), config = analyzerConfig) {
+    const base = getMartingaleSettings(modeKey, config);
+    const c = normalizeSimpleBetColor(entryColor);
+    if (c !== 'white') return base;
+
+    // ✅ Branco: usar configuração exclusiva (não afeta vermelho/preto)
+    const autoBetCfg = sanitizeAutoBetConfig(config && config.autoBetConfig ? config.autoBetConfig : null);
+    const max = Math.max(0, Math.min(5, Math.floor(Number(autoBetCfg.whiteMaxGales) || 0)));
+    return {
+        maxGales: max,
+        consecutiveGales: max,
+        consecutiveMartingale: max > 0
     };
 }
 
@@ -3686,13 +3737,12 @@ async function startDataCollection() {
             });
         }
 
-        // 🛟 Recuperação: carregar flag persistida
+        // 🧼 Recuperação (manual) DESATIVADA:
+        // A UI foi migrada para o painel "Branco" (24h + puxadores). Não permitir que recovery esconda sinais.
+        recoveryModeEnabled = false;
         try {
-            const raw = storageData && storageData[RECOVERY_MODE_KEY] ? storageData[RECOVERY_MODE_KEY] : null;
-            recoveryModeEnabled = !!(raw && typeof raw === 'object' ? raw.enabled : raw);
-        } catch (_) {
-            recoveryModeEnabled = false;
-        }
+            await chrome.storage.local.set({ [RECOVERY_MODE_KEY]: { enabled: false, updatedAt: Date.now(), disabledBy: 'white_panel' } });
+        } catch (_) {}
     } catch (e) {
         console.warn('⚠️ Erro ao carregar configurações/estado, usando padrão:', e);
     }
@@ -3768,7 +3818,7 @@ async function startDataCollection() {
         // 3 minutos é extremamente conservador (o jogo resolve em poucos segundos).
         const STALE_MS = 3 * 60 * 1000;
 
-        const { consecutiveGales } = getMartingaleSettings();
+        const { consecutiveGales } = getMartingaleSettingsForEntryColor(effectiveMart && effectiveMart.entryColor);
         const isConsecutiveStage = !!(effectiveMart && effectiveMart.active && isMartingaleStageConsecutive(effectiveMart.stage, consecutiveGales));
         const analysisStale = !!(a && aMs > 0 && latestMs > 0 && latestMs > aMs && (latestMs - aMs) > STALE_MS);
         const martingaleStale = !!(
@@ -4536,7 +4586,10 @@ async function processNewSpinFromServer(spinData) {
                             }
                             
                             const nextGaleNumber = currentGaleNumber + 1;
-                            const { maxGales, consecutiveGales } = getMartingaleSettings();
+                            const entryColorForSettings = (martingaleState && martingaleState.active)
+                                ? martingaleState.entryColor
+                                : currentAnalysis.color;
+                            const { maxGales, consecutiveGales } = getMartingaleSettingsForEntryColor(entryColorForSettings);
                             
                             console.log(`║  ❌ LOSS no ${currentStage === 'ENTRADA' ? 'ENTRADA PADRÃO' : currentStage}                                  ║`);
                             console.log(`║  ⚙️  Configuração: ${maxGales} Gale${maxGales !== 1 ? 's' : ''} permitido${maxGales !== 1 ? 's' : ''}           ║`);
@@ -4735,8 +4788,9 @@ async function processNewSpinFromServer(spinData) {
                                 }
                                 
                                 // ✅ N4 (Autointeligente): permitir re-análise no Gale (G1) quando estiver rodando "só N4"
+                                // ⚪ Branco: NÃO mudar cor em gales — respeitar configuração exclusiva do Branco.
                                 let g1Color = currentAnalysis.color;
-                                if (shouldUseN4DynamicGalesForConfig(analyzerConfig)) {
+                                if (normalizeSimpleBetColor(currentAnalysis.color) !== 'white' && shouldUseN4DynamicGalesForConfig(analyzerConfig)) {
                                     const picked = pickN4DynamicGaleColor({
                                         history: cachedHistory,
                                         config: analyzerConfig,
@@ -4749,7 +4803,7 @@ async function processNewSpinFromServer(spinData) {
                                 
                                 // ⚠️ CRÍTICO: Registrar LOSS da ENTRADA antes de tentar G1
                                 // ✅ Fix financeiro: congelar config do ciclo na primeira entrada
-                                const cycleAutoBetCfg = ensureMartingaleCycleConfig(snapshotAutoBetConfig(analyzerConfig));
+                                const cycleAutoBetCfg = ensureMartingaleCycleConfig(snapshotAutoBetConfig(analyzerConfig), currentAnalysis.color);
                                 const betColor = currentAnalysis.color;
                                 const payoutMultiplier = getPayoutMultiplierForBetColor(betColor, cycleAutoBetCfg);
                                 const stakeAmount = calcStakeForStage('ENTRADA', cycleAutoBetCfg);
@@ -5065,7 +5119,8 @@ async function processNewSpinFromServer(spinData) {
                                 console.log(`║  currentAnalysis.color: ${currentAnalysis.color}                        ║`);
 
                                 let nextGaleColor = martingaleState.currentColor || martingaleState.entryColor || currentAnalysis.color;
-                                if (shouldUseN4DynamicGalesForConfig(analyzerConfig)) {
+                                // ⚪ Branco: NÃO mudar cor em gales — respeitar configuração exclusiva do Branco.
+                                if (normalizeSimpleBetColor(martingaleState.entryColor || currentAnalysis.color) !== 'white' && shouldUseN4DynamicGalesForConfig(analyzerConfig)) {
                                     const picked = pickN4DynamicGaleColor({
                                         history: cachedHistory,
                                         config: analyzerConfig,
@@ -13134,6 +13189,92 @@ const N0_DEFAULTS = Object.freeze({
 const N0_RUNTIME_MODEL_CACHE_VERSION = 1;
 const n0RuntimeModelCache = new Map(); // cacheKey -> { version, model, trainedAt, trainedOnSpinKey, spinsSinceTrain, lastSeenSpinKey, lastResult }
 
+// ✅ Controle de volume do Branco (N0):
+// Objetivo: evitar "chute em massa" (muitos sinais por hora) e manter sinais proporcionais ao volume real de brancos.
+const N0_WHITE_SIGNAL_TARGET_PER_HOUR_FALLBACK = 7; // média típica (usuário): ~6-8
+const N0_WHITE_SIGNAL_TARGET_MIN = 3;
+const N0_WHITE_SIGNAL_TARGET_MAX = 18;
+const N0_WHITE_SIGNAL_TARGET_LOOKBACK_HOURS = 6; // janela curta para adaptação ao "momento"
+const N0_WHITE_SIGNAL_MIN_LIFT = 1.45; // exigir lift acima do baseline do branco no horizonte
+let n0WhiteBudgetState = {
+    hourKey: null,
+    target: N0_WHITE_SIGNAL_TARGET_PER_HOUR_FALLBACK,
+    used: 0,
+    lastUpdateMs: 0
+};
+
+function buildHourKeyLocal(ms) {
+    try {
+        const d = new Date(Number(ms) || Date.now());
+        const y = d.getFullYear();
+        const m = String(d.getMonth() + 1).padStart(2, '0');
+        const day = String(d.getDate()).padStart(2, '0');
+        const h = String(d.getHours()).padStart(2, '0');
+        return `${y}-${m}-${day} ${h}`;
+    } catch (_) {
+        return `unknown_${Math.floor(Date.now() / 3600000)}`;
+    }
+}
+
+function estimateAvgWhitesPerHour(history, nowMs, lookbackHours = N0_WHITE_SIGNAL_TARGET_LOOKBACK_HOURS) {
+    try {
+        const arr = Array.isArray(history) ? history : [];
+        const now = Number(nowMs) || Date.now();
+        const lookback = Math.max(1, Math.min(24, Math.floor(Number(lookbackHours) || 6)));
+        const cutoff = now - lookback * 60 * 60 * 1000;
+        const hourSet = new Set();
+        let whites = 0;
+        for (let i = 0; i < arr.length; i++) {
+            const s = arr[i];
+            const ms = Number.isFinite(parseSpinTimestamp(s)) ? parseSpinTimestamp(s) : 0;
+            if (!ms) continue;
+            if (ms < cutoff) break; // history vem mais recente -> mais antigo
+            hourSet.add(buildHourKeyLocal(ms));
+            if (s && s.color === 'white') whites += 1;
+        }
+        const hours = hourSet.size;
+        if (hours <= 0) return null;
+        return whites / hours;
+    } catch (_) {
+        return null;
+    }
+}
+
+function ensureN0WhiteBudgetForNow(history, nowMs) {
+    const now = Number(nowMs) || Date.now();
+    const hourKey = buildHourKeyLocal(now);
+    if (n0WhiteBudgetState.hourKey !== hourKey) {
+        const avg = estimateAvgWhitesPerHour(history, now, N0_WHITE_SIGNAL_TARGET_LOOKBACK_HOURS);
+        const proposed = Number.isFinite(avg) ? Math.round(avg) : N0_WHITE_SIGNAL_TARGET_PER_HOUR_FALLBACK;
+        n0WhiteBudgetState = {
+            hourKey,
+            target: Math.max(N0_WHITE_SIGNAL_TARGET_MIN, Math.min(N0_WHITE_SIGNAL_TARGET_MAX, proposed)),
+            used: 0,
+            lastUpdateMs: now
+        };
+    }
+    return n0WhiteBudgetState;
+}
+
+function decideN0WhiteSignalEmission({ history, nowMs, confidence, lookaheadSpins, override = false }) {
+    const state = ensureN0WhiteBudgetForNow(history, nowMs);
+    const L = Math.max(1, Math.min(6, Math.floor(Number(lookaheadSpins) || 1)));
+    const base = 1 - Math.pow(1 - (1 / 15), L); // baseline P(hit branco em até L)
+    const minConf = Math.max(0.12, Math.min(0.75, clamp01(base * N0_WHITE_SIGNAL_MIN_LIFT)));
+    const conf = clamp01(typeof confidence === 'number' ? confidence : Number(confidence) || 0);
+    if (!override) {
+        if (state.used >= state.target) {
+            return { ok: false, reason: 'budget_exceeded', target: state.target, used: state.used, minConf, base };
+        }
+        if (conf < minConf) {
+            return { ok: false, reason: 'below_min_conf', target: state.target, used: state.used, minConf, base };
+        }
+    }
+    state.used += 1;
+    state.lastUpdateMs = Number(nowMs) || Date.now();
+    return { ok: true, reason: override ? 'override' : 'ok', target: state.target, used: state.used, minConf, base };
+}
+
 function buildN0RuntimeCacheKey(settings) {
     try {
         const s = settings && typeof settings === 'object' ? settings : {};
@@ -13712,7 +13853,8 @@ function buildN0BaseConfigs() {
     });
 
     [0.6, 0.7, 0.8, 0.85, 0.9].forEach(decay => {
-        [0.18, 0.2, 0.22, 0.25, 0.28].forEach(thresh => {
+        // ⚪ whites na janela (W=100) giram perto de ~0.06-0.08. Thresholds altos demais geram "silêncio".
+        [0.06, 0.07, 0.08, 0.09, 0.1, 0.11, 0.12, 0.14].forEach(thresh => {
             push('weighted_recency', { decay: Number(decay.toFixed(2)), thresh: Number(thresh.toFixed(3)) });
         });
     });
@@ -13732,21 +13874,24 @@ function buildN0BaseConfigs() {
     ].forEach(params => push('run_stats', params));
 
     [1, 2, 3].forEach(order => {
-        [0.45, 0.5, 0.55, 0.6, 0.65, 0.7].forEach(prob_thresh => {
+        // ⚪ prob de WHITE em até N giros (alvo) costuma ser baixa-moderada; 0.45+ é rigor demais.
+        [0.22, 0.26, 0.3, 0.34, 0.38, 0.42, 0.46].forEach(prob_thresh => {
             push('markov', { order, prob_thresh: Number(prob_thresh.toFixed(2)) });
         });
     });
 
     const patternLibrary = ['RR', 'RB', 'BR', 'BB', 'RRR', 'RBR', 'BRB', 'BBB', 'RBRB', 'BRBR'];
     patternLibrary.forEach(pattern => {
-        [0.55, 0.6, 0.65, 0.7, 0.75].forEach(next_thresh => {
+        // ⚪ thresholds muito altos fazem o n-gram quase nunca disparar
+        [0.22, 0.26, 0.3, 0.34, 0.38, 0.42, 0.46].forEach(next_thresh => {
             push('n_gram_pattern', { pattern, next_thresh: Number(next_thresh.toFixed(2)) });
         });
     });
 
     // ✅ Tail n-gram: condicionado ao contexto atual (tail) e alinhado ao horizonte de lookahead.
     [2, 3, 4, 5].forEach(L => {
-        [0.52, 0.56, 0.6, 0.64, 0.68].forEach(next_thresh => {
+        // ⚪ prob de WHITE em até N giros raramente chega em 0.52+; baixar para não "matar" o observador
+        [0.22, 0.26, 0.3, 0.34, 0.38, 0.42, 0.46].forEach(next_thresh => {
             [2, 3, 4].forEach(min_occurrences => {
                 push('tail_ngram', {
                     L,
@@ -13758,15 +13903,17 @@ function buildN0BaseConfigs() {
     });
 
     // ✅ Observadores "inteligentes" do branco (puxadores / gap / quebra) — guiados pelo histórico.
-    [0.26, 0.28, 0.3, 0.32, 0.35].forEach(prob_thresh => {
-        [6, 8, 10, 12].forEach(min_occurrences => {
+    // ⚪ Esses observadores estimam P(WHITE no horizonte). Em G2 (3 giros), baseline ≈ 0.18.
+    // Se começarmos em 0.26+ ele fica "mudo" por horas.
+    [0.18, 0.2, 0.22, 0.24, 0.26, 0.28, 0.3, 0.32].forEach(prob_thresh => {
+        [4, 6, 8, 10, 12].forEach(min_occurrences => {
             push('number_puller', { prob_thresh: Number(prob_thresh.toFixed(2)), min_occurrences });
             push('gap_hazard', { prob_thresh: Number(prob_thresh.toFixed(2)), min_occurrences });
         });
     });
-    [4, 5, 6, 7, 8, 9].forEach(min_run => {
-        [0.28, 0.3, 0.32, 0.35].forEach(prob_thresh => {
-            [5, 7, 9].forEach(min_occurrences => {
+    [3, 4, 5, 6, 7, 8, 9].forEach(min_run => {
+        [0.18, 0.2, 0.22, 0.24, 0.26, 0.28, 0.3].forEach(prob_thresh => {
+            [4, 6, 8, 10].forEach(min_occurrences => {
                 push('break_after_streak', {
                     min_run,
                     prob_thresh: Number(prob_thresh.toFixed(2)),
@@ -13841,7 +13988,7 @@ function sampleRandomN0Config(rng, forcedFamily) {
 
     switch (family) {
         case 'freq_threshold':
-            return { family, params: { thresh: randBetween(0.05, 0.32) } };
+            return { family, params: { thresh: randBetween(0.04, 0.22) } };
         case 'freq_segmented':
             return {
                 family,
@@ -13855,7 +14002,8 @@ function sampleRandomN0Config(rng, forcedFamily) {
                 family,
                 params: {
                     decay: randBetween(0.6, 0.95, 2),
-                    thresh: randBetween(0.18, 0.32)
+                    // ⚪ thresholds altos viram "silêncio" (pW janela ~0.06-0.08)
+                    thresh: randBetween(0.06, 0.14)
                 }
             };
         case 'last_run':
@@ -13878,7 +14026,7 @@ function sampleRandomN0Config(rng, forcedFamily) {
                 family,
                 params: {
                     order: randInt(1, 3),
-                    prob_thresh: randBetween(0.45, 0.75, 2)
+                    prob_thresh: randBetween(0.18, 0.55, 2)
                 }
             };
         case 'n_gram_pattern': {
@@ -13888,7 +14036,7 @@ function sampleRandomN0Config(rng, forcedFamily) {
                 family,
                 params: {
                     pattern,
-                    next_thresh: randBetween(0.55, 0.8, 2)
+                    next_thresh: randBetween(0.18, 0.55, 2)
                 }
             };
         }
@@ -13897,7 +14045,7 @@ function sampleRandomN0Config(rng, forcedFamily) {
                 family,
                 params: {
                     L: randInt(2, 6),
-                    next_thresh: randBetween(0.48, 0.78, 2),
+                    next_thresh: randBetween(0.18, 0.55, 2),
                     min_occurrences: randInt(2, 6)
                 }
             };
@@ -13905,16 +14053,16 @@ function sampleRandomN0Config(rng, forcedFamily) {
             return {
                 family,
                 params: {
-                    prob_thresh: randBetween(0.24, 0.38, 2),
-                    min_occurrences: randInt(6, 16)
+                    prob_thresh: randBetween(0.16, 0.36, 2),
+                    min_occurrences: randInt(4, 16)
                 }
             };
         case 'number_puller':
             return {
                 family,
                 params: {
-                    prob_thresh: randBetween(0.24, 0.4, 2),
-                    min_occurrences: randInt(6, 18)
+                    prob_thresh: randBetween(0.16, 0.36, 2),
+                    min_occurrences: randInt(4, 18)
                 }
             };
         case 'break_after_streak':
@@ -13922,8 +14070,8 @@ function sampleRandomN0Config(rng, forcedFamily) {
                 family,
                 params: {
                     min_run: randInt(3, 10),
-                    prob_thresh: randBetween(0.24, 0.4, 2),
-                    min_occurrences: randInt(5, 14)
+                    prob_thresh: randBetween(0.16, 0.36, 2),
+                    min_occurrences: randInt(4, 14)
                 }
             };
         case 'burst_detector':
@@ -14387,7 +14535,7 @@ function applyN0Config(cfg, windowChars, idxWindow, windows, context, depth = 0)
     const params = cfg.params || {};
     const stats = context.stats[idxWindow];
     const meta = (Array.isArray(windows) && windows[idxWindow]) ? windows[idxWindow] : null;
-    const lookahead = Math.max(1, Math.min(5, Math.floor(Number(meta && meta.lookahead) || 1)));
+    const lookahead = Math.max(1, Math.min(6, Math.floor(Number(meta && meta.lookahead) || 1)));
     const leaveOneOut = !!(context && context.loo);
 
     switch (cfg.family) {
@@ -15127,7 +15275,8 @@ function runN0Detector(history, options = {}) {
             analysesToRun: Number(options.analysesToRun) > 0 ? Math.floor(options.analysesToRun) : N0_DEFAULTS.analysesToRun,
             minWindowsRequired: Number(options.minWindowsRequired) > 0 ? Math.floor(options.minWindowsRequired) : N0_DEFAULTS.minWindowsRequired,
             precisionMin: typeof options.precisionMin === 'number' ? clamp01(options.precisionMin) : N0_DEFAULTS.precisionMin,
-            lookaheadSpins: Math.max(1, Math.min(5, lookaheadSpins)),
+            // ✅ máximo 6 = ENTRADA + G1..G5 (configuração máxima do Branco)
+            lookaheadSpins: Math.max(1, Math.min(6, lookaheadSpins)),
             confidenceGrid: Array.isArray(options.confidenceGrid) && options.confidenceGrid.length > 0
                 ? options.confidenceGrid.map(Number).filter(v => Number.isFinite(v) && v > 0 && v < 1).sort((a, b) => a - b)
                 : [...N0_DEFAULTS.confidenceGrid],
@@ -15427,19 +15576,32 @@ function runN0Detector(history, options = {}) {
             };
         }
 
-        evaluations.sort((a, b) => {
+        // ✅ Anti-"silêncio": evitar configs ultra-rígidas que quase nunca disparam.
+        // Exigir uma cobertura mínima baseada na taxa base de WHITE no horizonte (target W nas janelas).
+        const targetWhiteRate = trainingWindows.length > 0
+            ? (trainingWindows.filter(w => w && w.target === 'W').length / trainingWindows.length)
+            : 0;
+        const minCoverageFloor = Math.max(0.03, Math.min(0.25, targetWhiteRate * 0.35));
+        const coverageEligible = evaluations.filter(ev => (ev && ev.metrics && typeof ev.metrics.coverage === 'number')
+            ? (ev.metrics.coverage >= minCoverageFloor)
+            : false
+        );
+        const rankingPool = coverageEligible.length > 0 ? coverageEligible : evaluations;
+
+        rankingPool.sort((a, b) => {
             const mA = a.metrics;
             const mB = b.metrics;
             if (mB.f1 !== mA.f1) return mB.f1 - mA.f1;
             if (mB.recall !== mA.recall) return mB.recall - mA.recall;
+            // ✅ preferir modelos que não "morrem" (mais sinais) quando F1/recall empatam
+            if (mB.coverage !== mA.coverage) return mB.coverage - mA.coverage;
             if (mB.precision !== mA.precision) return mB.precision - mA.precision;
             if ((mB.acc_recent || 0) !== (mA.acc_recent || 0)) return (mB.acc_recent || 0) - (mA.acc_recent || 0);
-            if (mB.coverage !== mA.coverage) return mB.coverage - mA.coverage;
             return 0;
         });
 
-        const TOP_K = Math.min(20, evaluations.length);
-        const topEvaluations = evaluations.slice(0, TOP_K);
+        const TOP_K = Math.min(20, rankingPool.length);
+        const topEvaluations = rankingPool.slice(0, TOP_K);
         const bestEvaluation = topEvaluations[0];
         const bestDetailed = evaluateN0Config(trainingWindows, bestEvaluation.cfg, trainingContext, { collectLogs: !silent });
         const bestMetrics = bestDetailed.metrics;
@@ -18113,10 +18275,12 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
         let diamondSequenceDisplayed = false;
 
         const n0Settings = getN0SettingsFromAnalyzerConfig();
-        const { maxGales: n0MaxGalesConfigured } = getMartingaleSettings('diamond', analyzerConfig);
+        // ✅ IMPORTANTE: horizonte do N0 deve seguir os GALES DO BRANCO (config exclusiva),
+        // não o maxGales global de vermelho/preto.
+        const { maxGales: n0MaxGalesConfigured } = getMartingaleSettingsForEntryColor('white', 'diamond', analyzerConfig);
         const n0LookaheadSpins = Math.max(
             1,
-            Math.min(5, (Math.floor(Number(n0MaxGalesConfigured) || 0) + 1))
+            Math.min(6, (Math.floor(Number(n0MaxGalesConfigured) || 0) + 1))
         );
         const n0Options = {
             historySize: n0Settings.historySize,
@@ -18814,6 +18978,17 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
         }
 
         if (n0ForceWhite) {
+            const nowMs = Number.isFinite(parseSpinTimestamp(history && history[0])) ? parseSpinTimestamp(history[0]) : Date.now();
+            try {
+                // BLOCK ALL é o evento mais forte; ainda assim contabilizar no budget (override) para manter proporção por hora.
+                decideN0WhiteSignalEmission({
+                    history,
+                    nowMs,
+                    confidence: n0WhiteStrength,
+                    lookaheadSpins: n0Options.lookaheadSpins,
+                    override: true
+                });
+            } catch (_) {}
             console.log('%c⚪ N0 FORÇOU BLOQUEIO TOTAL DOS DEMAIS NÍVEIS - SINAL BRANCO!', 'color: #FFFFFF; font-weight: bold; font-size: 16px; background: #000000;');
             levelReports.sort((a, b) => {
                 const aIndex = displayOrder.indexOf(a.id);
@@ -18938,10 +19113,6 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
             };
         }
 
-        // ✅ MODO "SOMENTE N0":
-        // Se NÃO houver nenhum nível votante (N1–N8) ativo, o N0 deve conseguir operar de forma independente.
-        // Antes: o sistema ficava mudo porque o N0 só gerava sinal quando era BLOCK ALL (n0ForceWhite).
-        // Agora: se o N0 prever WHITE (mesmo em ALERTA/SOFT BLOCK/informativo), emitimos sinal WHITE.
         const anyVotingLevelEnabled = (() => {
             try {
                 const votingIds = ['N1','N2','N3','N4','N5','N6','N7','N8'];
@@ -18952,7 +19123,150 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
         })();
         const n0PredictedWhite = !!(n0Enabled && n0Result && n0Result.enabled !== false && n0Result.pred_live === 'W');
 
-        if (!anyVotingLevelEnabled && n0PredictedWhite) {
+        // ✅ MODO MISTO (N0 + outros níveis):
+        // Se o N0 prever WHITE com confiança suficiente (>= limiar do SOFT), emitir sinal WHITE
+        // mesmo com outros níveis ativos. Isso evita longos períodos sem sinal de branco.
+        const nowMsForBudget = Number.isFinite(parseSpinTimestamp(history && history[0])) ? parseSpinTimestamp(history[0]) : Date.now();
+        const n0BudgetOk = (() => {
+            if (!n0PredictedWhite) return { ok: false, reason: 'not_predicted' };
+            try {
+                return decideN0WhiteSignalEmission({
+                    history,
+                    nowMs: nowMsForBudget,
+                    confidence: n0WhiteStrength,
+                    lookaheadSpins: n0Options.lookaheadSpins,
+                    override: false
+                });
+            } catch (_) {
+                return { ok: false, reason: 'budget_error' };
+            }
+        })();
+
+        if (anyVotingLevelEnabled && n0BudgetOk && n0BudgetOk.ok) {
+            levelReports.sort((a, b) => {
+                const aIndex = displayOrder.indexOf(a.id);
+                const bIndex = displayOrder.indexOf(b.id);
+                const safeA = aIndex === -1 ? displayOrder.length : aIndex;
+                const safeB = bIndex === -1 ? displayOrder.length : bIndex;
+                return safeA - safeB;
+            });
+
+            if (intervalBlocked) {
+                sendAnalysisStatus(intervalMessage || '⏳ Aguardando intervalo configurado...');
+                await sleep(2000);
+                await restoreIAStatus();
+                console.log('%c   ❌ SINAL CANCELADO PELO INTERVALO!', 'color: #FF0000; font-weight: bold; font-size: 14px;');
+                return null;
+            }
+
+            const whiteConfidencePct = Math.max(0, Math.min(100, Math.round(n0WhiteStrength * 100)));
+            const thresholdPct = n0Result && n0Result.blocking_threshold != null
+                ? Math.round(n0Result.blocking_threshold * 100)
+                : null;
+            const actionLabel =
+                n0SoftBlockActive ? 'SOFT BLOCK'
+                : (n0ActionSuppressed ? 'ALERTA (informativo)' : 'ALERTA');
+
+            console.log('%c⚪ N0 PREVIU WHITE (modo misto) — emitindo sinal WHITE', 'color: #FFFFFF; font-weight: bold; font-size: 15px; background: #000000;');
+            sendAnalysisStatus(`⚪ N0 - Detector de Branco: ${actionLabel} (${whiteConfidencePct}%${thresholdPct !== null ? ` • t* ${thresholdPct}%` : ''})`);
+            await sleep(1500);
+            sendAnalysisStatus('Sinal de entrada');
+            await sleep(1500);
+
+            const scoreSummary = levelReports.map(level => ({
+                id: level.id,
+                name: level.name,
+                color: level.color,
+                strength: Number((level.strength || 0).toFixed(3)),
+                weight: Number((level.weight || 0).toFixed(3)),
+                contribution: Number(((level.score || 0) * (level.weight || 0)).toFixed(3)),
+                details: level.details
+            }));
+            const diamondSourceLevel = pickDiamondSourceLevel(scoreSummary, 'white');
+
+            const holdoutReasoning = n0Result && n0Result.holdout && n0Result.holdout.enabled
+                ? `Holdout: ${n0Result.holdout.passed ? 'OK' : 'Falhou'}${n0Result.holdout.reason ? ` (${n0Result.holdout.reason})` : ''}\n`
+                : '';
+            const reasoning =
+                `${levelReports.map(level => describeLevel(level, { includeEmoji: false })).join('\n')}\n` +
+                `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+                `Detector de Branco (N0)\n` +
+                `Modo: misto (N0 + outros níveis)\n` +
+                `Confiança: ${whiteConfidencePct}%\n` +
+                `t*: ${thresholdPct !== null ? `${thresholdPct}%` : 'n/d'}\n` +
+                holdoutReasoning +
+                `Ação: ${actionLabel}`;
+
+            const diamondN0 = (() => {
+                try {
+                    const key = (n0Result && typeof n0Result.learning_key === 'string') ? n0Result.learning_key : null;
+                    const ctx = (n0Result && typeof n0Result.learning_context === 'string') ? n0Result.learning_context : null;
+                    return {
+                        voteColor: 'white',
+                        key,
+                        ctx,
+                        usedInFinal: true,
+                        decision: (n0Result && typeof n0Result.learning_decision === 'string') ? n0Result.learning_decision : 'none',
+                        action: (n0Result && typeof n0Result.blocking_action === 'string') ? n0Result.blocking_action : 'no_block'
+                    };
+                } catch (_) {
+                    return null;
+                }
+            })();
+
+            const signal = {
+                timestamp: Date.now(),
+                patternType: 'nivel-diamante',
+                patternName: 'Detector de Branco (N0)',
+                colorRecommended: 'white',
+                normalizedScore: Number(n0WhiteStrength.toFixed(4)),
+                scoreMagnitude: Number(n0WhiteStrength.toFixed(4)),
+                intensityMode: analyzerConfig.signalIntensity || 'aggressive',
+                rawConfidence: whiteConfidencePct,
+                finalConfidence: whiteConfidencePct,
+                levelBreakdown: scoreSummary,
+                sourceLevel: diamondSourceLevel,
+                reasoning,
+                verified: false,
+                colorThatCame: null,
+                hit: null
+            };
+
+            if (signalsHistory && signalsHistory.signals) {
+                signalsHistory.signals.push(signal);
+                if (signalsHistory.signals.length > 200) {
+                    signalsHistory.signals = signalsHistory.signals.slice(-200);
+                }
+                await saveSignalsHistory();
+            }
+
+            if (!memoriaAtiva.inicializada) {
+                memoriaAtiva.inicializada = true;
+                memoriaAtiva.ultimaAtualizacao = Date.now();
+                memoriaAtiva.totalAtualizacoes = 1;
+                memoriaAtiva.giros = history.slice(0, getMemoriaAtivaHistoryCap());
+                console.log('%c✅ Memória Ativa marcada como INICIALIZADA!', 'color: #00FF00; font-weight: bold;');
+            } else {
+                memoriaAtiva.totalAtualizacoes++;
+                memoriaAtiva.ultimaAtualizacao = Date.now();
+            }
+
+            return {
+                color: 'white',
+                confidence: whiteConfidencePct,
+                probability: whiteConfidencePct,
+                reasoning,
+                patternDescription: 'Detector de Branco (N0)',
+                diamondSourceLevel,
+                diamondN0
+            };
+        }
+
+        // ✅ MODO "SOMENTE N0":
+        // Se NÃO houver nenhum nível votante (N1–N8) ativo, o N0 deve conseguir operar de forma independente.
+        // Antes: o sistema ficava mudo porque o N0 só gerava sinal quando era BLOCK ALL (n0ForceWhite).
+        // Agora: se o N0 prever WHITE (mesmo em ALERTA/SOFT BLOCK/informativo), emitimos sinal WHITE.
+        if (!anyVotingLevelEnabled && n0BudgetOk && n0BudgetOk.ok) {
             levelReports.sort((a, b) => {
                 const aIndex = displayOrder.indexOf(a.id);
                 const bIndex = displayOrder.indexOf(b.id);
@@ -20675,7 +20989,7 @@ async function runAnalysisController(history) {
 		// ⚠️ CRÍTICO: Em gales consecutivos (até o limite configurado), não gerar novo sinal.
 		// ✅ Correção: se o martingale estiver ativo mas NÃO houver analysis pendente correspondente (ou estiver stale),
 		// isso significa estado travado após refresh/erro → auto-reset para destravar.
-		const { consecutiveGales } = getMartingaleSettings();
+		const { consecutiveGales } = getMartingaleSettingsForEntryColor(martingaleState && martingaleState.entryColor);
 		if (martingaleState.active && isMartingaleStageConsecutive(martingaleState.stage, consecutiveGales)) {
 			let shouldBlock = true;
 			try {
@@ -20776,7 +21090,7 @@ async function runAnalysisController(history) {
 			// - enquanto estiver dentro do "consecutivo até", mantém a cor do ciclo
 			// - quando estiver no modo "próximo sinal", NÃO mantém a cor (usa a cor do novo sinal)
 			if (martingaleState.active) {
-				const { consecutiveGales } = getMartingaleSettings();
+				const { consecutiveGales } = getMartingaleSettingsForEntryColor(martingaleState && martingaleState.entryColor);
 				console.log('║  🔄 MARTINGALE ATIVO DETECTADO!                          ║');
 				console.log(`║  Cor do novo padrão: ${verifyResult.color}                           ║`);
 				console.log(`║  Cor da entrada original: ${martingaleState.entryColor}                    ║`);
@@ -20955,7 +21269,7 @@ async function runAnalysisController(history) {
 				let aiPhase = 'G0';
 				
 				if (martingaleState.active) {
-					const { consecutiveGales } = getMartingaleSettings();
+					const { consecutiveGales } = getMartingaleSettingsForEntryColor(martingaleState && martingaleState.entryColor);
 					console.log('║  🔄 MARTINGALE ATIVO DETECTADO! (MODO IA)                ║');
 					console.log(`║  Cor da IA: ${aiColor}                                         ║`);
 					console.log(`║  Cor da entrada original: ${martingaleState.entryColor}                    ║`);
@@ -30255,7 +30569,7 @@ async function sendTelegramMartingaleGale(galeNumber, color, percentage = null, 
     
     // Determinar texto de alerta baseado no número do Gale
     let warningText = '';
-    const { maxGales } = getMartingaleSettings();
+    const { maxGales } = getMartingaleSettingsForEntryColor(color);
     const configuredMaxGales = maxGales || 2;
     if (galeNumber === configuredMaxGales) {
         warningText = '\n⚠️ <b>ÚLTIMA TENTATIVA!</b> ⚠️';
@@ -30444,7 +30758,7 @@ function normalizeStandardConfigForSimulation(cfg) {
 
 async function maybeGenerateStandardAnalysisSimulation(history, simState, patternDB) {
     const config = simState.config || {};
-    const { consecutiveGales } = getMartingaleSettings('standard', config);
+    const { consecutiveGales } = getMartingaleSettingsForEntryColor(simState?.martingaleState?.entryColor, 'standard', config);
 
     // se análise pendente, não gerar outra
     if (simState.analysis && simState.analysis.createdOnTimestamp && simState.analysis.predictedFor === 'next') {
@@ -31399,7 +31713,8 @@ function evaluatePendingAnalysisSimulation(latestSpin, simState, history, modeKe
     markLastSignalResolved(simState, latestSpin, hit);
 
     const martingale = simState.martingaleState;
-    const { maxGales, consecutiveGales } = getMartingaleSettings(modeKey, config);
+    const entryColorForSettings = (martingale && martingale.active) ? martingale.entryColor : (currentAnalysis && currentAnalysis.color);
+    const { maxGales, consecutiveGales } = getMartingaleSettingsForEntryColor(entryColorForSettings, modeKey, config);
 
     const historyRef = Array.isArray(history) ? history : [];
     const shouldUseN4DynamicGales = (() => {
@@ -31415,6 +31730,9 @@ function evaluatePendingAnalysisSimulation(latestSpin, simState, history, modeKe
 
     const pickN4GaleColor = (stageNumber) => {
         if (!shouldUseN4DynamicGales) return null;
+        // ⚪ Branco: NÃO mudar cor em gales — respeitar configuração exclusiva do Branco.
+        const cycleEntryColor = (martingale && martingale.active) ? martingale.entryColor : (currentAnalysis && currentAnalysis.color);
+        if (normalizeSimpleBetColor(cycleEntryColor) === 'white') return null;
         try {
             const n4Window = getDiamondWindowFromConfig(config, 'n4Persistence', DEFAULT_ANALYZER_CONFIG.diamondLevelWindows.n4Persistence);
             const overallMax = Math.max(0, Math.floor(Number(maxGales) || 0));
@@ -31735,8 +32053,9 @@ function analyzeDiamondLevelsSimulation(history, config, simState) {
     // N0
     const n0Enabled = isLevelEnabledLocal('N0');
     const n0Settings = getN0SettingsFromConfig(config);
-    const { maxGales: n0MaxGalesConfigured } = getMartingaleSettings('diamond', config);
-    const n0LookaheadSpins = Math.max(1, Math.min(5, (Math.floor(Number(n0MaxGalesConfigured) || 0) + 1)));
+    // ✅ Simulação deve seguir GALES DO BRANCO (config exclusiva), igual ao modo real.
+    const { maxGales: n0MaxGalesConfigured } = getMartingaleSettingsForEntryColor('white', 'diamond', config);
+    const n0LookaheadSpins = Math.max(1, Math.min(6, (Math.floor(Number(n0MaxGalesConfigured) || 0) + 1)));
     const n0Options = {
         historySize: n0Settings.historySize,
         windowSize: n0Settings.windowSize,
@@ -32193,6 +32512,22 @@ function analyzeDiamondLevelsSimulation(history, config, simState) {
     if (n0ForceWhite) {
         if (intervalBlocked) return null;
         const whiteConfidencePct = Math.max(0, Math.min(100, Math.round(n0WhiteStrength * 100)));
+        try {
+            // contabilizar também na simulação (override) para manter proporção por hora
+            const nowMs = Number.isFinite(parseSpinTimestamp(history && history[0])) ? parseSpinTimestamp(history[0]) : Date.now();
+            const hourKey = buildHourKeyLocal(nowMs);
+            if (!simState.n0WhiteBudget) simState.n0WhiteBudget = { hourKey: null, target: N0_WHITE_SIGNAL_TARGET_PER_HOUR_FALLBACK, used: 0 };
+            if (simState.n0WhiteBudget.hourKey !== hourKey) {
+                const avg = estimateAvgWhitesPerHour(history, nowMs, N0_WHITE_SIGNAL_TARGET_LOOKBACK_HOURS);
+                const proposed = Number.isFinite(avg) ? Math.round(avg) : N0_WHITE_SIGNAL_TARGET_PER_HOUR_FALLBACK;
+                simState.n0WhiteBudget = {
+                    hourKey,
+                    target: Math.max(N0_WHITE_SIGNAL_TARGET_MIN, Math.min(N0_WHITE_SIGNAL_TARGET_MAX, proposed)),
+                    used: 0
+                };
+            }
+            simState.n0WhiteBudget.used = (Number(simState.n0WhiteBudget.used) || 0) + 1;
+        } catch (_) {}
         return {
             color: 'white',
             confidence: whiteConfidencePct,
@@ -32202,9 +32537,6 @@ function analyzeDiamondLevelsSimulation(history, config, simState) {
         };
     }
 
-    // ✅ MODO "SOMENTE N0" (mesma intenção do modo real):
-    // Se nenhum nível votante (N1–N8) estiver ativo e o N0 prever WHITE,
-    // o simulador deve emitir sinal WHITE (mesmo sem BLOCK ALL), para refletir o cenário real.
     const anyVotingLevelEnabled = (() => {
         try {
             const votingIds = ['N1','N2','N3','N4','N5','N6','N7','N8'];
@@ -32214,7 +32546,54 @@ function analyzeDiamondLevelsSimulation(history, config, simState) {
         }
     })();
     const n0PredictedWhite = !!(n0Enabled && n0Result && n0Result.enabled !== false && n0Result.pred_live === 'W');
-    if (!anyVotingLevelEnabled && n0PredictedWhite) {
+
+    // ✅ MODO MISTO (N0 + outros níveis):
+    // Se o N0 prever WHITE com confiança suficiente (>= limiar do SOFT), emitir sinal WHITE
+    // mesmo com outros níveis ativos. Isso mantém a simulação idêntica ao modo real.
+    const n0SoftThreshold = (() => {
+        try {
+            const t = (n0Result && typeof n0Result.blocking_threshold === 'number')
+                ? clamp01Local(n0Result.blocking_threshold)
+                : null;
+            if (t == null) return 0.5;
+            return clamp01Local(t * 0.8);
+        } catch (_) {
+            return 0.5;
+        }
+    })();
+    const n0StrongAlert = !!(n0PredictedWhite && (n0WhiteStrength || 0) >= n0SoftThreshold);
+    // ✅ Aplicar budget no simulador também (mesma regra do modo real)
+    const n0BudgetOk = (() => {
+        if (!n0StrongAlert) return { ok: false, reason: 'below_threshold' };
+        try {
+            const nowMs = Number.isFinite(parseSpinTimestamp(history && history[0])) ? parseSpinTimestamp(history[0]) : Date.now();
+            const hourKey = buildHourKeyLocal(nowMs);
+            if (!simState.n0WhiteBudget) simState.n0WhiteBudget = { hourKey: null, target: N0_WHITE_SIGNAL_TARGET_PER_HOUR_FALLBACK, used: 0 };
+            if (simState.n0WhiteBudget.hourKey !== hourKey) {
+                const avg = estimateAvgWhitesPerHour(history, nowMs, N0_WHITE_SIGNAL_TARGET_LOOKBACK_HOURS);
+                const proposed = Number.isFinite(avg) ? Math.round(avg) : N0_WHITE_SIGNAL_TARGET_PER_HOUR_FALLBACK;
+                simState.n0WhiteBudget = {
+                    hourKey,
+                    target: Math.max(N0_WHITE_SIGNAL_TARGET_MIN, Math.min(N0_WHITE_SIGNAL_TARGET_MAX, proposed)),
+                    used: 0
+                };
+            }
+            const L = Math.max(1, Math.min(6, Math.floor(Number(n0LookaheadSpins) || 1)));
+            const base = 1 - Math.pow(1 - (1 / 15), L);
+            const minConf = Math.max(0.12, Math.min(0.75, clamp01Local(base * N0_WHITE_SIGNAL_MIN_LIFT)));
+            if ((Number(simState.n0WhiteBudget.used) || 0) >= (Number(simState.n0WhiteBudget.target) || 0)) {
+                return { ok: false, reason: 'budget_exceeded' };
+            }
+            if ((n0WhiteStrength || 0) < minConf) {
+                return { ok: false, reason: 'below_min_conf' };
+            }
+            simState.n0WhiteBudget.used = (Number(simState.n0WhiteBudget.used) || 0) + 1;
+            return { ok: true };
+        } catch (_) {
+            return { ok: false, reason: 'budget_error' };
+        }
+    })();
+    if (anyVotingLevelEnabled && n0BudgetOk && n0BudgetOk.ok) {
         if (intervalBlocked) return null;
         const whiteConfidencePct = Math.max(0, Math.min(100, Math.round(n0WhiteStrength * 100)));
         const actionLabel =
@@ -32224,9 +32603,53 @@ function analyzeDiamondLevelsSimulation(history, config, simState) {
             color: 'white',
             confidence: whiteConfidencePct,
             probability: whiteConfidencePct,
-            reasoning: `N0 previu branco (modo somente N0) • ${actionLabel}`,
+            reasoning: `N0 previu branco (modo misto) • ${actionLabel}`,
             patternDescription: 'Detector de Branco (N0)'
         };
+    }
+
+    // ✅ MODO "SOMENTE N0" (mesma intenção do modo real):
+    // Emitir WHITE apenas quando passar no budget + lift mínimo (evita chute em massa).
+    if (!anyVotingLevelEnabled && n0PredictedWhite) {
+        if (intervalBlocked) return null;
+        const okSolo = (() => {
+            try {
+                const nowMs = Number.isFinite(parseSpinTimestamp(history && history[0])) ? parseSpinTimestamp(history[0]) : Date.now();
+                const hourKey = buildHourKeyLocal(nowMs);
+                if (!simState.n0WhiteBudget) simState.n0WhiteBudget = { hourKey: null, target: N0_WHITE_SIGNAL_TARGET_PER_HOUR_FALLBACK, used: 0 };
+                if (simState.n0WhiteBudget.hourKey !== hourKey) {
+                    const avg = estimateAvgWhitesPerHour(history, nowMs, N0_WHITE_SIGNAL_TARGET_LOOKBACK_HOURS);
+                    const proposed = Number.isFinite(avg) ? Math.round(avg) : N0_WHITE_SIGNAL_TARGET_PER_HOUR_FALLBACK;
+                    simState.n0WhiteBudget = {
+                        hourKey,
+                        target: Math.max(N0_WHITE_SIGNAL_TARGET_MIN, Math.min(N0_WHITE_SIGNAL_TARGET_MAX, proposed)),
+                        used: 0
+                    };
+                }
+                const L = Math.max(1, Math.min(6, Math.floor(Number(n0LookaheadSpins) || 1)));
+                const base = 1 - Math.pow(1 - (1 / 15), L);
+                const minConf = Math.max(0.12, Math.min(0.75, clamp01Local(base * N0_WHITE_SIGNAL_MIN_LIFT)));
+                if ((Number(simState.n0WhiteBudget.used) || 0) >= (Number(simState.n0WhiteBudget.target) || 0)) return false;
+                if ((n0WhiteStrength || 0) < minConf) return false;
+                simState.n0WhiteBudget.used = (Number(simState.n0WhiteBudget.used) || 0) + 1;
+                return true;
+            } catch (_) {
+                return false;
+            }
+        })();
+        if (okSolo) {
+            const whiteConfidencePct = Math.max(0, Math.min(100, Math.round(n0WhiteStrength * 100)));
+            const actionLabel =
+                n0SoftBlockActive ? 'SOFT BLOCK'
+                : (n0ActionSuppressed ? 'ALERTA (informativo)' : 'ALERTA');
+            return {
+                color: 'white',
+                confidence: whiteConfidencePct,
+                probability: whiteConfidencePct,
+                reasoning: `N0 previu branco (modo somente N0) • ${actionLabel}`,
+                patternDescription: 'Detector de Branco (N0)'
+            };
+        }
     }
 
     // Score preliminar e barreira
@@ -32422,7 +32845,7 @@ function createDiamondAnalysisForNextSpin(history, simState, aiResult) {
     let aiPhase = 'G0';
 
     if (simState.martingaleState.active) {
-        const { consecutiveGales } = getMartingaleSettings('diamond', config);
+        const { consecutiveGales } = getMartingaleSettingsForEntryColor(simState?.martingaleState?.entryColor, 'diamond', config);
         aiPhase = simState.martingaleState.stage;
         // ✅ Só força a cor quando o estágio atual é consecutivo
         const forcedColor = simState.martingaleState.currentColor || simState.martingaleState.entryColor;
@@ -32471,7 +32894,7 @@ function createDiamondAnalysisForNextSpin(history, simState, aiResult) {
 
 function maybeGenerateDiamondAnalysisSimulation(history, simState) {
     const config = simState.config || {};
-    const { consecutiveGales } = getMartingaleSettings('diamond', config);
+    const { consecutiveGales } = getMartingaleSettingsForEntryColor(simState?.martingaleState?.entryColor, 'diamond', config);
 
     // Se análise pendente, não gerar outra
     if (simState.analysis && simState.analysis.createdOnTimestamp && simState.analysis.predictedFor === 'next') {
@@ -32789,58 +33212,17 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         sendResponse({ status: 'ok', enabled: analysisEnabled });
         return true;
     } else if (request.action === 'SET_RECOVERY_MODE') {
+        // 🧼 Recuperação desativada: manter compatibilidade com UI antiga, mas não permitir ativação.
         (async () => {
             try {
-                const enabled = request && typeof request.enabled === 'boolean' ? request.enabled : false;
-                recoveryModeEnabled = !!enabled;
-                // ✅ Ao ativar: (1) semear base do histórico da Recuperação com o histórico já existente,
-                // (2) esconder qualquer sinal normal já pendente (vira "silencioso"),
-                // (3) limpar a UI (não mostrar sinal em lugar algum).
-                if (recoveryModeEnabled) {
-                    try {
-                        const stored = await chrome.storage.local.get(['analysis', 'entriesHistory', RECOVERY_SECURE_HISTORY_KEY]);
-                        const existingRecovery = stored && Array.isArray(stored[RECOVERY_SECURE_HISTORY_KEY]) ? stored[RECOVERY_SECURE_HISTORY_KEY] : [];
-                        const baseEntries = stored && Array.isArray(stored.entriesHistory) ? stored.entriesHistory : [];
-                        // ✅ Regra: ao ativar Recuperação, sempre garantir uma base robusta.
-                        // Não depender do cutoff da IA (isso pode zerar e “travar” por 20+ min).
-                        // Se houver entriesHistory, usar como seed (cap para não inflar storage).
-                        if (baseEntries.length) {
-                            const cap = 2000;
-                            const seeded = baseEntries.slice(0, cap);
-                            await chrome.storage.local.set({ [RECOVERY_SECURE_HISTORY_KEY]: seeded });
-                        } else if (!existingRecovery.length) {
-                            await chrome.storage.local.set({ [RECOVERY_SECURE_HISTORY_KEY]: [] });
-                        }
-                        const a = stored && stored.analysis ? stored.analysis : null;
-                        if (a && !a.recoveryMode) {
-                            await chrome.storage.local.set({ analysis: { ...a, hiddenInternal: true } });
-                        }
-                    } catch (_) {}
-                }
-
-                await chrome.storage.local.set({ [RECOVERY_MODE_KEY]: { enabled: recoveryModeEnabled, updatedAt: Date.now() } });
-                try {
-                    sendMessageToContent('RECOVERY_MODE_UPDATE', {
-                        enabled: recoveryModeEnabled,
-                        statusText: recoveryModeEnabled ? '' : 'Desativada'
-                    });
-                } catch (_) {}
-                if (recoveryModeEnabled) {
-                    try { sendMessageToContent('CLEAR_ANALYSIS'); } catch (_) {}
-                }
-                sendResponse({ status: 'ok', enabled: recoveryModeEnabled });
-            } catch (e) {
-                console.error('❌ Falha em SET_RECOVERY_MODE:', e);
-                sendResponse({ status: 'error', error: String(e) });
-            }
+                recoveryModeEnabled = false;
+                await chrome.storage.local.set({ [RECOVERY_MODE_KEY]: { enabled: false, updatedAt: Date.now(), disabledBy: 'white_panel' } });
+            } catch (_) {}
+            sendResponse({ status: 'ok', enabled: false, disabled: true });
         })();
-        return true;
+        return true; // async
     } else if (request.action === 'GET_RECOVERY_MODE') {
-        try {
-            sendResponse({ status: 'ok', enabled: !!recoveryModeEnabled });
-        } catch (_) {
-            sendResponse({ status: 'ok', enabled: false });
-        }
+        sendResponse({ status: 'ok', enabled: false, disabled: true });
         return true;
     } else if (request.action === 'FORCE_CLEAR_PENDING') {
         (async () => {

@@ -1401,7 +1401,7 @@
 
 /* ═══════════════════════════════════════════════════════════════
    📊 MOMENTO (Qualidade dos sinais) — Ruim / Bom / Muito bom
-   Barra entre o topo (Aguardando sinal) e as abas (IA/Recuperação/Gráfico)
+   Barra entre o topo (Aguardando sinal) e as abas (IA/Branco/Gráfico)
    ═══════════════════════════════════════════════════════════════ */
 
 .moment-quality-bar {
@@ -2421,6 +2421,272 @@
     font-weight: 600;
     color: #f3e4ff;
     font-size: 13px;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   ⚪ PAINEL BRANCO (24h + puxadores)
+   ═══════════════════════════════════════════════════════════════ */
+.white-insights {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.white-insights-block {
+    padding: 10px;
+    border-radius: 10px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(0, 0, 0, 0.14);
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,0.03);
+}
+
+.white-insights-title {
+    margin: 0 0 8px 0;
+    /* Igual ao título "Branco" (observer-section h4) */
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0;
+    text-transform: none;
+    color: #f3e4ff;
+}
+
+.white-pullers-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 6px;
+}
+
+.white-pullers-filter {
+    display: inline-flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+}
+
+.white-pullers-filter-btn {
+    height: 26px;
+    padding: 0 10px;
+    border-radius: 3px;
+    border: 1px solid rgba(255, 255, 255, 0.10);
+    background: rgba(255, 255, 255, 0.05);
+    color: rgba(255, 255, 255, 0.92);
+    font-size: 11px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.white-pullers-filter-btn:hover {
+    background: rgba(255, 255, 255, 0.08);
+    border-color: rgba(239, 68, 68, 0.35);
+}
+
+.white-pullers-filter-btn.active {
+    border-color: rgba(239, 68, 68, 0.75);
+    box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.15);
+}
+
+.white-bet-settings {
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.white-bet-setting-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin: 8px 0;
+}
+
+.white-bet-setting-label {
+    /* Igual ao título "Branco" (observer-section h4) */
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0;
+    text-transform: none;
+    color: #f3e4ff;
+    white-space: nowrap;
+}
+
+.white-bet-input {
+    width: 84px;
+    height: 26px;
+    border-radius: 3px;
+    border: 1px solid rgba(255, 255, 255, 0.10);
+    background: rgba(255, 255, 255, 0.05);
+    color: rgba(255, 255, 255, 0.92);
+    font-size: 12px;
+    font-weight: 700;
+    padding: 0 10px;
+    outline: none;
+}
+
+.white-bet-input:focus {
+    border-color: rgba(239, 68, 68, 0.60);
+    box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.12);
+}
+
+.white-bet-save-btn {
+    height: 26px;
+    padding: 0 10px;
+    border-radius: 3px;
+    border: none;
+    background: #ef4444; /* igual ao botão Salvar principal */
+    color: #ffffff;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.white-bet-save-btn:hover {
+    background: #dc2626;
+}
+
+.white-bet-save-btn:active {
+    transform: scale(0.98);
+}
+
+.white-bet-setting-control {
+    display: inline-flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+}
+
+.white-bet-setting-btn {
+    height: 26px;
+    padding: 0 10px;
+    border-radius: 3px;
+    border: 1px solid rgba(255, 255, 255, 0.10);
+    background: rgba(255, 255, 255, 0.05);
+    color: rgba(255, 255, 255, 0.92);
+    font-size: 11px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.white-bet-setting-btn:hover {
+    background: rgba(255, 255, 255, 0.08);
+    border-color: rgba(239, 68, 68, 0.35);
+}
+
+.white-bet-setting-btn.active {
+    border-color: rgba(239, 68, 68, 0.75);
+    box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.12);
+}
+
+.white-bet-setting-note {
+    margin-top: 8px;
+    font-size: 11px;
+    font-weight: 500;
+    color: rgba(233, 242, 255, 0.65);
+    line-height: 1.2;
+}
+
+.white-hours-grid {
+    display: grid;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: 6px;
+}
+
+.white-hour-btn {
+    border: 1px solid rgba(255, 255, 255, 0.10);
+    background: rgba(255, 255, 255, 0.05);
+    color: rgba(233, 242, 255, 0.92);
+    border-radius: 3px;
+    padding: 6px 6px;
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    transition: all 0.15s ease;
+}
+
+.white-hour-btn:hover {
+    background: rgba(255, 255, 255, 0.08);
+    border-color: rgba(239, 68, 68, 0.35);
+}
+
+.white-hour-btn:disabled,
+.white-hour-btn[aria-disabled="true"] {
+    opacity: 0.35;
+    cursor: not-allowed;
+    background: rgba(255, 255, 255, 0.03);
+    border-color: rgba(255, 255, 255, 0.08);
+}
+
+.white-hour-btn.active {
+    border-color: rgba(239, 68, 68, 0.75);
+    box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.15);
+}
+
+.white-hour-label {
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.2px;
+    opacity: 0.95;
+}
+
+.white-hour-count {
+    font-size: 11px;
+    font-weight: 500;
+    color: rgba(255, 255, 255, 0.92);
+    line-height: 1;
+}
+
+.white-hours-summary {
+    margin-top: 8px;
+    font-size: 12px;
+    color: var(--text-secondary, #8da2bb);
+}
+
+.white-hours-summary b {
+    color: rgba(233, 242, 255, 0.95);
+}
+
+.white-pullers-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+}
+
+.white-puller-item {
+    display: inline-flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 2px 2px;
+    border: none;
+    background: transparent;
+}
+
+.white-puller-count {
+    font-size: 11px;
+    font-weight: 500;
+    color: rgba(255, 255, 255, 0.92);
+    line-height: 1;
+}
+
+.white-pullers-empty {
+    font-size: 12px;
+    color: var(--text-secondary, #8da2bb);
+    padding: 4px 0;
+}
+
+@media (max-width: 420px) {
+    .white-hours-grid {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
 }
 
 .observer-stats {
@@ -7583,9 +7849,10 @@ body.da-ext-fullscreen #patternDetailsModal .bank-patterns-modal-content {
 
 .custom-toast {
     position: fixed;
-    top: 20px;
+    top: 50%;
     left: 50%;
-    transform: translateX(-50%) translateY(-100px);
+    /* ✅ Pedido: notificações (toast) centralizadas no meio da tela */
+    transform: translate(-50%, -50%) scale(0.96);
     display: flex;
     align-items: center;
     gap: 10px;
@@ -7604,7 +7871,7 @@ body.da-ext-fullscreen #patternDetailsModal .bank-patterns-modal-content {
 
 .custom-toast.show {
     opacity: 1;
-    transform: translateX(-50%) translateY(0);
+    transform: translate(-50%, -50%) scale(1);
 }
 
 .custom-toast-success {
