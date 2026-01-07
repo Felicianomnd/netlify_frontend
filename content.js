@@ -4464,7 +4464,11 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
         const losses = totalCycles - wins;
         const pct = totalCycles ? ((wins / totalCycles) * 100).toFixed(1) : '0.0';
         const totalEntries = allEntries.length;
-        hitEl.innerHTML = `<span class="win-score">WIN: ${wins}</span> <span class="loss-score">LOSS: ${losses}</span> <span class="percentage">(${pct}%)</span> <span class="total-entries">• Ciclos: ${totalEntries}</span>`;
+        hitEl.innerHTML =
+            `<span class="win-score">WIN: ${wins}</span> ` +
+            `<span class="loss-score">LOSS: ${losses}</span> ` +
+            `<span class="percentage">(${pct}%)</span> ` +
+            `<span class="total-entries">• Ciclos: ${totalCycles} • Entradas: ${totalEntries}</span>`;
 
         renderStandardSimulationChart({ wins, losses, totalCycles, totalEntries });
         renderStandardSimulationTickChart(allEntries);
@@ -6904,15 +6908,24 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                     const baseline = meta.baseline || null;
                     let baselineText = '';
                     if (baseline && baseline.freq && baseline.steps) {
-                        const pBest = Number(baseline.pBest || 0);
                         const steps = Number(baseline.steps || 1);
-                        const pCycle = Number(baseline.pCycle || 0);
-                        const breakEven = (baseline.breakEvenPcycle != null) ? Number(baseline.breakEvenPcycle) : null;
-                        const bestColor = baseline.bestColor ? String(baseline.bestColor).toUpperCase() : 'RB';
-                        baselineText =
-                            `<br>` +
-                            `Baseline (histórico): <strong>${bestColor}</strong> ~ <strong>${(pBest * 100).toFixed(1)}%</strong> • BaseP(ciclo ${steps} tent.) <strong>${(pCycle * 100).toFixed(1)}%</strong>` +
-                            (breakEven != null ? ` • Break-even (martingale 2x): <strong>${(breakEven * 100).toFixed(1)}%</strong>` : '');
+                        const levelUpper = (mode === 'level' && levelId) ? String(levelId).toUpperCase() : '';
+                        if (levelUpper === 'N0') {
+                            const pWhite = Number(baseline.freq.white || 0);
+                            const pCycleWhite = 1 - Math.pow(1 - pWhite, steps);
+                            baselineText =
+                                `<br>` +
+                                `Baseline (histórico): <strong>WHITE</strong> ~ <strong>${(pWhite * 100).toFixed(1)}%</strong> • BaseP(ciclo ${steps} tent.) <strong>${(pCycleWhite * 100).toFixed(1)}%</strong>`;
+                        } else {
+                            const pBest = Number(baseline.pBest || 0);
+                            const pCycle = Number(baseline.pCycle || 0);
+                            const breakEven = (baseline.breakEvenPcycle != null) ? Number(baseline.breakEvenPcycle) : null;
+                            const bestColor = baseline.bestColor ? String(baseline.bestColor).toUpperCase() : 'RB';
+                            baselineText =
+                                `<br>` +
+                                `Baseline (histórico): <strong>${bestColor}</strong> ~ <strong>${(pBest * 100).toFixed(1)}%</strong> • BaseP(ciclo ${steps} tent.) <strong>${(pCycle * 100).toFixed(1)}%</strong>` +
+                                (breakEven != null ? ` • Break-even (martingale 2x): <strong>${(breakEven * 100).toFixed(1)}%</strong>` : '');
+                        }
                     }
                     summary.innerHTML =
                         `<strong>${label}</strong><br>` +

@@ -13129,6 +13129,31 @@ const N0_DEFAULTS = Object.freeze({
     softBlockFactor: 0.5
 });
 
+// ✅ Cache em memória do N0 (evita re-treinar 1000 configs a cada giro, especialmente no backtest).
+// Importante: é runtime-only (service worker). Não persiste entre reinícios do SW.
+const N0_RUNTIME_MODEL_CACHE_VERSION = 1;
+const n0RuntimeModelCache = new Map(); // cacheKey -> { version, model, trainedAt, trainedOnSpinKey, spinsSinceTrain, lastSeenSpinKey, lastResult }
+
+function buildN0RuntimeCacheKey(settings) {
+    try {
+        const s = settings && typeof settings === 'object' ? settings : {};
+        return [
+            `v${N0_RUNTIME_MODEL_CACHE_VERSION}`,
+            `H${Number(s.historySize) || 0}`,
+            `W${Number(s.windowSize) || 0}`,
+            `L${Number(s.lookaheadSpins) || 1}`,
+            `A${Number(s.analysesToRun) || 0}`,
+            `minW${Number(s.minWindowsRequired) || 0}`,
+            `prec${Number.isFinite(Number(s.precisionMin)) ? Number(s.precisionMin).toFixed(4) : '0'}`,
+            `hold${s.holdoutEnabled ? 1 : 0}`,
+            `tol${Number.isFinite(Number(s.holdoutTolerance)) ? Number(s.holdoutTolerance).toFixed(4) : '0'}`,
+            `seed${Number(s.seed) || 0}`
+        ].join('|');
+    } catch (_) {
+        return `v${N0_RUNTIME_MODEL_CACHE_VERSION}|fallback`;
+    }
+}
+
 const N0_FAMILY_LIST = Object.freeze([
     'freq_threshold',
     'freq_segmented',
@@ -13173,6 +13198,30 @@ const N8_DEFAULTS = Object.freeze({
     seed: 1337,
     confMinLive: 0.58
 });
+
+// ✅ Cache runtime do N8 (Walk-forward): evita re-treinar 1000 configs a cada giro em simulações.
+const N8_RUNTIME_MODEL_CACHE_VERSION = 1;
+const n8RuntimeModelCache = new Map(); // cacheKey -> { version, model, trainedAt, trainedOnSpinKey, spinsSinceTrain, lastSeenSpinKey, lastResult }
+
+function buildN8RuntimeCacheKey(settings) {
+    try {
+        const s = settings && typeof settings === 'object' ? settings : {};
+        return [
+            `v${N8_RUNTIME_MODEL_CACHE_VERSION}`,
+            `H${Number(s.historySize) || 0}`,
+            `W${Number(s.windowSize) || 0}`,
+            `A${Number(s.analysesToRun) || 0}`,
+            `minW${Number(s.minWindowsRequired) || 0}`,
+            `prec${Number.isFinite(Number(s.precisionMin)) ? Number(s.precisionMin).toFixed(4) : '0'}`,
+            `hold${s.holdoutEnabled ? 1 : 0}`,
+            `tol${Number.isFinite(Number(s.holdoutTolerance)) ? Number(s.holdoutTolerance).toFixed(4) : '0'}`,
+            `seed${Number(s.seed) || 0}`,
+            `confMin${Number.isFinite(Number(s.confMinLive)) ? Number(s.confMinLive).toFixed(4) : '0'}`
+        ].join('|');
+    } catch (_) {
+        return `v${N8_RUNTIME_MODEL_CACHE_VERSION}|fallback`;
+    }
+}
 
 const N8_FAMILY_LIST = Object.freeze([
     'dominance_threshold',
@@ -15089,14 +15138,48 @@ function runN0Detector(history, options = {}) {
             seed: Number.isFinite(Number(options.seed)) ? Number(options.seed) : N0_DEFAULTS.seed
         };
 
+        const silent = !!options.silent;
+        const cacheEnabled = options.cache !== false;
+        const assumeStableHistory = !!options.assumeStableHistory;
+        const cacheMaxAgeSpinsRaw = Math.floor(Number(options.cacheMaxAgeSpins));
+        const cacheMaxAgeSpins = Number.isFinite(cacheMaxAgeSpinsRaw) && cacheMaxAgeSpinsRaw > 0
+            ? cacheMaxAgeSpinsRaw
+            : Math.max(10, Math.min(60, Math.floor(settings.windowSize / 3)));
+
         // ✅ Determinismo + ordem correta + dedup:
-        // o histórico pode vir com duplicados e fora de ordem (cache/servidor).
+        // - Ao vivo: histórico pode vir com duplicados e fora de ordem (cache/servidor).
+        // - Backtest: histórico já é estável (ordenado + sem duplicados) → pode pular dedup para ficar em segundos.
         const desiredHistory = Math.max(settings.historySize, settings.windowSize * 3 + settings.lookaheadSpins);
-        const stableWindow = getStableChronologicalHistoryWindow({
-            limit: Math.min(desiredHistory, Array.isArray(history) ? history.length : 0),
-            sourceHistory: Array.isArray(history) ? history : []
-        });
-        const chronologicalHistory = stableWindow.chronological; // antigo -> recente
+        const sourceHistory = Array.isArray(history) ? history : [];
+        let stableWindow = null;
+        let chronologicalHistory = [];
+        if (assumeStableHistory) {
+            const limit = Math.min(desiredHistory, sourceHistory.length);
+            // sourceHistory: mais recente -> mais antigo (simulação) → inverter para antigo -> recente
+            chronologicalHistory = sourceHistory.slice(0, limit).reverse();
+            stableWindow = {
+                chronological: chronologicalHistory,
+                meta: {
+                    availableHistory: sourceHistory.length,
+                    uniqueCount: limit,
+                    droppedDuplicates: 0,
+                    droppedInvalidTs: 0,
+                    usedHistoryLimit: limit
+                }
+            };
+        } else {
+            stableWindow = getStableChronologicalHistoryWindow({
+                limit: Math.min(desiredHistory, sourceHistory.length),
+                sourceHistory
+            });
+            chronologicalHistory = stableWindow.chronological; // antigo -> recente
+        }
+
+        const latestSpin = chronologicalHistory.length ? chronologicalHistory[chronologicalHistory.length - 1] : null;
+        const latestSpinKey = latestSpin
+            ? String(latestSpin.id || latestSpin.timestamp || latestSpin.number || chronologicalHistory.length)
+            : `len_${chronologicalHistory.length}`;
+
         const normalizedPairs = normalizeN0HistoryPairs(chronologicalHistory).slice(-settings.historySize);
         const normalizedHistory = normalizedPairs.map((e) => (e ? e.c : null));
 
@@ -15106,6 +15189,166 @@ function runN0Detector(history, options = {}) {
                 reason: `Histórico insuficiente: ${normalizedHistory.length}/${settings.windowSize * 2 + settings.lookaheadSpins}`,
                 code: 'insufficient_history'
             };
+        }
+
+        // Janela ao vivo (sempre usada, com ou sem cache)
+        const liveWindow = normalizedHistory.slice(-settings.windowSize);
+        const liveWindowNumbers = normalizedPairs
+            .slice(-settings.windowSize)
+            .map((p) => (p && Number.isFinite(Number(p.n)) ? Math.floor(Number(p.n)) : null));
+
+        // ✅ Cache runtime: reusar o modelo treinado por alguns giros (evita 10+ min no backtest).
+        const cacheKey = buildN0RuntimeCacheKey(settings);
+        const cachedRow = cacheEnabled ? n0RuntimeModelCache.get(cacheKey) : null;
+        if (cachedRow && cachedRow.lastSeenSpinKey === latestSpinKey && cachedRow.lastResult) {
+            return cachedRow.lastResult;
+        }
+
+        const canReuseModel = !!(
+            cachedRow &&
+            cachedRow.version === N0_RUNTIME_MODEL_CACHE_VERSION &&
+            cachedRow.model &&
+            (cachedRow.spinsSinceTrain || 0) < cacheMaxAgeSpins
+        );
+
+        if (canReuseModel) {
+            const model = cachedRow.model;
+            const warnings = [];
+
+            const liveStats = computeWindowStats(liveWindow);
+            const liveContext = {
+                stats: [liveStats],
+                whitenessSeries: [liveStats.pW],
+                whiteCounts: [liveStats.whites],
+                loo: false,
+                base_white_rate: clamp01(model.base_white_rate ?? 0),
+                number_stats: model.number_stats || {},
+                gap_stats: model.gap_stats || {},
+                break_stats: model.break_stats || {}
+            };
+
+            const liveWindows = [{
+                window: liveWindow,
+                target: null,
+                index: 0,
+                start: Math.max(0, normalizedHistory.length - settings.windowSize),
+                targetIndex: normalizedHistory.length,
+                lookahead: settings.lookaheadSpins,
+                window_numbers: liveWindowNumbers
+            }];
+
+            const liveResult = applyN0Config(model.best_config, liveWindow, 0, liveWindows, liveContext);
+            const liveConfidence = clamp01(liveResult.confidence ?? 0);
+            const livePrediction = liveResult.prediction === 'W' ? 'W' : null;
+
+            const chosenThreshold = clamp01(model.blocking_threshold ?? 0);
+            let blockingAction = 'no_block';
+            if (livePrediction === 'W') {
+                if (liveConfidence >= chosenThreshold) {
+                    blockingAction = 'block_all';
+                } else if (liveConfidence >= chosenThreshold * 0.8) {
+                    blockingAction = 'soft_block';
+                }
+            }
+
+            const holdoutInfo = model.holdout || { enabled: false, passed: true, reason: null, training: model.blocking_metrics || null, validation: null };
+            if (holdoutInfo && holdoutInfo.passed === false && blockingAction !== 'no_block') {
+                blockingAction = 'no_block';
+                warnings.push('Ação de bloqueio suprimida devido à reprovação no holdout.');
+            }
+
+            const dominantNonWhite = determineDominantNonWhite(liveWindow);
+
+            // Auto-aprendizado (mesma lógica do fluxo completo)
+            let learningContext = '';
+            let learningKey = null;
+            let learningDecision = 'none';
+            let learningRecentN = 0;
+            let learningRecentWinRate = null;
+            const baselineWhite = clamp01(model.baseline_white ?? (1 - Math.pow(1 - (1 / 15), Math.max(1, settings.lookaheadSpins))));
+            try {
+                if (livePrediction === 'W' && blockingAction !== 'no_block') {
+                    learningContext = buildN0LearningContextKey({
+                        windowChars: liveWindow,
+                        windowNumbers: liveWindowNumbers,
+                        dominantNonWhite,
+                        maxTail: 12
+                    });
+                    learningKey = buildN0SelfLearningKey(learningContext, blockingAction, model.best_config);
+                    const st = learningKey ? getN0SelfLearningStatsForKey(learningKey) : null;
+                    if (st) {
+                        learningRecentN = st.recentN || 0;
+                        learningRecentWinRate = st.recentWinRate;
+                    }
+
+                    const store = signalsHistory && signalsHistory.n0SelfLearning ? signalsHistory.n0SelfLearning : null;
+                    const clampFactor = (v, min, max, fallback) => {
+                        const n = Number(v);
+                        if (!Number.isFinite(n)) return fallback;
+                        return Math.max(min, Math.min(max, n));
+                    };
+                    const minSamples = Math.max(3, Math.min(120, Math.floor(Number(store?.minSamples) || 8)));
+                    const badFactor = clampFactor(store?.badFactor, 0.1, 2.0, 0.8);
+                    const badWinRate = clamp01(baselineWhite * badFactor);
+                    if (learningRecentWinRate != null && learningRecentN >= minSamples && learningRecentWinRate <= badWinRate) {
+                        blockingAction = 'no_block';
+                        learningDecision = 'blocked';
+                        warnings.push(`AutoApr N0: bloqueado (${(learningRecentWinRate * 100).toFixed(1)}% em ${learningRecentN} • base ${(baselineWhite * 100).toFixed(1)}%)`);
+                    }
+                }
+            } catch (_) {}
+
+            const runSummary = {
+                run_id: runId,
+                timestamp: runTimestamp,
+                cached: true,
+                cache_age_spins: cachedRow.spinsSinceTrain || 0,
+                history_size: settings.historySize,
+                available_history: stableWindow && stableWindow.meta ? stableWindow.meta.availableHistory : undefined,
+                unique_history: stableWindow && stableWindow.meta ? stableWindow.meta.uniqueCount : undefined,
+                dropped_duplicates: stableWindow && stableWindow.meta ? stableWindow.meta.droppedDuplicates : undefined,
+                dropped_invalid_ts: stableWindow && stableWindow.meta ? stableWindow.meta.droppedInvalidTs : undefined,
+                used_history_size: stableWindow && stableWindow.meta ? stableWindow.meta.usedHistoryLimit : undefined,
+                window_size: settings.windowSize,
+                lookahead_spins: settings.lookaheadSpins,
+                seed: settings.seed
+            };
+
+            const result = {
+                enabled: true,
+                run_summary: runSummary,
+                best_config: model.best_config,
+                best_metrics: model.best_metrics,
+                conf_list: model.conf_list || null,
+                per_window_log: null,
+                blocking_threshold: chosenThreshold,
+                blocking_metrics: model.blocking_metrics,
+                pred_live: livePrediction,
+                white_confidence: liveConfidence,
+                blocking_action: blockingAction,
+                dominant_nonwhite: dominantNonWhite,
+                tested_configs: model.tested_configs,
+                effective_configs: model.effective_configs,
+                top_candidates: model.top_candidates || [],
+                n_windows: model.n_windows,
+                holdout: holdoutInfo,
+                config_library: null,
+                learning_context: learningContext || null,
+                learning_key: learningKey || null,
+                learning_decision: learningDecision,
+                learning_recent_n: learningRecentN || 0,
+                learning_recent_win_rate: learningRecentWinRate,
+                warnings
+            };
+
+            const nextRow = {
+                ...cachedRow,
+                lastSeenSpinKey: latestSpinKey,
+                lastResult: result,
+                spinsSinceTrain: Math.max(0, Math.floor(Number(cachedRow.spinsSinceTrain) || 0)) + 1
+            };
+            n0RuntimeModelCache.set(cacheKey, nextRow);
+            return result;
         }
 
         // ⚠️ Importante: com histórico 2000 e W=100, janelas 100% não-sobrepostas geram pouquíssimas amostras (~19).
@@ -15162,7 +15405,9 @@ function runN0Detector(history, options = {}) {
         }
 
         const candidateConfigs = generateN0Configs(settings.analysesToRun, settings.seed);
-        console.log(`%c   ➤ Biblioteca N0: ${candidateConfigs.length} configs avaliadas`, 'color: #CCCCFF; font-weight: bold;');
+        if (!silent) {
+            console.log(`%c   ➤ Biblioteca N0: ${candidateConfigs.length} configs avaliadas`, 'color: #CCCCFF; font-weight: bold;');
+        }
         const trainingContext = buildN0WindowContext(trainingWindows);
         const evaluations = [];
 
@@ -15196,7 +15441,7 @@ function runN0Detector(history, options = {}) {
         const TOP_K = Math.min(20, evaluations.length);
         const topEvaluations = evaluations.slice(0, TOP_K);
         const bestEvaluation = topEvaluations[0];
-        const bestDetailed = evaluateN0Config(trainingWindows, bestEvaluation.cfg, trainingContext, { collectLogs: true });
+        const bestDetailed = evaluateN0Config(trainingWindows, bestEvaluation.cfg, trainingContext, { collectLogs: !silent });
         const bestMetrics = bestDetailed.metrics;
         const bestConfList = bestDetailed.confList;
         const perWindowLog = bestDetailed.perWindowLog || [];
@@ -15306,7 +15551,6 @@ function runN0Detector(history, options = {}) {
             }
         }
 
-        const liveWindow = normalizedHistory.slice(-settings.windowSize);
         if (liveWindow.length < settings.windowSize) {
             return {
                 enabled: false,
@@ -15314,10 +15558,6 @@ function runN0Detector(history, options = {}) {
                 code: 'incomplete_live_window'
             };
         }
-
-        const liveWindowNumbers = normalizedPairs
-            .slice(-settings.windowSize)
-            .map((p) => (p && Number.isFinite(Number(p.n)) ? Math.floor(Number(p.n)) : null));
         const liveWindows = [{
             window: liveWindow,
             target: null,
@@ -15428,17 +15668,21 @@ function runN0Detector(history, options = {}) {
         const precisionDisplay = bestMetrics.precision != null ? (bestMetrics.precision * 100).toFixed(1) : 'n/d';
         const recallDisplay = bestMetrics.recall != null ? (bestMetrics.recall * 100).toFixed(1) : 'n/d';
         const coverageDisplay = bestMetrics.coverage != null ? (bestMetrics.coverage * 100).toFixed(1) : 'n/d';
-        console.log(`✅ [N0] Melhor análise: ${bestDescription} | F1 ${f1Display}% | prec ${precisionDisplay}% | rec ${recallDisplay}% | coverage ${coverageDisplay}% | n_preds ${bestMetrics.n_preds}/${bestMetrics.n_windows}`);
+        if (!silent) {
+            console.log(`✅ [N0] Melhor análise: ${bestDescription} | F1 ${f1Display}% | prec ${precisionDisplay}% | rec ${recallDisplay}% | coverage ${coverageDisplay}% | n_preds ${bestMetrics.n_preds}/${bestMetrics.n_windows}`);
+        }
         const finalColor = livePrediction === 'W' ? 'white' : null;
         const finalConfidence = liveConfidence;
         const thresholdGate = chosenThreshold;
-        if (finalColor) {
-            console.log(`🎯 [N0] Voto ao vivo: ${finalColor.toUpperCase()} (confiança ${(finalConfidence * 100).toFixed(1)}%) | conf_live ${Math.round(liveConfidence * 100)}% | t* ${Math.round(thresholdGate * 100)}%`);
-        } else {
-            console.log(`⚠️ [N0] Sem voto ao vivo (conf ${Math.round(liveConfidence * 100)}% | limiar ${Math.round(thresholdGate * 100)}%${holdoutInfo.passed ? '' : ' | holdout reprovado'})`);
+        if (!silent) {
+            if (finalColor) {
+                console.log(`🎯 [N0] Voto ao vivo: ${finalColor.toUpperCase()} (confiança ${(finalConfidence * 100).toFixed(1)}%) | conf_live ${Math.round(liveConfidence * 100)}% | t* ${Math.round(thresholdGate * 100)}%`);
+            } else {
+                console.log(`⚠️ [N0] Sem voto ao vivo (conf ${Math.round(liveConfidence * 100)}% | limiar ${Math.round(thresholdGate * 100)}%${holdoutInfo.passed ? '' : ' | holdout reprovado'})`);
+            }
         }
 
-        return {
+        const result = {
             enabled: true,
             run_summary: runSummary,
             best_config: bestDetailed.cfg,
@@ -15456,7 +15700,8 @@ function runN0Detector(history, options = {}) {
             top_candidates: topCandidates,
             n_windows: windows.length,
             holdout: holdoutInfo,
-            config_library: candidateConfigs,
+            // em backtest/silent, evitar devolver payload gigante (não é usado pela UI e custa CPU/memória)
+            config_library: silent ? null : candidateConfigs,
             // Auto-aprendizado (N0)
             learning_context: learningContext || null,
             learning_key: learningKey || null,
@@ -15465,6 +15710,42 @@ function runN0Detector(history, options = {}) {
             learning_recent_win_rate: learningRecentWinRate,
             warnings
         };
+
+        // ✅ Persistir modelo em cache runtime (para reutilizar nos próximos giros).
+        if (cacheEnabled) {
+            try {
+                const model = {
+                    best_config: bestDetailed.cfg,
+                    best_metrics: bestMetrics,
+                    blocking_threshold: chosenThreshold,
+                    blocking_metrics: chosenMetrics,
+                    holdout: holdoutInfo,
+                    baseline_white: baselineWhite,
+                    n_windows: windows.length,
+                    tested_configs: candidateConfigs.length,
+                    effective_configs: evaluations.length,
+                    top_candidates: topCandidates,
+                    // Contexto agregado (para observadores: gap/numero/quebra)
+                    base_white_rate: trainingContext.base_white_rate ?? 0,
+                    number_stats: trainingContext.number_stats || {},
+                    gap_stats: trainingContext.gap_stats || {},
+                    break_stats: trainingContext.break_stats || {},
+                    // opcional: usado por validação/telemetria
+                    conf_list: bestConfList
+                };
+                n0RuntimeModelCache.set(cacheKey, {
+                    version: N0_RUNTIME_MODEL_CACHE_VERSION,
+                    model,
+                    trainedAt: runTimestamp,
+                    trainedOnSpinKey: latestSpinKey,
+                    spinsSinceTrain: 0,
+                    lastSeenSpinKey: latestSpinKey,
+                    lastResult: result
+                });
+            } catch (_) {}
+        }
+
+        return result;
     } catch (error) {
         console.error('❌ Erro no detector de branco (N0):', error);
         return {
@@ -16776,14 +17057,47 @@ function runN8Detector(history, options = {}) {
                 : N8_DEFAULTS.confMinLive
         };
 
+        const silent = !!options.silent;
+        const cacheEnabled = options.cache !== false;
+        const assumeStableHistory = !!options.assumeStableHistory;
+        const cacheMaxAgeSpinsRaw = Math.floor(Number(options.cacheMaxAgeSpins));
+        const cacheMaxAgeSpins = Number.isFinite(cacheMaxAgeSpinsRaw) && cacheMaxAgeSpinsRaw > 0
+            ? cacheMaxAgeSpinsRaw
+            : Math.max(20, Math.min(60, settings.windowSize));
+
         // ✅ Determinismo + ordem correta + dedup:
-        // o histórico pode vir com duplicados e fora de ordem (principalmente em cache).
+        // - Ao vivo: histórico pode vir com duplicados e fora de ordem (cache/servidor).
+        // - Backtest: histórico já é estável → pode pular dedup para ficar em segundos.
         const desiredHistory = Math.max(settings.historySize, settings.windowSize * 3);
-        const stableWindow = getStableChronologicalHistoryWindow({
-            limit: Math.min(desiredHistory, Array.isArray(history) ? history.length : 0),
-            sourceHistory: Array.isArray(history) ? history : []
-        });
-        const chronologicalHistory = stableWindow.chronological; // antigo -> recente
+        const sourceHistory = Array.isArray(history) ? history : [];
+        let stableWindow = null;
+        let chronologicalHistory = [];
+        if (assumeStableHistory) {
+            const limit = Math.min(desiredHistory, sourceHistory.length);
+            chronologicalHistory = sourceHistory.slice(0, limit).reverse(); // mais recente -> antigo => antigo -> recente
+            stableWindow = {
+                chronological: chronologicalHistory,
+                meta: {
+                    availableHistory: sourceHistory.length,
+                    uniqueCount: limit,
+                    droppedDuplicates: 0,
+                    droppedInvalidTs: 0,
+                    usedHistoryLimit: limit
+                }
+            };
+        } else {
+            stableWindow = getStableChronologicalHistoryWindow({
+                limit: Math.min(desiredHistory, sourceHistory.length),
+                sourceHistory
+            });
+            chronologicalHistory = stableWindow.chronological; // antigo -> recente
+        }
+
+        const latestSpin = chronologicalHistory.length ? chronologicalHistory[chronologicalHistory.length - 1] : null;
+        const latestSpinKey = latestSpin
+            ? String(latestSpin.id || latestSpin.timestamp || latestSpin.number || chronologicalHistory.length)
+            : `len_${chronologicalHistory.length}`;
+
         const normalizedHistory = normalizeN0History(chronologicalHistory);
         const trimmedHistory = normalizedHistory.slice(-desiredHistory);
 
@@ -16801,6 +17115,156 @@ function runN8Detector(history, options = {}) {
                     unique_history: stableWindow.meta.uniqueCount
                 }
             };
+        }
+
+        // ✅ Cache runtime (evita re-treinar em sequência no backtest)
+        const cacheKey = buildN8RuntimeCacheKey(settings);
+        const cachedRow = cacheEnabled ? n8RuntimeModelCache.get(cacheKey) : null;
+        if (cachedRow && cachedRow.lastSeenSpinKey === latestSpinKey && cachedRow.lastResult) {
+            return cachedRow.lastResult;
+        }
+
+        const canReuseModel = !!(
+            cachedRow &&
+            cachedRow.version === N8_RUNTIME_MODEL_CACHE_VERSION &&
+            cachedRow.model &&
+            (cachedRow.spinsSinceTrain || 0) < cacheMaxAgeSpins
+        );
+
+        if (canReuseModel) {
+            const model = cachedRow.model;
+            const warnings = [];
+
+            const liveWindow = trimmedHistory.slice(-settings.windowSize);
+            if (liveWindow.length < settings.windowSize) {
+                return {
+                    enabled: false,
+                    summaryText: 'N8 - Walk-forward → NULO (janela incompleta para previsão ao vivo)',
+                    code: 'incomplete_live_window',
+                    run_summary: {
+                        run_id: runId,
+                        timestamp: runTimestamp,
+                        requested_history_size: settings.historySize,
+                        used_history_size: stableWindow.meta.usedHistoryLimit,
+                        available_history: stableWindow.meta.availableHistory,
+                        unique_history: stableWindow.meta.uniqueCount
+                    }
+                };
+            }
+
+            const liveWindows = [{
+                window: liveWindow,
+                target: null,
+                index: 0,
+                start: Math.max(0, trimmedHistory.length - settings.windowSize),
+                targetIndex: trimmedHistory.length
+            }];
+            const liveContext = buildN8WindowContext(liveWindows);
+            const liveResult = applyN8Config(model.best_config, liveWindow, 0, liveWindows, liveContext);
+            const liveConfidence = clamp01(liveResult.confidence ?? 0);
+            const livePrediction = liveResult.prediction === 'R' || liveResult.prediction === 'B' ? liveResult.prediction : null;
+
+            const chosenThreshold = clamp01(model.threshold ?? 0);
+            const holdoutInfo = model.holdout || { enabled: false, passed: true, reason: null, training: model.threshold_metrics || null, validation: null };
+            const thresholdGate = Math.max(settings.confMinLive, chosenThreshold || settings.confMinLive);
+            let finalColor = null;
+            if (livePrediction && liveConfidence >= thresholdGate && holdoutInfo.passed !== false) {
+                finalColor = livePrediction === 'R' ? 'red' : 'black';
+            } else if (holdoutInfo.passed === false) {
+                warnings.push('Previsão ao vivo suprimida devido à reprovação no holdout.');
+            } else if (livePrediction && liveConfidence < thresholdGate) {
+                warnings.push(`Confiança ao vivo ${Math.round(liveConfidence * 100)}% abaixo do limiar ${Math.round(thresholdGate * 100)}%.`);
+            }
+
+            const bestMetrics = model.best_metrics || {};
+            const trainingStrength = clamp01(
+                (bestMetrics.f1 ?? 0) * 0.5 +
+                (bestMetrics.precision ?? 0) * 0.2 +
+                (bestMetrics.acc_recent ?? 0) * 0.2 +
+                (bestMetrics.coverage ?? 0) * 0.1
+            );
+            const liveBoost = clamp01(
+                thresholdGate < 1
+                    ? (liveConfidence - thresholdGate) / Math.max(0.05, 1 - thresholdGate)
+                    : liveConfidence
+            );
+            let finalConfidence = clamp01(trainingStrength * 0.6 + liveBoost * 0.4);
+            if (holdoutInfo.passed === false) {
+                finalConfidence *= 0.5;
+            }
+            if (!finalColor) {
+                finalConfidence = 0;
+            }
+
+            const summaryParts = [];
+            if (finalColor) {
+                summaryParts.push(`N8 - Walk-forward → ${finalColor.toUpperCase()} (${Math.round(finalConfidence * 100)}%)`);
+            } else {
+                summaryParts.push('N8 - Walk-forward → NULO');
+            }
+            summaryParts.push(`melhor família: ${(model.best_config && model.best_config.family) ? model.best_config.family : 'n/d'}`);
+            summaryParts.push(`F1 ${((bestMetrics.f1 ?? 0) * 100).toFixed(1)}%`);
+            summaryParts.push(`precision ${((bestMetrics.precision ?? 0) * 100).toFixed(1)}%`);
+            summaryParts.push(`recall ${((bestMetrics.recall ?? 0) * 100).toFixed(1)}%`);
+            const summaryText = summaryParts.join(' | ');
+
+            const runSummary = {
+                run_id: runId,
+                timestamp: runTimestamp,
+                cached: true,
+                cache_age_spins: cachedRow.spinsSinceTrain || 0,
+                requested_history_size: settings.historySize,
+                used_history_size: stableWindow.meta.usedHistoryLimit,
+                available_history: stableWindow.meta.availableHistory,
+                unique_history: stableWindow.meta.uniqueCount,
+                dropped_duplicates: stableWindow.meta.droppedDuplicates,
+                dropped_invalid_ts: stableWindow.meta.droppedInvalidTs,
+                window_size: settings.windowSize,
+                analyses_to_run: settings.analysesToRun,
+                min_windows_required: settings.minWindowsRequired,
+                seed: settings.seed
+            };
+
+            const result = {
+                enabled: true,
+                run_summary: runSummary,
+                best_config: model.best_config,
+                best_metrics: bestMetrics,
+                conf_list: null,
+                per_window_log: null,
+                threshold: chosenThreshold,
+                threshold_metrics: model.threshold_metrics,
+                color: finalColor,
+                confidence: finalConfidence,
+                live_confidence: liveConfidence,
+                live_threshold_gate: thresholdGate,
+                tested_configs: model.tested_configs,
+                effective_configs: model.effective_configs,
+                top_candidates: model.top_candidates || [],
+                n_windows: model.n_windows,
+                holdout: holdoutInfo,
+                warnings,
+                summaryText,
+                metrics: {
+                    accuracy: bestMetrics.accuracy ?? 0,
+                    acc_recent: bestMetrics.acc_recent ?? 0,
+                    coverage: bestMetrics.coverage ?? 0,
+                    precision: bestMetrics.precision ?? 0,
+                    recall: bestMetrics.recall ?? 0,
+                    f1: bestMetrics.f1 ?? 0,
+                    n_preds: bestMetrics.n_preds ?? 0,
+                    n_windows: bestMetrics.n_windows ?? model.n_windows
+                }
+            };
+
+            n8RuntimeModelCache.set(cacheKey, {
+                ...cachedRow,
+                lastSeenSpinKey: latestSpinKey,
+                lastResult: result,
+                spinsSinceTrain: Math.max(0, Math.floor(Number(cachedRow.spinsSinceTrain) || 0)) + 1
+            });
+
+            return result;
         }
 
         const rawWindows = buildN0Windows(trimmedHistory, settings.windowSize);
@@ -16842,7 +17306,9 @@ function runN8Detector(history, options = {}) {
         }
 
         const candidateConfigs = generateN8Configs(settings.analysesToRun, settings.seed);
-        console.log(`%c   ➤ Biblioteca N8: ${candidateConfigs.length} configs avaliadas`, 'color: #33CCFF; font-weight: bold;');
+        if (!silent) {
+            console.log(`%c   ➤ Biblioteca N8: ${candidateConfigs.length} configs avaliadas`, 'color: #33CCFF; font-weight: bold;');
+        }
         const trainingContext = buildN8WindowContext(trainingWindows);
         const evaluations = [];
         candidateConfigs.forEach(cfg => {
@@ -16876,7 +17342,7 @@ function runN8Detector(history, options = {}) {
         const TOP_K = Math.min(20, evaluations.length);
         const topEvaluations = evaluations.slice(0, TOP_K);
         const bestEvaluation = topEvaluations[0];
-        const bestDetailed = evaluateN8Config(trainingWindows, bestEvaluation.cfg, trainingContext, { collectLogs: true });
+        const bestDetailed = evaluateN8Config(trainingWindows, bestEvaluation.cfg, trainingContext, { collectLogs: !silent });
         const bestMetrics = bestDetailed.metrics;
         const bestConfList = bestDetailed.confList;
         const perWindowLog = bestDetailed.perWindowLog || [];
@@ -17024,13 +17490,13 @@ function runN8Detector(history, options = {}) {
             seed: settings.seed
         };
 
-        return {
+        const result = {
             enabled: true,
             run_summary: runSummary,
             best_config: bestDetailed.cfg,
             best_metrics: bestMetrics,
-            conf_list: bestConfList,
-            per_window_log: perWindowLog,
+            conf_list: silent ? null : bestConfList,
+            per_window_log: silent ? null : perWindowLog,
             threshold: chosenThreshold,
             threshold_metrics: chosenMetrics,
             color: finalColor,
@@ -17055,6 +17521,34 @@ function runN8Detector(history, options = {}) {
                 n_windows: bestMetrics.n_windows ?? windows.length
             }
         };
+
+        // ✅ Cache runtime
+        if (cacheEnabled) {
+            try {
+                const model = {
+                    best_config: bestDetailed.cfg,
+                    best_metrics: bestMetrics,
+                    threshold: chosenThreshold,
+                    threshold_metrics: chosenMetrics,
+                    holdout: holdoutInfo,
+                    n_windows: windows.length,
+                    tested_configs: candidateConfigs.length,
+                    effective_configs: evaluations.length,
+                    top_candidates: topCandidates
+                };
+                n8RuntimeModelCache.set(cacheKey, {
+                    version: N8_RUNTIME_MODEL_CACHE_VERSION,
+                    model,
+                    trainedAt: runTimestamp,
+                    trainedOnSpinKey: latestSpinKey,
+                    spinsSinceTrain: 0,
+                    lastSeenSpinKey: latestSpinKey,
+                    lastResult: result
+                });
+            } catch (_) {}
+        }
+
+        return result;
     } catch (error) {
         console.error('❌ Erro em runN8Detector:', error);
         return {
@@ -17628,6 +18122,9 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
             historySize: n0Settings.historySize,
             windowSize: n0Settings.windowSize,
             lookaheadSpins: n0LookaheadSpins,
+            cache: true,
+            // ✅ Evita re-treinar o N0 em TODO giro (caro). Mantém atualização frequente o suficiente.
+            cacheMaxAgeSpins: Math.max(20, Math.min(60, n0Settings.windowSize)),
             analysesToRun: N0_DEFAULTS.analysesToRun,
             minWindowsRequired: N0_DEFAULTS.minWindowsRequired,
             precisionMin: N0_DEFAULTS.precisionMin,
@@ -17904,7 +18401,11 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
                     historySize: n8HistoryCfg,
                     analysesToRun: n8AnalysesCfg,
                     minWindows: n8MinWindowsCfg,
-                    confMinLive: n8ConfMinCfg
+                    confMinLive: n8ConfMinCfg,
+                    // ✅ Performance: N8 é caro (1000 configs). Cache runtime evita re-treinar em todo giro.
+                    cache: true,
+                    silent: true,
+                    cacheMaxAgeSpins: Math.max(20, Math.min(60, n8WindowCfg))
                 });
 
                 if (n8Result && typeof n8Result.summaryText === 'string') {
@@ -31234,9 +31735,17 @@ function analyzeDiamondLevelsSimulation(history, config, simState) {
     // N0
     const n0Enabled = isLevelEnabledLocal('N0');
     const n0Settings = getN0SettingsFromConfig(config);
+    const { maxGales: n0MaxGalesConfigured } = getMartingaleSettings('diamond', config);
+    const n0LookaheadSpins = Math.max(1, Math.min(5, (Math.floor(Number(n0MaxGalesConfigured) || 0) + 1)));
     const n0Options = {
         historySize: n0Settings.historySize,
         windowSize: n0Settings.windowSize,
+        lookaheadSpins: n0LookaheadSpins,
+        // ✅ Backtest deve ser rápido: histórico já é estável (ordenado/único) e não precisa de logs.
+        assumeStableHistory: true,
+        silent: true,
+        cache: true,
+        cacheMaxAgeSpins: Math.max(20, Math.min(60, n0Settings.windowSize)),
         analysesToRun: N0_DEFAULTS.analysesToRun,
         minWindowsRequired: N0_DEFAULTS.minWindowsRequired,
         precisionMin: N0_DEFAULTS.precisionMin,
@@ -31443,7 +31952,9 @@ function analyzeDiamondLevelsSimulation(history, config, simState) {
         maxGales: n4MaxGalesConfigured,
         signalIntensity: config.signalIntensity || 'aggressive',
         whiteProtectionAsWin: !!config.whiteProtectionAsWin,
-        dynamicGales: shouldUseN4DynamicGalesForConfig(config)
+        dynamicGales: shouldUseN4DynamicGalesForConfig(config),
+        // ✅ Mesma leitura do modo real (filtro/boost por performance recente do tipo)
+        n4SelfLearning: (signalsHistory && signalsHistory.n4SelfLearning) ? signalsHistory.n4SelfLearning : null
     }) : null;
     const autoColor = n4Enabled && nivel9 && nivel9.color ? nivel9.color : null;
     const autoStrength = n4Enabled && nivel9 && nivel9.color ? clamp01Local(nivel9.confidence ?? 0) : 0;
@@ -31526,7 +32037,12 @@ function analyzeDiamondLevelsSimulation(history, config, simState) {
                 historySize: n8HistoryCfg,
                 analysesToRun: n8AnalysesCfg,
                 minWindows: n8MinWindowsCfg,
-                confMinLive: n8ConfMinCfg
+                confMinLive: n8ConfMinCfg,
+                // ✅ Backtest deve ser rápido e fiel: histórico da simulação já é estável
+                assumeStableHistory: true,
+                silent: true,
+                cache: true,
+                cacheMaxAgeSpins: Math.max(20, Math.min(60, n8WindowCfg))
             });
 
             if (n8Result && n8Result.enabled && n8Result.color) {
@@ -31682,6 +32198,33 @@ function analyzeDiamondLevelsSimulation(history, config, simState) {
             confidence: whiteConfidencePct,
             probability: whiteConfidencePct,
             reasoning: 'N0 bloqueou e forçou branco (simulação)',
+            patternDescription: 'Detector de Branco (N0)'
+        };
+    }
+
+    // ✅ MODO "SOMENTE N0" (mesma intenção do modo real):
+    // Se nenhum nível votante (N1–N8) estiver ativo e o N0 prever WHITE,
+    // o simulador deve emitir sinal WHITE (mesmo sem BLOCK ALL), para refletir o cenário real.
+    const anyVotingLevelEnabled = (() => {
+        try {
+            const votingIds = ['N1','N2','N3','N4','N5','N6','N7','N8'];
+            return votingIds.some((id) => !!diamondLevelEnabledMap[id]);
+        } catch (_) {
+            return false;
+        }
+    })();
+    const n0PredictedWhite = !!(n0Enabled && n0Result && n0Result.enabled !== false && n0Result.pred_live === 'W');
+    if (!anyVotingLevelEnabled && n0PredictedWhite) {
+        if (intervalBlocked) return null;
+        const whiteConfidencePct = Math.max(0, Math.min(100, Math.round(n0WhiteStrength * 100)));
+        const actionLabel =
+            n0SoftBlockActive ? 'SOFT BLOCK'
+            : (n0ActionSuppressed ? 'ALERTA (informativo)' : 'ALERTA');
+        return {
+            color: 'white',
+            confidence: whiteConfidencePct,
+            probability: whiteConfidencePct,
+            reasoning: `N0 previu branco (modo somente N0) • ${actionLabel}`,
             patternDescription: 'Detector de Branco (N0)'
         };
     }
