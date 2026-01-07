@@ -94,23 +94,87 @@
         }
     };
 
+    const slimSignalsHistory = (signalsHistory, { maxSignals = 200, keepFullLast = 20, dropHeavyStats = false } = {}) => {
+        try {
+            if (!signalsHistory || typeof signalsHistory !== 'object') return signalsHistory;
+            const maxN = Math.max(0, Math.floor(Number(maxSignals) || 0));
+            const keepN = Math.max(0, Math.floor(Number(keepFullLast) || 0));
+            const next = { ...signalsHistory };
+
+            const list = Array.isArray(next.signals) ? next.signals : [];
+            const tail = maxN > 0 ? list.slice(list.length - maxN) : [];
+            const cut = Math.max(0, tail.length - keepN);
+            const older = tail.slice(0, cut).map((s) => {
+                if (!s || typeof s !== 'object') return s;
+                // Remover payload pesado dos sinais antigos (mantém o essencial pro "histórico")
+                return {
+                    timestamp: s.timestamp,
+                    patternType: s.patternType,
+                    patternName: s.patternName,
+                    colorRecommended: s.colorRecommended,
+                    finalConfidence: (s.finalConfidence != null ? s.finalConfidence : (s.rawConfidence != null ? s.rawConfidence : s.confidence)),
+                    verified: s.verified,
+                    colorThatCame: s.colorThatCame,
+                    hit: s.hit
+                };
+            });
+            const newer = tail.slice(cut);
+            next.signals = [...older, ...newer];
+
+            // Limitar performance recente (evita crescer infinito)
+            if (Array.isArray(next.recentPerformance) && next.recentPerformance.length > 30) {
+                next.recentPerformance = next.recentPerformance.slice(-30);
+            }
+
+            if (dropHeavyStats) {
+                // Em quota alta, preservar apenas o histórico "humano" e contadores simples
+                delete next.patternStats;
+                delete next.contextStats;
+                delete next.blockedPatterns;
+                delete next.n0SelfLearning;
+                delete next.n4SelfLearning;
+                delete next.n4AutoTune;
+            }
+
+            return next;
+        } catch (_) {
+            return signalsHistory;
+        }
+    };
+
     const pruneStoreForQuota = (store, pass = 1) => {
         const next = shallowClone(store);
         try {
-            if (next.signalsHistory) next.signalsHistory = capArray(next.signalsHistory, pass === 1 ? 200 : 80);
+            if (next.signalsHistory) {
+                next.signalsHistory = slimSignalsHistory(next.signalsHistory, {
+                    maxSignals: pass === 1 ? 200 : 80,
+                    keepFullLast: pass === 1 ? 20 : 10,
+                    dropHeavyStats: pass >= 2
+                });
+            }
             if (next.entriesHistory) next.entriesHistory = slimEntriesHistory(next.entriesHistory, { max: pass === 1 ? 200 : 80, keepFullLast: pass === 1 ? 30 : 15 });
-            if (next.hotColorsHistory) next.hotColorsHistory = capArray(next.hotColorsHistory, pass === 1 ? 200 : 80);
+            // hotColorsHistory costuma ser um objeto grande; em quota alta, descartar (é reconstituível)
+            if (pass >= 2 && next.hotColorsHistory) delete next.hotColorsHistory;
             if (next.realtimeHistory) next.realtimeHistory = capArray(next.realtimeHistory, pass === 1 ? 300 : 120);
             if (next.cachedHistory) next.cachedHistory = capArray(next.cachedHistory, pass === 1 ? 300 : 120);
             if (next.patternDB) next.patternDB = slimPatternDB(next.patternDB, pass === 1 ? 500 : 250);
 
             if (pass >= 3) {
+                const essentialEntries = next.entriesHistory
+                    ? slimEntriesHistory(next.entriesHistory, { max: 60, keepFullLast: 10 })
+                    : undefined;
+                const essentialSignals = next.signalsHistory
+                    ? slimSignalsHistory(next.signalsHistory, { maxSignals: 60, keepFullLast: 10, dropHeavyStats: true })
+                    : undefined;
                 return {
                     analyzerConfig: next.analyzerConfig,
                     user: next.user,
                     analysis: next.analysis,
                     pattern: next.pattern,
                     lastSpin: next.lastSpin,
+                    // ✅ Manter pelo menos um pouco de histórico (evita "sumir tudo" após recarregar)
+                    ...(essentialEntries ? { entriesHistory: essentialEntries } : {}),
+                    ...(essentialSignals ? { signalsHistory: essentialSignals } : {}),
                     recoveryModeEnabled: next.recoveryModeEnabled,
                     recoverySecure: next.recoverySecure,
                     recoveryData: next.recoveryData

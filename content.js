@@ -3159,7 +3159,7 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                             </div>
                             <label class="checkbox-label" style="margin-top: 10px;">
                                 <input type="checkbox" id="diamondN0AllowBlockAll" checked />
-                                Permitir bloqueio total (BLOCK ALL) — desmarque para usar apenas como alerta
+                                Ativar bloqueio total (BLOCK ALL) — desmarque para usar apenas como alerta
                             </label>
                         </div>
                         <div class="diamond-level-field" data-level="n1">
@@ -20188,20 +20188,11 @@ function logModeSnapshotUI(snapshot) {
                     autoBetManager.applyConfigOverride(sanitizedAutoBetConfig);
                 }
                 
-                // ✅ RESETAR HISTÓRICO DE SINAIS (limpar penalidades de losses consecutivos)
-                console.log('%c🔄 Resetando histórico de sinais (limpar losses consecutivos)...', 'color: #00D4FF; font-weight: bold;');
-                await storageCompat.set({
-                    signalsHistory: {
-                        totalSignals: 0,
-                        wins: 0,
-                        losses: 0,
-                        consecutiveLosses: 0,
-                        consecutiveWins: 0,
-                        lastSignalTimestamp: null,
-                        recent: []
-                    }
-                });
-                console.log('%c✅ Histórico de sinais resetado!', 'color: #00FF88; font-weight: bold;');
+                // ✅ IMPORTANTE (bugfix):
+                // Salvar configurações NÃO pode "limpar" o histórico de sinais automaticamente.
+                // Isso fazia o usuário perder o histórico ao salvar config ou após recarregar a página.
+                // Se algum dia for necessário limpar penalidades (ex.: losses consecutivos),
+                // isso deve ser uma ação explícita do usuário (botão dedicado).
                 
                 console.log('📝 Valores capturados dos campos:');
                 console.log('   • minOccurrences:', minOcc);
