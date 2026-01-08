@@ -2545,7 +2545,7 @@
     font-weight: 600;
     letter-spacing: 0;
     text-transform: none;
-    color: #f3e4ff;
+    color: rgba(233, 242, 255, 0.92);
 }
 
 .white-pullers-header {
@@ -2606,7 +2606,7 @@
     font-weight: 600;
     letter-spacing: 0;
     text-transform: none;
-    color: #f3e4ff;
+    color: rgba(233, 242, 255, 0.92);
     white-space: nowrap;
 }
 
@@ -2779,6 +2779,386 @@
     font-size: 12px;
     color: var(--text-secondary, #8da2bb);
     padding: 4px 0;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   ⚪ BRANCO — INSIGHTS AVANÇADOS
+   - Mesma paleta do app: fundo escuro + destaque vermelho (#ef4444)
+   ═══════════════════════════════════════════════════════════════ */
+.white-adv-block {
+    border-color: rgba(255, 255, 255, 0.08);
+}
+
+.white-adv-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 64px;
+    height: 26px;
+    padding: 0 10px;
+    border-radius: 3px;
+    border: 1px solid rgba(255, 255, 255, 0.10);
+    background: rgba(255, 255, 255, 0.05);
+    font-size: 11px;
+    font-weight: 800;
+    color: rgba(233, 242, 255, 0.92);
+}
+
+.white-adv-badge-inner {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+}
+
+.white-adv-badge-inner.good {
+    border-left: 3px solid rgba(34, 197, 94, 0.85);
+    padding-left: 8px;
+}
+
+.white-adv-badge-inner.warn {
+    border-left: 3px solid rgba(245, 158, 11, 0.85);
+    padding-left: 8px;
+}
+
+.white-adv-badge-inner.bad {
+    border-left: 3px solid rgba(239, 68, 68, 0.85);
+    padding-left: 8px;
+}
+
+.white-adv-summary {
+    margin-top: 2px;
+    margin-bottom: 10px;
+}
+
+.white-metrics-row {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.white-metric {
+    flex: 1 1 180px;
+    padding: 8px 10px;
+    border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(0, 0, 0, 0.18);
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,0.03);
+}
+
+.white-metric .label {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--text-secondary, #8da2bb);
+    margin-bottom: 4px;
+}
+
+.white-metric .value {
+    font-size: 12px;
+    font-weight: 800;
+    color: rgba(233, 242, 255, 0.95);
+}
+
+.white-metric .value .sub {
+    font-size: 11px;
+    font-weight: 600;
+    color: rgba(233, 242, 255, 0.70);
+}
+
+.white-metric .value.warn {
+    color: rgba(245, 158, 11, 0.95);
+}
+
+.white-metric .value.bad {
+    color: rgba(239, 68, 68, 0.95);
+}
+
+.white-adv-subtitle {
+    margin: 6px 0 6px 0;
+    font-size: 11px;
+    font-weight: 700;
+    color: rgba(233, 242, 255, 0.80);
+}
+
+.white-histogram,
+.white-hazard-chart {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.white-hist-row {
+    display: grid;
+    /* espaço para "• agora: X" sem quebrar a faixa (1–20 etc) */
+    grid-template-columns: 98px 1fr auto;
+    gap: 8px;
+    align-items: center;
+}
+
+/* Destaque da linha ativa (sem “pintar tudo de vermelho”) */
+.white-hist-row.active {
+    position: relative;
+}
+.white-hist-row.active::before {
+    content: '';
+    position: absolute;
+    left: -10px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 3px;
+    height: 16px;
+    border-radius: 999px;
+    background: rgba(239, 68, 68, 0.85);
+}
+.white-hist-row.active .white-hist-bar {
+    border-color: rgba(239, 68, 68, 0.22);
+}
+
+.white-hist-label {
+    font-size: 11px;
+    font-weight: 800;
+    color: rgba(233, 242, 255, 0.90);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    white-space: nowrap;
+}
+
+.white-hist-range {
+    font-weight: 900;
+}
+
+.white-now-inline {
+    display: inline;
+    color: rgba(233, 242, 255, 0.70);
+    font-size: 10px;
+    font-weight: 800;
+}
+
+.white-hist-bar {
+    height: 10px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    overflow: hidden;
+}
+
+.white-hist-fill {
+    height: 100%;
+    width: 0%;
+    border-radius: 999px;
+    /* default neutro (cor vem das classes good/warn/bad) */
+    background: rgba(255, 255, 255, 0.20);
+}
+
+.white-hist-fill.good { background: rgba(34, 197, 94, 0.80); }  /* verde */
+.white-hist-fill.warn { background: rgba(245, 158, 11, 0.85); } /* amarelo/laranja */
+.white-hist-fill.bad  { background: rgba(239, 68, 68, 0.80); }  /* vermelho */
+
+.white-hist-value {
+    font-size: 11px;
+    font-weight: 700;
+    color: rgba(233, 242, 255, 0.88);
+    white-space: nowrap;
+}
+
+.white-hist-pct {
+    font-weight: 600;
+    color: rgba(233, 242, 255, 0.62);
+}
+
+.white-percentiles {
+    margin-top: 10px;
+}
+
+.white-pill-row {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+}
+
+.white-pill {
+    border: 1px solid rgba(255, 255, 255, 0.10);
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 8px;
+    padding: 8px 10px;
+    font-size: 11px;
+    color: rgba(233, 242, 255, 0.88);
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    justify-content: center;
+    text-align: center;
+}
+
+.white-pill .k {
+    font-weight: 900;
+    color: rgba(233, 242, 255, 0.95);
+}
+
+.white-pill .v {
+    font-weight: 800;
+}
+
+.white-pill .m {
+    font-weight: 700;
+    color: rgba(233, 242, 255, 0.72);
+}
+
+.white-pill .s {
+    opacity: 0.35;
+}
+
+.white-adv-note {
+    margin-top: 8px;
+    font-size: 11px;
+    font-weight: 600;
+    color: rgba(233, 242, 255, 0.65);
+    line-height: 1.25;
+}
+
+.white-adv-note b {
+    color: rgba(233, 242, 255, 0.92);
+}
+
+.white-empty {
+    font-size: 12px;
+    color: var(--text-secondary, #8da2bb);
+    padding: 6px 0;
+}
+
+.white-timeline-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.white-timeline-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 8px 10px;
+    border-radius: 10px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(0, 0, 0, 0.18);
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,0.03);
+}
+
+.white-timeline-time {
+    font-size: 12px;
+    font-weight: 900;
+    color: rgba(233, 242, 255, 0.95);
+    line-height: 1;
+}
+
+.white-timeline-meta {
+    margin-top: 3px;
+    font-size: 11px;
+    color: rgba(233, 242, 255, 0.62);
+}
+
+.white-timeline-right {
+    text-align: right;
+    min-width: 90px;
+}
+
+.white-timeline-gap {
+    font-size: 12px;
+    font-weight: 800;
+    color: rgba(233, 242, 255, 0.90);
+    line-height: 1;
+}
+
+.white-timeline-gapms {
+    margin-top: 3px;
+    font-size: 11px;
+    color: rgba(233, 242, 255, 0.62);
+}
+
+.white-alerts-body {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.white-alerts-row {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    align-items: center;
+    gap: 10px;
+}
+
+.white-alerts-row.white-alerts-single {
+    grid-template-columns: 1fr;
+}
+
+.white-alerts-label {
+    font-size: 12px;
+    font-weight: 700;
+    color: rgba(233, 242, 255, 0.82);
+}
+
+.white-alerts-controls {
+    display: inline-flex;
+    gap: 8px;
+    align-items: center;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+}
+
+.white-alerts-controls .white-bet-setting-btn,
+.white-alerts-controls .white-pullers-filter-btn,
+.white-alerts-controls .white-bet-save-btn {
+    height: 26px;
+}
+
+.white-alerts-controls .white-pullers-filter-btn {
+    min-width: 54px;
+}
+
+.white-alerts-mini {
+    font-size: 11px;
+    font-weight: 700;
+    color: rgba(233, 242, 255, 0.70);
+}
+
+.white-alerts-controls .white-bet-input {
+    height: 26px;
+}
+
+.white-alerts-check {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    font-weight: 700;
+    color: rgba(233, 242, 255, 0.86);
+}
+
+.white-alerts-check input[type="checkbox"] {
+    width: 14px;
+    height: 14px;
+    accent-color: #ef4444;
+}
+
+.white-alerts-help {
+    margin-top: 2px;
+}
+
+@media (max-width: 520px) {
+    .white-hist-row {
+        grid-template-columns: 90px 1fr auto;
+    }
+    .white-pill-row {
+        grid-template-columns: 1fr;
+    }
+    .white-timeline-right {
+        min-width: 78px;
+    }
+    .white-alerts-row {
+        grid-template-columns: 1fr;
+    }
 }
 
 @media (max-width: 420px) {
@@ -4823,6 +5203,75 @@
 @keyframes da-profile-nudge-countdown {
     from { transform: scaleX(0); }
     to   { transform: scaleX(1); }
+}
+
+/* =========================================================================
+   ⚪ Toast premium do Branco (estilo "Bunny"/cadastro)
+   - Card branco, logo centralizada, título + detalhes
+   - Sem backdrop
+   ========================================================================= */
+.da-white-alert-toast {
+    position: fixed;
+    inset: 0;
+    display: none; /* controlado via JS */
+    align-items: center;
+    justify-content: center;
+    padding: 18px;
+    z-index: 2147483500;
+    pointer-events: none; /* não bloquear o uso */
+}
+
+.da-white-alert-toast__card {
+    width: min(420px, 92vw);
+    max-height: 92vh;
+    background: #ffffff;
+    border-radius: 0; /* mesma pegada do design */
+    border: none;
+    box-shadow: 0 18px 46px rgba(0,0,0,0.38);
+    overflow: hidden;
+    pointer-events: auto; /* permitir clique para fechar */
+}
+
+.da-white-alert-toast.show .da-white-alert-toast__card {
+    animation: daWhiteToastPop 180ms ease-out forwards;
+}
+
+@keyframes daWhiteToastPop {
+    from { transform: scale(0.98); opacity: 0.0; }
+    to { transform: scale(1); opacity: 1.0; }
+}
+
+.da-white-alert-toast__content {
+    padding-top: 18px;
+    padding-bottom: 14px;
+}
+
+.da-white-alert-toast__logo-wrap {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 14px;
+}
+
+.da-white-alert-toast__logo {
+    width: 52px;
+    height: 52px;
+    object-fit: contain;
+    display: block;
+}
+
+/* Subtitle levemente mais "marca" */
+.da-white-alert-toast__card .da-profile-nudge__subtitle {
+    color: rgba(239, 68, 68, 0.78);
+    font-weight: 900;
+    letter-spacing: 0.2px;
+}
+
+/* Mensagem com boa leitura */
+.da-white-alert-toast__card .da-profile-nudge__message {
+    color: rgba(15, 23, 42, 0.82);
+    font-weight: 700;
 }
 
 @media (max-width: 520px) {
@@ -7962,7 +8411,7 @@ body.da-ext-fullscreen #patternDetailsModal .bank-patterns-modal-content {
     font-size: 13px;
     font-weight: 700;
     z-index: 999999999;
-    box-shadow: none;
+    box-shadow: 0 14px 36px rgba(0, 0, 0, 0.45);
     opacity: 0;
     transition: all 0.3s ease;
 }
@@ -7973,17 +8422,23 @@ body.da-ext-fullscreen #patternDetailsModal .bank-patterns-modal-content {
 }
 
 .custom-toast-success {
-    background: #22c55e;
-    border-color: rgba(255, 255, 255, 0.18);
+    background: #1a2332;
+    border-color: rgba(34, 197, 94, 0.55);
 }
 
 .custom-toast-error {
-    background: #ef4444;
-    border-color: rgba(255, 255, 255, 0.18);
+    background: #1a2332;
+    border-color: rgba(239, 68, 68, 0.60);
 }
 
 .custom-toast-info {
     background: #1a2332;
+}
+
+.custom-toast-warn,
+.custom-toast-warning {
+    background: #1a2332;
+    border-color: rgba(245, 158, 11, 0.60);
 }
 
 .custom-toast-icon {
@@ -7997,6 +8452,12 @@ body.da-ext-fullscreen #patternDetailsModal .bank-patterns-modal-content {
     color: #ffffff;
     flex: 0 0 auto;
 }
+
+/* Ajustes de paleta por variante (ícone acompanha a cor do alerta) */
+.custom-toast-success .custom-toast-icon { background: rgba(34, 197, 94, 0.20); }
+.custom-toast-error .custom-toast-icon { background: rgba(239, 68, 68, 0.20); }
+.custom-toast-warn .custom-toast-icon,
+.custom-toast-warning .custom-toast-icon { background: rgba(245, 158, 11, 0.20); }
 
 .custom-toast-icon svg {
     width: 16px;

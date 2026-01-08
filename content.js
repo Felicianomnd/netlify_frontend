@@ -2442,6 +2442,8 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
             icon.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6L9 17l-5-5"></path></svg>`;
         } else if (variant === 'error') {
             icon.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6L6 18"></path><path d="M6 6l12 12"></path></svg>`;
+        } else if (variant === 'warn' || variant === 'warning') {
+            icon.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><path d="M12 9v4"></path><path d="M12 17h.01"></path></svg>`;
         } else {
             icon.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 18h.01"></path><path d="M12 14a4 4 0 0 0-4-4"></path><path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2z"></path></svg>`;
         }
@@ -2464,6 +2466,121 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                 try { toast.remove(); } catch (_) {}
             }, 300);
         }, duration);
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // ⚪ ALERTAS DO BRANCO — Notificação premium (estilo "Bunny"/cadastro)
+    // - Card branco, logo centralizada, título + detalhes
+    // - Sem backdrop (não atrapalha o uso)
+    // - Auto-hide em 5s (pedido do usuário)
+    // ═══════════════════════════════════════════════════════════════
+    let daWhiteAlertToastEl = null;
+    let daWhiteAlertToastTimer = null;
+
+    function ensureWhiteAlertToastUI() {
+        try {
+            if (daWhiteAlertToastEl && document.contains(daWhiteAlertToastEl)) return daWhiteAlertToastEl;
+            const existing = document.getElementById('daWhiteAlertToast');
+            if (existing) {
+                daWhiteAlertToastEl = existing;
+                return existing;
+            }
+
+            const wrap = document.createElement('div');
+            wrap.id = 'daWhiteAlertToast';
+            wrap.className = 'da-white-alert-toast';
+            wrap.style.display = 'none';
+            wrap.innerHTML = `
+                <div class="da-white-alert-toast__card" role="status" aria-live="polite">
+                    <div class="da-profile-nudge__content da-white-alert-toast__content">
+                        <div class="da-white-alert-toast__logo-wrap">
+                            <img class="da-white-alert-toast__logo" id="daWhiteAlertToastLogo" alt="Double Análise" />
+                        </div>
+                        <div class="da-profile-nudge__hero">
+                            <div class="da-profile-nudge__headline" id="daWhiteAlertToastTitle">Aviso</div>
+                            <div class="da-profile-nudge__subtitle" id="daWhiteAlertToastSubtitle">Branco • Alertas</div>
+                        </div>
+                        <div class="da-profile-nudge__body">
+                            <div class="da-profile-nudge__text">
+                                <div class="da-profile-nudge__message" id="daWhiteAlertToastMessage">—</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="da-profile-nudge__timer">
+                        <div class="da-profile-nudge__timer-fill" id="daWhiteAlertToastTimerFill"></div>
+                    </div>
+                </div>
+            `;
+
+            const root = document.getElementById('blaze-double-analyzer') || document.body;
+            root.appendChild(wrap);
+
+            // Click-to-dismiss (sem bloquear cliques no app)
+            wrap.addEventListener('click', () => {
+                try { hideWhiteAlertToast(); } catch (_) {}
+            });
+
+            daWhiteAlertToastEl = wrap;
+            return wrap;
+        } catch (_) {
+            return null;
+        }
+    }
+
+    function hideWhiteAlertToast() {
+        try {
+            const el = daWhiteAlertToastEl || document.getElementById('daWhiteAlertToast');
+            if (!el) return;
+            el.classList.remove('show');
+            setTimeout(() => {
+                try { el.style.display = 'none'; } catch (_) {}
+            }, 180);
+            if (daWhiteAlertToastTimer) {
+                clearTimeout(daWhiteAlertToastTimer);
+                daWhiteAlertToastTimer = null;
+            }
+        } catch (_) {}
+    }
+
+    function showWhiteAlertToastCard({ title, subtitle, message, durationMs = 5000 } = {}) {
+        try {
+            const el = ensureWhiteAlertToastUI();
+            if (!el) return;
+
+            const titleEl = el.querySelector('#daWhiteAlertToastTitle');
+            const subtitleEl = el.querySelector('#daWhiteAlertToastSubtitle');
+            const msgEl = el.querySelector('#daWhiteAlertToastMessage');
+            const logoEl = el.querySelector('#daWhiteAlertToastLogo');
+            const fill = el.querySelector('#daWhiteAlertToastTimerFill');
+
+            if (titleEl) titleEl.textContent = String(title || 'Aviso');
+            if (subtitleEl) subtitleEl.innerHTML = String(subtitle || 'Branco • Alertas');
+            if (msgEl) msgEl.textContent = String(message || '').trim() || '—';
+
+            // Logo (usar asset local do frontend — leve e consistente)
+            try {
+                if (logoEl) {
+                    // Preferir icon do app (caso assets/ exista)
+                    logoEl.src = 'assets/logo-da-icon.png';
+                }
+            } catch (_) {}
+
+            // Reiniciar animação do timer
+            if (fill) {
+                try {
+                    fill.classList.remove('is-running');
+                    void fill.offsetWidth; // reflow
+                    fill.style.setProperty('--da-profile-nudge-duration', `${Math.max(1000, Number(durationMs) || 5000)}ms`);
+                    fill.classList.add('is-running');
+                } catch (_) {}
+            }
+
+            el.style.display = 'flex';
+            requestAnimationFrame(() => el.classList.add('show'));
+
+            if (daWhiteAlertToastTimer) clearTimeout(daWhiteAlertToastTimer);
+            daWhiteAlertToastTimer = setTimeout(() => hideWhiteAlertToast(), Math.max(1000, Number(durationMs) || 5000));
+        } catch (_) {}
     }
     
     // ========= FEEDBACK GLOBAL DE SALVAR (CENTRO DA TELA) =========
@@ -21299,6 +21416,132 @@ function logModeSnapshotUI(snapshot) {
     let whitePullersWindowHoursLoaded = false;
     const WHITE_PULLERS_WINDOW_HOURS_KEY = 'whitePullersWindowHours';
 
+    // ═══════════════════════════════════════════════════════════════
+    // ⚪ BRANCO — Insights avançados (intervalos, risco, timeline, alertas)
+    // ═══════════════════════════════════════════════════════════════
+    const WHITE_HAZARD_WINDOW_SPINS_KEY = 'whiteHazardWindowSpins';
+    const WHITE_TIMELINE_LIMIT_KEY = 'whiteTimelineLimit';
+    const WHITE_ALERTS_SETTINGS_KEY = 'whiteAlertsSettings_v1';
+    const WHITE_ALERTS_LAST_FIRED_KEY = 'whiteAlertsLastFired_v1';
+
+    let whiteHazardWindowSpins = 10; // K (próximos K giros)
+    let whiteHazardWindowLoaded = false;
+
+    let whiteTimelineLimit = 10; // últimos N brancos
+    let whiteTimelineLimitLoaded = false;
+
+    let whiteAlertsSettingsLoaded = false;
+    let whiteAlertsSettings = null;
+    let whiteAlertsLastFired = {};
+    let whiteAlertsRuntime = { lastState: {} };
+    let whiteAdvancedStatsCache = null; // último snapshot computado (para UI + alertas)
+
+    function clampWhiteHazardWindowSpins(value, fallback = 10) {
+        const n = Math.floor(Number(value));
+        if (!Number.isFinite(n)) return fallback;
+        // manter simples e legível na UI
+        if (n <= 5) return 5;
+        if (n <= 10) return 10;
+        if (n <= 20) return 20;
+        return 20;
+    }
+
+    function clampWhiteTimelineLimit(value, fallback = 10) {
+        const n = Math.floor(Number(value));
+        if (!Number.isFinite(n)) return fallback;
+        return Math.max(5, Math.min(20, n));
+    }
+
+    function getWhiteAlertsDefaults() {
+        return {
+            enabled: false,
+            channel: 'toast', // toast | notification | both
+            cooldownMinutes: 10,
+            // Regras
+            delayEnabled: true,
+            delayPercentile: 75, // 50 | 75 | 90
+            hotWindowEnabled: true,
+            hotMinProbPct: 8, // % mínimo do bucket atual (próx K giros)
+            pullerRepeatEnabled: true,
+            pullerRepeatCount: 3,
+            // Guard-rails
+            minSamplesForProb: 30
+        };
+    }
+
+    async function loadWhiteHazardWindowIfNeeded() {
+        try {
+            if (whiteHazardWindowLoaded) return;
+            whiteHazardWindowLoaded = true;
+            const res = await storageCompat.get([WHITE_HAZARD_WINDOW_SPINS_KEY]);
+            whiteHazardWindowSpins = clampWhiteHazardWindowSpins(res ? res[WHITE_HAZARD_WINDOW_SPINS_KEY] : null, 10);
+        } catch (_) {
+            whiteHazardWindowLoaded = true;
+            whiteHazardWindowSpins = 10;
+        }
+    }
+
+    async function persistWhiteHazardWindow(nextK) {
+        const k = clampWhiteHazardWindowSpins(nextK, 10);
+        whiteHazardWindowSpins = k;
+        try { await storageCompat.set({ [WHITE_HAZARD_WINDOW_SPINS_KEY]: k }); } catch (_) {}
+        try { scheduleMasterSignalStatsRefresh(0); } catch (_) {}
+    }
+
+    async function loadWhiteTimelineLimitIfNeeded() {
+        try {
+            if (whiteTimelineLimitLoaded) return;
+            whiteTimelineLimitLoaded = true;
+            const res = await storageCompat.get([WHITE_TIMELINE_LIMIT_KEY]);
+            whiteTimelineLimit = clampWhiteTimelineLimit(res ? res[WHITE_TIMELINE_LIMIT_KEY] : null, 10);
+        } catch (_) {
+            whiteTimelineLimitLoaded = true;
+            whiteTimelineLimit = 10;
+        }
+    }
+
+    async function persistWhiteTimelineLimit(nextLimit) {
+        const n = clampWhiteTimelineLimit(nextLimit, 10);
+        whiteTimelineLimit = n;
+        try { await storageCompat.set({ [WHITE_TIMELINE_LIMIT_KEY]: n }); } catch (_) {}
+        try { scheduleMasterSignalStatsRefresh(0); } catch (_) {}
+    }
+
+    async function loadWhiteAlertsSettingsIfNeeded() {
+        try {
+            if (whiteAlertsSettingsLoaded) return;
+            whiteAlertsSettingsLoaded = true;
+            const stored = await storageCompat.get([WHITE_ALERTS_SETTINGS_KEY, WHITE_ALERTS_LAST_FIRED_KEY]);
+            const raw = stored ? stored[WHITE_ALERTS_SETTINGS_KEY] : null;
+            const rawLast = stored ? stored[WHITE_ALERTS_LAST_FIRED_KEY] : null;
+            const base = getWhiteAlertsDefaults();
+            whiteAlertsSettings = (raw && typeof raw === 'object') ? { ...base, ...raw } : { ...base };
+            whiteAlertsLastFired = (rawLast && typeof rawLast === 'object') ? { ...rawLast } : {};
+        } catch (_) {
+            whiteAlertsSettingsLoaded = true;
+            whiteAlertsSettings = { ...getWhiteAlertsDefaults() };
+            whiteAlertsLastFired = {};
+        }
+    }
+
+    async function persistWhiteAlertsSettings(patch = {}) {
+        try {
+            const base = (whiteAlertsSettings && typeof whiteAlertsSettings === 'object') ? whiteAlertsSettings : getWhiteAlertsDefaults();
+            const next = { ...base, ...(patch || {}) };
+            next.cooldownMinutes = clampIntRange(next.cooldownMinutes, 1, 180);
+            next.delayPercentile = next.delayPercentile === 50 ? 50 : next.delayPercentile === 90 ? 90 : 75;
+            next.hotMinProbPct = Math.max(0, Math.min(100, Number(next.hotMinProbPct) || 0));
+            next.pullerRepeatCount = clampIntRange(next.pullerRepeatCount, 2, 10);
+            next.minSamplesForProb = clampIntRange(next.minSamplesForProb, 5, 300);
+            next.channel = (next.channel === 'notification' || next.channel === 'both') ? next.channel : 'toast';
+            whiteAlertsSettings = next;
+            await storageCompat.set({ [WHITE_ALERTS_SETTINGS_KEY]: next });
+            try { renderWhiteAdvancedPanels(whiteAdvancedStatsCache); } catch (_) {}
+        } catch (err) {
+            console.warn('⚠️ Falha ao salvar alertas do Branco:', err);
+        }
+    }
+
     function clampWhitePullersWindowHours(value, fallback = 1) {
         const n = Math.floor(Number(value));
         if (!Number.isFinite(n)) return fallback;
@@ -21490,6 +21733,879 @@ function logModeSnapshotUI(snapshot) {
         return 'black';
     }
 
+    function ensureWhiteAdvancedBlocks() {
+        const root = document.getElementById('whiteInsights');
+        if (!root) return;
+
+        const ensure = (id, html) => {
+            if (document.getElementById(id)) return;
+            const wrap = document.createElement('div');
+            wrap.innerHTML = html.trim();
+            const el = wrap.firstElementChild;
+            if (!el) return;
+            root.appendChild(el);
+        };
+
+        ensure('whiteIntervalsBlock', `
+            <div class="white-insights-block white-adv-block" id="whiteIntervalsBlock">
+                <div class="white-pullers-header">
+                    <div class="white-insights-title">Intervalos entre brancos</div>
+                    <div class="white-adv-badge" id="whiteReliabilityBadge" title="Confiabilidade baseada no tamanho da amostra">—</div>
+                </div>
+                <div class="white-adv-summary" id="whiteIntervalsSummary">Carregando...</div>
+                <div class="white-adv-subtitle">Intervalo (em giros)</div>
+                <div class="white-histogram" id="whiteIntervalsHistogram"></div>
+                <div class="white-percentiles" id="whiteIntervalsPercentiles"></div>
+            </div>
+        `);
+
+        ensure('whiteHazardBlock', `
+            <div class="white-insights-block white-adv-block" id="whiteHazardBlock">
+                <div class="white-pullers-header">
+                    <div class="white-insights-title">Probabilidade por atraso</div>
+                    <div class="white-pullers-filter" id="whiteHazardWindowFilter"></div>
+                </div>
+                <div class="white-adv-summary" id="whiteHazardSummary">Carregando...</div>
+                <div class="white-hazard-chart" id="whiteHazardChart"></div>
+                <div class="white-adv-note">* Histórico (não é previsão).</div>
+            </div>
+        `);
+
+        ensure('whiteTimelineBlock', `
+            <div class="white-insights-block white-adv-block" id="whiteTimelineBlock">
+                <div class="white-pullers-header">
+                    <div class="white-insights-title">Últimos brancos</div>
+                    <div class="white-pullers-filter" id="whiteTimelineLimitFilter"></div>
+                </div>
+                <div class="white-timeline-list" id="whiteTimelineList">Carregando...</div>
+            </div>
+        `);
+
+        ensure('whiteAlertsBlock', `
+            <div class="white-insights-block white-adv-block" id="whiteAlertsBlock">
+                <div class="white-pullers-header">
+                    <div class="white-insights-title">Alertas</div>
+                    <div class="white-adv-badge" id="whiteAlertsStatusBadge" title="Alertas (opcional) — só avisos estatísticos">—</div>
+                </div>
+                <div class="white-alerts-body" id="whiteAlertsBody">Carregando...</div>
+            </div>
+        `);
+    }
+
+    function formatShortMinutes(ms) {
+        try {
+            const n = Number(ms);
+            if (!Number.isFinite(n)) return '—';
+            const m = Math.max(0, Math.round(n / 60000));
+            return `${m}m`;
+        } catch (_) {
+            return '—';
+        }
+    }
+
+    function formatPct1(value) {
+        const n = Number(value);
+        if (!Number.isFinite(n)) return '0,0%';
+        const v = Math.max(0, Math.min(100, n));
+        const fixed = (Math.abs(v - Math.round(v)) < 0.0001) ? `${Math.round(v)}` : v.toFixed(1);
+        return `${fixed.replace('.', ',')}%`;
+    }
+
+    function quantile(sortedArr, q) {
+        const arr = Array.isArray(sortedArr) ? sortedArr : [];
+        const n = arr.length;
+        if (!n) return null;
+        const qq = Math.max(0, Math.min(1, Number(q)));
+        if (!Number.isFinite(qq)) return null;
+        if (n === 1) return Number(arr[0]);
+        const pos = (n - 1) * qq;
+        const base = Math.floor(pos);
+        const rest = pos - base;
+        const a = Number(arr[base]);
+        const b = Number(arr[Math.min(n - 1, base + 1)]);
+        if (!Number.isFinite(a)) return null;
+        if (!Number.isFinite(b)) return a;
+        return a + (b - a) * rest;
+    }
+
+    function wilsonInterval(successes, n, z = 1.96) {
+        const nn = Number(n);
+        const k = Number(successes);
+        if (!Number.isFinite(nn) || nn <= 0) return { low: 0, high: 0 };
+        const kk = Number.isFinite(k) ? Math.max(0, Math.min(nn, k)) : 0;
+        const p = kk / nn;
+        const z2 = z * z;
+        const denom = 1 + z2 / nn;
+        const center = (p + z2 / (2 * nn)) / denom;
+        const margin = (z / denom) * Math.sqrt((p * (1 - p) + z2 / (4 * nn)) / nn);
+        const low = Math.max(0, center - margin);
+        const high = Math.min(1, center + margin);
+        return { low, high };
+    }
+
+    function buildDelayBins() {
+        const bins = [
+            [1, 20],
+            [21, 40],
+            [41, 60],
+            [61, 80],
+            [81, 100],
+            [101, 140],
+            [141, 200],
+            [201, Infinity]
+        ];
+        return bins.map(([from, to]) => ({
+            from,
+            to,
+            label: (to === Infinity) ? `${from}+` : `${from}-${to}`
+        }));
+    }
+
+    function classifyReliability(intervalsCount, spanHours) {
+        const n = Number(intervalsCount) || 0;
+        const h = Number(spanHours) || 0;
+        if (n >= 120 && h >= 18) return { level: 'high', label: 'Alta' };
+        if (n >= 50 && h >= 6) return { level: 'mid', label: 'Média' };
+        return { level: 'low', label: 'Baixa' };
+    }
+
+    function computeWhiteAdvancedStatsFromHistory(historyRaw, nowMs, options = {}) {
+        const history = Array.isArray(historyRaw) ? historyRaw : [];
+        const maxSpins = clampIntRange(options.maxSpins ?? 10000, 500, 20000);
+        const limit = Math.min(history.length, maxSpins);
+        const K = clampWhiteHazardWindowSpins(options.hazardK ?? whiteHazardWindowSpins, 10);
+        const timelineLimit = clampWhiteTimelineLimit(options.timelineLimit ?? whiteTimelineLimit, 10);
+
+        const isWhite = new Array(limit).fill(false);
+        const msArr = new Array(limit).fill(0);
+        const nums = new Array(limit).fill(null);
+
+        for (let i = 0; i < limit; i++) {
+            const s = normalizeSpinForInsights(history[i]);
+            const ms = parseSpinTimestampMsLocal(s);
+            msArr[i] = Number.isFinite(ms) ? ms : 0;
+            nums[i] = (s && s.number != null) ? s.number : null;
+            isWhite[i] = (s && s.color === 'white');
+        }
+
+        // Base temporal
+        let newestMs = Number.isFinite(Number(nowMs)) ? Number(nowMs) : 0;
+        if (!newestMs) {
+            const head = limit > 0 ? msArr[0] : 0;
+            newestMs = head || Date.now();
+        }
+        let oldestMs = 0;
+        for (let i = limit - 1; i >= 0; i--) {
+            if (msArr[i] > 0) { oldestMs = msArr[i]; break; }
+        }
+        const spanMs = (newestMs > 0 && oldestMs > 0 && newestMs >= oldestMs) ? (newestMs - oldestMs) : 0;
+        const spanHours = spanMs > 0 ? (spanMs / 3600000) : 0;
+
+        // Índices de brancos (newest-first)
+        const whiteIdx = [];
+        for (let i = 0; i < limit; i++) {
+            if (isWhite[i]) whiteIdx.push(i);
+        }
+
+        const delayNowSpins = whiteIdx.length ? whiteIdx[0] : null; // 0 se já é branco
+        const delayNowMinutes = (delayNowSpins != null && delayNowSpins >= 0 && msArr[0] > 0 && msArr[delayNowSpins] > 0)
+            ? (msArr[0] - msArr[delayNowSpins])
+            : null;
+
+        // Intervalos entre brancos (diferença de índices + diferença de tempo)
+        const intervalsSpins = [];
+        const intervalsMs = [];
+        for (let k = 0; k < whiteIdx.length - 1; k++) {
+            const newer = whiteIdx[k];
+            const older = whiteIdx[k + 1];
+            const gapSpins = Math.max(1, older - newer);
+            intervalsSpins.push(gapSpins);
+            const tNew = msArr[newer];
+            const tOld = msArr[older];
+            if (tNew > 0 && tOld > 0 && tNew >= tOld) {
+                intervalsMs.push(tNew - tOld);
+            }
+        }
+
+        const spinsSorted = intervalsSpins.slice().sort((a, b) => a - b);
+        const msSorted = intervalsMs.slice().sort((a, b) => a - b);
+        const p50Spins = quantile(spinsSorted, 0.5);
+        const p75Spins = quantile(spinsSorted, 0.75);
+        const p90Spins = quantile(spinsSorted, 0.9);
+        const p50Ms = quantile(msSorted, 0.5);
+        const p75Ms = quantile(msSorted, 0.75);
+        const p90Ms = quantile(msSorted, 0.9);
+
+        const bins = buildDelayBins();
+        const hist = bins.map(b => ({ ...b, count: 0 }));
+        for (const v of intervalsSpins) {
+            const n = Number(v);
+            if (!Number.isFinite(n) || n <= 0) continue;
+            const bucket = hist.find(h => n >= h.from && n <= h.to);
+            if (bucket) bucket.count += 1;
+        }
+        const histMax = hist.reduce((m, b) => Math.max(m, b.count), 0) || 1;
+        const intervalsCount = intervalsSpins.length;
+
+        // Hazard/“chance por atraso”: prob de ocorrer branco nos próximos K giros,
+        // condicionada ao atraso (giros desde o branco anterior), em buckets.
+        // Usar janela completa (evitar viés de censura): só avaliar t com K futuro disponível.
+        const chronLen = limit;
+        const isWhiteChron = new Array(chronLen);
+        for (let t = 0; t < chronLen; t++) {
+            isWhiteChron[t] = isWhite[chronLen - 1 - t];
+        }
+        const nextWhiteDist = new Array(chronLen).fill(Infinity);
+        let nextWhiteIdxChron = null;
+        for (let t = chronLen - 1; t >= 0; t--) {
+            if (isWhiteChron[t]) {
+                nextWhiteIdxChron = t;
+                nextWhiteDist[t] = 0;
+            } else {
+                nextWhiteDist[t] = (nextWhiteIdxChron != null) ? (nextWhiteIdxChron - t) : Infinity;
+            }
+        }
+        const delaySincePrev = new Array(chronLen).fill(null);
+        let lastWhiteIdxChron = null;
+        for (let t = 0; t < chronLen; t++) {
+            if (isWhiteChron[t]) {
+                delaySincePrev[t] = 0;
+                lastWhiteIdxChron = t;
+            } else if (lastWhiteIdxChron != null) {
+                delaySincePrev[t] = t - lastWhiteIdxChron;
+            }
+        }
+
+        const hazardBins = bins.map(b => ({ ...b, n: 0, wins: 0, p: 0, ciLow: 0, ciHigh: 0 }));
+        const maxT = Math.max(0, chronLen - 1 - K);
+        for (let t = 0; t <= maxT; t++) {
+            const d = delaySincePrev[t];
+            if (!Number.isFinite(Number(d)) || d <= 0) continue;
+            const dist = nextWhiteDist[t];
+            const hit = Number.isFinite(Number(dist)) && dist > 0 && dist <= K;
+            const bucket = hazardBins.find(h => d >= h.from && d <= h.to);
+            if (!bucket) continue;
+            bucket.n += 1;
+            if (hit) bucket.wins += 1;
+        }
+        let hazardMaxN = 0;
+        for (const b of hazardBins) {
+            hazardMaxN = Math.max(hazardMaxN, b.n);
+            b.p = b.n > 0 ? (b.wins / b.n) : 0;
+            const ci = wilsonInterval(b.wins, b.n);
+            b.ciLow = ci.low;
+            b.ciHigh = ci.high;
+        }
+
+        const currentBucket = (() => {
+            const d = Number(delayNowSpins);
+            if (!Number.isFinite(d) || d <= 0) return null;
+            return hazardBins.find(h => d >= h.from && d <= h.to) || null;
+        })();
+
+        // Timeline: últimos N brancos (hora + gap)
+        const timeline = [];
+        for (let i = 0; i < Math.min(whiteIdx.length, timelineLimit); i++) {
+            const idx = whiteIdx[i];
+            const ms = msArr[idx];
+            const time = ms > 0
+                ? new Date(ms).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+                : '--:--';
+            const sinceNowSpins = idx;
+            const sinceNowMs = (msArr[0] > 0 && ms > 0 && msArr[0] >= ms) ? (msArr[0] - ms) : null;
+            const gapSpins = (i < intervalsSpins.length) ? intervalsSpins[i] : null;
+            const gapMs = (i < intervalsMs.length) ? intervalsMs[i] : null;
+            timeline.push({
+                idx,
+                time,
+                sinceNowSpins,
+                sinceNowMs,
+                gapSpins,
+                gapMs,
+                number: nums[idx]
+            });
+        }
+
+        const whitesCount = whiteIdx.length;
+        const reliability = classifyReliability(intervalsCount, spanHours);
+
+        // Taxa base de branco na amostra (probabilidade marginal), com IC 95% (Wilson)
+        const baseRate = (() => {
+            const n = Number(limit) || 0;
+            const k = Number(whitesCount) || 0;
+            const p = n > 0 ? (k / n) : 0;
+            const ci = wilsonInterval(k, n);
+            return { p, ciLow: ci.low, ciHigh: ci.high, n, k };
+        })();
+
+        return {
+            nowMs: newestMs,
+            spanMs,
+            spanHours,
+            sampleSpins: limit,
+            whitesCount,
+            intervalsCount,
+            delayNowSpins,
+            delayNowMs: delayNowMinutes,
+            baseRate,
+            percentiles: {
+                spins: { p50: p50Spins, p75: p75Spins, p90: p90Spins },
+                ms: { p50: p50Ms, p75: p75Ms, p90: p90Ms }
+            },
+            histogram: { bins: hist, maxCount: histMax },
+            hazard: {
+                K,
+                bins: hazardBins,
+                maxN: hazardMaxN,
+                currentBucket
+            },
+            timeline,
+            reliability
+        };
+    }
+
+    function getReliabilityBadgeHtml(reliability) {
+        const level = reliability && reliability.level ? reliability.level : 'low';
+        const label = reliability && reliability.label ? reliability.label : 'Baixa';
+        const cls = level === 'high' ? 'good' : level === 'mid' ? 'warn' : 'bad';
+        return `<span class="white-adv-badge-inner ${cls}">${label}</span>`;
+    }
+
+    function renderWhiteIntervalsHistogram(hist) {
+        const bins = hist && Array.isArray(hist.bins) ? hist.bins : [];
+        const max = Number(hist && hist.maxCount) || 1;
+        const total = bins.reduce((acc, b) => acc + (Number(b && b.count) || 0), 0) || 0;
+        if (!bins.length || total <= 0) {
+            return `<div class="white-empty">Base insuficiente para histogramas.</div>`;
+        }
+        // Classificação por "frequência" (verde = mais comum / amarelo = intermediário / vermelho = raro)
+        // usando percentis do intervalo (quando disponível).
+        const statsRef = (whiteAdvancedStatsCache && typeof whiteAdvancedStatsCache === 'object') ? whiteAdvancedStatsCache : null;
+        const p50 = Number(statsRef?.percentiles?.spins?.p50);
+        const p75 = Number(statsRef?.percentiles?.spins?.p75);
+        const delayNow = Number(statsRef?.delayNowSpins);
+        return bins.map(b => {
+            const count = Number(b.count) || 0;
+            const pct = total > 0 ? (count / total) * 100 : 0;
+            const w = max > 0 ? Math.max(2, Math.round((count / max) * 100)) : 0;
+            let cls = '';
+            if (Number.isFinite(p50) && Number.isFinite(p75)) {
+                const from = Number(b.from) || 0;
+                const to = (b.to === Infinity) ? Infinity : Number(b.to);
+                const mid = (to === Infinity) ? from : ((from + to) / 2);
+                if (Number.isFinite(mid)) {
+                    if (mid <= p50) cls = 'good';
+                    else if (mid <= p75) cls = 'warn';
+                    else cls = 'bad';
+                }
+            }
+            const fromRange = Number(b.from) || 0;
+            const toRange = (b.to === Infinity) ? Infinity : Number(b.to);
+            const isCurrent = Number.isFinite(delayNow) && delayNow >= fromRange && delayNow <= toRange;
+            const nowTag = isCurrent ? `<span class="white-now-inline">• agora: ${Math.max(0, Math.round(delayNow))}</span>` : '';
+            return `
+                <div class="white-hist-row${isCurrent ? ' active' : ''}">
+                    <div class="white-hist-label"><span class="white-hist-range">${b.label}</span> ${nowTag}</div>
+                    <div class="white-hist-bar" aria-hidden="true">
+                        <div class="white-hist-fill${cls ? ` ${cls}` : ''}" style="width:${w}%"></div>
+                    </div>
+                    <div class="white-hist-value">${count} intervalos <span class="white-hist-pct">(${formatPct1(pct)})</span></div>
+                </div>
+            `;
+        }).join('');
+    }
+
+    function renderWhitePercentiles(percentiles) {
+        const ps = percentiles && percentiles.spins ? percentiles.spins : {};
+        const pm = percentiles && percentiles.ms ? percentiles.ms : {};
+        const fmtSpin = (v) => (Number.isFinite(Number(v)) ? `${Math.round(Number(v))} giros` : '—');
+        const fmtMs = (v) => (Number.isFinite(Number(v)) ? `~${formatShortMinutes(Number(v))}` : '—');
+        return `
+            <div class="white-pill-row">
+                <div class="white-pill"><span class="k">Até 50%</span> <span class="v">${fmtSpin(ps.p50)}</span> <span class="s">•</span> <span class="m">${fmtMs(pm.p50)}</span></div>
+                <div class="white-pill"><span class="k">Até 75%</span> <span class="v">${fmtSpin(ps.p75)}</span> <span class="s">•</span> <span class="m">${fmtMs(pm.p75)}</span></div>
+                <div class="white-pill"><span class="k">Até 90%</span> <span class="v">${fmtSpin(ps.p90)}</span> <span class="s">•</span> <span class="m">${fmtMs(pm.p90)}</span></div>
+            </div>
+        `;
+    }
+
+    function renderWhiteHazardWindowFilter() {
+        const opts = [5, 10, 20];
+        const k = clampWhiteHazardWindowSpins(whiteHazardWindowSpins, 10);
+        return opts.map(v => {
+            const active = v === k;
+            return `<button type="button" class="white-pullers-filter-btn${active ? ' active' : ''}" data-white-hazard-k="${v}">${v}g</button>`;
+        }).join('');
+    }
+
+    function renderWhiteTimelineLimitFilter() {
+        const opts = [5, 10, 15, 20];
+        const n = clampWhiteTimelineLimit(whiteTimelineLimit, 10);
+        return opts.map(v => {
+            const active = v === n;
+            return `<button type="button" class="white-pullers-filter-btn${active ? ' active' : ''}" data-white-timeline-n="${v}">${v}</button>`;
+        }).join('');
+    }
+
+    function renderWhiteHazardChart(hazard) {
+        const bins = hazard && Array.isArray(hazard.bins) ? hazard.bins : [];
+        if (!bins.length) return `<div class="white-empty">Carregando...</div>`;
+        const cur = hazard && hazard.currentBucket ? hazard.currentBucket : null;
+        const maxP = bins.reduce((m, b) => Math.max(m, Number.isFinite(Number(b.p)) ? Number(b.p) : 0), 0) || 0.0001;
+        const statsRef = (whiteAdvancedStatsCache && typeof whiteAdvancedStatsCache === 'object') ? whiteAdvancedStatsCache : null;
+        const delayNow = Number(statsRef?.delayNowSpins);
+        return bins.map(b => {
+            const p = Number.isFinite(Number(b.p)) ? Number(b.p) : 0;
+            const n = Number(b.n) || 0;
+            const w = Math.max(2, Math.round((p / maxP) * 100));
+            const active = cur && cur.label === b.label;
+            // Cores de leitura: vermelho (baixo), amarelo (médio), verde (alto)
+            const cls = p >= 0.55 ? 'good' : (p >= 0.35 ? 'warn' : 'bad');
+            const ciText = (n >= 8)
+                ? `${formatPct1(b.ciLow * 100)}–${formatPct1(b.ciHigh * 100)}`
+                : '—';
+            const fromRange = Number(b.from) || 0;
+            const toRange = (b.to === Infinity) ? Infinity : Number(b.to);
+            const isCurrent = Number.isFinite(delayNow) && delayNow >= fromRange && delayNow <= toRange;
+            const nowTag = isCurrent ? `<span class="white-now-inline">• agora: ${Math.max(0, Math.round(delayNow))}</span>` : '';
+            return `
+                <div class="white-hist-row${active ? ' active' : ''}${isCurrent ? ' current' : ''}">
+                    <div class="white-hist-label"><span class="white-hist-range">${b.label}</span> ${nowTag}</div>
+                    <div class="white-hist-bar" aria-hidden="true">
+                        <div class="white-hist-fill ${cls}" style="width:${w}%"></div>
+                    </div>
+                    <div class="white-hist-value">${formatPct1(p * 100)} <span class="white-hist-pct">(amostras=${n}${n >= 8 ? ` • ${ciText}` : ''})</span></div>
+                </div>
+            `;
+        }).join('');
+    }
+
+    function renderWhiteTimelineList(timeline) {
+        const arr = Array.isArray(timeline) ? timeline : [];
+        if (!arr.length) return `<div class="white-empty">Sem brancos no histórico atual.</div>`;
+        return arr.map((w, idx) => {
+            const gap = (w.gapSpins != null && Number.isFinite(Number(w.gapSpins)))
+                ? `${Math.round(Number(w.gapSpins))} giros`
+                : '—';
+            const gapM = (w.gapMs != null && Number.isFinite(Number(w.gapMs)))
+                ? `~${formatShortMinutes(Number(w.gapMs))}`
+                : '—';
+            const ago = (w.sinceNowSpins != null) ? `${w.sinceNowSpins} giros atrás` : '';
+            const agoM = (w.sinceNowMs != null) ? `~${formatShortMinutes(Number(w.sinceNowMs))}` : '';
+            const meta = `${ago}${ago && agoM ? ` • ${agoM}` : (agoM ? agoM : '')}`;
+            const title = `Branco • ${w.time}${meta ? ` • ${meta}` : ''}`;
+            return `
+                <div class="white-timeline-item" title="${title}">
+                    <div class="white-timeline-left">
+                        <div class="white-timeline-time">${w.time}</div>
+                        <div class="white-timeline-meta">${meta || '&nbsp;'}</div>
+                    </div>
+                    <div class="white-timeline-right">
+                        <div class="white-timeline-gap">${gap}</div>
+                        <div class="white-timeline-gapms">${gapM}</div>
+                    </div>
+                </div>
+            `;
+        }).join('');
+    }
+
+    function notifyWhiteAlert(payloadOrMessage, variant = 'info', durationMs = 5000) {
+        try {
+            const cfg = (whiteAlertsSettings && typeof whiteAlertsSettings === 'object') ? whiteAlertsSettings : getWhiteAlertsDefaults();
+            const channel = cfg.channel || 'toast';
+            const dur = (typeof durationMs === 'number' && Number.isFinite(durationMs)) ? Math.max(1000, durationMs) : 5000;
+
+            const payload = (() => {
+                if (payloadOrMessage && typeof payloadOrMessage === 'object') {
+                    return {
+                        title: String(payloadOrMessage.title || 'Aviso'),
+                        subtitle: payloadOrMessage.subtitle != null ? String(payloadOrMessage.subtitle) : 'Branco • Alertas',
+                        message: String(payloadOrMessage.message || '').trim()
+                    };
+                }
+                return {
+                    title: 'Aviso',
+                    subtitle: 'Branco • Alertas',
+                    message: String(payloadOrMessage || '').trim()
+                };
+            })();
+
+            if (channel === 'toast' || channel === 'both') {
+                // ✅ Pedido: alertas do Branco no estilo "Bunny" (card branco)
+                try { showWhiteAlertToastCard({ ...payload, durationMs: dur }); } catch (_) {}
+            }
+            if (channel === 'notification' || channel === 'both') {
+                // 1) chrome.notifications (ext) / shim
+                try {
+                    if (typeof chrome !== 'undefined' && chrome.notifications?.create) {
+                        chrome.notifications.create('', {
+                            type: 'basic',
+                            title: String(payload.title || 'Branco • Alerta').slice(0, 60),
+                            message: String(payload.message || '').slice(0, 200),
+                            iconUrl: 'icon128.svg'
+                        }, () => {});
+                        return;
+                    }
+                } catch (_) {}
+                // 2) Web Notification API
+                try {
+                    if ('Notification' in window && Notification.permission === 'granted') {
+                        new Notification(String(payload.title || 'Branco • Alerta').slice(0, 60), { body: String(payload.message || '').slice(0, 200) });
+                    }
+                } catch (_) {}
+            }
+        } catch (_) {}
+    }
+
+    async function evaluateWhiteAlertsFromStats(stats, pullerCounts) {
+        try {
+            await loadWhiteAlertsSettingsIfNeeded();
+            const cfg = whiteAlertsSettings && typeof whiteAlertsSettings === 'object' ? whiteAlertsSettings : getWhiteAlertsDefaults();
+            if (!cfg.enabled) return;
+            if (!stats || typeof stats !== 'object') return;
+
+            const cooldownMs = Math.max(60_000, (Number(cfg.cooldownMinutes) || 10) * 60_000);
+            const now = Date.now();
+            const canFire = (key) => {
+                const last = Number(whiteAlertsLastFired && whiteAlertsLastFired[key]) || 0;
+                return !last || (now - last) >= cooldownMs;
+            };
+            const markFired = async (key) => {
+                whiteAlertsLastFired = (whiteAlertsLastFired && typeof whiteAlertsLastFired === 'object') ? whiteAlertsLastFired : {};
+                whiteAlertsLastFired[key] = now;
+                try { await storageCompat.set({ [WHITE_ALERTS_LAST_FIRED_KEY]: whiteAlertsLastFired }); } catch (_) {}
+            };
+
+            const delay = Number(stats.delayNowSpins);
+            const p = stats.percentiles && stats.percentiles.spins ? stats.percentiles.spins : {};
+            const pctKey = cfg.delayPercentile === 50 ? 'p50' : cfg.delayPercentile === 90 ? 'p90' : 'p75';
+            const threshold = Number(p && p[pctKey]);
+
+            // 1) Atraso >= PXX
+            const delayCond = cfg.delayEnabled && Number.isFinite(delay) && Number.isFinite(threshold) && delay >= threshold;
+            const prevDelayCond = !!whiteAlertsRuntime.lastState.delayPct;
+            if (delayCond && !prevDelayCond && canFire('delayPct')) {
+                notifyWhiteAlert({
+                    title: 'Branco atrasado',
+                    subtitle: `Alerta • Atraso acima de ${cfg.delayPercentile}%`,
+                    message: `Atraso atual: ${delay} giros • Referência: ${Math.round(threshold)} giros`
+                }, 'warn', 5000);
+                await markFired('delayPct');
+            }
+            whiteAlertsRuntime.lastState.delayPct = delayCond;
+
+            // 2) “Janela quente” = prob do bucket atual (próx K giros) acima do mínimo configurado
+            const cur = stats.hazard && stats.hazard.currentBucket ? stats.hazard.currentBucket : null;
+            const minSamples = clampIntRange(cfg.minSamplesForProb, 5, 300);
+            const minProb = Math.max(0, Math.min(100, Number(cfg.hotMinProbPct) || 0)) / 100;
+            const hotCond = cfg.hotWindowEnabled && cur && (Number(cur.n) || 0) >= minSamples && (Number(cur.p) || 0) >= minProb;
+            const prevHotCond = !!whiteAlertsRuntime.lastState.hot;
+            if (hotCond && !prevHotCond && canFire('hot')) {
+                notifyWhiteAlert({
+                    title: 'Janela “quente”',
+                    subtitle: `Alerta • Próx ${stats.hazard.K} giros`,
+                    message: `Probabilidade: ${formatPct1(Number(cur.p) * 100)} • Amostras: ${cur.n}`
+                }, 'success', 5000);
+                await markFired('hot');
+            }
+            whiteAlertsRuntime.lastState.hot = hotCond;
+
+            // 3) Puxador repetiu X vezes na janela
+            const repK = clampIntRange(cfg.pullerRepeatCount, 2, 10);
+            const pullers = (pullerCounts && typeof pullerCounts === 'object') ? pullerCounts : {};
+            const top = Object.keys(pullers)
+                .map(k => ({ num: Number(k), count: Number(pullers[k] || 0) }))
+                .filter(x => Number.isFinite(x.num) && x.num >= 1 && x.num <= 14 && Number.isFinite(x.count))
+                .sort((a, b) => (b.count - a.count) || (a.num - b.num))[0] || null;
+            const repCond = cfg.pullerRepeatEnabled && top && top.count >= repK;
+            const prevRepCond = !!whiteAlertsRuntime.lastState.puller;
+            if (repCond && !prevRepCond && canFire('puller')) {
+                notifyWhiteAlert({
+                    title: 'Puxador repetiu',
+                    subtitle: `Alerta • Últimas ${whitePullersWindowHours}h`,
+                    message: `Número ${top.num} puxou branco ${top.count}x`
+                }, 'info', 5000);
+                await markFired('puller');
+            }
+            whiteAlertsRuntime.lastState.puller = repCond;
+        } catch (_) {}
+    }
+
+    function renderWhiteAlertsPanel(stats, pullerCounts) {
+        const body = document.getElementById('whiteAlertsBody');
+        const badge = document.getElementById('whiteAlertsStatusBadge');
+        if (!body || !badge) return;
+
+        const cfg = (whiteAlertsSettings && typeof whiteAlertsSettings === 'object') ? whiteAlertsSettings : getWhiteAlertsDefaults();
+        const enabled = !!cfg.enabled;
+        badge.innerHTML = `<span class="white-adv-badge-inner ${enabled ? 'good' : 'bad'}">${enabled ? 'Ativos' : 'Desativados'}</span>`;
+
+        const channel = cfg.channel || 'toast';
+        const pSel = cfg.delayPercentile === 50 ? 50 : cfg.delayPercentile === 90 ? 90 : 75;
+
+        body.innerHTML = `
+            <div class="white-alerts-row white-alerts-single">
+                <label class="white-alerts-check">
+                    <input type="checkbox" id="whiteAlertsEnabled" ${enabled ? 'checked' : ''} />
+                    <span>Ativar alertas</span>
+                </label>
+            </div>
+
+            <div class="white-alerts-row">
+                <div class="white-alerts-label">Canal</div>
+                <div class="white-alerts-controls" id="whiteAlertsChannel">
+                    <button type="button" class="white-bet-setting-btn${channel === 'toast' ? ' active' : ''}" data-channel="toast">Popup</button>
+                    <button type="button" class="white-bet-setting-btn${channel === 'notification' ? ' active' : ''}" data-channel="notification">Notificação</button>
+                    <button type="button" class="white-bet-setting-btn${channel === 'both' ? ' active' : ''}" data-channel="both">Ambos</button>
+                </div>
+            </div>
+
+            <div class="white-alerts-row">
+                <div class="white-alerts-label">Intervalo (min)</div>
+                <div class="white-alerts-controls">
+                    <input id="whiteAlertsCooldown" class="white-bet-input" type="number" inputmode="numeric" min="1" max="180" step="1" value="${Number(cfg.cooldownMinutes) || 10}" />
+                    <button type="button" class="white-bet-save-btn" id="whiteAlertsSaveCooldown">Salvar</button>
+                </div>
+            </div>
+
+            <div class="white-alerts-row">
+                <label class="white-alerts-check">
+                    <input type="checkbox" id="whiteAlertsDelayEnabled" ${cfg.delayEnabled ? 'checked' : ''} />
+                    <span>Atraso acima de</span>
+                </label>
+                <div class="white-alerts-controls" id="whiteAlertsDelayPct">
+                    <button type="button" class="white-pullers-filter-btn${pSel === 50 ? ' active' : ''}" data-pct="50">50%</button>
+                    <button type="button" class="white-pullers-filter-btn${pSel === 75 ? ' active' : ''}" data-pct="75">75%</button>
+                    <button type="button" class="white-pullers-filter-btn${pSel === 90 ? ' active' : ''}" data-pct="90">90%</button>
+                </div>
+            </div>
+
+            <div class="white-alerts-row">
+                <label class="white-alerts-check">
+                    <input type="checkbox" id="whiteAlertsHotEnabled" ${cfg.hotWindowEnabled ? 'checked' : ''} />
+                    <span>Janela “quente”</span>
+                </label>
+                <div class="white-alerts-controls">
+                    <span class="white-alerts-mini">Limiar</span>
+                    <input id="whiteAlertsHotMinProb" class="white-bet-input" type="number" inputmode="numeric" min="0" max="100" step="1" value="${Number(cfg.hotMinProbPct) || 0}" />
+                    <button type="button" class="white-bet-save-btn" id="whiteAlertsSaveHot">Salvar</button>
+                </div>
+            </div>
+
+            <div class="white-alerts-row">
+                <label class="white-alerts-check">
+                    <input type="checkbox" id="whiteAlertsPullerEnabled" ${cfg.pullerRepeatEnabled ? 'checked' : ''} />
+                    <span>Puxador repetiu</span>
+                </label>
+                <div class="white-alerts-controls">
+                    <span class="white-alerts-mini">Repetições</span>
+                    <input id="whiteAlertsPullerCount" class="white-bet-input" type="number" inputmode="numeric" min="2" max="10" step="1" value="${Number(cfg.pullerRepeatCount) || 3}" />
+                    <button type="button" class="white-bet-save-btn" id="whiteAlertsSavePuller">Salvar</button>
+                </div>
+            </div>
+        `;
+
+        // Bind (idempotente)
+        if (!body.dataset.listenerAttached) {
+            body.addEventListener('click', async (event) => {
+                const t = event.target;
+                const btnChannel = t && t.closest ? t.closest('button[data-channel]') : null;
+                if (btnChannel) {
+                    const ch = String(btnChannel.dataset.channel || '').trim();
+                    await persistWhiteAlertsSettings({ channel: ch });
+                    try { showToast('✅ Alertas atualizados.', 1400); } catch (_) {}
+                    try { scheduleMasterSignalStatsRefresh(0); } catch (_) {}
+                    return;
+                }
+                const btnPct = t && t.closest ? t.closest('button[data-pct]') : null;
+                if (btnPct) {
+                    const pct = clampIntRange(btnPct.dataset.pct, 50, 90);
+                    await persistWhiteAlertsSettings({ delayPercentile: pct });
+                    try { showToast('✅ Alertas atualizados.', 1400); } catch (_) {}
+                    try { scheduleMasterSignalStatsRefresh(0); } catch (_) {}
+                    return;
+                }
+            });
+            body.addEventListener('change', async (event) => {
+                const el = event.target;
+                if (!el || !el.id) return;
+                if (el.id === 'whiteAlertsEnabled') {
+                    await persistWhiteAlertsSettings({ enabled: !!el.checked });
+                    try { showToast(el.checked ? '✅ Alertas ativados.' : '⏸️ Alertas desativados.', 1600); } catch (_) {}
+                    return;
+                }
+                if (el.id === 'whiteAlertsDelayEnabled') {
+                    await persistWhiteAlertsSettings({ delayEnabled: !!el.checked });
+                    return;
+                }
+                if (el.id === 'whiteAlertsHotEnabled') {
+                    await persistWhiteAlertsSettings({ hotWindowEnabled: !!el.checked });
+                    return;
+                }
+                if (el.id === 'whiteAlertsPullerEnabled') {
+                    await persistWhiteAlertsSettings({ pullerRepeatEnabled: !!el.checked });
+                    return;
+                }
+            });
+            body.dataset.listenerAttached = '1';
+        }
+
+        const saveCooldown = document.getElementById('whiteAlertsSaveCooldown');
+        if (saveCooldown && !saveCooldown.dataset.listenerAttached) {
+            saveCooldown.addEventListener('click', async () => {
+                const input = document.getElementById('whiteAlertsCooldown');
+                const v = input ? input.value : cfg.cooldownMinutes;
+                await persistWhiteAlertsSettings({ cooldownMinutes: v });
+                try { showToast('✅ Cooldown salvo.', 1400); } catch (_) {}
+            });
+            saveCooldown.dataset.listenerAttached = '1';
+        }
+        const saveHot = document.getElementById('whiteAlertsSaveHot');
+        if (saveHot && !saveHot.dataset.listenerAttached) {
+            saveHot.addEventListener('click', async () => {
+                const input = document.getElementById('whiteAlertsHotMinProb');
+                const v = input ? input.value : cfg.hotMinProbPct;
+                await persistWhiteAlertsSettings({ hotMinProbPct: v });
+                try { showToast('✅ Limiar salvo.', 1400); } catch (_) {}
+            });
+            saveHot.dataset.listenerAttached = '1';
+        }
+        const savePuller = document.getElementById('whiteAlertsSavePuller');
+        if (savePuller && !savePuller.dataset.listenerAttached) {
+            savePuller.addEventListener('click', async () => {
+                const input = document.getElementById('whiteAlertsPullerCount');
+                const v = input ? input.value : cfg.pullerRepeatCount;
+                await persistWhiteAlertsSettings({ pullerRepeatCount: v });
+                try { showToast('✅ Limite salvo.', 1400); } catch (_) {}
+            });
+            savePuller.dataset.listenerAttached = '1';
+        }
+    }
+
+    function renderWhiteAdvancedPanels(stats, pullerCounts) {
+        try { ensureWhiteAdvancedBlocks(); } catch (_) {}
+
+        const relEl = document.getElementById('whiteReliabilityBadge');
+        const intervalsSummaryEl = document.getElementById('whiteIntervalsSummary');
+        const histEl = document.getElementById('whiteIntervalsHistogram');
+        const pctEl = document.getElementById('whiteIntervalsPercentiles');
+
+        const hazardFilterEl = document.getElementById('whiteHazardWindowFilter');
+        const hazardSummaryEl = document.getElementById('whiteHazardSummary');
+        const hazardChartEl = document.getElementById('whiteHazardChart');
+
+        const tlFilterEl = document.getElementById('whiteTimelineLimitFilter');
+        const tlListEl = document.getElementById('whiteTimelineList');
+
+        if (!stats || typeof stats !== 'object') {
+            if (relEl) relEl.innerHTML = '—';
+            if (intervalsSummaryEl) intervalsSummaryEl.textContent = 'Carregando...';
+            if (histEl) histEl.innerHTML = '';
+            if (pctEl) pctEl.innerHTML = '';
+            if (hazardSummaryEl) hazardSummaryEl.textContent = 'Carregando...';
+            if (hazardChartEl) hazardChartEl.innerHTML = '';
+            if (tlListEl) tlListEl.textContent = 'Carregando...';
+            return;
+        }
+
+        whiteAdvancedStatsCache = stats;
+
+        // Badge confiabilidade
+        if (relEl) {
+            relEl.innerHTML = getReliabilityBadgeHtml(stats.reliability);
+        }
+
+        // Intervalos summary
+        if (intervalsSummaryEl) {
+            const delay = (stats.delayNowSpins != null) ? `${stats.delayNowSpins} giros` : '—';
+            const delayM = (stats.delayNowMs != null) ? `~${formatShortMinutes(stats.delayNowMs)}` : '—';
+            const base = `${stats.intervalsCount} intervalos • ${stats.whitesCount} brancos`;
+            const span = stats.spanMs ? formatCompactDurationFromMs(stats.spanMs) : '—';
+            const br = stats.baseRate && typeof stats.baseRate === 'object' ? stats.baseRate : null;
+            const brP = br && Number.isFinite(Number(br.p)) ? Number(br.p) : 0;
+            const brN = br && Number.isFinite(Number(br.n)) ? Number(br.n) : 0;
+            const brLow = br && Number.isFinite(Number(br.ciLow)) ? Number(br.ciLow) : 0;
+            const brHigh = br && Number.isFinite(Number(br.ciHigh)) ? Number(br.ciHigh) : 0;
+            const brText = formatPct1(brP * 100);
+            const brCiText = brN >= 30 ? `${formatPct1(brLow * 100)}–${formatPct1(brHigh * 100)}` : '—';
+            // classificar atraso atual vs percentis
+            const p75 = Number(stats.percentiles?.spins?.p75);
+            const p90 = Number(stats.percentiles?.spins?.p90);
+            let tone = 'neutral';
+            if (Number.isFinite(Number(stats.delayNowSpins)) && Number.isFinite(p90) && stats.delayNowSpins >= p90) tone = 'bad';
+            else if (Number.isFinite(Number(stats.delayNowSpins)) && Number.isFinite(p75) && stats.delayNowSpins >= p75) tone = 'warn';
+            intervalsSummaryEl.innerHTML = `
+                <div class="white-metrics-row">
+                    <div class="white-metric">
+                        <div class="label">Atraso agora</div>
+                        <div class="value ${tone}">${delay} <span class="sub">(${delayM})</span></div>
+                    </div>
+                    <div class="white-metric">
+                        <div class="label">Base</div>
+                        <div class="value">${base} <span class="sub">(${span})</span></div>
+                    </div>
+                    <div class="white-metric">
+                        <div class="label">Taxa (amostra)</div>
+                        <div class="value">${brText} <span class="sub">(n=${brN}${brN >= 30 ? ` • IC95% ${brCiText}` : ''})</span></div>
+                    </div>
+                </div>
+            `;
+        }
+        if (histEl) histEl.innerHTML = renderWhiteIntervalsHistogram(stats.histogram);
+        if (pctEl) pctEl.innerHTML = renderWhitePercentiles(stats.percentiles);
+
+        // Hazard controls
+        if (hazardFilterEl) {
+            hazardFilterEl.innerHTML = renderWhiteHazardWindowFilter();
+            if (!hazardFilterEl.dataset.listenerAttached) {
+                hazardFilterEl.addEventListener('click', async (event) => {
+                    const btn = event.target && event.target.closest ? event.target.closest('button[data-white-hazard-k]') : null;
+                    if (!btn) return;
+                    const k = clampWhiteHazardWindowSpins(btn.dataset.whiteHazardK, whiteHazardWindowSpins);
+                    await persistWhiteHazardWindow(k);
+                });
+                hazardFilterEl.dataset.listenerAttached = '1';
+            }
+        }
+        if (hazardSummaryEl) {
+            const cur = stats.hazard && stats.hazard.currentBucket ? stats.hazard.currentBucket : null;
+            if (!cur || !Number.isFinite(Number(cur.n)) || cur.n <= 0) {
+                hazardSummaryEl.innerHTML = `<div class="white-adv-note">Sem base suficiente para calcular probabilidade por atraso.</div>`;
+            } else {
+                const p = Number(cur.p) || 0;
+                const ciText = (cur.n >= 8)
+                    ? `${formatPct1(cur.ciLow * 100)}–${formatPct1(cur.ciHigh * 100)}`
+                    : '—';
+                const delay = Number.isFinite(Number(stats.delayNowSpins)) ? Math.max(0, Math.round(Number(stats.delayNowSpins))) : null;
+                hazardSummaryEl.innerHTML = `
+                    <div class="white-adv-note">
+                        Atraso atual: <b>${delay != null ? `${delay} giros` : '—'}</b> • Próx <b>${stats.hazard.K}</b> giros • Faixa <b>${cur.label}</b> • Probabilidade: <b>${formatPct1(p * 100)}</b> <span class="white-hist-pct">(amostras=${cur.n}${cur.n >= 8 ? ` • IC95% ${ciText}` : ''})</span>
+                    </div>
+                `;
+            }
+        }
+        if (hazardChartEl) hazardChartEl.innerHTML = renderWhiteHazardChart(stats.hazard);
+
+        // Timeline controls
+        if (tlFilterEl) {
+            tlFilterEl.innerHTML = renderWhiteTimelineLimitFilter();
+            if (!tlFilterEl.dataset.listenerAttached) {
+                tlFilterEl.addEventListener('click', async (event) => {
+                    const btn = event.target && event.target.closest ? event.target.closest('button[data-white-timeline-n]') : null;
+                    if (!btn) return;
+                    const n = clampWhiteTimelineLimit(btn.dataset.whiteTimelineN, whiteTimelineLimit);
+                    await persistWhiteTimelineLimit(n);
+                });
+                tlFilterEl.dataset.listenerAttached = '1';
+            }
+        }
+        if (tlListEl) tlListEl.innerHTML = renderWhiteTimelineList(stats.timeline);
+
+        // Alertas (UI + avaliação)
+        try { renderWhiteAlertsPanel(stats, pullerCounts); } catch (_) {}
+        try { evaluateWhiteAlertsFromStats(stats, pullerCounts); } catch (_) {}
+    }
+
     function renderWhiteInsightsPanel(data) {
         const grid = document.getElementById('whiteHoursGrid');
         const summary = document.getElementById('whiteHoursSummary');
@@ -21499,6 +22615,7 @@ function logModeSnapshotUI(snapshot) {
 
         const safe = data && typeof data === 'object' ? data : null;
         if (!safe) {
+            try { ensureWhiteAdvancedBlocks(); } catch (_) {}
             summary.textContent = 'Carregando...';
             pullersEl.textContent = 'Carregando...';
             return;
@@ -21624,16 +22741,20 @@ function logModeSnapshotUI(snapshot) {
         }
     }
 
-    function refreshWhiteInsightsPanelNow() {
+    async function refreshWhiteInsightsPanelNow() {
         if (!document.getElementById('whiteHoursGrid')) return;
-        // Garantir preferência carregada antes de computar
-        try { loadWhitePullersWindowHoursIfNeeded(); } catch (_) {}
+        // Garantir preferências carregadas antes de computar (best-effort)
+        try { await loadWhitePullersWindowHoursIfNeeded(); } catch (_) {}
+        try { await loadWhiteHazardWindowIfNeeded(); } catch (_) {}
+        try { await loadWhiteTimelineLimitIfNeeded(); } catch (_) {}
+        try { await loadWhiteAlertsSettingsIfNeeded(); } catch (_) {}
         if (!Array.isArray(whiteInsightsHistoryCache) || whiteInsightsHistoryCache.length === 0) {
             // ✅ Se o histórico do painel ainda não foi carregado, tentar usar currentHistoryData e/ou background.
             requestWhiteInsightsHistoryIfNeeded();
         }
         if (!Array.isArray(whiteInsightsHistoryCache) || whiteInsightsHistoryCache.length === 0) {
             renderWhiteInsightsPanel(null);
+            try { renderWhiteAdvancedPanels(null, null); } catch (_) {}
             return;
         }
 
@@ -21647,6 +22768,17 @@ function logModeSnapshotUI(snapshot) {
 
         const data = computeWhiteInsightsFromHistory(whiteInsightsHistoryCache, nowMs, whitePullersWindowHours);
         renderWhiteInsightsPanel(data);
+        // Insights avançados (intervalos/hazard/timeline/alertas)
+        try {
+            const adv = computeWhiteAdvancedStatsFromHistory(whiteInsightsHistoryCache, nowMs, {
+                maxSpins: 10000,
+                hazardK: whiteHazardWindowSpins,
+                timelineLimit: whiteTimelineLimit
+            });
+            renderWhiteAdvancedPanels(adv, data && data.pullerCounts ? data.pullerCounts : null);
+        } catch (err) {
+            console.warn('⚠️ Falha ao renderizar insights avançados do Branco:', err);
+        }
         try { renderWhiteBetSettingsControls(); } catch (_) {}
     }
 
@@ -21673,7 +22805,7 @@ function logModeSnapshotUI(snapshot) {
             if (masterStatsRefreshTimer) clearTimeout(masterStatsRefreshTimer);
             masterStatsRefreshTimer = setTimeout(() => {
                 masterStatsRefreshTimer = null;
-                refreshWhiteInsightsPanelNow();
+                Promise.resolve(refreshWhiteInsightsPanelNow()).catch(() => {});
             }, Math.max(0, Number(delayMs) || 0));
         } catch (_) {}
     }

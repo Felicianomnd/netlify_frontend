@@ -64,31 +64,64 @@
             if (!Array.isArray(history)) return history;
             const maxN = Math.max(0, Math.floor(Number(max) || 0));
             const keepN = Math.max(0, Math.floor(Number(keepFullLast) || 0));
-            const tail = maxN > 0 ? history.slice(history.length - maxN) : [];
-            const cut = Math.max(0, tail.length - keepN);
-            const older = tail.slice(0, cut).map((e) => {
-                if (!e || typeof e !== 'object') return e;
-                const pd = e.patternData && typeof e.patternData === 'object' ? { ...e.patternData } : null;
-                if (pd) {
-                    delete pd.last14Spins;
-                    delete pd.last10Spins;
-                    delete pd.last5Spins;
+
+            const getEntryTs = (e) => {
+                try {
+                    if (!e || typeof e !== 'object') return NaN;
+                    const raw = e.timestamp ?? e.created_at ?? e.createdAt ?? e.createdAtTimestamp ?? e.updatedAt ?? null;
+                    if (raw == null) return NaN;
+                    if (typeof raw === 'number') return raw > 0 && raw < 1e12 ? raw * 1000 : raw;
+                    const n = Number(raw);
+                    if (Number.isFinite(n)) return n > 0 && n < 1e12 ? n * 1000 : n;
+                    const t = Date.parse(String(raw));
+                    return Number.isFinite(t) ? t : NaN;
+                } catch (_) {
+                    return NaN;
                 }
-                return {
-                    id: e.id,
-                    createdAt: e.createdAt,
-                    updatedAt: e.updatedAt,
-                    color: e.color,
-                    result: e.result,
-                    confidence: e.confidence,
-                    analysisMode: e.analysisMode,
-                    diamondSourceLevel: e.diamondSourceLevel,
-                    diamondN0: e.diamondN0,
-                    patternData: pd || undefined
-                };
-            });
-            const newer = tail.slice(cut);
-            return [...older, ...newer];
+            };
+
+            // ✅ entriesHistory no app costuma ser NEWEST-FIRST (usa unshift no background).
+            // Mas para robustez, detectamos a ordem.
+            const firstTs = history.length ? getEntryTs(history[0]) : NaN;
+            const lastTs = history.length ? getEntryTs(history[history.length - 1]) : NaN;
+            const isNewestFirst = (Number.isFinite(firstTs) && Number.isFinite(lastTs))
+                ? firstTs >= lastTs
+                : true;
+
+            const windowed = (() => {
+                if (maxN <= 0) return [];
+                // newest-first => manter os PRIMEIROS (mais recentes)
+                if (isNewestFirst) return history.slice(0, Math.min(maxN, history.length));
+                // oldest-first => manter os ÚLTIMOS (mais recentes)
+                return history.slice(Math.max(0, history.length - maxN));
+            })();
+
+            // Para reduzir payload: slim apenas o "miolo" mais antigo da janela, mas preserve campos do UI.
+            const splitAt = Math.min(windowed.length, Math.max(0, keepN));
+            const keepFull = isNewestFirst ? windowed.slice(0, splitAt) : windowed.slice(Math.max(0, windowed.length - splitAt));
+            const slimPart = isNewestFirst ? windowed.slice(splitAt) : windowed.slice(0, Math.max(0, windowed.length - splitAt));
+
+            const slimOne = (e) => {
+                try {
+                    if (!e || typeof e !== 'object') return e;
+                    const pd = e.patternData && typeof e.patternData === 'object' ? { ...e.patternData } : null;
+                    if (pd) {
+                        // remover snapshots pesados de giros (mantém o essencial)
+                        delete pd.last14Spins;
+                        delete pd.last10Spins;
+                        delete pd.last5Spins;
+                    }
+                    return {
+                        ...e,
+                        patternData: pd || undefined
+                    };
+                } catch (_) {
+                    return e;
+                }
+            };
+
+            const slimmed = slimPart.map(slimOne);
+            return isNewestFirst ? [...keepFull, ...slimmed] : [...slimmed, ...keepFull];
         } catch (_) {
             return history;
         }
