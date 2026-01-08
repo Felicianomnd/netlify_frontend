@@ -3107,6 +3107,11 @@
     justify-content: flex-end;
 }
 
+/* Usado no bloco de Alertas: input + salvar na mesma linha */
+.white-alerts-controls--inline {
+    flex-wrap: nowrap;
+}
+
 .white-alerts-controls .white-bet-setting-btn,
 .white-alerts-controls .white-pullers-filter-btn,
 .white-alerts-controls .white-bet-save-btn {
@@ -3158,6 +3163,72 @@
     }
     .white-alerts-row {
         grid-template-columns: 1fr;
+    }
+
+    /* ═══════════════════════════════════════════════════════════════
+       Alertas (mobile): compacto e alinhado (evitar botões gigantes)
+       ═══════════════════════════════════════════════════════════════ */
+    #blaze-double-analyzer .white-alerts-controls {
+        width: 100%;
+        justify-content: center;
+        gap: 10px;
+    }
+
+    /* Canal: 3 colunas, centralizado */
+    #blaze-double-analyzer .white-alerts-controls--channel {
+        display: grid !important;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        max-width: 360px;
+        margin: 0 auto;
+        gap: 10px;
+    }
+    #blaze-double-analyzer .white-alerts-controls--channel .white-bet-setting-btn {
+        width: 100% !important;
+        height: 40px !important;
+        font-size: 13px !important;
+    }
+
+    /* Percentis (50/75/90): 3 colunas, centralizado */
+    #blaze-double-analyzer .white-alerts-controls--pct {
+        display: grid !important;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        max-width: 300px;
+        margin: 0 auto;
+        gap: 10px;
+    }
+    #blaze-double-analyzer .white-alerts-controls--pct .white-pullers-filter-btn {
+        width: 100% !important;
+        height: 40px !important;
+        font-size: 13px !important;
+    }
+
+    /* Input + Salvar na mesma linha */
+    #blaze-double-analyzer .white-alerts-controls--inline {
+        display: flex !important;
+        flex-wrap: nowrap !important;
+        justify-content: center !important;
+        max-width: 420px;
+        margin: 0 auto;
+    }
+    #blaze-double-analyzer .white-alerts-controls--inline .white-alerts-mini {
+        flex: 0 0 auto;
+        min-width: 70px;
+        text-align: right;
+    }
+    #blaze-double-analyzer .white-alerts-controls--inline .white-bet-input {
+        flex: 1 1 auto !important;
+        width: auto !important;
+        min-width: 0 !important;
+        height: 40px !important;
+        font-size: 14px !important;
+    }
+    #blaze-double-analyzer .white-alerts-controls--inline .white-bet-save-btn {
+        flex: 0 0 auto !important;
+        width: auto !important;
+        min-width: 110px;
+        height: 40px !important;
+        padding: 0 14px !important;
+        font-size: 14px !important;
     }
 }
 
@@ -5222,6 +5293,7 @@
 }
 
 .da-white-alert-toast__card {
+    position: relative;
     width: min(420px, 92vw);
     max-height: 92vh;
     background: #ffffff;
@@ -5230,6 +5302,15 @@
     box-shadow: 0 18px 46px rgba(0,0,0,0.38);
     overflow: hidden;
     pointer-events: auto; /* permitir clique para fechar */
+}
+
+.da-white-alert-toast__close {
+    /* Reaproveitar estilo do botão X do profile nudge, mas garantir z-index */
+    z-index: 6;
+}
+
+.da-white-alert-toast.is-paused .da-profile-nudge__timer-fill.is-running {
+    animation-play-state: paused !important;
 }
 
 .da-white-alert-toast.show .da-white-alert-toast__card {

@@ -2476,6 +2476,9 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
     // ═══════════════════════════════════════════════════════════════
     let daWhiteAlertToastEl = null;
     let daWhiteAlertToastTimer = null;
+    let daWhiteAlertToastPaused = false;
+    let daWhiteAlertToastDeadline = 0;
+    let daWhiteAlertToastRemainingMs = 0;
 
     function ensureWhiteAlertToastUI() {
         try {
@@ -2492,6 +2495,7 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
             wrap.style.display = 'none';
             wrap.innerHTML = `
                 <div class="da-white-alert-toast__card" role="status" aria-live="polite">
+                    <button type="button" class="da-profile-nudge__close da-white-alert-toast__close" aria-label="Fechar" title="Fechar" data-da-white-alert-close="1">✕</button>
                     <div class="da-profile-nudge__content da-white-alert-toast__content">
                         <div class="da-white-alert-toast__logo-wrap">
                             <img class="da-white-alert-toast__logo" id="daWhiteAlertToastLogo" alt="Double Análise" />
@@ -2515,10 +2519,34 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
             const root = document.getElementById('blaze-double-analyzer') || document.body;
             root.appendChild(wrap);
 
-            // Click-to-dismiss (sem bloquear cliques no app)
-            wrap.addEventListener('click', () => {
-                try { hideWhiteAlertToast(); } catch (_) {}
-            });
+            const card = wrap.querySelector('.da-white-alert-toast__card');
+            const closeBtn = wrap.querySelector('[data-da-white-alert-close="1"]');
+
+            // ✅ Fechar: SOMENTE no X (pedido do usuário)
+            if (closeBtn && !closeBtn.dataset.daBound) {
+                closeBtn.dataset.daBound = '1';
+                closeBtn.addEventListener('click', (e) => {
+                    try { e.preventDefault(); e.stopPropagation(); } catch (_) {}
+                    try { hideWhiteAlertToast(); } catch (_) {}
+                });
+            }
+
+            // ✅ Pausar ao interagir (igual ao aviso de cadastro):
+            // - Desktop: hover pausa; sair do hover resume
+            // - Mobile: toque/click no card alterna pausa/resume
+            const pause = () => pauseWhiteAlertToastAutoHide();
+            const resume = () => resumeWhiteAlertToastAutoHide();
+
+            if (card && !card.dataset.daBound) {
+                card.dataset.daBound = '1';
+                card.addEventListener('mouseenter', () => pause());
+                card.addEventListener('mouseleave', () => resume());
+                card.addEventListener('click', (e) => {
+                    try { e.preventDefault(); } catch (_) {}
+                    if (daWhiteAlertToastPaused) resume();
+                    else pause();
+                });
+            }
 
             daWhiteAlertToastEl = wrap;
             return wrap;
@@ -2527,11 +2555,48 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
         }
     }
 
+    function pauseWhiteAlertToastAutoHide() {
+        try {
+            const el = daWhiteAlertToastEl || document.getElementById('daWhiteAlertToast');
+            if (!el || el.style.display !== 'flex') return;
+            if (daWhiteAlertToastPaused) return;
+            daWhiteAlertToastPaused = true;
+            const now = Date.now();
+            const remaining = Math.max(0, (daWhiteAlertToastDeadline || now) - now);
+            daWhiteAlertToastRemainingMs = remaining;
+            if (daWhiteAlertToastTimer) {
+                clearTimeout(daWhiteAlertToastTimer);
+                daWhiteAlertToastTimer = null;
+            }
+            el.classList.add('is-paused');
+        } catch (_) {}
+    }
+
+    function resumeWhiteAlertToastAutoHide() {
+        try {
+            const el = daWhiteAlertToastEl || document.getElementById('daWhiteAlertToast');
+            if (!el || el.style.display !== 'flex') return;
+            if (!daWhiteAlertToastPaused) return;
+            daWhiteAlertToastPaused = false;
+            const remaining = Math.max(0, Number(daWhiteAlertToastRemainingMs) || 0);
+            daWhiteAlertToastDeadline = Date.now() + remaining;
+            el.classList.remove('is-paused');
+            if (daWhiteAlertToastTimer) {
+                clearTimeout(daWhiteAlertToastTimer);
+                daWhiteAlertToastTimer = null;
+            }
+            if (remaining > 0) {
+                daWhiteAlertToastTimer = setTimeout(() => hideWhiteAlertToast(), remaining);
+            }
+        } catch (_) {}
+    }
+
     function hideWhiteAlertToast() {
         try {
             const el = daWhiteAlertToastEl || document.getElementById('daWhiteAlertToast');
             if (!el) return;
             el.classList.remove('show');
+            el.classList.remove('is-paused');
             setTimeout(() => {
                 try { el.style.display = 'none'; } catch (_) {}
             }, 180);
@@ -2539,6 +2604,9 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                 clearTimeout(daWhiteAlertToastTimer);
                 daWhiteAlertToastTimer = null;
             }
+            daWhiteAlertToastPaused = false;
+            daWhiteAlertToastDeadline = 0;
+            daWhiteAlertToastRemainingMs = 0;
         } catch (_) {}
     }
 
@@ -2576,10 +2644,16 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
             }
 
             el.style.display = 'flex';
+            // Reiniciar estado do timer (não pausado)
+            daWhiteAlertToastPaused = false;
+            el.classList.remove('is-paused');
             requestAnimationFrame(() => el.classList.add('show'));
 
             if (daWhiteAlertToastTimer) clearTimeout(daWhiteAlertToastTimer);
-            daWhiteAlertToastTimer = setTimeout(() => hideWhiteAlertToast(), Math.max(1000, Number(durationMs) || 5000));
+            const dur = Math.max(1000, Number(durationMs) || 5000);
+            daWhiteAlertToastRemainingMs = dur;
+            daWhiteAlertToastDeadline = Date.now() + dur;
+            daWhiteAlertToastTimer = setTimeout(() => hideWhiteAlertToast(), dur);
         } catch (_) {}
     }
     
@@ -21457,6 +21531,7 @@ function logModeSnapshotUI(snapshot) {
             enabled: false,
             channel: 'toast', // toast | notification | both
             cooldownMinutes: 10,
+            popupDurationSeconds: 10, // ✅ Pedido: padrão 10s (apenas Popup)
             // Regras
             delayEnabled: true,
             delayPercentile: 75, // 50 | 75 | 90
@@ -21529,6 +21604,7 @@ function logModeSnapshotUI(snapshot) {
             const base = (whiteAlertsSettings && typeof whiteAlertsSettings === 'object') ? whiteAlertsSettings : getWhiteAlertsDefaults();
             const next = { ...base, ...(patch || {}) };
             next.cooldownMinutes = clampIntRange(next.cooldownMinutes, 1, 180);
+            next.popupDurationSeconds = clampIntRange(next.popupDurationSeconds, 3, 30);
             next.delayPercentile = next.delayPercentile === 50 ? 50 : next.delayPercentile === 90 ? 90 : 75;
             next.hotMinProbPct = Math.max(0, Math.min(100, Number(next.hotMinProbPct) || 0));
             next.pullerRepeatCount = clampIntRange(next.pullerRepeatCount, 2, 10);
@@ -22209,11 +22285,12 @@ function logModeSnapshotUI(snapshot) {
         }).join('');
     }
 
-    function notifyWhiteAlert(payloadOrMessage, variant = 'info', durationMs = 5000) {
+    function notifyWhiteAlert(payloadOrMessage, variant = 'info', durationMs = null) {
         try {
             const cfg = (whiteAlertsSettings && typeof whiteAlertsSettings === 'object') ? whiteAlertsSettings : getWhiteAlertsDefaults();
             const channel = cfg.channel || 'toast';
-            const dur = (typeof durationMs === 'number' && Number.isFinite(durationMs)) ? Math.max(1000, durationMs) : 5000;
+            const durFromCfg = Math.max(1000, (Number(cfg.popupDurationSeconds) || 10) * 1000);
+            const dur = (typeof durationMs === 'number' && Number.isFinite(durationMs)) ? Math.max(1000, durationMs) : durFromCfg;
 
             const payload = (() => {
                 if (payloadOrMessage && typeof payloadOrMessage === 'object') {
@@ -22289,7 +22366,7 @@ function logModeSnapshotUI(snapshot) {
                     title: 'Branco atrasado',
                     subtitle: `Alerta • Atraso acima de ${cfg.delayPercentile}%`,
                     message: `Atraso atual: ${delay} giros • Referência: ${Math.round(threshold)} giros`
-                }, 'warn', 5000);
+                }, 'warn');
                 await markFired('delayPct');
             }
             whiteAlertsRuntime.lastState.delayPct = delayCond;
@@ -22305,7 +22382,7 @@ function logModeSnapshotUI(snapshot) {
                     title: 'Janela “quente”',
                     subtitle: `Alerta • Próx ${stats.hazard.K} giros`,
                     message: `Probabilidade: ${formatPct1(Number(cur.p) * 100)} • Amostras: ${cur.n}`
-                }, 'success', 5000);
+                }, 'success');
                 await markFired('hot');
             }
             whiteAlertsRuntime.lastState.hot = hotCond;
@@ -22324,7 +22401,7 @@ function logModeSnapshotUI(snapshot) {
                     title: 'Puxador repetiu',
                     subtitle: `Alerta • Últimas ${whitePullersWindowHours}h`,
                     message: `Número ${top.num} puxou branco ${top.count}x`
-                }, 'info', 5000);
+                }, 'info');
                 await markFired('puller');
             }
             whiteAlertsRuntime.lastState.puller = repCond;
@@ -22353,7 +22430,7 @@ function logModeSnapshotUI(snapshot) {
 
             <div class="white-alerts-row">
                 <div class="white-alerts-label">Canal</div>
-                <div class="white-alerts-controls" id="whiteAlertsChannel">
+                <div class="white-alerts-controls white-alerts-controls--channel" id="whiteAlertsChannel">
                     <button type="button" class="white-bet-setting-btn${channel === 'toast' ? ' active' : ''}" data-channel="toast">Popup</button>
                     <button type="button" class="white-bet-setting-btn${channel === 'notification' ? ' active' : ''}" data-channel="notification">Notificação</button>
                     <button type="button" class="white-bet-setting-btn${channel === 'both' ? ' active' : ''}" data-channel="both">Ambos</button>
@@ -22361,8 +22438,16 @@ function logModeSnapshotUI(snapshot) {
             </div>
 
             <div class="white-alerts-row">
+                <div class="white-alerts-label">Duração do popup (s)</div>
+                <div class="white-alerts-controls white-alerts-controls--inline">
+                    <input id="whiteAlertsPopupDuration" class="white-bet-input" type="number" inputmode="numeric" min="3" max="30" step="1" value="${Number(cfg.popupDurationSeconds) || 10}" />
+                    <button type="button" class="white-bet-save-btn" id="whiteAlertsSavePopupDuration">Salvar</button>
+                </div>
+            </div>
+
+            <div class="white-alerts-row">
                 <div class="white-alerts-label">Intervalo (min)</div>
-                <div class="white-alerts-controls">
+                <div class="white-alerts-controls white-alerts-controls--inline">
                     <input id="whiteAlertsCooldown" class="white-bet-input" type="number" inputmode="numeric" min="1" max="180" step="1" value="${Number(cfg.cooldownMinutes) || 10}" />
                     <button type="button" class="white-bet-save-btn" id="whiteAlertsSaveCooldown">Salvar</button>
                 </div>
@@ -22373,7 +22458,7 @@ function logModeSnapshotUI(snapshot) {
                     <input type="checkbox" id="whiteAlertsDelayEnabled" ${cfg.delayEnabled ? 'checked' : ''} />
                     <span>Atraso acima de</span>
                 </label>
-                <div class="white-alerts-controls" id="whiteAlertsDelayPct">
+                <div class="white-alerts-controls white-alerts-controls--pct" id="whiteAlertsDelayPct">
                     <button type="button" class="white-pullers-filter-btn${pSel === 50 ? ' active' : ''}" data-pct="50">50%</button>
                     <button type="button" class="white-pullers-filter-btn${pSel === 75 ? ' active' : ''}" data-pct="75">75%</button>
                     <button type="button" class="white-pullers-filter-btn${pSel === 90 ? ' active' : ''}" data-pct="90">90%</button>
@@ -22385,7 +22470,7 @@ function logModeSnapshotUI(snapshot) {
                     <input type="checkbox" id="whiteAlertsHotEnabled" ${cfg.hotWindowEnabled ? 'checked' : ''} />
                     <span>Janela “quente”</span>
                 </label>
-                <div class="white-alerts-controls">
+                <div class="white-alerts-controls white-alerts-controls--inline">
                     <span class="white-alerts-mini">Limiar</span>
                     <input id="whiteAlertsHotMinProb" class="white-bet-input" type="number" inputmode="numeric" min="0" max="100" step="1" value="${Number(cfg.hotMinProbPct) || 0}" />
                     <button type="button" class="white-bet-save-btn" id="whiteAlertsSaveHot">Salvar</button>
@@ -22397,7 +22482,7 @@ function logModeSnapshotUI(snapshot) {
                     <input type="checkbox" id="whiteAlertsPullerEnabled" ${cfg.pullerRepeatEnabled ? 'checked' : ''} />
                     <span>Puxador repetiu</span>
                 </label>
-                <div class="white-alerts-controls">
+                <div class="white-alerts-controls white-alerts-controls--inline">
                     <span class="white-alerts-mini">Repetições</span>
                     <input id="whiteAlertsPullerCount" class="white-bet-input" type="number" inputmode="numeric" min="2" max="10" step="1" value="${Number(cfg.pullerRepeatCount) || 3}" />
                     <button type="button" class="white-bet-save-btn" id="whiteAlertsSavePuller">Salvar</button>
@@ -22459,6 +22544,16 @@ function logModeSnapshotUI(snapshot) {
                 try { showToast('✅ Cooldown salvo.', 1400); } catch (_) {}
             });
             saveCooldown.dataset.listenerAttached = '1';
+        }
+        const savePopupDuration = document.getElementById('whiteAlertsSavePopupDuration');
+        if (savePopupDuration && !savePopupDuration.dataset.listenerAttached) {
+            savePopupDuration.addEventListener('click', async () => {
+                const input = document.getElementById('whiteAlertsPopupDuration');
+                const v = input ? input.value : cfg.popupDurationSeconds;
+                await persistWhiteAlertsSettings({ popupDurationSeconds: v });
+                try { showToast('✅ Duração do popup salva.', 1400); } catch (_) {}
+            });
+            savePopupDuration.dataset.listenerAttached = '1';
         }
         const saveHot = document.getElementById('whiteAlertsSaveHot');
         if (saveHot && !saveHot.dataset.listenerAttached) {
