@@ -1972,12 +1972,11 @@ function createPatternKey(analysisData) {
                 const timestamp = Date.now();
                 const color = analysisData.color || 'unknown';
                 return `ai_pattern_${color}_${timestamp}`;
-            } else {
-                // Para análise padrão, patternDescription é JSON
-                const desc = JSON.parse(analysisData.patternDescription);
-                if (desc.colorAnalysis && desc.colorAnalysis.pattern) {
-                    return desc.colorAnalysis.pattern.join('-');
-                }
+            }
+            // Para análise padrão, patternDescription é JSON
+            const desc = JSON.parse(analysisData.patternDescription);
+            if (desc && desc.colorAnalysis && Array.isArray(desc.colorAnalysis.pattern)) {
+                return desc.colorAnalysis.pattern.join('-');
             }
         }
     } catch (e) {
@@ -4449,6 +4448,17 @@ async function processNewSpinFromServer(spinData) {
                                 await recordN4SelfLearningFromResolvedCycle(learningAnalysis, 'win');
                                 // ⚪ N0 (Detector de Branco): registrar auto-aprendizado quando o N0 foi o sinal final
                                 await recordN0SelfLearningFromResolvedCycle(learningAnalysis, 'win');
+                                // ⚪ N0 (Pedido do usuário): após WIN no branco, NÃO reentrar imediatamente.
+                                // Armamos um cooldown dinâmico (em giros) baseado no gap mediano real do histórico.
+                                try {
+                                    if (expectedColor === 'white') {
+                                        await armN0PostWinCooldownAfterWhiteWin({
+                                            latestSpin,
+                                            history: cachedHistory,
+                                            lookbackSpins: 3000
+                                        });
+                                    }
+                                } catch (_) {}
                                 // 💎 N4 (Autointeligente): auto-ajuste de janela (n4Persistence) quando o desempenho cair
                                 try {
                                     if (!isHiddenInternal) {
@@ -6395,6 +6405,16 @@ let signalsHistory = {
         goodFactor: 1.8,
         lastUpdated: null
     },
+    // ⚪ N0 (Detector de Branco): guard rails operacionais (ex.: cooldown pós-WIN)
+    n0Guard: {
+        version: 1,
+        lastWhiteWinSpinId: null,     // spin.id (preferido) ou timestamp (fallback)
+        lastWhiteWinTimestamp: null,  // created_at/timestamp do giro que confirmou o WIN
+        lastWhiteWinAtMs: null,       // ms parseado (quando disponível)
+        cooldownSpins: 0,             // quantos giros bloquear após WIN no branco
+        setAtMs: null,                // quando o cooldown foi armado
+        budgetSnapshot: null          // snapshot do budget por hora (para sobreviver reinício do SW)
+    },
     // 💎 N4 (Autointeligente): auto-aprendizado por "tipo de sinal" do próprio N4 (contexto n-gram + cor + setup)
     n4SelfLearning: {
         version: 2,
@@ -6453,6 +6473,50 @@ async function initializeSignalsHistory() {
                     lastUpdated: null
                 };
             }
+            // ✅ N0 guard rails (cooldown pós-WIN etc.)
+            if (!signalsHistory.n0Guard || typeof signalsHistory.n0Guard !== 'object') {
+                signalsHistory.n0Guard = {
+                    version: 1,
+                    lastWhiteWinSpinId: null,
+                    lastWhiteWinTimestamp: null,
+                    lastWhiteWinAtMs: null,
+                    cooldownSpins: 0,
+                    setAtMs: null,
+                    budgetSnapshot: null
+                };
+            } else {
+                const g = signalsHistory.n0Guard;
+                const ver = Math.max(1, Math.floor(Number(g.version) || 1));
+                g.version = ver;
+                if (g.lastWhiteWinSpinId === undefined) g.lastWhiteWinSpinId = null;
+                if (g.lastWhiteWinTimestamp === undefined) g.lastWhiteWinTimestamp = null;
+                if (g.lastWhiteWinAtMs === undefined) g.lastWhiteWinAtMs = null;
+                if (!Number.isFinite(Number(g.cooldownSpins))) g.cooldownSpins = 0;
+                if (!Number.isFinite(Number(g.setAtMs))) g.setAtMs = null;
+                if (g.budgetSnapshot === undefined) g.budgetSnapshot = null;
+            }
+            // ✅ N0 budget: restaurar snapshot quando possível (evita spam se o SW reiniciar no meio da hora)
+            try {
+                const snap = signalsHistory.n0Guard && typeof signalsHistory.n0Guard === 'object'
+                    ? signalsHistory.n0Guard.budgetSnapshot
+                    : null;
+                if (snap && typeof snap === 'object' && n0WhiteBudgetState && typeof n0WhiteBudgetState === 'object') {
+                    const now = Date.now();
+                    const currentHourKey = buildHourKeyLocal(now);
+                    const hourKey = snap.hourKey != null ? String(snap.hourKey) : null;
+                    if (hourKey && hourKey === currentHourKey) {
+                        const target = Number.isFinite(Number(snap.target)) ? Math.floor(Number(snap.target)) : null;
+                        const used = Number.isFinite(Number(snap.used)) ? Math.floor(Number(snap.used)) : null;
+                        n0WhiteBudgetState = {
+                            ...n0WhiteBudgetState,
+                            hourKey,
+                            target: (target != null) ? Math.max(N0_WHITE_SIGNAL_TARGET_MIN, Math.min(N0_WHITE_SIGNAL_TARGET_MAX, target)) : n0WhiteBudgetState.target,
+                            used: (used != null) ? Math.max(0, used) : n0WhiteBudgetState.used,
+                            lastUpdateMs: Number.isFinite(Number(snap.lastUpdateMs)) ? Number(snap.lastUpdateMs) : (n0WhiteBudgetState.lastUpdateMs || now)
+                        };
+                    }
+                }
+            } catch (_) {}
             if (!signalsHistory.n4SelfLearning || typeof signalsHistory.n4SelfLearning !== 'object') {
                 signalsHistory.n4SelfLearning = {
                     version: 2,
@@ -6543,6 +6607,15 @@ async function initializeSignalsHistory() {
                 badFactor: 0.8,
                 goodFactor: 1.8,
                 lastUpdated: null
+            },
+            n0Guard: {
+                version: 1,
+                lastWhiteWinSpinId: null,
+                lastWhiteWinTimestamp: null,
+                lastWhiteWinAtMs: null,
+                cooldownSpins: 0,
+                setAtMs: null,
+                budgetSnapshot: null
             },
             n4SelfLearning: {
                 version: 2,
@@ -13256,7 +13329,7 @@ function ensureN0WhiteBudgetForNow(history, nowMs) {
     return n0WhiteBudgetState;
 }
 
-function decideN0WhiteSignalEmission({ history, nowMs, confidence, lookaheadSpins, override = false }) {
+function decideN0WhiteSignalEmission({ history, nowMs, confidence, lookaheadSpins, override = false, commit = true }) {
     const state = ensureN0WhiteBudgetForNow(history, nowMs);
     const L = Math.max(1, Math.min(6, Math.floor(Number(lookaheadSpins) || 1)));
     const base = 1 - Math.pow(1 - (1 / 15), L); // baseline P(hit branco em até L)
@@ -13270,9 +13343,242 @@ function decideN0WhiteSignalEmission({ history, nowMs, confidence, lookaheadSpin
             return { ok: false, reason: 'below_min_conf', target: state.target, used: state.used, minConf, base };
         }
     }
-    state.used += 1;
-    state.lastUpdateMs = Number(nowMs) || Date.now();
-    return { ok: true, reason: override ? 'override' : 'ok', target: state.target, used: state.used, minConf, base };
+    if (commit) {
+        state.used += 1;
+        state.lastUpdateMs = Number(nowMs) || Date.now();
+    }
+    return { ok: true, reason: override ? 'override' : 'ok', committed: !!commit, target: state.target, used: state.used, minConf, base };
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 🧠 N0 (Detector de Branco): guard rails + memória viva (cooldown pós-WIN)
+// - Pedido do usuário: após pegar WIN no branco, NÃO entrar no giro seguinte.
+// - Baseado em estatística real do histórico (gaps entre brancos).
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function snapshotN0WhiteBudgetStateIntoSignalsHistory() {
+    try {
+        if (!signalsHistory || typeof signalsHistory !== 'object') return false;
+        if (!signalsHistory.n0Guard || typeof signalsHistory.n0Guard !== 'object') return false;
+        if (!n0WhiteBudgetState || typeof n0WhiteBudgetState !== 'object') return false;
+        const snap = {
+            hourKey: n0WhiteBudgetState.hourKey || null,
+            target: Number.isFinite(Number(n0WhiteBudgetState.target)) ? Number(n0WhiteBudgetState.target) : null,
+            used: Number.isFinite(Number(n0WhiteBudgetState.used)) ? Number(n0WhiteBudgetState.used) : 0,
+            lastUpdateMs: Number.isFinite(Number(n0WhiteBudgetState.lastUpdateMs)) ? Number(n0WhiteBudgetState.lastUpdateMs) : null
+        };
+        signalsHistory.n0Guard.budgetSnapshot = snap;
+        return true;
+    } catch (_) {
+        return false;
+    }
+}
+
+function isWhiteSpinForN0Guard(spin) {
+    try {
+        if (!spin) return false;
+        const n = Number(spin.number ?? spin.numero ?? spin.value ?? null);
+        if (Number.isFinite(n) && Math.floor(n) === 0) return true;
+        const c = String(spin.color || spin.result || spin.cor || '').toLowerCase().trim();
+        return c === 'white' || c === 'w' || c.includes('branc');
+    } catch (_) {
+        return false;
+    }
+}
+
+function getSpinKeyForN0Guard(spin) {
+    try {
+        if (!spin) return null;
+        if (spin.id != null) return String(spin.id);
+        const ts = spin.created_at ?? spin.timestamp ?? spin.createdAt ?? spin.time ?? null;
+        if (ts != null) return String(ts);
+        return null;
+    } catch (_) {
+        return null;
+    }
+}
+
+function getSpinTimestampRawForN0Guard(spin) {
+    try {
+        if (!spin) return null;
+        const ts = spin.created_at ?? spin.timestamp ?? spin.createdAt ?? null;
+        return ts != null ? String(ts) : null;
+    } catch (_) {
+        return null;
+    }
+}
+
+function quantileFromSorted(listSorted, q) {
+    const arr = Array.isArray(listSorted) ? listSorted : [];
+    if (arr.length === 0) return null;
+    const qq = Math.max(0, Math.min(1, Number(q) || 0));
+    const idx = Math.floor((arr.length - 1) * qq);
+    const v = arr[Math.max(0, Math.min(arr.length - 1, idx))];
+    return Number.isFinite(v) ? v : null;
+}
+
+function computeWhiteGapsNewestFirst(history, maxSpins = 3000) {
+    const arr = Array.isArray(history) ? history.slice(0, Math.max(10, Math.min(REALTIME_HISTORY_CAP, Math.floor(Number(maxSpins) || 3000)))) : [];
+    const gaps = [];
+    let since = null;
+    // iterar do mais antigo -> mais recente
+    for (let i = arr.length - 1; i >= 0; i--) {
+        const s = arr[i];
+        if (isWhiteSpinForN0Guard(s)) {
+            if (since != null) gaps.push(since);
+            since = 0;
+        } else if (since != null) {
+            since += 1;
+        }
+    }
+    return gaps;
+}
+
+function computeDynamicN0PostWinCooldownSpins(history, options = {}) {
+    try {
+        const lookback = Math.max(500, Math.min(REALTIME_HISTORY_CAP, Math.floor(Number(options.lookbackSpins) || 3000)));
+        const gaps = computeWhiteGapsNewestFirst(history, lookback)
+            .filter((n) => Number.isFinite(n) && n >= 0)
+            .sort((a, b) => a - b);
+        if (gaps.length < 12) {
+            return { cooldownSpins: 2, stats: { n: gaps.length, p50: null, p25: null, p10: null } };
+        }
+        const p10 = quantileFromSorted(gaps, 0.10);
+        const p25 = quantileFromSorted(gaps, 0.25);
+        const p50 = quantileFromSorted(gaps, 0.50);
+        // ✅ Fórmula simples e estável:
+        // - baseia no "gap mediano" (p50) do histórico real (evento raro)
+        // - aplica fração conservadora para não travar o N0
+        const raw = Math.round((Number(p50) || 0) * 0.25);
+        const cooldownSpins = Math.max(2, Math.min(6, raw || 2));
+        return { cooldownSpins, stats: { n: gaps.length, p10, p25, p50 } };
+    } catch (_) {
+        return { cooldownSpins: 2, stats: { n: 0, p50: null, p25: null, p10: null } };
+    }
+}
+
+function findSpinIndexByGuardKey(history, key) {
+    try {
+        const arr = Array.isArray(history) ? history : [];
+        const k = String(key || '').trim();
+        if (!k) return null;
+        const maxScan = Math.min(arr.length, 5000);
+        for (let i = 0; i < maxScan; i++) {
+            const s = arr[i];
+            if (!s) continue;
+            if (s.id != null && String(s.id) === k) return i;
+            const ts = s.created_at ?? s.timestamp ?? s.createdAt ?? s.time ?? null;
+            if (ts != null && String(ts) === k) return i;
+        }
+        return null;
+    } catch (_) {
+        return null;
+    }
+}
+
+function findMostRecentWhiteIndexForN0(history, maxScan = 200) {
+    try {
+        const arr = Array.isArray(history) ? history : [];
+        const lim = Math.max(1, Math.min(REALTIME_HISTORY_CAP, Math.floor(Number(maxScan) || 200)));
+        const max = Math.min(arr.length, lim);
+        for (let i = 0; i < max; i++) {
+            if (isWhiteSpinForN0Guard(arr[i])) return i;
+        }
+        return null;
+    } catch (_) {
+        return null;
+    }
+}
+
+function getN0PostWinCooldownGate({ history, nowMs }) {
+    try {
+        const guard = (signalsHistory && signalsHistory.n0Guard && typeof signalsHistory.n0Guard === 'object')
+            ? signalsHistory.n0Guard
+            : null;
+        if (!guard) return { ok: true, active: false, reason: 'no_guard' };
+        const required = Math.max(0, Math.min(60, Math.floor(Number(guard.cooldownSpins) || 0)));
+        if (required <= 0) return { ok: true, active: false, reason: 'no_cooldown' };
+
+        const keys = [guard.lastWhiteWinSpinId, guard.lastWhiteWinTimestamp]
+            .map((v) => (v != null ? String(v).trim() : ''))
+            .filter(Boolean);
+        if (keys.length === 0) return { ok: true, active: false, reason: 'no_last_win' };
+
+        let spinsSince = null;
+        for (const k of keys) {
+            const idx = findSpinIndexByGuardKey(history, k);
+            if (idx != null) { spinsSince = idx; break; }
+        }
+
+        // Fallback: estimar por tempo (Blaze Double ~30s por giro)
+        if (spinsSince == null) {
+            const lastMs = Number(guard.lastWhiteWinAtMs);
+            const now = Number.isFinite(Number(nowMs)) ? Number(nowMs)
+                : (Number.isFinite(parseSpinTimestamp(history && history[0])) ? parseSpinTimestamp(history[0]) : Date.now());
+            if (Number.isFinite(lastMs) && Number.isFinite(now) && now >= lastMs) {
+                spinsSince = Math.max(0, Math.floor((now - lastMs) / 30000));
+            }
+        }
+
+        if (spinsSince == null) {
+            // Fail-open: sem referência confiável, não travar sinais.
+            return { ok: true, active: false, reason: 'unknown_spins_since' };
+        }
+
+        const remaining = Math.max(0, required - spinsSince);
+        if (remaining > 0) {
+            return {
+                ok: false,
+                active: true,
+                reason: 'post_white_win_cooldown',
+                required,
+                spinsSinceWin: spinsSince,
+                remaining
+            };
+        }
+        return { ok: true, active: false, reason: 'cooldown_passed', required, spinsSinceWin: spinsSince, remaining: 0 };
+    } catch (_) {
+        return { ok: true, active: false, reason: 'cooldown_error' };
+    }
+}
+
+async function armN0PostWinCooldownAfterWhiteWin({ latestSpin, history, lookbackSpins = 3000 } = {}) {
+    try {
+        if (!signalsHistory || typeof signalsHistory !== 'object') return null;
+        if (!signalsHistory.n0Guard || typeof signalsHistory.n0Guard !== 'object') {
+            signalsHistory.n0Guard = {
+                version: 1,
+                lastWhiteWinSpinId: null,
+                lastWhiteWinTimestamp: null,
+                lastWhiteWinAtMs: null,
+                cooldownSpins: 0,
+                setAtMs: null,
+                budgetSnapshot: null
+            };
+        }
+
+        const { cooldownSpins, stats } = computeDynamicN0PostWinCooldownSpins(history, { lookbackSpins });
+        const spinId = getSpinKeyForN0Guard(latestSpin);
+        const spinTsRaw = getSpinTimestampRawForN0Guard(latestSpin);
+        const spinMs = Number.isFinite(parseSpinTimestamp(latestSpin)) ? parseSpinTimestamp(latestSpin) : null;
+
+        signalsHistory.n0Guard.version = 1;
+        signalsHistory.n0Guard.lastWhiteWinSpinId = spinId || signalsHistory.n0Guard.lastWhiteWinSpinId || null;
+        signalsHistory.n0Guard.lastWhiteWinTimestamp = spinTsRaw || signalsHistory.n0Guard.lastWhiteWinTimestamp || null;
+        signalsHistory.n0Guard.lastWhiteWinAtMs = spinMs != null ? spinMs : (signalsHistory.n0Guard.lastWhiteWinAtMs || null);
+        signalsHistory.n0Guard.cooldownSpins = cooldownSpins;
+        signalsHistory.n0Guard.setAtMs = Date.now();
+
+        await saveSignalsHistory();
+        console.log(
+            `%c⚪ [N0] Cooldown pós-WIN armado: aguardar ${cooldownSpins} giro(s) (gaps n=${stats.n} • p50=${stats.p50} • p25=${stats.p25} • p10=${stats.p10})`,
+            'color: #FFAA00; font-weight: bold;'
+        );
+        return { cooldownSpins, stats };
+    } catch (e) {
+        console.warn('⚠️ [N0] Falha ao armar cooldown pós-WIN:', e && e.message ? e.message : e);
+        return null;
+    }
 }
 
 function buildN0RuntimeCacheKey(settings) {
@@ -18305,6 +18611,7 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
         let n0WhiteStrength = 0;
         let n0ActionSuppressed = false;
         let n0DetailSummary = 'NULO';
+        let n0CooldownInfo = null; // { ok, active, remaining, required } | null
 
         const n0Enabled = isLevelEnabledLocal('N0');
         if (!n0Enabled) {
@@ -18349,6 +18656,19 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
                 n0ForceWhite = n0EffectiveAction === 'block_all' && n0Result.pred_live === 'W';
                 n0SoftBlockActive = n0EffectiveAction === 'soft_block' && n0Result.pred_live === 'W';
 
+                // ✅ Cooldown pós-WIN (pedido do usuário):
+                // Se acabou de ganhar no branco, não aplicar SOFT BLOCK nos demais níveis e evitar reentradas.
+                try {
+                    const nowMsCooldown = Number.isFinite(parseSpinTimestamp(history && history[0])) ? parseSpinTimestamp(history[0]) : Date.now();
+                    n0CooldownInfo = getN0PostWinCooldownGate({ history, nowMs: nowMsCooldown });
+                    if (n0CooldownInfo && n0CooldownInfo.ok === false) {
+                        // Durante cooldown, deixar os outros níveis trabalharem sem redução de peso
+                        n0SoftBlockActive = false;
+                    }
+                } catch (_) {
+                    n0CooldownInfo = null;
+                }
+
                 const actionLabel = n0ForceWhite
                     ? 'BLOCK ALL'
                     : n0SoftBlockActive
@@ -18382,6 +18702,9 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
                 }
                 if (holdoutData.enabled) {
                     detailsParts.push(holdoutData.passed ? 'holdout ok' : 'holdout falhou');
+                }
+                if (n0CooldownInfo && n0CooldownInfo.ok === false) {
+                    detailsParts.push(`cooldown ${n0CooldownInfo.remaining}/${n0CooldownInfo.required}`);
                 }
                 if (n0ActionSuppressed) {
                     detailsParts.push('informativo');
@@ -18462,6 +18785,9 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
                     }
                     if (!level || !n0Result) {
                         return { id, message: `${friendlyName}: NULO` };
+                    }
+                    if (n0CooldownInfo && n0CooldownInfo.ok === false) {
+                        return { id, message: `${friendlyName}: COOLDOWN (${n0CooldownInfo.remaining}/${n0CooldownInfo.required})` };
                     }
                     const confPct = Math.round((n0WhiteStrength || 0) * 100);
                     const thresholdPct = n0Result.blocking_threshold != null
@@ -18979,138 +19305,192 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
 
         if (n0ForceWhite) {
             const nowMs = Number.isFinite(parseSpinTimestamp(history && history[0])) ? parseSpinTimestamp(history[0]) : Date.now();
-            try {
-                // BLOCK ALL é o evento mais forte; ainda assim contabilizar no budget (override) para manter proporção por hora.
-                decideN0WhiteSignalEmission({
-                    history,
-                    nowMs,
-                    confidence: n0WhiteStrength,
-                    lookaheadSpins: n0Options.lookaheadSpins,
-                    override: true
-                });
-            } catch (_) {}
-            console.log('%c⚪ N0 FORÇOU BLOQUEIO TOTAL DOS DEMAIS NÍVEIS - SINAL BRANCO!', 'color: #FFFFFF; font-weight: bold; font-size: 16px; background: #000000;');
-            levelReports.sort((a, b) => {
-                const aIndex = displayOrder.indexOf(a.id);
-                const bIndex = displayOrder.indexOf(b.id);
-                const safeA = aIndex === -1 ? displayOrder.length : aIndex;
-                const safeB = bIndex === -1 ? displayOrder.length : bIndex;
-                return safeA - safeB;
-            });
+            const cooldownGate = getN0PostWinCooldownGate({ history, nowMs });
 
-            if (intervalBlocked) {
-                sendAnalysisStatus(intervalMessage || '⏳ Aguardando intervalo configurado...');
-                await sleep(2000);
-                await restoreIAStatus();
-                console.log('%c   ❌ SINAL CANCELADO PELO INTERVALO!', 'color: #FF0000; font-weight: bold; font-size: 14px;');
-                return null;
-            }
-
-            const whiteConfidencePct = Math.max(0, Math.min(100, Math.round(n0WhiteStrength * 100)));
-            const thresholdPct = n0Result && n0Result.blocking_threshold != null
-                ? Math.round(n0Result.blocking_threshold * 100)
-                : null;
-
-            sendAnalysisStatus(`⚪ N0 - Detector de Branco: BLOCK ALL (${whiteConfidencePct}%${thresholdPct !== null ? ` • t* ${thresholdPct}%` : ''})${n0ActionSuppressed ? ' (informativo)' : ''}`);
-            await sleep(2000);
-            if (analyzerConfig.aiMode) {
-                sendAnalysisStatus('Sinal de entrada');
-            } else {
-                sendAnalysisStatus(`✅ Sinal aprovado: WHITE (${whiteConfidencePct}%)`);
-            }
-            await sleep(2000);
-
-            const scoreSummary = levelReports.map(level => ({
-                id: level.id,
-                name: level.name,
-                color: level.color,
-                strength: Number((level.strength || 0).toFixed(3)),
-                weight: Number((level.weight || 0).toFixed(3)),
-                contribution: Number(((level.score || 0) * (level.weight || 0)).toFixed(3)),
-                details: level.details
-            }));
-            const diamondSourceLevel = pickDiamondSourceLevel(scoreSummary, 'white');
-
-            const bestMetrics = n0Result && n0Result.best_metrics ? n0Result.best_metrics : {};
-            const blockMetrics = n0Result && n0Result.blocking_metrics ? n0Result.blocking_metrics : {};
-            const holdoutReasoning = n0Result && n0Result.holdout && n0Result.holdout.enabled
-                ? `Holdout: ${n0Result.holdout.passed ? 'OK' : 'Falhou'}${n0Result.holdout.reason ? ` (${n0Result.holdout.reason})` : ''}\n`
-                : '';
-            const reasoning =
-                `${levelReports.map(level => describeLevel(level, { includeEmoji: false })).join('\n')}\n` +
-                `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
-                `Detector de Branco\n` +
-                `Confiança: ${whiteConfidencePct}%\n` +
-                `t*: ${thresholdPct !== null ? `${thresholdPct}%` : 'n/d'} • F1 ${(bestMetrics.f1 != null ? (bestMetrics.f1 * 100).toFixed(1) : 'n/d')}% • Precision* ${(blockMetrics.precision != null ? (blockMetrics.precision * 100).toFixed(1) : 'n/d')}%\n` +
-                holdoutReasoning +
-                `Configs: ${n0Result && n0Result.effective_configs != null ? `${n0Result.effective_configs}/${n0Result.tested_configs}` : (n0Result && n0Result.tested_configs != null ? n0Result.tested_configs : 'n/d')}\n` +
-                `Ação: BLOCK ALL${n0ActionSuppressed ? ' (modo informativo)' : ''}`;
-
-            const diamondN0 = (() => {
+            if (cooldownGate && cooldownGate.ok === false) {
                 try {
-                    if (!n0Enabled) return null;
-                    if (!n0Result || n0Result.enabled === false) return null;
-                    const key = (n0Result && typeof n0Result.learning_key === 'string') ? n0Result.learning_key : null;
-                    const ctx = (n0Result && typeof n0Result.learning_context === 'string') ? n0Result.learning_context : null;
-                    return {
-                        voteColor: 'white',
-                        key,
-                        ctx,
-                        usedInFinal: true,
-                        decision: (n0Result && typeof n0Result.learning_decision === 'string') ? n0Result.learning_decision : 'none',
-                        action: (n0Result && typeof n0Result.blocking_action === 'string') ? n0Result.blocking_action : 'block_all'
-                    };
-                } catch (_) {
-                    return null;
-                }
-            })();
-
-            const signal = {
-                timestamp: Date.now(),
-                patternType: 'nivel-diamante',
-                patternName: 'Detector de Branco (N0)',
-                colorRecommended: 'white',
-                normalizedScore: Number(n0WhiteStrength.toFixed(4)),
-                scoreMagnitude: Number(n0WhiteStrength.toFixed(4)),
-                intensityMode: analyzerConfig.signalIntensity || 'aggressive',
-                rawConfidence: whiteConfidencePct,
-                finalConfidence: whiteConfidencePct,
-                levelBreakdown: scoreSummary,
-                sourceLevel: diamondSourceLevel,
-                reasoning,
-                verified: false,
-                colorThatCame: null,
-                hit: null
-            };
-
-            if (signalsHistory && signalsHistory.signals) {
-                signalsHistory.signals.push(signal);
-                if (signalsHistory.signals.length > 200) {
-                    signalsHistory.signals = signalsHistory.signals.slice(-200);
-                }
-                await saveSignalsHistory();
-            }
-
-            if (!memoriaAtiva.inicializada) {
-                memoriaAtiva.inicializada = true;
-                memoriaAtiva.ultimaAtualizacao = Date.now();
-                memoriaAtiva.totalAtualizacoes = 1;
-                memoriaAtiva.giros = history.slice(0, getMemoriaAtivaHistoryCap());
-                console.log('%c✅ Memória Ativa marcada como INICIALIZADA!', 'color: #00FF00; font-weight: bold;');
+                    const n0Report = Array.isArray(levelReports) ? levelReports.find(l => l && l.id === 'N0') : null;
+                    if (n0Report && typeof n0Report.details === 'string') {
+                        n0Report.details += ` • COOLDOWN ${cooldownGate.remaining}/${cooldownGate.required}`;
+                    }
+                } catch (_) {}
+                console.log('%c⚪ N0 BLOCK ALL suprimido por COOLDOWN pós-WIN (não reentrar imediato)', 'color: #FFAA00; font-weight: bold;');
             } else {
-                memoriaAtiva.totalAtualizacoes++;
-                memoriaAtiva.ultimaAtualizacao = Date.now();
-            }
+                const recentWhiteIdx = findMostRecentWhiteIndexForN0(history, 80);
+                if (recentWhiteIdx === 0) {
+                    // Consecutivo de branco é raro no histórico real; evitar reentrada imediata após qualquer WHITE.
+                    console.log('%c⚪ N0 BLOCK ALL suprimido: branco acabou de sair (evitar consecutivo)', 'color: #FFAA00; font-weight: bold;');
+                } else {
+                // ✅ Budget deve ser "commitado" só quando realmente vamos emitir sinal (evita gastar budget em sinal cancelado pelo intervalo).
+                const preBudget = (() => {
+                    try {
+                        return decideN0WhiteSignalEmission({
+                            history,
+                            nowMs,
+                            confidence: n0WhiteStrength,
+                            lookaheadSpins: n0Options.lookaheadSpins,
+                            override: false,
+                            commit: false
+                        });
+                    } catch (_) {
+                        return { ok: false, reason: 'budget_error' };
+                    }
+                })();
 
-            return {
-                color: 'white',
-                confidence: whiteConfidencePct,
-                probability: whiteConfidencePct,
-                reasoning,
-                patternDescription: 'Detector de Branco (N0)',
-                diamondSourceLevel,
-                diamondN0
-            };
+                if (!preBudget || !preBudget.ok) {
+                    const reason = preBudget && preBudget.reason ? preBudget.reason : 'budget_block';
+                    try {
+                        const n0Report = Array.isArray(levelReports) ? levelReports.find(l => l && l.id === 'N0') : null;
+                        if (n0Report && typeof n0Report.details === 'string') {
+                            n0Report.details += ` • ${reason}`;
+                        }
+                    } catch (_) {}
+                    console.log(`%c⚪ N0 BLOCK ALL suprimido pelo budget (${reason})`, 'color: #FFAA00; font-weight: bold;');
+                } else {
+                    console.log('%c⚪ N0 FORÇOU BLOQUEIO TOTAL DOS DEMAIS NÍVEIS - SINAL BRANCO!', 'color: #FFFFFF; font-weight: bold; font-size: 16px; background: #000000;');
+                    levelReports.sort((a, b) => {
+                        const aIndex = displayOrder.indexOf(a.id);
+                        const bIndex = displayOrder.indexOf(b.id);
+                        const safeA = aIndex === -1 ? displayOrder.length : aIndex;
+                        const safeB = bIndex === -1 ? displayOrder.length : bIndex;
+                        return safeA - safeB;
+                    });
+
+                    if (intervalBlocked) {
+                        sendAnalysisStatus(intervalMessage || '⏳ Aguardando intervalo configurado...');
+                        await sleep(2000);
+                        await restoreIAStatus();
+                        console.log('%c   ❌ SINAL CANCELADO PELO INTERVALO!', 'color: #FF0000; font-weight: bold; font-size: 14px;');
+                        return null;
+                    }
+
+                    const committed = (() => {
+                        try {
+                            return decideN0WhiteSignalEmission({
+                                history,
+                                nowMs,
+                                confidence: n0WhiteStrength,
+                                lookaheadSpins: n0Options.lookaheadSpins,
+                                override: false,
+                                commit: true
+                            });
+                        } catch (_) {
+                            return { ok: false, reason: 'budget_error' };
+                        }
+                    })();
+                    if (!committed || !committed.ok) {
+                        console.log(`%c⚪ N0 BLOCK ALL cancelado (budget mudou): ${committed && committed.reason ? committed.reason : 'erro'}`, 'color: #FFAA00; font-weight: bold;');
+                    } else {
+                        const whiteConfidencePct = Math.max(0, Math.min(100, Math.round(n0WhiteStrength * 100)));
+                        const thresholdPct = n0Result && n0Result.blocking_threshold != null
+                            ? Math.round(n0Result.blocking_threshold * 100)
+                            : null;
+
+                        sendAnalysisStatus(`⚪ N0 - Detector de Branco: BLOCK ALL (${whiteConfidencePct}%${thresholdPct !== null ? ` • t* ${thresholdPct}%` : ''})${n0ActionSuppressed ? ' (informativo)' : ''}`);
+                        await sleep(2000);
+                        if (analyzerConfig.aiMode) {
+                            sendAnalysisStatus('Sinal de entrada');
+                        } else {
+                            sendAnalysisStatus(`✅ Sinal aprovado: WHITE (${whiteConfidencePct}%)`);
+                        }
+                        await sleep(2000);
+
+                        const scoreSummary = levelReports.map(level => ({
+                            id: level.id,
+                            name: level.name,
+                            color: level.color,
+                            strength: Number((level.strength || 0).toFixed(3)),
+                            weight: Number((level.weight || 0).toFixed(3)),
+                            contribution: Number(((level.score || 0) * (level.weight || 0)).toFixed(3)),
+                            details: level.details
+                        }));
+                        const diamondSourceLevel = pickDiamondSourceLevel(scoreSummary, 'white');
+
+                        const bestMetrics = n0Result && n0Result.best_metrics ? n0Result.best_metrics : {};
+                        const blockMetrics = n0Result && n0Result.blocking_metrics ? n0Result.blocking_metrics : {};
+                        const holdoutReasoning = n0Result && n0Result.holdout && n0Result.holdout.enabled
+                            ? `Holdout: ${n0Result.holdout.passed ? 'OK' : 'Falhou'}${n0Result.holdout.reason ? ` (${n0Result.holdout.reason})` : ''}\n`
+                            : '';
+                        const reasoning =
+                            `${levelReports.map(level => describeLevel(level, { includeEmoji: false })).join('\n')}\n` +
+                            `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+                            `Detector de Branco\n` +
+                            `Confiança: ${whiteConfidencePct}%\n` +
+                            `t*: ${thresholdPct !== null ? `${thresholdPct}%` : 'n/d'} • F1 ${(bestMetrics.f1 != null ? (bestMetrics.f1 * 100).toFixed(1) : 'n/d')}% • Precision* ${(blockMetrics.precision != null ? (blockMetrics.precision * 100).toFixed(1) : 'n/d')}%\n` +
+                            holdoutReasoning +
+                            `Configs: ${n0Result && n0Result.effective_configs != null ? `${n0Result.effective_configs}/${n0Result.tested_configs}` : (n0Result && n0Result.tested_configs != null ? n0Result.tested_configs : 'n/d')}\n` +
+                            `Ação: BLOCK ALL${n0ActionSuppressed ? ' (modo informativo)' : ''}`;
+
+                        const diamondN0 = (() => {
+                            try {
+                                if (!n0Enabled) return null;
+                                if (!n0Result || n0Result.enabled === false) return null;
+                                const key = (n0Result && typeof n0Result.learning_key === 'string') ? n0Result.learning_key : null;
+                                const ctx = (n0Result && typeof n0Result.learning_context === 'string') ? n0Result.learning_context : null;
+                                return {
+                                    voteColor: 'white',
+                                    key,
+                                    ctx,
+                                    usedInFinal: true,
+                                    decision: (n0Result && typeof n0Result.learning_decision === 'string') ? n0Result.learning_decision : 'none',
+                                    action: (n0Result && typeof n0Result.blocking_action === 'string') ? n0Result.blocking_action : 'block_all'
+                                };
+                            } catch (_) {
+                                return null;
+                            }
+                        })();
+
+                        const signal = {
+                            timestamp: Date.now(),
+                            patternType: 'nivel-diamante',
+                            patternName: 'Detector de Branco (N0)',
+                            colorRecommended: 'white',
+                            normalizedScore: Number(n0WhiteStrength.toFixed(4)),
+                            scoreMagnitude: Number(n0WhiteStrength.toFixed(4)),
+                            intensityMode: analyzerConfig.signalIntensity || 'aggressive',
+                            rawConfidence: whiteConfidencePct,
+                            finalConfidence: whiteConfidencePct,
+                            levelBreakdown: scoreSummary,
+                            sourceLevel: diamondSourceLevel,
+                            reasoning,
+                            verified: false,
+                            colorThatCame: null,
+                            hit: null
+                        };
+
+                        if (signalsHistory && signalsHistory.signals) {
+                            signalsHistory.signals.push(signal);
+                            if (signalsHistory.signals.length > 200) {
+                                signalsHistory.signals = signalsHistory.signals.slice(-200);
+                            }
+                            try { snapshotN0WhiteBudgetStateIntoSignalsHistory(); } catch (_) {}
+                            await saveSignalsHistory();
+                        }
+
+                        if (!memoriaAtiva.inicializada) {
+                            memoriaAtiva.inicializada = true;
+                            memoriaAtiva.ultimaAtualizacao = Date.now();
+                            memoriaAtiva.totalAtualizacoes = 1;
+                            memoriaAtiva.giros = history.slice(0, getMemoriaAtivaHistoryCap());
+                            console.log('%c✅ Memória Ativa marcada como INICIALIZADA!', 'color: #00FF00; font-weight: bold;');
+                        } else {
+                            memoriaAtiva.totalAtualizacoes++;
+                            memoriaAtiva.ultimaAtualizacao = Date.now();
+                        }
+
+                        return {
+                            color: 'white',
+                            confidence: whiteConfidencePct,
+                            probability: whiteConfidencePct,
+                            reasoning,
+                            patternDescription: 'Detector de Branco (N0)',
+                            diamondSourceLevel,
+                            diamondN0
+                        };
+                    }
+                }
+                }
+            }
         }
 
         const anyVotingLevelEnabled = (() => {
@@ -19127,22 +19507,46 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
         // Se o N0 prever WHITE com confiança suficiente (>= limiar do SOFT), emitir sinal WHITE
         // mesmo com outros níveis ativos. Isso evita longos períodos sem sinal de branco.
         const nowMsForBudget = Number.isFinite(parseSpinTimestamp(history && history[0])) ? parseSpinTimestamp(history[0]) : Date.now();
-        const n0BudgetOk = (() => {
+        const n0SoftThreshold = (() => {
+            try {
+                const t = (n0Result && typeof n0Result.blocking_threshold === 'number')
+                    ? clamp01(n0Result.blocking_threshold)
+                    : null;
+                // fallback conservador
+                const base = (t == null) ? 0.5 : t;
+                return clamp01(base * 0.8);
+            } catch (_) {
+                return 0.5;
+            }
+        })();
+        const n0StrongAlert = !!(n0PredictedWhite && (n0WhiteStrength || 0) >= n0SoftThreshold);
+        const n0CooldownGate = getN0PostWinCooldownGate({ history, nowMs: nowMsForBudget });
+        const n0BudgetCheck = (() => {
             if (!n0PredictedWhite) return { ok: false, reason: 'not_predicted' };
+            if (!n0StrongAlert) return { ok: false, reason: 'below_soft_threshold', softThreshold: n0SoftThreshold };
+            if (n0CooldownGate && n0CooldownGate.ok === false) {
+                return { ok: false, reason: n0CooldownGate.reason || 'cooldown', cooldown: n0CooldownGate };
+            }
+            // ✅ Evitar consecutivo de branco (histórico real mostra que é raro)
+            const recentWhiteIdx = findMostRecentWhiteIndexForN0(history, 80);
+            if (recentWhiteIdx === 0) {
+                return { ok: false, reason: 'recent_white_spin' };
+            }
             try {
                 return decideN0WhiteSignalEmission({
                     history,
                     nowMs: nowMsForBudget,
                     confidence: n0WhiteStrength,
                     lookaheadSpins: n0Options.lookaheadSpins,
-                    override: false
+                    override: false,
+                    commit: false
                 });
             } catch (_) {
                 return { ok: false, reason: 'budget_error' };
             }
         })();
 
-        if (anyVotingLevelEnabled && n0BudgetOk && n0BudgetOk.ok) {
+        if (anyVotingLevelEnabled && n0BudgetCheck && n0BudgetCheck.ok) {
             levelReports.sort((a, b) => {
                 const aIndex = displayOrder.indexOf(a.id);
                 const bIndex = displayOrder.indexOf(b.id);
@@ -19159,6 +19563,23 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
                 return null;
             }
 
+            const committed = (() => {
+                try {
+                    return decideN0WhiteSignalEmission({
+                        history,
+                        nowMs: nowMsForBudget,
+                        confidence: n0WhiteStrength,
+                        lookaheadSpins: n0Options.lookaheadSpins,
+                        override: false,
+                        commit: true
+                    });
+                } catch (_) {
+                    return { ok: false, reason: 'budget_error' };
+                }
+            })();
+            if (!committed || !committed.ok) {
+                console.log(`%c⚪ N0 cancelado (budget mudou): ${committed && committed.reason ? committed.reason : 'erro'}`, 'color: #FFAA00; font-weight: bold;');
+            } else {
             const whiteConfidencePct = Math.max(0, Math.min(100, Math.round(n0WhiteStrength * 100)));
             const thresholdPct = n0Result && n0Result.blocking_threshold != null
                 ? Math.round(n0Result.blocking_threshold * 100)
@@ -19237,6 +19658,7 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
                 if (signalsHistory.signals.length > 200) {
                     signalsHistory.signals = signalsHistory.signals.slice(-200);
                 }
+                try { snapshotN0WhiteBudgetStateIntoSignalsHistory(); } catch (_) {}
                 await saveSignalsHistory();
             }
 
@@ -19260,13 +19682,14 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
                 diamondSourceLevel,
                 diamondN0
             };
+            }
         }
 
         // ✅ MODO "SOMENTE N0":
         // Se NÃO houver nenhum nível votante (N1–N8) ativo, o N0 deve conseguir operar de forma independente.
         // Antes: o sistema ficava mudo porque o N0 só gerava sinal quando era BLOCK ALL (n0ForceWhite).
         // Agora: se o N0 prever WHITE (mesmo em ALERTA/SOFT BLOCK/informativo), emitimos sinal WHITE.
-        if (!anyVotingLevelEnabled && n0BudgetOk && n0BudgetOk.ok) {
+        if (!anyVotingLevelEnabled && n0BudgetCheck && n0BudgetCheck.ok) {
             levelReports.sort((a, b) => {
                 const aIndex = displayOrder.indexOf(a.id);
                 const bIndex = displayOrder.indexOf(b.id);
@@ -19283,6 +19706,23 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
                 return null;
             }
 
+            const committed = (() => {
+                try {
+                    return decideN0WhiteSignalEmission({
+                        history,
+                        nowMs: nowMsForBudget,
+                        confidence: n0WhiteStrength,
+                        lookaheadSpins: n0Options.lookaheadSpins,
+                        override: false,
+                        commit: true
+                    });
+                } catch (_) {
+                    return { ok: false, reason: 'budget_error' };
+                }
+            })();
+            if (!committed || !committed.ok) {
+                console.log(`%c⚪ N0 (somente) cancelado (budget mudou): ${committed && committed.reason ? committed.reason : 'erro'}`, 'color: #FFAA00; font-weight: bold;');
+            } else {
             const whiteConfidencePct = Math.max(0, Math.min(100, Math.round(n0WhiteStrength * 100)));
             const thresholdPct = n0Result && n0Result.blocking_threshold != null
                 ? Math.round(n0Result.blocking_threshold * 100)
@@ -19361,6 +19801,7 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
                 if (signalsHistory.signals.length > 200) {
                     signalsHistory.signals = signalsHistory.signals.slice(-200);
                 }
+                try { snapshotN0WhiteBudgetStateIntoSignalsHistory(); } catch (_) {}
                 await saveSignalsHistory();
             }
 
@@ -19384,6 +19825,7 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
                 diamondSourceLevel,
                 diamondN0
             };
+            }
         }
 
         const scoreWithoutBarrier = levelReports.reduce((sum, lvl) => sum + (lvl.score * lvl.weight), 0);
