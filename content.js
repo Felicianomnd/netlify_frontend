@@ -2479,6 +2479,65 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
     let daWhiteAlertToastPaused = false;
     let daWhiteAlertToastDeadline = 0;
     let daWhiteAlertToastRemainingMs = 0;
+    let daWhiteAlertToastRepositionBound = false;
+
+    function getWhiteAlertToastAnchorRect() {
+        try {
+            // Preferir o card "Padrão / Últimos 14 giros"
+            const root = document.getElementById('blaze-double-analyzer') || document.body;
+            const candidates = [
+                '#blaze-double-analyzer #analyzerDefaultView .pattern-section.da-card',
+                '#blaze-double-analyzer #analyzerDefaultView .pattern-section',
+                '#blaze-double-analyzer #patternInfo',
+                '#patternInfo'
+            ];
+            for (const sel of candidates) {
+                const el = root.querySelector ? root.querySelector(sel) : document.querySelector(sel);
+                if (!el) continue;
+                const r = el.getBoundingClientRect();
+                if (r && r.width > 40 && r.height > 40) return r;
+            }
+        } catch (_) {}
+        return null;
+    }
+
+    function positionWhiteAlertToastCard(el) {
+        try {
+            const wrap = el || daWhiteAlertToastEl || document.getElementById('daWhiteAlertToast');
+            if (!wrap) return;
+            const card = wrap.querySelector('.da-white-alert-toast__card');
+            if (!card) return;
+            if (wrap.style.display === 'none') return;
+
+            const root = document.getElementById('blaze-double-analyzer') || document.body;
+            const rootRect = root && root.getBoundingClientRect ? root.getBoundingClientRect() : null;
+            const baseLeft = (rootRect && root !== document.body) ? rootRect.left : 0;
+            const baseTop = (rootRect && root !== document.body) ? rootRect.top : 0;
+            const containerW = (rootRect && root !== document.body) ? rootRect.width : window.innerWidth;
+            const containerH = (rootRect && root !== document.body) ? rootRect.height : window.innerHeight;
+
+            const rect = getWhiteAlertToastAnchorRect();
+            const cardRect = card.getBoundingClientRect();
+            const margin = 12;
+
+            // Default: canto superior direito (fallback)
+            let left = containerW - margin - cardRect.width;
+            let top = margin + 96; // não colidir com header
+
+            if (rect) {
+                // Centralizar no card "Padrão" e posicionar mais no topo do card (em cima)
+                const centerX = (rect.left - baseLeft) + (rect.width / 2);
+                left = Math.round(centerX - (cardRect.width / 2));
+                top = Math.round((rect.top - baseTop) + 18);
+            }
+
+            left = Math.max(margin, Math.min(containerW - margin - cardRect.width, left));
+            top = Math.max(margin, Math.min(containerH - margin - cardRect.height, top));
+
+            card.style.left = `${left}px`;
+            card.style.top = `${top}px`;
+        } catch (_) {}
+    }
 
     function ensureWhiteAlertToastUI() {
         try {
@@ -2549,6 +2608,14 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
             }
 
             daWhiteAlertToastEl = wrap;
+
+            // ✅ Reposicionar no resize (mantém ancorado no card "Padrão")
+            if (!daWhiteAlertToastRepositionBound) {
+                daWhiteAlertToastRepositionBound = true;
+                window.addEventListener('resize', () => {
+                    try { positionWhiteAlertToastCard(); } catch (_) {}
+                });
+            }
             return wrap;
         } catch (_) {
             return null;
@@ -2558,7 +2625,7 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
     function pauseWhiteAlertToastAutoHide() {
         try {
             const el = daWhiteAlertToastEl || document.getElementById('daWhiteAlertToast');
-            if (!el || el.style.display !== 'flex') return;
+            if (!el || el.style.display === 'none') return;
             if (daWhiteAlertToastPaused) return;
             daWhiteAlertToastPaused = true;
             const now = Date.now();
@@ -2575,7 +2642,7 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
     function resumeWhiteAlertToastAutoHide() {
         try {
             const el = daWhiteAlertToastEl || document.getElementById('daWhiteAlertToast');
-            if (!el || el.style.display !== 'flex') return;
+            if (!el || el.style.display === 'none') return;
             if (!daWhiteAlertToastPaused) return;
             daWhiteAlertToastPaused = false;
             const remaining = Math.max(0, Number(daWhiteAlertToastRemainingMs) || 0);
@@ -2628,8 +2695,13 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
             // Logo (usar asset local do frontend — leve e consistente)
             try {
                 if (logoEl) {
-                    // ✅ Logo “marca” (fogo/dado com divisão) — consistente com o banner
-                    logoEl.src = 'assets/logo-da-mark.svg';
+                    // ✅ Usar a MESMA logo do header (cache da landing), para ficar consistente com o app
+                    // (evita “trocar a marca” aqui e ficar diferente do resto).
+                    const KEY = 'lp_brand_cache_v1';
+                    const raw = localStorage.getItem(KEY);
+                    const data = raw ? JSON.parse(raw) : null;
+                    const logo = data && typeof data.logo === 'string' ? data.logo : '';
+                    logoEl.src = logo || 'assets/logo-da-full.png';
                 }
             } catch (_) {}
 
@@ -2643,11 +2715,14 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                 } catch (_) {}
             }
 
-            el.style.display = 'flex';
+            el.style.display = 'block';
             // Reiniciar estado do timer (não pausado)
             daWhiteAlertToastPaused = false;
             el.classList.remove('is-paused');
-            requestAnimationFrame(() => el.classList.add('show'));
+            requestAnimationFrame(() => {
+                try { positionWhiteAlertToastCard(el); } catch (_) {}
+                el.classList.add('show');
+            });
 
             if (daWhiteAlertToastTimer) clearTimeout(daWhiteAlertToastTimer);
             const dur = Math.max(1000, Number(durationMs) || 5000);
@@ -3393,6 +3468,13 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                                 <input type="checkbox" id="diamondN0AllowBlockAll" checked />
                                 Ativar bloqueio total (BLOCK ALL) — desmarque para usar apenas como alerta
                             </label>
+                            <label class="checkbox-label" style="margin-top: 10px;">
+                                <input type="checkbox" id="diamondN0UseFrozenModel" />
+                                Usar modelo fixo (salvo no teste) — não recalcular automaticamente
+                            </label>
+                            <button type="button" class="btn-save-pattern" id="diamondN0ClearFrozenModelBtn" style="max-width: 220px; margin-top: 8px;">
+                                Limpar modelo salvo
+                            </button>
                         </div>
                         <div class="diamond-level-field" data-level="n1">
                             <div class="diamond-level-header">
@@ -5238,6 +5320,7 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
     let diamondSimHistoryLimitRaw = 1000; // valor digitado (pode estar “em edição”)
     let diamondSimHasResults = false;
     let diamondSimActiveTab = 'signals';
+    let diamondSimSessionId = null; // ✅ snapshot do histórico para manter backtest determinístico por sessão
 
     const DIAMOND_SIM_SPINS_PER_MINUTE = 2;
     const DIAMOND_SIM_SPINS_PER_HOUR = 120; // 2 giros/min * 60 min
@@ -5626,6 +5709,39 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
             // ✅ Salvar e fechar: persistir ajustes do nível (sem precisar clicar em "Salvar"), depois voltar para configurar níveis
             clearCloseBtn.addEventListener('click', async () => {
                 try { await saveDiamondLevels({ silent: true, skipSync: true }); } catch (_) {}
+
+                // ✅ Pedido: ao salvar um backtest bom do N0, "congelar" o modelo usado para o modo real
+                try {
+                    const mode = diamondSimCurrentMode || 'level';
+                    const levelId = diamondSimCurrentLevelId || null;
+                    const isN0 = mode === 'level' && String(levelId || '').toUpperCase() === 'N0';
+                    // Se o usuário está salvando um backtest do N0, congelar automaticamente (pedido)
+                    if (isN0 && diamondSimSessionId && diamondSimHasResults) {
+                        setDiamondSimulationLoading(true, 'Salvando modelo do N0...', 'simulate');
+                        const cfg = await buildDiamondConfigSnapshotFromModal();
+                        try { cfg.n0FrozenEnabled = true; } catch (_) {}
+                        const resolvedHistoryLimit = resolveDiamondSimHistoryLimitFromUI(1000);
+                        await new Promise((resolve) => {
+                            chrome.runtime.sendMessage({
+                                action: 'DIAMOND_FREEZE_N0_MODEL_FROM_BACKTEST',
+                                sessionId: diamondSimSessionId,
+                                historyLimit: resolvedHistoryLimit,
+                                config: cfg
+                            }, (resp) => {
+                                try {
+                                    if (resp && resp.status === 'success') {
+                                        showToast('✅ Modelo do N0 salvo e aplicado no modo real.', 2200);
+                                    } else if (resp && resp.status === 'error') {
+                                        showToast(`⚠️ Falha ao salvar modelo: ${resp.error || 'erro'}`, 3000);
+                                    }
+                                } catch (_) {}
+                                resolve();
+                            });
+                        });
+                    }
+                } catch (_) {}
+
+                try { setDiamondSimulationLoading(false); } catch (_) {}
                 exitDiamondSimulationView({ cancelIfRunning: true, clear: true, closeModal: false });
             });
             clearCloseBtn.dataset.listenerAttached = '1';
@@ -6675,6 +6791,11 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
         setDiamondLevelsModalTitle(titleText || 'Testar configurações');
         levelsModal.classList.add('diamond-sim-active');
         view.style.display = 'flex';
+
+        // ✅ Sessão do backtest: mantém o mesmo snapshot do histórico para "Testar novamente"
+        if (!diamondSimSessionId) {
+            diamondSimSessionId = `dia-sim-sess-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+        }
     }
 
     function exitDiamondSimulationView({ cancelIfRunning = false, clear = true, closeModal = false } = {}) {
@@ -6698,6 +6819,14 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
 
         levelsModal.classList.remove('diamond-sim-active');
         view.style.display = 'none';
+
+        // ✅ Ao sair, limpar snapshot do background (evita “resultado preso” em outra sessão)
+        try {
+            if (diamondSimSessionId) {
+                chrome.runtime.sendMessage({ action: 'PAST_SIM_CLEAR_SESSION', sessionId: diamondSimSessionId });
+            }
+        } catch (_) {}
+        diamondSimSessionId = null;
 
         restoreDiamondSimMovedNodes();
 
@@ -6964,6 +7093,8 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
 
         const allowBlockCheckbox = document.getElementById('diamondN0AllowBlockAll');
         const allowBlockAll = allowBlockCheckbox ? !!allowBlockCheckbox.checked : true;
+        const frozenModelToggle = document.getElementById('diamondN0UseFrozenModel');
+        const n0FrozenEnabled = frozenModelToggle ? !!frozenModelToggle.checked : false;
 
         const storageData = await storageCompat.get(['analyzerConfig']);
         const currentConfig = storageData.analyzerConfig || {};
@@ -7028,6 +7159,7 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
             },
             minuteSpinWindow: newWindows.n5MinuteBias,
             n0AllowBlockAll: allowBlockAll,
+            n0FrozenEnabled,
             martingaleProfiles: updatedProfiles,
             autoBetConfig: sanitizedAutoBetConfig,
             whiteProtectionAsWin: !!sanitizedAutoBetConfig.whiteProtection
@@ -7106,7 +7238,10 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                 levelId: mode === 'level' ? levelId : null,
                 jobId: diamondSimulationJobId,
                 historyLimit: resolvedHistoryLimit,
-                config: cfg
+                config: cfg,
+                // ✅ determinismo: usar snapshot fixo do histórico nesta sessão
+                sessionId: diamondSimSessionId,
+                reuseSnapshot: true
             };
 
             chrome.runtime.sendMessage(requestPayload, (response) => {
@@ -7707,6 +7842,10 @@ function showCenteredNotice(message, options = {}) {
                 allowBlockCheckbox.checked = true;
             }
         }
+        const frozenToggle = document.getElementById('diamondN0UseFrozenModel');
+        if (frozenToggle) {
+            frozenToggle.checked = !!(config && config.n0FrozenEnabled);
+        }
         setInput('diamondN1WindowSize', getValue('n1WindowSize', DIAMOND_LEVEL_DEFAULTS.n1WindowSize));
         setInput('diamondN1PrimaryRequirement', getValue('n1PrimaryRequirement', DIAMOND_LEVEL_DEFAULTS.n1PrimaryRequirement));
         setInput('diamondN1SecondaryRequirement', getValue('n1SecondaryRequirement', DIAMOND_LEVEL_DEFAULTS.n1SecondaryRequirement));
@@ -7765,6 +7904,22 @@ function showCenteredNotice(message, options = {}) {
         setToggle('diamondLevelToggleN10', 'n10');
         initializeDiamondLevelToggles();
         refreshDiamondLevelToggleStates();
+
+        // Botão: limpar modelo salvo do N0
+        try {
+            const clearBtn = document.getElementById('diamondN0ClearFrozenModelBtn');
+            if (clearBtn && !clearBtn.dataset.listenerAttached) {
+                clearBtn.addEventListener('click', async () => {
+                    try {
+                        chrome.runtime.sendMessage({ action: 'DIAMOND_CLEAR_N0_FROZEN_MODEL' }, () => {});
+                        const t = document.getElementById('diamondN0UseFrozenModel');
+                        if (t) t.checked = false;
+                        showToast('🧹 Modelo do N0 removido.', 1800);
+                    } catch (_) {}
+                });
+                clearBtn.dataset.listenerAttached = '1';
+            }
+        } catch (_) {}
     }
 
     function openDiamondLevelsModal() {
@@ -21497,12 +21652,20 @@ function logModeSnapshotUI(snapshot) {
     const WHITE_TIMELINE_LIMIT_KEY = 'whiteTimelineLimit';
     const WHITE_ALERTS_SETTINGS_KEY = 'whiteAlertsSettings_v1';
     const WHITE_ALERTS_LAST_FIRED_KEY = 'whiteAlertsLastFired_v1';
+    const WHITE_STATS_SAMPLE_MODE_KEY = 'whiteStatsSampleMode_v1';
+    const WHITE_STATS_SAMPLE_SPINS_KEY = 'whiteStatsSampleSpins_v1';
 
     let whiteHazardWindowSpins = 10; // K (próximos K giros)
     let whiteHazardWindowLoaded = false;
 
     let whiteTimelineLimit = 10; // últimos N brancos
     let whiteTimelineLimitLoaded = false;
+
+    // ✅ Amostra do painel (pedido): padrão = últimas 24h (rolling)
+    // O usuário pode trocar para "últimos N giros".
+    let whiteStatsSampleMode = '24h'; // '24h' | 'spins'
+    let whiteStatsSampleSpins = 3000;
+    let whiteStatsSampleLoaded = false;
 
     let whiteAlertsSettingsLoaded = false;
     let whiteAlertsSettings = null;
@@ -21573,6 +21736,37 @@ function logModeSnapshotUI(snapshot) {
             whiteTimelineLimitLoaded = true;
             whiteTimelineLimit = 10;
         }
+    }
+
+    async function loadWhiteStatsSampleIfNeeded() {
+        try {
+            if (whiteStatsSampleLoaded) return;
+            whiteStatsSampleLoaded = true;
+            const res = await storageCompat.get([WHITE_STATS_SAMPLE_MODE_KEY, WHITE_STATS_SAMPLE_SPINS_KEY]);
+            const modeRaw = res ? res[WHITE_STATS_SAMPLE_MODE_KEY] : null;
+            const spinsRaw = res ? res[WHITE_STATS_SAMPLE_SPINS_KEY] : null;
+            const mode = String(modeRaw || '').toLowerCase().trim();
+            whiteStatsSampleMode = (mode === 'spins') ? 'spins' : '24h';
+            whiteStatsSampleSpins = clampIntRange(spinsRaw, 200, 20000);
+        } catch (_) {
+            whiteStatsSampleLoaded = true;
+            whiteStatsSampleMode = '24h';
+            whiteStatsSampleSpins = 3000;
+        }
+    }
+
+    async function persistWhiteStatsSampleMode(nextMode) {
+        const mode = String(nextMode || '').toLowerCase().trim() === 'spins' ? 'spins' : '24h';
+        whiteStatsSampleMode = mode;
+        try { await storageCompat.set({ [WHITE_STATS_SAMPLE_MODE_KEY]: mode }); } catch (_) {}
+        try { scheduleMasterSignalStatsRefresh(0); } catch (_) {}
+    }
+
+    async function persistWhiteStatsSampleSpins(nextSpins) {
+        const n = clampIntRange(nextSpins, 200, 20000);
+        whiteStatsSampleSpins = n;
+        try { await storageCompat.set({ [WHITE_STATS_SAMPLE_SPINS_KEY]: n }); } catch (_) {}
+        try { scheduleMasterSignalStatsRefresh(0); } catch (_) {}
     }
 
     async function persistWhiteTimelineLimit(nextLimit) {
@@ -21826,7 +22020,10 @@ function logModeSnapshotUI(snapshot) {
             <div class="white-insights-block white-adv-block" id="whiteIntervalsBlock">
                 <div class="white-pullers-header">
                     <div class="white-insights-title">Intervalos entre brancos</div>
-                    <div class="white-adv-badge" id="whiteReliabilityBadge" title="Confiabilidade baseada no tamanho da amostra">—</div>
+                    <div class="white-adv-right">
+                        <div class="white-sample-filter" id="whiteSampleFilter"></div>
+                        <div class="white-adv-badge" id="whiteReliabilityBadge" title="Confiabilidade baseada no tamanho da amostra">—</div>
+                    </div>
                 </div>
                 <div class="white-adv-summary" id="whiteIntervalsSummary">Carregando...</div>
                 <div class="white-adv-subtitle">Intervalo (em giros)</div>
@@ -21839,7 +22036,10 @@ function logModeSnapshotUI(snapshot) {
             <div class="white-insights-block white-adv-block" id="whiteHazardBlock">
                 <div class="white-pullers-header">
                     <div class="white-insights-title">Probabilidade por atraso</div>
-                    <div class="white-pullers-filter" id="whiteHazardWindowFilter"></div>
+                    <div class="white-adv-right">
+                        <div class="white-hazard-sample-tag" id="whiteHazardSampleTag">—</div>
+                        <div class="white-pullers-filter" id="whiteHazardWindowFilter"></div>
+                    </div>
                 </div>
                 <div class="white-adv-summary" id="whiteHazardSummary">Carregando...</div>
                 <div class="white-hazard-chart" id="whiteHazardChart"></div>
@@ -21946,9 +22146,42 @@ function logModeSnapshotUI(snapshot) {
     }
 
     function computeWhiteAdvancedStatsFromHistory(historyRaw, nowMs, options = {}) {
-        const history = Array.isArray(historyRaw) ? historyRaw : [];
-        const maxSpins = clampIntRange(options.maxSpins ?? 10000, 500, 20000);
-        const limit = Math.min(history.length, maxSpins);
+        const historyAll = Array.isArray(historyRaw) ? historyRaw : [];
+        const sampleMode = (options.sampleMode === 'spins') ? 'spins' : '24h';
+        const sampleSpins = clampIntRange(options.sampleSpins ?? whiteStatsSampleSpins, 200, 20000);
+        const sampleHours = 24;
+        const maxSpins = clampIntRange(options.maxSpins ?? 20000, 500, 20000);
+
+        // Escolher amostra:
+        // - 24h: rolling window por timestamp
+        // - spins: últimos N giros (newest-first)
+        const history = (() => {
+            const base = historyAll;
+            if (!base.length) return [];
+            if (sampleMode === 'spins') {
+                return base.slice(0, Math.min(sampleSpins, base.length, maxSpins));
+            }
+            // 24h rolling
+            let now = Number.isFinite(Number(nowMs)) ? Number(nowMs) : Date.now();
+            // fallback: se o head tem ts válido, usar
+            try {
+                const headMs = parseSpinTimestampMsLocal(normalizeSpinForInsights(base[0]));
+                if (Number.isFinite(headMs) && headMs > 0) now = headMs;
+            } catch (_) {}
+            const cutoff = now - (sampleHours * 60 * 60 * 1000);
+            const picked = [];
+            for (let i = 0; i < base.length; i++) {
+                if (picked.length >= maxSpins) break;
+                const s = normalizeSpinForInsights(base[i]);
+                const ms = parseSpinTimestampMsLocal(s);
+                if (!ms) continue;
+                if (ms < cutoff) break; // newest-first: pode parar cedo
+                picked.push(base[i]);
+            }
+            return picked;
+        })();
+
+        const limit = history.length;
         const K = clampWhiteHazardWindowSpins(options.hazardK ?? whiteHazardWindowSpins, 10);
         const timelineLimit = clampWhiteTimelineLimit(options.timelineLimit ?? whiteTimelineLimit, 10);
 
@@ -21983,9 +22216,10 @@ function logModeSnapshotUI(snapshot) {
             if (isWhite[i]) whiteIdx.push(i);
         }
 
-        const delayNowSpins = whiteIdx.length ? whiteIdx[0] : null; // 0 se já é branco
-        const delayNowMinutes = (delayNowSpins != null && delayNowSpins >= 0 && msArr[0] > 0 && msArr[delayNowSpins] > 0)
-            ? (msArr[0] - msArr[delayNowSpins])
+        // Intervalo atual desde o último branco (não é "atraso" por si só)
+        const intervalNowSpins = whiteIdx.length ? whiteIdx[0] : null; // 0 se já é branco
+        const intervalNowMinutes = (intervalNowSpins != null && intervalNowSpins >= 0 && msArr[0] > 0 && msArr[intervalNowSpins] > 0)
+            ? (msArr[0] - msArr[intervalNowSpins])
             : null;
 
         // Intervalos entre brancos (diferença de índices + diferença de tempo)
@@ -22074,10 +22308,18 @@ function logModeSnapshotUI(snapshot) {
         }
 
         const currentBucket = (() => {
-            const d = Number(delayNowSpins);
+            const d = Number(intervalNowSpins);
             if (!Number.isFinite(d) || d <= 0) return null;
             return hazardBins.find(h => d >= h.from && d <= h.to) || null;
         })();
+
+        // Referência (último intervalo completo: último branco ↔ penúltimo branco)
+        const refIntervalSpins = (intervalsSpins.length && Number.isFinite(Number(intervalsSpins[0])))
+            ? Math.max(1, Math.round(Number(intervalsSpins[0])))
+            : null;
+        const delayedBySpins = (Number.isFinite(Number(intervalNowSpins)) && Number.isFinite(Number(refIntervalSpins)))
+            ? Math.max(0, Math.round(Number(intervalNowSpins)) - Math.round(Number(refIntervalSpins)))
+            : 0;
 
         // Timeline: últimos N brancos (hora + gap)
         const timeline = [];
@@ -22119,10 +22361,13 @@ function logModeSnapshotUI(snapshot) {
             spanMs,
             spanHours,
             sampleSpins: limit,
+            sampleMode,
             whitesCount,
             intervalsCount,
-            delayNowSpins,
-            delayNowMs: delayNowMinutes,
+            intervalNowSpins,
+            intervalNowMs: intervalNowMinutes,
+            refIntervalSpins,
+            delayedBySpins,
             baseRate,
             percentiles: {
                 spins: { p50: p50Spins, p75: p75Spins, p90: p90Spins },
@@ -22159,7 +22404,7 @@ function logModeSnapshotUI(snapshot) {
         const statsRef = (whiteAdvancedStatsCache && typeof whiteAdvancedStatsCache === 'object') ? whiteAdvancedStatsCache : null;
         const p50 = Number(statsRef?.percentiles?.spins?.p50);
         const p75 = Number(statsRef?.percentiles?.spins?.p75);
-        const delayNow = Number(statsRef?.delayNowSpins);
+        const delayNow = Number(statsRef?.intervalNowSpins);
         return bins.map(b => {
             const count = Number(b.count) || 0;
             const pct = total > 0 ? (count / total) * 100 : 0;
@@ -22185,7 +22430,7 @@ function logModeSnapshotUI(snapshot) {
                     <div class="white-hist-bar" aria-hidden="true">
                         <div class="white-hist-fill${cls ? ` ${cls}` : ''}" style="width:${w}%"></div>
                     </div>
-                    <div class="white-hist-value">${count} intervalos <span class="white-hist-pct">(${formatPct1(pct)})</span></div>
+                    <div class="white-hist-value">${count} brancos <span class="white-hist-pct">(${formatPct1(pct)})</span></div>
                 </div>
             `;
         }).join('');
@@ -22229,28 +22474,28 @@ function logModeSnapshotUI(snapshot) {
         const cur = hazard && hazard.currentBucket ? hazard.currentBucket : null;
         const maxP = bins.reduce((m, b) => Math.max(m, Number.isFinite(Number(b.p)) ? Number(b.p) : 0), 0) || 0.0001;
         const statsRef = (whiteAdvancedStatsCache && typeof whiteAdvancedStatsCache === 'object') ? whiteAdvancedStatsCache : null;
-        const delayNow = Number(statsRef?.delayNowSpins);
+        const delayNow = Number(statsRef?.intervalNowSpins);
         return bins.map(b => {
             const p = Number.isFinite(Number(b.p)) ? Number(b.p) : 0;
             const n = Number(b.n) || 0;
+            const wins = Number(b.wins) || 0;
             const w = Math.max(2, Math.round((p / maxP) * 100));
             const active = cur && cur.label === b.label;
             // Cores de leitura: vermelho (baixo), amarelo (médio), verde (alto)
             const cls = p >= 0.55 ? 'good' : (p >= 0.35 ? 'warn' : 'bad');
-            const ciText = (n >= 8)
-                ? `${formatPct1(b.ciLow * 100)}–${formatPct1(b.ciHigh * 100)}`
-                : '—';
             const fromRange = Number(b.from) || 0;
             const toRange = (b.to === Infinity) ? Infinity : Number(b.to);
             const isCurrent = Number.isFinite(delayNow) && delayNow >= fromRange && delayNow <= toRange;
             const nowTag = isCurrent ? `<span class="white-now-inline">• agora: ${Math.max(0, Math.round(delayNow))}</span>` : '';
+            const pctText = n > 0 ? formatPct1(p * 100) : '—';
+            const baseText = n > 0 ? `${Math.max(0, wins)}/${n} casos` : 'sem base';
             return `
                 <div class="white-hist-row${active ? ' active' : ''}${isCurrent ? ' current' : ''}">
                     <div class="white-hist-label"><span class="white-hist-range">${b.label}</span> ${nowTag}</div>
                     <div class="white-hist-bar" aria-hidden="true">
                         <div class="white-hist-fill ${cls}" style="width:${w}%"></div>
                     </div>
-                    <div class="white-hist-value">${formatPct1(p * 100)} <span class="white-hist-pct">(amostras=${n}${n >= 8 ? ` • ${ciText}` : ''})</span></div>
+                    <div class="white-hist-value">${pctText} <span class="white-hist-pct">• ${baseText}</span></div>
                 </div>
             `;
         }).join('');
@@ -22353,7 +22598,7 @@ function logModeSnapshotUI(snapshot) {
                 try { await storageCompat.set({ [WHITE_ALERTS_LAST_FIRED_KEY]: whiteAlertsLastFired }); } catch (_) {}
             };
 
-            const delay = Number(stats.delayNowSpins);
+            const delay = Number(stats.intervalNowSpins);
             const p = stats.percentiles && stats.percentiles.spins ? stats.percentiles.spins : {};
             const pctKey = cfg.delayPercentile === 50 ? 'p50' : cfg.delayPercentile === 90 ? 'p90' : 'p75';
             const threshold = Number(p && p[pctKey]);
@@ -22581,11 +22826,13 @@ function logModeSnapshotUI(snapshot) {
         try { ensureWhiteAdvancedBlocks(); } catch (_) {}
 
         const relEl = document.getElementById('whiteReliabilityBadge');
+        const sampleFilterEl = document.getElementById('whiteSampleFilter');
         const intervalsSummaryEl = document.getElementById('whiteIntervalsSummary');
         const histEl = document.getElementById('whiteIntervalsHistogram');
         const pctEl = document.getElementById('whiteIntervalsPercentiles');
 
         const hazardFilterEl = document.getElementById('whiteHazardWindowFilter');
+        const hazardSampleTagEl = document.getElementById('whiteHazardSampleTag');
         const hazardSummaryEl = document.getElementById('whiteHazardSummary');
         const hazardChartEl = document.getElementById('whiteHazardChart');
 
@@ -22605,6 +22852,52 @@ function logModeSnapshotUI(snapshot) {
 
         whiteAdvancedStatsCache = stats;
 
+        // Indicador de amostra (mesma configuração do topo: 24h ou Giros)
+        if (hazardSampleTagEl) {
+            const mode = stats.sampleMode === 'spins' ? 'Giros' : '24h';
+            hazardSampleTagEl.textContent = mode === 'Giros'
+                ? `Amostra: ${mode}`
+                : `Amostra: ${mode}`;
+        }
+
+        // Amostra (24h vs giros)
+        if (sampleFilterEl) {
+            const mode = stats.sampleMode === 'spins' ? 'spins' : '24h';
+            const spins = clampIntRange(whiteStatsSampleSpins, 200, 20000);
+            sampleFilterEl.innerHTML = `
+                <button type="button" class="white-pullers-filter-btn${mode === '24h' ? ' active' : ''}" data-white-sample="24h">24h</button>
+                <button type="button" class="white-pullers-filter-btn${mode === 'spins' ? ' active' : ''}" data-white-sample="spins">Giros</button>
+                ${mode === 'spins'
+                    ? `<span class="white-sample-spins">
+                           <input id="whiteSampleSpinsInput" class="white-bet-input" type="number" inputmode="numeric" min="200" max="20000" step="100" value="${spins}" />
+                           <button type="button" class="white-bet-save-btn" id="whiteSampleSpinsSaveBtn">Salvar</button>
+                       </span>`
+                    : `<span class="white-sample-hint">Últimas 24h</span>`
+                }
+            `;
+
+            if (!sampleFilterEl.dataset.listenerAttached) {
+                sampleFilterEl.addEventListener('click', async (event) => {
+                    const btn = event.target && event.target.closest ? event.target.closest('button[data-white-sample]') : null;
+                    if (!btn) return;
+                    const next = String(btn.dataset.whiteSample || '').toLowerCase().trim();
+                    await persistWhiteStatsSampleMode(next);
+                });
+                sampleFilterEl.dataset.listenerAttached = '1';
+            }
+
+            const saveBtn = document.getElementById('whiteSampleSpinsSaveBtn');
+            if (saveBtn && !saveBtn.dataset.listenerAttached) {
+                saveBtn.addEventListener('click', async () => {
+                    const input = document.getElementById('whiteSampleSpinsInput');
+                    const v = input ? input.value : whiteStatsSampleSpins;
+                    await persistWhiteStatsSampleSpins(v);
+                    try { showToast('✅ Amostra salva.', 1400); } catch (_) {}
+                });
+                saveBtn.dataset.listenerAttached = '1';
+            }
+        }
+
         // Badge confiabilidade
         if (relEl) {
             relEl.innerHTML = getReliabilityBadgeHtml(stats.reliability);
@@ -22612,9 +22905,8 @@ function logModeSnapshotUI(snapshot) {
 
         // Intervalos summary
         if (intervalsSummaryEl) {
-            const delay = (stats.delayNowSpins != null) ? `${stats.delayNowSpins} giros` : '—';
-            const delayM = (stats.delayNowMs != null) ? `~${formatShortMinutes(stats.delayNowMs)}` : '—';
-            const base = `${stats.intervalsCount} intervalos • ${stats.whitesCount} brancos`;
+            // ✅ Mais intuitivo: mostrar brancos (e não "intervalos") como base principal
+            const base = `${stats.whitesCount} brancos`;
             const span = stats.spanMs ? formatCompactDurationFromMs(stats.spanMs) : '—';
             const br = stats.baseRate && typeof stats.baseRate === 'object' ? stats.baseRate : null;
             const brP = br && Number.isFinite(Number(br.p)) ? Number(br.p) : 0;
@@ -22623,18 +22915,14 @@ function logModeSnapshotUI(snapshot) {
             const brHigh = br && Number.isFinite(Number(br.ciHigh)) ? Number(br.ciHigh) : 0;
             const brText = formatPct1(brP * 100);
             const brCiText = brN >= 30 ? `${formatPct1(brLow * 100)}–${formatPct1(brHigh * 100)}` : '—';
-            // classificar atraso atual vs percentis
-            const p75 = Number(stats.percentiles?.spins?.p75);
-            const p90 = Number(stats.percentiles?.spins?.p90);
-            let tone = 'neutral';
-            if (Number.isFinite(Number(stats.delayNowSpins)) && Number.isFinite(p90) && stats.delayNowSpins >= p90) tone = 'bad';
-            else if (Number.isFinite(Number(stats.delayNowSpins)) && Number.isFinite(p75) && stats.delayNowSpins >= p75) tone = 'warn';
+            const ref = Number.isFinite(Number(stats.refIntervalSpins)) ? Math.max(1, Math.round(Number(stats.refIntervalSpins))) : null;
+            const over = Number.isFinite(Number(stats.delayedBySpins)) ? Math.max(0, Math.round(Number(stats.delayedBySpins))) : 0;
+            const statusLabel = (ref != null)
+                ? (over > 0 ? `Atrasado +${over}` : 'Normal')
+                : '—';
+            const statusTone = (ref != null && over > 0) ? 'warn' : 'neutral';
             intervalsSummaryEl.innerHTML = `
                 <div class="white-metrics-row">
-                    <div class="white-metric">
-                        <div class="label">Atraso agora</div>
-                        <div class="value ${tone}">${delay} <span class="sub">(${delayM})</span></div>
-                    </div>
                     <div class="white-metric">
                         <div class="label">Base</div>
                         <div class="value">${base} <span class="sub">(${span})</span></div>
@@ -22642,6 +22930,10 @@ function logModeSnapshotUI(snapshot) {
                     <div class="white-metric">
                         <div class="label">Taxa (amostra)</div>
                         <div class="value">${brText} <span class="sub">(n=${brN}${brN >= 30 ? ` • IC95% ${brCiText}` : ''})</span></div>
+                    </div>
+                    <div class="white-metric">
+                        <div class="label">Referência</div>
+                        <div class="value ${statusTone}">${statusLabel} <span class="sub">(${ref != null ? `${ref} giros` : '—'})</span></div>
                     </div>
                 </div>
             `;
@@ -22668,13 +22960,11 @@ function logModeSnapshotUI(snapshot) {
                 hazardSummaryEl.innerHTML = `<div class="white-adv-note">Sem base suficiente para calcular probabilidade por atraso.</div>`;
             } else {
                 const p = Number(cur.p) || 0;
-                const ciText = (cur.n >= 8)
-                    ? `${formatPct1(cur.ciLow * 100)}–${formatPct1(cur.ciHigh * 100)}`
-                    : '—';
-                const delay = Number.isFinite(Number(stats.delayNowSpins)) ? Math.max(0, Math.round(Number(stats.delayNowSpins))) : null;
+                const n = Number(cur.n) || 0;
+                const wins = Number(cur.wins) || 0;
                 hazardSummaryEl.innerHTML = `
                     <div class="white-adv-note">
-                        Atraso atual: <b>${delay != null ? `${delay} giros` : '—'}</b> • Próx <b>${stats.hazard.K}</b> giros • Faixa <b>${cur.label}</b> • Probabilidade: <b>${formatPct1(p * 100)}</b> <span class="white-hist-pct">(amostras=${cur.n}${cur.n >= 8 ? ` • IC95% ${ciText}` : ''})</span>
+                        Próx <b>${stats.hazard.K}</b> giros • Faixa <b>${cur.label}</b> • Chance: <b>${formatPct1(p * 100)}</b> <span class="white-hist-pct">• ${Math.max(0, wins)}/${n} casos</span>
                     </div>
                 `;
             }
@@ -22842,6 +23132,7 @@ function logModeSnapshotUI(snapshot) {
         try { await loadWhitePullersWindowHoursIfNeeded(); } catch (_) {}
         try { await loadWhiteHazardWindowIfNeeded(); } catch (_) {}
         try { await loadWhiteTimelineLimitIfNeeded(); } catch (_) {}
+        try { await loadWhiteStatsSampleIfNeeded(); } catch (_) {}
         try { await loadWhiteAlertsSettingsIfNeeded(); } catch (_) {}
         if (!Array.isArray(whiteInsightsHistoryCache) || whiteInsightsHistoryCache.length === 0) {
             // ✅ Se o histórico do painel ainda não foi carregado, tentar usar currentHistoryData e/ou background.
@@ -22866,9 +23157,10 @@ function logModeSnapshotUI(snapshot) {
         // Insights avançados (intervalos/hazard/timeline/alertas)
         try {
             const adv = computeWhiteAdvancedStatsFromHistory(whiteInsightsHistoryCache, nowMs, {
-                maxSpins: 10000,
                 hazardK: whiteHazardWindowSpins,
-                timelineLimit: whiteTimelineLimit
+                timelineLimit: whiteTimelineLimit,
+                sampleMode: whiteStatsSampleMode,
+                sampleSpins: whiteStatsSampleSpins
             });
             renderWhiteAdvancedPanels(adv, data && data.pullerCounts ? data.pullerCounts : null);
         } catch (err) {

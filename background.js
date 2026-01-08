@@ -6735,6 +6735,11 @@ function pruneN0SelfLearningIfNeeded() {
 
 async function recordN0SelfLearningFromResolvedCycle(analysisObj, outcome) {
     try {
+        // ✅ Se o N0 estiver com modelo congelado, não alterar o auto-aprendizado (mantém comportamento fixo)
+        try {
+            if (analyzerConfig && analyzerConfig.n0FrozenEnabled) return false;
+        } catch (_) {}
+
         const analysis = analysisObj && typeof analysisObj === 'object' ? analysisObj : null;
         if (!analysis) return false;
         // ✅ Aprender apenas de sinais "visíveis" (não contam ciclos silenciosos da Recuperação).
@@ -15652,6 +15657,140 @@ function runN0Detector(history, options = {}) {
             .slice(-settings.windowSize)
             .map((p) => (p && Number.isFinite(Number(p.n)) ? Math.floor(Number(p.n)) : null));
 
+        // ✅ Modelo congelado (do backtest): usar exatamente o mesmo modelo, sem re-treinar
+        const frozenModel = (options && typeof options.frozenModel === 'object' && options.frozenModel)
+            ? options.frozenModel
+            : null;
+        if (frozenModel && frozenModel.best_config && frozenModel.blocking_threshold != null) {
+            try {
+                const model = frozenModel;
+                const warnings = [];
+
+                const liveStats = computeWindowStats(liveWindow);
+                const liveContext = {
+                    stats: [liveStats],
+                    whitenessSeries: [liveStats.pW],
+                    whiteCounts: [liveStats.whites],
+                    loo: false,
+                    base_white_rate: clamp01(model.base_white_rate ?? model.baseline_white ?? 0),
+                    number_stats: model.number_stats || {},
+                    gap_stats: model.gap_stats || {},
+                    break_stats: model.break_stats || {}
+                };
+
+                const liveWindows = [{
+                    window: liveWindow,
+                    target: null,
+                    index: 0,
+                    start: Math.max(0, normalizedHistory.length - settings.windowSize),
+                    targetIndex: normalizedHistory.length,
+                    lookahead: settings.lookaheadSpins,
+                    window_numbers: liveWindowNumbers
+                }];
+
+                const liveResult = applyN0Config(model.best_config, liveWindow, 0, liveWindows, liveContext);
+                const liveConfidence = clamp01(liveResult.confidence ?? 0);
+                const livePrediction = liveResult.prediction === 'W' ? 'W' : null;
+
+                const chosenThreshold = clamp01(model.blocking_threshold ?? 0);
+                let blockingAction = 'no_block';
+                if (livePrediction === 'W') {
+                    if (liveConfidence >= chosenThreshold) blockingAction = 'block_all';
+                    else if (liveConfidence >= chosenThreshold * 0.8) blockingAction = 'soft_block';
+                }
+
+                const holdoutInfo = model.holdout || { enabled: false, passed: true, reason: null, training: model.blocking_metrics || null, validation: null };
+                if (holdoutInfo && holdoutInfo.passed === false && blockingAction !== 'no_block') {
+                    blockingAction = 'no_block';
+                    warnings.push('Ação de bloqueio suprimida devido à reprovação no holdout.');
+                }
+
+                const dominantNonWhite = determineDominantNonWhite(liveWindow);
+
+                // Auto-aprendizado: mantém a mesma regra do modo real (mas o aprendizado pode estar pausado no config)
+                let learningContext = '';
+                let learningKey = null;
+                let learningDecision = 'none';
+                let learningRecentN = 0;
+                let learningRecentWinRate = null;
+                const baselineWhite = clamp01(model.baseline_white ?? (1 - Math.pow(1 - (1 / 15), Math.max(1, settings.lookaheadSpins))));
+                try {
+                    if (livePrediction === 'W' && blockingAction !== 'no_block') {
+                        learningContext = buildN0LearningContextKey({
+                            windowChars: liveWindow,
+                            windowNumbers: liveWindowNumbers,
+                            dominantNonWhite,
+                            maxTail: 12
+                        });
+                        learningKey = buildN0SelfLearningKey(learningContext, blockingAction, model.best_config);
+                        const st = learningKey ? getN0SelfLearningStatsForKey(learningKey) : null;
+                        if (st) {
+                            learningRecentN = st.recentN || 0;
+                            learningRecentWinRate = st.recentWinRate;
+                        }
+                        const store = signalsHistory && signalsHistory.n0SelfLearning ? signalsHistory.n0SelfLearning : null;
+                        const clampFactor = (v, min, max, fallback) => {
+                            const n = Number(v);
+                            if (!Number.isFinite(n)) return fallback;
+                            return Math.max(min, Math.min(max, n));
+                        };
+                        const minSamples = Math.max(3, Math.min(120, Math.floor(Number(store?.minSamples) || 8)));
+                        const badFactor = clampFactor(store?.badFactor, 0.1, 2.0, 0.8);
+                        const badWinRate = clamp01(baselineWhite * badFactor);
+                        if (learningRecentWinRate != null && learningRecentN >= minSamples && learningRecentWinRate <= badWinRate) {
+                            blockingAction = 'no_block';
+                            learningDecision = 'blocked';
+                            warnings.push(`AutoApr N0: bloqueado (${(learningRecentWinRate * 100).toFixed(1)}% em ${learningRecentN} • base ${(baselineWhite * 100).toFixed(1)}%)`);
+                        }
+                    }
+                } catch (_) {}
+
+                const runSummary = {
+                    run_id: runId,
+                    timestamp: runTimestamp,
+                    frozen: true,
+                    history_size: settings.historySize,
+                    available_history: stableWindow && stableWindow.meta ? stableWindow.meta.availableHistory : undefined,
+                    unique_history: stableWindow && stableWindow.meta ? stableWindow.meta.uniqueCount : undefined,
+                    dropped_duplicates: stableWindow && stableWindow.meta ? stableWindow.meta.droppedDuplicates : undefined,
+                    dropped_invalid_ts: stableWindow && stableWindow.meta ? stableWindow.meta.droppedInvalidTs : undefined,
+                    used_history_size: stableWindow && stableWindow.meta ? stableWindow.meta.usedHistoryLimit : undefined,
+                    window_size: settings.windowSize,
+                    lookahead_spins: settings.lookaheadSpins,
+                    seed: settings.seed
+                };
+
+                return {
+                    enabled: true,
+                    run_summary: runSummary,
+                    best_config: model.best_config,
+                    best_metrics: model.best_metrics,
+                    conf_list: model.conf_list || null,
+                    per_window_log: null,
+                    blocking_threshold: chosenThreshold,
+                    blocking_metrics: model.blocking_metrics,
+                    pred_live: livePrediction,
+                    white_confidence: liveConfidence,
+                    blocking_action: blockingAction,
+                    dominant_nonwhite: dominantNonWhite,
+                    tested_configs: model.tested_configs,
+                    effective_configs: model.effective_configs,
+                    top_candidates: model.top_candidates || [],
+                    n_windows: model.n_windows,
+                    holdout: holdoutInfo,
+                    config_library: null,
+                    learning_context: learningContext || null,
+                    learning_key: learningKey || null,
+                    learning_decision: learningDecision,
+                    learning_recent_n: learningRecentN || 0,
+                    learning_recent_win_rate: learningRecentWinRate,
+                    warnings
+                };
+            } catch (e) {
+                // se falhar, cai para o fluxo normal
+            }
+        }
+
         // ✅ Cache runtime: reusar o modelo treinado por alguns giros (evita 10+ min no backtest).
         const cacheKey = buildN0RuntimeCacheKey(settings);
         const cachedRow = cacheEnabled ? n0RuntimeModelCache.get(cacheKey) : null;
@@ -18603,6 +18742,16 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
             holdoutTolerance: N0_DEFAULTS.holdoutTolerance,
             seed: N0_DEFAULTS.seed
         };
+
+        // ✅ Modelo congelado (salvo no backtest): usar SEM recalcular
+        try {
+            if (analyzerConfig && analyzerConfig.n0FrozenEnabled && analyzerConfig.n0FrozenModel && analyzerConfig.n0FrozenModel.best_config) {
+                n0Options.frozenModel = analyzerConfig.n0FrozenModel;
+                // evitar escrever/treinar cache quando congelado
+                n0Options.cache = false;
+                n0Options.cacheMaxAgeSpins = 0;
+            }
+        } catch (_) {}
 
         let n0Result = null;
         let n0EffectiveAction = 'no_block';
@@ -31152,6 +31301,29 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 const DIAMOND_SIMULATION_BATCH = 25;
+// ✅ Backtest determinístico por sessão: snapshot do histórico (evita mudar resultado ao clicar "Testar novamente")
+const pastSimHistorySnapshots = new Map(); // key => { chronological, meta, fromTimestamp, toTimestamp }
+
+function makePastSimSnapshotKey(kind, sessionId, usedHistoryLimit) {
+    const sid = String(sessionId || '').trim();
+    if (!sid) return null;
+    const k = String(kind || '').toLowerCase().trim() === 'standard' ? 'standard' : 'diamond';
+    const lim = Math.max(0, Math.floor(Number(usedHistoryLimit) || 0));
+    return `${k}|${sid}|${lim}`;
+}
+
+function prunePastSimSnapshots(max = 12) {
+    try {
+        const cap = Math.max(4, Math.min(50, Math.floor(Number(max) || 12)));
+        if (pastSimHistorySnapshots.size <= cap) return;
+        // Map mantém ordem de inserção: remover mais antigos
+        const keys = Array.from(pastSimHistorySnapshots.keys());
+        const drop = Math.max(0, keys.length - cap);
+        for (let i = 0; i < drop; i++) {
+            pastSimHistorySnapshots.delete(keys[i]);
+        }
+    } catch (_) {}
+}
 const DIAMOND_OPTIMIZATION_TRIALS_DEFAULT = 100;
 const DIAMOND_OPTIMIZATION_PROGRESS_EVERY = 1; // enviar progresso a cada tentativa (100 no total)
 const DIAMOND_OPTIMIZATION_MIN_PCT_DEFAULT = 95; // ✅ só "recomendar" config >= 95%
@@ -31253,7 +31425,7 @@ async function maybeGenerateStandardAnalysisSimulation(history, simState, patter
     simState.totalSignals++;
 }
 
-async function runStandardPastSimulation({ config, senderTabId, jobId, historyLimit }) {
+async function runStandardPastSimulation({ config, senderTabId, jobId, historyLimit, sessionId, reuseSnapshot }) {
     const job = standardSimulationJobs.get(jobId);
     const requestedLimit = Number(historyLimit);
     const safeDefault = 1440;
@@ -31263,8 +31435,36 @@ async function runStandardPastSimulation({ config, senderTabId, jobId, historyLi
         ? Math.min(requestedLimit, 10000, availableHistory || requestedLimit)
         : Math.min(safeDefault, availableHistory || safeDefault);
 
-    const stableWindow = getStableChronologicalHistoryWindow({ limit, sourceHistory: Array.isArray(sourceHistory) ? sourceHistory : [] });
-    const chronological = stableWindow.chronological;
+    let stableWindow = null;
+    let chronological = [];
+    const useSnap = reuseSnapshot !== false && sessionId;
+    const snapKey = useSnap ? makePastSimSnapshotKey('standard', sessionId, limit) : null;
+    const snap = snapKey ? pastSimHistorySnapshots.get(snapKey) : null;
+    if (snap && Array.isArray(snap.chronological)) {
+        chronological = snap.chronological;
+        stableWindow = {
+            chronological,
+            meta: snap.meta || {
+                availableHistory: chronological.length,
+                uniqueCount: chronological.length,
+                droppedDuplicates: 0,
+                droppedInvalidTs: 0,
+                usedHistoryLimit: chronological.length
+            }
+        };
+    } else {
+        stableWindow = getStableChronologicalHistoryWindow({ limit, sourceHistory: Array.isArray(sourceHistory) ? sourceHistory : [] });
+        chronological = stableWindow.chronological;
+        if (snapKey) {
+            pastSimHistorySnapshots.set(snapKey, {
+                chronological,
+                meta: stableWindow.meta,
+                fromTimestamp: chronological[0]?.timestamp || null,
+                toTimestamp: chronological[chronological.length - 1]?.timestamp || null
+            });
+            prunePastSimSnapshots();
+        }
+    }
     const totalSpins = chronological.length;
     const fromTimestamp = chronological[0]?.timestamp || null;
     const toTimestamp = chronological[totalSpins - 1]?.timestamp || null;
@@ -33469,7 +33669,7 @@ function trimEntriesHistoryByModeCycleCap(entriesHistoryRaw, modeKeyRaw, maxCycl
     }
 }
 
-async function runDiamondPastSimulation({ config, mode, levelId, senderTabId, jobId, historyLimit }) {
+async function runDiamondPastSimulation({ config, mode, levelId, senderTabId, jobId, historyLimit, sessionId, reuseSnapshot }) {
     const job = diamondSimulationJobs.get(jobId);
     const requestedLimit = Number(historyLimit);
     const safeDefault = 1440; // padrão: 12h (2 giros/min)
@@ -33479,8 +33679,36 @@ async function runDiamondPastSimulation({ config, mode, levelId, senderTabId, jo
         ? Math.min(requestedLimit, 10000, availableHistory || requestedLimit)
         : Math.min(safeDefault, availableHistory || safeDefault);
 
-    const stableWindow = getStableChronologicalHistoryWindow({ limit, sourceHistory: Array.isArray(sourceHistory) ? sourceHistory : [] });
-    const chronological = stableWindow.chronological;
+    let stableWindow = null;
+    let chronological = [];
+    const useSnap = reuseSnapshot !== false && sessionId;
+    const snapKey = useSnap ? makePastSimSnapshotKey('diamond', sessionId, limit) : null;
+    const snap = snapKey ? pastSimHistorySnapshots.get(snapKey) : null;
+    if (snap && Array.isArray(snap.chronological)) {
+        chronological = snap.chronological;
+        stableWindow = {
+            chronological,
+            meta: snap.meta || {
+                availableHistory: chronological.length,
+                uniqueCount: chronological.length,
+                droppedDuplicates: 0,
+                droppedInvalidTs: 0,
+                usedHistoryLimit: chronological.length
+            }
+        };
+    } else {
+        stableWindow = getStableChronologicalHistoryWindow({ limit, sourceHistory: Array.isArray(sourceHistory) ? sourceHistory : [] });
+        chronological = stableWindow.chronological;
+        if (snapKey) {
+            pastSimHistorySnapshots.set(snapKey, {
+                chronological,
+                meta: stableWindow.meta,
+                fromTimestamp: chronological[0]?.timestamp || null,
+                toTimestamp: chronological[chronological.length - 1]?.timestamp || null
+            });
+            prunePastSimSnapshots();
+        }
+    }
     const totalSpins = chronological.length;
 
     const simConfigBase = config && typeof config === 'object' ? { ...config } : {};
@@ -33720,12 +33948,147 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 		sendMessageToContent('MODE_SNAPSHOT', snapshot);
 		sendResponse({ status: 'ok', snapshot });
         return true;
+    } else if (request.action === 'PAST_SIM_CLEAR_SESSION') {
+        const sid = typeof request.sessionId === 'string' ? request.sessionId.trim() : '';
+        if (sid) {
+            try {
+                const keys = Array.from(pastSimHistorySnapshots.keys());
+                keys.forEach((k) => {
+                    if (k.includes(`|${sid}|`)) pastSimHistorySnapshots.delete(k);
+                });
+            } catch (_) {}
+        }
+        sendResponse({ status: 'ok' });
+        return true;
+    } else if (request.action === 'DIAMOND_CLEAR_N0_FROZEN_MODEL') {
+        (async () => {
+            try {
+                const stored = await chrome.storage.local.get(['analyzerConfig']);
+                const base = stored && stored.analyzerConfig && typeof stored.analyzerConfig === 'object' ? stored.analyzerConfig : {};
+                const updated = {
+                    ...base,
+                    n0FrozenEnabled: false,
+                    n0FrozenModel: null,
+                    _clientUpdatedAt: Date.now()
+                };
+                await chrome.storage.local.set({ analyzerConfig: updated });
+                mergeAnalyzerConfig(updated);
+                sendResponse({ status: 'success' });
+            } catch (e) {
+                sendResponse({ status: 'error', error: String(e) });
+            }
+        })();
+        return true;
+    } else if (request.action === 'DIAMOND_FREEZE_N0_MODEL_FROM_BACKTEST') {
+        (async () => {
+            try {
+                const sid = (typeof request.sessionId === 'string' && request.sessionId.trim()) ? request.sessionId.trim() : '';
+                const cfg = request.config && typeof request.config === 'object' ? request.config : (analyzerConfig || {});
+                const requestedLimit = Number(request.historyLimit);
+                const safeDefault = 1440;
+
+                const sourceHistory = await getHistorySourceForPastRuns(requestedLimit);
+                const availableHistory = Array.isArray(sourceHistory) ? sourceHistory.length : 0;
+                const limit = (Number.isFinite(requestedLimit) && requestedLimit > 0)
+                    ? Math.min(requestedLimit, 10000, availableHistory || requestedLimit)
+                    : Math.min(safeDefault, availableHistory || safeDefault);
+
+                const snapKey = sid ? makePastSimSnapshotKey('diamond', sid, limit) : null;
+                let chronological = [];
+                if (snapKey) {
+                    const snap = pastSimHistorySnapshots.get(snapKey);
+                    if (snap && Array.isArray(snap.chronological)) {
+                        chronological = snap.chronological;
+                    }
+                }
+                if (!chronological.length) {
+                    const stableWindow = getStableChronologicalHistoryWindow({ limit, sourceHistory: Array.isArray(sourceHistory) ? sourceHistory : [] });
+                    chronological = stableWindow.chronological;
+                    if (snapKey) {
+                        pastSimHistorySnapshots.set(snapKey, {
+                            chronological,
+                            meta: stableWindow.meta,
+                            fromTimestamp: chronological[0]?.timestamp || null,
+                            toTimestamp: chronological[chronological.length - 1]?.timestamp || null
+                        });
+                        prunePastSimSnapshots();
+                    }
+                }
+
+                const historyMostRecentFirst = chronological.slice().reverse();
+                const n0Settings = (typeof getN0SettingsFromConfig === 'function')
+                    ? getN0SettingsFromConfig(cfg)
+                    : { historySize: N0_DEFAULTS.historySize, windowSize: N0_DEFAULTS.windowSize, allowBlockAll: true };
+                const { maxGales: n0MaxGalesConfigured } = getMartingaleSettingsForEntryColor('white', 'diamond', cfg);
+                const n0LookaheadSpins = Math.max(1, Math.min(6, (Math.floor(Number(n0MaxGalesConfigured) || 0) + 1)));
+
+                const settings = {
+                    historySize: n0Settings.historySize,
+                    windowSize: n0Settings.windowSize,
+                    lookaheadSpins: n0LookaheadSpins,
+                    analysesToRun: N0_DEFAULTS.analysesToRun,
+                    minWindowsRequired: N0_DEFAULTS.minWindowsRequired,
+                    precisionMin: N0_DEFAULTS.precisionMin,
+                    confidenceGrid: N0_DEFAULTS.confidenceGrid,
+                    holdoutEnabled: N0_DEFAULTS.holdoutEnabled,
+                    holdoutTolerance: N0_DEFAULTS.holdoutTolerance,
+                    seed: N0_DEFAULTS.seed
+                };
+                const cacheKey = buildN0RuntimeCacheKey(settings);
+                try { n0RuntimeModelCache.delete(cacheKey); } catch (_) {}
+
+                // Treinar (forçar) com histórico estável do backtest
+                runN0Detector(historyMostRecentFirst, {
+                    ...settings,
+                    assumeStableHistory: true,
+                    silent: true,
+                    cache: true,
+                    cacheMaxAgeSpins: 0
+                });
+
+                const cachedRow = n0RuntimeModelCache.get(cacheKey);
+                const model = cachedRow && cachedRow.model && typeof cachedRow.model === 'object' ? cachedRow.model : null;
+                if (!model || !model.best_config) {
+                    sendResponse({ status: 'error', error: 'Não foi possível gerar o modelo do N0.' });
+                    return;
+                }
+
+                const frozenModel = {
+                    ...model,
+                    frozenAt: Date.now(),
+                    frozenFrom: {
+                        fromTimestamp: chronological[0]?.timestamp || null,
+                        toTimestamp: chronological[chronological.length - 1]?.timestamp || null,
+                        usedHistoryLimit: chronological.length
+                    }
+                };
+
+                const stored = await chrome.storage.local.get(['analyzerConfig']);
+                const base = stored && stored.analyzerConfig && typeof stored.analyzerConfig === 'object' ? stored.analyzerConfig : {};
+                const updated = {
+                    ...base,
+                    aiMode: true,
+                    n0FrozenEnabled: true,
+                    n0FrozenModel: frozenModel,
+                    _clientUpdatedAt: Date.now()
+                };
+                await chrome.storage.local.set({ analyzerConfig: updated });
+                mergeAnalyzerConfig(updated);
+
+                sendResponse({ status: 'success' });
+            } catch (e) {
+                sendResponse({ status: 'error', error: String(e) });
+            }
+        })();
+        return true;
     } else if (request.action === 'STANDARD_SIMULATE_PAST') {
         (async () => {
             try {
                 const senderTabId = sender && sender.tab ? sender.tab.id : null;
                 const config = request.config || {};
                 const historyLimit = request.historyLimit;
+                const sessionId = (typeof request.sessionId === 'string' && request.sessionId.trim()) ? request.sessionId.trim() : null;
+                const reuseSnapshot = request.reuseSnapshot !== false;
 
                 const requestedJobId = (typeof request.jobId === 'string' && request.jobId.trim())
                     ? request.jobId.trim()
@@ -33733,7 +34096,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                 const jobId = requestedJobId || makeStandardSimulationJobId();
                 standardSimulationJobs.set(jobId, { cancelled: false });
 
-                const result = await runStandardPastSimulation({ config, senderTabId, jobId, historyLimit });
+                const result = await runStandardPastSimulation({ config, senderTabId, jobId, historyLimit, sessionId, reuseSnapshot });
                 standardSimulationJobs.delete(jobId);
 
                 if (result.cancelled) {
@@ -33857,6 +34220,8 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                 const levelId = request.levelId || null;
                 const config = request.config || {};
                 const historyLimit = request.historyLimit;
+                const sessionId = (typeof request.sessionId === 'string' && request.sessionId.trim()) ? request.sessionId.trim() : null;
+                const reuseSnapshot = request.reuseSnapshot !== false;
 
                 const requestedJobId = (typeof request.jobId === 'string' && request.jobId.trim())
                     ? request.jobId.trim()
@@ -33864,7 +34229,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                 const jobId = requestedJobId || makeDiamondSimulationJobId();
                 diamondSimulationJobs.set(jobId, { cancelled: false });
 
-                const result = await runDiamondPastSimulation({ config, mode, levelId, senderTabId, jobId, historyLimit });
+                const result = await runDiamondPastSimulation({ config, mode, levelId, senderTabId, jobId, historyLimit, sessionId, reuseSnapshot });
                 diamondSimulationJobs.delete(jobId);
 
                 if (result.cancelled) {
