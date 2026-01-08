@@ -184,6 +184,32 @@
         return next;
     };
 
+    // Soft-caps (preventivo): evita crescer "infinito" e perder tudo no refresh quando o storage estoura quota.
+    // Mantém histórico suficiente para o usuário, mas garante persistência estável ao longo de horas.
+    const pruneStoreSoftCaps = (store) => {
+        const next = shallowClone(store);
+        try {
+            // Históricos mais críticos para o usuário
+            if (next.entriesHistory) {
+                next.entriesHistory = slimEntriesHistory(next.entriesHistory, { max: 1200, keepFullLast: 80 });
+            }
+            if (next.signalsHistory) {
+                // Preservar a lista "humana" de sinais e reduzir payload pesado (stats) preventivamente.
+                next.signalsHistory = slimSignalsHistory(next.signalsHistory, { maxSignals: 1200, keepFullLast: 80, dropHeavyStats: true });
+            }
+
+            // Banco de padrões pode ser bem grande; manter uma cauda razoável.
+            if (next.patternDB) {
+                next.patternDB = slimPatternDB(next.patternDB, 800);
+            }
+
+            // Arrays auxiliares (se existirem no store) — manter sob controle
+            if (next.realtimeHistory) next.realtimeHistory = capArray(next.realtimeHistory, 1200);
+            if (next.cachedHistory) next.cachedHistory = capArray(next.cachedHistory, 1200);
+        } catch (_) {}
+        return next;
+    };
+
     const tryPersistStore = (store) => {
         try {
             localStorage.setItem(STORAGE_KEY, JSON.stringify(store || {}));
@@ -276,9 +302,12 @@
                 try {
                     const allData = memoryStore || {};
                     Object.assign(allData, data);
-                    memoryStore = allData;
+                    // ✅ Preventivo: aplicar soft-caps ANTES de persistir
+                    // (evita o cenário "funciona a noite toda e some tudo no refresh")
+                    const capped = pruneStoreSoftCaps(allData);
+                    memoryStore = capped;
 
-                    const persisted = tryPersistStore(allData);
+                    const persisted = tryPersistStore(capped);
                     if (!persisted.ok) {
                         console.error('❌ ERRO CRÍTICO NO STORAGE.SET:', persisted.err);
                     } else if (persisted.pruned) {

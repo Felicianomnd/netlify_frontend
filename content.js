@@ -938,14 +938,11 @@
             const sessionFlagKey = 'doubleAnalyzerResetDone';
             if (!sessionStorage.getItem(sessionFlagKey)) {
                 sessionStorage.setItem(sessionFlagKey, '1');
-                // ✅ Não resetar doubleHistory (agora usa cache em memória no background)
-                chrome.storage.local.set({
-                    lastSpin: null,
-                    analysis: null,
-                    pattern: null
-                }, function() {
-                    console.log('Double Analyzer: estados resetados no início da sessão.');
-                });
+                // ✅ IMPORTANTE (bugfix / pedido do usuário):
+                // Não resetar automaticamente estados/históricos ao abrir/recarregar a página.
+                // Isso causava "sumir tudo" após refresh/restore de sessão (principalmente após muitas horas).
+                // Limpeza deve ocorrer apenas via botões explícitos na UI (ex.: "Limpar").
+                console.log('Double Analyzer: sessão nova detectada (sem reset automático de estado).');
             }
         } catch (e) {
             console.error('Erro ao resetar sessão:', e);
@@ -2081,6 +2078,12 @@ let autoBetHistoryUnsubscribe = null;
 const MASTER_CLEAR_CUTOFF_KEY = 'masterEntriesClearCutoffByMode';
 let masterEntriesClearCutoffByMode = { standard: 0, diamond: 0 };
 
+// ✅ Branco (aba "Branco"): cutoff próprio.
+// Motivo: o histórico do Branco NÃO pode ser afetado pelo "Limpar" de Sinais/Gráfico.
+// Deve limpar APENAS quando o usuário clicar em "Limpar" dentro da aba Branco.
+const WHITE_CLEAR_CUTOFF_KEY = 'whiteEntriesClearCutoffByMode';
+let whiteEntriesClearCutoffByMode = { standard: 0, diamond: 0 };
+
 // ✅ IA: cutoff próprio para o botão "Limpar" da aba IA (não afetar Sinais/Gráfico)
 const ENTRIES_CLEAR_CUTOFF_KEY = 'entriesClearCutoffByMode';
 let entriesClearCutoffByMode = { standard: 0, diamond: 0 };
@@ -2091,6 +2094,20 @@ function loadMasterEntriesClearCutoff() {
             const raw = res && res[MASTER_CLEAR_CUTOFF_KEY] ? res[MASTER_CLEAR_CUTOFF_KEY] : null;
             if (raw && typeof raw === 'object') {
                 masterEntriesClearCutoffByMode = {
+                    standard: Number(raw.standard) || 0,
+                    diamond: Number(raw.diamond) || 0
+                };
+            }
+        });
+    } catch (_) {}
+}
+
+function loadWhiteEntriesClearCutoff() {
+    try {
+        chrome.storage.local.get([WHITE_CLEAR_CUTOFF_KEY], (res) => {
+            const raw = res && res[WHITE_CLEAR_CUTOFF_KEY] ? res[WHITE_CLEAR_CUTOFF_KEY] : null;
+            if (raw && typeof raw === 'object') {
+                whiteEntriesClearCutoffByMode = {
                     standard: Number(raw.standard) || 0,
                     diamond: Number(raw.diamond) || 0
                 };
@@ -2116,6 +2133,11 @@ function loadEntriesClearCutoff() {
 function getMasterEntriesCutoffMs(modeKey) {
     const key = modeKey === 'diamond' ? 'diamond' : 'standard';
     return Number(masterEntriesClearCutoffByMode && masterEntriesClearCutoffByMode[key]) || 0;
+}
+
+function getWhiteEntriesCutoffMs(modeKey) {
+    const key = modeKey === 'diamond' ? 'diamond' : 'standard';
+    return Number(whiteEntriesClearCutoffByMode && whiteEntriesClearCutoffByMode[key]) || 0;
 }
 
 function getEntriesCutoffMs(modeKey) {
@@ -2166,6 +2188,7 @@ function formatCompactDurationFromMs(ms) {
 
 // Carregar cutoff uma vez (best-effort)
 loadMasterEntriesClearCutoff();
+loadWhiteEntriesClearCutoff();
 loadEntriesClearCutoff();
 
 function formatCurrencyBRL(value) {
@@ -17105,13 +17128,14 @@ async function persistAnalyzerState(newState) {
         const now = Date.now();
 
         // Cutoff do painel Branco (não apagar entriesHistory; só esconder do painel)
-        masterEntriesClearCutoffByMode = {
-            standard: Number(masterEntriesClearCutoffByMode.standard) || 0,
-            diamond: Number(masterEntriesClearCutoffByMode.diamond) || 0
+        // ✅ IMPORTANTE: usa chave PRÓPRIA (não compartilhar com Sinais/Gráfico)
+        whiteEntriesClearCutoffByMode = {
+            standard: Number(whiteEntriesClearCutoffByMode.standard) || 0,
+            diamond: Number(whiteEntriesClearCutoffByMode.diamond) || 0
         };
-        masterEntriesClearCutoffByMode[key] = now;
+        whiteEntriesClearCutoffByMode[key] = now;
         try {
-            chrome.storage.local.set({ [MASTER_CLEAR_CUTOFF_KEY]: masterEntriesClearCutoffByMode }, function() {});
+            chrome.storage.local.set({ [WHITE_CLEAR_CUTOFF_KEY]: whiteEntriesClearCutoffByMode }, function() {});
         } catch (_) {}
 
         try { renderWhitePanel(whiteEntriesSourceCache); } catch (_) {}
@@ -17150,8 +17174,8 @@ async function persistAnalyzerState(newState) {
             return hasExplicitMode ? 'legacy' : 'standard';
         };
 
-        // Cutoff do painel Branco (limpar sem afetar IA)
-        const cutoffMs = getMasterEntriesCutoffMs(currentMode);
+        // Cutoff do painel Branco (limpar sem afetar IA nem Sinais/Gráfico)
+        const cutoffMs = getWhiteEntriesCutoffMs(currentMode);
         const whiteEntries = allEntries
             .filter(e => resolveEntryMode(e) === currentMode)
             .filter(e => getEntryTimestampMs(e) >= cutoffMs)
@@ -19393,7 +19417,7 @@ function logModeSnapshotUI(snapshot) {
     // Load initial data (com retry safe) - SEM histórico (vem do servidor)
     function loadInitialData() {
         try {
-            chrome.storage.local.get(['lastSpin', 'analysis', 'pattern', 'martingaleState', 'entriesHistory', MASTER_CLEAR_CUTOFF_KEY, ENTRIES_CLEAR_CUTOFF_KEY], function(result) {
+            chrome.storage.local.get(['lastSpin', 'analysis', 'pattern', 'martingaleState', 'entriesHistory', MASTER_CLEAR_CUTOFF_KEY, WHITE_CLEAR_CUTOFF_KEY, ENTRIES_CLEAR_CUTOFF_KEY], function(result) {
                 // ✅ Importante (modo WEB):
                 // No chrome-shim não existe `chrome.runtime.id`, então não podemos bloquear a renderização inicial.
                 // Em extensão real, `runtime.id` existe; em context invalidated, chamadas podem falhar — usamos try/catch.
@@ -19418,6 +19442,17 @@ function logModeSnapshotUI(snapshot) {
                         const raw = result && result[MASTER_CLEAR_CUTOFF_KEY] ? result[MASTER_CLEAR_CUTOFF_KEY] : null;
                         if (raw && typeof raw === 'object') {
                             masterEntriesClearCutoffByMode = {
+                                standard: Number(raw.standard) || 0,
+                                diamond: Number(raw.diamond) || 0
+                            };
+                        }
+                    } catch (_) {}
+
+                    // ✅ Cutoff da aba Branco (para o botão "Limpar" do Branco)
+                    try {
+                        const raw = result && result[WHITE_CLEAR_CUTOFF_KEY] ? result[WHITE_CLEAR_CUTOFF_KEY] : null;
+                        if (raw && typeof raw === 'object') {
+                            whiteEntriesClearCutoffByMode = {
                                 standard: Number(raw.standard) || 0,
                                 diamond: Number(raw.diamond) || 0
                             };
