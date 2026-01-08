@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128" aria-label="Double Analyzer">
+  <!-- Fundo -->
+  <rect x="10" y="10" width="108" height="108" rx="26" fill="#ef4444"/>
+
+  <!-- Círculo branco -->
+  <circle cx="64" cy="64" r="44" fill="#ffffff"/>
+
+  <!-- Marca interna (fogo/dado) — versão vetorial leve (substituível pela logo oficial) -->
+  <path
+    d="M64 36
+       C56 44 54 52 54 60
+       C54 72 60 79 64 83
+       C68 79 74 72 74 60
+       C74 52 72 44 64 36 Z"
+    fill="#ef4444"/>
+  <rect x="56" y="54" width="16" height="16" transform="rotate(45 64 62)" fill="#ffffff"/>
+  <circle cx="60.5" cy="62" r="2.6" fill="#ef4444"/>
+  <circle cx="67.5" cy="62" r="2.6" fill="#ef4444"/>
+
+  <!-- Linha vertical (efeito “divisão”) -->
+  <rect x="61" y="4" width="6" height="120" rx="3" fill="#ffffff" opacity="0.95"/>
+</svg>
+

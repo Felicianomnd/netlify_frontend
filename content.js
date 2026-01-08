@@ -2628,8 +2628,8 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
             // Logo (usar asset local do frontend — leve e consistente)
             try {
                 if (logoEl) {
-                    // Preferir icon do app (caso assets/ exista)
-                    logoEl.src = 'assets/logo-da-icon.png';
+                    // ✅ Logo “marca” (fogo/dado com divisão) — consistente com o banner
+                    logoEl.src = 'assets/logo-da-mark.svg';
                 }
             } catch (_) {}
 
@@ -22364,7 +22364,7 @@ function logModeSnapshotUI(snapshot) {
             if (delayCond && !prevDelayCond && canFire('delayPct')) {
                 notifyWhiteAlert({
                     title: 'Branco atrasado',
-                    subtitle: `Alerta • Atraso acima de ${cfg.delayPercentile}%`,
+                    subtitle: `<span class="da-white-alert-toast__accent">Alerta</span> • Atraso acima de ${cfg.delayPercentile}%`,
                     message: `Atraso atual: ${delay} giros • Referência: ${Math.round(threshold)} giros`
                 }, 'warn');
                 await markFired('delayPct');
@@ -22380,7 +22380,7 @@ function logModeSnapshotUI(snapshot) {
             if (hotCond && !prevHotCond && canFire('hot')) {
                 notifyWhiteAlert({
                     title: 'Janela “quente”',
-                    subtitle: `Alerta • Próx ${stats.hazard.K} giros`,
+                    subtitle: `<span class="da-white-alert-toast__accent">Alerta</span> • Próx ${stats.hazard.K} giros`,
                     message: `Probabilidade: ${formatPct1(Number(cur.p) * 100)} • Amostras: ${cur.n}`
                 }, 'success');
                 await markFired('hot');
@@ -22399,7 +22399,7 @@ function logModeSnapshotUI(snapshot) {
             if (repCond && !prevRepCond && canFire('puller')) {
                 notifyWhiteAlert({
                     title: 'Puxador repetiu',
-                    subtitle: `Alerta • Últimas ${whitePullersWindowHours}h`,
+                    subtitle: `<span class="da-white-alert-toast__accent">Alerta</span> • Últimas ${whitePullersWindowHours}h`,
                     message: `Número ${top.num} puxou branco ${top.count}x`
                 }, 'info');
                 await markFired('puller');
