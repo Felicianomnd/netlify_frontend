@@ -13860,14 +13860,26 @@ function computeN0ObserverPackage({ history, nowMs, n0Result, lookaheadSpins }) 
             : `REP${rep.slot}`);
     }
 
-    // confirmação = quantidade de observadores "fortes" (exclui GAP)
+    // confirmação = quantidade de observadores "fortes"
+    // - "padrão" (PUX/QBR/ESP/RES/POS/REP) contam mais que "contexto" (FIM/CHU/DES/VIZ/GAP)
     const isStrong = (tag) => {
         const t = String(tag || '').toUpperCase();
-        if (t.startsWith('GAP')) return false;
+        if (!t) return false;
         if (t.startsWith('SAT')) return false;
-        return true;
+        // GAP é fraco (sozinha dá muito falso positivo)
+        if (t.startsWith('GAP')) return false;
+        // "contexto" também é fraco (serve para somar, não para “confirmar” sozinho)
+        if (t.startsWith('CHU')) return false;
+        if (t.startsWith('FIM')) return false;
+        if (t.startsWith('DES')) return false;
+        if (t.startsWith('VIZ')) return false;
+        return true; // sobrou: PUXr, QBR, ESP, RES, POS, REP (etc)
     };
     const strongCount = pos.filter(isStrong).length;
+    const patternStrongCount = pos.filter((tag) => {
+        const t = String(tag || '').toUpperCase();
+        return t.startsWith('PUXR') || t.startsWith('QBR') || t.startsWith('ESP') || t.startsWith('RES') || t.startsWith('POS') || t.startsWith('REP');
+    }).length;
 
     const short = (() => {
         const hour = hourStats && hourStats.timeSlot && hourStats.timeSlot.hour != null ? `H${String(hourStats.timeSlot.hour).padStart(2, '0')}` : 'H??';
@@ -13895,6 +13907,7 @@ function computeN0ObserverPackage({ history, nowMs, n0Result, lookaheadSpins }) 
         pos,
         neg,
         strongCount,
+        patternStrongCount,
         short
     };
 }
@@ -13916,6 +13929,10 @@ function evaluateN0WhiteSignalGate({ history, nowMs, lookaheadSpins, baseConfide
     if ((pack.strongCount || 0) < relaxedRequired) {
         return { ok: false, reason: 'insufficient_confirmations', required: relaxedRequired, got: pack.strongCount || 0, pack, effectiveConfidence: clamp01(baseConfidence || 0) };
     }
+    // ✅ Exigir pelo menos 1 confirmação de "padrão" (evita sinal baseado só em contexto/hora)
+    if ((pack.patternStrongCount || 0) < 1 && !(hourStats && hourStats.needFill)) {
+        return { ok: false, reason: 'missing_pattern_confirmation', pack, effectiveConfidence: clamp01(baseConfidence || 0) };
+    }
 
     // confiança efetiva (boost leve por múltiplas confirmações / fim de hora)
     const base = clamp01(typeof baseConfidence === 'number' ? baseConfidence : Number(baseConfidence) || 0);
@@ -13929,7 +13946,7 @@ function evaluateN0WhiteSignalGate({ history, nowMs, lookaheadSpins, baseConfide
     })();
     const effectiveConfidence = clamp01(base + boost);
 
-    // threshold "soft" (compatível com o N0 atual)
+    // threshold "soft"
     const softT = clamp01(typeof softThreshold === 'number' ? softThreshold : Number(softThreshold) || 0);
     if (effectiveConfidence < softT && !(hourStats && hourStats.needFill)) {
         return { ok: false, reason: 'below_soft_threshold', softThreshold: softT, pack, effectiveConfidence };
@@ -16657,11 +16674,13 @@ function runN0Detector(history, options = {}) {
         rankingPool.sort((a, b) => {
             const mA = a.metrics;
             const mB = b.metrics;
-            if (mB.f1 !== mA.f1) return mB.f1 - mA.f1;
-            if (mB.recall !== mA.recall) return mB.recall - mA.recall;
-            // ✅ preferir modelos que não "morrem" (mais sinais) quando F1/recall empatam
-            if (mB.coverage !== mA.coverage) return mB.coverage - mA.coverage;
+            // ✅ Para WHITE, a prioridade é PRECISÃO (hit rate) — melhor poucos sinais bons do que muitos ruins.
             if (mB.precision !== mA.precision) return mB.precision - mA.precision;
+            if (mB.f1 !== mA.f1) return mB.f1 - mA.f1;
+            // depois recall (não zerar)
+            if (mB.recall !== mA.recall) return mB.recall - mA.recall;
+            // e só então cobertura (evita morrer em silêncio total)
+            if (mB.coverage !== mA.coverage) return mB.coverage - mA.coverage;
             if ((mB.acc_recent || 0) !== (mA.acc_recent || 0)) return (mB.acc_recent || 0) - (mA.acc_recent || 0);
             return 0;
         });
@@ -16683,7 +16702,14 @@ function runN0Detector(history, options = {}) {
             ? bestConfList.filter(entry => entry && entry.isWhite).length / bestConfList.length
             : 0;
         const baselineWhite = (Number.isFinite(observedBaseRate) && observedBaseRate > 0) ? observedBaseRate : BASELINE_WHITE_FALLBACK;
-        const minPrecisionForWhite = clamp01(baselineWhite * (1 + settings.precisionMin));
+        // ✅ Exigir ganho real sobre o baseline do ciclo (não aceitar 25-30% como "bom" quando o baseline do ciclo é ~19%).
+        const minPrecisionForWhite = clamp01(
+            Math.max(
+                baselineWhite * (1 + settings.precisionMin),
+                baselineWhite * 2.0,
+                baselineWhite + 0.12
+            )
+        );
 
         // Grade de thresholds: se a distribuição de confiança for "baixa" (ex.: < 0.5),
         // adaptamos a grade para cobrir a faixa real de confidences do melhor modelo.
@@ -16712,9 +16738,23 @@ function runN0Detector(history, options = {}) {
         grid.forEach(candidate => {
             const metrics = calculateN0BlockMetrics(bestConfList, candidate);
             if (metrics.precision >= minPrecisionForWhite) {
-                if (!chosenMetrics || metrics.f1 > chosenMetrics.f1) {
+                if (!chosenMetrics) {
                     chosenMetrics = { ...metrics, threshold: candidate };
                     chosenThreshold = candidate;
+                    return;
+                }
+                // ✅ Escolher threshold por PRECISÃO primeiro (hit rate), depois recall/cobertura
+                if (metrics.precision > chosenMetrics.precision) {
+                    chosenMetrics = { ...metrics, threshold: candidate };
+                    chosenThreshold = candidate;
+                } else if (metrics.precision === chosenMetrics.precision) {
+                    if (metrics.recall > chosenMetrics.recall) {
+                        chosenMetrics = { ...metrics, threshold: candidate };
+                        chosenThreshold = candidate;
+                    } else if (metrics.recall === chosenMetrics.recall && (metrics.f1 > chosenMetrics.f1)) {
+                        chosenMetrics = { ...metrics, threshold: candidate };
+                        chosenThreshold = candidate;
+                    }
                 }
             }
         });
@@ -19460,7 +19500,8 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
                     try {
                         const t = (n0Result && typeof n0Result.blocking_threshold === 'number') ? clamp01(n0Result.blocking_threshold) : null;
                         const base = (t == null) ? 0.5 : t;
-                        return clamp01(base * 0.8);
+                        // ✅ Mais seletivo: alerta só quando chega perto do threshold real do modelo
+                        return clamp01(base * 0.95);
                     } catch (_) {
                         return 0.5;
                     }
@@ -33118,6 +33159,24 @@ function evaluatePendingAnalysisSimulation(latestSpin, simState, history, modeKe
         && (expectedColor === 'red' || expectedColor === 'black');
     const hit = (expectedColor === actualColor) || whiteProtectedHit;
 
+    // ✅ Memória viva (simulação) para N0 (WHITE): se errar muito, entra em cooldown.
+    try {
+        if (expectedColor === 'white') {
+            if (!Number.isFinite(Number(simState.n0LossStreak))) simState.n0LossStreak = 0;
+            if (!Number.isFinite(Number(simState.n0LossCooldownSpins))) simState.n0LossCooldownSpins = 0;
+            if (hit) {
+                simState.n0LossStreak = 0;
+            } else {
+                simState.n0LossStreak = Math.max(0, Math.floor(Number(simState.n0LossStreak) || 0)) + 1;
+                // após 3 losses seguidos, pausar por ~30 giros (15min aprox)
+                if (simState.n0LossStreak >= 3) {
+                    simState.n0LossCooldownSpins = Math.max(Number(simState.n0LossCooldownSpins) || 0, 30);
+                    simState.n0LossStreak = 0; // reiniciar para não ficar em loop
+                }
+            }
+        }
+    } catch (_) {}
+
     // Atualizar signalsHistory (N7) + alternance control
     markLastSignalResolved(simState, latestSpin, hit);
 
@@ -33531,6 +33590,12 @@ function analyzeDiamondLevelsSimulation(history, config, simState) {
     let n0EffectiveConfidence = null; // 0..1
     let n0ObsShort = null;
     let n0GateReason = null;
+    // ✅ Memória viva (simulação): freio após sequência ruim
+    if (!Number.isFinite(Number(simState.n0LossCooldownSpins))) simState.n0LossCooldownSpins = 0;
+    if (!Number.isFinite(Number(simState.n0LossStreak))) simState.n0LossStreak = 0;
+    if (simState.n0LossCooldownSpins > 0) {
+        simState.n0LossCooldownSpins = Math.max(0, Math.floor(simState.n0LossCooldownSpins) - 1);
+    }
 
     if (n0Enabled) {
         try {
@@ -33562,13 +33627,22 @@ function analyzeDiamondLevelsSimulation(history, config, simState) {
             const saturated = !!(hour && hour.saturated);
             const needFill = !!(hour && hour.needFill);
             const strong = pack && Number.isFinite(Number(pack.strongCount)) ? Number(pack.strongCount) : 0;
+            const patternStrong = pack && Number.isFinite(Number(pack.patternStrongCount)) ? Number(pack.patternStrongCount) : 0;
+
+            // ✅ Durante cooldown por LOSS, não emitir nada
+            if ((Number(simState.n0LossCooldownSpins) || 0) > 0) {
+                n0UiVoteWhite = false;
+                n0ForceWhite = false;
+                n0SoftBlockActive = false;
+                n0GateReason = `loss_cooldown_${simState.n0LossCooldownSpins}`;
+            } else {
 
             const softThreshold = (() => {
                 const t = (n0Result && typeof n0Result.blocking_threshold === 'number')
                     ? clamp01Local(n0Result.blocking_threshold)
                     : null;
                 const base = (t == null) ? 0.5 : t;
-                return clamp01Local(base * 0.8);
+                return clamp01Local(base * 0.95);
             })();
 
             const boost = (() => {
@@ -33583,8 +33657,12 @@ function analyzeDiamondLevelsSimulation(history, config, simState) {
 
             const reqAlert = needFill ? 1 : N0_OBS_CONFIRM_MIN_DEFAULT;
             const reqBlock = needFill ? Math.max(1, N0_OBS_CONFIRM_MIN_STRONG - 1) : N0_OBS_CONFIRM_MIN_STRONG;
-            const baseOk = !saturated && strong >= reqAlert;
-            const softOk = (n0EffectiveConfidence >= softThreshold) || needFill;
+            const baseOk = !saturated && strong >= reqAlert && (needFill || patternStrong >= 1);
+            // ✅ minConf do "budget" também vale aqui (evita sinais com 5–10% de confiança)
+            const L = Math.max(1, Math.min(6, Math.floor(Number(n0LookaheadSpins) || 1)));
+            const baseP = 1 - Math.pow(1 - (1 / 15), L);
+            const minConf = Math.max(0.12, Math.min(0.75, clamp01Local(baseP * N0_WHITE_SIGNAL_MIN_LIFT)));
+            const softOk = ((n0EffectiveConfidence >= softThreshold) && (n0EffectiveConfidence >= minConf)) || (needFill && n0EffectiveConfidence >= minConf);
             const alertOk = baseOk && softOk;
             const blockOk = (!saturated && strong >= reqBlock) && softOk;
 
@@ -33596,6 +33674,7 @@ function analyzeDiamondLevelsSimulation(history, config, simState) {
                 n0SoftBlockActive = false;
             }
             n0GateReason = saturated ? 'hour_saturated' : (!baseOk ? 'insufficient_confirmations' : (!softOk ? 'below_soft_threshold' : 'ok'));
+            }
         }
     } catch (_) {
         // silencioso no simulador
