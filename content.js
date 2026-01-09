@@ -2509,33 +2509,8 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
             if (!card) return;
             if (wrap.style.display === 'none') return;
 
-            const root = document.getElementById('blaze-double-analyzer') || document.body;
-            const rootRect = root && root.getBoundingClientRect ? root.getBoundingClientRect() : null;
-            const baseLeft = (rootRect && root !== document.body) ? rootRect.left : 0;
-            const baseTop = (rootRect && root !== document.body) ? rootRect.top : 0;
-            const containerW = (rootRect && root !== document.body) ? rootRect.width : window.innerWidth;
-            const containerH = (rootRect && root !== document.body) ? rootRect.height : window.innerHeight;
-
-            const rect = getWhiteAlertToastAnchorRect();
-            const cardRect = card.getBoundingClientRect();
-            const margin = 12;
-
-            // Default: canto superior direito (fallback)
-            let left = containerW - margin - cardRect.width;
-            let top = margin + 96; // não colidir com header
-
-            if (rect) {
-                // Centralizar no card "Padrão" e posicionar mais no topo do card (em cima)
-                const centerX = (rect.left - baseLeft) + (rect.width / 2);
-                left = Math.round(centerX - (cardRect.width / 2));
-                top = Math.round((rect.top - baseTop) + 18);
-            }
-
-            left = Math.max(margin, Math.min(containerW - margin - cardRect.width, left));
-            top = Math.max(margin, Math.min(containerH - margin - cardRect.height, top));
-
-            card.style.left = `${left}px`;
-            card.style.top = `${top}px`;
+            // ✅ Posição padronizada via CSS: direita + centro vertical.
+            // (mantemos a função por compatibilidade; não precisa recalcular/ancorar.)
         } catch (_) {}
     }
 
@@ -2554,7 +2529,6 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
             wrap.style.display = 'none';
             wrap.innerHTML = `
                 <div class="da-white-alert-toast__card" role="status" aria-live="polite">
-                    <button type="button" class="da-profile-nudge__close da-white-alert-toast__close" aria-label="Fechar" title="Fechar" data-da-white-alert-close="1">✕</button>
                     <div class="da-profile-nudge__content da-white-alert-toast__content">
                         <div class="da-white-alert-toast__logo-wrap">
                             <img class="da-white-alert-toast__logo" id="daWhiteAlertToastLogo" alt="Double Análise" />
@@ -2579,16 +2553,6 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
             root.appendChild(wrap);
 
             const card = wrap.querySelector('.da-white-alert-toast__card');
-            const closeBtn = wrap.querySelector('[data-da-white-alert-close="1"]');
-
-            // ✅ Fechar: SOMENTE no X (pedido do usuário)
-            if (closeBtn && !closeBtn.dataset.daBound) {
-                closeBtn.dataset.daBound = '1';
-                closeBtn.addEventListener('click', (e) => {
-                    try { e.preventDefault(); e.stopPropagation(); } catch (_) {}
-                    try { hideWhiteAlertToast(); } catch (_) {}
-                });
-            }
 
             // ✅ Pausar ao interagir (igual ao aviso de cadastro):
             // - Desktop: hover pausa; sair do hover resume
@@ -2609,13 +2573,6 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
 
             daWhiteAlertToastEl = wrap;
 
-            // ✅ Reposicionar no resize (mantém ancorado no card "Padrão")
-            if (!daWhiteAlertToastRepositionBound) {
-                daWhiteAlertToastRepositionBound = true;
-                window.addEventListener('resize', () => {
-                    try { positionWhiteAlertToastCard(); } catch (_) {}
-                });
-            }
             return wrap;
         } catch (_) {
             return null;
@@ -2720,7 +2677,6 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
             daWhiteAlertToastPaused = false;
             el.classList.remove('is-paused');
             requestAnimationFrame(() => {
-                try { positionWhiteAlertToastCard(el); } catch (_) {}
                 el.classList.add('show');
             });
 
@@ -3784,17 +3740,21 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
             // ✅ Se existir "Padrão da Entrada" aberto, fechar antes de sair
             try { closeEntryPatternModalIfOpen(); } catch (_) {}
 
-            // ✅ Se estiver saindo a partir da simulação, persistir ajustes automaticamente
-            try {
-                const isSimActive = modal.classList.contains('diamond-sim-active');
-                if (isSimActive) await saveDiamondLevels({ silent: true, skipSync: true });
-            } catch (_) {}
-
             // ✅ Pedido: no modo Diamante, quando estiver em "Testar configurações",
             // o botão "Fechar" deve VOLTAR para os níveis (não fechar o modal inteiro).
                 const isSimActive = modal.classList.contains('diamond-sim-active');
                 if (isSimActive) {
+                // ✅ IMPORTANTE (pedido do usuário):
+                // - Fechar (X) NÃO deve salvar as configurações testadas
+                // - Deve restaurar as configurações anteriores (snapshot) e voltar para "Configurar Níveis"
                 try { exitDiamondSimulationView({ cancelIfRunning: true, clear: true, closeModal: false }); } catch (_) {}
+                try {
+                    if (diamondLevelsRestoreSnapshot) {
+                        populateDiamondLevelsForm(diamondLevelsRestoreSnapshot);
+                        refreshDiamondLevelToggleStates();
+                        try { applyDiamondVisibleLevelsToDiamondLevelsModal(); } catch (_) {}
+                    }
+                } catch (_) {}
                 return; // NÃO fechar o modal de níveis
             }
 
@@ -15061,7 +15021,25 @@ async function persistAnalyzerState(newState) {
                 const pctHtml = (lvl.pct != null)
                     ? `<div class="diamond-level-pct"><span class="diamond-level-pct-label">Score do nível</span><span class="diamond-level-pct-value">${escapeHtml(pctText)}</span></div>`
                     : '';
-                const detailHtml = lvl.detail ? `<div class="diamond-level-detail">${escapeHtml(lvl.detail)}</div>` : '';
+                // ✅ Evitar duplicar o percentual no detalhe (já exibimos em "Score do nível")
+                let detailText = lvl.detail ? String(lvl.detail) : '';
+                try {
+                    const pctNum = Number(lvl.pct);
+                    if (detailText && Number.isFinite(pctNum)) {
+                        const candidates = [
+                            `${Math.round(pctNum)}%`,
+                            `${pctNum.toFixed(1)}%`
+                        ];
+                        for (const p of candidates) {
+                            if (detailText.startsWith(p)) {
+                                detailText = detailText.slice(p.length).trim();
+                                if (detailText.startsWith('•')) detailText = detailText.slice(1).trim();
+                                break;
+                            }
+                        }
+                    }
+                } catch (_) {}
+                const detailHtml = detailText ? `<div class="diamond-level-detail">${escapeHtml(detailText)}</div>` : '';
                 return `
                     <div class="diamond-level-card">
                         <div class="diamond-level-top">
@@ -17566,7 +17544,7 @@ async function persistAnalyzerState(newState) {
             <span class="total-entries">• Ciclos: ${totalCycles} ${clearButtonHTML}</span>
         `;
 
-        const items = whiteEntries.map((entry) => {
+        const items = whiteEntries.map((entry, idx) => {
             try {
                 const time = new Date(entry.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
                 const cls = entry.color;
@@ -17586,7 +17564,7 @@ async function persistAnalyzerState(newState) {
                 const confTop = (typeof entry.confidence === 'number') ? `${entry.confidence.toFixed(0)}%` : '';
                 const title = `Branco • Giro: ${entry.number} • ${time} • Resultado: ${entry.result}`;
                 return `
-                    <div class="entry-item-wrap" title="${title}">
+                    <div class="entry-item-wrap clickable-entry" title="${title}" data-entry-index="${idx}">
                         ${confTop ? `<div class="entry-conf-top">${confTop}</div>` : ''}
                         <div class="entry-stage ${barClass}">${stageText}</div>
                         <div class="entry-item">
@@ -17683,6 +17661,18 @@ async function persistAnalyzerState(newState) {
         const applyListHtml = (pendingHtml) => {
             const pending = pendingHtml ? String(pendingHtml) : '';
             list.innerHTML = pending + historyHtml;
+
+            // ✅ Mesmo comportamento da aba IA: clique abre relatório/raciocínio (modal de padrão)
+            const clickableEntries = list.querySelectorAll('.clickable-entry');
+            clickableEntries.forEach((entryEl) => {
+                entryEl.addEventListener('click', function() {
+                    const entryIndex = parseInt(this.getAttribute('data-entry-index'), 10);
+                    const entry = whiteEntries[entryIndex];
+                    if (entry) {
+                        showPatternForEntry(entry);
+                    }
+                });
+            });
         };
 
             if (hasAnalysisOverride) {

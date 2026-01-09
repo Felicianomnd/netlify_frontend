@@ -5489,7 +5489,11 @@
 }
 
 .da-white-alert-toast__card {
-    position: absolute; /* ✅ posicionado via JS para ancorar no card "Padrão" */
+    position: absolute; /* ✅ posição padronizada (direita + centro vertical) */
+    right: 18px;
+    left: auto;
+    top: 50%;
+    transform: translateY(-50%);
     width: min(360px, 92vw);
     max-height: 92vh;
     background: #ffffff;
@@ -5497,7 +5501,7 @@
     border: none;
     box-shadow: 0 16px 40px rgba(0,0,0,0.32);
     overflow: hidden;
-    pointer-events: auto; /* permitir clique para fechar */
+    pointer-events: auto; /* permitir interação (pausar timer), sem bloquear a tela */
 }
 
 .da-white-alert-toast__close {
@@ -5515,6 +5519,11 @@
     background: rgba(0,0,0,0.62) !important;
 }
 
+/* ✅ Branco: sem botão de fechar (auto-hide apenas) */
+.da-white-alert-toast__close {
+    display: none !important;
+}
+
 .da-white-alert-toast.is-paused .da-profile-nudge__timer-fill.is-running {
     animation-play-state: paused !important;
 }
@@ -5524,8 +5533,8 @@
 }
 
 @keyframes daWhiteToastPop {
-    from { transform: scale(0.98); opacity: 0.0; }
-    to { transform: scale(1); opacity: 1.0; }
+    from { transform: translateY(-50%) scale(0.98); opacity: 0.0; }
+    to { transform: translateY(-50%) scale(1); opacity: 1.0; }
 }
 
 .da-white-alert-toast__content {

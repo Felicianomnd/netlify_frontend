@@ -13278,7 +13278,12 @@ let n0WhiteBudgetState = {
     hourKey: null,
     target: N0_WHITE_SIGNAL_TARGET_PER_HOUR_FALLBACK,
     used: 0,
-    lastUpdateMs: 0
+    lastUpdateMs: 0,
+    // informativo (não afeta budget diretamente)
+    avgUsed: null,
+    avgRecent: null,
+    avgHourOfDay: null,
+    hourOfDaySamples: 0
 };
 
 function buildHourKeyLocal(ms) {
@@ -13318,17 +13323,83 @@ function estimateAvgWhitesPerHour(history, nowMs, lookbackHours = N0_WHITE_SIGNA
     }
 }
 
+function estimateAvgWhitesPerHourOfDay(history, nowMs, lookbackHours = 72) {
+    try {
+        const arr = Array.isArray(history) ? history : [];
+        const now = Number(nowMs) || Date.now();
+        const lookback = Math.max(6, Math.min(240, Math.floor(Number(lookbackHours) || 72)));
+        const cutoff = now - lookback * 60 * 60 * 1000;
+        const targetHour = (() => {
+            try { return new Date(now).getHours(); } catch (_) { return null; }
+        })();
+        if (targetHour == null) return null;
+
+        const perHour = new Map(); // hourKey -> whites
+        for (let i = 0; i < arr.length; i++) {
+            const s = arr[i];
+            const ms = Number.isFinite(parseSpinTimestamp(s)) ? parseSpinTimestamp(s) : 0;
+            if (!ms) continue;
+            if (ms < cutoff) break;
+            const d = new Date(ms);
+            if (d.getHours() !== targetHour) continue;
+            const hk = buildHourKeyLocal(ms); // YYYY-MM-DD HH
+            if (!perHour.has(hk)) perHour.set(hk, 0);
+            if (isWhiteSpinForN0Guard(s)) perHour.set(hk, (perHour.get(hk) || 0) + 1);
+        }
+        const counts = [...perHour.values()].filter((n) => Number.isFinite(n) && n >= 0);
+        if (counts.length < 2) return null;
+        const sum = counts.reduce((acc, n) => acc + n, 0);
+        const mean = sum / counts.length;
+        return { mean, nHours: counts.length };
+    } catch (_) {
+        return null;
+    }
+}
+
+function computeN0TargetWhitesPerHour(history, nowMs) {
+    const now = Number(nowMs) || Date.now();
+    const avgRecent = estimateAvgWhitesPerHour(history, now, N0_WHITE_SIGNAL_TARGET_LOOKBACK_HOURS);
+    const hod = estimateAvgWhitesPerHourOfDay(history, now, 72);
+    const avgHourOfDay = (hod && typeof hod.mean === 'number' && Number.isFinite(hod.mean)) ? hod.mean : null;
+    const hourOfDaySamples = (hod && Number.isFinite(Number(hod.nHours))) ? Math.floor(Number(hod.nHours)) : 0;
+
+    let avgUsed = null;
+    if (avgHourOfDay != null && Number.isFinite(avgHourOfDay)) {
+        if (typeof avgRecent === 'number' && Number.isFinite(avgRecent)) {
+            // peso cresce com mais amostras por "hora do dia"
+            const w = Math.max(0.35, Math.min(0.75, hourOfDaySamples / 8));
+            avgUsed = avgHourOfDay * w + avgRecent * (1 - w);
+        } else {
+            avgUsed = avgHourOfDay;
+        }
+    } else {
+        avgUsed = (typeof avgRecent === 'number' && Number.isFinite(avgRecent)) ? avgRecent : null;
+    }
+
+    const proposed = Number.isFinite(avgUsed) ? Math.round(avgUsed) : N0_WHITE_SIGNAL_TARGET_PER_HOUR_FALLBACK;
+    const target = Math.max(N0_WHITE_SIGNAL_TARGET_MIN, Math.min(N0_WHITE_SIGNAL_TARGET_MAX, proposed));
+    return { target, avgUsed, avgRecent: (Number.isFinite(avgRecent) ? avgRecent : null), avgHourOfDay, hourOfDaySamples };
+}
+
 function ensureN0WhiteBudgetForNow(history, nowMs) {
     const now = Number(nowMs) || Date.now();
     const hourKey = buildHourKeyLocal(now);
     if (n0WhiteBudgetState.hourKey !== hourKey) {
-        const avg = estimateAvgWhitesPerHour(history, now, N0_WHITE_SIGNAL_TARGET_LOOKBACK_HOURS);
-        const proposed = Number.isFinite(avg) ? Math.round(avg) : N0_WHITE_SIGNAL_TARGET_PER_HOUR_FALLBACK;
+        const info = computeN0TargetWhitesPerHour(history, now);
+        const proposed = info && Number.isFinite(Number(info.target)) ? Math.floor(Number(info.target)) : N0_WHITE_SIGNAL_TARGET_PER_HOUR_FALLBACK;
+        const avgUsed = (info && typeof info.avgUsed === 'number' && Number.isFinite(info.avgUsed)) ? info.avgUsed : null;
+        const avgRecent = (info && typeof info.avgRecent === 'number' && Number.isFinite(info.avgRecent)) ? info.avgRecent : null;
+        const avgHourOfDay = (info && typeof info.avgHourOfDay === 'number' && Number.isFinite(info.avgHourOfDay)) ? info.avgHourOfDay : null;
+        const hourOfDaySamples = (info && Number.isFinite(Number(info.hourOfDaySamples))) ? Math.floor(Number(info.hourOfDaySamples)) : 0;
         n0WhiteBudgetState = {
             hourKey,
             target: Math.max(N0_WHITE_SIGNAL_TARGET_MIN, Math.min(N0_WHITE_SIGNAL_TARGET_MAX, proposed)),
             used: 0,
-            lastUpdateMs: now
+            lastUpdateMs: now,
+            avgUsed,
+            avgRecent,
+            avgHourOfDay,
+            hourOfDaySamples
         };
     }
     return n0WhiteBudgetState;
@@ -13353,6 +13424,536 @@ function decideN0WhiteSignalEmission({ history, nowMs, confidence, lookaheadSpin
         state.lastUpdateMs = Number(nowMs) || Date.now();
     }
     return { ok: true, reason: override ? 'override' : 'ok', committed: !!commit, target: state.target, used: state.used, minConf, base };
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 👀 N0 (Detector de Branco): Observadores (explicação + gate de qualidade)
+// - Objetivo: NÃO recomendar branco só por um gatilho fraco (ex.: "gap=7").
+// - Integra: saturação do horário, puxadores, espelho, quebras, resistência, fim de hora,
+//   repetição (dia anterior), chuva/descanso e vizinhança.
+// ═══════════════════════════════════════════════════════════════════════════════
+
+const N0_OBS_END_OF_HOUR_MINUTE = 55;
+const N0_OBS_NEIGHBOR_GAP_THRESHOLD = 12; // "isolado": > ~6min sem branco
+const N0_OBS_NEIGHBOR_MIN_CHAIN = 3;      // quantos brancos isolados seguidos para alertar vizinhança
+const N0_OBS_CONFIRM_MIN_DEFAULT = 2;     // mínimo de confirmações para sinal
+const N0_OBS_CONFIRM_MIN_STRONG = 3;      // mínimo para BLOCK ALL (mais rígido)
+// ✅ PUX (puxador) deve ser "recente" (como você pediu): não usar estatística muito antiga
+const N0_OBS_PULLER_LOOKBACK_SPINS = 240;
+const N0_OBS_PULLER_MIN_OCC = 3;
+
+function getHourBoundsLocalMs(nowMs) {
+    try {
+        const d = new Date(Number(nowMs) || Date.now());
+        d.setMinutes(0, 0, 0);
+        const start = d.getTime();
+        return { hourStartMs: start, hourEndMs: start + 60 * 60 * 1000 };
+    } catch (_) {
+        const n = Number(nowMs) || Date.now();
+        const start = n - (n % (60 * 60 * 1000));
+        return { hourStartMs: start, hourEndMs: start + 60 * 60 * 1000 };
+    }
+}
+
+function countWhitesInCurrentHourNewestFirst(history, nowMs) {
+    const arr = Array.isArray(history) ? history : [];
+    const bounds = getHourBoundsLocalMs(nowMs);
+    const hourStartMs = bounds.hourStartMs;
+    const hourEndMs = bounds.hourEndMs;
+    let whites = 0;
+    let spins = 0;
+    let sawInHour = false;
+
+    for (let i = 0; i < arr.length; i++) {
+        const s = arr[i];
+        const ms = Number.isFinite(parseSpinTimestamp(s)) ? parseSpinTimestamp(s) : 0;
+        if (!ms) continue;
+
+        if (ms >= hourStartMs && ms < hourEndMs) {
+            sawInHour = true;
+            spins += 1;
+            if (isWhiteSpinForN0Guard(s)) whites += 1;
+            continue;
+        }
+        // history normalmente vem mais recente -> mais antigo: quando passar do começo da hora, pode parar
+        if (sawInHour && ms < hourStartMs) break;
+    }
+    return { whites, spins, hourStartMs, hourEndMs };
+}
+
+function computeN0MinuteSlotFromMs(ms) {
+    try {
+        const d = new Date(Number(ms) || Date.now());
+        const hour = d.getHours();
+        const minute = d.getMinutes();
+        const sec = d.getSeconds();
+        // Blaze Double ~2 giros por minuto → aproximar slot pelo segundo (0-29 / 30-59)
+        const slot = sec >= 30 ? 2 : 1;
+        return { hour, minute, slot, key: `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}#${slot}` };
+    } catch (_) {
+        return { hour: null, minute: null, slot: null, key: null };
+    }
+}
+
+function computeN0HourStats(history, nowMs, lookaheadSpins) {
+    const now = Number(nowMs) || Date.now();
+    const timeSlot = computeN0MinuteSlotFromMs(now);
+    const budgetState = ensureN0WhiteBudgetForNow(history, now);
+    const target = (budgetState && Number.isFinite(Number(budgetState.target)))
+        ? Math.max(N0_WHITE_SIGNAL_TARGET_MIN, Math.min(N0_WHITE_SIGNAL_TARGET_MAX, Math.floor(Number(budgetState.target))))
+        : N0_WHITE_SIGNAL_TARGET_PER_HOUR_FALLBACK;
+    const inHour = countWhitesInCurrentHourNewestFirst(history, now);
+
+    const minute = (() => {
+        try { return new Date(now).getMinutes(); } catch (_) { return 0; }
+    })();
+    const minutesLeft = Math.max(0, 59 - minute);
+    const spinsLeftApprox = Math.max(0, Math.round((60 - minute) * 2));
+    const deficit = Math.max(0, target - inHour.whites);
+
+    const lookahead = Math.max(1, Math.min(6, Math.floor(Number(lookaheadSpins) || 1)));
+    const baseWhite = 1 - Math.pow(1 - (1 / 15), lookahead);
+
+    // "Chuva" (burst): hora acima da média OU muita densidade de brancos no curto prazo
+    const recent = (() => {
+        const max = Math.min(40, Array.isArray(history) ? history.length : 0);
+        let w = 0;
+        for (let i = 0; i < max; i++) if (isWhiteSpinForN0Guard(history[i])) w += 1;
+        return { spins: max, whites: w };
+    })();
+    const burst = (inHour.whites >= Math.max(target + 4, Math.ceil(target * 1.7))) || (recent.whites >= 2 && recent.spins <= 30);
+
+    const endOfHour = minute >= N0_OBS_END_OF_HOUR_MINUTE;
+    const needFill = endOfHour && deficit > 0;
+    const saturated = (inHour.whites >= target) && !burst;
+
+    return {
+        timeSlot,
+        target,
+        avgWhitesPerHour: (budgetState && typeof budgetState.avgUsed === 'number' && Number.isFinite(budgetState.avgUsed)) ? budgetState.avgUsed : null,
+        avgHourOfDay: (budgetState && typeof budgetState.avgHourOfDay === 'number' && Number.isFinite(budgetState.avgHourOfDay)) ? budgetState.avgHourOfDay : null,
+        avgRecent: (budgetState && typeof budgetState.avgRecent === 'number' && Number.isFinite(budgetState.avgRecent)) ? budgetState.avgRecent : null,
+        hourOfDaySamples: (budgetState && Number.isFinite(Number(budgetState.hourOfDaySamples))) ? Number(budgetState.hourOfDaySamples) : 0,
+        baseWhite,
+        whitesThisHour: inHour.whites,
+        spinsThisHour: inHour.spins,
+        deficit,
+        minute,
+        minutesLeft,
+        spinsLeftApprox,
+        endOfHour,
+        needFill,
+        burst,
+        saturated
+    };
+}
+
+function computeN0RecentPullerStats(history, lookaheadSpins, maxSpins = N0_OBS_PULLER_LOOKBACK_SPINS) {
+    try {
+        const arr = Array.isArray(history) ? history : [];
+        const max = Math.max(40, Math.min(arr.length, Math.floor(Number(maxSpins) || N0_OBS_PULLER_LOOKBACK_SPINS)));
+        const L = Math.max(1, Math.min(6, Math.floor(Number(lookaheadSpins) || 3)));
+        // history aqui é newest-first; inverter para avaliar "próximos giros" corretamente
+        const chron = arr.slice(0, max).slice().reverse();
+        const map = {}; // num -> { occ, white }
+        for (let i = 0; i < chron.length; i++) {
+            const cur = chron[i];
+            if (!cur) continue;
+            // puxador: número NÃO-branco que precede branco em até L giros
+            if (isWhiteSpinForN0Guard(cur)) continue;
+            const num = Number(cur.number ?? cur.numero ?? cur.value ?? null);
+            if (!Number.isFinite(num)) continue;
+            const n = Math.floor(num);
+            if (n < 0 || n > 14) continue;
+            // lookahead futuro (sem estourar)
+            const end = Math.min(chron.length, i + 1 + L);
+            let hasWhite = false;
+            for (let j = i + 1; j < end; j++) {
+                if (isWhiteSpinForN0Guard(chron[j])) { hasWhite = true; break; }
+            }
+            const key = String(n);
+            if (!map[key]) map[key] = { occ: 0, white: 0 };
+            map[key].occ += 1;
+            if (hasWhite) map[key].white += 1;
+        }
+        return map;
+    } catch (_) {
+        return {};
+    }
+}
+
+function detectN0Mirror(windowChars, options = {}) {
+    try {
+        const w = Array.isArray(windowChars) ? windowChars : [];
+        const maxLookback = Math.max(12, Math.min(60, Math.floor(Number(options.maxLookback) || 30)));
+        const minOppRun = Math.max(2, Math.min(12, Math.floor(Number(options.minOppRun) || 3)));
+        if (w.length < 8) return { hit: false };
+
+        const seg = w.slice(Math.max(0, w.length - maxLookback));
+        // achar último não-branco
+        let end = seg.length - 1;
+        while (end >= 0 && seg[end] === 'W') end -= 1;
+        if (end < 0) return { hit: false };
+        const A = seg[end];
+        if (!(A === 'R' || A === 'B')) return { hit: false };
+        const B = A === 'R' ? 'B' : 'R';
+
+        let runB = 0;
+        let i = end - 1;
+        while (i >= 0 && seg[i] === B) { runB += 1; i -= 1; }
+        if (runB < minOppRun) return { hit: false };
+        if (i < 0 || seg[i] !== A) return { hit: false };
+        i -= 1;
+        // precisa existir um branco antes do 1º A (dentro do lookback)
+        while (i >= 0) {
+            if (seg[i] === 'W') {
+                return { hit: true, A, B, runB, span: (end - i + 1) };
+            }
+            i -= 1;
+        }
+        return { hit: false };
+    } catch (_) {
+        return { hit: false };
+    }
+}
+
+function detectN0ResistanceBreak(windowChars, options = {}) {
+    try {
+        const w = Array.isArray(windowChars) ? windowChars : [];
+        const maxLookback = Math.max(20, Math.min(w.length, Math.floor(Number(options.maxLookback) || 80)));
+        const seg = w.slice(Math.max(0, w.length - maxLookback));
+        if (seg.length < 12) return { hit: false };
+
+        // achar último branco dentro do segmento
+        let lastW = -1;
+        for (let i = seg.length - 1; i >= 0; i--) {
+            if (seg[i] === 'W') { lastW = i; break; }
+        }
+        if (lastW < 0 || lastW >= seg.length - 2) return { hit: false };
+
+        const after = seg.slice(lastW + 1).filter(c => c === 'R' || c === 'B');
+        if (after.length < 8) return { hit: false };
+
+        const lastColor = after[after.length - 1];
+        let curRun = 1;
+        for (let i = after.length - 2; i >= 0; i--) {
+            if (after[i] === lastColor) curRun += 1;
+            else break;
+        }
+
+        // máximo histórico (excluindo a run atual)
+        let prevMax = 0;
+        let run = 0;
+        let runColor = null;
+        const upto = Math.max(0, after.length - curRun);
+        for (let i = 0; i < upto; i++) {
+            const c = after[i];
+            if (c !== runColor) {
+                prevMax = Math.max(prevMax, run);
+                runColor = c;
+                run = 1;
+            } else {
+                run += 1;
+            }
+        }
+        prevMax = Math.max(prevMax, run);
+
+        // regra: ficou "travado" em <=3 por bastante tempo e agora rompeu (>=4)
+        const hit = prevMax <= 3 && curRun >= 4 && curRun > prevMax;
+        return { hit, prevMax, curRun, color: lastColor };
+    } catch (_) {
+        return { hit: false };
+    }
+}
+
+function computeN0TimeSlotStatsFromHistory(history, nowMs, lookbackSpins = 5000) {
+    try {
+        const arr = Array.isArray(history) ? history : [];
+        const max = Math.min(arr.length, Math.max(200, Math.min(REALTIME_HISTORY_CAP, Math.floor(Number(lookbackSpins) || 5000))));
+        const nowSlot = computeN0MinuteSlotFromMs(nowMs);
+        if (!nowSlot || !nowSlot.key) return { nowKey: null, nowCount: 0, top: [] };
+
+        const map = new Map(); // key -> count
+        for (let i = 0; i < max; i++) {
+            const s = arr[i];
+            const ms = Number.isFinite(parseSpinTimestamp(s)) ? parseSpinTimestamp(s) : 0;
+            if (!ms) continue;
+            if (!isWhiteSpinForN0Guard(s)) continue;
+            const k = computeN0MinuteSlotFromMs(ms).key;
+            if (!k) continue;
+            map.set(k, (map.get(k) || 0) + 1);
+        }
+        const entries = [...map.entries()].sort((a, b) => b[1] - a[1]);
+        const nowCount = map.get(nowSlot.key) || 0;
+        return { nowKey: nowSlot.key, nowCount, top: entries.slice(0, 6) };
+    } catch (_) {
+        return { nowKey: null, nowCount: 0, top: [] };
+    }
+}
+
+function findPrevDayRepeatWhite(history, nowMs, toleranceMs = 90 * 1000) {
+    try {
+        const arr = Array.isArray(history) ? history : [];
+        const now = Number(nowMs) || Date.now();
+        const target = now - 24 * 60 * 60 * 1000;
+        if (!Number.isFinite(target) || target <= 0) return null;
+
+        let best = null;
+        let bestDelta = Infinity;
+        for (let i = 0; i < arr.length; i++) {
+            const s = arr[i];
+            const ms = Number.isFinite(parseSpinTimestamp(s)) ? parseSpinTimestamp(s) : 0;
+            if (!ms) continue;
+            const delta = Math.abs(ms - target);
+            if (delta <= toleranceMs && delta < bestDelta) {
+                best = s;
+                bestDelta = delta;
+            }
+            // se o histórico já passou de 26h pra trás, dá pra encerrar (mais antigo)
+            if (ms < (target - 2 * 60 * 60 * 1000)) break;
+        }
+        if (best && isWhiteSpinForN0Guard(best)) {
+            const slot = computeN0MinuteSlotFromMs(Number.isFinite(parseSpinTimestamp(best)) ? parseSpinTimestamp(best) : now).key;
+            return { hit: true, mode: 'prev_day', deltaMin: Math.round(bestDelta / 60000), slot };
+        }
+
+        // fallback: repetiu o MESMO horário:minute#slot em algum ponto do histórico disponível
+        const nowSlot = computeN0MinuteSlotFromMs(now);
+        if (!nowSlot || !nowSlot.key) return null;
+        for (let i = 0; i < arr.length; i++) {
+            const s = arr[i];
+            const ms = Number.isFinite(parseSpinTimestamp(s)) ? parseSpinTimestamp(s) : 0;
+            if (!ms) continue;
+            if (!isWhiteSpinForN0Guard(s)) continue;
+            const k = computeN0MinuteSlotFromMs(ms).key;
+            if (k === nowSlot.key) {
+                const deltaH = Math.round(Math.abs(now - ms) / (60 * 60 * 1000));
+                return { hit: true, mode: 'same_slot', deltaHours: deltaH, slot: k };
+            }
+        }
+        return null;
+    } catch (_) {
+        return null;
+    }
+}
+
+function computeN0ObserverPackage({ history, nowMs, n0Result, lookaheadSpins }) {
+    const hourStats = computeN0HourStats(history, nowMs, lookaheadSpins);
+    const pos = [];
+    const neg = [];
+
+    // SAT (saturação do horário) / FIM (fim do horário com déficit) / CHU (chuva)
+    if (hourStats.burst) pos.push(`CHU${hourStats.whitesThisHour}/${hourStats.target}`);
+    if (hourStats.needFill) pos.push(`FIM${hourStats.whitesThisHour}/${hourStats.target}`);
+    if (hourStats.saturated) neg.push(`SAT${hourStats.whitesThisHour}/${hourStats.target}`);
+
+    // DES (descanso / gap alto) + VIZ (sequência de brancos isolados)
+    try {
+        const gaps = computeWhiteGapsNewestFirst(history, Math.max(600, Math.min(REALTIME_HISTORY_CAP, Math.floor((lookaheadSpins || 3) * 1200))));
+        const sorted = gaps.filter((n) => Number.isFinite(n) && n >= 0).slice().sort((a, b) => a - b);
+        const p75 = quantileFromSorted(sorted, 0.75);
+        const p90 = quantileFromSorted(sorted, 0.90);
+        const lastWhiteIdx = findMostRecentWhiteIndexForN0(history, 400);
+        const gapNow = (lastWhiteIdx != null) ? Math.max(0, lastWhiteIdx) : null;
+        if (gapNow != null && p75 != null && gapNow >= p75 && gapNow >= 10) {
+            pos.push(`DESg${gapNow}≥p75${p75}`);
+        }
+        if (gapNow != null) {
+            // cadeia de isolados (gaps longos)
+            const lastGaps = sorted.length ? gaps.slice(-10) : [];
+            let chain = 0;
+            for (let i = lastGaps.length - 1; i >= 0; i--) {
+                const g = Number(lastGaps[i]);
+                if (!Number.isFinite(g)) break;
+                if (g >= N0_OBS_NEIGHBOR_GAP_THRESHOLD) chain += 1;
+                else break;
+            }
+            if (chain >= N0_OBS_NEIGHBOR_MIN_CHAIN && gapNow <= 12 && gapNow >= 1) {
+                pos.push(`VIZc${chain}`);
+            }
+            // Em "chuva", vizinhança já é implícita; não poluir
+        }
+    } catch (_) {}
+
+    // Contexto do N0 (puxadores/quebra/gap) a partir do modelo leve
+    const ctx = (n0Result && n0Result.context_stats && typeof n0Result.context_stats === 'object')
+        ? n0Result.context_stats
+        : null;
+    const base = (ctx && typeof ctx.base_white_rate === 'number' && Number.isFinite(ctx.base_white_rate) && ctx.base_white_rate > 0)
+        ? clamp01(ctx.base_white_rate)
+        : (hourStats && typeof hourStats.baseWhite === 'number' ? clamp01(hourStats.baseWhite) : clamp01(1 - Math.pow(1 - (1 / 15), Math.max(1, Math.min(6, Math.floor(Number(lookaheadSpins) || 3))))));
+
+    const liveChars = (n0Result && Array.isArray(n0Result.live_window_chars)) ? n0Result.live_window_chars : null;
+    const liveNums = (n0Result && Array.isArray(n0Result.live_window_numbers)) ? n0Result.live_window_numbers : null;
+
+    // PUX (puxador)
+    try {
+        const tailNum = getTailNonWhiteNumberFromWindow(liveChars, liveNums);
+        // ✅ Usar APENAS os últimos ~240 giros para puxador (recente)
+        const pullersRecent = computeN0RecentPullerStats(history, lookaheadSpins, N0_OBS_PULLER_LOOKBACK_SPINS);
+        const row = tailNum != null ? pullersRecent[String(tailNum)] : null;
+        if (row && row.occ >= N0_OBS_PULLER_MIN_OCC) {
+            const p = row.white / Math.max(1, row.occ);
+            if (p >= Math.max(base * 1.35, 0.10)) {
+                pos.push(`PUXr${tailNum}=${row.white}/${row.occ}`);
+            }
+        }
+    } catch (_) {}
+
+    // GAP (hazard por bucket)
+    try {
+        const lastWhiteIdx = findMostRecentWhiteIndexForN0(history, 400);
+        const gapNow = (lastWhiteIdx != null) ? Math.max(0, lastWhiteIdx) : null;
+        if (gapNow != null && ctx && ctx.gap_stats) {
+            const b = bucketGapForN0(gapNow);
+            const row = ctx.gap_stats[b];
+            if (row && row.occ >= 4) {
+                const p = row.white / Math.max(1, row.occ);
+                if (p >= Math.max(base * 1.25, 0.10)) {
+                    pos.push(`GAP${b}=${row.white}/${row.occ}`);
+                }
+            }
+        }
+    } catch (_) {}
+
+    // QBR (quebra após streak)
+    try {
+        const br = computeBreakAfterStreak(liveChars);
+        if (br && br.broke && ctx && ctx.break_stats) {
+            const bucket = bucketRunLenForN0(br.prevRunLen || 0);
+            const key = `prev=${bucket}|from=${br.from}|to=${br.to}`;
+            const row = ctx.break_stats[key] || ctx.break_stats[`prev=${bucket}`] || null;
+            if (row && row.occ >= 3) {
+                const p = row.white / Math.max(1, row.occ);
+                if (p >= Math.max(base * 1.25, 0.10)) {
+                    pos.push(`QBR${bucket}${br.from}->${br.to}=${row.white}/${row.occ}`);
+                }
+            }
+        }
+    } catch (_) {}
+
+    // ESP (espelhamento)
+    const mirror = detectN0Mirror(liveChars);
+    if (mirror && mirror.hit) {
+        pos.push(`ESP${mirror.runB}${mirror.B}`);
+    }
+
+    // RES (quebra de resistência)
+    const res = detectN0ResistanceBreak(liveChars);
+    if (res && res.hit) {
+        pos.push(`RES${res.prevMax}->${res.curRun}${res.color}`);
+    }
+
+    // POS (posição por horário:minute#slot) e REP (repetição do dia anterior/slot)
+    const slotStats = computeN0TimeSlotStatsFromHistory(history, nowMs);
+    if (slotStats && slotStats.nowKey && slotStats.nowCount >= 2) {
+        // só marcar se for relativamente relevante (top 6)
+        const topKeys = (slotStats.top || []).map(([k]) => k);
+        if (topKeys.includes(slotStats.nowKey)) {
+            pos.push(`POS${slotStats.nowKey}=${slotStats.nowCount}x`);
+        }
+    }
+    const rep = findPrevDayRepeatWhite(history, nowMs);
+    if (rep && rep.hit) {
+        pos.push(rep.mode === 'prev_day'
+            ? `REP-1d Δ${rep.deltaMin}m`
+            : `REP${rep.slot}`);
+    }
+
+    // confirmação = quantidade de observadores "fortes" (exclui GAP)
+    const isStrong = (tag) => {
+        const t = String(tag || '').toUpperCase();
+        if (t.startsWith('GAP')) return false;
+        if (t.startsWith('SAT')) return false;
+        return true;
+    };
+    const strongCount = pos.filter(isStrong).length;
+
+    const short = (() => {
+        const hour = hourStats && hourStats.timeSlot && hourStats.timeSlot.hour != null ? `H${String(hourStats.timeSlot.hour).padStart(2, '0')}` : 'H??';
+        const hourPart = `${hour} ${hourStats.whitesThisHour}/${hourStats.target}`;
+        const tagsPos = (() => {
+            if (!pos.length) return '';
+            const list = pos.slice(0, 6);
+            const suffix = pos.length > list.length ? ',…' : '';
+            return `+${list.join(',')}${suffix}`;
+        })();
+        const tagsNeg = (() => {
+            if (!neg.length) return '';
+            const list = neg.slice(0, 4);
+            const suffix = neg.length > list.length ? ',…' : '';
+            return `-${list.join(',')}${suffix}`;
+        })();
+        const parts = [hourPart].filter(Boolean);
+        if (tagsPos) parts.push(tagsPos);
+        if (tagsNeg) parts.push(tagsNeg);
+        return parts.join(' • ');
+    })();
+
+    return {
+        hourStats,
+        pos,
+        neg,
+        strongCount,
+        short
+    };
+}
+
+function evaluateN0WhiteSignalGate({ history, nowMs, lookaheadSpins, baseConfidence, softThreshold, n0Result, mode = 'alert' }) {
+    const pack = computeN0ObserverPackage({ history, nowMs, n0Result, lookaheadSpins });
+    const hourStats = pack.hourStats;
+
+    // regras "duras" primeiro
+    if (hourStats && hourStats.saturated) {
+        return { ok: false, reason: 'hour_saturated', pack, effectiveConfidence: clamp01(baseConfidence || 0) };
+    }
+
+    // confirmações mínimas
+    const required = (mode === 'block_all')
+        ? N0_OBS_CONFIRM_MIN_STRONG
+        : N0_OBS_CONFIRM_MIN_DEFAULT;
+    const relaxedRequired = (hourStats && hourStats.needFill) ? Math.max(1, required - 1) : required;
+    if ((pack.strongCount || 0) < relaxedRequired) {
+        return { ok: false, reason: 'insufficient_confirmations', required: relaxedRequired, got: pack.strongCount || 0, pack, effectiveConfidence: clamp01(baseConfidence || 0) };
+    }
+
+    // confiança efetiva (boost leve por múltiplas confirmações / fim de hora)
+    const base = clamp01(typeof baseConfidence === 'number' ? baseConfidence : Number(baseConfidence) || 0);
+    const boost = (() => {
+        let b = 0;
+        if (hourStats && hourStats.needFill) b += 0.06;
+        if (hourStats && hourStats.burst) b += 0.04;
+        const extra = Math.max(0, (pack.strongCount || 0) - 2);
+        b += Math.min(0.08, extra * 0.03);
+        return b;
+    })();
+    const effectiveConfidence = clamp01(base + boost);
+
+    // threshold "soft" (compatível com o N0 atual)
+    const softT = clamp01(typeof softThreshold === 'number' ? softThreshold : Number(softThreshold) || 0);
+    if (effectiveConfidence < softT && !(hourStats && hourStats.needFill)) {
+        return { ok: false, reason: 'below_soft_threshold', softThreshold: softT, pack, effectiveConfidence };
+    }
+
+    // budget final (sem commit)
+    const budget = (() => {
+        try {
+            return decideN0WhiteSignalEmission({
+                history,
+                nowMs,
+                confidence: effectiveConfidence,
+                lookaheadSpins,
+                override: false,
+                commit: false
+            });
+        } catch (_) {
+            return { ok: false, reason: 'budget_error' };
+        }
+    })();
+    if (!budget || !budget.ok) {
+        return { ok: false, reason: budget && budget.reason ? budget.reason : 'budget_block', budget, pack, effectiveConfidence };
+    }
+    return { ok: true, reason: 'ok', budget, pack, effectiveConfidence };
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -15779,6 +16380,16 @@ function runN0Detector(history, options = {}) {
                     n_windows: model.n_windows,
                     holdout: holdoutInfo,
                     config_library: null,
+                    // ✅ Contexto leve para observadores/explicação (não pesa no payload)
+                    context_stats: {
+                        base_white_rate: clamp01(liveContext && liveContext.base_white_rate),
+                        number_stats: (liveContext && liveContext.number_stats) ? liveContext.number_stats : {},
+                        gap_stats: (liveContext && liveContext.gap_stats) ? liveContext.gap_stats : {},
+                        break_stats: (liveContext && liveContext.break_stats) ? liveContext.break_stats : {}
+                    },
+                    // ✅ Janela ao vivo (para observadores como puxadores/espelho/quebra)
+                    live_window_chars: liveWindow,
+                    live_window_numbers: liveWindowNumbers,
                     learning_context: learningContext || null,
                     learning_key: learningKey || null,
                     learning_decision: learningDecision,
@@ -15927,6 +16538,16 @@ function runN0Detector(history, options = {}) {
                 n_windows: model.n_windows,
                 holdout: holdoutInfo,
                 config_library: null,
+                // ✅ Contexto leve para observadores/explicação (não pesa no payload)
+                context_stats: {
+                    base_white_rate: clamp01(liveContext && liveContext.base_white_rate),
+                    number_stats: (liveContext && liveContext.number_stats) ? liveContext.number_stats : {},
+                    gap_stats: (liveContext && liveContext.gap_stats) ? liveContext.gap_stats : {},
+                    break_stats: (liveContext && liveContext.break_stats) ? liveContext.break_stats : {}
+                },
+                // ✅ Janela ao vivo (para observadores como puxadores/espelho/quebra)
+                live_window_chars: liveWindow,
+                live_window_numbers: liveWindowNumbers,
                 learning_context: learningContext || null,
                 learning_key: learningKey || null,
                 learning_decision: learningDecision,
@@ -16309,6 +16930,16 @@ function runN0Detector(history, options = {}) {
             holdout: holdoutInfo,
             // em backtest/silent, evitar devolver payload gigante (não é usado pela UI e custa CPU/memória)
             config_library: silent ? null : candidateConfigs,
+            // ✅ Contexto leve para observadores/explicação (não pesa no payload)
+            context_stats: {
+                base_white_rate: clamp01(trainingContext && trainingContext.base_white_rate),
+                number_stats: (trainingContext && trainingContext.number_stats) ? trainingContext.number_stats : {},
+                gap_stats: (trainingContext && trainingContext.gap_stats) ? trainingContext.gap_stats : {},
+                break_stats: (trainingContext && trainingContext.break_stats) ? trainingContext.break_stats : {}
+            },
+            // ✅ Janela ao vivo (para observadores como puxadores/espelho/quebra)
+            live_window_chars: liveWindow,
+            live_window_numbers: liveWindowNumbers,
             // Auto-aprendizado (N0)
             learning_context: learningContext || null,
             learning_key: learningKey || null,
@@ -18760,6 +19391,11 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
         let n0WhiteStrength = 0;
         let n0ActionSuppressed = false;
         let n0DetailSummary = 'NULO';
+        // ✅ Gate + observadores (qualidade do sinal)
+        let n0GateAlert = null;
+        let n0GateBlockAll = null;
+        let n0UiVoteWhite = false; // se false, não mostrar "WHITE" no card do N0 (evita induzir entrada em cenário ruim)
+        let n0EffectiveConfidence = null; // 0..1 (confiança ajustada por observadores)
         let n0CooldownInfo = null; // { ok, active, remaining, required } | null
 
         const n0Enabled = isLevelEnabledLocal('N0');
@@ -18818,46 +19454,95 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
                     n0CooldownInfo = null;
                 }
 
-                const actionLabel = n0ForceWhite
-                    ? 'BLOCK ALL'
-                    : n0SoftBlockActive
-                        ? 'SOFT BLOCK'
-                        : (n0Result.pred_live === 'W' ? 'ALERTA' : 'NULO');
-                const confidencePct = Math.round(n0WhiteStrength * 100);
-                const thresholdPct = n0Result.blocking_threshold != null
-                    ? Math.round(n0Result.blocking_threshold * 100)
-                    : null;
-                const detailsParts = [
-                    actionLabel,
-                    `conf ${confidencePct}%`
-                ];
-                if (thresholdPct !== null) {
-                    detailsParts.push(`t* ${thresholdPct}%`);
-                }
-                if (n0Result.dominant_nonwhite) {
-                    detailsParts.push(`dom ${n0Result.dominant_nonwhite.toUpperCase()}`);
-                }
-                if (bestMetrics.f1 != null) {
-                    detailsParts.push(`f1 ${(bestMetrics.f1 * 100).toFixed(1)}%`);
-                }
-                if (blockMetrics.precision != null) {
-                    detailsParts.push(`p* ${(blockMetrics.precision * 100).toFixed(1)}%`);
-                }
-                if (testedConfigs != null) {
-                    detailsParts.push(`${testedConfigs} cfgs`);
-                    if (effectiveConfigs != null && effectiveConfigs !== testedConfigs) {
-                        detailsParts.push(`${effectiveConfigs} válidas`);
+                // ✅ Observadores + gate (evita recomendar branco em cenário "saturado" ou com pouca confirmação)
+                const n0NowMsGate = Number.isFinite(parseSpinTimestamp(history && history[0])) ? parseSpinTimestamp(history[0]) : Date.now();
+                const softThresholdGate = (() => {
+                    try {
+                        const t = (n0Result && typeof n0Result.blocking_threshold === 'number') ? clamp01(n0Result.blocking_threshold) : null;
+                        const base = (t == null) ? 0.5 : t;
+                        return clamp01(base * 0.8);
+                    } catch (_) {
+                        return 0.5;
                     }
+                })();
+
+                n0GateAlert = evaluateN0WhiteSignalGate({
+                    history,
+                    nowMs: n0NowMsGate,
+                    lookaheadSpins: n0Options.lookaheadSpins,
+                    baseConfidence: n0WhiteStrength,
+                    softThreshold: softThresholdGate,
+                    n0Result,
+                    mode: 'alert'
+                });
+                n0GateBlockAll = evaluateN0WhiteSignalGate({
+                    history,
+                    nowMs: n0NowMsGate,
+                    lookaheadSpins: n0Options.lookaheadSpins,
+                    baseConfidence: n0WhiteStrength,
+                    softThreshold: softThresholdGate,
+                    n0Result,
+                    mode: 'block_all'
+                });
+
+                const cooldownActive = !!(n0CooldownInfo && n0CooldownInfo.ok === false);
+                const recentWhiteIdxGate = findMostRecentWhiteIndexForN0(history, 80);
+                const consecutiveWhite = recentWhiteIdxGate === 0;
+                const canAlert = !!(n0Result && n0Result.pred_live === 'W' && n0GateAlert && n0GateAlert.ok && !cooldownActive && !consecutiveWhite);
+                const canBlockAll = !!(n0ForceWhite && n0GateBlockAll && n0GateBlockAll.ok && !cooldownActive && !consecutiveWhite);
+
+                // Se o gate não aprovar, não aplicar soft-block nos pesos (não faz sentido "penalizar" outros níveis)
+                if (!canAlert) {
+                    n0SoftBlockActive = false;
                 }
-                if (holdoutData.enabled) {
-                    detailsParts.push(holdoutData.passed ? 'holdout ok' : 'holdout falhou');
+                // Se o gate não aprovar, não permitir BLOCK ALL (alto risco)
+                n0ForceWhite = canBlockAll;
+
+                n0UiVoteWhite = canAlert;
+                const gateChosen = canBlockAll ? n0GateBlockAll : n0GateAlert;
+                n0EffectiveConfidence = (gateChosen && typeof gateChosen.effectiveConfidence === 'number' && Number.isFinite(gateChosen.effectiveConfidence))
+                    ? clamp01(gateChosen.effectiveConfidence)
+                    : clamp01(n0WhiteStrength);
+
+                const confidencePct = Math.round(n0EffectiveConfidence * 100);
+                const thresholdPct = (n0Result && n0Result.blocking_threshold != null)
+                    ? Math.round(clamp01(n0Result.blocking_threshold) * 100)
+                    : null;
+
+                const actionLabel = (() => {
+                    if (!n0Result || n0Result.pred_live !== 'W') return 'NULO';
+                    if (canBlockAll) return 'BLOCK ALL';
+                    if (canAlert && n0SoftBlockActive) return 'SOFT BLOCK';
+                    if (canAlert) return n0ActionSuppressed ? 'ALERTA (info)' : 'ALERTA';
+                    return 'EVITAR';
+                })();
+
+                const packShort = (gateChosen && gateChosen.pack && typeof gateChosen.pack.short === 'string')
+                    ? gateChosen.pack.short
+                    : (n0GateAlert && n0GateAlert.pack && typeof n0GateAlert.pack.short === 'string' ? n0GateAlert.pack.short : null);
+
+                const detailsParts = [actionLabel];
+                if (thresholdPct !== null) detailsParts.push(`t* ${thresholdPct}%`);
+                if (n0Result && n0Result.dominant_nonwhite) {
+                    detailsParts.push(`dom ${String(n0Result.dominant_nonwhite).toUpperCase()}`);
+                }
+                if (holdoutData && holdoutData.enabled) {
+                    detailsParts.push(holdoutData.passed ? 'HOK' : 'HF');
+                }
+                if (packShort) detailsParts.push(packShort);
+
+                // Mostrar motivo do bloqueio quando o N0 detectou WHITE mas o gate rejeitou
+                if (n0Result && n0Result.pred_live === 'W' && !canAlert) {
+                    const r = cooldownActive
+                        ? 'cooldown'
+                        : (consecutiveWhite ? 'recent_white_spin' : ((n0GateAlert && typeof n0GateAlert.reason === 'string') ? n0GateAlert.reason : 'bloqueado'));
+                    detailsParts.push(`gate ${r}`);
                 }
                 if (n0CooldownInfo && n0CooldownInfo.ok === false) {
                     detailsParts.push(`cooldown ${n0CooldownInfo.remaining}/${n0CooldownInfo.required}`);
                 }
-                if (n0ActionSuppressed) {
-                    detailsParts.push('informativo');
-                }
+                if (n0ActionSuppressed) detailsParts.push('informativo');
+
                 n0DetailSummary = detailsParts.join(' • ');
 
                 console.log(`%c   ➤ Ação sugerida: ${actionRequested.toUpperCase()}${n0ActionSuppressed ? ' (modo informativo)' : ''}`, 'color: #FFFFFF; font-weight: bold;');
@@ -18904,9 +19589,10 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
         levelReports.push({
             id: 'N0',
             name: 'Detector de Branco',
-            color: n0Result && n0Result.pred_live === 'W' ? 'white' : null,
+            // ✅ Só marcar WHITE quando o gate aprovar (evita induzir entrada em cenário saturado)
+            color: n0UiVoteWhite ? 'white' : null,
             weight: n0Enabled ? levelWeights.whiteDetector : 0,
-            strength: n0WhiteStrength,
+            strength: (typeof n0EffectiveConfidence === 'number' && Number.isFinite(n0EffectiveConfidence)) ? n0EffectiveConfidence : n0WhiteStrength,
             score: 0,
             details: n0DetailSummary,
             disabled: !n0Enabled
@@ -19471,12 +20157,20 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
                     console.log('%c⚪ N0 BLOCK ALL suprimido: branco acabou de sair (evitar consecutivo)', 'color: #FFAA00; font-weight: bold;');
                 } else {
                 // ✅ Budget deve ser "commitado" só quando realmente vamos emitir sinal (evita gastar budget em sinal cancelado pelo intervalo).
+                const gateBlockAll = (n0GateBlockAll && n0GateBlockAll.ok) ? n0GateBlockAll : null;
+                const n0ConfForSignal = clamp01(
+                    (gateBlockAll && typeof gateBlockAll.effectiveConfidence === 'number' && Number.isFinite(gateBlockAll.effectiveConfidence))
+                        ? gateBlockAll.effectiveConfidence
+                        : ((typeof n0EffectiveConfidence === 'number' && Number.isFinite(n0EffectiveConfidence)) ? n0EffectiveConfidence : n0WhiteStrength)
+                );
                 const preBudget = (() => {
                     try {
+                        // Se já passamos pelo gate, reutilizar o check (commit=false) para evitar recalcular.
+                        if (gateBlockAll && gateBlockAll.budget && gateBlockAll.budget.ok) return gateBlockAll.budget;
                         return decideN0WhiteSignalEmission({
                             history,
                             nowMs,
-                            confidence: n0WhiteStrength,
+                            confidence: n0ConfForSignal,
                             lookaheadSpins: n0Options.lookaheadSpins,
                             override: false,
                             commit: false
@@ -19518,7 +20212,7 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
                             return decideN0WhiteSignalEmission({
                                 history,
                                 nowMs,
-                                confidence: n0WhiteStrength,
+                                confidence: n0ConfForSignal,
                                 lookaheadSpins: n0Options.lookaheadSpins,
                                 override: false,
                                 commit: true
@@ -19530,7 +20224,7 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
                     if (!committed || !committed.ok) {
                         console.log(`%c⚪ N0 BLOCK ALL cancelado (budget mudou): ${committed && committed.reason ? committed.reason : 'erro'}`, 'color: #FFAA00; font-weight: bold;');
                     } else {
-                        const whiteConfidencePct = Math.max(0, Math.min(100, Math.round(n0WhiteStrength * 100)));
+                        const whiteConfidencePct = Math.max(0, Math.min(100, Math.round(n0ConfForSignal * 100)));
                         const thresholdPct = n0Result && n0Result.blocking_threshold != null
                             ? Math.round(n0Result.blocking_threshold * 100)
                             : null;
@@ -19560,11 +20254,25 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
                         const holdoutReasoning = n0Result && n0Result.holdout && n0Result.holdout.enabled
                             ? `Holdout: ${n0Result.holdout.passed ? 'OK' : 'Falhou'}${n0Result.holdout.reason ? ` (${n0Result.holdout.reason})` : ''}\n`
                             : '';
+                        const obsPack = (gateBlockAll && gateBlockAll.pack) ? gateBlockAll.pack : null;
+                        const obsHour = (obsPack && obsPack.hourStats) ? obsPack.hourStats : null;
+                        const obsPos = (obsPack && Array.isArray(obsPack.pos)) ? obsPack.pos : [];
+                        const obsNeg = (obsPack && Array.isArray(obsPack.neg)) ? obsPack.neg : [];
+                        const obsHourLine = obsHour
+                            ? `Hora: ${obsHour.whitesThisHour}/${obsHour.target}${obsHour.avgWhitesPerHour != null ? ` (média ${Number(obsHour.avgWhitesPerHour).toFixed(1)})` : ''}\n`
+                            : '';
+                        const obsLine = (() => {
+                            const posTxt = obsPos.length ? obsPos.slice(0, 8).join(' • ') : '—';
+                            const negTxt = obsNeg.length ? obsNeg.slice(0, 6).join(' • ') : '—';
+                            return `Obs+: ${posTxt}\nObs-: ${negTxt}\n`;
+                        })();
                         const reasoning =
                             `${levelReports.map(level => describeLevel(level, { includeEmoji: false })).join('\n')}\n` +
                             `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
-                            `Detector de Branco\n` +
+                            `Detector de Branco (N0)\n` +
                             `Confiança: ${whiteConfidencePct}%\n` +
+                            obsHourLine +
+                            obsLine +
                             `t*: ${thresholdPct !== null ? `${thresholdPct}%` : 'n/d'} • F1 ${(bestMetrics.f1 != null ? (bestMetrics.f1 * 100).toFixed(1) : 'n/d')}% • Precision* ${(blockMetrics.precision != null ? (blockMetrics.precision * 100).toFixed(1) : 'n/d')}%\n` +
                             holdoutReasoning +
                             `Configs: ${n0Result && n0Result.effective_configs != null ? `${n0Result.effective_configs}/${n0Result.tested_configs}` : (n0Result && n0Result.tested_configs != null ? n0Result.tested_configs : 'n/d')}\n` +
@@ -19594,8 +20302,8 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
                             patternType: 'nivel-diamante',
                             patternName: 'Detector de Branco (N0)',
                             colorRecommended: 'white',
-                            normalizedScore: Number(n0WhiteStrength.toFixed(4)),
-                            scoreMagnitude: Number(n0WhiteStrength.toFixed(4)),
+                            normalizedScore: Number(n0ConfForSignal.toFixed(4)),
+                            scoreMagnitude: Number(n0ConfForSignal.toFixed(4)),
                             intensityMode: analyzerConfig.signalIntensity || 'aggressive',
                             rawConfidence: whiteConfidencePct,
                             finalConfidence: whiteConfidencePct,
@@ -19650,29 +20358,19 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
                 return false;
             }
         })();
-        const n0PredictedWhite = !!(n0Enabled && n0Result && n0Result.enabled !== false && n0Result.pred_live === 'W');
+        // ✅ "Predicted" agora significa: N0 viu WHITE *e* o gate/observadores aprovaram o cenário.
+        const n0PredictedWhite = !!n0UiVoteWhite;
 
         // ✅ MODO MISTO (N0 + outros níveis):
         // Se o N0 prever WHITE com confiança suficiente (>= limiar do SOFT), emitir sinal WHITE
         // mesmo com outros níveis ativos. Isso evita longos períodos sem sinal de branco.
         const nowMsForBudget = Number.isFinite(parseSpinTimestamp(history && history[0])) ? parseSpinTimestamp(history[0]) : Date.now();
-        const n0SoftThreshold = (() => {
-            try {
-                const t = (n0Result && typeof n0Result.blocking_threshold === 'number')
-                    ? clamp01(n0Result.blocking_threshold)
-                    : null;
-                // fallback conservador
-                const base = (t == null) ? 0.5 : t;
-                return clamp01(base * 0.8);
-            } catch (_) {
-                return 0.5;
-            }
-        })();
-        const n0StrongAlert = !!(n0PredictedWhite && (n0WhiteStrength || 0) >= n0SoftThreshold);
         const n0CooldownGate = getN0PostWinCooldownGate({ history, nowMs: nowMsForBudget });
         const n0BudgetCheck = (() => {
-            if (!n0PredictedWhite) return { ok: false, reason: 'not_predicted' };
-            if (!n0StrongAlert) return { ok: false, reason: 'below_soft_threshold', softThreshold: n0SoftThreshold };
+            if (!n0PredictedWhite) {
+                const r = (n0GateAlert && typeof n0GateAlert.reason === 'string') ? n0GateAlert.reason : 'not_predicted';
+                return { ok: false, reason: r };
+            }
             if (n0CooldownGate && n0CooldownGate.ok === false) {
                 return { ok: false, reason: n0CooldownGate.reason || 'cooldown', cooldown: n0CooldownGate };
             }
@@ -19681,17 +20379,30 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
             if (recentWhiteIdx === 0) {
                 return { ok: false, reason: 'recent_white_spin' };
             }
+
+            const eff = clamp01(
+                (typeof n0EffectiveConfidence === 'number' && Number.isFinite(n0EffectiveConfidence))
+                    ? n0EffectiveConfidence
+                    : n0WhiteStrength
+            );
+            const pack = (n0GateAlert && n0GateAlert.pack) ? n0GateAlert.pack : null;
             try {
-                return decideN0WhiteSignalEmission({
-                    history,
-                    nowMs: nowMsForBudget,
-                    confidence: n0WhiteStrength,
-                    lookaheadSpins: n0Options.lookaheadSpins,
-                    override: false,
-                    commit: false
-                });
+                const base = (n0GateAlert && n0GateAlert.ok && n0GateAlert.budget && n0GateAlert.budget.ok)
+                    ? n0GateAlert.budget
+                    : decideN0WhiteSignalEmission({
+                        history,
+                        nowMs: nowMsForBudget,
+                        confidence: eff,
+                        lookaheadSpins: n0Options.lookaheadSpins,
+                        override: false,
+                        commit: false
+                    });
+                if (!base || !base.ok) {
+                    return { ...(base || {}), ok: false, reason: base && base.reason ? base.reason : 'budget_block', effectiveConfidence: eff, pack };
+                }
+                return { ...base, ok: true, effectiveConfidence: eff, pack };
             } catch (_) {
-                return { ok: false, reason: 'budget_error' };
+                return { ok: false, reason: 'budget_error', effectiveConfidence: eff, pack };
             }
         })();
 
@@ -19717,7 +20428,9 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
                     return decideN0WhiteSignalEmission({
                         history,
                         nowMs: nowMsForBudget,
-                        confidence: n0WhiteStrength,
+                        confidence: (n0BudgetCheck && typeof n0BudgetCheck.effectiveConfidence === 'number' && Number.isFinite(n0BudgetCheck.effectiveConfidence))
+                            ? n0BudgetCheck.effectiveConfidence
+                            : n0WhiteStrength,
                         lookaheadSpins: n0Options.lookaheadSpins,
                         override: false,
                         commit: true
@@ -19729,7 +20442,11 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
             if (!committed || !committed.ok) {
                 console.log(`%c⚪ N0 cancelado (budget mudou): ${committed && committed.reason ? committed.reason : 'erro'}`, 'color: #FFAA00; font-weight: bold;');
             } else {
-            const whiteConfidencePct = Math.max(0, Math.min(100, Math.round(n0WhiteStrength * 100)));
+            const whiteConfidencePct = Math.max(0, Math.min(100, Math.round(
+                ((n0BudgetCheck && typeof n0BudgetCheck.effectiveConfidence === 'number' && Number.isFinite(n0BudgetCheck.effectiveConfidence))
+                    ? n0BudgetCheck.effectiveConfidence
+                    : n0WhiteStrength) * 100
+            )));
             const thresholdPct = n0Result && n0Result.blocking_threshold != null
                 ? Math.round(n0Result.blocking_threshold * 100)
                 : null;
@@ -19757,12 +20474,26 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
             const holdoutReasoning = n0Result && n0Result.holdout && n0Result.holdout.enabled
                 ? `Holdout: ${n0Result.holdout.passed ? 'OK' : 'Falhou'}${n0Result.holdout.reason ? ` (${n0Result.holdout.reason})` : ''}\n`
                 : '';
+            const obsPack = (n0BudgetCheck && n0BudgetCheck.pack) ? n0BudgetCheck.pack : ((n0GateAlert && n0GateAlert.pack) ? n0GateAlert.pack : null);
+            const obsHour = (obsPack && obsPack.hourStats) ? obsPack.hourStats : null;
+            const obsPos = (obsPack && Array.isArray(obsPack.pos)) ? obsPack.pos : [];
+            const obsNeg = (obsPack && Array.isArray(obsPack.neg)) ? obsPack.neg : [];
+            const obsHourLine = obsHour
+                ? `Hora: ${obsHour.whitesThisHour}/${obsHour.target}${obsHour.avgWhitesPerHour != null ? ` (média ${Number(obsHour.avgWhitesPerHour).toFixed(1)})` : ''}\n`
+                : '';
+            const obsLine = (() => {
+                const posTxt = obsPos.length ? obsPos.slice(0, 8).join(' • ') : '—';
+                const negTxt = obsNeg.length ? obsNeg.slice(0, 6).join(' • ') : '—';
+                return `Obs+: ${posTxt}\nObs-: ${negTxt}\n`;
+            })();
             const reasoning =
                 `${levelReports.map(level => describeLevel(level, { includeEmoji: false })).join('\n')}\n` +
                 `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
                 `Detector de Branco (N0)\n` +
                 `Modo: misto (N0 + outros níveis)\n` +
                 `Confiança: ${whiteConfidencePct}%\n` +
+                obsHourLine +
+                obsLine +
                 `t*: ${thresholdPct !== null ? `${thresholdPct}%` : 'n/d'}\n` +
                 holdoutReasoning +
                 `Ação: ${actionLabel}`;
@@ -19789,8 +20520,16 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
                 patternType: 'nivel-diamante',
                 patternName: 'Detector de Branco (N0)',
                 colorRecommended: 'white',
-                normalizedScore: Number(n0WhiteStrength.toFixed(4)),
-                scoreMagnitude: Number(n0WhiteStrength.toFixed(4)),
+                normalizedScore: Number((
+                    (n0BudgetCheck && typeof n0BudgetCheck.effectiveConfidence === 'number' && Number.isFinite(n0BudgetCheck.effectiveConfidence))
+                        ? n0BudgetCheck.effectiveConfidence
+                        : n0WhiteStrength
+                ).toFixed(4)),
+                scoreMagnitude: Number((
+                    (n0BudgetCheck && typeof n0BudgetCheck.effectiveConfidence === 'number' && Number.isFinite(n0BudgetCheck.effectiveConfidence))
+                        ? n0BudgetCheck.effectiveConfidence
+                        : n0WhiteStrength
+                ).toFixed(4)),
                 intensityMode: analyzerConfig.signalIntensity || 'aggressive',
                 rawConfidence: whiteConfidencePct,
                 finalConfidence: whiteConfidencePct,
@@ -19860,7 +20599,9 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
                     return decideN0WhiteSignalEmission({
                         history,
                         nowMs: nowMsForBudget,
-                        confidence: n0WhiteStrength,
+                        confidence: (n0BudgetCheck && typeof n0BudgetCheck.effectiveConfidence === 'number' && Number.isFinite(n0BudgetCheck.effectiveConfidence))
+                            ? n0BudgetCheck.effectiveConfidence
+                            : n0WhiteStrength,
                         lookaheadSpins: n0Options.lookaheadSpins,
                         override: false,
                         commit: true
@@ -19872,7 +20613,11 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
             if (!committed || !committed.ok) {
                 console.log(`%c⚪ N0 (somente) cancelado (budget mudou): ${committed && committed.reason ? committed.reason : 'erro'}`, 'color: #FFAA00; font-weight: bold;');
             } else {
-            const whiteConfidencePct = Math.max(0, Math.min(100, Math.round(n0WhiteStrength * 100)));
+            const whiteConfidencePct = Math.max(0, Math.min(100, Math.round(
+                ((n0BudgetCheck && typeof n0BudgetCheck.effectiveConfidence === 'number' && Number.isFinite(n0BudgetCheck.effectiveConfidence))
+                    ? n0BudgetCheck.effectiveConfidence
+                    : n0WhiteStrength) * 100
+            )));
             const thresholdPct = n0Result && n0Result.blocking_threshold != null
                 ? Math.round(n0Result.blocking_threshold * 100)
                 : null;
@@ -19900,12 +20645,26 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
             const holdoutReasoning = n0Result && n0Result.holdout && n0Result.holdout.enabled
                 ? `Holdout: ${n0Result.holdout.passed ? 'OK' : 'Falhou'}${n0Result.holdout.reason ? ` (${n0Result.holdout.reason})` : ''}\n`
                 : '';
+            const obsPack = (n0BudgetCheck && n0BudgetCheck.pack) ? n0BudgetCheck.pack : ((n0GateAlert && n0GateAlert.pack) ? n0GateAlert.pack : null);
+            const obsHour = (obsPack && obsPack.hourStats) ? obsPack.hourStats : null;
+            const obsPos = (obsPack && Array.isArray(obsPack.pos)) ? obsPack.pos : [];
+            const obsNeg = (obsPack && Array.isArray(obsPack.neg)) ? obsPack.neg : [];
+            const obsHourLine = obsHour
+                ? `Hora: ${obsHour.whitesThisHour}/${obsHour.target}${obsHour.avgWhitesPerHour != null ? ` (média ${Number(obsHour.avgWhitesPerHour).toFixed(1)})` : ''}\n`
+                : '';
+            const obsLine = (() => {
+                const posTxt = obsPos.length ? obsPos.slice(0, 8).join(' • ') : '—';
+                const negTxt = obsNeg.length ? obsNeg.slice(0, 6).join(' • ') : '—';
+                return `Obs+: ${posTxt}\nObs-: ${negTxt}\n`;
+            })();
             const reasoning =
                 `${levelReports.map(level => describeLevel(level, { includeEmoji: false })).join('\n')}\n` +
                 `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
                 `Detector de Branco (N0)\n` +
                 `Modo: somente N0\n` +
                 `Confiança: ${whiteConfidencePct}%\n` +
+                obsHourLine +
+                obsLine +
                 `t*: ${thresholdPct !== null ? `${thresholdPct}%` : 'n/d'}\n` +
                 holdoutReasoning +
                 `Ação: ${actionLabel}`;
@@ -19932,8 +20691,16 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
                 patternType: 'nivel-diamante',
                 patternName: 'Detector de Branco (N0)',
                 colorRecommended: 'white',
-                normalizedScore: Number(n0WhiteStrength.toFixed(4)),
-                scoreMagnitude: Number(n0WhiteStrength.toFixed(4)),
+                normalizedScore: Number((
+                    (n0BudgetCheck && typeof n0BudgetCheck.effectiveConfidence === 'number' && Number.isFinite(n0BudgetCheck.effectiveConfidence))
+                        ? n0BudgetCheck.effectiveConfidence
+                        : n0WhiteStrength
+                ).toFixed(4)),
+                scoreMagnitude: Number((
+                    (n0BudgetCheck && typeof n0BudgetCheck.effectiveConfidence === 'number' && Number.isFinite(n0BudgetCheck.effectiveConfidence))
+                        ? n0BudgetCheck.effectiveConfidence
+                        : n0WhiteStrength
+                ).toFixed(4)),
                 intensityMode: analyzerConfig.signalIntensity || 'aggressive',
                 rawConfidence: whiteConfidencePct,
                 finalConfidence: whiteConfidencePct,
@@ -32359,6 +33126,23 @@ function evaluatePendingAnalysisSimulation(latestSpin, simState, history, modeKe
     const { maxGales, consecutiveGales } = getMartingaleSettingsForEntryColor(entryColorForSettings, modeKey, config);
 
     const historyRef = Array.isArray(history) ? history : [];
+    // ✅ Snapshot correto (corrige modal do sinal): usar os giros REAIS do momento em que o ciclo foi resolvido.
+    // Isso evita "WIN/LOSS em cima do número errado" quando a entrada fecha em G1/G2.
+    const snapshotSpins = (limit = 14) => {
+        try {
+            const safeLimit = Math.max(1, Math.min(40, Math.floor(Number(limit) || 14)));
+            return historyRef.slice(0, safeLimit).map((spin) => ({
+                color: spin?.color,
+                number: spin?.number,
+                timestamp: spin?.timestamp
+            }));
+        } catch (_) {
+            return [];
+        }
+    };
+    const last14SpinsSnapshot = snapshotSpins(14);
+    const last10SpinsSnapshot = last14SpinsSnapshot.slice(0, 10);
+    const last5SpinsSnapshot = last14SpinsSnapshot.slice(0, 5);
     const shouldUseN4DynamicGales = (() => {
         try {
             // ✅ Só aplicar quando estiver "só N4" (evita mudar comportamento do consenso multi-níveis).
@@ -32411,7 +33195,11 @@ function evaluatePendingAnalysisSimulation(latestSpin, simState, history, modeKe
                 patternDescription: currentAnalysis.patternDescription,
                 confidence: currentAnalysis.confidence,
                 color: currentAnalysis.color,
-                createdOnTimestamp: currentAnalysis.createdOnTimestamp
+                createdOnTimestamp: currentAnalysis.createdOnTimestamp,
+                // ✅ snapshot atualizado no momento do WIN (inclui o giro que resolveu)
+                last14Spins: last14SpinsSnapshot,
+                last10Spins: last10SpinsSnapshot,
+                last5Spins: last5SpinsSnapshot
             },
             martingaleStage,
             wonAt: martingaleStage,
@@ -32465,7 +33253,11 @@ function evaluatePendingAnalysisSimulation(latestSpin, simState, history, modeKe
                     patternDescription: currentAnalysis.patternDescription,
                     confidence: currentAnalysis.confidence,
                     color: currentAnalysis.color,
-                    createdOnTimestamp: currentAnalysis.createdOnTimestamp
+                    createdOnTimestamp: currentAnalysis.createdOnTimestamp,
+                    // ✅ snapshot atualizado no momento do LOSS final (RED)
+                    last14Spins: last14SpinsSnapshot,
+                    last10Spins: last10SpinsSnapshot,
+                    last5Spins: last5SpinsSnapshot
                 },
                 martingaleStage: 'ENTRADA',
                 finalResult: 'RED',
@@ -32506,7 +33298,11 @@ function evaluatePendingAnalysisSimulation(latestSpin, simState, history, modeKe
                 patternDescription: currentAnalysis.patternDescription,
                 confidence: currentAnalysis.confidence,
                 color: currentAnalysis.color,
-                createdOnTimestamp: currentAnalysis.createdOnTimestamp
+                createdOnTimestamp: currentAnalysis.createdOnTimestamp,
+                // ✅ snapshot atualizado (ENTRADA falhou e vai para G1)
+                last14Spins: last14SpinsSnapshot,
+                last10Spins: last10SpinsSnapshot,
+                last5Spins: last5SpinsSnapshot
             },
             martingaleStage: 'ENTRADA',
             finalResult: null,
@@ -32564,7 +33360,11 @@ function evaluatePendingAnalysisSimulation(latestSpin, simState, history, modeKe
                     patternDescription: currentAnalysis.patternDescription,
                     confidence: currentAnalysis.confidence,
                     color: currentAnalysis.color,
-                    createdOnTimestamp: currentAnalysis.createdOnTimestamp
+                    createdOnTimestamp: currentAnalysis.createdOnTimestamp,
+                    // ✅ snapshot atualizado no momento do LOSS final (RET/RED)
+                    last14Spins: last14SpinsSnapshot,
+                    last10Spins: last10SpinsSnapshot,
+                    last5Spins: last5SpinsSnapshot
                 },
                 martingaleStage: currentStage,
                 finalResult: 'RED',
@@ -32604,7 +33404,11 @@ function evaluatePendingAnalysisSimulation(latestSpin, simState, history, modeKe
                 patternDescription: currentAnalysis.patternDescription,
                 confidence: currentAnalysis.confidence,
                 color: currentAnalysis.color,
-                createdOnTimestamp: currentAnalysis.createdOnTimestamp
+                createdOnTimestamp: currentAnalysis.createdOnTimestamp,
+                // ✅ snapshot atualizado (GALE falhou e vai para próximo GALE)
+                last14Spins: last14SpinsSnapshot,
+                last10Spins: last10SpinsSnapshot,
+                last5Spins: last5SpinsSnapshot
             },
             martingaleStage: currentStage,
             finalResult: null,
@@ -32722,6 +33526,11 @@ function analyzeDiamondLevelsSimulation(history, config, simState) {
     let n0SoftBlockActive = false;
     let n0WhiteStrength = 0;
     let n0ActionSuppressed = false;
+    // ✅ Gate/observadores no simulador (alinha com o modo real, sem mexer no budget global)
+    let n0UiVoteWhite = false;
+    let n0EffectiveConfidence = null; // 0..1
+    let n0ObsShort = null;
+    let n0GateReason = null;
 
     if (n0Enabled) {
         try {
@@ -32743,14 +33552,71 @@ function analyzeDiamondLevelsSimulation(history, config, simState) {
         }
     }
 
+    // ✅ Gate por observadores (simulação): saturação/confirm. mínimas/limiar soft
+    try {
+        if (n0Enabled && n0Result && n0Result.enabled !== false && n0Result.pred_live === 'W') {
+            const nowMs = Number.isFinite(parseSpinTimestamp(history && history[0])) ? parseSpinTimestamp(history[0]) : Date.now();
+            const pack = computeN0ObserverPackage({ history, nowMs, n0Result, lookaheadSpins: n0LookaheadSpins });
+            n0ObsShort = pack && typeof pack.short === 'string' ? pack.short : null;
+            const hour = pack && pack.hourStats ? pack.hourStats : null;
+            const saturated = !!(hour && hour.saturated);
+            const needFill = !!(hour && hour.needFill);
+            const strong = pack && Number.isFinite(Number(pack.strongCount)) ? Number(pack.strongCount) : 0;
+
+            const softThreshold = (() => {
+                const t = (n0Result && typeof n0Result.blocking_threshold === 'number')
+                    ? clamp01Local(n0Result.blocking_threshold)
+                    : null;
+                const base = (t == null) ? 0.5 : t;
+                return clamp01Local(base * 0.8);
+            })();
+
+            const boost = (() => {
+                let b = 0;
+                if (hour && hour.needFill) b += 0.06;
+                if (hour && hour.burst) b += 0.04;
+                const extra = Math.max(0, strong - 2);
+                b += Math.min(0.08, extra * 0.03);
+                return b;
+            })();
+            n0EffectiveConfidence = clamp01Local(n0WhiteStrength + boost);
+
+            const reqAlert = needFill ? 1 : N0_OBS_CONFIRM_MIN_DEFAULT;
+            const reqBlock = needFill ? Math.max(1, N0_OBS_CONFIRM_MIN_STRONG - 1) : N0_OBS_CONFIRM_MIN_STRONG;
+            const baseOk = !saturated && strong >= reqAlert;
+            const softOk = (n0EffectiveConfidence >= softThreshold) || needFill;
+            const alertOk = baseOk && softOk;
+            const blockOk = (!saturated && strong >= reqBlock) && softOk;
+
+            n0UiVoteWhite = alertOk;
+            if (n0ForceWhite) {
+                n0ForceWhite = !!blockOk;
+            }
+            if (!n0UiVoteWhite) {
+                n0SoftBlockActive = false;
+            }
+            n0GateReason = saturated ? 'hour_saturated' : (!baseOk ? 'insufficient_confirmations' : (!softOk ? 'below_soft_threshold' : 'ok'));
+        }
+    } catch (_) {
+        // silencioso no simulador
+    }
+
     levelReports.push({
         id: 'N0',
         name: 'Detector de Branco',
-        color: n0Result && n0Result.pred_live === 'W' ? 'white' : null,
+        color: n0UiVoteWhite ? 'white' : null,
         weight: n0Enabled ? levelWeights.whiteDetector : 0,
-        strength: n0WhiteStrength,
+        strength: (typeof n0EffectiveConfidence === 'number' && Number.isFinite(n0EffectiveConfidence)) ? n0EffectiveConfidence : n0WhiteStrength,
         score: 0,
-        details: !n0Enabled ? 'DESATIVADO' : (n0ForceWhite ? 'BLOCK ALL' : n0SoftBlockActive ? 'SOFT BLOCK' : 'NULO'),
+        details: !n0Enabled
+            ? 'DESATIVADO'
+            : (n0ForceWhite
+                ? 'BLOCK ALL'
+                : (n0UiVoteWhite
+                    ? (n0SoftBlockActive ? 'SOFT BLOCK' : (n0ActionSuppressed ? 'ALERTA (info)' : 'ALERTA'))
+                    : ((n0Result && n0Result.pred_live === 'W') ? `EVITAR (${n0GateReason || 'gate'})` : 'NULO')
+                )
+            ) + (n0ObsShort ? ` • ${n0ObsShort}` : ''),
         disabled: !n0Enabled
     });
 
@@ -33153,15 +34019,16 @@ function analyzeDiamondLevelsSimulation(history, config, simState) {
     // N0 força branco
     if (n0ForceWhite) {
         if (intervalBlocked) return null;
-        const whiteConfidencePct = Math.max(0, Math.min(100, Math.round(n0WhiteStrength * 100)));
+        const eff = (typeof n0EffectiveConfidence === 'number' && Number.isFinite(n0EffectiveConfidence)) ? n0EffectiveConfidence : (n0WhiteStrength || 0);
+        const whiteConfidencePct = Math.max(0, Math.min(100, Math.round(eff * 100)));
         try {
             // contabilizar também na simulação (override) para manter proporção por hora
             const nowMs = Number.isFinite(parseSpinTimestamp(history && history[0])) ? parseSpinTimestamp(history[0]) : Date.now();
             const hourKey = buildHourKeyLocal(nowMs);
             if (!simState.n0WhiteBudget) simState.n0WhiteBudget = { hourKey: null, target: N0_WHITE_SIGNAL_TARGET_PER_HOUR_FALLBACK, used: 0 };
             if (simState.n0WhiteBudget.hourKey !== hourKey) {
-                const avg = estimateAvgWhitesPerHour(history, nowMs, N0_WHITE_SIGNAL_TARGET_LOOKBACK_HOURS);
-                const proposed = Number.isFinite(avg) ? Math.round(avg) : N0_WHITE_SIGNAL_TARGET_PER_HOUR_FALLBACK;
+                const info = computeN0TargetWhitesPerHour(history, nowMs);
+                const proposed = (info && Number.isFinite(Number(info.target))) ? Math.floor(Number(info.target)) : N0_WHITE_SIGNAL_TARGET_PER_HOUR_FALLBACK;
                 simState.n0WhiteBudget = {
                     hourKey,
                     target: Math.max(N0_WHITE_SIGNAL_TARGET_MIN, Math.min(N0_WHITE_SIGNAL_TARGET_MAX, proposed)),
@@ -33174,7 +34041,7 @@ function analyzeDiamondLevelsSimulation(history, config, simState) {
             color: 'white',
             confidence: whiteConfidencePct,
             probability: whiteConfidencePct,
-            reasoning: 'N0 bloqueou e forçou branco (simulação)',
+            reasoning: `N0 bloqueou e forçou branco (simulação)${n0ObsShort ? ` • ${n0ObsShort}` : ''}`,
             patternDescription: 'Detector de Branco (N0)'
         };
     }
@@ -33187,33 +34054,21 @@ function analyzeDiamondLevelsSimulation(history, config, simState) {
             return false;
         }
     })();
-    const n0PredictedWhite = !!(n0Enabled && n0Result && n0Result.enabled !== false && n0Result.pred_live === 'W');
+    const n0PredictedWhite = !!n0UiVoteWhite;
 
     // ✅ MODO MISTO (N0 + outros níveis):
     // Se o N0 prever WHITE com confiança suficiente (>= limiar do SOFT), emitir sinal WHITE
     // mesmo com outros níveis ativos. Isso mantém a simulação idêntica ao modo real.
-    const n0SoftThreshold = (() => {
-        try {
-            const t = (n0Result && typeof n0Result.blocking_threshold === 'number')
-                ? clamp01Local(n0Result.blocking_threshold)
-                : null;
-            if (t == null) return 0.5;
-            return clamp01Local(t * 0.8);
-        } catch (_) {
-            return 0.5;
-        }
-    })();
-    const n0StrongAlert = !!(n0PredictedWhite && (n0WhiteStrength || 0) >= n0SoftThreshold);
     // ✅ Aplicar budget no simulador também (mesma regra do modo real)
     const n0BudgetOk = (() => {
-        if (!n0StrongAlert) return { ok: false, reason: 'below_threshold' };
+        if (!n0PredictedWhite) return { ok: false, reason: n0GateReason || 'not_predicted' };
         try {
             const nowMs = Number.isFinite(parseSpinTimestamp(history && history[0])) ? parseSpinTimestamp(history[0]) : Date.now();
             const hourKey = buildHourKeyLocal(nowMs);
             if (!simState.n0WhiteBudget) simState.n0WhiteBudget = { hourKey: null, target: N0_WHITE_SIGNAL_TARGET_PER_HOUR_FALLBACK, used: 0 };
             if (simState.n0WhiteBudget.hourKey !== hourKey) {
-                const avg = estimateAvgWhitesPerHour(history, nowMs, N0_WHITE_SIGNAL_TARGET_LOOKBACK_HOURS);
-                const proposed = Number.isFinite(avg) ? Math.round(avg) : N0_WHITE_SIGNAL_TARGET_PER_HOUR_FALLBACK;
+                const info = computeN0TargetWhitesPerHour(history, nowMs);
+                const proposed = (info && Number.isFinite(Number(info.target))) ? Math.floor(Number(info.target)) : N0_WHITE_SIGNAL_TARGET_PER_HOUR_FALLBACK;
                 simState.n0WhiteBudget = {
                     hourKey,
                     target: Math.max(N0_WHITE_SIGNAL_TARGET_MIN, Math.min(N0_WHITE_SIGNAL_TARGET_MAX, proposed)),
@@ -33226,18 +34081,19 @@ function analyzeDiamondLevelsSimulation(history, config, simState) {
             if ((Number(simState.n0WhiteBudget.used) || 0) >= (Number(simState.n0WhiteBudget.target) || 0)) {
                 return { ok: false, reason: 'budget_exceeded' };
             }
-            if ((n0WhiteStrength || 0) < minConf) {
+            const eff = (typeof n0EffectiveConfidence === 'number' && Number.isFinite(n0EffectiveConfidence)) ? n0EffectiveConfidence : (n0WhiteStrength || 0);
+            if (eff < minConf) {
                 return { ok: false, reason: 'below_min_conf' };
             }
             simState.n0WhiteBudget.used = (Number(simState.n0WhiteBudget.used) || 0) + 1;
-            return { ok: true };
+            return { ok: true, effectiveConfidence: eff };
         } catch (_) {
             return { ok: false, reason: 'budget_error' };
         }
     })();
     if (anyVotingLevelEnabled && n0BudgetOk && n0BudgetOk.ok) {
         if (intervalBlocked) return null;
-        const whiteConfidencePct = Math.max(0, Math.min(100, Math.round(n0WhiteStrength * 100)));
+        const whiteConfidencePct = Math.max(0, Math.min(100, Math.round((Number(n0BudgetOk.effectiveConfidence) || 0) * 100)));
         const actionLabel =
             n0SoftBlockActive ? 'SOFT BLOCK'
             : (n0ActionSuppressed ? 'ALERTA (informativo)' : 'ALERTA');
@@ -33245,7 +34101,7 @@ function analyzeDiamondLevelsSimulation(history, config, simState) {
             color: 'white',
             confidence: whiteConfidencePct,
             probability: whiteConfidencePct,
-            reasoning: `N0 previu branco (modo misto) • ${actionLabel}`,
+            reasoning: `N0 previu branco (modo misto) • ${actionLabel}${n0ObsShort ? ` • ${n0ObsShort}` : ''}`,
             patternDescription: 'Detector de Branco (N0)'
         };
     }
@@ -33260,8 +34116,8 @@ function analyzeDiamondLevelsSimulation(history, config, simState) {
                 const hourKey = buildHourKeyLocal(nowMs);
                 if (!simState.n0WhiteBudget) simState.n0WhiteBudget = { hourKey: null, target: N0_WHITE_SIGNAL_TARGET_PER_HOUR_FALLBACK, used: 0 };
                 if (simState.n0WhiteBudget.hourKey !== hourKey) {
-                    const avg = estimateAvgWhitesPerHour(history, nowMs, N0_WHITE_SIGNAL_TARGET_LOOKBACK_HOURS);
-                    const proposed = Number.isFinite(avg) ? Math.round(avg) : N0_WHITE_SIGNAL_TARGET_PER_HOUR_FALLBACK;
+                    const info = computeN0TargetWhitesPerHour(history, nowMs);
+                    const proposed = (info && Number.isFinite(Number(info.target))) ? Math.floor(Number(info.target)) : N0_WHITE_SIGNAL_TARGET_PER_HOUR_FALLBACK;
                     simState.n0WhiteBudget = {
                         hourKey,
                         target: Math.max(N0_WHITE_SIGNAL_TARGET_MIN, Math.min(N0_WHITE_SIGNAL_TARGET_MAX, proposed)),
@@ -33272,7 +34128,8 @@ function analyzeDiamondLevelsSimulation(history, config, simState) {
                 const base = 1 - Math.pow(1 - (1 / 15), L);
                 const minConf = Math.max(0.12, Math.min(0.75, clamp01Local(base * N0_WHITE_SIGNAL_MIN_LIFT)));
                 if ((Number(simState.n0WhiteBudget.used) || 0) >= (Number(simState.n0WhiteBudget.target) || 0)) return false;
-                if ((n0WhiteStrength || 0) < minConf) return false;
+                const eff = (typeof n0EffectiveConfidence === 'number' && Number.isFinite(n0EffectiveConfidence)) ? n0EffectiveConfidence : (n0WhiteStrength || 0);
+                if (eff < minConf) return false;
                 simState.n0WhiteBudget.used = (Number(simState.n0WhiteBudget.used) || 0) + 1;
                 return true;
             } catch (_) {
@@ -33280,7 +34137,8 @@ function analyzeDiamondLevelsSimulation(history, config, simState) {
             }
         })();
         if (okSolo) {
-            const whiteConfidencePct = Math.max(0, Math.min(100, Math.round(n0WhiteStrength * 100)));
+            const eff = (typeof n0EffectiveConfidence === 'number' && Number.isFinite(n0EffectiveConfidence)) ? n0EffectiveConfidence : (n0WhiteStrength || 0);
+            const whiteConfidencePct = Math.max(0, Math.min(100, Math.round(eff * 100)));
             const actionLabel =
                 n0SoftBlockActive ? 'SOFT BLOCK'
                 : (n0ActionSuppressed ? 'ALERTA (informativo)' : 'ALERTA');
@@ -33288,7 +34146,7 @@ function analyzeDiamondLevelsSimulation(history, config, simState) {
                 color: 'white',
                 confidence: whiteConfidencePct,
                 probability: whiteConfidencePct,
-                reasoning: `N0 previu branco (modo somente N0) • ${actionLabel}`,
+                reasoning: `N0 previu branco (modo somente N0) • ${actionLabel}${n0ObsShort ? ` • ${n0ObsShort}` : ''}`,
                 patternDescription: 'Detector de Branco (N0)'
             };
         }
