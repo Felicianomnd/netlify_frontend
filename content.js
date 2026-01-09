@@ -22035,7 +22035,7 @@ function logModeSnapshotUI(snapshot) {
         ensure('whiteHazardBlock', `
             <div class="white-insights-block white-adv-block" id="whiteHazardBlock">
                 <div class="white-pullers-header">
-                    <div class="white-insights-title">Probabilidade por atraso</div>
+                    <div class="white-insights-title">Chance nos próximos giros</div>
                     <div class="white-adv-right">
                         <div class="white-hazard-sample-tag" id="whiteHazardSampleTag">—</div>
                         <div class="white-pullers-filter" id="whiteHazardWindowFilter"></div>
@@ -22043,7 +22043,7 @@ function logModeSnapshotUI(snapshot) {
                 </div>
                 <div class="white-adv-summary" id="whiteHazardSummary">Carregando...</div>
                 <div class="white-hazard-chart" id="whiteHazardChart"></div>
-                <div class="white-adv-note">* Histórico (não é previsão).</div>
+                <div class="white-adv-note">* Baseado no histórico da amostra (não garante previsão).</div>
             </div>
         `);
 
@@ -22501,6 +22501,83 @@ function logModeSnapshotUI(snapshot) {
         }).join('');
     }
 
+    // ✅ Versão "renovada" (não duplicar o histograma de intervalos):
+    // - Mostra só o que importa para decisão: chance AGORA (próx K giros)
+    // - Compara com a média da amostra
+    // - Detalhes por faixa ficam recolhidos (opcional)
+    function renderWhiteHazardPanel(stats) {
+        try {
+            const hazard = stats && stats.hazard ? stats.hazard : null;
+            const bins = hazard && Array.isArray(hazard.bins) ? hazard.bins : [];
+            const cur = hazard && hazard.currentBucket ? hazard.currentBucket : null;
+            const K = hazard && Number.isFinite(Number(hazard.K)) ? Number(hazard.K) : 10;
+            const delayNow = Number(stats?.intervalNowSpins);
+
+            // Média (todas faixas) — mesma lógica do hazard (d>0 e janela futura disponível)
+            let avgN = 0;
+            let avgWins = 0;
+            for (const b of bins) {
+                const n = Number(b && b.n) || 0;
+                const w = Number(b && b.wins) || 0;
+                if (n > 0) {
+                    avgN += n;
+                    avgWins += w;
+                }
+            }
+            const avgP = avgN > 0 ? (avgWins / avgN) : 0;
+
+            if (!cur || !Number.isFinite(Number(cur.n)) || Number(cur.n) <= 0) {
+                return `
+                    <div class="white-hazard-panel">
+                        <div class="white-hazard-panel__label">Chance agora (próx ${K} giros)</div>
+                        <div class="white-hazard-panel__value">—</div>
+                        <div class="white-hazard-panel__meta">Sem base suficiente na amostra atual.</div>
+                    </div>
+                `;
+            }
+
+            const p = Number(cur.p) || 0;
+            const n = Number(cur.n) || 0;
+            const wins = Number(cur.wins) || 0;
+            const pctText = formatPct1(p * 100);
+            const avgText = (avgN > 0) ? formatPct1(avgP * 100) : '—';
+            const dNowText = Number.isFinite(delayNow) ? String(Math.max(0, Math.round(delayNow))) : '—';
+            const delta = (avgN > 0) ? (p - avgP) : 0;
+            const deltaAbs = Math.abs(delta) * 100;
+            const deltaText = (avgN > 0)
+                ? `${delta >= 0 ? '+' : '-'}${formatPct1(deltaAbs).replace('%', '')}pp vs média`
+                : '—';
+            const deltaCls = (avgN > 0)
+                ? (delta >= 0.03 ? 'good' : (delta <= -0.03 ? 'bad' : 'warn'))
+                : 'neutral';
+            const w = Math.max(2, Math.round(Math.max(0, Math.min(1, p)) * 100));
+
+            return `
+                <div class="white-hazard-panel">
+                    <div class="white-hazard-panel__top">
+                        <div class="white-hazard-panel__label">Chance agora (próx ${K} giros)</div>
+                        <div class="white-hazard-panel__delta ${deltaCls}">${deltaText}</div>
+                    </div>
+                    <div class="white-hazard-panel__value">${pctText}</div>
+                    <div class="white-hazard-panel__bar" aria-hidden="true">
+                        <div class="white-hazard-panel__fill ${deltaCls}" style="width:${w}%"></div>
+                    </div>
+                    <div class="white-hazard-panel__meta">
+                        Faixa <b>${cur.label}</b> • agora: <b>${dNowText}</b> • <span class="white-hist-pct">${Math.max(0, wins)}/${n} casos</span> • média: <b>${avgText}</b>${avgN > 0 ? ` <span class="white-hist-pct">(${Math.max(0, avgWins)}/${avgN} casos)</span>` : ''}
+                    </div>
+                </div>
+                <details class="white-hazard-details">
+                    <summary>Ver faixas (detalhes)</summary>
+                    <div class="white-hazard-details__content">
+                        ${renderWhiteHazardChart(hazard)}
+                    </div>
+                </details>
+            `;
+        } catch (_) {
+            return `<div class="white-empty">Carregando...</div>`;
+        }
+    }
+
     function renderWhiteTimelineList(timeline) {
         const arr = Array.isArray(timeline) ? timeline : [];
         if (!arr.length) return `<div class="white-empty">Sem brancos no histórico atual.</div>`;
@@ -22954,22 +23031,13 @@ function logModeSnapshotUI(snapshot) {
                 hazardFilterEl.dataset.listenerAttached = '1';
             }
         }
+        // ✅ A aba foi renovada: o painel já traz o resumo.
+        // Esconder o summary antigo pra não ficar "duplicado" visualmente.
         if (hazardSummaryEl) {
-            const cur = stats.hazard && stats.hazard.currentBucket ? stats.hazard.currentBucket : null;
-            if (!cur || !Number.isFinite(Number(cur.n)) || cur.n <= 0) {
-                hazardSummaryEl.innerHTML = `<div class="white-adv-note">Sem base suficiente para calcular probabilidade por atraso.</div>`;
-            } else {
-                const p = Number(cur.p) || 0;
-                const n = Number(cur.n) || 0;
-                const wins = Number(cur.wins) || 0;
-                hazardSummaryEl.innerHTML = `
-                    <div class="white-adv-note">
-                        Próx <b>${stats.hazard.K}</b> giros • Faixa <b>${cur.label}</b> • Chance: <b>${formatPct1(p * 100)}</b> <span class="white-hist-pct">• ${Math.max(0, wins)}/${n} casos</span>
-                    </div>
-                `;
-            }
+            try { hazardSummaryEl.style.display = 'none'; } catch (_) {}
+            try { hazardSummaryEl.innerHTML = ''; } catch (_) {}
         }
-        if (hazardChartEl) hazardChartEl.innerHTML = renderWhiteHazardChart(stats.hazard);
+        if (hazardChartEl) hazardChartEl.innerHTML = renderWhiteHazardPanel(stats);
 
         // Timeline controls
         if (tlFilterEl) {

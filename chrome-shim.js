@@ -103,18 +103,18 @@
 
             const slimOne = (e) => {
                 try {
-                    if (!e || typeof e !== 'object') return e;
-                    const pd = e.patternData && typeof e.patternData === 'object' ? { ...e.patternData } : null;
-                    if (pd) {
+                if (!e || typeof e !== 'object') return e;
+                const pd = e.patternData && typeof e.patternData === 'object' ? { ...e.patternData } : null;
+                if (pd) {
                         // remover snapshots pesados de giros (mantém o essencial)
-                        delete pd.last14Spins;
-                        delete pd.last10Spins;
-                        delete pd.last5Spins;
-                    }
-                    return {
+                    delete pd.last14Spins;
+                    delete pd.last10Spins;
+                    delete pd.last5Spins;
+                }
+                return {
                         ...e,
-                        patternData: pd || undefined
-                    };
+                    patternData: pd || undefined
+                };
                 } catch (_) {
                     return e;
                 }

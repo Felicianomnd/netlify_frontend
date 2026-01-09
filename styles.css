@@ -2835,6 +2835,11 @@
     white-space: nowrap;
 }
 
+/* ✅ Aba renovada: o resumo antigo não é mais usado (evitar duplicação visual) */
+#blaze-double-analyzer #whiteHazardSummary {
+    display: none;
+}
+
 .white-sample-hint {
     font-size: 11px;
     font-weight: 700;
@@ -2952,7 +2957,109 @@
 .white-hazard-chart {
     display: flex;
     flex-direction: column;
+    gap: 10px; /* hazard agora tem painel + detalhes */
+}
+
+.white-hazard-panel {
+    padding: 10px 12px;
+    border-radius: 10px;
+    border: 1px solid rgba(255, 255, 255, 0.10);
+    background: rgba(0, 0, 0, 0.16);
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,0.03);
+}
+
+.white-hazard-panel__top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 6px;
+    flex-wrap: wrap;
+}
+
+.white-hazard-panel__label {
+    font-size: 11px;
+    font-weight: 800;
+    color: rgba(233, 242, 255, 0.72);
+    letter-spacing: 0.2px;
+}
+
+.white-hazard-panel__delta {
+    font-size: 11px;
+    font-weight: 900;
+    padding: 4px 8px;
+    border-radius: 999px;
+    border: 1px solid rgba(255, 255, 255, 0.10);
+    background: rgba(255, 255, 255, 0.05);
+    color: rgba(233, 242, 255, 0.82);
+    white-space: nowrap;
+}
+.white-hazard-panel__delta.good { color: rgba(34, 197, 94, 0.95); }
+.white-hazard-panel__delta.warn { color: rgba(245, 158, 11, 0.95); }
+.white-hazard-panel__delta.bad  { color: rgba(239, 68, 68, 0.95); }
+
+.white-hazard-panel__value {
+    font-size: 22px;
+    font-weight: 950;
+    color: rgba(233, 242, 255, 0.96);
+    line-height: 1.1;
+    margin-bottom: 8px;
+}
+
+.white-hazard-panel__bar {
+    height: 10px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    overflow: hidden;
+    margin-bottom: 8px;
+}
+
+.white-hazard-panel__fill {
+    height: 100%;
+    width: 0%;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.22);
+}
+.white-hazard-panel__fill.good { background: rgba(34, 197, 94, 0.80); }
+.white-hazard-panel__fill.warn { background: rgba(245, 158, 11, 0.85); }
+.white-hazard-panel__fill.bad  { background: rgba(239, 68, 68, 0.80); }
+
+.white-hazard-panel__meta {
+    font-size: 11px;
+    font-weight: 700;
+    color: rgba(233, 242, 255, 0.80);
+    line-height: 1.35;
+}
+
+.white-hazard-details {
+    border-radius: 10px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(255, 255, 255, 0.03);
+    padding: 8px 10px;
+}
+
+.white-hazard-details > summary {
+    cursor: pointer;
+    list-style: none;
+    font-size: 11px;
+    font-weight: 900;
+    color: rgba(233, 242, 255, 0.86);
+    user-select: none;
+}
+.white-hazard-details > summary::-webkit-details-marker {
+    display: none;
+}
+
+.white-hazard-details__content {
+    margin-top: 8px;
+    display: flex;
+    flex-direction: column;
     gap: 6px;
+}
+
+.white-hazard-details[open] > summary {
+    color: rgba(233, 242, 255, 0.92);
 }
 
 .white-hist-row {
