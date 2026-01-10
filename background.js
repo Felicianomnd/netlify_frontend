@@ -4445,7 +4445,7 @@ async function processNewSpinFromServer(spinData) {
                                 const learningAnalysis = (martingaleState && martingaleState.active && martingaleState.analysisData)
                                     ? martingaleState.analysisData
                                     : currentAnalysis;
-                                await recordN4SelfLearningFromResolvedCycle(learningAnalysis, 'win');
+                                await recordN4SelfLearningFromResolvedCycle(learningAnalysis, 'win', martingaleStage);
                                 // ⚪ N0 (Detector de Branco): registrar auto-aprendizado quando o N0 foi o sinal final
                                 await recordN0SelfLearningFromResolvedCycle(learningAnalysis, 'win');
                                 // ⚪ N0 (Pedido do usuário): após WIN no branco, NÃO reentrar imediatamente.
@@ -4712,7 +4712,7 @@ async function processNewSpinFromServer(spinData) {
 
                                     // 💎 N4 (Autointeligente): registrar resultado final do CICLO (LOSS/RED) para auto-aprendizado
                                     try {
-                                        await recordN4SelfLearningFromResolvedCycle(currentAnalysis, 'loss');
+                                        await recordN4SelfLearningFromResolvedCycle(currentAnalysis, 'loss', currentStage);
                                         // ⚪ N0 (Detector de Branco): registrar auto-aprendizado quando o N0 foi o sinal final
                                         await recordN0SelfLearningFromResolvedCycle(currentAnalysis, 'loss');
                                         // 💎 N4 (Autointeligente): auto-ajuste de janela (n4Persistence) quando o desempenho cair
@@ -5061,7 +5061,7 @@ async function processNewSpinFromServer(spinData) {
                                         const learningAnalysis = (martingaleState && martingaleState.active && martingaleState.analysisData)
                                             ? martingaleState.analysisData
                                             : currentAnalysis;
-                                        await recordN4SelfLearningFromResolvedCycle(learningAnalysis, 'loss');
+                                        await recordN4SelfLearningFromResolvedCycle(learningAnalysis, 'loss', currentStage);
                                         // ⚪ N0 (Detector de Branco): registrar auto-aprendizado quando o N0 foi o sinal final
                                         await recordN0SelfLearningFromResolvedCycle(learningAnalysis, 'loss');
                                         // 💎 N4 (Autointeligente): auto-ajuste de janela (n4Persistence) quando o desempenho cair
@@ -6417,7 +6417,7 @@ let signalsHistory = {
     },
     // 💎 N4 (Autointeligente): auto-aprendizado por "tipo de sinal" do próprio N4 (contexto n-gram + cor + setup)
     n4SelfLearning: {
-        version: 3,
+        version: 4,
         stats: {},            // { [key]: { total, wins, losses, recent: boolean[], lastTs } }
         maxRecent: 30,        // janela de recência por key
         maxKeys: 400,         // limite de chaves (evita crescer infinito)
@@ -6519,7 +6519,7 @@ async function initializeSignalsHistory() {
             } catch (_) {}
             if (!signalsHistory.n4SelfLearning || typeof signalsHistory.n4SelfLearning !== 'object') {
                 signalsHistory.n4SelfLearning = {
-                    version: 3,
+                    version: 4,
                     stats: {},
                     maxRecent: 30,
                     maxKeys: 400,
@@ -6576,14 +6576,14 @@ async function initializeSignalsHistory() {
             if (!Number.isFinite(Number(signalsHistory.n4SelfLearning.minSamples))) signalsHistory.n4SelfLearning.minSamples = 8;
             if (!Number.isFinite(Number(signalsHistory.n4SelfLearning.badWinRate))) signalsHistory.n4SelfLearning.badWinRate = 0.45;
             if (!Number.isFinite(Number(signalsHistory.n4SelfLearning.goodWinRate))) signalsHistory.n4SelfLearning.goodWinRate = 0.60;
-            // ✅ Migração: v3 adiciona chaves agregadas (ctx1/ctx2/global) para o N4 aprender com poucas amostras.
-            // Não sobrescreve ajustes do usuário (somente adiciona stats derivadas).
+            // ✅ Migração: v4 muda o score do N4 para "por tentativa" (Entrada/G1/G2),
+            // evitando tratar WIN em G2 como "perfeito". Para não misturar métricas antigas, resetamos o stats.
             const n4Ver = Math.max(1, Math.floor(Number(signalsHistory.n4SelfLearning.version) || 1));
-            if (n4Ver < 3) {
-                let migrated = false;
-                try { migrated = !!migrateN4SelfLearningToV3(signalsHistory.n4SelfLearning); } catch (_) {}
-                signalsHistory.n4SelfLearning.version = 3;
-                if (migrated) {
+            if (n4Ver < 4) {
+                let reset = false;
+                try { reset = !!migrateN4SelfLearningToV4AttemptScoring(signalsHistory.n4SelfLearning); } catch (_) {}
+                signalsHistory.n4SelfLearning.version = 4;
+                if (reset) {
                     try { await saveSignalsHistory(); } catch (_) {}
                 }
             }
@@ -6624,7 +6624,7 @@ async function initializeSignalsHistory() {
                 budgetSnapshot: null
             },
             n4SelfLearning: {
-                version: 3,
+                version: 4,
                 stats: {},
                 maxRecent: 30,
                 maxKeys: 400,
@@ -6959,6 +6959,25 @@ function migrateN4SelfLearningToV3(store) {
     }
 }
 
+function migrateN4SelfLearningToV4AttemptScoring(store) {
+    try {
+        if (!store || typeof store !== 'object') return false;
+        const statsObj = (store.stats && typeof store.stats === 'object') ? store.stats : {};
+        const hadAny = Object.keys(statsObj).length > 0;
+        // v4: o score passa a ser "por tentativa" (Entrada/G1/G2).
+        // Não dá para converter stats antigos sem saber em qual Gale cada WIN ocorreu,
+        // então resetamos para não misturar métricas incompatíveis.
+        store.stats = {};
+        const now = Date.now();
+        store.lastUpdated = now;
+        store.resetAt = now;
+        store.resetReason = 'v4_attempt_scoring';
+        return hadAny;
+    } catch (_) {
+        return false;
+    }
+}
+
 function getN4SelfLearningStatsForKey(key) {
     try {
         const store = signalsHistory && signalsHistory.n4SelfLearning ? signalsHistory.n4SelfLearning : null;
@@ -7002,7 +7021,7 @@ function pruneN4SelfLearningIfNeeded() {
     } catch (_) {}
 }
 
-async function recordN4SelfLearningFromResolvedCycle(analysisObj, outcome) {
+async function recordN4SelfLearningFromResolvedCycle(analysisObj, outcome, resolvedStage = null) {
     try {
         const analysis = analysisObj && typeof analysisObj === 'object' ? analysisObj : null;
         if (!analysis) return false;
@@ -7023,7 +7042,7 @@ async function recordN4SelfLearningFromResolvedCycle(analysisObj, outcome) {
 
         if (!signalsHistory.n4SelfLearning || typeof signalsHistory.n4SelfLearning !== 'object') {
             signalsHistory.n4SelfLearning = {
-                version: 3,
+                version: 4,
                 stats: {},
                 maxRecent: 30,
                 maxKeys: 400,
@@ -7040,6 +7059,36 @@ async function recordN4SelfLearningFromResolvedCycle(analysisObj, outcome) {
         const store = signalsHistory.n4SelfLearning;
         const maxRecent = Math.max(10, Math.min(200, Math.floor(Number(store.maxRecent) || 30)));
         const now = Date.now();
+        const attemptCount = (() => {
+            try {
+                const s = String(resolvedStage || '').toUpperCase().trim();
+                if (!s || s === 'ENTRADA' || s === 'G0') return 1;
+                const m = s.match(/^G(\d+)/);
+                if (!m) return 1;
+                const n = Math.max(0, Math.floor(Number(m[1]) || 0));
+                // N4 só considera até G2 (3 tentativas)
+                return Math.max(1, Math.min(3, n + 1));
+            } catch (_) {
+                return 1;
+            }
+        })();
+        // ✅ Score por tentativa:
+        // - WIN em G2 conta como 2 erros + 1 acerto (não "perfeito")
+        // - RED em G2 conta como 3 erros
+        const attemptOutcomes = (() => {
+            const arr = [];
+            const n = Math.max(1, Math.min(3, Math.floor(Number(attemptCount) || 1)));
+            if (isWin) {
+                for (let i = 1; i < n; i++) arr.push(false);
+                arr.push(true);
+                return arr;
+            }
+            for (let i = 0; i < n; i++) arr.push(false);
+            return arr;
+        })();
+        const attemptsTotalAdd = attemptOutcomes.length;
+        const attemptsWinAdd = attemptOutcomes.filter(Boolean).length;
+        const attemptsLossAdd = attemptsTotalAdd - attemptsWinAdd;
         const keysToUpdate = new Set();
         try {
             keysToUpdate.add(key);
@@ -7083,11 +7132,11 @@ async function recordN4SelfLearningFromResolvedCycle(analysisObj, outcome) {
             const row = store.stats[k] && typeof store.stats[k] === 'object'
                 ? store.stats[k]
                 : { total: 0, wins: 0, losses: 0, recent: [], lastTs: 0 };
-            row.total = Math.max(0, Math.floor(Number(row.total) || 0)) + 1;
-            row.wins = Math.max(0, Math.floor(Number(row.wins) || 0)) + (isWin ? 1 : 0);
-            row.losses = Math.max(0, Math.floor(Number(row.losses) || 0)) + (isLoss ? 1 : 0);
-            row.recent = Array.isArray(row.recent) ? row.recent.slice(-maxRecent + 1) : [];
-            row.recent.push(!!isWin);
+            row.total = Math.max(0, Math.floor(Number(row.total) || 0)) + attemptsTotalAdd;
+            row.wins = Math.max(0, Math.floor(Number(row.wins) || 0)) + attemptsWinAdd;
+            row.losses = Math.max(0, Math.floor(Number(row.losses) || 0)) + attemptsLossAdd;
+            const prevRecent = Array.isArray(row.recent) ? row.recent : [];
+            row.recent = prevRecent.concat(attemptOutcomes).slice(-maxRecent);
             row.lastTs = now;
             store.stats[k] = row;
         }
@@ -12557,27 +12606,21 @@ function analyzeAutointeligente(history, options = {}) {
         const baseline = clamp01(baselineCycle);
         const s = Math.max(1, Math.min(3, Math.floor(Number(steps) || 1)));
 
-        // ✅ Para G2, exigir "padrões" vencedores de verdade.
-        // Ex.: baseline ~0.85 (Double) -> bad~0.82, good~0.95
+        // ✅ v4: o auto-aprendizado do N4 passa a ser "por tentativa" (Entrada/G1/G2),
+        // e não por ciclo fechado. Logo, o baseline aqui é P1 (uma tentativa), não P(ciclo).
         const dynBad = clamp01(baseline - 0.03);
         const dynGood = clamp01(baseline + 0.10);
 
         let minSamples = Math.max(3, Math.min(80, Math.floor(Number(store?.minSamples) || 8)));
-        // mais amostras para ciclos mais longos, mas sem ficar "cego" no começo (pedido: aprender mais rápido)
-        // Observação: além do ctx completo, usamos chaves agregadas (ctx1/ctx2/global) para reduzir sparse-data.
-        if (s >= 3) minSamples = Math.max(minSamples, 8);
-        else if (s === 2) minSamples = Math.max(minSamples, 6);
+        // mais amostras para horizontes maiores (G1/G2) — evita overfit
+        if (s >= 3) minSamples = Math.max(minSamples, 12);
+        else if (s === 2) minSamples = Math.max(minSamples, 10);
 
         let bad = Number(store?.badWinRate);
         let good = Number(store?.goodWinRate);
         bad = clamp01(Number.isFinite(bad) ? bad : dynBad);
         good = clamp01(Number.isFinite(good) ? good : dynGood);
 
-        // Se estiver em gales (steps>=2) e os thresholds forem "legado baixo", usar o dinâmico por baseline.
-        if (s >= 2) {
-            if (bad < 0.70) bad = dynBad;
-            if (good < 0.80) good = dynGood;
-        }
         if (good <= bad) {
             bad = dynBad;
             good = Math.max(bad + 0.05, dynGood);
@@ -12694,7 +12737,7 @@ function analyzeAutointeligente(history, options = {}) {
             return {
                 color: null,
                 confidence: 0,
-                details: `NULO • P1-only • AutoApr: BLOQUEADO (${pct} em ${n})`,
+                details: `NULO • P1-only • AutoApr: BLOQUEADO (${pct} em ${n} tent)`,
                 historyUsed: tokens.length,
                 historyConfigured: historySizeConfigured,
                 learningKey: null,
@@ -12732,7 +12775,7 @@ function analyzeAutointeligente(history, options = {}) {
                     ? (() => {
                         const pct = (learningRecentWinRateP1 != null) ? `${(learningRecentWinRateP1 * 100).toFixed(0)}%` : 'n/d';
                         const n = learningRecentNP1 || 0;
-                        return ` • AutoApr: SWAP (${pct} em ${n})`;
+                        return ` • AutoApr: SWAP (${pct} em ${n} tent)`;
                     })()
                     : '')
         };
@@ -13269,7 +13312,7 @@ function analyzeAutointeligente(history, options = {}) {
     let learningKey = null;
     let learningTier = null; // 'ctx' | 'ctx2' | 'ctx1' | 'global' | null
     try {
-        const { minSamples, badWinRate, goodWinRate } = resolveN4LearningParams(baselinePcycle, stepsToWin);
+        const { minSamples, badWinRate, goodWinRate } = resolveN4LearningParams(baseBestPRB, stepsToWin);
 
         const ctxKey = Array.isArray(ctxTail) ? ctxTail.join('') : '';
         const ctxAgg2 = ctxKey ? buildN4SelfLearningAggCtxKey(ctxKey, 2) : '';
@@ -13411,9 +13454,9 @@ function analyzeAutointeligente(history, options = {}) {
         const tier = (learningTier && learningTier !== 'ctx') ? `/${learningTier}` : '';
         const pct = (learningRecentWinRate != null) ? `${(learningRecentWinRate * 100).toFixed(0)}%` : 'n/d';
         const n = learningRecentN || 0;
-        if (learningDecision === 'swap') return ` • AutoApr${tier}: SWAP (${pct} em ${n})`;
-        if (learningDecision === 'boost') return ` • AutoApr${tier}: BOOST (${pct} em ${n})`;
-        if (learningDecision === 'blocked') return ` • AutoApr${tier}: BLOQUEADO (${pct} em ${n})`;
+        if (learningDecision === 'swap') return ` • AutoApr${tier}: SWAP (${pct} em ${n} tent)`;
+        if (learningDecision === 'boost') return ` • AutoApr${tier}: BOOST (${pct} em ${n} tent)`;
+        if (learningDecision === 'blocked') return ` • AutoApr${tier}: BLOQUEADO (${pct} em ${n} tent)`;
         return '';
     })();
 

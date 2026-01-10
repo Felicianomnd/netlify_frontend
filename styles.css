@@ -5926,7 +5926,16 @@
 .da-calibration-backdrop {
   position: absolute;
   inset: 0;
-  background: rgba(0, 0, 0, 0.18); /* só um pouco opaco */
+  /* ✅ Pedido: em vez de “preto chapado”, usar um gradiente radial na MESMA cor do container (bg-secondary).
+     Isso faz os resultados "sumirem" de forma progressiva quando passam por trás do anel. */
+  background:
+    radial-gradient(circle 360px at 50% 50%,
+      rgba(17, 28, 39, 0.96) 0%,
+      rgba(17, 28, 39, 0.88) 32%,
+      rgba(17, 28, 39, 0.62) 54%,
+      rgba(17, 28, 39, 0.28) 74%,
+      rgba(17, 28, 39, 0.10) 100%),
+    rgba(17, 28, 39, 0.06);
 }
 .da-calibration-center {
   position: relative;
