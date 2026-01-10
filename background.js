@@ -13436,8 +13436,8 @@ function decideN0WhiteSignalEmission({ history, nowMs, confidence, lookaheadSpin
 const N0_OBS_END_OF_HOUR_MINUTE = 55;
 const N0_OBS_NEIGHBOR_GAP_THRESHOLD = 12; // "isolado": > ~6min sem branco
 const N0_OBS_NEIGHBOR_MIN_CHAIN = 3;      // quantos brancos isolados seguidos para alertar vizinhança
-const N0_OBS_CONFIRM_MIN_DEFAULT = 2;     // mínimo de confirmações para sinal
-const N0_OBS_CONFIRM_MIN_STRONG = 3;      // mínimo para BLOCK ALL (mais rígido)
+const N0_OBS_CONFIRM_MIN_DEFAULT = 1;     // mínimo de confirmações para sinal (anti-silêncio)
+const N0_OBS_CONFIRM_MIN_STRONG = 2;      // mínimo para BLOCK ALL (mais rígido)
 // ✅ PUX (puxador) deve ser "recente" (como você pediu): não usar estatística muito antiga
 const N0_OBS_PULLER_LOOKBACK_SPINS = 240;
 const N0_OBS_PULLER_MIN_OCC = 3;
@@ -13921,21 +13921,61 @@ function evaluateN0WhiteSignalGate({ history, nowMs, lookaheadSpins, baseConfide
         return { ok: false, reason: 'hour_saturated', pack, effectiveConfidence: clamp01(baseConfidence || 0) };
     }
 
+    // ✅ Anti-padrão fixo (pedido do usuário):
+    // Se o N0 estiver repetindo o MESMO gap desde o último branco (ex.: sempre 3 ou sempre 7),
+    // bloquear para evitar comportamento determinístico ("chute por intervalo").
+    try {
+        const gapNowRaw = findMostRecentWhiteIndexForN0(history, 400);
+        const gapNow = (gapNowRaw == null) ? null : Math.max(0, Math.floor(Number(gapNowRaw) || 0));
+        if (gapNow != null) {
+            const sigs = (signalsHistory && Array.isArray(signalsHistory.signals)) ? signalsHistory.signals : [];
+            const lastGaps = [];
+            for (let i = sigs.length - 1; i >= 0 && lastGaps.length < 3; i--) {
+                const s = sigs[i];
+                if (!s || typeof s !== 'object') continue;
+                if (s.patternName !== 'Detector de Branco (N0)') continue;
+                if (s.colorRecommended !== 'white') continue;
+                const g = (s.n0GapSinceLastWhite != null) ? s.n0GapSinceLastWhite : (s.n0_gap_since_last_white ?? null);
+                const gv = Number(g);
+                if (!Number.isFinite(gv)) continue;
+                lastGaps.push(Math.max(0, Math.floor(gv)));
+            }
+            // Se os 2 últimos sinais N0 foram no mesmo gap, e o atual repete → bloquear o 3º consecutivo
+            if (lastGaps.length >= 2 && lastGaps[0] === lastGaps[1] && gapNow === lastGaps[0]) {
+                return {
+                    ok: false,
+                    reason: 'repeating_gap_pattern',
+                    gapNow,
+                    lastGaps: lastGaps.slice(0, 2),
+                    pack,
+                    effectiveConfidence: clamp01(baseConfidence || 0)
+                };
+            }
+        }
+    } catch (_) {}
+
     // confirmações mínimas
     const required = (mode === 'block_all')
         ? N0_OBS_CONFIRM_MIN_STRONG
         : N0_OBS_CONFIRM_MIN_DEFAULT;
     const relaxedRequired = (hourStats && hourStats.needFill) ? Math.max(1, required - 1) : required;
-    if ((pack.strongCount || 0) < relaxedRequired) {
-        return { ok: false, reason: 'insufficient_confirmations', required: relaxedRequired, got: pack.strongCount || 0, pack, effectiveConfidence: clamp01(baseConfidence || 0) };
+    const baseConf = clamp01(typeof baseConfidence === 'number' ? baseConfidence : Number(baseConfidence) || 0);
+    const softT = clamp01(typeof softThreshold === 'number' ? softThreshold : Number(softThreshold) || 0);
+    // ✅ Se o modelo estiver MUITO confiante, permitir passar com menos confirmações (anti-silêncio),
+    // sem depender de um observador raro.
+    const allowSoloModel = baseConf >= Math.max(0.45, softT);
+
+    if ((pack.strongCount || 0) < relaxedRequired && !allowSoloModel) {
+        return { ok: false, reason: 'insufficient_confirmations', required: relaxedRequired, got: pack.strongCount || 0, pack, effectiveConfidence: baseConf };
     }
-    // ✅ Exigir pelo menos 1 confirmação de "padrão" (evita sinal baseado só em contexto/hora)
-    if ((pack.patternStrongCount || 0) < 1 && !(hourStats && hourStats.needFill)) {
-        return { ok: false, reason: 'missing_pattern_confirmation', pack, effectiveConfidence: clamp01(baseConfidence || 0) };
+    // ✅ Exigir pelo menos 1 confirmação de "padrão" (evita sinal baseado só em contexto/hora),
+    // exceto quando o modelo estiver muito confiante.
+    if ((pack.patternStrongCount || 0) < 1 && !(hourStats && hourStats.needFill) && !allowSoloModel) {
+        return { ok: false, reason: 'missing_pattern_confirmation', pack, effectiveConfidence: baseConf };
     }
 
     // confiança efetiva (boost leve por múltiplas confirmações / fim de hora)
-    const base = clamp01(typeof baseConfidence === 'number' ? baseConfidence : Number(baseConfidence) || 0);
+    const base = baseConf;
     const boost = (() => {
         let b = 0;
         if (hourStats && hourStats.needFill) b += 0.06;
@@ -13947,7 +13987,6 @@ function evaluateN0WhiteSignalGate({ history, nowMs, lookaheadSpins, baseConfide
     const effectiveConfidence = clamp01(base + boost);
 
     // threshold "soft"
-    const softT = clamp01(typeof softThreshold === 'number' ? softThreshold : Number(softThreshold) || 0);
     if (effectiveConfidence < softT && !(hourStats && hourStats.needFill)) {
         return { ok: false, reason: 'below_soft_threshold', softThreshold: softT, pack, effectiveConfidence };
     }
@@ -16308,19 +16347,26 @@ function runN0Detector(history, options = {}) {
 
                 const liveResult = applyN0Config(model.best_config, liveWindow, 0, liveWindows, liveContext);
                 const liveConfidence = clamp01(liveResult.confidence ?? 0);
-                const livePrediction = liveResult.prediction === 'W' ? 'W' : null;
 
+                // ✅ Decisão ao vivo baseada no threshold calibrado do modelo congelado.
                 const chosenThreshold = clamp01(model.blocking_threshold ?? 0);
+                const hardT = chosenThreshold;
+                const softT = clamp01(hardT * 0.8);
+                let livePrediction = null;
                 let blockingAction = 'no_block';
-                if (livePrediction === 'W') {
-                    if (liveConfidence >= chosenThreshold) blockingAction = 'block_all';
-                    else if (liveConfidence >= chosenThreshold * 0.8) blockingAction = 'soft_block';
+                if (liveConfidence >= hardT) {
+                    livePrediction = 'W';
+                    blockingAction = 'block_all';
+                } else if (liveConfidence >= softT) {
+                    livePrediction = 'W';
+                    blockingAction = 'soft_block';
                 }
 
                 const holdoutInfo = model.holdout || { enabled: false, passed: true, reason: null, training: model.blocking_metrics || null, validation: null };
-                if (holdoutInfo && holdoutInfo.passed === false && blockingAction !== 'no_block') {
+                if (holdoutInfo && holdoutInfo.passed === false && livePrediction) {
+                    livePrediction = null;
                     blockingAction = 'no_block';
-                    warnings.push('Ação de bloqueio suprimida devido à reprovação no holdout.');
+                    warnings.push('Ação/sinal suprimido devido à reprovação no holdout.');
                 }
 
                 const dominantNonWhite = determineDominantNonWhite(liveWindow);
@@ -16461,22 +16507,26 @@ function runN0Detector(history, options = {}) {
 
             const liveResult = applyN0Config(model.best_config, liveWindow, 0, liveWindows, liveContext);
             const liveConfidence = clamp01(liveResult.confidence ?? 0);
-            const livePrediction = liveResult.prediction === 'W' ? 'W' : null;
 
+            // ✅ Decisão ao vivo baseada no threshold calibrado do modelo em cache.
             const chosenThreshold = clamp01(model.blocking_threshold ?? 0);
+            const hardT = chosenThreshold;
+            const softT = clamp01(hardT * 0.8);
+            let livePrediction = null;
             let blockingAction = 'no_block';
-            if (livePrediction === 'W') {
-                if (liveConfidence >= chosenThreshold) {
-                    blockingAction = 'block_all';
-                } else if (liveConfidence >= chosenThreshold * 0.8) {
-                    blockingAction = 'soft_block';
-                }
+            if (liveConfidence >= hardT) {
+                livePrediction = 'W';
+                blockingAction = 'block_all';
+            } else if (liveConfidence >= softT) {
+                livePrediction = 'W';
+                blockingAction = 'soft_block';
             }
 
             const holdoutInfo = model.holdout || { enabled: false, passed: true, reason: null, training: model.blocking_metrics || null, validation: null };
-            if (holdoutInfo && holdoutInfo.passed === false && blockingAction !== 'no_block') {
+            if (holdoutInfo && holdoutInfo.passed === false && livePrediction) {
+                livePrediction = null;
                 blockingAction = 'no_block';
-                warnings.push('Ação de bloqueio suprimida devido à reprovação no holdout.');
+                warnings.push('Ação/sinal suprimido devido à reprovação no holdout.');
             }
 
             const dominantNonWhite = determineDominantNonWhite(liveWindow);
@@ -16703,11 +16753,14 @@ function runN0Detector(history, options = {}) {
             : 0;
         const baselineWhite = (Number.isFinite(observedBaseRate) && observedBaseRate > 0) ? observedBaseRate : BASELINE_WHITE_FALLBACK;
         // ✅ Exigir ganho real sobre o baseline do ciclo (não aceitar 25-30% como "bom" quando o baseline do ciclo é ~19%).
+        // ✅ Calibração de precisão mínima (evento raro):
+        // - `precisionMin` aqui é LIFT relativo ao baseline do próprio alvo (WHITE em até L giros).
+        // - Evitar exigir "2x baseline" fixo (isso tende a matar o volume e gerar horas de silêncio).
+        // - Ainda assim, manter um ganho absoluto mínimo (+6pp) para não aceitar sinal fraco demais.
         const minPrecisionForWhite = clamp01(
             Math.max(
                 baselineWhite * (1 + settings.precisionMin),
-                baselineWhite * 2.0,
-                baselineWhite + 0.12
+                baselineWhite + 0.06
             )
         );
 
@@ -16735,15 +16788,32 @@ function runN0Detector(history, options = {}) {
 
         let chosenThreshold = null;
         let chosenMetrics = null;
+
+        // ✅ Anti-silêncio: não aceitar threshold que gera 0-1 previsões por acaso.
+        const minPredsForThreshold = (() => {
+            const n = Array.isArray(bestConfList) ? bestConfList.length : 0;
+            // pelo menos ~3% das janelas (com piso 3) e teto conservador (não virar “spam”)
+            const byPct = Math.floor(n * 0.03);
+            return Math.max(settings.minWindowsRequired, Math.min(20, Math.max(3, byPct)));
+        })();
+
+        // fallback relaxado (se ninguém bater o minPrecisionForWhite)
+        const relaxedMinPrecision = clamp01(Math.max(baselineWhite * 1.15, baselineWhite + 0.04));
+        let relaxedThreshold = null;
+        let relaxedMetrics = null;
+
         grid.forEach(candidate => {
             const metrics = calculateN0BlockMetrics(bestConfList, candidate);
+            const preds = (metrics.TP || 0) + (metrics.FP || 0);
+            if (preds < minPredsForThreshold) return;
+
             if (metrics.precision >= minPrecisionForWhite) {
                 if (!chosenMetrics) {
                     chosenMetrics = { ...metrics, threshold: candidate };
                     chosenThreshold = candidate;
                     return;
                 }
-                // ✅ Escolher threshold por PRECISÃO primeiro (hit rate), depois recall/cobertura
+                // ✅ Escolher threshold por PRECISÃO primeiro (hit rate), depois recall/F1
                 if (metrics.precision > chosenMetrics.precision) {
                     chosenMetrics = { ...metrics, threshold: candidate };
                     chosenThreshold = candidate;
@@ -16756,16 +16826,40 @@ function runN0Detector(history, options = {}) {
                         chosenThreshold = candidate;
                     }
                 }
+                return;
+            }
+
+            // ✅ Relaxado: se não bater o mínimo rígido, ainda tentar um threshold com lift mínimo,
+            // para evitar "p90 alto demais" (silêncio por horas).
+            if (metrics.precision >= relaxedMinPrecision) {
+                if (!relaxedMetrics) {
+                    relaxedMetrics = { ...metrics, threshold: candidate };
+                    relaxedThreshold = candidate;
+                    return;
+                }
+                // aqui preferimos F1 (equilíbrio), depois precisão (qualidade)
+                if (metrics.f1 > relaxedMetrics.f1) {
+                    relaxedMetrics = { ...metrics, threshold: candidate };
+                    relaxedThreshold = candidate;
+                } else if (metrics.f1 === relaxedMetrics.f1 && metrics.precision > relaxedMetrics.precision) {
+                    relaxedMetrics = { ...metrics, threshold: candidate };
+                    relaxedThreshold = candidate;
+                }
             }
         });
 
+        if (!chosenMetrics && relaxedMetrics) {
+            chosenMetrics = { ...relaxedMetrics, fallback: true, fallback_reason: 'relaxed_precision' };
+            chosenThreshold = relaxedThreshold;
+        }
+
         if (!chosenMetrics) {
-            const percentileIndex = Math.max(0, Math.min(confValuesSorted.length - 1, Math.floor(confValuesSorted.length * 0.9)));
-            const percentile90 = confValuesSorted.length > 0 ? confValuesSorted[percentileIndex] : 0.5;
-            // fallback: usar p90 da distribuição real (não travar em 0.8, o que pode tornar o N0 impossível)
-            chosenThreshold = clamp01(percentile90);
+            // fallback final: usar p85 (menos extremo que p90) da distribuição real
+            const percentileIndex = Math.max(0, Math.min(confValuesSorted.length - 1, Math.floor(confValuesSorted.length * 0.85)));
+            const percentile = confValuesSorted.length > 0 ? confValuesSorted[percentileIndex] : 0.5;
+            chosenThreshold = clamp01(percentile);
             const fallbackMetrics = calculateN0BlockMetrics(bestConfList, chosenThreshold);
-            chosenMetrics = { ...fallbackMetrics, threshold: chosenThreshold, fallback: true };
+            chosenMetrics = { ...fallbackMetrics, threshold: chosenThreshold, fallback: true, fallback_reason: 'p85' };
         } else if (!('threshold' in chosenMetrics)) {
             chosenMetrics.threshold = chosenThreshold;
         }
@@ -16846,20 +16940,26 @@ function runN0Detector(history, options = {}) {
         };
         const liveResult = applyN0Config(bestDetailed.cfg, liveWindow, 0, liveWindows, liveContext);
         const liveConfidence = clamp01(liveResult.confidence ?? 0);
-        const livePrediction = liveResult.prediction === 'W' ? 'W' : null;
 
+        // ✅ Decisão ao vivo baseada no threshold calibrado (e NÃO no threshold interno do cfg).
+        // Isso corrige o comportamento "silencioso" e evita inconsistência onde conf alta não vira predição.
+        const hardT = clamp01(chosenThreshold);
+        const softT = clamp01(hardT * 0.8);
+        let livePrediction = null;
         let blockingAction = 'no_block';
-        if (livePrediction === 'W') {
-            if (liveConfidence >= chosenThreshold) {
-                blockingAction = 'block_all';
-            } else if (liveConfidence >= chosenThreshold * 0.8) {
-                blockingAction = 'soft_block';
-            }
+        if (liveConfidence >= hardT) {
+            livePrediction = 'W';
+            blockingAction = 'block_all';
+        } else if (liveConfidence >= softT) {
+            livePrediction = 'W';
+            blockingAction = 'soft_block';
         }
 
-        if (!holdoutInfo.passed && blockingAction !== 'no_block') {
+        // Holdout reprovado: não permitir NENHUMA ação/sinal do N0 neste giro.
+        if (holdoutInfo && holdoutInfo.passed === false && livePrediction) {
+            livePrediction = null;
             blockingAction = 'no_block';
-            warnings.push('Ação de bloqueio suprimida devido à reprovação no holdout.');
+            warnings.push('Ação/sinal suprimido devido à reprovação no holdout.');
         }
 
         const dominantNonWhite = determineDominantNonWhite(liveWindow);
@@ -20338,11 +20438,24 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
                             }
                         })();
 
+                        const n0GapSinceLastWhite = (() => {
+                            try {
+                                const idx = findMostRecentWhiteIndexForN0(history, 400);
+                                if (idx == null) return null;
+                                const n = Math.floor(Number(idx) || 0);
+                                return Number.isFinite(n) ? Math.max(0, n) : null;
+                            } catch (_) {
+                                return null;
+                            }
+                        })();
+
                         const signal = {
                             timestamp: Date.now(),
                             patternType: 'nivel-diamante',
                             patternName: 'Detector de Branco (N0)',
                             colorRecommended: 'white',
+                            // ✅ Meta (usado por guard rails anti-"gap fixo")
+                            n0GapSinceLastWhite,
                             normalizedScore: Number(n0ConfForSignal.toFixed(4)),
                             scoreMagnitude: Number(n0ConfForSignal.toFixed(4)),
                             intensityMode: analyzerConfig.signalIntensity || 'aggressive',
@@ -20556,11 +20669,24 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
                 }
             })();
 
+            const n0GapSinceLastWhite = (() => {
+                try {
+                    const idx = findMostRecentWhiteIndexForN0(history, 400);
+                    if (idx == null) return null;
+                    const n = Math.floor(Number(idx) || 0);
+                    return Number.isFinite(n) ? Math.max(0, n) : null;
+                } catch (_) {
+                    return null;
+                }
+            })();
+
             const signal = {
                 timestamp: Date.now(),
                 patternType: 'nivel-diamante',
                 patternName: 'Detector de Branco (N0)',
                 colorRecommended: 'white',
+                // ✅ Meta (usado por guard rails anti-"gap fixo")
+                n0GapSinceLastWhite,
                 normalizedScore: Number((
                     (n0BudgetCheck && typeof n0BudgetCheck.effectiveConfidence === 'number' && Number.isFinite(n0BudgetCheck.effectiveConfidence))
                         ? n0BudgetCheck.effectiveConfidence
@@ -20727,11 +20853,24 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
                 }
             })();
 
+            const n0GapSinceLastWhite = (() => {
+                try {
+                    const idx = findMostRecentWhiteIndexForN0(history, 400);
+                    if (idx == null) return null;
+                    const n = Math.floor(Number(idx) || 0);
+                    return Number.isFinite(n) ? Math.max(0, n) : null;
+                } catch (_) {
+                    return null;
+                }
+            })();
+
             const signal = {
                 timestamp: Date.now(),
                 patternType: 'nivel-diamante',
                 patternName: 'Detector de Branco (N0)',
                 colorRecommended: 'white',
+                // ✅ Meta (usado por guard rails anti-"gap fixo")
+                n0GapSinceLastWhite,
                 normalizedScore: Number((
                     (n0BudgetCheck && typeof n0BudgetCheck.effectiveConfidence === 'number' && Number.isFinite(n0BudgetCheck.effectiveConfidence))
                         ? n0BudgetCheck.effectiveConfidence
