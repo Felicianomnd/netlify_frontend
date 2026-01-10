@@ -5717,6 +5717,20 @@
         grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 
+    /* ✅ Mobile: overlay de calibração um pouco menor e gradiente mais claro (não “esconder” totalmente o fundo) */
+    .da-calibration-overlay {
+        --da-calib-grad: 240px;
+        --da-calib-a0: 0.82;
+        --da-calib-a1: 0.72;
+        --da-calib-a2: 0.44;
+        --da-calib-a3: 0.14;
+        --da-calib-ring: 134px;
+        --da-calib-title: 11px;
+        --da-calib-sub: 10.5px;
+        --da-calib-dot-inset: 7px;
+        --da-calib-dot-radius: -54px;
+    }
+
     /* ✅ MOBILE: "Padrão" (Últimos 14 giros) deve ficar 7 + 7 (sem 3ª linha sobrando) */
     #blaze-double-analyzer #analyzerDefaultView .pattern-section #patternInfo #patternLastSpinsRow.ai-entry-spins,
     #blaze-double-analyzer #analyzerDefaultView .pattern-section .ai-entry-section--pattern-spins .ai-entry-spins {
@@ -5923,6 +5937,17 @@
   z-index: 6;
   display: none;
   pointer-events: none; /* não bloquear scroll/click */
+  /* ✅ Vars (permite ajustar tamanho do gradiente/anel sem mexer na intensidade “na doideira”) */
+  --da-calib-grad: 300px;          /* tamanho (raio) do gradiente radial */
+  --da-calib-a0: 0.92;             /* centro */
+  --da-calib-a1: 0.82;
+  --da-calib-a2: 0.54;
+  --da-calib-a3: 0.20;             /* borda */
+  --da-calib-ring: 148px;          /* tamanho do anel */
+  --da-calib-title: 12px;          /* "Calibrando N4" */
+  --da-calib-sub: 11px;            /* "8/10 ciclos" */
+  --da-calib-dot-inset: 8px;       /* quanto “abre” o anel */
+  --da-calib-dot-radius: -60px;    /* raio das bolinhas (negativo = para cima) */
 }
 .da-calibration-backdrop {
   position: absolute;
@@ -5930,13 +5955,13 @@
   /* ✅ Pedido: em vez de “preto chapado”, usar um gradiente radial na MESMA cor do container (bg-secondary).
      Isso faz os resultados "sumirem" de forma progressiva quando passam por trás do anel. */
   background:
-    radial-gradient(circle 360px at 50% 50%,
-      rgba(17, 28, 39, 0.96) 0%,
-      rgba(17, 28, 39, 0.88) 32%,
-      rgba(17, 28, 39, 0.62) 54%,
-      rgba(17, 28, 39, 0.28) 74%,
-      rgba(17, 28, 39, 0.10) 100%),
-    rgba(17, 28, 39, 0.06);
+    radial-gradient(circle var(--da-calib-grad, 300px) at 50% 50%,
+      rgba(17, 28, 39, var(--da-calib-a0, 0.92)) 0%,
+      rgba(17, 28, 39, var(--da-calib-a1, 0.82)) 34%,
+      rgba(17, 28, 39, var(--da-calib-a2, 0.54)) 58%,
+      rgba(17, 28, 39, var(--da-calib-a3, 0.20)) 78%,
+      rgba(17, 28, 39, 0.00) 100%),
+    rgba(17, 28, 39, 0.03);
 }
 .da-calibration-center {
   position: relative;
@@ -5949,8 +5974,8 @@
   gap: 10px;
 }
 .da-calibration-ring {
-  width: 156px;   /* ✅ anel maior (bolinhas não ficam por cima do texto) */
-  height: 156px;  /* ✅ anel maior (bolinhas não ficam por cima do texto) */
+  width: var(--da-calib-ring, 148px);
+  height: var(--da-calib-ring, 148px);
   border-radius: 50%;
   position: relative;
   display: flex;
@@ -5963,13 +5988,13 @@
   box-shadow: 0 8px 18px rgba(0, 0, 0, 0.28);
 }
 .da-calibration-title {
-  font-size: 13px;
+  font-size: var(--da-calib-title, 12px);
   font-weight: 800;
   color: rgba(233, 242, 255, 0.96);
   letter-spacing: 0.2px;
 }
 .da-calibration-sub {
-  font-size: 12px;
+  font-size: var(--da-calib-sub, 11px);
   font-weight: 600;
   color: rgba(233, 242, 255, 0.72);
   font-variant-numeric: tabular-nums;
@@ -5984,7 +6009,7 @@
 }
 .da-calibration-dots {
   position: absolute;
-  inset: 8px; /* ✅ abre mais o anel (maior raio útil) */
+  inset: var(--da-calib-dot-inset, 8px); /* ✅ abre mais o anel (maior raio útil) */
   border-radius: 50%;
   animation: da-calib-spin 0.95s linear infinite;
   will-change: transform;
@@ -5998,7 +6023,7 @@
   height: 5px; /* ✅ mais bolinhas sem poluir */
   border-radius: 50%;
   background: #f02e4c;
-  transform: translate(-50%, -50%) rotate(calc(var(--i, 0) * 22.5deg)) translate(0, -62px);
+  transform: translate(-50%, -50%) rotate(calc(var(--i, 0) * 22.5deg)) translate(0, var(--da-calib-dot-radius, -60px));
   opacity: 0.88;
   box-shadow: 0 0 10px rgba(240, 46, 76, 0.25);
 }
