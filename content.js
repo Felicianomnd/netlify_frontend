@@ -12872,6 +12872,23 @@ async function persistAnalyzerState(newState) {
                         <div class="entries-view" data-view="entries">
                             <div class="entries-list-wrap" id="entriesListWrap">
                                 <div class="entries-list" id="entriesList"></div>
+                                <!-- ✅ Overlay: Calibração (10 ciclos) — aviso de “sinais em teste” -->
+                                <div class="da-calibration-overlay" id="daCalibrationOverlay" style="display:none;" aria-hidden="true">
+                                    <div class="da-calibration-backdrop"></div>
+                                    <div class="da-calibration-center">
+                                        <div class="da-calibration-ring" data-state="calibrating">
+                                            <div class="da-calibration-dots" aria-hidden="true">
+                                                <span style="--i:0"></span><span style="--i:1"></span><span style="--i:2"></span><span style="--i:3"></span>
+                                                <span style="--i:4"></span><span style="--i:5"></span><span style="--i:6"></span><span style="--i:7"></span>
+                                                <span style="--i:8"></span><span style="--i:9"></span><span style="--i:10"></span><span style="--i:11"></span>
+                                                <span style="--i:12"></span><span style="--i:13"></span><span style="--i:14"></span><span style="--i:15"></span>
+                                            </div>
+                                            <div class="da-calibration-title" id="daCalibrationTitle">Calibrando</div>
+                                            <div class="da-calibration-sub" id="daCalibrationSub">0/10 ciclos</div>
+                                        </div>
+                                        <div class="da-calibration-note" id="daCalibrationNote">Testando estratégias</div>
+                                    </div>
+                                </div>
                                 <!-- ✅ Toggle: expandir histórico (tela cheia) -->
                                 <div class="ia-tests-toggle" id="iaTestsToggle" style="display:none;">
                                     <button type="button" class="ia-tests-toggle-btn" id="iaTestsToggleBtn" aria-label="Expandir histórico (tela cheia)" title="Expandir histórico (tela cheia)">
@@ -17059,6 +17076,172 @@ async function persistAnalyzerState(newState) {
         };
         spinRhythmTextTimer = setTimeout(tickText, Math.max(16, Math.min(SPIN_RHYTHM_TEXT_STEP_MS, 100)));
     }
+
+    // ═══════════════════════════════════════════════════════════════
+    // 🧪 Calibração (10 ciclos) — Aviso de “modo teste” na aba IA
+    // - Objetivo: deixar explícito para o usuário quando o Diamante/N4 está coletando base
+    // - Regras:
+    //   - Só no modo DIAMOND e com N4 habilitado
+    //   - Conta ciclos finais (WIN/LOSS finais) a partir de um "startTs" versionado
+    //   - Ao completar 10 ciclos: mostra “liberado” por alguns segundos e some
+    // ═══════════════════════════════════════════════════════════════
+    const DA_DIAMOND_CALIBRATION_KEY = 'da_diamond_calibration_state_v1';
+    const DA_DIAMOND_CALIBRATION_VERSION = 1;
+    const DA_DIAMOND_CALIBRATION_REQUIRED_CYCLES = 10;
+    let daDiamondCalibrationRuntime = { hideTimer: null };
+
+    function isDiamondN4EnabledInConfig(cfg) {
+        try {
+            const c = cfg && typeof cfg === 'object' ? cfg : null;
+            const enabled = c && c.diamondLevelEnabled && typeof c.diamondLevelEnabled === 'object'
+                ? c.diamondLevelEnabled
+                : null;
+            if (!enabled) return false;
+            // chaves costumam ser "n4" (minúsculo)
+            if (enabled.n4 != null) return !!enabled.n4;
+            if (enabled.N4 != null) return !!enabled.N4;
+            return false;
+        } catch (_) {
+            return false;
+        }
+    }
+
+    function getDiamondCalibrationState() {
+        try {
+            const raw = localStorage.getItem(DA_DIAMOND_CALIBRATION_KEY);
+            const parsed = raw ? JSON.parse(raw) : null;
+            if (!parsed || typeof parsed !== 'object') throw new Error('no_state');
+            const v = Math.floor(Number(parsed.v) || 0);
+            if (v !== DA_DIAMOND_CALIBRATION_VERSION) throw new Error('version_mismatch');
+            const startTs = Number(parsed.startTs) || 0;
+            const doneToastShown = !!parsed.doneToastShown;
+            return { v, startTs, doneToastShown };
+        } catch (_) {
+            // Inicializar estado novo (após update/version bump)
+            const fresh = {
+                v: DA_DIAMOND_CALIBRATION_VERSION,
+                startTs: Date.now(),
+                doneToastShown: false
+            };
+            try { localStorage.setItem(DA_DIAMOND_CALIBRATION_KEY, JSON.stringify(fresh)); } catch (_) {}
+            return fresh;
+        }
+    }
+
+    function persistDiamondCalibrationState(next) {
+        try {
+            const state = next && typeof next === 'object' ? next : null;
+            if (!state) return;
+            localStorage.setItem(DA_DIAMOND_CALIBRATION_KEY, JSON.stringify(state));
+        } catch (_) {}
+    }
+
+    function setDiamondCalibrationOverlayVisible(visible) {
+        const el = document.getElementById('daCalibrationOverlay');
+        if (!el) return;
+        el.style.display = visible ? 'block' : 'none';
+    }
+
+    function setDiamondCalibrationOverlayState(state) {
+        const el = document.getElementById('daCalibrationOverlay');
+        if (!el) return;
+        el.setAttribute('data-state', String(state || 'calibrating'));
+    }
+
+    function updateDiamondCalibrationOverlayContent({ title, sub, note, ringState }) {
+        try {
+            const titleEl = document.getElementById('daCalibrationTitle');
+            const subEl = document.getElementById('daCalibrationSub');
+            const noteEl = document.getElementById('daCalibrationNote');
+            const overlayEl = document.getElementById('daCalibrationOverlay');
+            if (titleEl) titleEl.textContent = String(title || '');
+            if (subEl) subEl.textContent = String(sub || '');
+            if (noteEl) noteEl.textContent = String(note || '');
+            if (overlayEl) overlayEl.setAttribute('data-state', String(ringState || 'calibrating'));
+        } catch (_) {}
+    }
+
+    function countFinalCyclesSinceTsNewestFirst(filteredEntries, startTs) {
+        try {
+            const ts = Number(startTs) || 0;
+            if (!Array.isArray(filteredEntries) || filteredEntries.length === 0) return 0;
+            let n = 0;
+            for (let i = 0; i < filteredEntries.length; i++) {
+                const e = filteredEntries[i];
+                const ms = getEntryRealTimestampMs(e);
+                if (Number.isFinite(ms) && ms > 0 && ms < ts) break; // newest-first: pode parar
+                // Contar qualquer ciclo final exibido (WIN/LOSS final)
+                if (e && (e.result === 'WIN' || e.result === 'LOSS')) n++;
+            }
+            return n;
+        } catch (_) {
+            return 0;
+        }
+    }
+
+    function updateDiamondCalibrationOverlay({ currentMode, cfg, filteredEntries }) {
+        try {
+            const overlay = document.getElementById('daCalibrationOverlay');
+            if (!overlay) return;
+
+            // Só na aba IA (se não existir list wrap, não faz nada)
+            const list = document.getElementById('entriesList');
+            if (!list) return;
+
+            if (currentMode !== 'diamond' || !isDiamondN4EnabledInConfig(cfg)) {
+                // Garantir que não “vaze” para outros modos
+                if (daDiamondCalibrationRuntime.hideTimer) {
+                    clearTimeout(daDiamondCalibrationRuntime.hideTimer);
+                    daDiamondCalibrationRuntime.hideTimer = null;
+                }
+                setDiamondCalibrationOverlayVisible(false);
+                return;
+            }
+
+            const state = getDiamondCalibrationState();
+            const done = countFinalCyclesSinceTsNewestFirst(filteredEntries, state.startTs);
+            const req = DA_DIAMOND_CALIBRATION_REQUIRED_CYCLES;
+
+            if (done < req) {
+                if (daDiamondCalibrationRuntime.hideTimer) {
+                    clearTimeout(daDiamondCalibrationRuntime.hideTimer);
+                    daDiamondCalibrationRuntime.hideTimer = null;
+                }
+                setDiamondCalibrationOverlayState('calibrating');
+                setDiamondCalibrationOverlayVisible(true);
+                updateDiamondCalibrationOverlayContent({
+                    title: 'Calibrando N4',
+                    sub: `${done}/${req} ciclos`,
+                    note: 'Testando estratégias',
+                    ringState: 'calibrating'
+                });
+                return;
+            }
+
+            // Concluiu: mostrar “liberado” uma vez, por alguns segundos
+            if (!state.doneToastShown) {
+                state.doneToastShown = true;
+                persistDiamondCalibrationState(state);
+                setDiamondCalibrationOverlayState('ready');
+                setDiamondCalibrationOverlayVisible(true);
+                updateDiamondCalibrationOverlayContent({
+                    title: 'N4 calibrado',
+                    sub: 'Sinais liberados',
+                    note: 'A partir dos próximos giros, você pode entrar',
+                    ringState: 'ready'
+                });
+                if (daDiamondCalibrationRuntime.hideTimer) clearTimeout(daDiamondCalibrationRuntime.hideTimer);
+                daDiamondCalibrationRuntime.hideTimer = setTimeout(() => {
+                    try { setDiamondCalibrationOverlayVisible(false); } catch (_) {}
+                    daDiamondCalibrationRuntime.hideTimer = null;
+                }, 2600);
+                return;
+            }
+
+            // Já mostrou o “liberado” antes — manter oculto
+            setDiamondCalibrationOverlayVisible(false);
+        } catch (_) {}
+    }
     
     // Render de lista de entradas (WIN/LOSS)
     function renderEntriesPanel(entries) {
@@ -17321,6 +17504,8 @@ async function persistAnalyzerState(newState) {
 
         // ✅ Atualizar barra "Momento" (qualidade dos sinais) com os ciclos finais exibidos na IA
         try { updateMomentQualityBar(filteredEntries); } catch (_) {}
+        // 🧪 Calibração (10 ciclos) — overlay de “modo teste” (Diamante/N4)
+        try { updateDiamondCalibrationOverlay({ currentMode, cfg: latestAnalyzerConfig, filteredEntries }); } catch (_) {}
         
         // Renderizar apenas as entradas filtradas
         const items = filteredEntries.map((e, idx) => {

@@ -6417,7 +6417,7 @@ let signalsHistory = {
     },
     // 💎 N4 (Autointeligente): auto-aprendizado por "tipo de sinal" do próprio N4 (contexto n-gram + cor + setup)
     n4SelfLearning: {
-        version: 2,
+        version: 3,
         stats: {},            // { [key]: { total, wins, losses, recent: boolean[], lastTs } }
         maxRecent: 30,        // janela de recência por key
         maxKeys: 400,         // limite de chaves (evita crescer infinito)
@@ -6519,7 +6519,7 @@ async function initializeSignalsHistory() {
             } catch (_) {}
             if (!signalsHistory.n4SelfLearning || typeof signalsHistory.n4SelfLearning !== 'object') {
                 signalsHistory.n4SelfLearning = {
-                    version: 2,
+                    version: 3,
                     stats: {},
                     maxRecent: 30,
                     maxKeys: 400,
@@ -6576,10 +6576,16 @@ async function initializeSignalsHistory() {
             if (!Number.isFinite(Number(signalsHistory.n4SelfLearning.minSamples))) signalsHistory.n4SelfLearning.minSamples = 8;
             if (!Number.isFinite(Number(signalsHistory.n4SelfLearning.badWinRate))) signalsHistory.n4SelfLearning.badWinRate = 0.45;
             if (!Number.isFinite(Number(signalsHistory.n4SelfLearning.goodWinRate))) signalsHistory.n4SelfLearning.goodWinRate = 0.60;
-            // ✅ Migração leve: se ainda estiver em versão antiga, apenas marcar versão (sem sobrescrever ajustes do usuário).
+            // ✅ Migração: v3 adiciona chaves agregadas (ctx1/ctx2/global) para o N4 aprender com poucas amostras.
+            // Não sobrescreve ajustes do usuário (somente adiciona stats derivadas).
             const n4Ver = Math.max(1, Math.floor(Number(signalsHistory.n4SelfLearning.version) || 1));
-            if (n4Ver < 2) {
-                signalsHistory.n4SelfLearning.version = 2;
+            if (n4Ver < 3) {
+                let migrated = false;
+                try { migrated = !!migrateN4SelfLearningToV3(signalsHistory.n4SelfLearning); } catch (_) {}
+                signalsHistory.n4SelfLearning.version = 3;
+                if (migrated) {
+                    try { await saveSignalsHistory(); } catch (_) {}
+                }
             }
             if (signalsHistory.consecutiveLosses === undefined) signalsHistory.consecutiveLosses = 0;
             if (!signalsHistory.recentPerformance || !Array.isArray(signalsHistory.recentPerformance)) signalsHistory.recentPerformance = [];
@@ -6618,7 +6624,7 @@ async function initializeSignalsHistory() {
                 budgetSnapshot: null
             },
             n4SelfLearning: {
-                version: 2,
+                version: 3,
                 stats: {},
                 maxRecent: 30,
                 maxKeys: 400,
@@ -6825,6 +6831,134 @@ function buildN4SelfLearningKey(ctxKey, tok, stepsToWin, intensity) {
     }
 }
 
+function buildN4SelfLearningAggKey(ctxKey, tok, stepsToWin, intensity, learningPolicy, aggTag) {
+    try {
+        const base = buildN4SelfLearningKey(ctxKey, tok, stepsToWin, intensity, learningPolicy);
+        if (!base) return null;
+        const tag = String(aggTag || '').trim().toLowerCase();
+        if (!tag) return null;
+        if (base.includes('|agg=')) return base;
+        return `${base}|agg=${tag}`;
+    } catch (_) {
+        return null;
+    }
+}
+
+function buildN4SelfLearningAggCtxKey(ctxKey, len = 2) {
+    try {
+        const raw = String(ctxKey || '').trim().toUpperCase().replace(/[^RBW]/g, '');
+        if (!raw) return '';
+        const n = Math.max(1, Math.min(6, Math.floor(Number(len) || 2)));
+        // WHITE como marcador de fronteira: manter o W se ele existir no início do ctx.
+        if (raw.startsWith('W')) {
+            if (n === 1) return 'W';
+            const tailSource = raw.slice(1);
+            if (!tailSource) return 'W';
+            const take = Math.max(1, Math.min(n - 1, tailSource.length));
+            return 'W' + tailSource.slice(-take);
+        }
+        return raw.slice(-n);
+    } catch (_) {
+        return '';
+    }
+}
+
+function parseN4SelfLearningKeyParts(key) {
+    try {
+        const s = String(key || '');
+        if (!s) return null;
+        const ctxMatch = s.match(/\bctx=([^|]+)\b/i);
+        const tokMatch = s.match(/\btok=([RBW])\b/i);
+        const stepsMatch = s.match(/\bsteps=(\d+)\b/i);
+        const intMatch = s.match(/\bint=([^|]+)\b/i);
+        const polMatch = s.match(/\bpol=(dyn|fix)\b/i);
+        const aggMatch = s.match(/\bagg=([^|]+)\b/i);
+        const ctx = ctxMatch ? String(ctxMatch[1] || '').trim().toUpperCase() : null;
+        const tok = tokMatch ? String(tokMatch[1] || '').trim().toUpperCase() : null;
+        const stepsToWin = stepsMatch ? Math.max(1, Math.min(3, Math.floor(Number(stepsMatch[1]) || 1))) : null;
+        const intensityRaw = intMatch ? String(intMatch[1] || '').trim().toLowerCase() : null;
+        const intensity = intensityRaw === 'conservative' ? 'conservative' : (intensityRaw ? 'aggressive' : null);
+        const pol = polMatch ? String(polMatch[1] || '').trim().toLowerCase() : null;
+        const agg = aggMatch ? String(aggMatch[1] || '').trim().toLowerCase() : null;
+        return {
+            ctx: ctx || null,
+            tok: (tok === 'R' || tok === 'B' || tok === 'W') ? tok : null,
+            stepsToWin,
+            intensity,
+            pol: (pol === 'dyn' || pol === 'fix') ? pol : null,
+            agg
+        };
+    } catch (_) {
+        return null;
+    }
+}
+
+function migrateN4SelfLearningToV3(store) {
+    try {
+        if (!store || typeof store !== 'object') return false;
+        if (!store.stats || typeof store.stats !== 'object') store.stats = {};
+        const map = store.stats;
+        const keys = Object.keys(map || {});
+        // ✅ Segurança: se já houver chaves agregadas, não migrar (evita duplicar contagens).
+        if (keys.some(k => typeof k === 'string' && k.includes('|agg='))) return false;
+
+        const acc = {}; // aggKey -> { total,wins,losses,lastTs }
+        for (const k of keys) {
+            if (!k || typeof k !== 'string') continue;
+            const row = map[k];
+            if (!row || typeof row !== 'object') continue;
+            const total = Math.max(0, Math.floor(Number(row.total) || 0));
+            const wins = Math.max(0, Math.floor(Number(row.wins) || 0));
+            const losses = Math.max(0, Math.floor(Number(row.losses) || 0));
+            const lastTs = Number(row.lastTs) || 0;
+            if (total <= 0) continue;
+
+            const parts = parseN4SelfLearningKeyParts(k);
+            if (!parts || !parts.ctx || !parts.tok) continue;
+            const steps = parts.stepsToWin != null ? parts.stepsToWin : 1;
+            const intensity = parts.intensity || 'aggressive';
+            const pol = parts.pol || 'dyn';
+
+            const ctx2 = buildN4SelfLearningAggCtxKey(parts.ctx, 2);
+            const ctx1 = buildN4SelfLearningAggCtxKey(parts.ctx, 1);
+            const aggKeys = [
+                buildN4SelfLearningAggKey(ctx2, parts.tok, steps, intensity, pol, 'ctx2'),
+                buildN4SelfLearningAggKey(ctx1, parts.tok, steps, intensity, pol, 'ctx1'),
+                buildN4SelfLearningAggKey('GLOBAL', parts.tok, steps, intensity, pol, 'global')
+            ].filter(Boolean);
+
+            for (const aggKey of aggKeys) {
+                const a = acc[aggKey] || { total: 0, wins: 0, losses: 0, lastTs: 0 };
+                a.total += total;
+                a.wins += wins;
+                a.losses += losses;
+                a.lastTs = Math.max(a.lastTs, lastTs);
+                acc[aggKey] = a;
+            }
+        }
+
+        const aggKeyList = Object.keys(acc);
+        if (!aggKeyList.length) return false;
+
+        const now = Date.now();
+        for (const aggKey of aggKeyList) {
+            const a = acc[aggKey];
+            map[aggKey] = {
+                total: Math.max(0, Math.floor(Number(a.total) || 0)),
+                wins: Math.max(0, Math.floor(Number(a.wins) || 0)),
+                losses: Math.max(0, Math.floor(Number(a.losses) || 0)),
+                // recência será preenchida naturalmente a partir das próximas entradas
+                recent: [],
+                lastTs: Number(a.lastTs) || now
+            };
+        }
+        store.lastUpdated = now;
+        return true;
+    } catch (_) {
+        return false;
+    }
+}
+
 function getN4SelfLearningStatsForKey(key) {
     try {
         const store = signalsHistory && signalsHistory.n4SelfLearning ? signalsHistory.n4SelfLearning : null;
@@ -6889,7 +7023,7 @@ async function recordN4SelfLearningFromResolvedCycle(analysisObj, outcome) {
 
         if (!signalsHistory.n4SelfLearning || typeof signalsHistory.n4SelfLearning !== 'object') {
             signalsHistory.n4SelfLearning = {
-                version: 2,
+                version: 3,
                 stats: {},
                 maxRecent: 30,
                 maxKeys: 400,
@@ -6906,18 +7040,57 @@ async function recordN4SelfLearningFromResolvedCycle(analysisObj, outcome) {
         const store = signalsHistory.n4SelfLearning;
         const maxRecent = Math.max(10, Math.min(200, Math.floor(Number(store.maxRecent) || 30)));
         const now = Date.now();
-        const row = store.stats[key] && typeof store.stats[key] === 'object'
-            ? store.stats[key]
-            : { total: 0, wins: 0, losses: 0, recent: [], lastTs: 0 };
+        const keysToUpdate = new Set();
+        try {
+            keysToUpdate.add(key);
 
-        row.total = Math.max(0, Math.floor(Number(row.total) || 0)) + 1;
-        row.wins = Math.max(0, Math.floor(Number(row.wins) || 0)) + (isWin ? 1 : 0);
-        row.losses = Math.max(0, Math.floor(Number(row.losses) || 0)) + (isLoss ? 1 : 0);
-        row.recent = Array.isArray(row.recent) ? row.recent.slice(-maxRecent + 1) : [];
-        row.recent.push(!!isWin);
-        row.lastTs = now;
+            const parts = parseN4SelfLearningKeyParts(key);
+            const ctxFull = (n4 && typeof n4.ctx === 'string' && n4.ctx.trim())
+                ? String(n4.ctx).trim().toUpperCase()
+                : (parts && parts.ctx ? String(parts.ctx) : '');
+            const tok = parts && parts.tok
+                ? parts.tok
+                : (() => {
+                    const vote = n4 && typeof n4.voteColor === 'string' ? String(n4.voteColor).toLowerCase().trim() : '';
+                    if (vote === 'black') return 'B';
+                    if (vote === 'white') return 'W';
+                    if (vote === 'red') return 'R';
+                    return null;
+                })();
+            const stepsToWin = (parts && parts.stepsToWin != null) ? parts.stepsToWin : 1;
+            const intensity = (parts && parts.intensity) ? parts.intensity : 'aggressive';
+            const pol = (parts && parts.pol) ? parts.pol : 'dyn';
 
-        store.stats[key] = row;
+            // ✅ Canonicalizar chave (garante "|pol=" mesmo quando veio de payload legado)
+            const canonicalKey = (ctxFull && tok)
+                ? buildN4SelfLearningKey(ctxFull, tok, stepsToWin, intensity, pol)
+                : null;
+            if (canonicalKey) keysToUpdate.add(canonicalKey);
+
+            // ✅ Chaves agregadas (ctx1/ctx2/global): aprendem mesmo com poucas repetições do contexto completo.
+            const ctx2 = ctxFull ? buildN4SelfLearningAggCtxKey(ctxFull, 2) : '';
+            const ctx1 = ctxFull ? buildN4SelfLearningAggCtxKey(ctxFull, 1) : '';
+            const kCtx2 = (tok && ctx2) ? buildN4SelfLearningAggKey(ctx2, tok, stepsToWin, intensity, pol, 'ctx2') : null;
+            const kCtx1 = (tok && ctx1) ? buildN4SelfLearningAggKey(ctx1, tok, stepsToWin, intensity, pol, 'ctx1') : null;
+            const kGlobal = tok ? buildN4SelfLearningAggKey('GLOBAL', tok, stepsToWin, intensity, pol, 'global') : null;
+            if (kCtx2) keysToUpdate.add(kCtx2);
+            if (kCtx1) keysToUpdate.add(kCtx1);
+            if (kGlobal) keysToUpdate.add(kGlobal);
+        } catch (_) {}
+
+        for (const k of Array.from(keysToUpdate)) {
+            if (!k) continue;
+            const row = store.stats[k] && typeof store.stats[k] === 'object'
+                ? store.stats[k]
+                : { total: 0, wins: 0, losses: 0, recent: [], lastTs: 0 };
+            row.total = Math.max(0, Math.floor(Number(row.total) || 0)) + 1;
+            row.wins = Math.max(0, Math.floor(Number(row.wins) || 0)) + (isWin ? 1 : 0);
+            row.losses = Math.max(0, Math.floor(Number(row.losses) || 0)) + (isLoss ? 1 : 0);
+            row.recent = Array.isArray(row.recent) ? row.recent.slice(-maxRecent + 1) : [];
+            row.recent.push(!!isWin);
+            row.lastTs = now;
+            store.stats[k] = row;
+        }
         store.lastUpdated = now;
 
         pruneN4SelfLearningIfNeeded();
@@ -12390,9 +12563,10 @@ function analyzeAutointeligente(history, options = {}) {
         const dynGood = clamp01(baseline + 0.10);
 
         let minSamples = Math.max(3, Math.min(80, Math.floor(Number(store?.minSamples) || 8)));
-        // mais amostras para ciclos mais longos (evita overfit do auto-aprendizado)
-        if (s >= 3) minSamples = Math.max(minSamples, 12);
-        else if (s === 2) minSamples = Math.max(minSamples, 10);
+        // mais amostras para ciclos mais longos, mas sem ficar "cego" no começo (pedido: aprender mais rápido)
+        // Observação: além do ctx completo, usamos chaves agregadas (ctx1/ctx2/global) para reduzir sparse-data.
+        if (s >= 3) minSamples = Math.max(minSamples, 8);
+        else if (s === 2) minSamples = Math.max(minSamples, 6);
 
         let bad = Number(store?.badWinRate);
         let good = Number(store?.goodWinRate);
@@ -13093,27 +13267,69 @@ function analyzeAutointeligente(history, options = {}) {
     let learningRecentN = 0;
     let learningRecentWinRate = null;
     let learningKey = null;
+    let learningTier = null; // 'ctx' | 'ctx2' | 'ctx1' | 'global' | null
     try {
         const { minSamples, badWinRate, goodWinRate } = resolveN4LearningParams(baselinePcycle, stepsToWin);
 
         const ctxKey = Array.isArray(ctxTail) ? ctxTail.join('') : '';
+        const ctxAgg2 = ctxKey ? buildN4SelfLearningAggCtxKey(ctxKey, 2) : '';
+        const ctxAgg1 = ctxKey ? buildN4SelfLearningAggCtxKey(ctxKey, 1) : '';
+
+        // ✅ N4 aprende por "tipo". Contexto completo (ctx) é muito esparso; usamos tiers agregados para reagir cedo.
+        const minSamplesAgg = Math.max(4, Math.floor(minSamples * 0.50));
+        const minSamplesGlobal = Math.max(6, Math.floor(minSamples * 0.75));
+        const swapDelta = 0.04;
+
+        const readLearningWinRate = (st) => {
+            if (!st || typeof st !== 'object') return { winRate: null, n: 0 };
+            const hasRecent = (typeof st.recentWinRate === 'number' && Number.isFinite(st.recentWinRate));
+            const winRate = hasRecent
+                ? st.recentWinRate
+                : ((typeof st.totalWinRate === 'number' && Number.isFinite(st.totalWinRate)) ? st.totalWinRate : null);
+            const n = hasRecent
+                ? (Number.isFinite(Number(st.recentN)) ? Number(st.recentN) : 0)
+                : (Number.isFinite(Number(st.total)) ? Number(st.total) : 0);
+            return { winRate, n };
+        };
+
+        const pickEffectiveLearning = (tok, fullKey, fullStats) => {
+            const candidates = [
+                { tier: 'ctx', key: fullKey, stats: fullStats, minN: minSamples },
+                { tier: 'ctx2', key: (tok && ctxAgg2) ? buildN4SelfLearningAggKey(ctxAgg2, tok, stepsToWin, signalIntensity, learningPolicy, 'ctx2') : null, minN: minSamplesAgg },
+                { tier: 'ctx1', key: (tok && ctxAgg1) ? buildN4SelfLearningAggKey(ctxAgg1, tok, stepsToWin, signalIntensity, learningPolicy, 'ctx1') : null, minN: minSamplesAgg },
+                { tier: 'global', key: tok ? buildN4SelfLearningAggKey('GLOBAL', tok, stepsToWin, signalIntensity, learningPolicy, 'global') : null, minN: minSamplesGlobal }
+            ];
+            for (const c of candidates) {
+                if (!c.key) continue;
+                const st = (c.stats !== undefined) ? c.stats : getN4SelfLearningStatsForKey(c.key);
+                const { winRate, n } = readLearningWinRate(st);
+                if (winRate == null) continue;
+                if (n >= c.minN) return { tier: c.tier, key: c.key, stats: st, winRate, n };
+            }
+            const { winRate, n } = readLearningWinRate(fullStats);
+            return { tier: 'none', key: fullKey || null, stats: fullStats || null, winRate, n };
+        };
+
         let bestTok = bestPick && bestPick.tok ? bestPick.tok : null;
         let candidateKey = buildN4SelfLearningKey(ctxKey, bestTok, stepsToWin, signalIntensity, learningPolicy);
         let stats = candidateKey ? getN4SelfLearningStatsForKey(candidateKey) : null;
+        let effective = pickEffectiveLearning(bestTok, candidateKey, stats);
+        learningTier = (effective && effective.tier && effective.tier !== 'none') ? effective.tier : null;
 
-        // ✅ Swap inteligente (G2): se o tipo atual está ruim e a alternativa está muito melhor, troque a cor (em vez de só bloquear).
+        // ✅ Swap inteligente (G2): se o tipo atual está ruim e a alternativa está melhor, troque a cor (em vez de só bloquear).
         if (!forcePick && ctxKey && (bestTok === 'R' || bestTok === 'B')) {
             const otherTok = bestTok === 'R' ? 'B' : 'R';
             const otherKey = buildN4SelfLearningKey(ctxKey, otherTok, stepsToWin, signalIntensity, learningPolicy);
             const otherStats = otherKey ? getN4SelfLearningStatsForKey(otherKey) : null;
-            const bestWR = stats && typeof stats.recentWinRate === 'number' ? stats.recentWinRate : null;
-            const bestN = stats && Number.isFinite(Number(stats.recentN)) ? Number(stats.recentN) : 0;
-            const otherWR = otherStats && typeof otherStats.recentWinRate === 'number' ? otherStats.recentWinRate : null;
-            const otherN = otherStats && Number.isFinite(Number(otherStats.recentN)) ? Number(otherStats.recentN) : 0;
+            const otherEffective = pickEffectiveLearning(otherTok, otherKey, otherStats);
 
-            const bestLooksBad = (bestWR != null && bestN >= minSamples && bestWR <= badWinRate);
-            const otherLooksGood = (otherWR != null && otherN >= minSamples && otherWR >= goodWinRate);
-            const otherLooksBetter = (otherWR != null && otherN >= minSamples && bestWR != null && otherWR > bestWR + 0.06);
+            const bestLooksBad = (effective && effective.tier !== 'none' && effective.winRate != null && effective.winRate <= badWinRate);
+            const otherLooksGood = (otherEffective && otherEffective.tier !== 'none' && otherEffective.winRate != null && otherEffective.winRate >= goodWinRate);
+            const otherLooksBetter = (otherEffective && otherEffective.tier !== 'none' && otherEffective.winRate != null
+                && effective && effective.winRate != null
+                && otherEffective.winRate > (effective.winRate + swapDelta)
+                && otherEffective.winRate > badWinRate);
+
             if (bestLooksBad && (otherLooksGood || otherLooksBetter)) {
                 const otherPick = scored.find(s => s && s.tok === otherTok) || null;
                 const otherSecond = otherPick ? (scored.find(s => s && s.tok !== otherTok) || null) : null;
@@ -13132,39 +13348,41 @@ function analyzeAutointeligente(history, options = {}) {
                         bestTok = otherTok;
                         candidateKey = otherKey;
                         stats = otherStats;
+                        effective = otherEffective;
+                        learningTier = (effective && effective.tier && effective.tier !== 'none') ? effective.tier : null;
                         learningDecision = 'swap';
                     }
                 }
             }
         }
 
-        if (stats && stats.recentN != null) {
-            learningRecentN = stats.recentN;
-            learningRecentWinRate = stats.recentWinRate;
+        if (effective && effective.tier !== 'none' && effective.winRate != null) {
+            learningRecentN = effective.n || 0;
+            learningRecentWinRate = effective.winRate;
 
-                // ✅ Boost leve: se o tipo está MUITO vencedor, afrouxa um pouco o limiar (sem burlar filtros estruturais)
-                if (!allowed && stats.recentWinRate != null && stats.recentN >= minSamples && stats.recentWinRate >= goodWinRate) {
-                    const boostMargin = signalIntensity === 'conservative' ? 0.010 : 0.015;
-                    const minMeanSlack = signalIntensity === 'conservative' ? 0.00 : 0.01;
-                    const boostedOk = !!bestPick
-                        && passesNonScoreFilters(bestPick, secondPick, evidence.total)
-                        && (currentScore.score >= (adaptiveScoreMinBase - boostMargin))
-                        && (Number(bestPick.mean || 0) >= (volumeProfile.minP1Mean - minMeanSlack));
-                    if (boostedOk) {
-                        allowed = true;
-                        adaptiveScoreMin = Math.max(0, adaptiveScoreMinBase - boostMargin);
-                        learningDecision = 'boost';
-                    }
+            // ✅ Boost leve: se o tipo está MUITO vencedor, afrouxa um pouco o limiar (sem burlar filtros estruturais)
+            if (!allowed && effective.winRate >= goodWinRate) {
+                const boostMargin = signalIntensity === 'conservative' ? 0.010 : 0.015;
+                const minMeanSlack = signalIntensity === 'conservative' ? 0.00 : 0.01;
+                const boostedOk = !!bestPick
+                    && passesNonScoreFilters(bestPick, secondPick, evidence.total)
+                    && (currentScore.score >= (adaptiveScoreMinBase - boostMargin))
+                    && (Number(bestPick.mean || 0) >= (volumeProfile.minP1Mean - minMeanSlack));
+                if (boostedOk) {
+                    allowed = true;
+                    adaptiveScoreMin = Math.max(0, adaptiveScoreMinBase - boostMargin);
+                    learningDecision = 'boost';
                 }
+            }
 
-                // 🚫 Bloqueio: se o tipo está dando LOSS demais, anula o voto do N4
-                if (allowed && stats.recentWinRate != null && stats.recentN >= minSamples && stats.recentWinRate <= badWinRate) {
-                    // Não bloquear picks forçados (gales dinâmicos) — isso é "salvar o ciclo", não gerar novo sinal.
-                    if (!forcePick) {
-                        allowed = false;
-                        learningDecision = 'blocked';
-                    }
+            // 🚫 Bloqueio: se o tipo está dando LOSS demais, anula o voto do N4
+            if (allowed && effective.winRate <= badWinRate) {
+                // Não bloquear picks forçados (gales dinâmicos) — isso é "salvar o ciclo", não gerar novo sinal.
+                if (!forcePick) {
+                    allowed = false;
+                    learningDecision = 'blocked';
                 }
+            }
         }
         if (allowed) {
             learningKey = candidateKey;
@@ -13190,11 +13408,12 @@ function analyzeAutointeligente(history, options = {}) {
 
     const learningSuffix = (() => {
         if (learningDecision === 'none') return '';
+        const tier = (learningTier && learningTier !== 'ctx') ? `/${learningTier}` : '';
         const pct = (learningRecentWinRate != null) ? `${(learningRecentWinRate * 100).toFixed(0)}%` : 'n/d';
         const n = learningRecentN || 0;
-        if (learningDecision === 'swap') return ` • AutoApr: SWAP (${pct} em ${n})`;
-        if (learningDecision === 'boost') return ` • AutoApr: BOOST (${pct} em ${n})`;
-        if (learningDecision === 'blocked') return ` • AutoApr: BLOQUEADO (${pct} em ${n})`;
+        if (learningDecision === 'swap') return ` • AutoApr${tier}: SWAP (${pct} em ${n})`;
+        if (learningDecision === 'boost') return ` • AutoApr${tier}: BOOST (${pct} em ${n})`;
+        if (learningDecision === 'blocked') return ` • AutoApr${tier}: BLOQUEADO (${pct} em ${n})`;
         return '';
     })();
 
