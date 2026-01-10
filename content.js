@@ -16733,14 +16733,24 @@ async function persistAnalyzerState(newState) {
     }
 
     // ═══════════════════════════════════════════════════════════════
-    // 📊 Momento (Qualidade dos sinais) — Ruim / Bom / Muito bom
+    // 📊 Momento (Qualidade dos sinais) — 6 níveis (pedido)
     // - Base: últimos ciclos FINALIZADOS exibidos na IA (filteredEntries)
     // - Só começa a classificar com pelo menos 5 ciclos
     // - Com 20+ ciclos, usa a janela 20 (mais estável)
     // ═══════════════════════════════════════════════════════════════
     const MOMENT_QUALITY_MIN_CYCLES = 5;
     const MOMENT_QUALITY_FULL_CYCLES = 25; // janela de "momento" (mais conservadora)
-    const MOMENT_QUALITY_GOOD_FROM = 88;   // >= 88% = Bom
+    // ✅ Faixas por % (para evitar “pulo” de mensagem com pequenas variações)
+    // - < 80  : Cuidado!
+    // - 80–87 : Momento instável
+    // - 88–91 : Momento favorável
+    // - 92–95 : Boa assertividade
+    // - 96–99 : Alta assertividade
+    // - 100   : Assertividade máxima (0 loss na janela)
+    const MOMENT_QUALITY_T1 = 80;
+    const MOMENT_QUALITY_T2 = 88;
+    const MOMENT_QUALITY_T3 = 92;
+    const MOMENT_QUALITY_T4 = 96;
 
     function clampPct(value) {
         const n = Number(value);
@@ -16833,43 +16843,32 @@ async function persistAnalyzerState(newState) {
         const winRate = windowSize ? (wins / windowSize) * 100 : 0;
         const pct = clampPct(winRate);
 
-        // Regras do usuário:
-        // - Muito bom: 0 LOSS na janela (100%)
-        // - Bom: >= 88%
-        // - Ruim: abaixo de 88%
-        let level = 'bad';
-        if (losses === 0 && windowSize > 0) level = 'great';
-        else if (pct >= MOMENT_QUALITY_GOOD_FROM) level = 'good';
+        const pickMoment = (p, lossCount) => {
+            const perfect = (p >= 100 && lossCount === 0 && windowSize > 0);
+            if (perfect) return { id: 'max', label: 'Máxima', tip: 'Assertividade máxima' };
+            if (p >= MOMENT_QUALITY_T4) return { id: 'high', label: 'Muito alta', tip: 'Alta assertividade' };
+            if (p >= MOMENT_QUALITY_T3) return { id: 'good', label: 'Alta', tip: 'Boa assertividade' };
+            if (p >= MOMENT_QUALITY_T2) return { id: 'favorable', label: 'Favorável', tip: 'Momento favorável' };
+            if (p >= MOMENT_QUALITY_T1) return { id: 'unstable', label: 'Instável', tip: 'Momento instável' };
+            return { id: 'danger', label: 'Baixa', tip: 'Cuidado!' };
+        };
 
+        const picked = pickMoment(pct, losses);
+        const level = picked.id;
         bar.setAttribute('data-level', level);
-        // ✅ Medidor de qualidade (visual):
-        // - Ruim ocupa 0–50 (corte "Bom" fica no meio visual)
-        // - Bom ocupa 50–100
-        // - Muito bom: 100
-        let gaugePct = 0;
-        if (level === 'great') {
-            gaugePct = 100;
-        } else if (level === 'good') {
-            gaugePct = 50 + ((pct - MOMENT_QUALITY_GOOD_FROM) / (100 - MOMENT_QUALITY_GOOD_FROM)) * 50;
-        } else {
-            gaugePct = (pct / MOMENT_QUALITY_GOOD_FROM) * 50;
-        }
-        gaugePct = clampPct(gaugePct);
+        // ✅ Medidor visual: refletir a % real (0–100)
+        const gaugePct = clampPct(pct);
 
         fill.style.width = `${gaugePct}%`;
         // ancorar gradiente à largura total da barra
         const g = Math.max(0.001, gaugePct / 100);
         fill.style.setProperty('--mq-progress', String(g));
 
-        const labelText = level === 'great' ? 'Muito bom' : (level === 'good' ? 'Bom' : 'Ruim');
         // Texto “humano” no topo, na pontinha da barra
-        const tipText = level === 'great'
-            ? 'Alta assertividade'
-            : (level === 'good' ? 'Momento favorável' : 'Cuidado');
-        setTip(tipText, level, gaugePct);
+        setTip(picked.tip, level, gaugePct);
 
         const baseHint = total < MOMENT_QUALITY_FULL_CYCLES ? ` • base parcial ${total}/${MOMENT_QUALITY_FULL_CYCLES}` : '';
-        bar.title = `Assertividade no momento: ${labelText} • ${formatPct(pct)} (${wins}/${windowSize}) • LOSS: ${losses} • Medidor: ${formatPct(gaugePct)}${baseHint}`;
+        bar.title = `Assertividade no momento: ${picked.label} • ${formatPct(pct)} (${wins}/${windowSize}) • LOSS: ${losses} • Medidor: ${formatPct(gaugePct)}${baseHint}`;
     }
 
     // ═══════════════════════════════════════════════════════════════

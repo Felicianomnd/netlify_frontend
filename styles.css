@@ -1544,15 +1544,30 @@
   opacity: 0.35;
 }
 
-.moment-quality-tip[data-level="bad"] {
-  color: rgba(244, 67, 54, 0.95);
+/* ✅ 6 níveis (tooltip) */
+.moment-quality-tip[data-level="danger"] {
+  color: rgba(244, 67, 54, 0.96);
+}
+.moment-quality-tip[data-level="unstable"] {
+  color: rgba(255, 136, 0, 0.96);
+}
+.moment-quality-tip[data-level="favorable"] {
+  color: rgba(250, 204, 21, 0.96);
 }
 .moment-quality-tip[data-level="good"] {
-  color: rgba(255, 152, 0, 0.95);
+  color: rgba(163, 230, 53, 0.96);
 }
-.moment-quality-tip[data-level="great"] {
-  color: rgba(76, 175, 80, 0.95);
+.moment-quality-tip[data-level="high"] {
+  color: rgba(34, 197, 94, 0.96);
 }
+.moment-quality-tip[data-level="max"] {
+  color: rgba(34, 197, 94, 0.98);
+  text-shadow: 0 0 10px rgba(34, 197, 94, 0.18);
+}
+
+/* Compat: níveis antigos (caso alguma tela ainda use) */
+.moment-quality-tip[data-level="bad"] { color: rgba(244, 67, 54, 0.95); }
+.moment-quality-tip[data-level="great"] { color: rgba(76, 175, 80, 0.95); }
 
 .moment-quality-labels {
   display: none;
