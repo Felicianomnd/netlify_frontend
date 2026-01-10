@@ -13273,7 +13273,11 @@ const N0_WHITE_SIGNAL_TARGET_PER_HOUR_FALLBACK = 7; // média típica (usuário)
 const N0_WHITE_SIGNAL_TARGET_MIN = 3;
 const N0_WHITE_SIGNAL_TARGET_MAX = 18;
 const N0_WHITE_SIGNAL_TARGET_LOOKBACK_HOURS = 6; // janela curta para adaptação ao "momento"
-const N0_WHITE_SIGNAL_MIN_LIFT = 1.45; // exigir lift acima do baseline do branco no horizonte
+// ✅ Mínimo de confiança para o "budget" do N0 (anti-spam).
+// Importante: para horizontes maiores (Entrada + vários Gales), o baseline do WHITE sobe bastante.
+// Se exigirmos um lift muito alto (ex.: 1.45x) o N0 tende a ficar "mudo" por horas.
+const N0_WHITE_SIGNAL_MIN_LIFT = 1.15; // lift moderado acima do baseline no horizonte
+const N0_WHITE_SIGNAL_MIN_CONF_CAP = 0.35; // teto: não exigir confiança irrealista (evita silêncio total)
 let n0WhiteBudgetState = {
     hourKey: null,
     target: N0_WHITE_SIGNAL_TARGET_PER_HOUR_FALLBACK,
@@ -13409,7 +13413,8 @@ function decideN0WhiteSignalEmission({ history, nowMs, confidence, lookaheadSpin
     const state = ensureN0WhiteBudgetForNow(history, nowMs);
     const L = Math.max(1, Math.min(6, Math.floor(Number(lookaheadSpins) || 1)));
     const base = 1 - Math.pow(1 - (1 / 15), L); // baseline P(hit branco em até L)
-    const minConf = Math.max(0.12, Math.min(0.75, clamp01(base * N0_WHITE_SIGNAL_MIN_LIFT)));
+    // ✅ minConf deve ser "possível" no mundo real: cap evita travar o N0 quando o usuário usa muitos gales no branco.
+    const minConf = Math.max(0.12, Math.min(N0_WHITE_SIGNAL_MIN_CONF_CAP, clamp01(base * N0_WHITE_SIGNAL_MIN_LIFT)));
     const conf = clamp01(typeof confidence === 'number' ? confidence : Number(confidence) || 0);
     if (!override) {
         if (state.used >= state.target) {
@@ -13961,9 +13966,9 @@ function evaluateN0WhiteSignalGate({ history, nowMs, lookaheadSpins, baseConfide
     const relaxedRequired = (hourStats && hourStats.needFill) ? Math.max(1, required - 1) : required;
     const baseConf = clamp01(typeof baseConfidence === 'number' ? baseConfidence : Number(baseConfidence) || 0);
     const softT = clamp01(typeof softThreshold === 'number' ? softThreshold : Number(softThreshold) || 0);
-    // ✅ Se o modelo estiver MUITO confiante, permitir passar com menos confirmações (anti-silêncio),
-    // sem depender de um observador raro.
-    const allowSoloModel = baseConf >= Math.max(0.45, softT);
+    // ✅ Se o modelo já bate o threshold "soft", não exigir confirmações raras.
+    // (Quando o modelo não bate, aí sim dependemos de confirmação/boost.)
+    const allowSoloModel = baseConf >= softT;
 
     if ((pack.strongCount || 0) < relaxedRequired && !allowSoloModel) {
         return { ok: false, reason: 'insufficient_confirmations', required: relaxedRequired, got: pack.strongCount || 0, pack, effectiveConfidence: baseConf };
@@ -19600,8 +19605,10 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
                     try {
                         const t = (n0Result && typeof n0Result.blocking_threshold === 'number') ? clamp01(n0Result.blocking_threshold) : null;
                         const base = (t == null) ? 0.5 : t;
-                        // ✅ Mais seletivo: alerta só quando chega perto do threshold real do modelo
-                        return clamp01(base * 0.95);
+                        // ✅ Alinhar com o detector:
+                        // - O N0 considera WHITE a partir de ~0.8*t* (soft) e BLOCK ALL em t* (hard).
+                        // Se o gate exigir ~0.95*t*, ele cria "silêncio" mesmo com predição válida.
+                        return clamp01(base * 0.8);
                     } catch (_) {
                         return 0.5;
                     }
@@ -33781,7 +33788,8 @@ function analyzeDiamondLevelsSimulation(history, config, simState) {
                     ? clamp01Local(n0Result.blocking_threshold)
                     : null;
                 const base = (t == null) ? 0.5 : t;
-                return clamp01Local(base * 0.95);
+                // Alinhar com o N0 real: soft threshold ≈ 0.8*t*
+                return clamp01Local(base * 0.8);
             })();
 
             const boost = (() => {
@@ -33800,7 +33808,7 @@ function analyzeDiamondLevelsSimulation(history, config, simState) {
             // ✅ minConf do "budget" também vale aqui (evita sinais com 5–10% de confiança)
             const L = Math.max(1, Math.min(6, Math.floor(Number(n0LookaheadSpins) || 1)));
             const baseP = 1 - Math.pow(1 - (1 / 15), L);
-            const minConf = Math.max(0.12, Math.min(0.75, clamp01Local(baseP * N0_WHITE_SIGNAL_MIN_LIFT)));
+            const minConf = Math.max(0.12, Math.min(N0_WHITE_SIGNAL_MIN_CONF_CAP, clamp01Local(baseP * N0_WHITE_SIGNAL_MIN_LIFT)));
             const softOk = ((n0EffectiveConfidence >= softThreshold) && (n0EffectiveConfidence >= minConf)) || (needFill && n0EffectiveConfidence >= minConf);
             const alertOk = baseOk && softOk;
             const blockOk = (!saturated && strong >= reqBlock) && softOk;
@@ -34295,7 +34303,7 @@ function analyzeDiamondLevelsSimulation(history, config, simState) {
             }
             const L = Math.max(1, Math.min(6, Math.floor(Number(n0LookaheadSpins) || 1)));
             const base = 1 - Math.pow(1 - (1 / 15), L);
-            const minConf = Math.max(0.12, Math.min(0.75, clamp01Local(base * N0_WHITE_SIGNAL_MIN_LIFT)));
+            const minConf = Math.max(0.12, Math.min(N0_WHITE_SIGNAL_MIN_CONF_CAP, clamp01Local(base * N0_WHITE_SIGNAL_MIN_LIFT)));
             if ((Number(simState.n0WhiteBudget.used) || 0) >= (Number(simState.n0WhiteBudget.target) || 0)) {
                 return { ok: false, reason: 'budget_exceeded' };
             }
@@ -34344,7 +34352,7 @@ function analyzeDiamondLevelsSimulation(history, config, simState) {
                 }
                 const L = Math.max(1, Math.min(6, Math.floor(Number(n0LookaheadSpins) || 1)));
                 const base = 1 - Math.pow(1 - (1 / 15), L);
-                const minConf = Math.max(0.12, Math.min(0.75, clamp01Local(base * N0_WHITE_SIGNAL_MIN_LIFT)));
+                const minConf = Math.max(0.12, Math.min(N0_WHITE_SIGNAL_MIN_CONF_CAP, clamp01Local(base * N0_WHITE_SIGNAL_MIN_LIFT)));
                 if ((Number(simState.n0WhiteBudget.used) || 0) >= (Number(simState.n0WhiteBudget.target) || 0)) return false;
                 const eff = (typeof n0EffectiveConfidence === 'number' && Number.isFinite(n0EffectiveConfidence)) ? n0EffectiveConfidence : (n0WhiteStrength || 0);
                 if (eff < minConf) return false;
