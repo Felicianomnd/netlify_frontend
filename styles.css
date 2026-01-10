@@ -4524,10 +4524,11 @@
   left: 50%;
   top: 50%;
   transform: translate(-50%, -50%);
-  width: 28px;
-  height: 28px;
+  /* ✅ O anel deve acompanhar o tamanho do ícone quando usamos --icon-scale (ex.: grid mobile do “Últimos 14 giros”) */
+  width: calc(28px * var(--icon-scale, 1));
+  height: calc(28px * var(--icon-scale, 1));
   border-radius: 50%;
-  border: 2px solid #fff;
+  border: calc(2px * var(--icon-scale, 1)) solid #fff;
   opacity: 0.90;
   z-index: 1;
 }
@@ -5725,10 +5726,10 @@
         align-items: start;
         column-gap: 8px !important;
         row-gap: 6px !important; /* ✅ reduzir espaço entre as duas linhas (7 + 7) */
-        /* Ajuste fino para telas menores: encolher ícones via variáveis já usadas */
-        --icon-scale: 0.92;
-        --font-scale: 0.92;
-        --spacing-scale: 0.95;
+        /* ✅ Mobile padrão: manter no MESMO tamanho do histórico (sem “apertar” o ícone) */
+        --icon-scale: 1;
+        --font-scale: 1;
+        --spacing-scale: 1;
     }
 
     #blaze-double-analyzer #analyzerDefaultView .pattern-section #patternInfo #patternLastSpinsRow.ai-entry-spins .spin-history-item-wrap {
@@ -5742,9 +5743,9 @@
 @media (max-width: 360px) {
     #blaze-double-analyzer #analyzerDefaultView .pattern-section #patternInfo #patternLastSpinsRow.ai-entry-spins,
     #blaze-double-analyzer #analyzerDefaultView .pattern-section .ai-entry-section--pattern-spins .ai-entry-spins {
-        --icon-scale: 0.86;
-        --font-scale: 0.88;
-        --spacing-scale: 0.90;
+        --icon-scale: 0.92;
+        --font-scale: 0.92;
+        --spacing-scale: 0.95;
         column-gap: 6px !important;
         row-gap: 5px !important;
     }
