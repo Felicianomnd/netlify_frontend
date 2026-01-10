@@ -12842,6 +12842,18 @@ async function persistAnalyzerState(newState) {
                 </div>
             </div>
 
+            <!-- ═══════════════════════════════════════════════════════════════
+                 ⏱️ Ritmo do Giro (Tempo real entre giros) — Barra decrescente
+                 - Base: intervalos reais entre timestamps do histórico (últimos giros)
+                 - Não segura nem força giro: reinicia quando o giro chega
+                 ═══════════════════════════════════════════════════════════════ -->
+            <div class="spin-rhythm-bar" id="spinRhythmBar" data-state="idle" title="Ritmo real do giro (estimado pelo tempo entre giros recentes)">
+                <div class="spin-rhythm-track" aria-hidden="true">
+                    <div class="spin-rhythm-fill" id="spinRhythmFill"></div>
+                    <div class="spin-rhythm-overlay" id="spinRhythmText">Aguardando base de giros...</div>
+                </div>
+            </div>
+
             <div class="entries-section">
             <div class="entries-panel" id="entriesPanel">
                     <div class="entries-tabs-bar" id="entriesTabs">
@@ -15753,9 +15765,19 @@ async function persistAnalyzerState(newState) {
     // - Deve sempre exibir os últimos 10 giros (independente da aba ativa).
     // ═══════════════════════════════════════════════════════════════
 
-    const PATTERN_LAST_SPINS_LIMIT = 14;
+    const PATTERN_LAST_SPINS_LIMIT_MOBILE = 14;  // 📱 7 + 7 (pedido do usuário)
+    const PATTERN_LAST_SPINS_LIMIT_DESKTOP = 18; // 🖥️ 9 + 9 (pedido do usuário)
 
-    function getPatternLastSpinsSnapshot(limit = PATTERN_LAST_SPINS_LIMIT) {
+    function getPatternLastSpinsLimit() {
+        try {
+            const desktop = (typeof isDesktop === 'function') ? isDesktop() : (window.innerWidth > 768);
+            return desktop ? PATTERN_LAST_SPINS_LIMIT_DESKTOP : PATTERN_LAST_SPINS_LIMIT_MOBILE;
+        } catch (_) {
+            return PATTERN_LAST_SPINS_LIMIT_MOBILE;
+        }
+    }
+
+    function getPatternLastSpinsSnapshot(limit = getPatternLastSpinsLimit()) {
         try {
             const n = Math.max(0, Number(limit) || 0);
             const arr = Array.isArray(currentHistoryData) ? currentHistoryData : [];
@@ -15778,23 +15800,26 @@ async function persistAnalyzerState(newState) {
             const time = (() => {
                 try {
                     const t = (spin && spin.timestamp != null) ? spin.timestamp : null;
-                    return new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                    return new Date(t).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
                 } catch (_) {
                     return '';
                 }
             })();
-            const label = index === 0 ? 'Recente' : `${index + 1}º`;
             const title = `${safeColor === 'red' ? 'Vermelho' : safeColor === 'black' ? 'Preto' : 'Branco'}: ${number}${time ? ' - ' + time : ''}`;
+            // ✅ Reservar o mesmo espaço visual em todos os itens,
+            // mas só o primeiro exibe o texto "Recente".
+            const badge = `<div class="spin-history-stage stage">${index === 0 ? 'Recente' : '&nbsp;'}</div>`;
             return `<div class="spin-history-item-wrap" title="${escapeHtml(title)}">
+                ${badge}
                 <div class="spin-history-quadrado ${safeColor}">
                     ${isWhite ? blazeWhiteSVG(20) : `<span>${escapeHtml(String(number))}</span>`}
                 </div>
-                <div class="spin-history-time">${escapeHtml(label)}</div>
+                <div class="spin-history-time">${escapeHtml(time || '—')}</div>
             </div>`;
         }).join('');
     }
 
-    function ensurePatternInfoLayout(patternInfoEl, limit = PATTERN_LAST_SPINS_LIMIT) {
+    function ensurePatternInfoLayout(patternInfoEl, limit = getPatternLastSpinsLimit()) {
         if (!patternInfoEl) return { mainEl: null, rowEl: null };
         const safeLimit = Math.max(1, Number(limit) || 10);
 
@@ -15863,7 +15888,7 @@ async function persistAnalyzerState(newState) {
 
     function setPatternMainContent(patternInfoEl, html, { expanded = false } = {}) {
         try {
-            const { mainEl } = ensurePatternInfoLayout(patternInfoEl, PATTERN_LAST_SPINS_LIMIT);
+            const { mainEl } = ensurePatternInfoLayout(patternInfoEl, getPatternLastSpinsLimit());
             if (!mainEl) return;
             const nextHtml = (typeof html === 'string') ? html : '';
             mainEl.innerHTML = nextHtml;
@@ -15873,7 +15898,7 @@ async function persistAnalyzerState(newState) {
         } catch (_) {}
     }
 
-    function refreshPatternLastSpins(patternInfoEl, limit = PATTERN_LAST_SPINS_LIMIT) {
+    function refreshPatternLastSpins(patternInfoEl, limit = getPatternLastSpinsLimit()) {
         try {
             const { mainEl, rowEl } = ensurePatternInfoLayout(patternInfoEl, limit);
             if (!rowEl) return;
@@ -16011,7 +16036,7 @@ async function persistAnalyzerState(newState) {
         // ✅ Pedido: Card "Padrão" deve ser SEMPRE visível e SEMPRE mostrar os últimos 10 giros
         // (inclusive quando chega apenas lastSpin e quando a análise some após o resultado).
         try { if (patternSection) patternSection.style.display = ''; } catch (_) {}
-        try { refreshPatternLastSpins(patternInfo, PATTERN_LAST_SPINS_LIMIT); } catch (_) {}
+        try { refreshPatternLastSpins(patternInfo, getPatternLastSpinsLimit()); } catch (_) {}
         
         if (data.lastSpin) {
             const spin = data.lastSpin;
@@ -16073,7 +16098,7 @@ async function persistAnalyzerState(newState) {
                         } else {
                             // ✅ Nunca deixar vazio (o card ficava “sumindo/limpo”)
                             setPatternMainContent(patternInfo, '', { expanded: false });
-                            try { refreshPatternLastSpins(patternInfo, PATTERN_LAST_SPINS_LIMIT); } catch (_) {}
+                            try { refreshPatternLastSpins(patternInfo, getPatternLastSpinsLimit()); } catch (_) {}
                         }
                     }
                 } catch (_) {}
@@ -16283,7 +16308,7 @@ async function persistAnalyzerState(newState) {
                                 if (!hasPattern) {
                                     // ✅ Nunca deixar vazio após resultado/refresh
                                     setPatternMainContent(patternInfo, '', { expanded: false });
-                                    try { refreshPatternLastSpins(patternInfo, PATTERN_LAST_SPINS_LIMIT); } catch (_) {}
+                                    try { refreshPatternLastSpins(patternInfo, getPatternLastSpinsLimit()); } catch (_) {}
                                 } else {
                                     patternInfo.classList.add('pattern-expanded');
                                     // Reusar renderer já existente
@@ -16302,10 +16327,10 @@ async function persistAnalyzerState(newState) {
                                             }),
                                             { expanded: true }
                                         );
-                                        try { refreshPatternLastSpins(patternInfo, PATTERN_LAST_SPINS_LIMIT); } catch (_) {}
+                                        try { refreshPatternLastSpins(patternInfo, getPatternLastSpinsLimit()); } catch (_) {}
                                     } catch (_) {
                                         setPatternMainContent(patternInfo, `<pre class="pattern-raw">${escapeHtml(String(desc || ''))}</pre>`, { expanded: true });
-                                        try { refreshPatternLastSpins(patternInfo, PATTERN_LAST_SPINS_LIMIT); } catch (_) {}
+                                        try { refreshPatternLastSpins(patternInfo, getPatternLastSpinsLimit()); } catch (_) {}
                                     }
                                 }
                             }
@@ -16330,7 +16355,7 @@ async function persistAnalyzerState(newState) {
                                 renderSuggestionStatus(currentAnalysisStatus);
                                 try { if (patternSection) patternSection.style.display = ''; } catch (_) {}
                                 try { setPatternMainContent(patternInfo, '', { expanded: false }); } catch (_) {}
-                                try { refreshPatternLastSpins(patternInfo, PATTERN_LAST_SPINS_LIMIT); } catch (_) {}
+                                try { refreshPatternLastSpins(patternInfo, getPatternLastSpinsLimit()); } catch (_) {}
                                 try { patternInfo.title = ''; } catch (_) {}
                                 try { patternInfo?.classList?.remove('pattern-expanded'); } catch (_) {}
                                 setSuggestionStage('');
@@ -16340,7 +16365,7 @@ async function persistAnalyzerState(newState) {
                             renderSuggestionStatus(currentAnalysisStatus);
                             try { if (patternSection) patternSection.style.display = ''; } catch (_) {}
                             try { setPatternMainContent(patternInfo, '', { expanded: false }); } catch (_) {}
-                            try { refreshPatternLastSpins(patternInfo, PATTERN_LAST_SPINS_LIMIT); } catch (_) {}
+                            try { refreshPatternLastSpins(patternInfo, getPatternLastSpinsLimit()); } catch (_) {}
                             try { patternInfo.title = ''; } catch (_) {}
                             try { patternInfo?.classList?.remove('pattern-expanded'); } catch (_) {}
                             setSuggestionStage('');
@@ -16350,7 +16375,7 @@ async function persistAnalyzerState(newState) {
                         renderSuggestionStatus(currentAnalysisStatus);
                         try { if (patternSection) patternSection.style.display = ''; } catch (_) {}
                         try { setPatternMainContent(patternInfo, '', { expanded: false }); } catch (_) {}
-                        try { refreshPatternLastSpins(patternInfo, PATTERN_LAST_SPINS_LIMIT); } catch (_) {}
+                        try { refreshPatternLastSpins(patternInfo, getPatternLastSpinsLimit()); } catch (_) {}
                         try { patternInfo.title = ''; } catch (_) {}
                         try { patternInfo?.classList?.remove('pattern-expanded'); } catch (_) {}
                         setSuggestionStage('');
@@ -16828,6 +16853,211 @@ async function persistAnalyzerState(newState) {
 
         const baseHint = total < MOMENT_QUALITY_FULL_CYCLES ? ` • base parcial ${total}/${MOMENT_QUALITY_FULL_CYCLES}` : '';
         bar.title = `Assertividade no momento: ${labelText} • ${formatPct(pct)} (${wins}/${windowSize}) • LOSS: ${losses} • Medidor: ${formatPct(gaugePct)}${baseHint}`;
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // ⏱️ Ritmo do Giro — Barra decrescente baseada no tempo REAL entre giros
+    // - Calcula intervalos usando timestamps do histórico (newest-first)
+    // - Inicia ao chegar giro novo, e termina ~quando o próximo normalmente chega
+    // - Se chegar antes/depois, NÃO segura e NÃO inventa giro: apenas reseta no próximo evento real
+    // ═══════════════════════════════════════════════════════════════
+    const SPIN_RHYTHM_DEFAULT_INTERVAL_MS = 16000;
+    const SPIN_RHYTHM_MIN_INTERVAL_MS = 8000;
+    const SPIN_RHYTHM_MAX_INTERVAL_MS = 45000;
+    const SPIN_RHYTHM_MAX_INTERVAL_SAMPLES = 12;
+    const SPIN_RHYTHM_MEDIAN_WINDOW = 8;
+    // ✅ Texto do timer:
+    // Em páginas pesadas, timers podem atrasar e “pular”. Para ficar mais suave,
+    // atualizamos em passos fixos (quantizado) e agendamos o próximo tick alinhado.
+    const SPIN_RHYTHM_TEXT_STEP_MS = 200; // 5x/s (bem mais estável visualmente)
+
+    let spinRhythmTextTimer = null;
+    let spinRhythmElsCache = null;
+    let spinRhythmState = {
+        headKey: null,
+        startMs: 0,
+        endMs: 0,
+        durationMs: 0
+    };
+
+    function clampMs(value, minMs, maxMs) {
+        const n = Number(value);
+        if (!Number.isFinite(n)) return minMs;
+        return Math.max(minMs, Math.min(maxMs, n));
+    }
+
+    function medianMs(list) {
+        const arr = Array.isArray(list) ? list.filter((n) => Number.isFinite(Number(n))).map((n) => Number(n)) : [];
+        if (!arr.length) return null;
+        arr.sort((a, b) => a - b);
+        const mid = Math.floor(arr.length / 2);
+        return (arr.length % 2 === 1) ? arr[mid] : (arr[mid - 1] + arr[mid]) / 2;
+    }
+
+    function formatCountdownCentis(ms) {
+        const t = Math.max(0, Math.floor(Number(ms) || 0));
+        const cs = Math.floor(t / 10); // centésimos
+        const ss = Math.floor(cs / 100);
+        const cc = cs % 100;
+        return `${String(ss).padStart(2, '0')}:${String(cc).padStart(2, '0')}`;
+    }
+
+    function getSpinRhythmHeadKey(history) {
+        try {
+            const s = Array.isArray(history) && history.length ? history[0] : null;
+            if (!s) return null;
+            const ts = s.timestamp ?? s.created_at ?? s.createdAt ?? s.time ?? '';
+            const num = s.number ?? '';
+            const clr = s.color ?? '';
+            return `${ts}|${num}|${clr}`;
+        } catch (_) {
+            return null;
+        }
+    }
+
+    function computeSpinIntervalsMsFromHistory(history, maxSamples = SPIN_RHYTHM_MAX_INTERVAL_SAMPLES) {
+        const list = Array.isArray(history) ? history : [];
+        const out = [];
+        const cap = Math.min(Math.max(0, list.length - 1), Math.max(0, Number(maxSamples) || 0));
+        for (let i = 0; i < cap; i++) {
+            const a = list[i];
+            const b = list[i + 1];
+            const aMs = parseSpinTimestampMsLocal(a);
+            const bMs = parseSpinTimestampMsLocal(b);
+            if (!Number.isFinite(aMs) || !Number.isFinite(bMs)) continue;
+            const dt = aMs - bMs;
+            // Filtrar ruído/outliers: giros normais ~10–25s (mas manter margem)
+            if (dt < 3000) continue;
+            if (dt > 120000) continue;
+            out.push(dt);
+        }
+        return out;
+    }
+
+    function getSpinRhythmEls() {
+        try {
+            if (spinRhythmElsCache && spinRhythmElsCache.bar && spinRhythmElsCache.fill && spinRhythmElsCache.overlay) {
+                return spinRhythmElsCache;
+            }
+            const bar = document.getElementById('spinRhythmBar');
+            const fill = document.getElementById('spinRhythmFill');
+            const overlay = document.getElementById('spinRhythmText');
+            if (!bar || !fill || !overlay) return null;
+            spinRhythmElsCache = { bar, fill, overlay };
+            return spinRhythmElsCache;
+        } catch (_) {
+            return null;
+        }
+    }
+
+    function stopSpinRhythmTimers() {
+        try {
+            if (spinRhythmTextTimer) clearTimeout(spinRhythmTextTimer);
+            spinRhythmTextTimer = null;
+        } catch (_) {
+            spinRhythmTextTimer = null;
+        }
+    }
+
+    function setSpinRhythmUIState(state, text) {
+        const els = getSpinRhythmEls();
+        if (!els) return;
+        const { bar, fill, overlay } = els;
+        bar.setAttribute('data-state', String(state || 'idle'));
+        overlay.textContent = String(text || '');
+        // Estado padrão (barra animada via CSS), idle/awaiting mantém 0%
+        try {
+            if (state === 'idle' || state === 'awaiting') {
+                fill.style.transition = 'none';
+                fill.style.transform = 'scaleX(0)';
+            }
+        } catch (_) {}
+    }
+
+    function startSpinRhythmCountdownFromHistory(history) {
+        const els = getSpinRhythmEls();
+        if (!els) return;
+        const { bar, fill, overlay } = els;
+
+        const headKey = getSpinRhythmHeadKey(history);
+        if (!headKey) {
+            stopSpinRhythmTimers();
+            setSpinRhythmUIState('idle', 'Aguardando base de giros...');
+            return;
+        }
+
+        // Evitar reinício desnecessário se o giro do topo não mudou.
+        if (spinRhythmState.headKey && spinRhythmState.headKey === headKey) {
+            return;
+        }
+
+        const intervals = computeSpinIntervalsMsFromHistory(history);
+        const latest = intervals.length ? intervals[0] : null;
+        const med = medianMs(intervals.slice(0, Math.min(SPIN_RHYTHM_MEDIAN_WINDOW, intervals.length)));
+
+        let duration = SPIN_RHYTHM_DEFAULT_INTERVAL_MS;
+        if (latest != null && med != null) duration = (0.65 * latest) + (0.35 * med);
+        else if (latest != null) duration = latest;
+        else if (med != null) duration = med;
+
+        duration = clampMs(duration, SPIN_RHYTHM_MIN_INTERVAL_MS, SPIN_RHYTHM_MAX_INTERVAL_MS);
+        // Centésimos (10ms): arredondar para manter texto estável
+        duration = Math.round(duration / 10) * 10;
+
+        const now = (typeof performance !== 'undefined' && typeof performance.now === 'function')
+            ? performance.now()
+            : Date.now();
+
+        spinRhythmState = {
+            headKey,
+            startMs: now,
+            endMs: now + duration,
+            durationMs: duration
+        };
+
+        // ✅ Reset visual imediato (barra) + animação via CSS (fluida mesmo com página pesada)
+        bar.setAttribute('data-state', 'running');
+        overlay.textContent = `Girando em ${formatCountdownCentis(duration)}`;
+
+        stopSpinRhythmTimers();
+
+        try {
+            // Reiniciar transição de forma determinística
+            fill.style.transition = 'none';
+            fill.style.transform = 'scaleX(1)';
+            // Forçar flush 1x (baixo custo) para garantir que a transição inicie
+            void fill.getBoundingClientRect();
+            fill.style.transition = `transform ${duration}ms linear`;
+            fill.style.transform = 'scaleX(0)';
+        } catch (_) {}
+
+        // ✅ Texto (leve): atualizar só algumas vezes por segundo
+        const tickText = () => {
+            try {
+                const now2 = (typeof performance !== 'undefined' && typeof performance.now === 'function')
+                    ? performance.now()
+                    : Date.now();
+                const remainingRaw = (spinRhythmState.endMs || 0) - now2;
+                if (!(remainingRaw > 0)) {
+                    stopSpinRhythmTimers();
+                    bar.setAttribute('data-state', 'awaiting');
+                    overlay.textContent = 'Aguardando giro...';
+                    return;
+                }
+
+                // Quantizar para ficar mais “liso” visualmente (evita micro-pulos)
+                const step = Math.max(50, Number(SPIN_RHYTHM_TEXT_STEP_MS) || 200);
+                const remaining = Math.ceil(remainingRaw / step) * step;
+                const nextText = `Girando em ${formatCountdownCentis(remaining)}`;
+                if (overlay.textContent !== nextText) overlay.textContent = nextText;
+
+                // Agendar alinhado no próximo boundary (reduz jitter)
+                const rem = remainingRaw % step;
+                const nextIn = Math.max(16, Math.min(step, rem > 0 ? rem : step));
+                spinRhythmTextTimer = setTimeout(tickText, nextIn);
+            } catch (_) {}
+        };
+        spinRhythmTextTimer = setTimeout(tickText, Math.max(16, Math.min(SPIN_RHYTHM_TEXT_STEP_MS, 100)));
     }
     
     // Render de lista de entradas (WIN/LOSS)
@@ -23503,7 +23733,7 @@ function logModeSnapshotUI(snapshot) {
             try {
                 const patternInfoEl = document.getElementById('patternInfo');
                 if (patternInfoEl) {
-                    refreshPatternLastSpins(patternInfoEl, PATTERN_LAST_SPINS_LIMIT);
+                    refreshPatternLastSpins(patternInfoEl, getPatternLastSpinsLimit());
                 }
             } catch (_) {}
         };
@@ -23551,6 +23781,9 @@ function logModeSnapshotUI(snapshot) {
             // 🆕 Se não há histórico ainda, inicializar com o novo giro
             currentHistoryData = [newSpin];
         }
+
+        // ✅ Ritmo do giro: reiniciar barra assim que o giro REAL chega (sem segurar UI)
+        try { startSpinRhythmCountdownFromHistory(currentHistoryData); } catch (_) {}
         
         // ✅ RE-RENDERIZAR HISTÓRICO INSTANTANEAMENTE
         let historyContainer = document.getElementById('spin-history-bar-ext');
@@ -23654,6 +23887,8 @@ function logModeSnapshotUI(snapshot) {
             // ✅ Painel Branco: sem esperar giro novo, usar imediatamente os 10k giros carregados
             try { whiteInsightsHistoryCache = currentHistoryData.slice(0, 10000); } catch (_) {}
             try { scheduleMasterSignalStatsRefresh(0); } catch (_) {}
+            // ✅ Ritmo do giro: inicializar/atualizar com base no histórico carregado
+            try { startSpinRhythmCountdownFromHistory(currentHistoryData); } catch (_) {}
         }
         
         if (spins && spins.length > 0) {

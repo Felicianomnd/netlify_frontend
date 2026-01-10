@@ -1480,6 +1480,70 @@
   line-height: 18px; /* garante alinhamento vertical perfeito entre os dois */
 }
 
+/* ═══════════════════════════════════════════════════════════════
+   ⏱️ RITMO DO GIRO — Barra decrescente (estilo Blaze, porém com nossa paleta)
+   - Fica logo abaixo de "Assertividade do momento"
+   - Altura semelhante à barra do site (grossa) + texto central
+   ═══════════════════════════════════════════════════════════════ */
+.spin-rhythm-bar {
+  width: 100%;
+  box-sizing: border-box;
+  margin: 0 0 10px 0;
+  user-select: none;
+}
+.spin-rhythm-track {
+  position: relative;
+  height: 24px; /* ✅ pedido: +50% de grossura (16px -> 24px) */
+  width: 100%;
+  background: rgba(255, 255, 255, 0.10);
+  border-radius: 3px; /* ✅ arredondamento bem sutil (quase imperceptível) */
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  /* ✅ performance: isolar repaint do resto do layout */
+  contain: paint;
+}
+.spin-rhythm-fill {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  transform: scaleX(0);
+  transform-origin: left;
+  /* ✅ Pedido: cor única (sem multicolor) */
+  background: #f02e4c;
+  will-change: transform;
+  /* ✅ hint compositor */
+  backface-visibility: hidden;
+}
+.spin-rhythm-overlay {
+  position: relative;
+  z-index: 1;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px; /* ✅ pedido: texto menor dentro da animação */
+  font-weight: 800;
+  color: rgba(233, 242, 255, 0.96);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.38);
+  letter-spacing: 0.2px;
+  /* ✅ evita “pular” largura quando os números mudam */
+  font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 520px) {
+  .spin-rhythm-overlay {
+    font-size: 10px; /* ✅ mobile: ainda mais discreto */
+  }
+}
+.spin-rhythm-bar[data-state="idle"] .spin-rhythm-fill {
+  transform: scaleX(0);
+  opacity: 0.55;
+}
+.spin-rhythm-bar[data-state="awaiting"] .spin-rhythm-fill {
+  transform: scaleX(0);
+  opacity: 0.35;
+}
+
 .moment-quality-tip[data-level="bad"] {
   color: rgba(244, 67, 54, 0.95);
 }
@@ -5019,6 +5083,7 @@
     border: none;            /* ✅ sem “caixa”/sem sufocar */
     padding: 10px 6px 2px 6px; /* ✅ respiro: não encostar na linha de cima */
     border-radius: 0;
+    gap: 4px; /* ✅ igualar espaçamento entre linhas ao histórico de giros */
 }
 
 .ai-entry-spins .spin-history-item-wrap {
@@ -5033,6 +5098,39 @@
     color: var(--da-text-muted);
     margin-top: 4px;
     text-align: center;
+}
+
+/* ✅ Ajuste fino: reduzir “altura” do item no card "Últimos 14 giros" (sem afetar o histórico geral) */
+#blaze-double-analyzer .pattern-section .ai-entry-section--pattern-spins .ai-entry-spins .spin-history-item-wrap {
+    margin: 0 1px;
+}
+#blaze-double-analyzer .pattern-section .ai-entry-section--pattern-spins .ai-entry-spins .spin-history-stage {
+    margin-bottom: 0;
+    min-height: 10px;
+    font-size: calc(9px * var(--font-scale, 1));
+    line-height: 1;
+}
+#blaze-double-analyzer .pattern-section .ai-entry-section--pattern-spins .ai-entry-spins .spin-history-time {
+    margin-top: calc(2px * var(--spacing-scale, 1));
+}
+
+/* ✅ Desktop (apenas): "RECENTE" deve usar a mesma tipografia do label "Confiança" */
+#blaze-double-analyzer.da-desktop-dashboard #analyzerDefaultView #patternLastSpinsRow.ai-entry-spins .spin-history-stage.stage {
+    font-size: 12px;
+    font-weight: 500;
+    letter-spacing: 0;
+    text-transform: none;
+    color: var(--da-text-muted);
+}
+
+/* ✅ Desktop (apenas): 18 giros => 2 linhas completas (9 + 9) no card "Padrão" */
+#blaze-double-analyzer.da-desktop-dashboard #analyzerDefaultView #patternInfo #patternLastSpinsRow.ai-entry-spins {
+    display: grid !important;
+    grid-template-columns: repeat(9, minmax(0, 1fr)) !important;
+    justify-items: center;
+    align-items: start;
+    column-gap: 8px !important;
+    row-gap: 6px !important;
 }
 
 .diamond-reasoning {
@@ -5626,7 +5724,7 @@
         justify-items: center;
         align-items: start;
         column-gap: 8px !important;
-        row-gap: 10px !important;
+        row-gap: 6px !important; /* ✅ reduzir espaço entre as duas linhas (7 + 7) */
         /* Ajuste fino para telas menores: encolher ícones via variáveis já usadas */
         --icon-scale: 0.92;
         --font-scale: 0.92;
@@ -5648,7 +5746,7 @@
         --font-scale: 0.88;
         --spacing-scale: 0.90;
         column-gap: 6px !important;
-        row-gap: 8px !important;
+        row-gap: 5px !important;
     }
 }
 
@@ -11635,6 +11733,15 @@ body.da-ext-fullscreen #patternDetailsModal .bank-patterns-modal-content {
     /* ocupar somente a largura do bloco IA/Recuperação/Gráfico (span 8) */
     grid-column: 1 / span 8;
     margin: 2px 0 0 0;
+    justify-self: stretch;
+    align-self: stretch;
+  }
+
+  /* ✅ Ritmo do Giro: ficar EXATAMENTE abaixo do "Momento" e com a mesma largura (span 8).
+     Isso força a barra a ir para a próxima linha (não cabe nas 4 colunas da direita). */
+  #blaze-double-analyzer.da-desktop-dashboard #analyzerDefaultView #spinRhythmBar.spin-rhythm-bar {
+    grid-column: 1 / span 8;
+    margin: 6px 0 6px 0;
     justify-self: stretch;
     align-self: stretch;
   }
