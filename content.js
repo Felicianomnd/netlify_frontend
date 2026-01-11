@@ -16256,14 +16256,18 @@ async function persistAnalyzerState(newState) {
                 // ✅ Overlay removido: agora o Sinal de entrada aparece destacado AQUI em cima.
                 try { hideMasterSignalOverlay(); } catch (_) {}
 
-                // ✅ Título do bloco superior: agora é sinal (não análise)
+                // ✅ Título do bloco superior: quando há sinal, estamos "aguardando resultado"
                 try {
                     const analysisModeTitle = document.getElementById('analysisModeTitle');
                     if (analysisModeTitle) {
-                        analysisModeTitle.textContent = isEntrySignal ? 'Sinal de entrada' : 'Aguardando sinal';
+                        analysisModeTitle.textContent = isEntrySignal ? 'Sinal de entrada' : 'Aguardando resultado';
                     }
                 } catch (_) {}
-                // ✅ Remover estado “analisando”
+                // ✅ Remover estado “analisando” (título + layout)
+                try {
+                    const analysisSectionEl = document.querySelector('.analysis-section');
+                    if (analysisSectionEl) analysisSectionEl.classList.remove('da-analyzing');
+                } catch (_) {}
                 try {
                     const analysisCardEl = document.querySelector('.analysis-section .analysis-card');
                     if (analysisCardEl) analysisCardEl.classList.remove('da-analyzing');
@@ -16288,8 +16292,13 @@ async function persistAnalyzerState(newState) {
                 const analysisModeTitle = document.getElementById('analysisModeTitle');
                 if (analysisModeTitle) {
                     // manter o título do card; o texto "Analisando" fica dentro do anel
-                    analysisModeTitle.textContent = 'Aguardando sinal';
+                    analysisModeTitle.textContent = '';
                 }
+                // ✅ Esconder header enquanto estiver analisando (evita "Aguardando sinal" sem sinal)
+                try {
+                    const analysisSectionEl = document.querySelector('.analysis-section');
+                    if (analysisSectionEl) analysisSectionEl.classList.add('da-analyzing');
+                } catch (_) {}
                 // ✅ Marcar estado “analisando” para esconder barra/% e mostrar só o mini-anel
                 try {
                     const analysisCardEl = document.querySelector('.analysis-section .analysis-card');
@@ -16331,6 +16340,10 @@ async function persistAnalyzerState(newState) {
                         try {
                             const analysisModeTitle = document.getElementById('analysisModeTitle');
                             if (analysisModeTitle) analysisModeTitle.textContent = 'Aguardando resultado';
+                        } catch (_) {}
+                        try {
+                            const analysisSectionEl = document.querySelector('.analysis-section');
+                            if (analysisSectionEl) analysisSectionEl.classList.remove('da-analyzing');
                         } catch (_) {}
                         try {
                             const analysisCardEl = document.querySelector('.analysis-section .analysis-card');

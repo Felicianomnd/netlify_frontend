@@ -1654,6 +1654,24 @@
     text-align: center;
     width: 100%;
 }
+
+/* ✅ Topo: quando estiver apenas "Analisando", esconder o título do card */
+.analysis-section.da-analyzing > h4 {
+    display: none;
+}
+
+/* ✅ Desktop dashboard: manter altura do card "Analisando" igual aos outros (mesmo sem título/barra) */
+#blaze-double-analyzer.da-desktop-dashboard #analyzerDefaultView .analysis-section.da-analyzing .analysis-card {
+    /* Compensa a altura do h4 + espaçamento que existe nos outros cards */
+    min-height: 132px;
+}
+
+/* ✅ Último giro: remover a "caixa" interna (borda) — fica só o conteúdo */
+.analysis-lastspin-row .last-spin-section .spin-display {
+    border: none !important;
+    background: transparent !important;
+    box-shadow: none !important;
+}
 .analysis-lastspin-row .analysis-section .analysis-card,
 .analysis-lastspin-row .last-spin-section .spin-display {
     flex: 1;
