@@ -10275,15 +10275,57 @@ autoBetHistoryStore.init().catch(error => console.warn('AutoBetHistory: iniciali
                     background: #dc2626;
                 }
                 @media (max-width: 520px) {
+                    /* ✅ Mobile: Painel de saldo em 1 container “chapado” com divisórias (igual ao card Analisando/Último giro) */
+                    .auto-bet-summary {
+                        background: #0f1720;
+                        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.28);
+                    }
                     .auto-bet-summary-body {
                         flex-direction: column;
+                        gap: 0;
+                        border: 1px solid rgba(255, 255, 255, 0.06);
+                        border-radius: 4px;
+                        overflow: hidden;
                     }
                     .auto-bet-active-bets {
                         grid-template-columns: 1fr;
                     }
                     .auto-bet-actions {
-                        flex-direction: row;
-                        justify-content: center;
+                        order: -1; /* ✅ botões em cima */
+                        display: grid;
+                        grid-template-columns: 1fr 1fr;
+                        gap: 0;
+                        align-items: stretch;
+                        min-width: 0;
+                    }
+                    .auto-bet-actions .auto-bet-config-launcher {
+                        border-radius: 0;
+                        border: none;
+                        background: transparent;
+                        min-height: 54px;
+                    }
+                    .auto-bet-actions .auto-bet-config-launcher + .auto-bet-config-launcher {
+                        border-left: 1px solid rgba(255, 255, 255, 0.06);
+                    }
+
+                    .auto-bet-summary-metrics {
+                        order: 1;
+                        grid-template-columns: 1fr 1fr;
+                        gap: 0;
+                        border-top: 1px solid rgba(255, 255, 255, 0.06);
+                    }
+                    .auto-bet-summary-item {
+                        background: transparent;
+                        border: none;
+                        border-radius: 0;
+                        padding: 10px 10px;
+                        min-height: 58px;
+                    }
+                    .auto-bet-summary-item:nth-child(odd) {
+                        border-right: 1px solid rgba(255, 255, 255, 0.06);
+                    }
+                    .auto-bet-summary-item:nth-child(n+3) {
+                        border-top: 1px solid rgba(255, 255, 255, 0.06);
                     }
                     .auto-bet-mode-layout {
                         flex-direction: column;
@@ -16781,7 +16823,7 @@ async function persistAnalyzerState(newState) {
     // - 88–91 : Momento favorável
     // - 92–95 : Boa assertividade
     // - 96–99 : Alta assertividade
-    // - 100   : Assertividade máxima (0 loss na janela)
+    // - 100   : Assertividade máxima (0 loss na janela E todas as vitórias na ENTRADA — sem G1/G2)
     const MOMENT_QUALITY_T1 = 80;
     const MOMENT_QUALITY_T2 = 88;
     const MOMENT_QUALITY_T3 = 92;
@@ -16878,8 +16920,36 @@ async function persistAnalyzerState(newState) {
         const winRate = windowSize ? (wins / windowSize) * 100 : 0;
         const pct = clampPct(winRate);
 
+        const isFirstTryWin = (e) => {
+            try {
+                if (!e || e.result !== 'WIN') return false;
+                const raw = (e.wonAt || e.martingaleStage || e.phase || e.stage || '');
+                const s = String(raw || '').toUpperCase().trim();
+                // Sem informação: assumir ENTRADA (legado)
+                if (!s) return true;
+                if (s === 'ENTRADA' || s === 'G0' || s === 'ENTRY') return true;
+                // WIN G1/G2 não conta como "máxima assertividade"
+                if (s === 'G1' || s === 'G2') return false;
+                if (/^G\d+$/.test(s)) return false;
+                return false;
+            } catch (_) {
+                return false;
+            }
+        };
+
+        const allWinsFirstTry = (() => {
+            try {
+                if (windowSize <= 0) return false;
+                if (losses > 0) return false;
+                if (wins <= 0) return false;
+                return sample.every((e) => e && e.result === 'WIN' && isFirstTryWin(e));
+            } catch (_) {
+                return false;
+            }
+        })();
+
         const pickMoment = (p, lossCount) => {
-            const perfect = (p >= 100 && lossCount === 0 && windowSize > 0);
+            const perfect = (p >= 100 && lossCount === 0 && allWinsFirstTry);
             if (perfect) return { id: 'max', label: 'Máxima', tip: 'Assertividade máxima' };
             if (p >= MOMENT_QUALITY_T4) return { id: 'high', label: 'Muito alta', tip: 'Alta assertividade' };
             if (p >= MOMENT_QUALITY_T3) return { id: 'good', label: 'Alta', tip: 'Boa assertividade' };

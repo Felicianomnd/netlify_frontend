@@ -1438,6 +1438,17 @@
         min-height: 96px;
         padding: 8px 0;
     }
+
+    /* ✅ Mobile: centralizar o "Analisando" exatamente no meio do container (estava levemente acima) */
+    #blaze-double-analyzer:not(.da-desktop-dashboard) .analysis-lastspin-row .analysis-section.da-analyzing .analysis-card {
+        padding: 0 !important;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+    #blaze-double-analyzer:not(.da-desktop-dashboard) .analysis-lastspin-row .analysis-section.da-analyzing .da-top-analyzing {
+        transform: translateY(2px);
+    }
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -1467,12 +1478,12 @@
   display: flex;
   align-items: center;
   height: 18px;
-  margin: 0 0 6px 0;
+  margin: 0 0 3px 0;
 }
 
 .moment-quality-track-wrap {
   position: relative;
-  padding-top: 18px; /* espaço para o texto na ponta (sem ser cortado pela track) */
+  padding-top: 6px; /* ✅ aproximar a barra do título/status (sem quebrar texto) */
 }
 
 .moment-quality-track {
