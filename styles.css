@@ -1649,6 +1649,11 @@
     display: flex;
     flex-direction: column;
 }
+.analysis-lastspin-row .analysis-section h4,
+.analysis-lastspin-row .last-spin-section h4 {
+    text-align: center;
+    width: 100%;
+}
 .analysis-lastspin-row .analysis-section .analysis-card,
 .analysis-lastspin-row .last-spin-section .spin-display {
     flex: 1;
@@ -1896,20 +1901,47 @@
 }
 .da-mini-calib span:nth-child(even) { opacity: 0.56; }
 
-/* ✅ "Aguardando sinal" (Analisando): sem fundo quadrado e sem barra/% */
+/* ✅ "Aguardando sinal" (Analisando): anel estilo "Calibrando N4" com texto dentro */
+.analysis-card.da-analyzing {
+    --da-calib-ring: 96px;
+    --da-calib-title: 11px;
+    --da-calib-dot-inset: 7px;
+    --da-calib-dot-radius: -40px;
+}
 .analysis-card.da-analyzing .confidence-meter { display: none; }
 .analysis-card.da-analyzing .suggestion-box { margin-top: 0; }
+.analysis-card.da-analyzing .suggestion-color-wrapper { min-height: 96px; }
 .analysis-card.da-analyzing .suggestion-color-box {
     background: transparent !important;
     border: none !important;
-    width: 26px !important;
-    height: 26px !important;
-    min-width: 26px !important;
-    max-width: 26px !important;
-    flex: 0 0 26px !important;
-    border-radius: 50% !important;
+    width: auto !important;
+    height: auto !important;
+    min-width: 0 !important;
+    max-width: none !important;
+    flex: 0 0 auto !important;
+    border-radius: 0 !important;
+    overflow: visible !important;
+    padding: 0 !important;
 }
 .analysis-card.da-analyzing .suggestion-color-box[data-gale]::after { display: none; }
+.analysis-card.da-analyzing .da-top-analyzing { display: flex; align-items: center; justify-content: center; }
+.analysis-card.da-analyzing .da-top-analyzing-ring {
+    box-shadow: 0 8px 18px rgba(0, 0, 0, 0.22);
+}
+.analysis-card.da-analyzing .da-top-analyzing-ring .da-calibration-title {
+    text-transform: none;
+    letter-spacing: 0.2px;
+}
+
+@media (max-width: 520px) {
+    .analysis-card.da-analyzing {
+        --da-calib-ring: 86px;
+        --da-calib-title: 10px;
+        --da-calib-dot-inset: 6px;
+        --da-calib-dot-radius: -35px;
+    }
+    .analysis-card.da-analyzing .suggestion-color-wrapper { min-height: 86px; }
+}
 
 .suggestion-stage {
     font-size: 16px;

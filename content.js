@@ -12807,8 +12807,8 @@ async function persistAnalyzerState(newState) {
                      
                      <div class="suggestion-box" id="suggestionBox">
                          <div class="suggestion-color-wrapper">
-                             <!-- Estado inicial: sem sinal => mini-anel (igual Calibrando N4) -->
-                             <div class="suggestion-color suggestion-color-box neutral loading" id="suggestionColor"><div class="da-mini-calib" aria-hidden="true"><span style="--i:0"></span><span style="--i:1"></span><span style="--i:2"></span><span style="--i:3"></span><span style="--i:4"></span><span style="--i:5"></span><span style="--i:6"></span><span style="--i:7"></span><span style="--i:8"></span><span style="--i:9"></span><span style="--i:10"></span><span style="--i:11"></span><span style="--i:12"></span><span style="--i:13"></span><span style="--i:14"></span><span style="--i:15"></span></div></div>
+                            <!-- Estado inicial: sem sinal => anel (igual Calibrando N4) com texto no centro -->
+                             <div class="suggestion-color suggestion-color-box neutral loading" id="suggestionColor"><div class="da-top-analyzing" aria-hidden="true"><div class="da-calibration-ring da-top-analyzing-ring" data-state="calibrating"><div class="da-calibration-dots"><span style="--i:0"></span><span style="--i:1"></span><span style="--i:2"></span><span style="--i:3"></span><span style="--i:4"></span><span style="--i:5"></span><span style="--i:6"></span><span style="--i:7"></span><span style="--i:8"></span><span style="--i:9"></span><span style="--i:10"></span><span style="--i:11"></span><span style="--i:12"></span><span style="--i:13"></span><span style="--i:14"></span><span style="--i:15"></span></div><div class="da-calibration-title">Analisando</div></div></div></div>
                             <div class="suggestion-stage" id="suggestionStage"></div>
                          </div>
                         </div>
@@ -16287,7 +16287,8 @@ async function persistAnalyzerState(newState) {
                 // ✅ RESETAR TÍTULO DO BLOCO (agora é sinal)
                 const analysisModeTitle = document.getElementById('analysisModeTitle');
                 if (analysisModeTitle) {
-                    analysisModeTitle.textContent = 'Analisando';
+                    // manter o título do card; o texto "Analisando" fica dentro do anel
+                    analysisModeTitle.textContent = 'Aguardando sinal';
                 }
                 // ✅ Marcar estado “analisando” para esconder barra/% e mostrar só o mini-anel
                 try {
@@ -16563,7 +16564,7 @@ async function persistAnalyzerState(newState) {
     }
     
     function renderSuggestionStatus(statusText) {
-        const miniRingHTML = '<div class="da-mini-calib" aria-hidden="true"><span style="--i:0"></span><span style="--i:1"></span><span style="--i:2"></span><span style="--i:3"></span><span style="--i:4"></span><span style="--i:5"></span><span style="--i:6"></span><span style="--i:7"></span><span style="--i:8"></span><span style="--i:9"></span><span style="--i:10"></span><span style="--i:11"></span><span style="--i:12"></span><span style="--i:13"></span><span style="--i:14"></span><span style="--i:15"></span></div>';
+        const analyzingRingHTML = '<div class="da-top-analyzing" aria-hidden="true"><div class="da-calibration-ring da-top-analyzing-ring" data-state="calibrating"><div class="da-calibration-dots"><span style="--i:0"></span><span style="--i:1"></span><span style="--i:2"></span><span style="--i:3"></span><span style="--i:4"></span><span style="--i:5"></span><span style="--i:6"></span><span style="--i:7"></span><span style="--i:8"></span><span style="--i:9"></span><span style="--i:10"></span><span style="--i:11"></span><span style="--i:12"></span><span style="--i:13"></span><span style="--i:14"></span><span style="--i:15"></span></div><div class="da-calibration-title">Analisando</div></div></div>';
         const suggestionColor = document.getElementById('suggestionColor');
         if (!suggestionColor) return;
         const normalized = typeof statusText === 'string' ? statusText : '';
@@ -16572,7 +16573,7 @@ async function persistAnalyzerState(newState) {
         // Regra nova: se NÃO há sinal visível, sempre mostrar o spinner (sensação de análise rodando)
         // Vale para modo padrão e modo diamante.
             suggestionColor.className = 'suggestion-color suggestion-color-box neutral loading';
-            suggestionColor.innerHTML = miniRingHTML;
+            suggestionColor.innerHTML = analyzingRingHTML;
         
         // Sincronizar com modo aposta
         syncBetModeView();
