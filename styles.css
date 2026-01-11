@@ -1660,10 +1660,19 @@
     display: none;
 }
 
-/* ✅ Desktop dashboard: manter altura do card "Analisando" igual aos outros (mesmo sem título/barra) */
-#blaze-double-analyzer.da-desktop-dashboard #analyzerDefaultView .analysis-section.da-analyzing .analysis-card {
-    /* Compensa a altura do h4 + espaçamento que existe nos outros cards */
-    min-height: 132px;
+/* ✅ Desktop dashboard: primeira linha (Saldo / Analisando / Último giro) com mesma altura de borda */
+#blaze-double-analyzer.da-desktop-dashboard #autoBetSummary.da-card,
+#blaze-double-analyzer.da-desktop-dashboard #analyzerDefaultView .analysis-section.da-card,
+#blaze-double-analyzer.da-desktop-dashboard #analyzerDefaultView .last-spin-section.da-card {
+    align-self: stretch; /* sobrescreve o align-items:start do grid */
+    display: flex;
+    flex-direction: column;
+}
+
+#blaze-double-analyzer.da-desktop-dashboard #analyzerDefaultView .analysis-section.da-card .analysis-card,
+#blaze-double-analyzer.da-desktop-dashboard #analyzerDefaultView .last-spin-section.da-card .spin-display {
+    flex: 1;
+    height: 100%;
 }
 
 /* ✅ Último giro: remover a "caixa" interna (borda) — fica só o conteúdo */
