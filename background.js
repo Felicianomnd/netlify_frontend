@@ -2233,6 +2233,144 @@ let lastDataReceived = Date.now(); // ✅ Rastrear último dado recebido
 let pollingInterval = null; // ✅ Intervalo de polling de fallback
 let dataCheckInterval = null; // ✅ Intervalo para verificar dados desatualizados
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// ⚡ FAST LANE (cliente): reduzir latência percebida do giro
+// - Mesmo com WS ativo, o servidor pode ter 1–3s de atraso.
+// - Estratégia: perto do instante esperado do próximo giro (~30s), buscar direto da Blaze (recent/1)
+//   com cache-bust e publicar IMEDIATAMENTE se vier mais novo.
+// ═══════════════════════════════════════════════════════════════════════════════
+
+let fastLaneStartTimeout = null;
+let fastLaneStopTimeout = null;
+let fastLaneTickTimeout = null;
+let fastLaneInFlight = false;
+let fastLaneExpectedNextMs = null;
+
+function clearFastLaneTimers() {
+    try { if (fastLaneStartTimeout) clearTimeout(fastLaneStartTimeout); } catch (_) {}
+    try { if (fastLaneStopTimeout) clearTimeout(fastLaneStopTimeout); } catch (_) {}
+    try { if (fastLaneTickTimeout) clearTimeout(fastLaneTickTimeout); } catch (_) {}
+    fastLaneStartTimeout = null;
+    fastLaneStopTimeout = null;
+    fastLaneTickTimeout = null;
+}
+
+function computeNextSpinBoundaryMs(lastSpinMs) {
+    try {
+        const ms = Number(lastSpinMs) || 0;
+        if (!Number.isFinite(ms) || ms <= 0) return null;
+        const d = new Date(ms);
+        const sec = d.getSeconds();
+        const next = new Date(d);
+        next.setMilliseconds(0);
+        if (sec < 30) {
+            next.setSeconds(30);
+        } else {
+            next.setMinutes(next.getMinutes() + 1);
+            next.setSeconds(0);
+        }
+        return next.getTime();
+    } catch (_) {
+        return null;
+    }
+}
+
+async function fetchLatestSpinDirectFromBlaze({ timeoutMs = 1600 } = {}) {
+    const controller = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+    const timeoutId = controller ? setTimeout(() => controller.abort(), Math.max(600, Math.floor(Number(timeoutMs) || 1600))) : null;
+    try {
+        // cache-bust: garante que não vem resposta antiga por cache intermediário
+        const url = `https://blaze.bet.br/api/singleplayer-originals/originals/roulette_games/recent/1?cb=${Date.now()}`;
+        const resp = await fetch(url, {
+            method: 'GET',
+            headers: {
+                'accept': 'application/json',
+                'cache-control': 'no-cache'
+            },
+            cache: 'no-store',
+            signal: controller ? controller.signal : undefined
+        }).finally(() => { if (timeoutId) clearTimeout(timeoutId); });
+        if (!resp.ok) return null;
+        const dataArr = await resp.json().catch(() => null);
+        const latest = Array.isArray(dataArr) && dataArr.length ? dataArr[0] : null;
+        if (!latest) return null;
+        const rollNumber = Number(latest.roll);
+        if (!Number.isFinite(rollNumber)) return null;
+        const rollColor = getColorFromNumber(Math.floor(rollNumber));
+        const createdAt = latest.created_at ?? latest.createdAt ?? latest.timestamp ?? null;
+        if (!createdAt) return null;
+        return {
+            id: `spin_${createdAt}`,
+            number: Math.floor(rollNumber),
+            color: rollColor,
+            timestamp: createdAt,
+            created_at: createdAt,
+            __source: 'blaze_direct'
+        };
+    } catch (_) {
+        return null;
+    } finally {
+        try { if (timeoutId) clearTimeout(timeoutId); } catch (_) {}
+    }
+}
+
+async function fastLaneTick() {
+    try {
+        if (fastLaneTickTimeout) {
+            try { clearTimeout(fastLaneTickTimeout); } catch (_) {}
+            fastLaneTickTimeout = null;
+        }
+        if (!fastLaneExpectedNextMs) return;
+        const now = Date.now();
+        const expected = Number(fastLaneExpectedNextMs) || 0;
+        if (!expected || !Number.isFinite(expected)) return;
+        // se ainda estiver muito cedo, reagendar
+        if (now < expected - 2500) {
+            fastLaneTickTimeout = setTimeout(fastLaneTick, 800);
+            return;
+        }
+        if (fastLaneInFlight) {
+            fastLaneTickTimeout = setTimeout(fastLaneTick, 120);
+            return;
+        }
+        fastLaneInFlight = true;
+        const spin = await fetchLatestSpinDirectFromBlaze({ timeoutMs: 1200 });
+        fastLaneInFlight = false;
+        if (spin) {
+            // processNewSpinFromServer já dedupa pelo timestamp/número
+            detachPromise(processNewSpinFromServer(spin), 'fastlane_process_spin');
+        }
+        // frequência adaptativa: mais rápido no "miolo" (expected..expected+3s)
+        const after = Date.now();
+        const delta = after - expected;
+        const delay = (delta >= -1500 && delta <= 3000) ? 220 : 650;
+        fastLaneTickTimeout = setTimeout(fastLaneTick, delay);
+    } catch (_) {
+        fastLaneInFlight = false;
+        fastLaneTickTimeout = setTimeout(fastLaneTick, 800);
+    }
+}
+
+function armFastLaneForNextSpin(latestSpinTimestampLike) {
+    try {
+        const lastMs = parseSpinTimestamp({ timestamp: latestSpinTimestampLike, created_at: latestSpinTimestampLike }) || parseSpinTimestamp({ timestamp: latestSpinTimestampLike }) || Number(latestSpinTimestampLike) || 0;
+        const nextMs = computeNextSpinBoundaryMs(lastMs);
+        if (!nextMs) return;
+        fastLaneExpectedNextMs = nextMs;
+        clearFastLaneTimers();
+        // armar ~1.2s antes do "boundary" para compensar RTT
+        const startIn = Math.max(200, Math.min(40000, (nextMs - Date.now()) - 1200));
+        fastLaneStartTimeout = setTimeout(() => {
+            // rodar burst por ~8s (cobre atrasos e variações)
+            fastLaneStopTimeout = setTimeout(() => {
+                clearFastLaneTimers();
+                fastLaneExpectedNextMs = null;
+            }, 8000);
+            fastLaneTick();
+        }, startIn);
+    } catch (_) {}
+}
+
 // Conectar ao WebSocket
 function connectWebSocket() {
     if (!API_CONFIG.enabled || !API_CONFIG.useWebSocket) {
@@ -2425,7 +2563,12 @@ function startPollingFallback() {
                 const url = `${API_CONFIG.baseURL}/api/giros/latest`;
                 const controller = (typeof AbortController !== 'undefined') ? new AbortController() : null;
                 const timeoutId = controller ? setTimeout(() => controller.abort(), 5000) : null;
-                var response = await fetch(url, controller ? { signal: controller.signal } : undefined)
+                // ✅ no-store: evita cache intermediário causando "giro atrasado"
+                var response = await fetch(url, controller ? {
+                    signal: controller.signal,
+                    cache: 'no-store',
+                    headers: { 'cache-control': 'no-cache', 'accept': 'application/json' }
+                } : { cache: 'no-store', headers: { 'cache-control': 'no-cache', 'accept': 'application/json' } })
                     .finally(() => { if (timeoutId) clearTimeout(timeoutId); });
             }
             
@@ -4073,38 +4216,20 @@ async function processNewSpinFromServer(spinData) {
             console.log(`⚡ Cache atualizado! ${cachedHistory.length} giros`);
             
             // ⚡⚡⚡ ENVIAR PARA O UI IMEDIATAMENTE - SEM ESPERAR NADA! ⚡⚡⚡
-            // Usar sendMessage síncrono + try/catch para máxima velocidade
-            const spinMessage = {
-                type: 'NEW_SPIN',
-                data: {
-                    lastSpin: { 
-                    number: rollNumber,
-                    color: rollColor,
-                        timestamp: latestSpin.created_at 
+            // ✅ Importante: cobrir TODOS os domínios da Blaze (blaze.com, blaze.bet.br, etc)
+            detachPromise(
+                sendMessageToContent('NEW_SPIN', {
+                    lastSpin: {
+                        number: rollNumber,
+                        color: rollColor,
+                        timestamp: latestSpin.created_at
                     }
-                }
-            };
-            
-            // ✅ ENVIAR PARA O UI IMEDIATAMENTE
-            chrome.tabs.query({ url: '*://blaze.com/*' }, (tabs) => {
-                if (tabs && tabs.length > 0) {
-                    tabs.forEach(tab => {
-                        chrome.tabs.sendMessage(tab.id, spinMessage).catch(() => {
-                            // Ignorar tabs sem content.js
-                        });
-                    });
-                    console.log(`⚡ GIRO ENVIADO INSTANTANEAMENTE para ${tabs.length} tab(s)!`);
-                } else {
-                    // Fallback: tentar enviar para todas as tabs
-                    chrome.tabs.query({}, (allTabs) => {
-                        if (allTabs && allTabs.length > 0) {
-                            allTabs.forEach(tab => {
-                                chrome.tabs.sendMessage(tab.id, spinMessage).catch(() => {});
-                            });
-                        }
-                    });
-                }
-            });
+                }),
+                'ui_new_spin'
+            );
+
+            // ✅ FAST LANE: armar a verificação local para o próximo giro (reduz latência percebida)
+            try { armFastLaneForNextSpin(latestSpin.created_at); } catch (_) {}
             
             // ═══════════════════════════════════════════════════════════════════════════════
             // 📦 OPERAÇÕES NECESSÁRIAS (UI já foi atualizado instantaneamente acima!)
@@ -13656,6 +13781,51 @@ function buildHourKeyLocal(ms) {
     }
 }
 
+function computeN0WhitesPerHourTimelineNewestFirst(history, nowMs, lookbackHours = 24) {
+    try {
+        const arr = Array.isArray(history) ? history : [];
+        const now = Number(nowMs) || Date.now();
+        const hours = Math.max(1, Math.min(72, Math.floor(Number(lookbackHours) || 24)));
+        const cutoff = now - hours * 60 * 60 * 1000;
+        const map = new Map(); // hourKey -> { hourKey, hourStartMs, whites, total }
+
+        for (let i = 0; i < arr.length; i++) {
+            const s = arr[i];
+            const ms = Number.isFinite(parseSpinTimestamp(s)) ? parseSpinTimestamp(s) : 0;
+            if (!ms) continue;
+            if (ms < cutoff) break; // history vem mais recente -> mais antigo
+            const d = new Date(ms);
+            d.setMinutes(0, 0, 0);
+            const hourStartMs = d.getTime();
+            const hk = buildHourKeyLocal(hourStartMs);
+            const row = map.get(hk) || { hourKey: hk, hourStartMs, whites: 0, total: 0 };
+            row.total += 1;
+            if (isWhiteSpinForN0Guard(s)) row.whites += 1;
+            map.set(hk, row);
+        }
+
+        return [...map.values()]
+            .sort((a, b) => (b.hourStartMs || 0) - (a.hourStartMs || 0))
+            .slice(0, hours);
+    } catch (_) {
+        return [];
+    }
+}
+
+function formatN0WhitesPerHourTimeline(history, nowMs, lookbackHours = 24) {
+    try {
+        const rows = computeN0WhitesPerHourTimelineNewestFirst(history, nowMs, lookbackHours);
+        if (!rows.length) return '';
+        const hours = Math.max(1, Math.min(72, Math.floor(Number(lookbackHours) || 24)));
+        const lines = rows
+            .slice(0, hours)
+            .map((r) => `${r.hourKey}: ${r.whites}`);
+        return `Últimas ${hours}h (brancos por hora):\n${lines.join('\n')}\n`;
+    } catch (_) {
+        return '';
+    }
+}
+
 function estimateAvgWhitesPerHour(history, nowMs, lookbackHours = N0_WHITE_SIGNAL_TARGET_LOOKBACK_HOURS) {
     try {
         const arr = Array.isArray(history) ? history : [];
@@ -13670,7 +13840,7 @@ function estimateAvgWhitesPerHour(history, nowMs, lookbackHours = N0_WHITE_SIGNA
             if (!ms) continue;
             if (ms < cutoff) break; // history vem mais recente -> mais antigo
             hourSet.add(buildHourKeyLocal(ms));
-            if (s && s.color === 'white') whites += 1;
+            if (isWhiteSpinForN0Guard(s)) whites += 1;
         }
         const hours = hourSet.size;
         if (hours <= 0) return null;
@@ -13882,8 +14052,19 @@ function computeN0HourStats(history, nowMs, lookaheadSpins) {
     const burst = (inHour.whites >= Math.max(target + 4, Math.ceil(target * 1.7))) || (recent.whites >= 2 && recent.spins <= 30);
 
     const endOfHour = minute >= N0_OBS_END_OF_HOUR_MINUTE;
-    const needFill = endOfHour && deficit > 0;
-    const saturated = (inHour.whites >= target) && !burst;
+
+    // ✅ Pacing (para buscar a meta/hora ao longo da hora, não só no fim).
+    // Ex.: se a meta é 7/h e estamos no minuto 30, o "esperado" é ~3.5 brancos.
+    // Se estiver muito abaixo disso, ativamos needFill cedo para aumentar as chances de emitir sinal.
+    const slotProgress = (timeSlot && timeSlot.slot === 2) ? 0.5 : 0;
+    const progress = Math.max(0, Math.min(1, (minute + slotProgress) / 60));
+    const expectedSoFar = target * progress;
+    const behindSchedule = (minute >= 10) && deficit > 0 && ((expectedSoFar - inHour.whites) >= 1.25);
+    const aheadSchedule = (minute >= 10) && ((inHour.whites - expectedSoFar) >= 1.75);
+
+    const needFill = deficit > 0 && (endOfHour || behindSchedule);
+    // ✅ Saturação pode acontecer cedo se o horário já "adiantou" brancos demais (evita spam na mesma hora)
+    const saturated = ((inHour.whites >= target) || (aheadSchedule && !endOfHour)) && !burst;
 
     return {
         timeSlot,
@@ -13899,6 +14080,9 @@ function computeN0HourStats(history, nowMs, lookaheadSpins) {
         minute,
         minutesLeft,
         spinsLeftApprox,
+        expectedSoFar,
+        behindSchedule,
+        aheadSchedule,
         endOfHour,
         needFill,
         burst,
@@ -14099,6 +14283,7 @@ function computeN0ObserverPackage({ history, nowMs, n0Result, lookaheadSpins }) 
     const hourStats = computeN0HourStats(history, nowMs, lookaheadSpins);
     const pos = [];
     const neg = [];
+    let gapInfo = null; // usado para explicação/estratégia (intervalos 1–20/21–40/41–60/60+)
 
     // SAT (saturação do horário) / FIM (fim do horário com déficit) / CHU (chuva)
     if (hourStats.burst) pos.push(`CHU${hourStats.whitesThisHour}/${hourStats.target}`);
@@ -14111,10 +14296,49 @@ function computeN0ObserverPackage({ history, nowMs, n0Result, lookaheadSpins }) 
         const sorted = gaps.filter((n) => Number.isFinite(n) && n >= 0).slice().sort((a, b) => a - b);
         const p75 = quantileFromSorted(sorted, 0.75);
         const p90 = quantileFromSorted(sorted, 0.90);
+        const p95 = quantileFromSorted(sorted, 0.95);
         const lastWhiteIdx = findMostRecentWhiteIndexForN0(history, 400);
         const gapNow = (lastWhiteIdx != null) ? Math.max(0, lastWhiteIdx) : null;
+
+        // Intervalos agregados (como no painel: 1–20, 21–40, 41–60, 60+)
+        const bins = { '1-20': 0, '21-40': 0, '41-60': 0, '61+': 0 };
+        for (let i = 0; i < gaps.length; i++) {
+            const g = Number(gaps[i]);
+            if (!Number.isFinite(g) || g <= 0) continue;
+            if (g <= 20) bins['1-20'] += 1;
+            else if (g <= 40) bins['21-40'] += 1;
+            else if (g <= 60) bins['41-60'] += 1;
+            else bins['61+'] += 1;
+        }
+
+        gapInfo = {
+            gapNow,
+            p75,
+            p90,
+            p95,
+            bins,
+            samples: sorted.length
+        };
+
+        // Marca intervalo atual (alta pressão) para o gate/explicação
+        if (gapNow != null) {
+            if (gapNow >= 41 && gapNow <= 60) pos.push(`INT41-60g${gapNow}`);
+            else if (gapNow >= 61) pos.push(`INT61+g${gapNow}`);
+        }
+
         if (gapNow != null && p75 != null && gapNow >= p75 && gapNow >= 10) {
             pos.push(`DESg${gapNow}≥p75${p75}`);
+        }
+        // ✅ Pedido do usuário: quando o intervalo está “esticando” (ex.: chegando em ~60 giros sem branco),
+        // isso é um gatilho forte para alertar (sem precisar de puxador/espelho).
+        if (gapNow != null && p90 != null && gapNow >= p90 && gapNow >= 18) {
+            pos.push(`LIMg${gapNow}≥p90${p90}`);
+        }
+        if (gapNow != null && p95 != null && gapNow >= p95 && gapNow >= 25) {
+            pos.push(`LIMg${gapNow}≥p95${p95}`);
+        }
+        if (gapNow != null && gapNow >= 55) {
+            pos.push(`LIM60g${gapNow}`);
         }
         if (gapNow != null) {
             // cadeia de isolados (gaps longos)
@@ -14146,14 +14370,16 @@ function computeN0ObserverPackage({ history, nowMs, n0Result, lookaheadSpins }) 
 
     // PUX (puxador)
     try {
-        const tailNum = getTailNonWhiteNumberFromWindow(liveChars, liveNums);
+        const tailNums = getTailNonWhiteNumbersFromWindow(liveChars, liveNums, 3);
         // ✅ Usar APENAS os últimos ~240 giros para puxador (recente)
         const pullersRecent = computeN0RecentPullerStats(history, lookaheadSpins, N0_OBS_PULLER_LOOKBACK_SPINS);
-        const row = tailNum != null ? pullersRecent[String(tailNum)] : null;
-        if (row && row.occ >= N0_OBS_PULLER_MIN_OCC) {
+        for (let i = 0; i < tailNums.length; i++) {
+            const n = tailNums[i];
+            const row = pullersRecent[String(n)] || null;
+            if (!row || row.occ < N0_OBS_PULLER_MIN_OCC) continue;
             const p = row.white / Math.max(1, row.occ);
             if (p >= Math.max(base * 1.35, 0.10)) {
-                pos.push(`PUXr${tailNum}=${row.white}/${row.occ}`);
+                pos.push(`PUXr${n}=${row.white}/${row.occ}`);
             }
         }
     } catch (_) {}
@@ -14229,14 +14455,15 @@ function computeN0ObserverPackage({ history, nowMs, n0Result, lookaheadSpins }) 
         // "contexto" também é fraco (serve para somar, não para “confirmar” sozinho)
         if (t.startsWith('CHU')) return false;
         if (t.startsWith('FIM')) return false;
-        if (t.startsWith('DES')) return false;
         if (t.startsWith('VIZ')) return false;
-        return true; // sobrou: PUXr, QBR, ESP, RES, POS, REP (etc)
+        // ✅ DES/LIM contam como confirmação: representam intervalo “esticado” (pedido do usuário).
+        // Sobrou: DES/LIM + PUXr, QBR, ESP, RES, POS, REP (etc)
+        return true;
     };
     const strongCount = pos.filter(isStrong).length;
     const patternStrongCount = pos.filter((tag) => {
         const t = String(tag || '').toUpperCase();
-        return t.startsWith('PUXR') || t.startsWith('QBR') || t.startsWith('ESP') || t.startsWith('RES') || t.startsWith('POS') || t.startsWith('REP');
+        return t.startsWith('PUXR') || t.startsWith('QBR') || t.startsWith('ESP') || t.startsWith('RES') || t.startsWith('POS') || t.startsWith('REP') || t.startsWith('DES') || t.startsWith('LIM') || t.startsWith('INT');
     }).length;
 
     const short = (() => {
@@ -14266,6 +14493,7 @@ function computeN0ObserverPackage({ history, nowMs, n0Result, lookaheadSpins }) 
         neg,
         strongCount,
         patternStrongCount,
+        gapInfo,
         short
     };
 }
@@ -14318,10 +14546,35 @@ function evaluateN0WhiteSignalGate({ history, nowMs, lookaheadSpins, baseConfide
         : N0_OBS_CONFIRM_MIN_DEFAULT;
     const relaxedRequired = (hourStats && hourStats.needFill) ? Math.max(1, required - 1) : required;
     const baseConf = clamp01(typeof baseConfidence === 'number' ? baseConfidence : Number(baseConfidence) || 0);
-    const softT = clamp01(typeof softThreshold === 'number' ? softThreshold : Number(softThreshold) || 0);
-    // ✅ Se o modelo já bate o threshold "soft", não exigir confirmações raras.
-    // (Quando o modelo não bate, aí sim dependemos de confirmação/boost.)
-    const allowSoloModel = baseConf >= softT;
+    const softTModel = clamp01(typeof softThreshold === 'number' ? softThreshold : Number(softThreshold) || 0);
+    const budgetMinConf = (() => {
+        try {
+            const r = decideN0WhiteSignalEmission({
+                history,
+                nowMs,
+                confidence: 0,
+                lookaheadSpins,
+                override: true,   // só para obter minConf/base sem bloquear por budget
+                commit: false
+            });
+            return (r && typeof r.minConf === 'number' && Number.isFinite(r.minConf)) ? clamp01(r.minConf) : null;
+        } catch (_) {
+            return null;
+        }
+    })();
+    // ✅ Threshold "soft" efetivo:
+    // - ALERTA: não pode ficar preso no t* do modelo (isso cria silêncio). Usa um soft menor, ancorado no minConf do budget.
+    // - BLOCK ALL: mantém o soft do modelo (mais rígido).
+    const softTUsed = (() => {
+        if (mode !== 'alert') return softTModel;
+        if (budgetMinConf == null) return softTModel;
+        // permitir alertar quando estiver no mínimo aceitável do ciclo, sem depender do t* alto do modelo
+        return clamp01(Math.min(softTModel, clamp01(budgetMinConf + 0.04)));
+    })();
+
+    // ✅ Se o modelo já bate o threshold "soft" (do próprio modelo), não exigir confirmações raras.
+    // Quando o modelo não bate, aí sim dependemos de confirmação/boost.
+    const allowSoloModel = (baseConf >= softTModel);
 
     if ((pack.strongCount || 0) < relaxedRequired && !allowSoloModel) {
         return { ok: false, reason: 'insufficient_confirmations', required: relaxedRequired, got: pack.strongCount || 0, pack, effectiveConfidence: baseConf };
@@ -14345,8 +14598,9 @@ function evaluateN0WhiteSignalGate({ history, nowMs, lookaheadSpins, baseConfide
     const effectiveConfidence = clamp01(base + boost);
 
     // threshold "soft"
-    if (effectiveConfidence < softT && !(hourStats && hourStats.needFill)) {
-        return { ok: false, reason: 'below_soft_threshold', softThreshold: softT, pack, effectiveConfidence };
+    const allowBelowSoft = !!(hourStats && hourStats.needFill) || ((pack.strongCount || 0) >= N0_OBS_CONFIRM_MIN_STRONG);
+    if (effectiveConfidence < softTUsed && !allowBelowSoft) {
+        return { ok: false, reason: 'below_soft_threshold', softThreshold: softTUsed, pack, effectiveConfidence };
     }
 
     // budget final (sem commit)
@@ -15722,6 +15976,32 @@ function getTailNonWhiteNumberFromWindow(windowChars, windowNumbers) {
         return null;
     } catch (_) {
         return null;
+    }
+}
+
+function getTailNonWhiteNumbersFromWindow(windowChars, windowNumbers, maxCount = 3) {
+    try {
+        const w = Array.isArray(windowChars) ? windowChars : null;
+        const nums = Array.isArray(windowNumbers) ? windowNumbers : null;
+        if (!w || !nums || w.length !== nums.length) return [];
+        const max = Math.max(1, Math.min(6, Math.floor(Number(maxCount) || 3)));
+        const out = [];
+        const seen = new Set();
+        for (let i = w.length - 1; i >= 0; i--) {
+            const c = w[i];
+            if (!(c === 'R' || c === 'B')) continue;
+            const n = nums[i];
+            const num = Number.isFinite(Number(n)) ? Math.floor(Number(n)) : null;
+            if (num == null || num <= 0 || num > 14) continue;
+            const k = String(num);
+            if (seen.has(k)) continue;
+            seen.add(k);
+            out.push(num);
+            if (out.length >= max) break;
+        }
+        return out;
+    } catch (_) {
+        return [];
     }
 }
 
@@ -19989,7 +20269,9 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
                 const cooldownActive = !!(n0CooldownInfo && n0CooldownInfo.ok === false);
                 const recentWhiteIdxGate = findMostRecentWhiteIndexForN0(history, 80);
                 const consecutiveWhite = recentWhiteIdxGate === 0;
-                const canAlert = !!(n0Result && n0Result.pred_live === 'W' && n0GateAlert && n0GateAlert.ok && !cooldownActive && !consecutiveWhite);
+                // ✅ ALERTA não deve depender de `pred_live==='W'` (isso cria silêncio).
+                // O modelo vira um "score" e quem decide é: observadores + budget + cooldown.
+                const canAlert = !!(n0Result && n0Result.enabled && n0GateAlert && n0GateAlert.ok && !cooldownActive && !consecutiveWhite);
                 const canBlockAll = !!(n0ForceWhite && n0GateBlockAll && n0GateBlockAll.ok && !cooldownActive && !consecutiveWhite);
 
                 // Se o gate não aprovar, não aplicar soft-block nos pesos (não faz sentido "penalizar" outros níveis)
@@ -20011,11 +20293,11 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
                     : null;
 
                 const actionLabel = (() => {
-                    if (!n0Result || n0Result.pred_live !== 'W') return 'NULO';
                     if (canBlockAll) return 'BLOCK ALL';
                     if (canAlert && n0SoftBlockActive) return 'SOFT BLOCK';
                     if (canAlert) return n0ActionSuppressed ? 'ALERTA (info)' : 'ALERTA';
-                    return 'EVITAR';
+                    if (n0GateAlert && n0GateAlert.ok === false) return 'EVITAR';
+                    return 'NULO';
                 })();
 
                 const packShort = (gateChosen && gateChosen.pack && typeof gateChosen.pack.short === 'string')
@@ -20033,7 +20315,7 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
                 if (packShort) detailsParts.push(packShort);
 
                 // Mostrar motivo do bloqueio quando o N0 detectou WHITE mas o gate rejeitou
-                if (n0Result && n0Result.pred_live === 'W' && !canAlert) {
+                if (n0GateAlert && n0GateAlert.ok === false && !canAlert) {
                     const r = cooldownActive
                         ? 'cooldown'
                         : (consecutiveWhite ? 'recent_white_spin' : ((n0GateAlert && typeof n0GateAlert.reason === 'string') ? n0GateAlert.reason : 'bloqueado'));
@@ -20759,20 +21041,53 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
                         const obsHour = (obsPack && obsPack.hourStats) ? obsPack.hourStats : null;
                         const obsPos = (obsPack && Array.isArray(obsPack.pos)) ? obsPack.pos : [];
                         const obsNeg = (obsPack && Array.isArray(obsPack.neg)) ? obsPack.neg : [];
+                        const obsGap = (obsPack && obsPack.gapInfo && typeof obsPack.gapInfo === 'object') ? obsPack.gapInfo : null;
                         const obsHourLine = obsHour
                             ? `Hora: ${obsHour.whitesThisHour}/${obsHour.target}${obsHour.avgWhitesPerHour != null ? ` (média ${Number(obsHour.avgWhitesPerHour).toFixed(1)})` : ''}\n`
                             : '';
+                        const obs24hLine = formatN0WhitesPerHourTimeline(history, nowMs, 24);
                         const obsLine = (() => {
                             const posTxt = obsPos.length ? obsPos.slice(0, 8).join(' • ') : '—';
                             const negTxt = obsNeg.length ? obsNeg.slice(0, 6).join(' • ') : '—';
-                            return `Obs+: ${posTxt}\nObs-: ${negTxt}\n`;
+                            const gapLine = (() => {
+                                try {
+                                    if (!obsGap) return '';
+                                    const g = (obsGap.gapNow != null) ? Math.max(0, Math.floor(Number(obsGap.gapNow) || 0)) : null;
+                                    if (g == null) return '';
+                                    const p75 = (obsGap.p75 != null && Number.isFinite(Number(obsGap.p75))) ? Math.floor(Number(obsGap.p75)) : null;
+                                    const p90 = (obsGap.p90 != null && Number.isFinite(Number(obsGap.p90))) ? Math.floor(Number(obsGap.p90)) : null;
+                                    const p95 = (obsGap.p95 != null && Number.isFinite(Number(obsGap.p95))) ? Math.floor(Number(obsGap.p95)) : null;
+                                    const bins = obsGap.bins && typeof obsGap.bins === 'object' ? obsGap.bins : null;
+                                    const b1 = bins ? (Number(bins['1-20']) || 0) : null;
+                                    const b2 = bins ? (Number(bins['21-40']) || 0) : null;
+                                    const b3 = bins ? (Number(bins['41-60']) || 0) : null;
+                                    const b4 = bins ? (Number(bins['61+']) || 0) : null;
+                                    const pTxt = `p75=${p75 ?? 'n/d'} • p90=${p90 ?? 'n/d'} • p95=${p95 ?? 'n/d'}`;
+                                    const binsTxt = (bins ? ` • bins 1-20:${b1} 21-40:${b2} 41-60:${b3} 61+:${b4}` : '');
+                                    return `Gap: ${g} giros (${pTxt}${binsTxt})\n`;
+                                } catch (_) {
+                                    return '';
+                                }
+                            })();
+                            return `${gapLine}Obs+: ${posTxt}\nObs-: ${negTxt}\n`;
                         })();
                         const reasoning =
                             `${levelReports.map(level => describeLevel(level, { includeEmoji: false })).join('\n')}\n` +
                             `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
                             `Detector de Branco (N0)\n` +
                             `Confiança: ${whiteConfidencePct}%\n` +
+                            (() => {
+                                try {
+                                    const entries = (typeof entriesHistory !== 'undefined' && Array.isArray(entriesHistory)) ? entriesHistory : [];
+                                    const perf = computeRecentCycleWinRateForSource(entries, 'N0', 30);
+                                    if (!perf || !perf.total) return '';
+                                    return `N0 recente (30 ciclos): ${(perf.winRate * 100).toFixed(1)}% (${perf.wins}W/${perf.losses}L)\n`;
+                                } catch (_) {
+                                    return '';
+                                }
+                            })() +
                             obsHourLine +
+                            obs24hLine +
                             obsLine +
                             `t*: ${thresholdPct !== null ? `${thresholdPct}%` : 'n/d'} • F1 ${(bestMetrics.f1 != null ? (bestMetrics.f1 * 100).toFixed(1) : 'n/d')}% • Precision* ${(blockMetrics.precision != null ? (blockMetrics.precision * 100).toFixed(1) : 'n/d')}%\n` +
                             holdoutReasoning +
@@ -20992,13 +21307,35 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
             const obsHour = (obsPack && obsPack.hourStats) ? obsPack.hourStats : null;
             const obsPos = (obsPack && Array.isArray(obsPack.pos)) ? obsPack.pos : [];
             const obsNeg = (obsPack && Array.isArray(obsPack.neg)) ? obsPack.neg : [];
+            const obsGap = (obsPack && obsPack.gapInfo && typeof obsPack.gapInfo === 'object') ? obsPack.gapInfo : null;
             const obsHourLine = obsHour
                 ? `Hora: ${obsHour.whitesThisHour}/${obsHour.target}${obsHour.avgWhitesPerHour != null ? ` (média ${Number(obsHour.avgWhitesPerHour).toFixed(1)})` : ''}\n`
                 : '';
+            const obs24hLine = formatN0WhitesPerHourTimeline(history, nowMsForBudget, 24);
             const obsLine = (() => {
                 const posTxt = obsPos.length ? obsPos.slice(0, 8).join(' • ') : '—';
                 const negTxt = obsNeg.length ? obsNeg.slice(0, 6).join(' • ') : '—';
-                return `Obs+: ${posTxt}\nObs-: ${negTxt}\n`;
+                const gapLine = (() => {
+                    try {
+                        if (!obsGap) return '';
+                        const g = (obsGap.gapNow != null) ? Math.max(0, Math.floor(Number(obsGap.gapNow) || 0)) : null;
+                        if (g == null) return '';
+                        const p75 = (obsGap.p75 != null && Number.isFinite(Number(obsGap.p75))) ? Math.floor(Number(obsGap.p75)) : null;
+                        const p90 = (obsGap.p90 != null && Number.isFinite(Number(obsGap.p90))) ? Math.floor(Number(obsGap.p90)) : null;
+                        const p95 = (obsGap.p95 != null && Number.isFinite(Number(obsGap.p95))) ? Math.floor(Number(obsGap.p95)) : null;
+                        const bins = obsGap.bins && typeof obsGap.bins === 'object' ? obsGap.bins : null;
+                        const b1 = bins ? (Number(bins['1-20']) || 0) : null;
+                        const b2 = bins ? (Number(bins['21-40']) || 0) : null;
+                        const b3 = bins ? (Number(bins['41-60']) || 0) : null;
+                        const b4 = bins ? (Number(bins['61+']) || 0) : null;
+                        const pTxt = `p75=${p75 ?? 'n/d'} • p90=${p90 ?? 'n/d'} • p95=${p95 ?? 'n/d'}`;
+                        const binsTxt = (bins ? ` • bins 1-20:${b1} 21-40:${b2} 41-60:${b3} 61+:${b4}` : '');
+                        return `Gap: ${g} giros (${pTxt}${binsTxt})\n`;
+                    } catch (_) {
+                        return '';
+                    }
+                })();
+                return `${gapLine}Obs+: ${posTxt}\nObs-: ${negTxt}\n`;
             })();
             const reasoning =
                 `${levelReports.map(level => describeLevel(level, { includeEmoji: false })).join('\n')}\n` +
@@ -21006,7 +21343,18 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
                 `Detector de Branco (N0)\n` +
                 `Modo: misto (N0 + outros níveis)\n` +
                 `Confiança: ${whiteConfidencePct}%\n` +
+                (() => {
+                    try {
+                        const entries = (typeof entriesHistory !== 'undefined' && Array.isArray(entriesHistory)) ? entriesHistory : [];
+                        const perf = computeRecentCycleWinRateForSource(entries, 'N0', 30);
+                        if (!perf || !perf.total) return '';
+                        return `N0 recente (30 ciclos): ${(perf.winRate * 100).toFixed(1)}% (${perf.wins}W/${perf.losses}L)\n`;
+                    } catch (_) {
+                        return '';
+                    }
+                })() +
                 obsHourLine +
+                obs24hLine +
                 obsLine +
                 `t*: ${thresholdPct !== null ? `${thresholdPct}%` : 'n/d'}\n` +
                 holdoutReasoning +
@@ -21176,13 +21524,35 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
             const obsHour = (obsPack && obsPack.hourStats) ? obsPack.hourStats : null;
             const obsPos = (obsPack && Array.isArray(obsPack.pos)) ? obsPack.pos : [];
             const obsNeg = (obsPack && Array.isArray(obsPack.neg)) ? obsPack.neg : [];
+            const obsGap = (obsPack && obsPack.gapInfo && typeof obsPack.gapInfo === 'object') ? obsPack.gapInfo : null;
             const obsHourLine = obsHour
                 ? `Hora: ${obsHour.whitesThisHour}/${obsHour.target}${obsHour.avgWhitesPerHour != null ? ` (média ${Number(obsHour.avgWhitesPerHour).toFixed(1)})` : ''}\n`
                 : '';
+            const obs24hLine = formatN0WhitesPerHourTimeline(history, nowMsForBudget, 24);
             const obsLine = (() => {
                 const posTxt = obsPos.length ? obsPos.slice(0, 8).join(' • ') : '—';
                 const negTxt = obsNeg.length ? obsNeg.slice(0, 6).join(' • ') : '—';
-                return `Obs+: ${posTxt}\nObs-: ${negTxt}\n`;
+                const gapLine = (() => {
+                    try {
+                        if (!obsGap) return '';
+                        const g = (obsGap.gapNow != null) ? Math.max(0, Math.floor(Number(obsGap.gapNow) || 0)) : null;
+                        if (g == null) return '';
+                        const p75 = (obsGap.p75 != null && Number.isFinite(Number(obsGap.p75))) ? Math.floor(Number(obsGap.p75)) : null;
+                        const p90 = (obsGap.p90 != null && Number.isFinite(Number(obsGap.p90))) ? Math.floor(Number(obsGap.p90)) : null;
+                        const p95 = (obsGap.p95 != null && Number.isFinite(Number(obsGap.p95))) ? Math.floor(Number(obsGap.p95)) : null;
+                        const bins = obsGap.bins && typeof obsGap.bins === 'object' ? obsGap.bins : null;
+                        const b1 = bins ? (Number(bins['1-20']) || 0) : null;
+                        const b2 = bins ? (Number(bins['21-40']) || 0) : null;
+                        const b3 = bins ? (Number(bins['41-60']) || 0) : null;
+                        const b4 = bins ? (Number(bins['61+']) || 0) : null;
+                        const pTxt = `p75=${p75 ?? 'n/d'} • p90=${p90 ?? 'n/d'} • p95=${p95 ?? 'n/d'}`;
+                        const binsTxt = (bins ? ` • bins 1-20:${b1} 21-40:${b2} 41-60:${b3} 61+:${b4}` : '');
+                        return `Gap: ${g} giros (${pTxt}${binsTxt})\n`;
+                    } catch (_) {
+                        return '';
+                    }
+                })();
+                return `${gapLine}Obs+: ${posTxt}\nObs-: ${negTxt}\n`;
             })();
             const reasoning =
                 `${levelReports.map(level => describeLevel(level, { includeEmoji: false })).join('\n')}\n` +
@@ -21190,7 +21560,18 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
                 `Detector de Branco (N0)\n` +
                 `Modo: somente N0\n` +
                 `Confiança: ${whiteConfidencePct}%\n` +
+                (() => {
+                    try {
+                        const entries = (typeof entriesHistory !== 'undefined' && Array.isArray(entriesHistory)) ? entriesHistory : [];
+                        const perf = computeRecentCycleWinRateForSource(entries, 'N0', 30);
+                        if (!perf || !perf.total) return '';
+                        return `N0 recente (30 ciclos): ${(perf.winRate * 100).toFixed(1)}% (${perf.wins}W/${perf.losses}L)\n`;
+                    } catch (_) {
+                        return '';
+                    }
+                })() +
                 obsHourLine +
+                obs24hLine +
                 obsLine +
                 `t*: ${thresholdPct !== null ? `${thresholdPct}%` : 'n/d'}\n` +
                 holdoutReasoning +
@@ -21636,7 +22017,8 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
             try {
                 if (!n0Enabled) return null;
                 if (!n0Result || n0Result.enabled === false) return null;
-                const pred = (n0Result && n0Result.pred_live === 'W') ? 'white' : null;
+                // ✅ Persistir N0 quando ele REALMENTE virou alerta (gate ok), não só quando `pred_live==='W'`.
+                const pred = (n0UiVoteWhite) ? 'white' : null;
                 if (!pred) return null;
                 const key = (n0Result && typeof n0Result.learning_key === 'string') ? n0Result.learning_key : null;
                 const ctx = (n0Result && typeof n0Result.learning_context === 'string') ? n0Result.learning_context : null;
@@ -34118,7 +34500,7 @@ function analyzeDiamondLevelsSimulation(history, config, simState) {
 
     // ✅ Gate por observadores (simulação): saturação/confirm. mínimas/limiar soft
     try {
-        if (n0Enabled && n0Result && n0Result.enabled !== false && n0Result.pred_live === 'W') {
+        if (n0Enabled && n0Result && n0Result.enabled !== false) {
             const nowMs = Number.isFinite(parseSpinTimestamp(history && history[0])) ? parseSpinTimestamp(history[0]) : Date.now();
             const pack = computeN0ObserverPackage({ history, nowMs, n0Result, lookaheadSpins: n0LookaheadSpins });
             n0ObsShort = pack && typeof pack.short === 'string' ? pack.short : null;
@@ -34136,7 +34518,7 @@ function analyzeDiamondLevelsSimulation(history, config, simState) {
                 n0GateReason = `loss_cooldown_${simState.n0LossCooldownSpins}`;
             } else {
 
-            const softThreshold = (() => {
+            const softThresholdModel = (() => {
                 const t = (n0Result && typeof n0Result.blocking_threshold === 'number')
                     ? clamp01Local(n0Result.blocking_threshold)
                     : null;
@@ -34162,9 +34544,16 @@ function analyzeDiamondLevelsSimulation(history, config, simState) {
             const L = Math.max(1, Math.min(6, Math.floor(Number(n0LookaheadSpins) || 1)));
             const baseP = 1 - Math.pow(1 - (1 / 15), L);
             const minConf = Math.max(0.12, Math.min(N0_WHITE_SIGNAL_MIN_CONF_CAP, clamp01Local(baseP * N0_WHITE_SIGNAL_MIN_LIFT)));
-            const softOk = ((n0EffectiveConfidence >= softThreshold) && (n0EffectiveConfidence >= minConf)) || (needFill && n0EffectiveConfidence >= minConf);
-            const alertOk = baseOk && softOk;
-            const blockOk = (!saturated && strong >= reqBlock) && softOk;
+
+            // ✅ ALERTA não pode ficar preso no t* do modelo (isso cria silêncio).
+            // Usa um soft menor, ancorado no minConf do ciclo.
+            const softThresholdAlert = clamp01Local(Math.min(softThresholdModel, clamp01Local(minConf + 0.04)));
+            const allowBelowSoftAlert = needFill || (strong >= N0_OBS_CONFIRM_MIN_STRONG);
+            const softOkAlert = (n0EffectiveConfidence >= minConf) && ((n0EffectiveConfidence >= softThresholdAlert) || allowBelowSoftAlert);
+            const softOkBlock = (n0EffectiveConfidence >= minConf) && (n0EffectiveConfidence >= softThresholdModel);
+
+            const alertOk = baseOk && softOkAlert;
+            const blockOk = (!saturated && strong >= reqBlock) && softOkBlock;
 
             n0UiVoteWhite = alertOk;
             if (n0ForceWhite) {
@@ -34173,7 +34562,13 @@ function analyzeDiamondLevelsSimulation(history, config, simState) {
             if (!n0UiVoteWhite) {
                 n0SoftBlockActive = false;
             }
-            n0GateReason = saturated ? 'hour_saturated' : (!baseOk ? 'insufficient_confirmations' : (!softOk ? 'below_soft_threshold' : 'ok'));
+            n0GateReason = saturated
+                ? 'hour_saturated'
+                : (!baseOk
+                    ? 'insufficient_confirmations'
+                    : (n0EffectiveConfidence < minConf
+                        ? 'below_min_conf'
+                        : (!softOkAlert ? 'below_soft_threshold' : 'ok')));
             }
         }
     } catch (_) {
@@ -34193,7 +34588,7 @@ function analyzeDiamondLevelsSimulation(history, config, simState) {
                 ? 'BLOCK ALL'
                 : (n0UiVoteWhite
                     ? (n0SoftBlockActive ? 'SOFT BLOCK' : (n0ActionSuppressed ? 'ALERTA (info)' : 'ALERTA'))
-                    : ((n0Result && n0Result.pred_live === 'W') ? `EVITAR (${n0GateReason || 'gate'})` : 'NULO')
+                    : ((n0GateReason && n0Result && n0Result.enabled !== false) ? `EVITAR (${n0GateReason || 'gate'})` : 'NULO')
                 )
             ) + (n0ObsShort ? ` • ${n0ObsShort}` : ''),
         disabled: !n0Enabled

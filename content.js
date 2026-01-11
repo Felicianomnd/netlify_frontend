@@ -23946,8 +23946,10 @@ function logModeSnapshotUI(snapshot) {
     // Buscar APENAS o último giro do servidor (fallback leve)
     async function fetchLatestSpinFromServer() {
         try {
-            const response = await fetch(`${getGirosApiUrl()}/api/giros/latest`, {
-                signal: AbortSignal.timeout(5000)
+            const response = await fetch(`${getGirosApiUrl()}/api/giros/latest?cb=${Date.now()}`, {
+                signal: AbortSignal.timeout(5000),
+                cache: 'no-store',
+                headers: { 'accept': 'application/json', 'cache-control': 'no-cache' }
             });
             
             if (!response.ok) {
