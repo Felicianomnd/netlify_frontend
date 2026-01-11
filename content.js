@@ -12807,8 +12807,8 @@ async function persistAnalyzerState(newState) {
                      
                      <div class="suggestion-box" id="suggestionBox">
                          <div class="suggestion-color-wrapper">
-                             <!-- Estado inicial: sem sinal => spinner sempre (persistente após reload) -->
-                             <div class="suggestion-color suggestion-color-box neutral loading" id="suggestionColor"><div class="spinner"></div></div>
+                             <!-- Estado inicial: sem sinal => mini-anel (igual Calibrando N4) -->
+                             <div class="suggestion-color suggestion-color-box neutral loading" id="suggestionColor"><div class="da-mini-calib" aria-hidden="true"><span style="--i:0"></span><span style="--i:1"></span><span style="--i:2"></span><span style="--i:3"></span><span style="--i:4"></span><span style="--i:5"></span><span style="--i:6"></span><span style="--i:7"></span><span style="--i:8"></span><span style="--i:9"></span><span style="--i:10"></span><span style="--i:11"></span><span style="--i:12"></span><span style="--i:13"></span><span style="--i:14"></span><span style="--i:15"></span></div></div>
                             <div class="suggestion-stage" id="suggestionStage"></div>
                          </div>
                         </div>
@@ -16263,6 +16263,11 @@ async function persistAnalyzerState(newState) {
                         analysisModeTitle.textContent = isEntrySignal ? 'Sinal de entrada' : 'Aguardando sinal';
                     }
                 } catch (_) {}
+                // ✅ Remover estado “analisando”
+                try {
+                    const analysisCardEl = document.querySelector('.analysis-section .analysis-card');
+                    if (analysisCardEl) analysisCardEl.classList.remove('da-analyzing');
+                } catch (_) {}
                 
                 // ✅ Estágio (G1/G2...) no topo:
                 // Agora é tratado acima via `analysis.phase` (phaseLabel) + fallback do `martingaleState.stage`.
@@ -16282,8 +16287,13 @@ async function persistAnalyzerState(newState) {
                 // ✅ RESETAR TÍTULO DO BLOCO (agora é sinal)
                 const analysisModeTitle = document.getElementById('analysisModeTitle');
                 if (analysisModeTitle) {
-                    analysisModeTitle.textContent = 'Aguardando sinal';
+                    analysisModeTitle.textContent = 'Analisando';
                 }
+                // ✅ Marcar estado “analisando” para esconder barra/% e mostrar só o mini-anel
+                try {
+                    const analysisCardEl = document.querySelector('.analysis-section .analysis-card');
+                    if (analysisCardEl) analysisCardEl.classList.add('da-analyzing');
+                } catch (_) {}
                 // Resetar também o resumo do modo aposta
                 syncBetModeView();
 
@@ -16315,6 +16325,16 @@ async function persistAnalyzerState(newState) {
                             suggestionColor.innerHTML = `<span class="pending-indicator"></span>`;
                         }
                         try { setSuggestionStage(stage); } catch (_) {}
+
+                        // ✅ Topo: agora está aguardando resultado, então NÃO é "Analisando"
+                        try {
+                            const analysisModeTitle = document.getElementById('analysisModeTitle');
+                            if (analysisModeTitle) analysisModeTitle.textContent = 'Aguardando resultado';
+                        } catch (_) {}
+                        try {
+                            const analysisCardEl = document.querySelector('.analysis-section .analysis-card');
+                            if (analysisCardEl) analysisCardEl.classList.remove('da-analyzing');
+                        } catch (_) {}
 
                         // Card "Padrão"
                         try {
@@ -16543,6 +16563,7 @@ async function persistAnalyzerState(newState) {
     }
     
     function renderSuggestionStatus(statusText) {
+        const miniRingHTML = '<div class="da-mini-calib" aria-hidden="true"><span style="--i:0"></span><span style="--i:1"></span><span style="--i:2"></span><span style="--i:3"></span><span style="--i:4"></span><span style="--i:5"></span><span style="--i:6"></span><span style="--i:7"></span><span style="--i:8"></span><span style="--i:9"></span><span style="--i:10"></span><span style="--i:11"></span><span style="--i:12"></span><span style="--i:13"></span><span style="--i:14"></span><span style="--i:15"></span></div>';
         const suggestionColor = document.getElementById('suggestionColor');
         if (!suggestionColor) return;
         const normalized = typeof statusText === 'string' ? statusText : '';
@@ -16551,7 +16572,7 @@ async function persistAnalyzerState(newState) {
         // Regra nova: se NÃO há sinal visível, sempre mostrar o spinner (sensação de análise rodando)
         // Vale para modo padrão e modo diamante.
             suggestionColor.className = 'suggestion-color suggestion-color-box neutral loading';
-            suggestionColor.innerHTML = '<div class="spinner"></div>';
+            suggestionColor.innerHTML = miniRingHTML;
         
         // Sincronizar com modo aposta
         syncBetModeView();

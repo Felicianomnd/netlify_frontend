@@ -1399,6 +1399,47 @@
     align-items: stretch;
 }
 
+/* ✅ Mobile: unir "Aguardando sinal" + "Último giro" em um único container com divisor */
+@media (max-width: 520px) {
+    #blaze-double-analyzer:not(.da-desktop-dashboard) .analysis-lastspin-row {
+        gap: 0;
+        position: relative;
+        background: rgba(0, 0, 0, 0.18);
+        border: 1px solid rgba(255, 255, 255, 0.06);
+        border-radius: var(--radius-subtle);
+        overflow: hidden;
+        padding: 0;
+    }
+    #blaze-double-analyzer:not(.da-desktop-dashboard) .analysis-lastspin-row::after {
+        content: "";
+        position: absolute;
+        top: 8px;
+        bottom: 8px;
+        left: 50%;
+        width: 1px;
+        transform: translateX(-0.5px);
+        background: rgba(255, 255, 255, 0.06);
+        pointer-events: none;
+    }
+    #blaze-double-analyzer:not(.da-desktop-dashboard) .analysis-lastspin-row .analysis-section,
+    #blaze-double-analyzer:not(.da-desktop-dashboard) .analysis-lastspin-row .last-spin-section {
+        margin-bottom: 0;
+        padding: 8px 10px;
+    }
+    #blaze-double-analyzer:not(.da-desktop-dashboard) .analysis-lastspin-row .analysis-section h4,
+    #blaze-double-analyzer:not(.da-desktop-dashboard) .analysis-lastspin-row .last-spin-section h4 {
+        text-align: center;
+        width: 100%;
+    }
+    #blaze-double-analyzer:not(.da-desktop-dashboard) .analysis-lastspin-row .analysis-card,
+    #blaze-double-analyzer:not(.da-desktop-dashboard) .analysis-lastspin-row .last-spin-section .spin-display {
+        background: transparent !important;
+        border-radius: 0 !important;
+        min-height: 96px;
+        padding: 8px 0;
+    }
+}
+
 /* ═══════════════════════════════════════════════════════════════
    📊 MOMENTO (Qualidade dos sinais) — Ruim / Bom / Muito bom
    Barra entre o topo (Aguardando sinal) e as abas (IA/Branco/Gráfico)
@@ -1832,6 +1873,43 @@
     height: 18px;
 }
 /* (removido) ampulheta — agora o estado sem sinal usa sempre o spinner */
+
+.da-mini-calib {
+    position: relative;
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    animation: da-calib-spin 0.95s linear infinite;
+    will-change: transform;
+}
+.da-mini-calib span {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 4px;
+    height: 4px;
+    border-radius: 50%;
+    background: #f02e4c;
+    transform: translate(-50%, -50%) rotate(calc(var(--i, 0) * 22.5deg)) translate(0, -11px);
+    opacity: 0.86;
+    box-shadow: 0 0 8px rgba(240, 46, 76, 0.18);
+}
+.da-mini-calib span:nth-child(even) { opacity: 0.56; }
+
+/* ✅ "Aguardando sinal" (Analisando): sem fundo quadrado e sem barra/% */
+.analysis-card.da-analyzing .confidence-meter { display: none; }
+.analysis-card.da-analyzing .suggestion-box { margin-top: 0; }
+.analysis-card.da-analyzing .suggestion-color-box {
+    background: transparent !important;
+    border: none !important;
+    width: 26px !important;
+    height: 26px !important;
+    min-width: 26px !important;
+    max-width: 26px !important;
+    flex: 0 0 26px !important;
+    border-radius: 50% !important;
+}
+.analysis-card.da-analyzing .suggestion-color-box[data-gale]::after { display: none; }
 
 .suggestion-stage {
     font-size: 16px;
