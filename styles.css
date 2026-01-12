@@ -1945,6 +1945,8 @@
     --da-calib-title: 11px;
     --da-calib-dot-inset: 7px;
     --da-calib-dot-radius: -40px;
+    --da-reel-chip: 48px; /* ✅ dobro do tamanho */
+    --da-reel-gap: 12px;
 }
 .analysis-card.da-analyzing .confidence-meter { display: none; }
 .analysis-card.da-analyzing .suggestion-box { margin-top: 0; }
@@ -1971,12 +1973,155 @@
     letter-spacing: 0.2px;
 }
 
+/* ✅ "Analisando": animação estilo roleta (ícones passando ao fundo) */
+.analysis-card.da-analyzing .da-top-analyzing-ring {
+    overflow: hidden; /* recortar animação dentro do círculo */
+}
+.analysis-card.da-analyzing .da-top-analyzing-ring .da-calibration-title {
+    position: relative;
+    z-index: 2;
+}
+.analysis-card.da-analyzing .da-analyzing-reel {
+    position: absolute;
+    inset: 0;
+    border-radius: 50%;
+    overflow: hidden;
+    pointer-events: none;
+    opacity: 0.48;
+    z-index: 0;
+    /* suavizar bordas e dar sensação “ao fundo” */
+    mask-image: radial-gradient(circle at 50% 50%, rgba(0,0,0,1) 0%, rgba(0,0,0,1) 70%, rgba(0,0,0,0) 100%);
+    -webkit-mask-image: radial-gradient(circle at 50% 50%, rgba(0,0,0,1) 0%, rgba(0,0,0,1) 70%, rgba(0,0,0,0) 100%);
+}
+.analysis-card.da-analyzing .da-analyzing-reel::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(circle at 50% 45%, rgba(10, 18, 28, 0.00) 0%, rgba(10, 18, 28, 0.22) 58%, rgba(10, 18, 28, 0.42) 100%);
+    pointer-events: none;
+    z-index: 1;
+}
+.analysis-card.da-analyzing .da-analyzing-reel-lane {
+    position: absolute;
+    left: 10px;
+    right: 10px;
+    top: 56%;
+    transform: translateY(-50%);
+    height: calc(var(--da-reel-chip, 22px) + 6px);
+    overflow: hidden;
+    /* fade nas laterais (efeito “roleta passando”) */
+    mask-image: linear-gradient(90deg, rgba(0,0,0,0) 0%, rgba(0,0,0,1) 12%, rgba(0,0,0,1) 88%, rgba(0,0,0,0) 100%);
+    -webkit-mask-image: linear-gradient(90deg, rgba(0,0,0,0) 0%, rgba(0,0,0,1) 12%, rgba(0,0,0,1) 88%, rgba(0,0,0,0) 100%);
+    z-index: 0;
+}
+.analysis-card.da-analyzing .da-analyzing-reel-lane::before {
+    /* ✅ “ponteiro” no centro (ajuda a ver o número que parou) */
+    content: "";
+    position: absolute;
+    left: 50%;
+    top: -10px;
+    bottom: -10px;
+    width: 2px;
+    transform: translateX(-1px);
+    background: linear-gradient(to bottom, rgba(255,255,255,0), rgba(255,255,255,0.55), rgba(255,255,255,0));
+    box-shadow: 0 0 10px rgba(0, 255, 163, 0.14);
+    opacity: 0.75;
+    pointer-events: none;
+    z-index: 2;
+}
+.analysis-card.da-analyzing .da-analyzing-roulette-track {
+    display: flex;
+    align-items: center;
+    gap: var(--da-reel-gap, 10px);
+    width: max-content;
+    will-change: transform;
+    transform: translate3d(0, 0, 0);
+    /* deixar mais “liso” em alguns browsers */
+    backface-visibility: hidden;
+}
+.analysis-card.da-analyzing .da-analyzing-roulette-track.is-spinning {
+    transition: transform var(--da-roulette-duration, 1300ms) cubic-bezier(0.10, 0.85, 0.18, 1);
+}
+
+.analysis-card.da-analyzing .da-reel-chip {
+    position: relative;
+    width: var(--da-reel-chip, 22px);
+    height: var(--da-reel-chip, 22px);
+    /* ✅ Mesmo “formato” dos ícones do app: quadrado arredondado (não círculo) */
+    border-radius: calc(var(--da-reel-chip, 48px) * 0.22);
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 900;
+    font-variant-numeric: tabular-nums;
+    line-height: 1;
+    /* ✅ 2 dígitos (10-14) precisam caber bem */
+    font-size: calc(var(--da-reel-chip, 22px) * 0.44);
+    letter-spacing: -0.6px;
+    box-shadow:
+        0 10px 20px rgba(0, 0, 0, 0.28),
+        inset 0 1px 0 rgba(255, 255, 255, 0.10);
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
+}
+.analysis-card.da-analyzing .da-reel-chip.is-selected {
+    z-index: 2;
+    filter: brightness(1.06);
+}
+.analysis-card.da-analyzing .da-reel-chip.is-thinking {
+    z-index: 3;
+    filter: brightness(1.12);
+}
+.analysis-card.da-analyzing .da-reel-chip::before {
+    /* ✅ Anel interno (igual ao estilo dos ícones de entrada) */
+    content: '';
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    width: calc(var(--da-reel-chip, 48px) * 0.78);
+    height: calc(var(--da-reel-chip, 48px) * 0.78);
+    border-radius: 50%;
+    border: clamp(2px, calc(var(--da-reel-chip, 48px) * 0.075), 4px) solid rgba(255, 255, 255, 0.92);
+    opacity: 0.95;
+    pointer-events: none;
+}
+.analysis-card.da-analyzing .da-reel-chip.is-thinking::before {
+    /* ✅ Em vez de “bolinha em cima”, girar o PRÓPRIO anel interno */
+    border-color: rgba(255, 255, 255, 0.22);
+    border-top-color: #00ffa3;
+    opacity: 1;
+    animation: spinCentered 0.9s linear infinite;
+    will-change: transform;
+}
+.analysis-card.da-analyzing .da-reel-chip.red { background: #F44336; color: #fff; }
+.analysis-card.da-analyzing .da-reel-chip.black { background: #21222D; color: #fff; }
+.analysis-card.da-analyzing .da-reel-chip.white {
+    background: #ffffff;
+    color: #F44336;
+    text-shadow: none;
+    box-shadow:
+        0 10px 20px rgba(0, 0, 0, 0.22),
+        inset 0 1px 0 rgba(0, 0, 0, 0.06);
+}
+.analysis-card.da-analyzing .da-reel-chip.white::before {
+    border-color: rgba(244, 67, 54, 0.92);
+}
+.analysis-card.da-analyzing .da-reel-chip.white.is-thinking::before {
+    border-color: rgba(244, 67, 54, 0.22);
+    border-top-color: #F44336;
+}
+
+/* (antigo) keyframes do scroll contínuo removido — agora a roleta é “gira e para” via JS */
+
 @media (max-width: 520px) {
     .analysis-card.da-analyzing {
         --da-calib-ring: 86px;
         --da-calib-title: 10px;
         --da-calib-dot-inset: 6px;
         --da-calib-dot-radius: -35px;
+        --da-reel-chip: 44px; /* ✅ dobro do mobile anterior */
+        --da-reel-gap: 10px;
     }
     .analysis-card.da-analyzing .suggestion-color-wrapper { min-height: 86px; }
 }
@@ -5742,26 +5887,27 @@
    - Sem backdrop
    ========================================================================= */
 .da-white-alert-toast {
-    position: fixed;
+    /* ✅ Deve ficar CONTIDO dentro do card "Padrão" (âncora) */
+    position: absolute;
     inset: 0;
     display: none; /* controlado via JS */
-    padding: 18px;
-    z-index: 2147483500;
+    padding: 0;
+    z-index: 30;
     pointer-events: none; /* não bloquear o uso */
+    border-radius: inherit;
+    overflow: hidden;
 }
 
 .da-white-alert-toast__card {
-    position: absolute; /* ✅ posição padronizada (direita + centro vertical) */
-    right: 18px;
-    left: auto;
-    top: 50%;
-    transform: translateY(-50%);
-    width: min(360px, 92vw);
-    max-height: 92vh;
+    /* ✅ Cobrir exatamente o contêiner (sem sair da tela) */
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
     background: #ffffff;
-    border-radius: 8px; /* ✅ cantos sutis (menos arredondado) */
+    border-radius: inherit; /* herdar raio do card */
     border: none;
-    box-shadow: 0 16px 40px rgba(0,0,0,0.32);
+    box-shadow: none;
     overflow: hidden;
     pointer-events: auto; /* permitir interação (pausar timer), sem bloquear a tela */
 }
@@ -5795,8 +5941,8 @@
 }
 
 @keyframes daWhiteToastPop {
-    from { transform: translateY(-50%) scale(0.98); opacity: 0.0; }
-    to { transform: translateY(-50%) scale(1); opacity: 1.0; }
+    from { transform: scale(0.995); opacity: 0.0; }
+    to { transform: scale(1); opacity: 1.0; }
 }
 
 .da-white-alert-toast__content {
@@ -6092,7 +6238,7 @@
 /* ═══════════════════════════════════════════════════════════════
    🧪 Calibração (10 ciclos) — Overlay na aba IA
    - Fundo levemente opaco (sem blur)
-   - Anel com bolinhas girando (CSS/GPU)
+   - ✅ Novo visual: card retangular + barra em 10 partes (sem bolinhas girando)
    ═══════════════════════════════════════════════════════════════ */
 .da-calibration-overlay {
   position: absolute;
@@ -6135,6 +6281,95 @@
   align-items: center;
   justify-content: center;
   gap: 10px;
+}
+
+/* ✅ NOVO: painel de calibração (sem bolinhas) */
+.da-calibration-overlay .da-calibration-panel {
+  width: min(260px, calc(100% - 34px));
+  /* ✅ Cantos compatíveis com o resto do layout (sem "pill") */
+  border-radius: 6px;
+  border: 1px solid var(--stroke-subtle);
+  background: rgba(17, 28, 39, 0.78); /* mesma base do tema (bg-secondary) */
+  box-shadow: none;
+  padding: 14px 14px 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.da-calibration-overlay .da-calibration-panel .da-calibration-title {
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 0.2px;
+  color: rgba(233, 242, 255, 0.96);
+  text-transform: none;
+}
+.da-calibration-overlay .da-calibration-panel .da-calibration-sub {
+  font-size: 11px;
+  font-weight: 700;
+  color: rgba(233, 242, 255, 0.72);
+  font-variant-numeric: tabular-nums;
+}
+.da-calibration-overlay .da-calibration-panel .da-calibration-note {
+  font-size: 12px;
+  font-weight: 700;
+  color: rgba(233, 242, 255, 0.82);
+  text-align: center;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+  margin-top: 2px;
+}
+
+.da-calibration-overlay .da-calibration-meter {
+  width: 100%;
+  max-width: 220px;
+}
+.da-calibration-overlay .da-calibration-meter-track {
+  position: relative;
+  height: 12px;
+  border-radius: var(--radius-subtle);
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.08); /* cor das divisórias */
+  border: 1px solid var(--stroke-subtle);
+  padding: 1px;
+  box-sizing: border-box;
+}
+.da-calibration-overlay .da-calibration-meter-segs {
+  display: grid;
+  grid-template-columns: repeat(10, 1fr);
+  gap: 1px;
+  width: 100%;
+  height: 100%;
+}
+.da-calibration-overlay .da-calibration-seg {
+  height: 100%;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.06);
+}
+.da-calibration-overlay .da-calibration-seg.is-win { background: rgba(34, 197, 94, 0.92); }
+.da-calibration-overlay .da-calibration-seg.is-loss { background: rgba(244, 67, 54, 0.92); }
+
+/* ✅ Efeito shimmer (sem giro) para dar "vida" */
+.da-calibration-overlay[data-state="calibrating"] .da-calibration-meter-track::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(120deg, transparent, rgba(255, 255, 255, 0.14), transparent);
+  transform: translateX(-70%);
+  animation: da-calib-sheen 1.25s ease-in-out infinite;
+  opacity: 0.8;
+  pointer-events: none;
+}
+@keyframes da-calib-sheen {
+  0% { transform: translateX(-70%); }
+  100% { transform: translateX(70%); }
+}
+
+.da-calibration-overlay[data-state="ready"] .da-calibration-panel {
+  border-color: rgba(239, 68, 68, 0.30);
+}
+.da-calibration-overlay[data-state="ready"] .da-calibration-seg {
+  background: rgba(34, 197, 94, 0.92);
 }
 .da-calibration-ring {
   width: var(--da-calib-ring, 148px);

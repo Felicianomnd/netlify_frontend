@@ -430,10 +430,23 @@
 
     function normalizeRemoteNotification(raw, kind) {
         const obj = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
-        const enabled = obj.enabled === false ? false : true;
+        // ⚠️ Importante:
+        // - profile (cadastro): pode estar habilitado por padrão (pois tem fallback local do template).
+        // - promo (aviso admin): NUNCA deve ser habilitado por padrão quando não existir config remota,
+        //   senão aparece para todos com texto de cadastro (fallback do template) -> bug visto pelo usuário.
+        const defaultEnabled = kind === 'promo' ? false : true;
+        const enabled = obj.enabled === true ? true : (obj.enabled === false ? false : defaultEnabled);
+
         const audienceRaw = String(obj.audience || '').trim().toLowerCase();
-        const audience = (audienceRaw === 'all_online') ? 'all_online' : (kind === 'profile' ? 'new_incomplete' : 'all_online');
-        const variant = String(obj.variant || '').trim().toLowerCase() === 'image' ? 'image' : 'text';
+        const audience = (audienceRaw === 'all_online')
+            ? 'all_online'
+            : (kind === 'profile' ? 'new_incomplete' : 'all_online');
+
+        const hasVariantField = Object.prototype.hasOwnProperty.call(obj, 'variant');
+        const variantRaw = String(obj.variant || '').trim().toLowerCase();
+        const variant = hasVariantField
+            ? (variantRaw === 'image' ? 'image' : 'text')
+            : (kind === 'promo' ? 'image' : 'text');
         const message = typeof obj.message === 'string' ? obj.message : '';
         const image = typeof obj.image === 'string' ? obj.image.trim() : '';
         const durationSeconds = (() => {
@@ -724,6 +737,13 @@
 
             const tryShow = (kind, cfg) => {
                 if (!cfg || cfg.enabled === false) return false;
+                // ✅ Regra: aviso "promo" só faz sentido se tiver conteúdo real (mensagem ou imagem).
+                // Se vier vazio (ex.: falha no fetch de /api/site/notifications), NÃO mostrar.
+                if (kind === 'promo') {
+                    const hasMsg = !!String(cfg.message || '').trim();
+                    const hasImg = !!String(cfg.image || '').trim();
+                    if (!hasMsg && !hasImg) return false;
+                }
 
                 const shouldShow = (() => {
                     if (cfg.audience === 'all_online') return true;
@@ -2481,9 +2501,10 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
     let daWhiteAlertToastRemainingMs = 0;
     let daWhiteAlertToastRepositionBound = false;
 
-    function getWhiteAlertToastAnchorRect() {
+    function getWhiteAlertToastAnchorEl() {
         try {
-            // Preferir o card "Padrão / Últimos 14 giros"
+            // ✅ Âncora: card "Padrão / Últimos giros" (lado direito).
+            // O toast deve cobrir EXATAMENTE essa área (sem sair da tela).
             const root = document.getElementById('blaze-double-analyzer') || document.body;
             const candidates = [
                 '#blaze-double-analyzer #analyzerDefaultView .pattern-section.da-card',
@@ -2494,9 +2515,18 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
             for (const sel of candidates) {
                 const el = root.querySelector ? root.querySelector(sel) : document.querySelector(sel);
                 if (!el) continue;
-                const r = el.getBoundingClientRect();
-                if (r && r.width > 40 && r.height > 40) return r;
+                const r = el.getBoundingClientRect ? el.getBoundingClientRect() : null;
+                if (r && r.width > 80 && r.height > 80) return el;
             }
+        } catch (_) {}
+        return null;
+    }
+
+    function getWhiteAlertToastAnchorRect() {
+        try {
+            const el = getWhiteAlertToastAnchorEl();
+            const r = el && el.getBoundingClientRect ? el.getBoundingClientRect() : null;
+            return (r && r.width > 40 && r.height > 40) ? r : null;
         } catch (_) {}
         return null;
     }
@@ -2508,9 +2538,18 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
             const card = wrap.querySelector('.da-white-alert-toast__card');
             if (!card) return;
             if (wrap.style.display === 'none') return;
-
-            // ✅ Posição padronizada via CSS: direita + centro vertical.
-            // (mantemos a função por compatibilidade; não precisa recalcular/ancorar.)
+            // ✅ Garantir que o toast esteja dentro do card "Padrão" (sem sair da tela).
+            const root = document.getElementById('blaze-double-analyzer') || document.body;
+            const anchor = getWhiteAlertToastAnchorEl() || root;
+            try {
+                if (anchor && anchor !== document.body && typeof window !== 'undefined' && window.getComputedStyle) {
+                    const cs = window.getComputedStyle(anchor);
+                    if (cs && cs.position === 'static') anchor.style.position = 'relative';
+                }
+            } catch (_) {}
+            try {
+                if (wrap.parentNode !== anchor) anchor.appendChild(wrap);
+            } catch (_) {}
         } catch (_) {}
     }
 
@@ -2550,7 +2589,15 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
             `;
 
             const root = document.getElementById('blaze-double-analyzer') || document.body;
-            root.appendChild(wrap);
+            const anchor = getWhiteAlertToastAnchorEl() || root;
+            // Garantir que a âncora aceite position:absolute do overlay
+            try {
+                if (anchor && anchor !== document.body && typeof window !== 'undefined' && window.getComputedStyle) {
+                    const cs = window.getComputedStyle(anchor);
+                    if (cs && cs.position === 'static') anchor.style.position = 'relative';
+                }
+            } catch (_) {}
+            anchor.appendChild(wrap);
 
             const card = wrap.querySelector('.da-white-alert-toast__card');
 
@@ -12850,7 +12897,7 @@ async function persistAnalyzerState(newState) {
                      <div class="suggestion-box" id="suggestionBox">
                          <div class="suggestion-color-wrapper">
                             <!-- Estado inicial: sem sinal => anel (igual Calibrando N4) com texto no centro -->
-                             <div class="suggestion-color suggestion-color-box neutral loading" id="suggestionColor"><div class="da-top-analyzing" aria-hidden="true"><div class="da-calibration-ring da-top-analyzing-ring" data-state="calibrating"><div class="da-calibration-dots"><span style="--i:0"></span><span style="--i:1"></span><span style="--i:2"></span><span style="--i:3"></span><span style="--i:4"></span><span style="--i:5"></span><span style="--i:6"></span><span style="--i:7"></span><span style="--i:8"></span><span style="--i:9"></span><span style="--i:10"></span><span style="--i:11"></span><span style="--i:12"></span><span style="--i:13"></span><span style="--i:14"></span><span style="--i:15"></span></div><div class="da-calibration-title">Analisando</div></div></div></div>
+                             <div class="suggestion-color suggestion-color-box neutral loading" id="suggestionColor">${getAnalyzingRingHTML({ forceNew: true, count: 80 })}</div>
                             <div class="suggestion-stage" id="suggestionStage"></div>
                          </div>
                         </div>
@@ -12918,17 +12965,28 @@ async function persistAnalyzerState(newState) {
                                 <div class="da-calibration-overlay" id="daCalibrationOverlay" style="display:none;" aria-hidden="true">
                                     <div class="da-calibration-backdrop"></div>
                                     <div class="da-calibration-center">
-                                        <div class="da-calibration-ring" data-state="calibrating">
-                                            <div class="da-calibration-dots" aria-hidden="true">
-                                                <span style="--i:0"></span><span style="--i:1"></span><span style="--i:2"></span><span style="--i:3"></span>
-                                                <span style="--i:4"></span><span style="--i:5"></span><span style="--i:6"></span><span style="--i:7"></span>
-                                                <span style="--i:8"></span><span style="--i:9"></span><span style="--i:10"></span><span style="--i:11"></span>
-                                                <span style="--i:12"></span><span style="--i:13"></span><span style="--i:14"></span><span style="--i:15"></span>
-                                            </div>
+                                        <!-- ✅ Novo visual (sem bolinhas): card + barra em 10 partes -->
+                                        <div class="da-calibration-panel" data-state="calibrating">
                                             <div class="da-calibration-title" id="daCalibrationTitle">Calibrando</div>
                                             <div class="da-calibration-sub" id="daCalibrationSub">0/10 ciclos</div>
+                                            <div class="da-calibration-meter" aria-hidden="true">
+                                                <div class="da-calibration-meter-track">
+                                                    <div class="da-calibration-meter-segs" id="daCalibrationSegs" aria-hidden="true">
+                                                        <span class="da-calibration-seg" data-i="0"></span>
+                                                        <span class="da-calibration-seg" data-i="1"></span>
+                                                        <span class="da-calibration-seg" data-i="2"></span>
+                                                        <span class="da-calibration-seg" data-i="3"></span>
+                                                        <span class="da-calibration-seg" data-i="4"></span>
+                                                        <span class="da-calibration-seg" data-i="5"></span>
+                                                        <span class="da-calibration-seg" data-i="6"></span>
+                                                        <span class="da-calibration-seg" data-i="7"></span>
+                                                        <span class="da-calibration-seg" data-i="8"></span>
+                                                        <span class="da-calibration-seg" data-i="9"></span>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <div class="da-calibration-note" id="daCalibrationNote">Testando estratégias</div>
                                         </div>
-                                        <div class="da-calibration-note" id="daCalibrationNote">Testando estratégias</div>
                                     </div>
                                 </div>
                                 <!-- ✅ Toggle: expandir histórico (tela cheia) -->
@@ -16618,8 +16676,234 @@ async function persistAnalyzerState(newState) {
         masterSignalOverlaySignature = null;
     }
     
+    // ═══════════════════════════════════════════════════════════════
+    // 🎰 "Analisando": roleta (1 linha) com números aleatórios (0–14)
+    // - 40 itens por faixa (duplicado internamente para loop sem tranco)
+    // - Cache curto para não reiniciar a animação a cada atualização
+    // ═══════════════════════════════════════════════════════════════
+    // ⚠️ usar `var` aqui para evitar TDZ caso o HTML seja montado antes desta seção executar
+    var daAnalyzingReelCacheHtml;
+    var daAnalyzingReelCacheAt;
+
+    function daShuffleInPlace(arr) {
+        for (let i = arr.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            const tmp = arr[i];
+            arr[i] = arr[j];
+            arr[j] = tmp;
+        }
+        return arr;
+    }
+
+    function daDoubleColorForNumber(n) {
+        const num = Number(n);
+        if (!Number.isFinite(num)) return 'black';
+        if (num === 0) return 'white';
+        return num >= 1 && num <= 7 ? 'red' : 'black';
+    }
+
+    function daBuildAnalyzingReelNumbers(count) {
+        const target = Math.max(10, Math.min(80, Math.floor(Number(count) || 40)));
+        // Garantir variedade: inclui 0..14 ao menos 1x, e completa até o tamanho alvo
+        const nums = [];
+        for (let i = 0; i <= 14; i++) nums.push(i);
+        while (nums.length < target) nums.push(Math.floor(Math.random() * 15));
+        daShuffleInPlace(nums);
+        return nums.slice(0, target);
+    }
+
+    function daSetAnalyzingRouletteChip(el, n) {
+        try {
+            const num = Math.floor(Number(n) || 0);
+            const safe = (num >= 0 && num <= 14) ? num : Math.floor(Math.random() * 15);
+            const color = daDoubleColorForNumber(safe);
+            el.classList.remove('red', 'black', 'white', 'is-selected', 'is-thinking');
+            el.classList.add(color);
+            el.setAttribute('data-n', String(safe));
+            el.textContent = String(safe);
+        } catch (_) {}
+    }
+
+    function buildAnalyzingRingHTML({ count = 40 } = {}) {
+        // ✅ "gira e para": trilha grande + reciclagem via JS
+        const initialCount = Math.max(60, Math.min(80, Math.floor(Number(count) || 80)));
+        const numbers = daBuildAnalyzingReelNumbers(initialCount);
+        const chips = numbers.map((n) => {
+            const num = Math.floor(Number(n) || 0);
+            const safe = (num >= 0 && num <= 14) ? num : 0;
+            const color = daDoubleColorForNumber(safe);
+            const label = String(safe);
+            return `<span class="da-reel-chip ${color}" data-n="${label}" aria-hidden="true">${label}</span>`;
+        }).join('');
+
+        return (
+            '<div class="da-top-analyzing" aria-hidden="true">' +
+                '<div class="da-calibration-ring da-top-analyzing-ring" data-state="calibrating">' +
+                    '<div class="da-analyzing-reel" aria-hidden="true">' +
+                        '<div class="da-analyzing-reel-lane">' +
+                            `<div class="da-analyzing-roulette-track" data-da-roulette-track="1">${chips}</div>` +
+                        '</div>' +
+                    '</div>' +
+                    '<div class="da-calibration-title">Analisando</div>' +
+                '</div>' +
+            '</div>'
+        );
+    }
+
+    function getAnalyzingRingHTML({ forceNew = false, count = 40 } = {}) {
+        const now = Date.now();
+        const maxAgeMs = 5 * 60 * 1000; // não trocar toda hora (evita “reset” constante)
+        const lastAt = Number(daAnalyzingReelCacheAt) || 0;
+        if (!forceNew && daAnalyzingReelCacheHtml && (now - lastAt) < maxAgeMs) {
+            return daAnalyzingReelCacheHtml;
+        }
+        daAnalyzingReelCacheHtml = buildAnalyzingRingHTML({ count });
+        daAnalyzingReelCacheAt = now;
+        return daAnalyzingReelCacheHtml;
+    }
+
+    function ensureAnalyzingRouletteRunning(suggestionColorEl) {
+        try {
+            const root = suggestionColorEl && suggestionColorEl.querySelector ? suggestionColorEl : null;
+            if (!root) return;
+
+            const track = root.querySelector('.da-analyzing-roulette-track[data-da-roulette-track="1"]');
+            const lane = root.querySelector('.da-analyzing-reel-lane');
+            if (!track || !lane) return;
+
+            if (track.dataset.daRouletteRunning === '1') return;
+            track.dataset.daRouletteRunning = '1';
+
+            const state = {
+                running: true,
+                timer: null,
+                anchorIndex: 10,
+                selectedEl: null
+            };
+            track.__daRouletteState = state;
+
+            const stop = () => {
+                try { state.running = false; } catch (_) {}
+                try { if (state.timer) clearTimeout(state.timer); } catch (_) {}
+                state.timer = null;
+                try { track.classList.remove('is-spinning'); } catch (_) {}
+            };
+            track.__daRouletteStop = stop;
+
+            const getChips = () => Array.from(track.querySelectorAll('.da-reel-chip'));
+
+            const getMetrics = () => {
+                const chips = getChips();
+                if (!chips || chips.length < 2) return null;
+                const r0 = chips[0].getBoundingClientRect();
+                const r1 = chips[1].getBoundingClientRect();
+                const laneW = lane.getBoundingClientRect().width || lane.clientWidth || 0;
+                const step = Math.max(1, r1.left - r0.left);
+                const chipW = Math.max(1, r0.width);
+                if (!(laneW > 0) || !(step > 0) || !(chipW > 0)) return null;
+                return { laneW, step, chipW };
+            };
+
+            const translateForIndex = (idx, m) => {
+                const i = Math.max(0, Math.floor(Number(idx) || 0));
+                return (m.laneW / 2) - (i * m.step + m.chipW / 2);
+            };
+
+            const centerIndex = (idx, { animate = false, durationMs = 1200 } = {}) => {
+                const m = getMetrics();
+                if (!m) return;
+                const x = translateForIndex(idx, m);
+                if (animate) {
+                    track.style.setProperty('--da-roulette-duration', `${Math.max(250, Math.round(durationMs))}ms`);
+                    track.classList.add('is-spinning');
+                } else {
+                    track.classList.remove('is-spinning');
+                }
+                track.style.transform = `translate3d(${Math.round(x)}px, 0, 0)`;
+            };
+
+            // Estado inicial: centralizar o "anchor" sem animação
+            centerIndex(state.anchorIndex, { animate: false });
+            try {
+                const chips = getChips();
+                const el = chips[state.anchorIndex];
+                if (el) {
+                    el.classList.add('is-selected');
+                    state.selectedEl = el;
+                }
+            } catch (_) {}
+
+            const spinOnce = () => {
+                if (!state.running) return;
+                if (!document.contains(track) || !document.contains(lane)) return stop();
+
+                const chips = getChips();
+                if (!chips || chips.length < (state.anchorIndex + 50)) return stop();
+
+                // Limpar seleção anterior
+                try {
+                    if (state.selectedEl) state.selectedEl.classList.remove('is-selected', 'is-thinking');
+                } catch (_) {}
+
+                // “giro” mais rápido e realista (gira e desacelera)
+                const minDelta = 18;
+                const maxDelta = 38;
+                const delta = Math.max(minDelta, Math.min(maxDelta, minDelta + Math.floor(Math.random() * (maxDelta - minDelta + 1))));
+                const targetIndex = state.anchorIndex + delta;
+                const durationMs = Math.round(680 + (delta * 32) + (Math.random() * 220));
+
+                let ended = false;
+                const onEnd = () => {
+                    if (ended) return;
+                    ended = true;
+                    try { track.removeEventListener('transitionend', onEnd); } catch (_) {}
+                    if (!state.running || !document.contains(track)) return stop();
+
+                    // Reciclar os primeiros `delta` chips → roleta infinita + aleatória
+                    try {
+                        for (let i = 0; i < delta; i++) {
+                            const first = track.querySelector('.da-reel-chip');
+                            if (!first) break;
+                            daSetAnalyzingRouletteChip(first, Math.floor(Math.random() * 15));
+                            track.appendChild(first);
+                        }
+                    } catch (_) {}
+
+                    // Voltar instantaneamente ao anchor (sem animação)
+                    centerIndex(state.anchorIndex, { animate: false });
+
+                    // “parou em cima do número” + bolinha carregando (analisando)
+                    try {
+                        const chipsNow = getChips();
+                        const selected = chipsNow[state.anchorIndex];
+                        if (selected) {
+                            selected.classList.add('is-selected', 'is-thinking');
+                            state.selectedEl = selected;
+                        } else {
+                            state.selectedEl = null;
+                        }
+                    } catch (_) {}
+
+                    // ✅ Tempo "analisando" (anel interno girando) — ~3s
+                    const analyzeMs = Math.round(2800 + Math.random() * 700); // 2800..3500ms
+                    state.timer = setTimeout(() => {
+                        if (!state.running || !document.contains(track)) return stop();
+                        try { if (state.selectedEl) state.selectedEl.classList.remove('is-thinking'); } catch (_) {}
+                        const pauseMs = Math.round(200 + Math.random() * 260);
+                        state.timer = setTimeout(spinOnce, pauseMs);
+                    }, analyzeMs);
+                };
+
+                try { track.addEventListener('transitionend', onEnd); } catch (_) {}
+                centerIndex(targetIndex, { animate: true, durationMs });
+                state.timer = setTimeout(onEnd, durationMs + 140);
+            };
+
+            state.timer = setTimeout(spinOnce, 280);
+        } catch (_) {}
+    }
+
     function renderSuggestionStatus(statusText) {
-        const analyzingRingHTML = '<div class="da-top-analyzing" aria-hidden="true"><div class="da-calibration-ring da-top-analyzing-ring" data-state="calibrating"><div class="da-calibration-dots"><span style="--i:0"></span><span style="--i:1"></span><span style="--i:2"></span><span style="--i:3"></span><span style="--i:4"></span><span style="--i:5"></span><span style="--i:6"></span><span style="--i:7"></span><span style="--i:8"></span><span style="--i:9"></span><span style="--i:10"></span><span style="--i:11"></span><span style="--i:12"></span><span style="--i:13"></span><span style="--i:14"></span><span style="--i:15"></span></div><div class="da-calibration-title">Analisando</div></div></div>';
         const suggestionColor = document.getElementById('suggestionColor');
         if (!suggestionColor) return;
         const normalized = typeof statusText === 'string' ? statusText : '';
@@ -16627,8 +16911,22 @@ async function persistAnalyzerState(newState) {
         
         // Regra nova: se NÃO há sinal visível, sempre mostrar o spinner (sensação de análise rodando)
         // Vale para modo padrão e modo diamante.
+            const already = !!(suggestionColor.classList.contains('loading') && suggestionColor.querySelector('.da-top-analyzing'));
             suggestionColor.className = 'suggestion-color suggestion-color-box neutral loading';
-            suggestionColor.innerHTML = analyzingRingHTML;
+            // Só troca o DOM quando necessário (senão reinicia a animação sempre)
+            if (!already) {
+                suggestionColor.innerHTML = getAnalyzingRingHTML({ forceNew: true, count: 80 });
+            } else {
+                // Trocar raramente (a própria roleta recicla/aleatoriza)
+                const now = Date.now();
+                const lastAt = Number(daAnalyzingReelCacheAt) || 0;
+                if ((now - lastAt) > (5 * 60 * 1000)) {
+                    suggestionColor.innerHTML = getAnalyzingRingHTML({ forceNew: true, count: 80 });
+                }
+            }
+
+            // ✅ Garantir que a roleta "gira e para" esteja rodando
+            try { ensureAnalyzingRouletteRunning(suggestionColor); } catch (_) {}
         
         // Sincronizar com modo aposta
         syncBetModeView();
@@ -17252,16 +17550,35 @@ async function persistAnalyzerState(newState) {
         el.setAttribute('data-state', String(state || 'calibrating'));
     }
 
-    function updateDiamondCalibrationOverlayContent({ title, sub, note, ringState }) {
+    function updateDiamondCalibrationOverlayContent({ title, sub, note, ringState, cycleResults }) {
         try {
             const titleEl = document.getElementById('daCalibrationTitle');
             const subEl = document.getElementById('daCalibrationSub');
             const noteEl = document.getElementById('daCalibrationNote');
             const overlayEl = document.getElementById('daCalibrationOverlay');
+            const segsEl = document.getElementById('daCalibrationSegs');
             if (titleEl) titleEl.textContent = String(title || '');
             if (subEl) subEl.textContent = String(sub || '');
             if (noteEl) noteEl.textContent = String(note || '');
             if (overlayEl) overlayEl.setAttribute('data-state', String(ringState || 'calibrating'));
+
+            // ✅ Atualizar progresso: 10 blocos reais (1 bloco por ciclo), colorindo WIN=verde / LOSS=vermelho.
+            if (segsEl) {
+                const segs = segsEl.querySelectorAll('.da-calibration-seg');
+                const results = Array.isArray(cycleResults) ? cycleResults : [];
+                const isReady = String(ringState || '').toLowerCase() === 'ready';
+                segs.forEach((seg, idx) => {
+                    if (!seg) return;
+                    seg.classList.remove('is-win', 'is-loss');
+                    if (isReady) {
+                        seg.classList.add('is-win');
+                        return;
+                    }
+                    const r = results[idx];
+                    if (r === 'WIN') seg.classList.add('is-win');
+                    else if (r === 'LOSS') seg.classList.add('is-loss');
+                });
+            }
         } catch (_) {}
     }
 
@@ -17280,6 +17597,24 @@ async function persistAnalyzerState(newState) {
             return n;
         } catch (_) {
             return 0;
+        }
+    }
+
+    function collectFinalCycleResultsSinceTsOldestFirst(filteredEntries, startTs, limit = 10) {
+        try {
+            const ts = Number(startTs) || 0;
+            const outNewestFirst = [];
+            if (!Array.isArray(filteredEntries) || filteredEntries.length === 0) return [];
+            for (let i = 0; i < filteredEntries.length; i++) {
+                const e = filteredEntries[i];
+                const ms = getEntryRealTimestampMs(e);
+                if (Number.isFinite(ms) && ms > 0 && ms < ts) break; // newest-first: pode parar
+                if (e && (e.result === 'WIN' || e.result === 'LOSS')) outNewestFirst.push(e.result);
+                if (outNewestFirst.length >= Math.max(1, Math.floor(Number(limit) || 10))) break;
+            }
+            return outNewestFirst.reverse();
+        } catch (_) {
+            return [];
         }
     }
 
@@ -17311,13 +17646,15 @@ async function persistAnalyzerState(newState) {
                     clearTimeout(daDiamondCalibrationRuntime.hideTimer);
                     daDiamondCalibrationRuntime.hideTimer = null;
                 }
+                const cycleResults = collectFinalCycleResultsSinceTsOldestFirst(filteredEntries, state.startTs, req);
                 setDiamondCalibrationOverlayState('calibrating');
                 setDiamondCalibrationOverlayVisible(true);
                 updateDiamondCalibrationOverlayContent({
                     title: 'Calibrando N4',
                     sub: `${done}/${req} ciclos`,
                     note: 'Testando estratégias',
-                    ringState: 'calibrating'
+                    ringState: 'calibrating',
+                    cycleResults
                 });
                 return;
             }
@@ -17332,7 +17669,8 @@ async function persistAnalyzerState(newState) {
                     title: 'N4 calibrado',
                     sub: 'Sinais liberados',
                     note: 'A partir dos próximos giros, você pode entrar',
-                    ringState: 'ready'
+                    ringState: 'ready',
+                    cycleResults: Array.from({ length: req }, () => 'WIN')
                 });
                 if (daDiamondCalibrationRuntime.hideTimer) clearTimeout(daDiamondCalibrationRuntime.hideTimer);
                 daDiamondCalibrationRuntime.hideTimer = setTimeout(() => {
@@ -22158,7 +22496,6 @@ function logModeSnapshotUI(snapshot) {
     // ⚪ BRANCO — Insights avançados (intervalos, risco, timeline, alertas)
     // ═══════════════════════════════════════════════════════════════
     const WHITE_HAZARD_WINDOW_SPINS_KEY = 'whiteHazardWindowSpins';
-    const WHITE_TIMELINE_LIMIT_KEY = 'whiteTimelineLimit';
     const WHITE_ALERTS_SETTINGS_KEY = 'whiteAlertsSettings_v1';
     const WHITE_ALERTS_LAST_FIRED_KEY = 'whiteAlertsLastFired_v1';
     const WHITE_STATS_SAMPLE_MODE_KEY = 'whiteStatsSampleMode_v1';
@@ -22166,9 +22503,6 @@ function logModeSnapshotUI(snapshot) {
 
     let whiteHazardWindowSpins = 10; // K (próximos K giros)
     let whiteHazardWindowLoaded = false;
-
-    let whiteTimelineLimit = 10; // últimos N brancos
-    let whiteTimelineLimitLoaded = false;
 
     // ✅ Amostra do painel (pedido): padrão = últimas 24h (rolling)
     // O usuário pode trocar para "últimos N giros".
@@ -22190,12 +22524,6 @@ function logModeSnapshotUI(snapshot) {
         if (n <= 10) return 10;
         if (n <= 20) return 20;
         return 20;
-    }
-
-    function clampWhiteTimelineLimit(value, fallback = 10) {
-        const n = Math.floor(Number(value));
-        if (!Number.isFinite(n)) return fallback;
-        return Math.max(5, Math.min(20, n));
     }
 
     function getWhiteAlertsDefaults() {
@@ -22235,18 +22563,6 @@ function logModeSnapshotUI(snapshot) {
         try { scheduleMasterSignalStatsRefresh(0); } catch (_) {}
     }
 
-    async function loadWhiteTimelineLimitIfNeeded() {
-        try {
-            if (whiteTimelineLimitLoaded) return;
-            whiteTimelineLimitLoaded = true;
-            const res = await storageCompat.get([WHITE_TIMELINE_LIMIT_KEY]);
-            whiteTimelineLimit = clampWhiteTimelineLimit(res ? res[WHITE_TIMELINE_LIMIT_KEY] : null, 10);
-        } catch (_) {
-            whiteTimelineLimitLoaded = true;
-            whiteTimelineLimit = 10;
-        }
-    }
-
     async function loadWhiteStatsSampleIfNeeded() {
         try {
             if (whiteStatsSampleLoaded) return;
@@ -22275,13 +22591,6 @@ function logModeSnapshotUI(snapshot) {
         const n = clampIntRange(nextSpins, 200, 20000);
         whiteStatsSampleSpins = n;
         try { await storageCompat.set({ [WHITE_STATS_SAMPLE_SPINS_KEY]: n }); } catch (_) {}
-        try { scheduleMasterSignalStatsRefresh(0); } catch (_) {}
-    }
-
-    async function persistWhiteTimelineLimit(nextLimit) {
-        const n = clampWhiteTimelineLimit(nextLimit, 10);
-        whiteTimelineLimit = n;
-        try { await storageCompat.set({ [WHITE_TIMELINE_LIMIT_KEY]: n }); } catch (_) {}
         try { scheduleMasterSignalStatsRefresh(0); } catch (_) {}
     }
 
@@ -22556,15 +22865,11 @@ function logModeSnapshotUI(snapshot) {
             </div>
         `);
 
-        ensure('whiteTimelineBlock', `
-            <div class="white-insights-block white-adv-block" id="whiteTimelineBlock">
-                <div class="white-pullers-header">
-                    <div class="white-insights-title">Últimos brancos</div>
-                    <div class="white-pullers-filter" id="whiteTimelineLimitFilter"></div>
-                </div>
-                <div class="white-timeline-list" id="whiteTimelineList">Carregando...</div>
-            </div>
-        `);
+        // ✅ Removido (pedido do usuário): painel "Últimos brancos"
+        try {
+            const tl = document.getElementById('whiteTimelineBlock');
+            if (tl) tl.remove();
+        } catch (_) {}
 
         ensure('whiteAlertsBlock', `
             <div class="white-insights-block white-adv-block" id="whiteAlertsBlock">
@@ -22692,7 +22997,6 @@ function logModeSnapshotUI(snapshot) {
 
         const limit = history.length;
         const K = clampWhiteHazardWindowSpins(options.hazardK ?? whiteHazardWindowSpins, 10);
-        const timelineLimit = clampWhiteTimelineLimit(options.timelineLimit ?? whiteTimelineLimit, 10);
 
         const isWhite = new Array(limit).fill(false);
         const msArr = new Array(limit).fill(0);
@@ -22830,29 +23134,6 @@ function logModeSnapshotUI(snapshot) {
             ? Math.max(0, Math.round(Number(intervalNowSpins)) - Math.round(Number(refIntervalSpins)))
             : 0;
 
-        // Timeline: últimos N brancos (hora + gap)
-        const timeline = [];
-        for (let i = 0; i < Math.min(whiteIdx.length, timelineLimit); i++) {
-            const idx = whiteIdx[i];
-            const ms = msArr[idx];
-            const time = ms > 0
-                ? new Date(ms).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
-                : '--:--';
-            const sinceNowSpins = idx;
-            const sinceNowMs = (msArr[0] > 0 && ms > 0 && msArr[0] >= ms) ? (msArr[0] - ms) : null;
-            const gapSpins = (i < intervalsSpins.length) ? intervalsSpins[i] : null;
-            const gapMs = (i < intervalsMs.length) ? intervalsMs[i] : null;
-            timeline.push({
-                idx,
-                time,
-                sinceNowSpins,
-                sinceNowMs,
-                gapSpins,
-                gapMs,
-                number: nums[idx]
-            });
-        }
-
         const whitesCount = whiteIdx.length;
         const reliability = classifyReliability(intervalsCount, spanHours);
 
@@ -22889,7 +23170,6 @@ function logModeSnapshotUI(snapshot) {
                 maxN: hazardMaxN,
                 currentBucket
             },
-            timeline,
             reliability
         };
     }
@@ -22965,15 +23245,6 @@ function logModeSnapshotUI(snapshot) {
         return opts.map(v => {
             const active = v === k;
             return `<button type="button" class="white-pullers-filter-btn${active ? ' active' : ''}" data-white-hazard-k="${v}">${v}g</button>`;
-        }).join('');
-    }
-
-    function renderWhiteTimelineLimitFilter() {
-        const opts = [5, 10, 15, 20];
-        const n = clampWhiteTimelineLimit(whiteTimelineLimit, 10);
-        return opts.map(v => {
-            const active = v === n;
-            return `<button type="button" class="white-pullers-filter-btn${active ? ' active' : ''}" data-white-timeline-n="${v}">${v}</button>`;
         }).join('');
     }
 
@@ -23085,35 +23356,6 @@ function logModeSnapshotUI(snapshot) {
         } catch (_) {
             return `<div class="white-empty">Carregando...</div>`;
         }
-    }
-
-    function renderWhiteTimelineList(timeline) {
-        const arr = Array.isArray(timeline) ? timeline : [];
-        if (!arr.length) return `<div class="white-empty">Sem brancos no histórico atual.</div>`;
-        return arr.map((w, idx) => {
-            const gap = (w.gapSpins != null && Number.isFinite(Number(w.gapSpins)))
-                ? `${Math.round(Number(w.gapSpins))} giros`
-                : '—';
-            const gapM = (w.gapMs != null && Number.isFinite(Number(w.gapMs)))
-                ? `~${formatShortMinutes(Number(w.gapMs))}`
-                : '—';
-            const ago = (w.sinceNowSpins != null) ? `${w.sinceNowSpins} giros atrás` : '';
-            const agoM = (w.sinceNowMs != null) ? `~${formatShortMinutes(Number(w.sinceNowMs))}` : '';
-            const meta = `${ago}${ago && agoM ? ` • ${agoM}` : (agoM ? agoM : '')}`;
-            const title = `Branco • ${w.time}${meta ? ` • ${meta}` : ''}`;
-            return `
-                <div class="white-timeline-item" title="${title}">
-                    <div class="white-timeline-left">
-                        <div class="white-timeline-time">${w.time}</div>
-                        <div class="white-timeline-meta">${meta || '&nbsp;'}</div>
-                    </div>
-                    <div class="white-timeline-right">
-                        <div class="white-timeline-gap">${gap}</div>
-                        <div class="white-timeline-gapms">${gapM}</div>
-                    </div>
-                </div>
-            `;
-        }).join('');
     }
 
     function notifyWhiteAlert(payloadOrMessage, variant = 'info', durationMs = null) {
@@ -23422,9 +23664,6 @@ function logModeSnapshotUI(snapshot) {
         const hazardSummaryEl = document.getElementById('whiteHazardSummary');
         const hazardChartEl = document.getElementById('whiteHazardChart');
 
-        const tlFilterEl = document.getElementById('whiteTimelineLimitFilter');
-        const tlListEl = document.getElementById('whiteTimelineList');
-
         if (!stats || typeof stats !== 'object') {
             if (relEl) relEl.innerHTML = '—';
             if (intervalsSummaryEl) intervalsSummaryEl.textContent = 'Carregando...';
@@ -23432,7 +23671,6 @@ function logModeSnapshotUI(snapshot) {
             if (pctEl) pctEl.innerHTML = '';
             if (hazardSummaryEl) hazardSummaryEl.textContent = 'Carregando...';
             if (hazardChartEl) hazardChartEl.innerHTML = '';
-            if (tlListEl) tlListEl.textContent = 'Carregando...';
             return;
         }
 
@@ -23547,21 +23785,6 @@ function logModeSnapshotUI(snapshot) {
             try { hazardSummaryEl.innerHTML = ''; } catch (_) {}
         }
         if (hazardChartEl) hazardChartEl.innerHTML = renderWhiteHazardPanel(stats);
-
-        // Timeline controls
-        if (tlFilterEl) {
-            tlFilterEl.innerHTML = renderWhiteTimelineLimitFilter();
-            if (!tlFilterEl.dataset.listenerAttached) {
-                tlFilterEl.addEventListener('click', async (event) => {
-                    const btn = event.target && event.target.closest ? event.target.closest('button[data-white-timeline-n]') : null;
-                    if (!btn) return;
-                    const n = clampWhiteTimelineLimit(btn.dataset.whiteTimelineN, whiteTimelineLimit);
-                    await persistWhiteTimelineLimit(n);
-                });
-                tlFilterEl.dataset.listenerAttached = '1';
-            }
-        }
-        if (tlListEl) tlListEl.innerHTML = renderWhiteTimelineList(stats.timeline);
 
         // Alertas (UI + avaliação)
         try { renderWhiteAlertsPanel(stats, pullerCounts); } catch (_) {}
@@ -23708,7 +23931,6 @@ function logModeSnapshotUI(snapshot) {
         // Garantir preferências carregadas antes de computar (best-effort)
         try { await loadWhitePullersWindowHoursIfNeeded(); } catch (_) {}
         try { await loadWhiteHazardWindowIfNeeded(); } catch (_) {}
-        try { await loadWhiteTimelineLimitIfNeeded(); } catch (_) {}
         try { await loadWhiteStatsSampleIfNeeded(); } catch (_) {}
         try { await loadWhiteAlertsSettingsIfNeeded(); } catch (_) {}
         if (!Array.isArray(whiteInsightsHistoryCache) || whiteInsightsHistoryCache.length === 0) {
@@ -23735,7 +23957,6 @@ function logModeSnapshotUI(snapshot) {
         try {
             const adv = computeWhiteAdvancedStatsFromHistory(whiteInsightsHistoryCache, nowMs, {
                 hazardK: whiteHazardWindowSpins,
-                timelineLimit: whiteTimelineLimit,
                 sampleMode: whiteStatsSampleMode,
                 sampleSpins: whiteStatsSampleSpins
             });

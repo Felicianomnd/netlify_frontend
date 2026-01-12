@@ -2240,6 +2240,22 @@ let dataCheckInterval = null; // ✅ Intervalo para verificar dados desatualizad
 //   com cache-bust e publicar IMEDIATAMENTE se vier mais novo.
 // ═══════════════════════════════════════════════════════════════════════════════
 
+// ✅ Importante (web vs extensão):
+// Quando este script roda no site (ex.: https://doubleanalyzer.com.br), qualquer fetch direto para
+// https://blaze.bet.br/... é bloqueado por CORS e spamma o console, além de quebrar o fallback.
+// Em MV3 (service worker da extensão), não existe window/document e o fetch direto pode funcionar
+// (host_permissions).
+function isBlazeDirectFetchAllowed() {
+    try {
+        const hasChrome = (typeof chrome !== 'undefined') && chrome && chrome.runtime;
+        const hasManifest = hasChrome && (typeof chrome.runtime.getManifest === 'function');
+        const noDom = (typeof window === 'undefined') && (typeof document === 'undefined');
+        return !!(hasManifest && noDom);
+    } catch (_) {
+        return false;
+    }
+}
+
 let fastLaneStartTimeout = null;
 let fastLaneStopTimeout = null;
 let fastLaneTickTimeout = null;
@@ -2276,6 +2292,8 @@ function computeNextSpinBoundaryMs(lastSpinMs) {
 }
 
 async function fetchLatestSpinDirectFromBlaze({ timeoutMs = 1600 } = {}) {
+    // ❌ No modo web, isso SEMPRE dá CORS. Só permitir no service worker da extensão.
+    if (!isBlazeDirectFetchAllowed()) return null;
     const controller = (typeof AbortController !== 'undefined') ? new AbortController() : null;
     const timeoutId = controller ? setTimeout(() => controller.abort(), Math.max(600, Math.floor(Number(timeoutMs) || 1600))) : null;
     try {
@@ -2352,6 +2370,8 @@ async function fastLaneTick() {
 }
 
 function armFastLaneForNextSpin(latestSpinTimestampLike) {
+    // ❌ No modo web, não armar Fast Lane (evita CORS spam).
+    if (!isBlazeDirectFetchAllowed()) return;
     try {
         const lastMs = parseSpinTimestamp({ timestamp: latestSpinTimestampLike, created_at: latestSpinTimestampLike }) || parseSpinTimestamp({ timestamp: latestSpinTimestampLike }) || Number(latestSpinTimestampLike) || 0;
         const nextMs = computeNextSpinBoundaryMs(lastMs);
@@ -4073,17 +4093,23 @@ async function collectDoubleData() {
         }
         
         if (!response.ok) {
-            // Se servidor offline, tenta buscar direto da Blaze (fallback)
-            console.warn('⚠️ Servidor offline, buscando direto da Blaze...');
+            // Se servidor offline, fallback direto da Blaze SÓ pode rodar no service worker da extensão.
+            // No modo web isso quebra por CORS, então apenas registrar e aguardar WS/poll do servidor.
+            if (!isBlazeDirectFetchAllowed()) {
+                console.warn('⚠️ Servidor de giros indisponível e CORS impede fetch direto da Blaze (modo web). Aguardando reconexão...');
+                return;
+            }
+
+            console.warn('⚠️ Servidor offline, buscando direto da Blaze (extensão)...');
             const blazeResponse = await fetch('https://blaze.bet.br/api/singleplayer-originals/originals/roulette_games/recent/1');
             if (!blazeResponse.ok) throw new Error('Blaze API offline');
             const dataArr = await blazeResponse.json();
             if (!Array.isArray(dataArr) || dataArr.length === 0) return;
-            
+
             const latestSpin = dataArr[0];
             const rollNumber = latestSpin.roll;
             const rollColor = getColorFromNumber(rollNumber);
-            
+
             processNewSpin({
                 id: `spin_${latestSpin.created_at}`,
                 number: rollNumber,
@@ -5763,7 +5789,15 @@ async function initializeHistoryIfNeeded(force = false) {
         }
         
         // Se servidor não tiver dados, buscar direto da Blaze (fallback)
-        console.log('⚠️ Servidor sem dados, buscando direto da Blaze...');
+        if (!isBlazeDirectFetchAllowed()) {
+            console.warn('⚠️ Servidor sem dados no bootstrap e CORS impede fetch direto da Blaze (modo web). Aguardando servidor/WS...');
+            cachedHistory = [];
+            historyInitialized = false;
+            scheduleHistoryBootstrapRetry('empty_server_history_web');
+            return false;
+        }
+
+        console.log('⚠️ Servidor sem dados, buscando direto da Blaze (extensão)...');
         const endpoints = [
             'https://blaze.bet.br/api/singleplayer-originals/originals/roulette_games/recent/2000',
             'https://blaze.bet.br/api/singleplayer-originals/originals/roulette_games/recent/300',
@@ -12799,13 +12833,18 @@ function analyzeAutointeligente(history, options = {}) {
 
         // ✅ v4: o auto-aprendizado do N4 passa a ser "por tentativa" (Entrada/G1/G2),
         // e não por ciclo fechado. Logo, o baseline aqui é P1 (uma tentativa), não P(ciclo).
-        const dynBad = clamp01(baseline - 0.03);
-        const dynGood = clamp01(baseline + 0.10);
+        // ✅ Tornar o auto-aprendizado mais responsivo:
+        // - "good" muito alto (baseline+0.10) quase nunca acontece em RB no próximo giro,
+        //   então o N4 raramente usa BOOST/SWAP por memória.
+        // - Ajuste mais realista: reage com vantagem moderada e evita overfit.
+        const dynBad = clamp01(baseline - 0.02);
+        const dynGood = clamp01(baseline + 0.06);
 
         let minSamples = Math.max(3, Math.min(80, Math.floor(Number(store?.minSamples) || 8)));
-        // mais amostras para horizontes maiores (G1/G2) — evita overfit
-        if (s >= 3) minSamples = Math.max(minSamples, 12);
-        else if (s === 2) minSamples = Math.max(minSamples, 10);
+        // ✅ G1/G2: precisa de mais amostras, mas o valor antigo deixava a memória "lenta demais".
+        // Mantemos um aumento leve para não ficar mudo, mas permitir reação mais cedo.
+        if (s >= 3) minSamples = Math.max(minSamples, 9);
+        else if (s === 2) minSamples = Math.max(minSamples, 8);
 
         let bad = Number(store?.badWinRate);
         let good = Number(store?.goodWinRate);
@@ -13600,10 +13639,23 @@ function analyzeAutointeligente(history, options = {}) {
                 const otherSecond = otherPick ? (scored.find(s => s && s.tok !== otherTok) || null) : null;
                 if (otherPick) {
                     const nextScore = computeScore(otherPick, otherSecond);
+                    // ✅ Swap pode ser ligeiramente mais permissivo quando a memória indica que o "outro" é melhor.
+                    // Isso é importante porque, sem essa folga, o N4 continua preso no pick atual mesmo
+                    // quando o histórico recente mostra que ele está errando.
+                    const swapBoostMargin = (() => {
+                        try {
+                            if (otherLooksBetter || otherGoodAndBetter) return signalIntensity === 'conservative' ? 0.010 : 0.016;
+                            if (bestStreak >= 2) return signalIntensity === 'conservative' ? 0.008 : 0.012;
+                            return 0;
+                        } catch (_) {
+                            return 0;
+                        }
+                    })();
+                    const swapMeanSlack = swapBoostMargin > 0 ? (signalIntensity === 'conservative' ? 0.00 : 0.01) : 0;
                     const nextAllowed = !!otherPick
                         && passesNonScoreFilters(otherPick, otherSecond, evidence.total)
-                        && (nextScore.score >= adaptiveScoreMin)
-                        && (Number(otherPick.mean || 0) >= volumeProfile.minP1Mean);
+                        && (nextScore.score >= (adaptiveScoreMin - swapBoostMargin))
+                        && (Number(otherPick.mean || 0) >= (volumeProfile.minP1Mean - swapMeanSlack));
                     if (nextAllowed) {
                         bestPick = otherPick;
                         secondPick = otherSecond;
@@ -13617,6 +13669,66 @@ function analyzeAutointeligente(history, options = {}) {
                         learningTier = (effective && effective.tier && effective.tier !== 'none') ? effective.tier : null;
                         learningDecision = 'swap';
                     }
+                }
+            }
+        }
+
+        // ✅ Bloqueio/penalidade real (pedido):
+        // Se a memória mostra que o tipo escolhido está RUIM (com amostra mínima + sequência de erros),
+        // o N4 deve mudar de abordagem: tentar a alternativa com tolerância maior; se não der, ficar NULO.
+        if (!forcePick && allowed && effective && effective.tier !== 'none' && effective.winRate != null && (bestTok === 'R' || bestTok === 'B')) {
+            const chosenStreak = recentLossStreak(effective.stats);
+            const chosenLooksBad = effective.winRate <= badWinRate;
+            if (chosenLooksBad && chosenStreak >= 2) {
+                const severity = Math.max(0, Math.min(1, (badWinRate - effective.winRate) / Math.max(0.0001, badWinRate)));
+                const n = Math.max(0, Math.floor(Number(effective.n) || 0));
+                const nFactor = Math.min(1, n / Math.max(1, minSamples));
+                const streakFactor = Math.min(1, chosenStreak / 3);
+                const basePenalty = signalIntensity === 'conservative' ? 0.012 : 0.018;
+                const extraPenalty = 0.030 * severity * nFactor * streakFactor;
+                const penalizedMin = Math.min(1, Math.max(0, adaptiveScoreMin + basePenalty + extraPenalty));
+
+                // Se ainda estiver MUITO bom no score (evidência forte), não bloquear.
+                const stillOk = !!bestPick
+                    && passesNonScoreFilters(bestPick, secondPick, evidence.total)
+                    && (currentScore.score >= penalizedMin)
+                    && (Number(bestPick.mean || 0) >= volumeProfile.minP1Mean);
+
+                if (!stillOk) {
+                    const otherTok = bestTok === 'R' ? 'B' : 'R';
+                    const otherPick = scored.find(s => s && s.tok === otherTok) || null;
+                    const otherSecond = otherPick ? (scored.find(s => s && s.tok !== otherTok) || null) : null;
+                    const rescueMargin = signalIntensity === 'conservative' ? 0.010 : 0.016;
+                    const rescueMeanSlack = signalIntensity === 'conservative' ? 0.00 : 0.01;
+                    if (otherPick) {
+                        const nextScore = computeScore(otherPick, otherSecond);
+                        const rescueOk = !!otherPick
+                            && passesNonScoreFilters(otherPick, otherSecond, evidence.total)
+                            && (nextScore.score >= (adaptiveScoreMin - rescueMargin))
+                            && (Number(otherPick.mean || 0) >= (volumeProfile.minP1Mean - rescueMeanSlack));
+                        if (rescueOk) {
+                            bestPick = otherPick;
+                            secondPick = otherSecond;
+                            marginLcb = bestPick && secondPick ? Math.max(0, (bestPick.lcb - secondPick.lcb)) : (bestPick ? bestPick.lcb : 0);
+                            currentScore = nextScore;
+                            allowed = true;
+                            bestTok = otherTok;
+                            candidateKey = buildN4SelfLearningKey(ctxKey, bestTok, stepsToWin, signalIntensity, learningPolicy);
+                            effective = pickEffectiveLearning(bestTok, candidateKey, candidateKey ? getN4SelfLearningStatsForKey(candidateKey) : null);
+                            learningTier = (effective && effective.tier && effective.tier !== 'none') ? effective.tier : null;
+                            learningDecision = 'swap';
+                        } else {
+                            allowed = false;
+                            learningDecision = 'blocked';
+                        }
+                    } else {
+                        allowed = false;
+                        learningDecision = 'blocked';
+                    }
+                } else {
+                    // manter permitido, mas registrar o limiar penalizado usado (transparência)
+                    adaptiveScoreMin = penalizedMin;
+                    requiredPHit = adaptiveScoreMin;
                 }
             }
         }
