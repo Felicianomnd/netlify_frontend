@@ -16724,6 +16724,39 @@ async function persistAnalyzerState(newState) {
         } catch (_) {}
     }
 
+    function daCreateAnalyzingNumberStream() {
+        // Mistura "bag" (0..14) + alguns extras aleatórios para parecer natural e evitar padrões.
+        let bag = [];
+        let last = null;
+        const refill = () => {
+            bag = [];
+            for (let i = 0; i <= 14; i++) bag.push(i);
+            // extras (duplicatas) — deixam menos "perfeito" que um shuffle puro
+            for (let i = 0; i < 8; i++) bag.push(Math.floor(Math.random() * 15));
+            daShuffleInPlace(bag);
+        };
+        refill();
+
+        const next = (excludeSet) => {
+            const ex = (excludeSet && typeof excludeSet.has === 'function') ? excludeSet : null;
+            // tentar algumas vezes para evitar repetir imediatamente / respeitar exclude
+            for (let attempt = 0; attempt < 24; attempt++) {
+                if (!bag.length) refill();
+                const n = bag.pop();
+                if (ex && ex.has(n)) continue;
+                if (last != null && n === last) continue;
+                last = n;
+                return n;
+            }
+            if (!bag.length) refill();
+            const n = bag.pop();
+            last = n;
+            return n;
+        };
+
+        return { next };
+    }
+
     function buildAnalyzingRingHTML({ count = 40 } = {}) {
         // ✅ "gira e para": trilha grande + reciclagem via JS
         const initialCount = Math.max(60, Math.min(80, Math.floor(Number(count) || 80)));
@@ -16778,7 +16811,9 @@ async function persistAnalyzerState(newState) {
                 running: true,
                 timer: null,
                 anchorIndex: 10,
-                selectedEl: null
+                selectedEl: null,
+                stream: daCreateAnalyzingNumberStream(),
+                recentStops: []
             };
             track.__daRouletteState = state;
 
@@ -16791,6 +16826,12 @@ async function persistAnalyzerState(newState) {
             track.__daRouletteStop = stop;
 
             const getChips = () => Array.from(track.querySelectorAll('.da-reel-chip'));
+
+            // ✅ Randomizar a trilha inteira no start (evita “loop perceptível”)
+            try {
+                const chips = getChips();
+                chips.forEach((chip) => daSetAnalyzingRouletteChip(chip, state.stream.next()));
+            } catch (_) {}
 
             const getMetrics = () => {
                 const chips = getChips();
@@ -16840,17 +16881,43 @@ async function persistAnalyzerState(newState) {
                 const chips = getChips();
                 if (!chips || chips.length < (state.anchorIndex + 50)) return stop();
 
+                const m0 = getMetrics();
+                if (!m0) {
+                    state.timer = setTimeout(spinOnce, 200);
+                    return;
+                }
+                const visibleCount = Math.max(6, Math.min(18, Math.ceil(m0.laneW / m0.step) + 2));
+
                 // Limpar seleção anterior
                 try {
                     if (state.selectedEl) state.selectedEl.classList.remove('is-selected', 'is-thinking');
                 } catch (_) {}
 
                 // “giro” mais rápido e realista (gira e desacelera)
-                const minDelta = 18;
-                const maxDelta = 38;
+                const minDelta = 16;
+                const maxDelta = 46;
                 const delta = Math.max(minDelta, Math.min(maxDelta, minDelta + Math.floor(Math.random() * (maxDelta - minDelta + 1))));
                 const targetIndex = state.anchorIndex + delta;
                 const durationMs = Math.round(680 + (delta * 32) + (Math.random() * 220));
+
+                // ✅ Número alvo (o que vai ser "analisado") — evitar repetir recente
+                const ex = new Set(state.recentStops.slice(-4));
+                const stopNumber = state.stream.next(ex);
+                state.recentStops.push(stopNumber);
+                if (state.recentStops.length > 12) state.recentStops.shift();
+
+                // ✅ Pré-embaralhar chips fora da área visível (para não dar “teleporte” no começo do giro)
+                try {
+                    const offStart = state.anchorIndex + visibleCount;
+                    const offEnd = Math.min(chips.length - 1, targetIndex + visibleCount + 6);
+                    for (let i = offStart; i <= offEnd; i++) {
+                        const el = chips[i];
+                        if (!el) continue;
+                        daSetAnalyzingRouletteChip(el, state.stream.next());
+                    }
+                    const tgt = chips[targetIndex];
+                    if (tgt) daSetAnalyzingRouletteChip(tgt, stopNumber);
+                } catch (_) {}
 
                 let ended = false;
                 const onEnd = () => {
@@ -16864,7 +16931,7 @@ async function persistAnalyzerState(newState) {
                         for (let i = 0; i < delta; i++) {
                             const first = track.querySelector('.da-reel-chip');
                             if (!first) break;
-                            daSetAnalyzingRouletteChip(first, Math.floor(Math.random() * 15));
+                            daSetAnalyzingRouletteChip(first, state.stream.next());
                             track.appendChild(first);
                         }
                     } catch (_) {}
