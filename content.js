@@ -3436,7 +3436,7 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                                     <button type="button" class="diamond-sim-option" data-level="N7">N7 - Continuidade Global</button>
                                     <button type="button" class="diamond-sim-option" data-level="N8">N8 - Walk-forward</button>
                                     <button type="button" class="diamond-sim-option" data-level="N9">N9 - Barreira Final</button>
-                                    <button type="button" class="diamond-sim-option" data-level="N10">N10 - Calibração Bayesiana</button>
+                                    <button type="button" class="diamond-sim-option" data-level="N10">N10 - Barreira Inteligente</button>
                                 </div>
                             </div>
                         </div>
@@ -3728,43 +3728,15 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                         </div>
                         <div class="diamond-level-field" data-level="n10">
                             <div class="diamond-level-header">
-                                <div class="diamond-level-title">N10 - Calibração Bayesiana</div>
+                                <div class="diamond-level-title">N10 - Barreira Inteligente (8-10 giros)</div>
                                 <label class="diamond-level-switch checkbox-label">
                                     <input type="checkbox" class="diamond-level-toggle-input" id="diamondLevelToggleN10" checked />
                                     <span class="switch-track"></span>
                                 </label>
                             </div>
                             <div class="diamond-level-note">
-                                Calcula probabilidades reais de cada cor (🔴/⚫/⚪) usando estatística bayesiana. Ajusta a força dos outros níveis e só vota quando há diferença significativa entre cores.
-                            </div>
-                            <div class="diamond-level-double">
-                                <div>
-                                    <span>Histórico base</span>
-                                    <input type="number" id="diamondN9History" min="30" max="400" value="100" />
-                                    <span class="diamond-level-subnote">
-                                        Giros usados no cálculo de probabilidades (rec: 100)
-                                    </span>
-                                </div>
-                                <div>
-                                    <span>Limiar nulo (%)</span>
-                                    <input type="number" id="diamondN9NullThreshold" min="2" max="20" value="8" />
-                                    <span class="diamond-level-subnote">
-                                        Diferença mínima para votar (abaixo = voto nulo)
-                                    </span>
-                                </div>
-                            </div>
-                            <div class="diamond-level-double">
-                                <div>
-                                    <span>Força do prior</span>
-                                    <input type="number" id="diamondN9PriorStrength" step="0.1" min="0.2" max="5" value="1" />
-                                    <span class="diamond-level-subnote">
-                                        Peso do histórico geral: maior = mais conservador
-                                    </span>
-                                </div>
-                                <div style="font-size: 11px; color: #8da2bb; padding-top: 8px;">
-                                    Prior Dirichlet: α = [prior, prior, prior × 0.5]<br>
-                                    Branco tem metade do peso por ser mais raro
-                                </div>
+                                Barreira inteligente: analisa automaticamente os últimos <strong>8-10 giros</strong> e decide se o sinal é viável.
+                                Não vota cor — apenas <strong>libera/bloqueia</strong> (como o N9). Sem parâmetros configuráveis.
                             </div>
                         </div>
                     </div>
@@ -12899,7 +12871,7 @@ async function persistAnalyzerState(newState) {
                      <div class="suggestion-box" id="suggestionBox">
                          <div class="suggestion-color-wrapper">
                             <!-- Estado inicial: sem sinal => anel (igual Calibrando N4) com texto no centro -->
-                             <div class="suggestion-color suggestion-color-box neutral loading" id="suggestionColor">${getAnalyzingRingHTML({ forceNew: true, count: 80 })}</div>
+                             <div class="suggestion-color suggestion-color-box neutral loading" id="suggestionColor">${getAnalyzingRingHTML({ forceNew: true })}</div>
                             <div class="suggestion-stage" id="suggestionStage"></div>
                          </div>
                         </div>
@@ -14749,6 +14721,26 @@ async function persistAnalyzerState(newState) {
                 ? `<span class="entry-inline-sep">•</span><span class="entry-label">Resultado:</span> <span class="entry-result-value ${entry.result === 'WIN' ? 'win-text' : 'loss-text'}">${entry.result}</span>`
                 : '';
 
+            const betColorForEntry = (() => {
+                try {
+                    const raw = String(
+                        (entry && (entry.betColor != null ? entry.betColor : (entry.patternData && entry.patternData.color != null ? entry.patternData.color : ''))) || ''
+                    ).toLowerCase().trim();
+                    if (!raw) return '';
+                    if (raw === 'branco') return 'white';
+                    if (raw.startsWith('w')) return 'white';
+                    if (raw.startsWith('r')) return 'red';
+                    // "branco" não é black
+                    if (raw.startsWith('b') && raw !== 'branco') return 'black';
+                    return raw;
+                } catch (_) {
+                    return '';
+                }
+            })();
+            const betColorSafe = (betColorForEntry === 'red' || betColorForEntry === 'black' || betColorForEntry === 'white')
+                ? betColorForEntry
+                : (entry && entry.color ? String(entry.color).toLowerCase().trim() : '');
+
             modal.innerHTML = `
                 <div class="pattern-modal-content">
                     <div class="pattern-modal-header modal-header-minimal">
@@ -14758,11 +14750,11 @@ async function persistAnalyzerState(newState) {
                     <div class="pattern-modal-body">
                         <div class="entry-info">
                             <div class="entry-color-info">
-                                <span class="entry-label">Cor:</span>
-                                <div class="entry-color-display ${entry.color}">
-                                    ${entry.color === 'white' ? blazeWhiteSVG(18) : ''}
+                                <span class="entry-label">Aposta:</span>
+                                <div class="entry-color-display ${betColorSafe}">
+                                    ${betColorSafe === 'white' ? blazeWhiteSVG(18) : ''}
                                 </div>
-                                <span class="entry-color-name">${entry.color === 'red' ? 'Vermelho' : entry.color === 'black' ? 'Preto' : 'Branco'}</span>
+                                <span class="entry-color-name">${betColorSafe === 'red' ? 'Vermelho' : betColorSafe === 'black' ? 'Preto' : 'Branco'}</span>
                                 <span class="entry-inline-sep">•</span>
                                 <span class="entry-label">Confiança:</span>
                                 <span class="entry-confidence-value">${Number(confidenceToShow || 0).toFixed(1)}%</span>
@@ -16760,26 +16752,29 @@ async function persistAnalyzerState(newState) {
     }
 
     function buildAnalyzingRingHTML({ count = 40 } = {}) {
-        // ✅ "gira e para": trilha grande + reciclagem via JS
-        const initialCount = Math.max(60, Math.min(80, Math.floor(Number(count) || 80)));
-        const numbers = daBuildAnalyzingReelNumbers(initialCount);
-        const chips = numbers.map((n) => {
-            const num = Math.floor(Number(n) || 0);
-            const safe = (num >= 0 && num <= 14) ? num : 0;
-            const color = daDoubleColorForNumber(safe);
-            const label = String(safe);
-            return `<span class="da-reel-chip ${color}" data-n="${label}" aria-hidden="true">${label}</span>`;
-        }).join('');
-
+        // ✅ Voltar ao loader clássico: anel de bolinhas girando + "Analisando" no centro
         return (
             '<div class="da-top-analyzing" aria-hidden="true">' +
-                '<div class="da-calibration-title da-top-analyzing-label">Analisando histórico</div>' +
                 '<div class="da-calibration-ring da-top-analyzing-ring" data-state="calibrating">' +
-                    '<div class="da-analyzing-reel" aria-hidden="true">' +
-                        '<div class="da-analyzing-reel-lane">' +
-                            `<div class="da-analyzing-roulette-track" data-da-roulette-track="1">${chips}</div>` +
-                        '</div>' +
+                    '<div class="da-calibration-dots">' +
+                        '<span style="--i:0"></span>' +
+                        '<span style="--i:1"></span>' +
+                        '<span style="--i:2"></span>' +
+                        '<span style="--i:3"></span>' +
+                        '<span style="--i:4"></span>' +
+                        '<span style="--i:5"></span>' +
+                        '<span style="--i:6"></span>' +
+                        '<span style="--i:7"></span>' +
+                        '<span style="--i:8"></span>' +
+                        '<span style="--i:9"></span>' +
+                        '<span style="--i:10"></span>' +
+                        '<span style="--i:11"></span>' +
+                        '<span style="--i:12"></span>' +
+                        '<span style="--i:13"></span>' +
+                        '<span style="--i:14"></span>' +
+                        '<span style="--i:15"></span>' +
                     '</div>' +
+                    '<div class="da-calibration-title">Analisando</div>' +
                 '</div>' +
             '</div>'
         );
@@ -16984,18 +16979,17 @@ async function persistAnalyzerState(newState) {
             suggestionColor.className = 'suggestion-color suggestion-color-box neutral loading';
             // Só troca o DOM quando necessário (senão reinicia a animação sempre)
             if (!already) {
-                suggestionColor.innerHTML = getAnalyzingRingHTML({ forceNew: true, count: 80 });
+                suggestionColor.innerHTML = getAnalyzingRingHTML({ forceNew: true });
             } else {
                 // Trocar raramente (a própria roleta recicla/aleatoriza)
                 const now = Date.now();
                 const lastAt = Number(daAnalyzingReelCacheAt) || 0;
                 if ((now - lastAt) > (5 * 60 * 1000)) {
-                    suggestionColor.innerHTML = getAnalyzingRingHTML({ forceNew: true, count: 80 });
+                    suggestionColor.innerHTML = getAnalyzingRingHTML({ forceNew: true });
                 }
             }
 
-            // ✅ Garantir que a roleta "gira e para" esteja rodando
-            try { ensureAnalyzingRouletteRunning(suggestionColor); } catch (_) {}
+            // ✅ Loader clássico: sem roleta/ícones (evita confusão)
         
         // Sincronizar com modo aposta
         syncBetModeView();

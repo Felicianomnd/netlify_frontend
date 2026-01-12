@@ -182,7 +182,7 @@ function getDiamondConfigSnapshot() {
         ['N7', `Dec ${getDiamondWindow('n7DecisionWindow', 20)} | Hist ${getDiamondWindow('n7HistoryWindow', 100)}`],
         ['N8', `Hist ${getDiamondWindow('n10History', 500)} | W ${getDiamondWindow('n10Window', 20)}`],
         ['N9', `${getDiamondWindow('n8Barrier', 50)} giros`],
-        ['N10', `Hist ${getDiamondWindow('n9History', 100)} | Δ${getDiamondWindow('n9NullThreshold', 8)}%`]
+        ['N10', 'Janela 8-10 giros (barreira inteligente)']
     ];
 }
 
@@ -732,15 +732,16 @@ const DEFAULT_ANALYZER_CONFIG = {
         n0History: 2000,          // N0 - Detector de Branco (histórico analisado)
         n0Window: 100,            // N0 - Detector de Branco (tamanho da janela não-sobreposta)
         n8Barrier: 50,            // N9 - Barreira Final (mantido como n8Barrier por compatibilidade)
-        n9History: 100,           // N9 - Calibração Bayesiana (histórico base)
-        n9NullThreshold: 8,       // N9 - Calibração Bayesiana (diferença mínima em % para votar)
-        n9PriorStrength: 1,       // N9 - Calibração Bayesiana (força do prior Dirichlet)
-        // N10 - Walk-forward Não-Sobreposto (janela em giros e histórico base)
+        // (LEGADO) chaves antigas do N10 "Calibração Bayesiana" (não usadas pela lógica atual)
+        n9History: 100,
+        n9NullThreshold: 8,
+        n9PriorStrength: 1,
+        // N8 - Walk-forward Não-Sobreposto (janela em giros e histórico base)
         n10Window: 20,            // Tamanho da janela NÃO-SOBREPOSTA (W)
         n10History: 500,          // Quantidade de giros usados no walk-forward
         n10Analyses: 600,         // Quantidade alvo de estratégias/variações testadas
         n10MinWindows: 8,         // Número mínimo de janelas com predição para ser elegível
-        n10ConfMin: 60            // Confiança mínima global (%) para N10 votar
+        n10ConfMin: 60            // Confiança mínima global (%) para N8 votar
     },
     diamondLevelEnabled: {        // Controle individual dos 11 níveis (todos ativos por padrão)
         n0: true,
@@ -753,7 +754,7 @@ const DEFAULT_ANALYZER_CONFIG = {
         n7: true,
         n8: true,  // N8 - Walk-forward não-sobreposto
         n9: true,  // N9 - Barreira Final
-        n10: true  // N10 - Calibração Bayesiana
+        n10: true  // N10 - Barreira Inteligente (8-10 giros)
     }
 };
 
@@ -1720,6 +1721,157 @@ let martingaleState = {
     lossColors: [],                   // Array de cores dos giros que deram LOSS
     patternsWithoutHistory: 0         // Contador de padrões sem histórico que deram LOSS
 };
+
+// ✅ Diamante (G1/G2): recriar o "raciocínio" (patternDescription) para a fase atual,
+// incluindo N4 (re-análise), e validando N9/N10 também no GALE.
+function buildDiamondGalePhaseAnalysis({ history, phase, preferredColor, fallbackColor, config }) {
+    const normalizeColor = (v) => {
+        const s = String(v || '').toLowerCase().trim();
+        if (!s) return '';
+        if (s === 'branco') return 'white';
+        if (s.startsWith('w')) return 'white';
+        if (s.startsWith('r')) return 'red';
+        // "branco" não é black
+        if (s.startsWith('b') && s !== 'branco') return 'black';
+        return s;
+    };
+    const oppositeRB = (c) => (c === 'red' ? 'black' : (c === 'black' ? 'red' : c));
+    const clamp01Local = (x) => Math.max(0, Math.min(1, Number(x) || 0));
+    const fmtPct = (x) => `${(clamp01Local(x) * 100).toFixed(1)}%`;
+
+    const hist = Array.isArray(history) ? history : [];
+    const cfg = (config && typeof config === 'object') ? config : analyzerConfig;
+    const ph = String(phase || '').toUpperCase().trim() || 'G1';
+    const stageNumber = getMartingaleStageNumber(ph) || 1;
+    const { maxGales } = getMartingaleSettings('diamond', cfg);
+
+    // 1) N4 (re-análise para o GALE)
+    const n4Res = pickN4DynamicGaleResult({
+        history: hist,
+        config: cfg,
+        stageNumber,
+        maxGales,
+        forcePick: true
+    });
+
+    const pref = normalizeColor(preferredColor) || (n4Res && n4Res.color ? normalizeColor(n4Res.color) : '');
+    const fallback = normalizeColor(fallbackColor);
+    let chosen = (pref === 'red' || pref === 'black' || pref === 'white') ? pref : (fallback || 'red');
+
+    // 2) Validar N9/N10 para a cor candidata do GALE
+    const n9Enabled = isDiamondLevelEnabled('N9', cfg);
+    const n10Enabled = isDiamondLevelEnabled('N10', cfg);
+    const n9Window = (cfg === analyzerConfig)
+        ? getDiamondWindow('n8Barrier', 50)
+        : getDiamondWindowFromConfig(cfg, 'n8Barrier', 50);
+    const n10History = (cfg === analyzerConfig)
+        ? getDiamondWindow('n10History', 2000)
+        : getDiamondWindowFromConfig(cfg, 'n10History', 2000);
+
+    const evalBarriers = (color) => {
+        const c = normalizeColor(color);
+        const n9 = n9Enabled ? validateSequenceBarrier(hist, c, n9Window, null) : { allowed: true, reason: 'disabled', currentStreak: 0, targetStreak: 0, maxStreakFound: 0 };
+        const n10 = n10Enabled ? validateN10IntelligentBarrier(hist, c, { historySize: n10History, minOccurrences: 4 }) : { allowed: true, reason: 'disabled', details: 'DESATIVADO' };
+        const allowed = !!(n9 && n9.allowed !== false) && !!(n10 && n10.allowed !== false);
+        return { allowed, n9, n10 };
+    };
+
+    let barriers = evalBarriers(chosen);
+    // Se a cor preferida foi bloqueada (principalmente quando mudou), tentar fallback (cor anterior).
+    if (!barriers.allowed && fallback && fallback !== chosen && (chosen === 'red' || chosen === 'black')) {
+        const tryFallback = evalBarriers(fallback);
+        if (tryFallback.allowed) {
+            chosen = fallback;
+            barriers = tryFallback;
+        }
+    }
+    // Último recurso: tentar o oposto (evita travar em uma cor que excedeu limite).
+    if (!barriers.allowed && (chosen === 'red' || chosen === 'black')) {
+        const alt = oppositeRB(chosen);
+        const tryAlt = evalBarriers(alt);
+        if (tryAlt.allowed) {
+            chosen = alt;
+            barriers = tryAlt;
+        }
+    }
+
+    const blockedAll = !barriers.allowed;
+
+    // 3) Construir reasoning compatível com o parser da UI (content.js)
+    const intensityLabel = (cfg && cfg.signalIntensity === 'conservative') ? 'Conservador' : 'Agressivo';
+    const p1 = (n4Res && typeof n4Res.p1 === 'number') ? clamp01Local(n4Res.p1) : null;
+    const p2 = (n4Res && typeof n4Res.p2 === 'number') ? clamp01Local(n4Res.p2) : null;
+    const p3 = (n4Res && typeof n4Res.p3 === 'number') ? clamp01Local(n4Res.p3) : null;
+    const confidencePct = (p1 != null) ? Math.round(p1 * 1000) / 10 : 0; // 1 casa
+    const scoreCombined = (p1 != null) ? confidencePct : 0;
+
+    const n4Line = (() => {
+        const p1Txt = p1 != null ? fmtPct(p1) : 'n/d';
+        const p2Txt = p2 != null ? fmtPct(p2) : 'n/d';
+        const p3Txt = p3 != null ? fmtPct(p3) : 'n/d';
+        const strengthTxt = p1 != null ? `${Math.round(p1 * 100)}%` : '0%';
+        const detail = `P1 ${p1Txt} • P2 ${p2Txt} • P3 ${p3Txt}`;
+        return `N4 - Autointeligente → ${String(chosen).toUpperCase()} (${strengthTxt} • ${detail})`;
+    })();
+
+    const n9Line = (() => {
+        if (!n9Enabled) return `N9 - Barreira Final → DESATIVADO`;
+        const n9 = barriers.n9 || {};
+        const cur = Number(n9.currentStreak ?? 0);
+        const target = Number(n9.targetStreak ?? 0);
+        const maxHist = Number(n9.maxStreakFound ?? 0);
+        const status = (n9.allowed !== false) ? '✅ APROVADO' : '🚫 BLOQUEADO';
+        return `N9 - Barreira Final → ${status} (Atual ${cur} • alvo ${target} • máx ${maxHist}${n9.gapRuleBlocked ? ' (sem folga)' : ''})`;
+    })();
+
+    const n10Line = (() => {
+        if (!n10Enabled) return `N10 - Barreira Inteligente → DESATIVADO`;
+        const n10 = barriers.n10 || {};
+        const status = (n10.allowed !== false) ? '✅ APROVADO' : '🚫 BLOQUEADO';
+        const detail = (typeof n10.details === 'string' && n10.details.trim()) ? n10.details.trim() : status;
+        // ✅ N10 é BARREIRA: mostrar APROVADO/BLOQUEADO (igual N9), sem "Voto:".
+        return `N10 - Barreira Inteligente → ${detail}`;
+    })();
+
+    const reasoning =
+        `${n4Line}\n` +
+        `${n9Line}\n` +
+        `${n10Line}\n` +
+        `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+        `Modo: ${intensityLabel}\n` +
+        `Score combinado: ${Number(scoreCombined || 0).toFixed(1)}%\n` +
+        `DECISÃO: ${String(chosen).toUpperCase()}\n` +
+        `Confiança: ${Number(confidencePct || 0).toFixed(1)}%`;
+
+    // 4) Montar payload estruturado (AI_ANALYSIS) – é isso que a UI renderiza no topo
+    const last10Spins = hist.slice(0, 10).map(spin => ({
+        color: spin.color,
+        number: spin.number,
+        timestamp: spin.timestamp
+    }));
+    const aiDescriptionData = {
+        type: 'AI_ANALYSIS',
+        color: chosen,
+        confidence: Number(confidencePct || 0),
+        diamondSourceLevel: 'N4',
+        last10Spins,
+        last5Spins: last10Spins.slice(0, 10),
+        reasoning,
+        historySize: Math.min(Math.max(cfg.aiHistorySize || 50, 20), hist.length),
+        galePhase: ph
+    };
+
+    return {
+        blockedAll,
+        chosenColor: chosen,
+        n4Res,
+        n9: barriers.n9,
+        n10: barriers.n10,
+        confidencePct: Number(confidencePct || 0),
+        reasoning,
+        patternDescription: JSON.stringify(aiDescriptionData)
+    };
+}
 
 function calculateGaleConfidenceValue(baseConfidence = 0, analysis = null, state = martingaleState, options = null) {
     const round1 = (value) => Math.round(Number(value) * 10) / 10;
@@ -4483,13 +4635,11 @@ async function processNewSpinFromServer(spinData) {
                                 ? ensureMartingaleCycleConfig(snapshotAutoBetConfig(analyzerConfig))
                                 : snapshotAutoBetConfig(analyzerConfig);
                             const betColor = currentAnalysis.color;
-                            // ✅ UI/Histórico: manter a confiança ORIGINAL do sinal de entrada (não a confiança recalculada do GALE)
-                            const entryAnalysisForUI = (martingaleState && martingaleState.active && martingaleState.analysisData)
-                                ? martingaleState.analysisData
-                                : currentAnalysis;
+                            // ✅ UI/Relatório: cada fase (Entrada/G1/G2) deve mostrar o raciocínio/cor daquela tentativa.
+                            const entryAnalysisForUI = currentAnalysis;
                             const entryConfidenceForUI = (entryAnalysisForUI && typeof entryAnalysisForUI.confidence === 'number' && Number.isFinite(entryAnalysisForUI.confidence))
                                 ? entryAnalysisForUI.confidence
-                                : ((typeof currentAnalysis.confidence === 'number' && Number.isFinite(currentAnalysis.confidence)) ? currentAnalysis.confidence : 0);
+                                : 0;
                             const payoutMultiplier = getPayoutMultiplierForBetColor(betColor, cycleAutoBetCfg);
                             const stakeAmount = calcStakeForStage(martingaleStage, cycleAutoBetCfg);
                             const cycleId = (martingaleState && martingaleState.active && martingaleState.entryTimestamp)
@@ -4985,7 +5135,8 @@ async function processNewSpinFromServer(spinData) {
                                 // ✅ N4 (Autointeligente): permitir re-análise no Gale (G1) quando estiver rodando "só N4"
                                 // ⚪ Branco: NÃO mudar cor em gales — respeitar configuração exclusiva do Branco.
                                 let g1Color = currentAnalysis.color;
-                                if (normalizeSimpleBetColor(currentAnalysis.color) !== 'white' && shouldUseN4DynamicGalesForConfig(analyzerConfig)) {
+                                let g1DiamondPhase = null;
+                                if (analyzerConfig.aiMode && normalizeSimpleBetColor(currentAnalysis.color) !== 'white' && shouldUseN4DynamicGalesForConfig(analyzerConfig)) {
                                     const picked = pickN4DynamicGaleColor({
                                         history: cachedHistory,
                                         config: analyzerConfig,
@@ -4994,6 +5145,17 @@ async function processNewSpinFromServer(spinData) {
                                         forcePick: true
                                     });
                                     if (picked) g1Color = picked;
+                                    // ✅ Recriar raciocínio/níveis para o GALE (para UI e relatório)
+                                    g1DiamondPhase = buildDiamondGalePhaseAnalysis({
+                                        history: cachedHistory,
+                                        phase: 'G1',
+                                        preferredColor: g1Color,
+                                        fallbackColor: currentAnalysis.color,
+                                        config: analyzerConfig
+                                    });
+                                    if (g1DiamondPhase && g1DiamondPhase.chosenColor) {
+                                        g1Color = g1DiamondPhase.chosenColor;
+                                    }
                                 }
                                 
                                 // ⚠️ CRÍTICO: Registrar LOSS da ENTRADA antes de tentar G1
@@ -5072,6 +5234,15 @@ async function processNewSpinFromServer(spinData) {
                                     const g1Analysis = {
                                         ...currentAnalysis,
                                         color: g1Color,
+                                        // ✅ Diamante: atualizar o patternDescription para refletir o GALE (N4+N9+N10 do momento)
+                                        ...(analyzerConfig.aiMode && g1DiamondPhase && typeof g1DiamondPhase.patternDescription === 'string'
+                                            ? {
+                                                confidence: Number(g1DiamondPhase.confidencePct || 0),
+                                                probability: Number(g1DiamondPhase.confidencePct || 0),
+                                                diamondSourceLevel: 'N4',
+                                                patternDescription: g1DiamondPhase.patternDescription
+                                            }
+                                            : {}),
                                         phase: 'G1',
                                         predictedFor: 'next',
                                         createdOnTimestamp: latestSpin.created_at  // ✅ Usar giro atual
@@ -5113,6 +5284,14 @@ async function processNewSpinFromServer(spinData) {
                                     const g1Analysis = {
                                         ...currentAnalysis,
                                         color: g1Color,
+                                        ...(analyzerConfig.aiMode && g1DiamondPhase && typeof g1DiamondPhase.patternDescription === 'string'
+                                            ? {
+                                                confidence: Number(g1DiamondPhase.confidencePct || 0),
+                                                probability: Number(g1DiamondPhase.confidencePct || 0),
+                                                diamondSourceLevel: 'N4',
+                                                patternDescription: g1DiamondPhase.patternDescription
+                                            }
+                                            : {}),
                                         phase: 'G1',
                                         predictedFor: 'next',
                                         createdOnTimestamp: latestSpin.created_at // ✅ usar o giro atual para avaliar no próximo
@@ -5329,6 +5508,7 @@ async function processNewSpinFromServer(spinData) {
                                 console.log(`║  currentAnalysis.color: ${currentAnalysis.color}                        ║`);
 
                                 let nextGaleColor = martingaleState.currentColor || martingaleState.entryColor || currentAnalysis.color;
+                                let nextGaleDiamondPhase = null;
                                 // ⚪ Branco: NÃO mudar cor em gales — respeitar configuração exclusiva do Branco.
                                 if (normalizeSimpleBetColor(martingaleState.entryColor || currentAnalysis.color) !== 'white' && shouldUseN4DynamicGalesForConfig(analyzerConfig)) {
                                     const picked = pickN4DynamicGaleColor({
@@ -5340,6 +5520,20 @@ async function processNewSpinFromServer(spinData) {
                                     });
                                     if (picked) nextGaleColor = picked;
                                 }
+
+                                // ✅ Diamante: recalcular raciocínio/níveis para o próximo GALE (G2...) e aplicar barreiras N9/N10 também aqui.
+                                if (analyzerConfig.aiMode && normalizeSimpleBetColor(martingaleState.entryColor || currentAnalysis.color) !== 'white' && shouldUseN4DynamicGalesForConfig(analyzerConfig)) {
+                                    nextGaleDiamondPhase = buildDiamondGalePhaseAnalysis({
+                                        history: cachedHistory,
+                                        phase: `G${nextGaleNumber}`,
+                                        preferredColor: nextGaleColor,
+                                        fallbackColor: martingaleState.currentColor || martingaleState.entryColor || currentAnalysis.color,
+                                        config: analyzerConfig
+                                    });
+                                    if (nextGaleDiamondPhase && nextGaleDiamondPhase.chosenColor) {
+                                        nextGaleColor = nextGaleDiamondPhase.chosenColor;
+                                    }
+                                }
                                 
                                 console.log(`🎯 COR CONFIRMADA PARA G${nextGaleNumber}: ${nextGaleColor}`);
                                 
@@ -5348,13 +5542,11 @@ async function processNewSpinFromServer(spinData) {
                                     { color: rollColor, number: rollNumber, timestamp: latestSpin.created_at },
                                     14
                                 );
-                                // ✅ UI/Histórico: manter a confiança ORIGINAL do sinal de entrada (não a confiança recalculada do GALE)
-                                const entryAnalysisForUI = (martingaleState && martingaleState.active && martingaleState.analysisData)
-                                    ? martingaleState.analysisData
-                                    : currentAnalysis;
+                                // ✅ UI/Relatório: cada fase deve mostrar o raciocínio/cor daquela tentativa.
+                                const entryAnalysisForUI = currentAnalysis;
                                 const entryConfidenceForUI = (entryAnalysisForUI && typeof entryAnalysisForUI.confidence === 'number' && Number.isFinite(entryAnalysisForUI.confidence))
                                     ? entryAnalysisForUI.confidence
-                                    : ((typeof currentAnalysis.confidence === 'number' && Number.isFinite(currentAnalysis.confidence)) ? currentAnalysis.confidence : 0);
+                                    : 0;
                                 const galeLossEntry = {
                                     timestamp: latestSpin.created_at,
                                     number: rollNumber,
@@ -5396,6 +5588,14 @@ async function processNewSpinFromServer(spinData) {
                                     const nextGaleAnalysis = {
                                         ...currentAnalysis,
                                         color: nextGaleColor,
+                                        ...(analyzerConfig.aiMode && nextGaleDiamondPhase && typeof nextGaleDiamondPhase.patternDescription === 'string'
+                                            ? {
+                                                confidence: Number(nextGaleDiamondPhase.confidencePct || 0),
+                                                probability: Number(nextGaleDiamondPhase.confidencePct || 0),
+                                                diamondSourceLevel: 'N4',
+                                                patternDescription: nextGaleDiamondPhase.patternDescription
+                                            }
+                                            : {}),
                                         phase: `G${nextGaleNumber}`,
                                         predictedFor: 'next',
                                         createdOnTimestamp: latestSpin.created_at
@@ -5438,6 +5638,14 @@ async function processNewSpinFromServer(spinData) {
                                     const nextGaleAnalysis = {
                                         ...currentAnalysis,
                                         color: nextGaleColor,
+                                        ...(analyzerConfig.aiMode && nextGaleDiamondPhase && typeof nextGaleDiamondPhase.patternDescription === 'string'
+                                            ? {
+                                                confidence: Number(nextGaleDiamondPhase.confidencePct || 0),
+                                                probability: Number(nextGaleDiamondPhase.confidencePct || 0),
+                                                diamondSourceLevel: 'N4',
+                                                patternDescription: nextGaleDiamondPhase.patternDescription
+                                            }
+                                            : {}),
                                         phase: `G${nextGaleNumber}`,
                                         predictedFor: 'next',
                                         createdOnTimestamp: latestSpin.created_at
@@ -7369,7 +7577,8 @@ function getN4SelfLearningStatsForKey(key) {
         const recentWins = recent.filter(Boolean).length;
         const recentWinRate = recentN > 0 ? (recentWins / recentN) : null;
         const totalWinRate = total > 0 ? (wins / total) : null;
-        return { total, wins, losses, recentN, recentWins, recentWinRate, totalWinRate, lastTs: row.lastTs || null };
+        // ✅ incluir `recent` para permitir detecção de streak (N4 usa isso para swap/bloqueio)
+        return { total, wins, losses, recent: recent.slice(), recentN, recentWins, recentWinRate, totalWinRate, lastTs: row.lastTs || null };
     } catch (_) {
         return null;
     }
@@ -12171,6 +12380,149 @@ function validateSequenceBarrier(history, predictedColor, configuredSize, altern
 }
 
 /**
+ * N10: Barreira Inteligente (8-10 giros)
+ * - NÃO vota cor. Apenas libera/bloqueia o sinal (como o N9), usando micro-leitura dos últimos 8–10 giros.
+ * - Estratégia: n-gram (8..10) + baseline do histórico (com suavização) => bloqueia quando há evidência forte contra a cor candidata.
+ *
+ * Observações:
+ * - Fail-open quando não há amostra suficiente (não bloqueia por falta de dados).
+ * - WHITE: por padrão, não bloqueia (N0 já controla o branco).
+ */
+function validateN10IntelligentBarrier(history, candidateColor, options = {}) {
+    try {
+        const cand = normalizeSpinColorValue(candidateColor) || normalizeColorName(candidateColor);
+        if (!cand) {
+            return { allowed: true, reason: 'invalid_color', details: 'APROVADO • cor inválida', meta: null };
+        }
+
+        // ✅ Não atrapalhar sinais de WHITE: o N0 já é o responsável por filtrar/autorizar.
+        if (cand === 'white') {
+            return { allowed: true, reason: 'white_skip', details: 'APROVADO • white', meta: { skipped: true } };
+        }
+
+        const maxHistory = Math.max(120, Math.min(4000, Math.floor(Number(options.historySize) || 2000)));
+        const trimmed = Array.isArray(history) ? history.slice(0, maxHistory) : [];
+        const chronological = trimmed.slice().reverse(); // antigo -> recente
+        const sequence = chronological.map(normalizeSpinColorValue).filter(Boolean);
+
+        // Precisamos de pelo menos (10 + 1) para ter "próximo giro" após a janela.
+        if (sequence.length < 12) {
+            return {
+                allowed: true,
+                reason: 'insufficient_history',
+                details: `APROVADO • histórico insuficiente (${sequence.length} giros)`,
+                meta: { available: sequence.length }
+            };
+        }
+
+        // Baseline do histórico (para detectar quando a janela está "pior que aleatório")
+        const baseCounts = { red: 0, black: 0, white: 0 };
+        for (const c of sequence) {
+            if (c === 'red' || c === 'black' || c === 'white') baseCounts[c] += 1;
+        }
+        const baseTotal = baseCounts.red + baseCounts.black + baseCounts.white;
+        const baseRate = baseTotal > 0 ? (baseCounts[cand] / baseTotal) : 0;
+
+        const lengths = [10, 9, 8].filter((L) => sequence.length > L);
+        if (lengths.length === 0) {
+            return {
+                allowed: true,
+                reason: 'insufficient_history',
+                details: `APROVADO • histórico insuficiente (${sequence.length} giros)`,
+                meta: { available: sequence.length }
+            };
+        }
+
+        // Suavização Dirichlet simples (evita 0%/100% com pouca amostra)
+        const prior = { red: 1, black: 1, white: 0.5 };
+        const priorTotal = prior.red + prior.black + prior.white;
+
+        const candidates = lengths.map((L) => {
+            const targetWindow = sequence.slice(sequence.length - L);
+            const stats = computeNgramStats(sequence, targetWindow, L);
+            const total = Number(stats && stats.total) || 0;
+            const counts = stats && stats.counts ? stats.counts : { red: 0, black: 0, white: 0 };
+            const post = {
+                red: ((Number(counts.red) || 0) + prior.red) / (total + priorTotal),
+                black: ((Number(counts.black) || 0) + prior.black) / (total + priorTotal),
+                white: ((Number(counts.white) || 0) + prior.white) / (total + priorTotal)
+            };
+
+            let leader = 'red';
+            let leaderP = post.red;
+            if (post.black > leaderP) { leader = 'black'; leaderP = post.black; }
+            if (post.white > leaderP) { leader = 'white'; leaderP = post.white; }
+
+            const candP = post[cand] || 0;
+            const gap = leaderP - candP;
+            return { L, total, counts, post, leader, leaderP, candP, gap };
+        });
+
+        // Preferir a maior janela (L=10→8) que tenha amostra mínima; senão, usar a que mais apareceu.
+        const minOcc = Math.max(2, Math.min(20, Math.floor(Number(options.minOccurrences) || 4)));
+        let chosen = candidates.find((r) => r.total >= minOcc);
+        if (!chosen) {
+            chosen = candidates.slice().sort((a, b) => b.total - a.total)[0];
+        }
+
+        if (!chosen || chosen.total <= 0) {
+            return {
+                allowed: true,
+                reason: 'no_precedent',
+                details: 'APROVADO • sem precedente (8-10)',
+                meta: { baseRate, baseCounts, candidates }
+            };
+        }
+
+        // Regras de bloqueio (somente quando há evidência razoável)
+        const evidence = chosen.total;
+        const MIN_EVIDENCE_BLOCK = 8;
+        const GAP_BLOCK = 0.10;   // 10pp de vantagem do líder sobre a cor candidata
+        const LIFT_BLOCK = 0.95;  // abaixo de 95% do baseline do próprio histórico
+
+        let allowed = true;
+        let reason = 'ok';
+        if (evidence >= MIN_EVIDENCE_BLOCK) {
+            if (chosen.leader !== cand && chosen.gap >= GAP_BLOCK) {
+                allowed = false;
+                reason = 'ngram_opposes';
+            } else if (baseRate > 0 && chosen.candP < baseRate * LIFT_BLOCK) {
+                allowed = false;
+                reason = 'below_baseline';
+            }
+        } else {
+            // pouca evidência => não bloquear (fail-open)
+            reason = 'low_evidence';
+        }
+
+        const pct = (x) => `${(Number(x || 0) * 100).toFixed(1)}%`;
+        const colorPt = (c) => (c === 'red' ? 'Vermelho' : c === 'black' ? 'Preto' : c === 'white' ? 'Branco' : String(c || '—'));
+        // ⚠️ Importante (UI): NÃO usar tokens RED/BLACK/WHITE no texto,
+        // senão o painel interpreta como "Voto: cor" (N10 é barreira, não votante).
+        const details =
+            `${allowed ? 'APROVADO' : 'BLOQUEADO'} • ` +
+            `L=${chosen.L} • occ=${chosen.total} • ` +
+            `P(${colorPt(cand)})=${pct(chosen.candP)} • ` +
+            `líder=${colorPt(chosen.leader)}(${pct(chosen.leaderP)}) • ` +
+            `gap=${pct(chosen.gap)} • base=${pct(baseRate)}`;
+
+        return {
+            allowed,
+            reason,
+            details,
+            meta: { chosen, baseRate, baseCounts, candidates }
+        };
+    } catch (error) {
+        return {
+            allowed: true,
+            reason: 'internal_error',
+            details: 'APROVADO • erro interno',
+            meta: { error: error && error.message ? error.message : String(error) }
+        };
+    }
+}
+
+/**
  * NÍVEL 3: Alternância (REAL) — simples/dupla/tripla
  *
  * Definição (sem branco):
@@ -12941,6 +13293,16 @@ function shouldUseN4DynamicGalesForConfig(config = analyzerConfig) {
 
 function pickN4DynamicGaleColor({ history, config, stageNumber, maxGales, forcePick = true }) {
     try {
+        const res = pickN4DynamicGaleResult({ history, config, stageNumber, maxGales, forcePick });
+        return res && res.color ? res.color : null;
+    } catch (_) {
+        return null;
+    }
+}
+
+// ✅ Retorna o OBJETO completo do N4 (não só a cor) para auditoria/UI do GALE.
+function pickN4DynamicGaleResult({ history, config, stageNumber, maxGales, forcePick = true }) {
+    try {
         if (!shouldUseN4DynamicGalesForConfig(config)) return null;
         const historyRef = Array.isArray(history) ? history : [];
         if (!historyRef.length) return null;
@@ -12957,9 +13319,10 @@ function pickN4DynamicGaleColor({ history, config, stageNumber, maxGales, forceP
             signalIntensity: (config && config.signalIntensity) || 'aggressive',
             whiteProtectionAsWin: !!(config && config.whiteProtectionAsWin),
             dynamicGales: true,
-            forcePick: !!forcePick
+            forcePick: !!forcePick,
+            n4SelfLearning: (signalsHistory && signalsHistory.n4SelfLearning) ? signalsHistory.n4SelfLearning : null
         });
-        return n4 && n4.color ? n4.color : null;
+        return (n4 && typeof n4 === 'object') ? n4 : null;
     } catch (_) {
         return null;
     }
@@ -13057,6 +13420,200 @@ function analyzeAutointeligente(history, options = {}) {
         };
     }
 
+    // ═══════════════════════════════════════════════════════════════
+    // ✅ P1 (maxGales=0): modo "pente fino" (detecção explícita de sequência/alternância)
+    // Objetivo: melhorar assertividade na 1ª entrada evitando “chute”.
+    // Estratégia:
+    // - Medir estatísticas por padrão (streak/alternância) dentro do próprio histórico atual
+    // - Só liberar quando houver evidência mínima + lift acima do baseline
+    // - N4 não recomenda WHITE por padrão (N0 é o responsável pelo branco)
+    // ═══════════════════════════════════════════════════════════════
+    if (maxGalesConfigured === 0 && !(options && options.legacyP1Only === true)) {
+        try {
+            // Baseline (histórico atual)
+            const baseCountsLocal = { R: 0, B: 0, W: 0 };
+            for (const t of tokens) {
+                if (t === 'R') baseCountsLocal.R++;
+                else if (t === 'B') baseCountsLocal.B++;
+                else if (t === 'W') baseCountsLocal.W++;
+            }
+            const baseTotalLocal = baseCountsLocal.R + baseCountsLocal.B + baseCountsLocal.W;
+            const baseP = {
+                R: baseTotalLocal ? (baseCountsLocal.R / baseTotalLocal) : 0,
+                B: baseTotalLocal ? (baseCountsLocal.B / baseTotalLocal) : 0,
+                W: baseTotalLocal ? (baseCountsLocal.W / baseTotalLocal) : 0
+            };
+
+            // RunLen/AltLen por índice (cronológico)
+            const runLen = new Array(tokens.length).fill(0);
+            const altLen = new Array(tokens.length).fill(0);
+            let prevTok = null;
+            let prevRun = 0;
+            let prevAlt = 0;
+            for (let i = 0; i < tokens.length; i++) {
+                const t = tokens[i];
+                if (t === 'W') {
+                    runLen[i] = 0;
+                    altLen[i] = 0;
+                    prevTok = 'W';
+                    prevRun = 0;
+                    prevAlt = 0;
+                    continue;
+                }
+                if (t !== 'R' && t !== 'B') {
+                    runLen[i] = 0;
+                    altLen[i] = 0;
+                    prevTok = null;
+                    prevRun = 0;
+                    prevAlt = 0;
+                    continue;
+                }
+                // streak
+                const r = (prevTok === t) ? (prevRun + 1) : 1;
+                // alternância
+                const a = (prevTok === 'R' || prevTok === 'B')
+                    ? ((prevTok !== t) ? (prevAlt + 1) : 1)
+                    : 1;
+                runLen[i] = r;
+                altLen[i] = a;
+                prevTok = t;
+                prevRun = r;
+                prevAlt = a;
+            }
+
+            const bump = (map, key, nextTok) => {
+                const row = map.get(key) || { total: 0, R: 0, B: 0, W: 0 };
+                row.total += 1;
+                if (nextTok === 'R') row.R += 1;
+                else if (nextTok === 'B') row.B += 1;
+                else if (nextTok === 'W') row.W += 1;
+                map.set(key, row);
+            };
+
+            const maxBucket = 6;
+            const runMap = new Map(); // key `${len}|${lastTok}`
+            const altMap = new Map(); // key `${len}|${lastTok}`
+            for (let i = 0; i < tokens.length - 1; i++) {
+                const last = tokens[i];
+                const next = tokens[i + 1];
+                if (last !== 'R' && last !== 'B') continue;
+                if (next !== 'R' && next !== 'B' && next !== 'W') continue;
+                const rl = Math.min(maxBucket, Math.max(0, runLen[i] || 0));
+                const al = Math.min(maxBucket, Math.max(0, altLen[i] || 0));
+                if (rl >= 2) bump(runMap, `${rl}|${last}`, next);
+                if (al >= 2) bump(altMap, `${al}|${last}`, next);
+            }
+
+            const curIdx = tokens.length - 1;
+            const lastTok = tokens[curIdx];
+            if (lastTok === 'R' || lastTok === 'B') {
+                const rlCur = Math.min(maxBucket, Math.max(0, runLen[curIdx] || 0));
+                const alCur = Math.min(maxBucket, Math.max(0, altLen[curIdx] || 0));
+
+                const priorStrengthLocal = 10; // mais leve que o modelo completo (P1)
+                const zLocal = 1.282; // ~90%
+                const betaPosteriorLocal = (success, attempts, priorP) => {
+                    const p0 = clamp01(priorP);
+                    const a0 = Math.max(1e-6, p0 * priorStrengthLocal);
+                    const b0 = Math.max(1e-6, (1 - p0) * priorStrengthLocal);
+                    const a = a0 + Math.max(0, Number(success) || 0);
+                    const b = b0 + Math.max(0, (Number(attempts) || 0) - (Number(success) || 0));
+                    const mean = a / (a + b);
+                    const variance = (a * b) / (((a + b) * (a + b)) * (a + b + 1));
+                    const lcb = mean - zLocal * Math.sqrt(Math.max(0, variance));
+                    return { mean: clamp01(mean), lcb: clamp01(lcb) };
+                };
+
+                // Ajuste de seletividade:
+                // - aggressive: ainda precisa ter edge claro (melhor assertividade, menos sinais)
+                // - conservative: ainda mais rígido
+                const minCount = signalIntensity === 'conservative' ? 45 : 35;
+                const minLiftLcb = signalIntensity === 'conservative' ? 0.022 : 0.018;
+                const minLiftMean = signalIntensity === 'conservative' ? 0.040 : 0.032;
+
+                const candidates = [];
+                const considerRow = (tag, row, lenLabel) => {
+                    if (!row || !row.total || row.total < minCount) return;
+                    const stR = betaPosteriorLocal(row.R, row.total, baseP.R);
+                    const stB = betaPosteriorLocal(row.B, row.total, baseP.B);
+                    const pickTok = (stB.lcb > stR.lcb) ? 'B' : 'R';
+                    const pick = pickTok === 'B' ? stB : stR;
+                    const baseTokP = pickTok === 'B' ? baseP.B : baseP.R;
+                    const liftMean = pick.mean - baseTokP;
+                    const liftLcb = pick.lcb - baseTokP;
+                    if (liftMean < minLiftMean || liftLcb < minLiftLcb) return;
+                    candidates.push({
+                        tag,
+                        len: lenLabel,
+                        tok: pickTok,
+                        mean: pick.mean,
+                        lcb: pick.lcb,
+                        total: row.total,
+                        liftMean,
+                        liftLcb
+                    });
+                };
+
+                // ✅ Regras de ativação (P1) — focar onde o edge é mais consistente:
+                // - streak: len=3 (continuação tende a ser melhor) ou len>=5 (quebra tende a ser melhor)
+                // - alternância: len>=5 (len 2-4 tende a ser fraco)
+                if (rlCur === 3 || rlCur >= 5) considerRow('STREAK', runMap.get(`${rlCur}|${lastTok}`), rlCur);
+                if (alCur >= 5) considerRow('ALT', altMap.get(`${alCur}|${lastTok}`), alCur);
+
+                if (candidates.length) {
+                    // escolher o mais confiável (maior LCB; desempate por amostra)
+                    candidates.sort((a, b) => (b.lcb - a.lcb) || (b.total - a.total));
+                    const best = candidates[0];
+                    const color = best.tok === 'B' ? 'black' : 'red';
+                    const ctxKey = (() => {
+                        try {
+                            const limit = Math.min(maxOrder, tokens.length);
+                            const raw = tokens.slice(-limit);
+                            const lastW = raw.lastIndexOf('W');
+                            const tail = lastW >= 0 ? raw.slice(lastW) : raw;
+                            return tail.join('');
+                        } catch (_) {
+                            return '';
+                        }
+                    })();
+                    const learningKey = ctxKey
+                        ? buildN4SelfLearningKey(ctxKey, best.tok, 1, signalIntensity, learningPolicy)
+                        : null;
+                    return {
+                        color,
+                        confidence: clamp01(best.mean),
+                        p1: Number(clamp01(best.mean).toFixed(4)),
+                        p2: Number(clamp01(best.mean).toFixed(4)),
+                        p3: Number(clamp01(best.mean).toFixed(4)),
+                        pHit: Number(clamp01(best.mean).toFixed(4)),
+                        lossProb: Number(clamp01(1 - best.mean).toFixed(4)),
+                        margin: 0,
+                        requiredPHit: 0,
+                        lcb1: Number(clamp01(best.lcb).toFixed(4)),
+                        edgeLcb: Number(clamp01(best.liftLcb).toFixed(4)),
+                        pickedOrder: best.tag === 'STREAK' ? `streak${best.len}` : `alt${best.len}`,
+                        support: Number((best.total || 0).toFixed(2)),
+                        maxOrder,
+                        decayHalfLife: null,
+                        maxGalesConsidered: 0,
+                        historyUsed: tokens.length,
+                        historyConfigured: historySizeConfigured,
+                        learningKey: learningKey || null,
+                        learningContext: ctxKey || null,
+                        learningDecision: 'pattern',
+                        details:
+                            `P1 • ${best.tag} L=${best.len} • N=${best.total} • ` +
+                            `LCB ${(best.lcb * 100).toFixed(1)}% (lift ${(best.liftLcb * 100).toFixed(1)}pp) • ` +
+                            `mean ${(best.mean * 100).toFixed(1)}% • base ${( (best.tok === 'B' ? baseP.B : baseP.R) * 100).toFixed(1)}%`
+                    };
+                }
+            }
+            // Sem evidência para padrão → continuar para o modelo normal (não bloquear aqui).
+        } catch (_) {
+            // Se falhar, cai no modelo normal
+        }
+    }
+
     // ✅ Peso do momento (pedido do usuário):
     // - Os últimos ~20 giros precisam pesar MAIS QUANDO o jogo muda (mudança sutil de regime).
     // - NÃO é filtro (não reduz sinais por regra); é apenas ponderação do histórico.
@@ -13106,11 +13663,10 @@ function analyzeAutointeligente(history, options = {}) {
     const alpha = 0.6; // suavização (Laplace fracionária)
     const minSupport = 1.2; // peso mínimo para usar um contexto
 
-    // ✅ P1-only (maxGales=0): no Double real, sem vazamento de futuro, não existe "80%" no próximo giro.
-    // Se o usuário quer testar apenas 1 entrada, o N4 deve no mínimo NÃO ser pior que o baseline do próprio histórico.
-    // Estratégia: escolher a cor RB mais frequente (inclui WHITE como perda) e retornar sempre essa cor.
-    // Isso evita o caso do print (ficar abaixo do baseline por ruído de contexto).
-    if (maxGalesConfigured === 0) {
+    // ✅ (LEGACY opcional) P1-only (maxGales=0):
+    // Mantido apenas para debug/compatibilidade. Para usar, passe { legacyP1Only: true }.
+    // O N4 "novo" roda o modelo completo mesmo em 1 entrada (com política de abstenção).
+    if (maxGalesConfigured === 0 && options && options.legacyP1Only === true) {
         const plainCounts = { R: 0, B: 0, W: 0 };
         for (const t of tokens) {
             if (t === 'R') plainCounts.R++;
@@ -13350,9 +13906,11 @@ function analyzeAutointeligente(history, options = {}) {
     const base = baseDist(); // baseline global (com suavização)
     // ✅ WHITE: o N4 pode recomendar WHITE, mas só deve fazê-lo quando houver evidência forte.
     // (o filtro minWhiteLCB continua sendo o guardrail principal)
+    // ✅ No modo Diamante, WHITE é responsabilidade do N0.
+    // O N4 deve focar em RED/BLACK por padrão (evita "chute" em WHITE).
     const allowWhite = (options && Object.prototype.hasOwnProperty.call(options, 'allowWhite'))
         ? !!options.allowWhite
-        : true;
+        : false;
     const candidateList = (allowWhite ? ['R', 'B', 'W'] : ['R', 'B'])
         .slice()
         // remover viés de desempate: priorizar a cor mais provável no baseline
@@ -13548,7 +14106,9 @@ function analyzeAutointeligente(history, options = {}) {
             const strongWhite = (whiteLcb >= 0.18) && (whiteMean >= Math.max(0.10, baselineWhite + 0.05));
             bestPick = strongWhite ? bestPickRaw : (baseBestObj || bestPick);
         } else {
-            bestPick = baseBestObj || bestPick;
+            // ✅ P1: permitir que o modelo use contexto (sequência/alternância) quando houver edge,
+            // em vez de travar sempre na cor RB marginal do recorte.
+            bestPick = bestPick || baseBestObj || bestPickRaw;
         }
     }
     let marginLcb = bestPick && secondPick ? Math.max(0, (bestPick.lcb - secondPick.lcb)) : (bestPick ? bestPick.lcb : 0);
@@ -13560,10 +14120,13 @@ function analyzeAutointeligente(history, options = {}) {
     // - conservative: mantém filtros fortes (poucas entradas, mais seletivo)
     // - aggressive: volume alto (pedido do usuário: não ficar "2 dias" esperando sinal)
     //   Observação: o LCB já é um freio estatístico. Exigir "edge LCB > prior" + margem mínima derrubava quase tudo.
+    // ✅ Ajuste (2026-01): N4 mais exigente e mais “Entrada-first”.
+    // - O objetivo é reduzir “chute” e reduzir a dependência de Gale (mais acerto na 1ª entrada).
+    // - Mantém volume moderado no aggressive e baixo no conservative.
     const volumeProfile = signalIntensity === 'conservative'
-        ? { targetRate: 0.08, scoreFloor: 0.46, minMargin: 0.006, minSupport: 10, minEdge: 0.002, minWhiteLCB: 0.18, minP1Mean: 0.50 }
-        // aggressive: mais volume (pedido do usuário) sem liberar WHITE "fácil"
-        : { targetRate: 0.50, scoreFloor: 0.40, minMargin: 0.000, minSupport: 1,  minEdge: 0.000, minWhiteLCB: 0.18, minP1Mean: 0.48 };
+        ? { targetRate: 0.20, scoreFloor: 0.40, minMargin: 0.002, minSupport: 2, minEdge: 0.0010, minWhiteLCB: 0.22, minP1Mean: 0.48, minBestOrder: 1 }
+        // aggressive (volume alto): garantir entradas frequentes (sessão curta do usuário)
+        : { targetRate: 0.35, scoreFloor: 0.38, minMargin: 0.000, minSupport: 1, minEdge: 0.0000, minWhiteLCB: 0.20, minP1Mean: 0.47, minBestOrder: 1 };
 
     const computeScore = (best, second) => {
         if (!best) return { score: -1, margin: 0, edge: 0 };
@@ -13588,11 +14151,10 @@ function analyzeAutointeligente(history, options = {}) {
     };
 
     // Threshold adaptativo (calibrado por HIT real no histórico) para manter volume + qualidade.
-    // ✅ A partir daqui, HIT = "ganha o ciclo em até stepsToWin tentativas (Entrada+G1+G2)",
-    // simulando re-pick (gales dinâmicos) com base no `predict()`.
+    // ✅ Aqui, HIT = "acertou na Entrada" (próximo giro).
     const computeAdaptiveScoreThreshold = () => {
         try {
-            const end = tokens.length - 1 - stepsToWin; // precisa ter futuro suficiente para simular até G2
+            const end = tokens.length - 2; // precisa ter 1 giro no futuro (Entrada)
             if (end < 10) return volumeProfile.scoreFloor;
             const lookback = Math.max(250, Math.min(1500, end)); // 250..1500
             const start = Math.max(maxOrder, end - lookback);
@@ -13606,28 +14168,14 @@ function analyzeAutointeligente(history, options = {}) {
                 return buildTailAfterWhite(ctxArr);
             };
 
-            const simulateCycleHit = (idx, firstTok) => {
+            const simulateEntryHit = (idx, betTokRaw) => {
                 try {
-                    let betTok = firstTok && candidateList.includes(firstTok) ? firstTok : pickTokByPredict(ctxForIndex(idx));
-                    // ✅ FIXED: a cor do ciclo não muda — basta checar se ela aparece em ≤stepsToWin giros.
-                    if (!dynamicGales) {
-                        for (let s = 1; s <= stepsToWin; s++) {
-                            const actualTok = tokens[idx + s];
-                            if (!actualTok) return false;
-                            if (actualTok === betTok) return true;
-                        }
-                        return false;
-                    }
-
-                    let ctx = ctxForIndex(idx);
-                    for (let s = 1; s <= stepsToWin; s++) {
-                        const actualTok = tokens[idx + s];
-                        if (!actualTok) return false;
-                        if (actualTok === betTok) return true;
-                        ctx = buildTailAfterWhite(shiftCtx(ctx, actualTok));
-                        betTok = pickTokByPredict(ctx);
-                    }
-                    return false;
+                    const betTok = betTokRaw && candidateList.includes(betTokRaw)
+                        ? betTokRaw
+                        : pickTokByPredict(ctxForIndex(idx));
+                    const actualTok = tokens[idx + 1];
+                    if (!actualTok) return false;
+                    return actualTok === betTok;
                 } catch (_) {
                     return false;
                 }
@@ -13680,7 +14228,7 @@ function analyzeAutointeligente(history, options = {}) {
                 if (!passesNonScoreFilters(bestObj, secondObj, ev.total)) continue;
                 const s = computeScore(bestObj, secondObj).score;
                 if (!Number.isFinite(s)) continue;
-                const hit = simulateCycleHit(idx, bestObj.tok);
+                const hit = simulateEntryHit(idx, bestObj.tok);
                 samples.push({ score: s, hit: !!hit });
             }
 
@@ -13697,7 +14245,7 @@ function analyzeAutointeligente(history, options = {}) {
             const maxRate = signalIntensity === 'conservative'
                 ? Math.max(minRate, Math.min(0.90, targetRate * 1.35))
                 : Math.max(minRate, Math.min(0.90, targetRate * 1.15));
-            const kMin = Math.max(25, Math.floor(minRate * n));
+            const kMin = Math.max(signalIntensity === 'conservative' ? 14 : 20, Math.floor(minRate * n));
             const kMax = Math.max(kMin, Math.min(n, Math.ceil(maxRate * n)));
             // ✅ agressivo: penalizar mais desvio do target (para realmente entregar volume)
             const penalty = signalIntensity === 'conservative' ? 0.18 : 0.28;
@@ -13735,7 +14283,7 @@ function analyzeAutointeligente(history, options = {}) {
     // Mantém um teto para o limiar adaptativo (principalmente no perfil agressivo / N4-only),
     // evitando que uma sequência ruim faça o N4 parar de votar.
     try {
-        const capExtra = signalIntensity === 'conservative' ? 0.04 : 0.07;
+        const capExtra = signalIntensity === 'conservative' ? 0.05 : 0.07;
         const cap = Math.max(0, Math.min(1, (Number(volumeProfile.scoreFloor) || 0.40) + capExtra));
         if (Number.isFinite(cap) && cap > 0) {
             adaptiveScoreMin = Math.min(adaptiveScoreMin, cap);
@@ -13748,7 +14296,8 @@ function analyzeAutointeligente(history, options = {}) {
     let allowed = !!bestPick
         && passesNonScoreFilters(bestPick, secondPick, evidence.total)
         && (currentScore.score >= adaptiveScoreMin)
-        && (Number(bestPick.mean || 0) >= volumeProfile.minP1Mean);
+        && (Number(bestPick.mean || 0) >= volumeProfile.minP1Mean)
+        && (bestEvidenceOrder >= Math.max(1, Math.floor(Number(volumeProfile.minBestOrder) || 1)));
 
     const forcePick = !!(options && options.forcePick);
 
@@ -19919,8 +20468,9 @@ function runN8Detector(history, options = {}) {
  * Fluxo atual: 11 níveis com pontuação contínua + barreira final
  * - N0 detecta branco e pode bloquear os demais níveis
  * - N1..N7 geram votos especializados
- * - N8 valida sequência (barreira final)
- * - N9 calibra probabilidades bayesianas e ajusta a força dos demais níveis
+ * - N8 vota via walk-forward não-sobreposto
+ * - N9 é a barreira final (veto histórico)
+ * - N10 é a barreira inteligente (micro 8-10 giros)
  */
 async function analyzeWithPatternSystem(history) {
     
@@ -19977,7 +20527,7 @@ async function analyzeWithPatternSystem(history) {
             'N7 - Continuidade Global',
             'N8 - Walk-forward não sobreposto',
             'N9 - Barreira Final',
-            'N10 - Calibração Bayesiana'
+            'N10 - Barreira Inteligente (8-10 giros)'
         ].forEach(text => console.log(`   ${text}`));
         logDivider();
         logSection(`[Diamante] Configurações atuais`);
@@ -20023,7 +20573,7 @@ async function analyzeWithPatternSystem(history) {
         ['N7', `Decisões ${n7DecisionWindow} | Histórico ${n7HistoryWindow}`],
         ['N8', `Hist ${n8WalkHistory} | W ${n8WalkWindow}`],
         ['N9', `${n9BarrierWindow} giros`],
-        ['N10', `Hist ${getDiamondWindow('n10History', 500)} | W ${getDiamondWindow('n10Window', 20)}`]
+        ['N10', 'Janela 8-10 giros (barreira inteligente)']
     ].forEach(([label, detail]) => logInfo(label, detail));
     logDivider();
     
@@ -20439,7 +20989,7 @@ async function analyzeWithPatternSystem(history) {
             N7: { emoji: '📈', label: 'N7 - Continuidade Global' },
             N8: { emoji: '🔟', label: 'N8 - Walk-forward' },
             N9: { emoji: '🛑', label: 'N9 - Barreira Final' },
-            N10:{ emoji: '🧮', label: 'N10 - Calibração Bayesiana' }
+            N10:{ emoji: '🧠', label: 'N10 - Barreira Inteligente' }
         };
         const clamp01 = (value) => Math.max(0, Math.min(1, typeof value === 'number' ? value : 0));
         const directionValue = (color) => color === 'red' ? 1 : color === 'black' ? -1 : 0;
@@ -20451,8 +21001,8 @@ async function analyzeWithPatternSystem(history) {
             if (level.disabled) {
                 return `${prefix}${meta.label} → DESATIVADO`;
             }
-            // ✅ N9 é validador (não vota). Nunca deve aparecer como "NULO" — mostrar APROVADO/BLOQUEADO + resumo.
-            if (level.id === 'N9') {
+            // ✅ N9/N10 são validadores (não votam). Nunca devem aparecer como "NULO" — mostrar APROVADO/BLOQUEADO + resumo.
+            if (level.id === 'N9' || level.id === 'N10') {
                 const detail = level.details ? String(level.details) : 'APROVADO';
                 return `${prefix}${meta.label} → ${detail}`;
             }
@@ -20795,6 +21345,14 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
                     return { id, message: `${friendlyName}: ${status}` };
                 }
 
+                if (id === 'N10') {
+                    if (!enabled) {
+                        return { id, message: `${friendlyName}: DESATIVADO` };
+                    }
+                    const detail = level && level.details ? String(level.details) : 'APROVADO';
+                    return { id, message: `${friendlyName}: ${detail}` };
+                }
+
                 if (!enabled) {
                     return { id, message: `${friendlyName}: DESATIVADO` };
                 }
@@ -20816,7 +21374,7 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
             }
         };
 
-        // N10 - Walk-forward (votante especializado baseado em janelas não-sobrepostas)
+        // N8 - Walk-forward (votante especializado baseado em janelas não-sobrepostas)
         const n8Enabled = isLevelEnabledLocal('N8');
         let n8SummaryText = null;
         if (!n8Enabled) {
@@ -21098,68 +21656,26 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
             disabled: !n7Enabled
 		});
 
+        // N10 - Barreira Inteligente (validador: NÃO vota)
         const n10Enabled = isLevelEnabledLocal('N10');
-        let bayesResult = null;
+        let n10BarrierResult = null; // preenchido mais adiante (após consenso)
         if (!n10Enabled) {
-            console.log('%c║  🧮 N10 - CALIBRAÇÃO BAYESIANA DESATIVADA (pelo usuário) ║', 'color: #777777; font-weight: bold; font-size: 14px;');
+            console.log('%c║  🧠 N10 - BARREIRA INTELIGENTE DESATIVADA (pelo usuário) ║', 'color: #777777; font-weight: bold; font-size: 14px;');
         } else {
-            console.log('%c║  🧮 N10 - CALIBRAÇÃO BAYESIANA (PROBABILIDADES)         ║', 'color: #1ABC9C; font-weight: bold; font-size: 14px;');
-        const bayesHistoryConfigured = Math.max(30, Math.min(400, getDiamondWindow('n9History', 100)));
-        const bayesNullThresholdConfigured = Math.max(2, Math.min(20, getDiamondWindow('n9NullThreshold', 8)));
-        const bayesPriorStrengthConfigured = Math.max(0.2, Math.min(5, getDiamondWindow('n9PriorStrength', 1)));
-        const bayesPriorConfig = {
-            red: bayesPriorStrengthConfigured,
-            black: bayesPriorStrengthConfigured,
-            white: Math.max(0.1, bayesPriorStrengthConfigured * 0.5)
-        };
-            bayesResult = analyzeBayesianCalibration(
-            history,
-            bayesHistoryConfigured,
-            bayesPriorConfig,
-            bayesNullThresholdConfigured / 100
-        );
-
-        console.log(`%c   Histórico base: ${bayesResult.totalSamples}/${bayesHistoryConfigured} giros (cobertura ${(bayesResult.coverage * 100).toFixed(0)}%)`, 'color: #1ABC9C;');
-        console.log(`%c   Probabilidades → 🔴 ${(bayesResult.probabilities.red * 100).toFixed(1)}% | ⚫ ${(bayesResult.probabilities.black * 100).toFixed(1)}% | ⚪ ${(bayesResult.probabilities.white * 100).toFixed(2)}%`, 'color: #1ABC9C;');
-        console.log(`%c   Diferença líder: ${(bayesResult.gap * 100).toFixed(1)}% (limiar ${bayesNullThresholdConfigured.toFixed(1)}%)`, 'color: #1ABC9C;');
-        if (!bayesResult.color) {
-            console.log('%c   🛑 VOTO NULO: Probabilidades próximas ou cobertura baixa', 'color: #FFAA00; font-weight: bold;');
-        } else {
-            console.log(`%c   🗳️ VOTA: ${bayesResult.color.toUpperCase()} • Força ${(Math.round((bayesResult.strength || 0) * 100))}%`, 'color: #1ABC9C; font-weight: bold;');
-            }
+            console.log('%c║  🧠 N10 - BARREIRA INTELIGENTE (8-10 GIROS)             ║', 'color: #00FFFF; font-weight: bold; font-size: 14px;');
         }
 
-        if (n10Enabled && bayesResult && bayesResult.adjustments) {
-            levelReports.forEach(level => {
-                if (!level.color) return;
-                const factor = bayesResult.adjustments[level.color] ?? 1;
-                const originalStrength = level.strength;
-                const adjustedStrength = clamp01((level.strength || 0) * factor);
-                level.strength = adjustedStrength;
-                level.score = directionValue(level.color) * adjustedStrength;
-                if (level.details) {
-                    const factorPct = Math.round(factor * 100);
-                    if (factorPct !== 100) {
-                        level.details += ` • N9 ${factorPct}%`;
-                    }
-                }
-                console.log(`%c   • Ajuste N9 ${level.id}: fator ${(factor * 100).toFixed(0)}% (de ${(originalStrength * 100).toFixed(0)}% → ${(adjustedStrength * 100).toFixed(0)}%)`, 'color: #1ABC9C;');
-            });
-        }
-
-        // ✅ CORREÇÃO: N10 é apenas calibrador, NÃO vota sozinho
-        // Ele ajusta a força dos outros níveis, mas não gera voto próprio
-        const bayesStrength = clamp01(bayesResult && bayesResult.strength ? bayesResult.strength : 0);
-        levelReports.push({
+        const n10Report = {
             id: 'N10',
-            name: 'Calibração Bayesiana',
-            color: null, // ✅ N10 nunca vota, apenas calibra outros níveis
-            weight: 0, // ✅ Peso zero = não participa da votação
-            strength: 0, // ✅ Força zero = não influencia diretamente
-            score: 0, // ✅ Score zero = não vota
-            details: n10Enabled ? bayesResult.details : 'DESATIVADO',
+            name: 'Barreira Inteligente',
+            color: null, // ✅ N10 não vota cor
+            weight: 0,   // ✅ não participa da votação
+            strength: 0,
+            score: 0,
+            details: n10Enabled ? 'PENDENTE' : 'DESATIVADO',
             disabled: !n10Enabled
-        });
+        };
+        levelReports.push(n10Report);
 
         // 🔥 NOVA LÓGICA: Alternância precisa de pelo menos 2 outros níveis concordando
         let alternanceOverride = false;
@@ -22269,6 +22785,36 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
             return null;
         }
 
+        // ═══════════════════════════════════════════════════════════════
+        // 🧠 N10 - BARREIRA INTELIGENTE (8-10 GIROS)
+        // - NÃO vota cor. Só libera/bloqueia o sinal do consenso.
+        // - Deve rodar ANTES do modo Conservador (para bloquear também no Agressivo).
+        // ═══════════════════════════════════════════════════════════════
+        if (n10Enabled) {
+            try {
+                const n10HistoryCap = Math.max(120, Math.min(2000, history.length || 0));
+                n10BarrierResult = validateN10IntelligentBarrier(history, consensusColor, { historySize: n10HistoryCap });
+                if (n10Report) {
+                    n10Report.details = n10BarrierResult && n10BarrierResult.details ? n10BarrierResult.details : 'APROVADO';
+                }
+                if (n10BarrierResult && n10BarrierResult.allowed === false) {
+                    console.log('%c🚫🚫🚫 SINAL BLOQUEADO PELO N10 (BARREIRA INTELIGENTE)! 🚫🚫🚫', 'color: #FFFFFF; font-weight: bold; font-size: 16px; background: #FF0000;');
+                    await emitLevelStatuses(levelReports, { force: true });
+                    sendAnalysisStatus(`N10 - Barreira Inteligente: BLOQUEADO (${n10BarrierResult.details || 'sem detalhes'})`);
+                    await sleep(2000);
+                    await restoreIAStatus();
+                    return null;
+                }
+            } catch (e) {
+                // Fail-open: em caso de erro interno, não bloquear sinal
+                n10BarrierResult = { allowed: true, reason: 'internal_error', details: 'APROVADO • erro interno' };
+                if (n10Report) n10Report.details = n10BarrierResult.details;
+            }
+        } else {
+            n10BarrierResult = { allowed: true, reason: 'disabled', details: 'DESATIVADO' };
+            if (n10Report) n10Report.details = 'DESATIVADO';
+        }
+
         if (signalIntensity === 'conservative') {
             if (voteCounts[consensusColor] < 5) {
                 console.log(`%c❌ Conservador: apenas ${voteCounts[consensusColor]}/5 votos para ${consensusColor.toUpperCase()}.`, 'color: #FF6666; font-weight: bold;');
@@ -22294,10 +22840,16 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
                 return null;
             }
 
-            const bayesApproves = n10Enabled && bayesResult && bayesResult.color && bayesResult.color === consensusColor;
-            if (!n10Enabled || !bayesApproves) {
-                console.log('%c❌ Conservador: Calibração Bayesiana (N10) não autorizou.', 'color: #FF6666; font-weight: bold;');
-                sendAnalysisStatus('❌ Conservador: N10 não autorizou');
+            if (!n10Enabled) {
+                console.log('%c❌ Conservador: Barreira Inteligente (N10) precisa estar ativa.', 'color: #FF6666; font-weight: bold;');
+                sendAnalysisStatus('❌ Conservador: ative a Barreira Inteligente (N10)');
+                await sleep(2000);
+                await restoreIAStatus();
+                return null;
+            }
+            if (n10BarrierResult && n10BarrierResult.allowed === false) {
+                console.log('%c❌ Conservador: N10 bloqueou o sinal.', 'color: #FF6666; font-weight: bold;');
+                sendAnalysisStatus('❌ Conservador: N10 bloqueou');
                 await sleep(2000);
                 await restoreIAStatus();
                 return null;
@@ -35261,45 +35813,20 @@ function analyzeDiamondLevelsSimulation(history, config, simState) {
         });
     }
 
-    // N10 - Calibração Bayesiana (id N10) - só calibra
+    // N10 - Barreira Inteligente (id N10) - valida o consenso (não vota)
     const n10Enabled = isLevelEnabledLocal('N10');
-    let bayesResult = null;
-    if (n10Enabled) {
-        const bayesHistoryConfigured = Math.max(30, Math.min(400, getDiamondWindowFromConfig(config, 'n9History', 100)));
-        const bayesNullThresholdConfigured = Math.max(2, Math.min(20, getDiamondWindowFromConfig(config, 'n9NullThreshold', 8)));
-        const bayesPriorStrengthConfigured = Math.max(0.2, Math.min(5, getDiamondWindowFromConfig(config, 'n9PriorStrength', 1)));
-        const bayesPriorConfig = {
-            red: bayesPriorStrengthConfigured,
-            black: bayesPriorStrengthConfigured,
-            white: Math.max(0.1, bayesPriorStrengthConfigured * 0.5)
-        };
-        bayesResult = analyzeBayesianCalibration(
-            history,
-            bayesHistoryConfigured,
-            bayesPriorConfig,
-            bayesNullThresholdConfigured / 100
-        );
-
-        if (bayesResult && bayesResult.adjustments) {
-            levelReports.forEach(level => {
-                if (!level.color) return;
-                const factor = bayesResult.adjustments[level.color] ?? 1;
-                level.strength = clamp01Local((level.strength || 0) * factor);
-                level.score = directionValue(level.color) * (level.strength || 0);
-            });
-        }
-    }
-
-    levelReports.push({
+    let n10BarrierResult = null; // preenchido após o consenso
+    const n10Report = {
         id: 'N10',
-        name: 'Calibração Bayesiana',
+        name: 'Barreira Inteligente',
         color: null,
         weight: 0,
         strength: 0,
         score: 0,
-        details: n10Enabled && bayesResult ? bayesResult.details : 'DESATIVADO',
+        details: n10Enabled ? 'PENDENTE' : 'DESATIVADO',
         disabled: !n10Enabled
-    });
+    };
+    levelReports.push(n10Report);
 
     // Alternância override com controle de entradas
     let alternanceOverride = false;
@@ -35605,12 +36132,30 @@ function analyzeDiamondLevelsSimulation(history, config, simState) {
     if (!consensusColor || consensusVotes === 0) return null;
     if (consensusVotes === secondVotes) return null;
 
+    // 🧠 N10 - Barreira Inteligente (8-10 giros): valida o consenso (não vota)
+    if (n10Enabled) {
+        try {
+            const n10HistoryCap = Math.max(120, Math.min(2000, history.length || 0));
+            n10BarrierResult = validateN10IntelligentBarrier(history, consensusColor, { historySize: n10HistoryCap });
+            if (n10Report) {
+                n10Report.details = n10BarrierResult && n10BarrierResult.details ? n10BarrierResult.details : 'APROVADO';
+            }
+            if (n10BarrierResult && n10BarrierResult.allowed === false) return null;
+        } catch (_) {
+            n10BarrierResult = { allowed: true, reason: 'internal_error', details: 'APROVADO • erro interno' };
+            if (n10Report) n10Report.details = n10BarrierResult.details;
+        }
+    } else {
+        n10BarrierResult = { allowed: true, reason: 'disabled', details: 'DESATIVADO' };
+        if (n10Report) n10Report.details = 'DESATIVADO';
+    }
+
     if (signalIntensity === 'conservative') {
         if (voteCounts[consensusColor] < 5) return null;
         if (!n9Enabled) return null;
         if (!barrierResult.allowed) return null;
-        const bayesApproves = n10Enabled && bayesResult && bayesResult.color && bayesResult.color === consensusColor;
-        if (!n10Enabled || !bayesApproves) return null;
+        if (!n10Enabled) return null;
+        if (n10BarrierResult && n10BarrierResult.allowed === false) return null;
     }
 
     const maxVotingSlots = votingLevelsList.length;
