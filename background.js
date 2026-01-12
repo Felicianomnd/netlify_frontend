@@ -1167,6 +1167,19 @@ function normalizeWhiteGaleMode(mode) {
     return raw === 'same' ? 'same' : 'double';
 }
 
+function normalizeSignalIntensity(value, fallback = 'aggressive') {
+    try {
+        const raw = (value === undefined || value === null) ? fallback : value;
+        const s = String(raw || '').toLowerCase().trim();
+        if (!s) return (String(fallback || '').toLowerCase().trim() === 'conservative') ? 'conservative' : 'aggressive';
+        // Aceitar variações pt-BR/pt-PT e valores antigos
+        if (s === 'conservative' || s.startsWith('cons') || s.startsWith('conserv')) return 'conservative';
+        return 'aggressive';
+    } catch (_) {
+        return (String(fallback || '').toLowerCase().trim() === 'conservative') ? 'conservative' : 'aggressive';
+    }
+}
+
 function getModeKey(config = analyzerConfig) {
     return config && config.aiMode ? 'diamond' : 'standard';
 }
@@ -1234,8 +1247,11 @@ function mergeAnalyzerConfig(overrides = {}) {
         standard: { ...(defaults.standard || {}), ...(overrideProfiles.standard || {}) },
         diamond: { ...(defaults.diamond || {}), ...(overrideProfiles.diamond || {}) }
     };
-    // ✅ Intensidade removida (por enquanto): travar sempre em "aggressive"
-    analyzerConfig.signalIntensity = 'aggressive';
+    // ✅ Intensidade: respeitar config do usuário (fallback: default)
+    analyzerConfig.signalIntensity = normalizeSignalIntensity(
+        analyzerConfig.signalIntensity,
+        DEFAULT_ANALYZER_CONFIG.signalIntensity
+    );
     const defaultEnabled = DEFAULT_ANALYZER_CONFIG.diamondLevelEnabled || {};
     const overrideEnabled = (overrides && overrides.diamondLevelEnabled) || {};
     analyzerConfig.diamondLevelEnabled = {};
@@ -4609,6 +4625,8 @@ async function processNewSpinFromServer(spinData) {
                                         return rollColor ? [rollColor] : [];
                                     }
                                 })();
+                                // ✅ Métrica por ciclo (para auto-intensidade do Diamante)
+                                try { recordRecentCycleOutcome(currentMode, cycleId, true); } catch (_) {}
                                 await recordN4SelfLearningFromResolvedCycle(learningAnalysis, 'win', martingaleStage, n4AttemptColors);
                                 // ⚪ N0 (Detector de Branco): registrar auto-aprendizado quando o N0 foi o sinal final
                                 await recordN0SelfLearningFromResolvedCycle(learningAnalysis, 'win');
@@ -4877,6 +4895,8 @@ async function processNewSpinFromServer(spinData) {
                                     // 💎 N4 (Autointeligente): registrar resultado final do CICLO (LOSS/RED) para auto-aprendizado
                                     try {
                                         const n4AttemptColors = rollColor ? [rollColor] : [];
+                                        // ✅ Métrica por ciclo (para auto-intensidade do Diamante)
+                                        try { recordRecentCycleOutcome(currentMode, cycleId, false); } catch (_) {}
                                         await recordN4SelfLearningFromResolvedCycle(currentAnalysis, 'loss', currentStage, n4AttemptColors);
                                         // ⚪ N0 (Detector de Branco): registrar auto-aprendizado quando o N0 foi o sinal final
                                         await recordN0SelfLearningFromResolvedCycle(currentAnalysis, 'loss');
@@ -5239,6 +5259,8 @@ async function processNewSpinFromServer(spinData) {
                                                 return rollColor ? [rollColor] : [];
                                             }
                                         })();
+                                        // ✅ Métrica por ciclo (para auto-intensidade do Diamante)
+                                        try { recordRecentCycleOutcome(currentMode, cycleId, false); } catch (_) {}
                                         await recordN4SelfLearningFromResolvedCycle(learningAnalysis, 'loss', currentStage, n4AttemptColors);
                                         // ⚪ N0 (Detector de Branco): registrar auto-aprendizado quando o N0 foi o sinal final
                                         await recordN0SelfLearningFromResolvedCycle(learningAnalysis, 'loss');
@@ -6576,6 +6598,20 @@ let signalsHistory = {
     patternStats: {},         // Estatísticas por tipo de padrão
     contextStats: {},         // Estatísticas por contexto
     blockedPatterns: {},      // 🚫 Padrões bloqueados temporariamente {patternKey: {until: timestamp, reason: string}}
+    // ✅ Janela curta de performance por CICLO (WIN/LOSS final) — usada para auto-ajuste de intensidade (Diamante)
+    recentCycleOutcomes: {
+        version: 1,
+        cap: 180,
+        standard: { recent: [], lastCycleId: null, lastTs: null },
+        diamond: { recent: [], lastCycleId: null, lastTs: null }
+    },
+    // ✅ Auto-intensidade (runtime): permite o Diamante “apertar” quando a winrate cair,
+    // sem depender de UI (que pode estar travada em agressivo).
+    autoIntensity: {
+        version: 1,
+        standard: { effective: 'aggressive', lastSwitchAt: null },
+        diamond: { effective: 'aggressive', lastSwitchAt: null }
+    },
     // ⚪ N0 (Detector de Branco): auto-aprendizado por contexto + ação (block_all/soft_block)
     // Objetivo: permitir que o N0 "aprenda" o que funciona no histórico da conta e ajuste o bloqueio dinamicamente.
     n0SelfLearning: {
@@ -6647,6 +6683,44 @@ async function initializeSignalsHistory() {
             if (!signalsHistory.patternStats) signalsHistory.patternStats = {};
             if (!signalsHistory.contextStats) signalsHistory.contextStats = {};
             if (!signalsHistory.blockedPatterns) signalsHistory.blockedPatterns = {};
+            // ✅ recentCycleOutcomes (para auto-intensidade do Diamante)
+            if (!signalsHistory.recentCycleOutcomes || typeof signalsHistory.recentCycleOutcomes !== 'object') {
+                signalsHistory.recentCycleOutcomes = {
+                    version: 1,
+                    cap: 180,
+                    standard: { recent: [], lastCycleId: null, lastTs: null },
+                    diamond: { recent: [], lastCycleId: null, lastTs: null }
+                };
+            } else {
+                const rco = signalsHistory.recentCycleOutcomes;
+                if (!Number.isFinite(Number(rco.version))) rco.version = 1;
+                if (!Number.isFinite(Number(rco.cap))) rco.cap = 180;
+                if (!rco.standard || typeof rco.standard !== 'object') rco.standard = { recent: [], lastCycleId: null, lastTs: null };
+                if (!rco.diamond || typeof rco.diamond !== 'object') rco.diamond = { recent: [], lastCycleId: null, lastTs: null };
+                if (!Array.isArray(rco.standard.recent)) rco.standard.recent = [];
+                if (!Array.isArray(rco.diamond.recent)) rco.diamond.recent = [];
+                if (rco.standard.lastCycleId === undefined) rco.standard.lastCycleId = null;
+                if (rco.diamond.lastCycleId === undefined) rco.diamond.lastCycleId = null;
+                if (rco.standard.lastTs === undefined) rco.standard.lastTs = null;
+                if (rco.diamond.lastTs === undefined) rco.diamond.lastTs = null;
+            }
+            // ✅ autoIntensity (mantém estado/histerese do auto-ajuste)
+            if (!signalsHistory.autoIntensity || typeof signalsHistory.autoIntensity !== 'object') {
+                signalsHistory.autoIntensity = {
+                    version: 1,
+                    standard: { effective: 'aggressive', lastSwitchAt: null },
+                    diamond: { effective: 'aggressive', lastSwitchAt: null }
+                };
+            } else {
+                const ai = signalsHistory.autoIntensity;
+                if (!Number.isFinite(Number(ai.version))) ai.version = 1;
+                if (!ai.standard || typeof ai.standard !== 'object') ai.standard = { effective: 'aggressive', lastSwitchAt: null };
+                if (!ai.diamond || typeof ai.diamond !== 'object') ai.diamond = { effective: 'aggressive', lastSwitchAt: null };
+                ai.standard.effective = normalizeSignalIntensity(ai.standard.effective, 'aggressive');
+                ai.diamond.effective = normalizeSignalIntensity(ai.diamond.effective, 'aggressive');
+                if (ai.standard.lastSwitchAt === undefined) ai.standard.lastSwitchAt = null;
+                if (ai.diamond.lastSwitchAt === undefined) ai.diamond.lastSwitchAt = null;
+            }
             if (!signalsHistory.n0SelfLearning || typeof signalsHistory.n0SelfLearning !== 'object') {
                 signalsHistory.n0SelfLearning = {
                     version: 1,
@@ -6790,6 +6864,17 @@ async function initializeSignalsHistory() {
             patternStats: {},
             contextStats: {},
             blockedPatterns: {},
+            recentCycleOutcomes: {
+                version: 1,
+                cap: 180,
+                standard: { recent: [], lastCycleId: null, lastTs: null },
+                diamond: { recent: [], lastCycleId: null, lastTs: null }
+            },
+            autoIntensity: {
+                version: 1,
+                standard: { effective: 'aggressive', lastSwitchAt: null },
+                diamond: { effective: 'aggressive', lastSwitchAt: null }
+            },
             n0SelfLearning: {
                 version: 1,
                 stats: {},
@@ -6819,6 +6904,20 @@ async function initializeSignalsHistory() {
                 goodWinRate: 0.60,
                 lastUpdated: null
             },
+            n4AutoTune: {
+                enabled: true,
+                targetWinRate: 0.90,
+                minCycles: 20,
+                cooldownMs: 10 * 60 * 1000,
+                lookbackSpins: 5000,
+                stride: 2,
+                maxSignalsToScore: 200,
+                minSignalsToAccept: 25,
+                lastRunAt: null,
+                lastFrom: null,
+                lastTo: null,
+                lastWinRate: null
+            },
             consecutiveLosses: 0,
             recentPerformance: [],
             lastUpdated: null
@@ -6836,6 +6935,90 @@ async function saveSignalsHistory() {
     } catch (error) {
         console.error('%c❌ Erro ao salvar histórico de sinais:', 'color: #FF0000;', error);
     }
+}
+
+function recordRecentCycleOutcome(modeKeyRaw, cycleIdRaw, isWin) {
+    try {
+        const modeKey = String(modeKeyRaw || '').toLowerCase().trim() === 'diamond' ? 'diamond' : 'standard';
+        const cid = (cycleIdRaw != null && String(cycleIdRaw).trim()) ? String(cycleIdRaw).trim() : null;
+
+        if (!signalsHistory || typeof signalsHistory !== 'object') return false;
+        if (!signalsHistory.recentCycleOutcomes || typeof signalsHistory.recentCycleOutcomes !== 'object') {
+            signalsHistory.recentCycleOutcomes = {
+                version: 1,
+                cap: 180,
+                standard: { recent: [], lastCycleId: null, lastTs: null },
+                diamond: { recent: [], lastCycleId: null, lastTs: null }
+            };
+        }
+        const store = signalsHistory.recentCycleOutcomes;
+        const cap = Math.max(20, Math.min(400, Math.floor(Number(store.cap) || 180)));
+        const bucket = store[modeKey] && typeof store[modeKey] === 'object'
+            ? store[modeKey]
+            : { recent: [], lastCycleId: null, lastTs: null };
+
+        // Dedup simples: evita contar duas vezes o mesmo ciclo (reprocessamento)
+        if (cid && bucket.lastCycleId && String(bucket.lastCycleId) === cid) return false;
+
+        const recent = Array.isArray(bucket.recent) ? bucket.recent : [];
+        recent.push(!!isWin);
+        bucket.recent = recent.length > cap ? recent.slice(-cap) : recent;
+        if (cid) bucket.lastCycleId = cid;
+        bucket.lastTs = Date.now();
+        store[modeKey] = bucket;
+        signalsHistory.recentCycleOutcomes = store;
+        return true;
+    } catch (_) {
+        return false;
+    }
+}
+
+function computeRecentCycleWinRateFromSignalsHistory(modeKeyRaw, window = 60) {
+    try {
+        const modeKey = String(modeKeyRaw || '').toLowerCase().trim() === 'diamond' ? 'diamond' : 'standard';
+        const store = signalsHistory && signalsHistory.recentCycleOutcomes ? signalsHistory.recentCycleOutcomes : null;
+        const bucket = store && store[modeKey] ? store[modeKey] : null;
+        const arr = bucket && Array.isArray(bucket.recent) ? bucket.recent : [];
+        const w = Math.max(10, Math.min(300, Math.floor(Number(window) || 60)));
+        const slice = arr.length > w ? arr.slice(-w) : arr.slice();
+        const total = slice.length;
+        const wins = slice.filter(Boolean).length;
+        const losses = total - wins;
+        const winRate = total ? (wins / total) : null;
+        return { wins, losses, total, winRate };
+    } catch (_) {
+        return { wins: 0, losses: 0, total: 0, winRate: null };
+    }
+}
+
+function getAutoIntensityEffective(modeKeyRaw, fallback = 'aggressive') {
+    try {
+        const modeKey = String(modeKeyRaw || '').toLowerCase().trim() === 'diamond' ? 'diamond' : 'standard';
+        const ai = signalsHistory && signalsHistory.autoIntensity ? signalsHistory.autoIntensity : null;
+        const row = ai && ai[modeKey] && typeof ai[modeKey] === 'object' ? ai[modeKey] : null;
+        return normalizeSignalIntensity(row && row.effective, fallback);
+    } catch (_) {
+        return normalizeSignalIntensity(fallback, 'aggressive');
+    }
+}
+
+function setAutoIntensityEffective(modeKeyRaw, effective) {
+    try {
+        const modeKey = String(modeKeyRaw || '').toLowerCase().trim() === 'diamond' ? 'diamond' : 'standard';
+        if (!signalsHistory || typeof signalsHistory !== 'object') return;
+        if (!signalsHistory.autoIntensity || typeof signalsHistory.autoIntensity !== 'object') {
+            signalsHistory.autoIntensity = {
+                version: 1,
+                standard: { effective: 'aggressive', lastSwitchAt: null },
+                diamond: { effective: 'aggressive', lastSwitchAt: null }
+            };
+        }
+        const ai = signalsHistory.autoIntensity;
+        if (!ai[modeKey] || typeof ai[modeKey] !== 'object') ai[modeKey] = { effective: 'aggressive', lastSwitchAt: null };
+        ai[modeKey].effective = normalizeSignalIntensity(effective, 'aggressive');
+        ai[modeKey].lastSwitchAt = Date.now();
+        signalsHistory.autoIntensity = ai;
+    } catch (_) {}
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -7470,8 +7653,7 @@ function evaluateN4WindowOnCachedHistory({ historyMostRecentFirst, windowSize, c
 
     const { maxGales: maxGalesRaw } = getMartingaleSettings('diamond', cfg);
     const maxGales = Math.max(0, Math.min(2, Math.floor(Number(maxGalesRaw) || 0)));
-    // ✅ Intensidade removida (por enquanto): travar sempre em "aggressive"
-    const signalIntensity = 'aggressive';
+    const signalIntensity = normalizeSignalIntensity(cfg && cfg.signalIntensity, 'aggressive');
     const whiteProtectionAsWin = !!cfg.whiteProtectionAsWin;
     const dynamicGales = shouldUseN4DynamicGalesForConfig(cfg);
 
@@ -12875,10 +13057,49 @@ function analyzeAutointeligente(history, options = {}) {
         };
     }
 
-    // meia-vida dinâmica: dá mais peso ao momento sem ignorar o contexto
+    // ✅ Peso do momento (pedido do usuário):
+    // - Os últimos ~20 giros precisam pesar MAIS QUANDO o jogo muda (mudança sutil de regime).
+    // - NÃO é filtro (não reduz sinais por regra); é apenas ponderação do histórico.
+    const recentBoostWindow = clampIntLocal(options.recentBoostWindow ?? 20, 5, 80);
+    const recentBoostRaw = clamp01(options.recentBoost ?? 0.85); // máximo (quando detecta mudança)
+
+    // Detectar "mudança" comparando RB recente vs RB anterior (ignora WHITE).
+    // Quando a diferença é pequena, mantemos o comportamento estável (sem superpeso nos últimos 20).
+    const shiftFactor = (() => {
+        try {
+            const wRecent = Math.max(10, Math.min(80, recentBoostWindow));
+            const wPrev = Math.max(20, Math.min(220, wRecent * 6));
+            if (tokens.length < (wRecent + wPrev)) return 0;
+            const recent = tokens.slice(tokens.length - wRecent);
+            const prev = tokens.slice(tokens.length - wRecent - wPrev, tokens.length - wRecent);
+            const rbShare = (arr) => {
+                let r = 0, b = 0;
+                for (const t of arr) {
+                    if (t === 'R') r++;
+                    else if (t === 'B') b++;
+                }
+                const denom = r + b;
+                return denom > 0 ? (r / denom) : null;
+            };
+            const pRecent = rbShare(recent);
+            const pPrev = rbShare(prev);
+            if (pRecent == null || pPrev == null) return 0;
+            const d = Math.abs(pRecent - pPrev); // 0..1
+            // 3pp = começa a considerar mudança; 15pp = mudança forte
+            return clamp01((d - 0.03) / 0.12);
+        } catch (_) {
+            return 0;
+        }
+    })();
+    const recentBoost = recentBoostRaw * shiftFactor;
+
+    // meia-vida dinâmica: estável por padrão, e mais responsiva quando há mudança detectada
+    const halfLifeStable = Math.max(120, Math.min(900, Math.floor(tokens.length * 0.35)));
+    const halfLifeShift = Math.max(60, Math.min(280, Math.floor(tokens.length * 0.12)));
+    const halfLifeAuto = Math.round((halfLifeStable * (1 - shiftFactor)) + (halfLifeShift * shiftFactor));
     const decayHalfLife = clampIntLocal(
-        options.decayHalfLife ?? Math.max(120, Math.min(900, Math.floor(tokens.length * 0.35))),
-        40,
+        options.decayHalfLife ?? halfLifeAuto,
+        30,
         2000
     );
     const decayLambda = Math.log(2) / decayHalfLife;
@@ -13010,7 +13231,11 @@ function analyzeAutointeligente(history, options = {}) {
 
     for (let i = 0; i < tokens.length - 1; i++) {
         const distFromEnd = (tokens.length - 2) - i; // 0 = transição mais recente
-        const w = Math.exp(-decayLambda * distFromEnd);
+        // rampa: dá mais peso ao recorte recente (últimos N giros), sem "desligar" o passado
+        const recentMult = (distFromEnd < recentBoostWindow)
+            ? (1 + recentBoost * (1 - (distFromEnd / Math.max(1, recentBoostWindow))))
+            : 1;
+        const w = Math.exp(-decayLambda * distFromEnd) * recentMult;
         const nextTok = tokens[i + 1];
         global[nextTok] += w;
         global.total += w;
@@ -21954,10 +22179,38 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
         }
         let scoreMagnitude = Math.abs(normalizedScore);
 
-        // ✅ Intensidade removida (por enquanto): travar sempre em "aggressive"
-        let signalIntensity = 'aggressive';
+        // ✅ Intensidade: respeitar config + auto-ajuste quando a performance recente cair
+        const requestedIntensity = normalizeSignalIntensity(analyzerConfig && analyzerConfig.signalIntensity, 'aggressive');
+        let signalIntensity = requestedIntensity;
         const votingLevelIds = ['N1','N2','N3','N4','N5','N6','N7','N8'];
         const allVotingLevelsEnabled = votingLevelIds.every(id => diamondLevelEnabledMap[id]);
+
+        // ✅ Auto-intensidade (pedido do usuário: “se a estratégia está errada, ele muda”):
+        // - Se o usuário já pediu Conservador, não mexer.
+        // - Se estiver em Agressivo e a winrate recente cair, apertar para Conservador automaticamente.
+        // - Histerese para não ficar alternando.
+        try {
+            if (requestedIntensity !== 'conservative' && allVotingLevelsEnabled) {
+                const perf = computeRecentCycleWinRateFromSignalsHistory('diamond', 60);
+                if (perf && (perf.total || 0) >= 20 && typeof perf.winRate === 'number' && Number.isFinite(perf.winRate)) {
+                    const prev = getAutoIntensityEffective('diamond', requestedIntensity);
+                    let effective = prev;
+                    const LOW = 0.88;
+                    const HIGH = 0.92;
+                    if (perf.winRate <= LOW) effective = 'conservative';
+                    else if (perf.winRate >= HIGH) effective = 'aggressive';
+                    signalIntensity = effective;
+                    if (effective !== prev) {
+                        setAutoIntensityEffective('diamond', effective);
+                        console.log(`🎚️ AutoIntensidade: ${prev.toUpperCase()} → ${effective.toUpperCase()} (winrate ${(perf.winRate * 100).toFixed(1)}% em ${perf.total} ciclos)`);
+                        try {
+                            if (typeof detachPromise === 'function') detachPromise(saveSignalsHistory(), 'auto-intensity-save');
+                            else saveSignalsHistory();
+                        } catch (_) {}
+                    }
+                }
+            }
+        } catch (_) {}
 
         console.log('%c║  🎚️ INTENSIDADE / CONSENSO                              ║', 'color: #9C27B0; font-weight: bold; font-size: 14px;');
         console.log(`%c   Modo selecionado: ${signalIntensity === 'conservative' ? 'Conservador' : 'Agressivo'}`, 'color: #9C27B0; font-weight: bold;');
@@ -35316,8 +35569,7 @@ function analyzeDiamondLevelsSimulation(history, config, simState) {
     }
 
     // Intensidade
-    // ✅ Intensidade removida (por enquanto): travar sempre em "aggressive"
-    let signalIntensity = 'aggressive';
+    let signalIntensity = normalizeSignalIntensity(config && config.signalIntensity, 'aggressive');
     const votingLevelIds = ['N1','N2','N3','N4','N5','N6','N7','N8'];
     const allVotingLevelsEnabled = votingLevelIds.every(id => diamondLevelEnabledMap[id]);
     if (signalIntensity === 'conservative' && !allVotingLevelsEnabled) {

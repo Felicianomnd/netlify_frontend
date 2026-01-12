@@ -7105,8 +7105,10 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
 
         const storageData = await storageCompat.get(['analyzerConfig']);
         const currentConfig = storageData.analyzerConfig || {};
-        // ✅ Intensidade removida (por enquanto). Travar sempre em Agressivo.
-        const signalIntensity = 'aggressive';
+        // ✅ Intensidade: preservar preferência do usuário (fallback: agressivo)
+        const signalIntensity = (currentConfig && typeof currentConfig.signalIntensity === 'string' && currentConfig.signalIntensity.trim())
+            ? currentConfig.signalIntensity.trim()
+            : 'aggressive';
 
         // ✅ Incluir MARTINGALE + AUTO-BET no snapshot (para o teste refletir o modo real)
         const baseProfiles = sanitizeMartingaleProfilesFromConfig(currentConfig);
@@ -16771,13 +16773,13 @@ async function persistAnalyzerState(newState) {
 
         return (
             '<div class="da-top-analyzing" aria-hidden="true">' +
+                '<div class="da-calibration-title da-top-analyzing-label">Analisando histórico</div>' +
                 '<div class="da-calibration-ring da-top-analyzing-ring" data-state="calibrating">' +
                     '<div class="da-analyzing-reel" aria-hidden="true">' +
                         '<div class="da-analyzing-reel-lane">' +
                             `<div class="da-analyzing-roulette-track" data-da-roulette-track="1">${chips}</div>` +
                         '</div>' +
                     '</div>' +
-                    '<div class="da-calibration-title">Analisando</div>' +
                 '</div>' +
             '</div>'
         );
@@ -21467,8 +21469,10 @@ function logModeSnapshotUI(snapshot) {
             try {
                 const currentConfig = result.analyzerConfig || {};
                 const previousAutoBetConfig = sanitizeAutoBetConfig(currentConfig.autoBetConfig);
-                // ✅ Intensidade removida (por enquanto). Travar sempre em Agressivo.
-                const signalIntensity = 'aggressive';
+                // ✅ Intensidade: preservar preferência do usuário (fallback: agressivo)
+                const signalIntensity = (currentConfig && typeof currentConfig.signalIntensity === 'string' && currentConfig.signalIntensity.trim())
+                    ? currentConfig.signalIntensity.trim()
+                    : 'aggressive';
                 const martingaleProfiles = sanitizeMartingaleProfilesFromConfig(currentConfig);
                 console.log('📊 Configuração atual:', currentConfig);
                 

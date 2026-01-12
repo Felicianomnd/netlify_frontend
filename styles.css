@@ -1964,7 +1964,16 @@
     padding: 0 !important;
 }
 .analysis-card.da-analyzing .suggestion-color-box[data-gale]::after { display: none; }
-.analysis-card.da-analyzing .da-top-analyzing { display: flex; align-items: center; justify-content: center; }
+.analysis-card.da-analyzing .da-top-analyzing {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+}
+.analysis-card.da-analyzing .da-top-analyzing-label {
+    /* ✅ Tipografia vem de `.da-calibration-title` (mesma de antes) */
+}
 .analysis-card.da-analyzing .da-top-analyzing-ring {
     box-shadow: 0 8px 18px rgba(0, 0, 0, 0.22);
 }
@@ -2064,10 +2073,16 @@
         0 10px 20px rgba(0, 0, 0, 0.28),
         inset 0 1px 0 rgba(255, 255, 255, 0.10);
     text-shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
+    /* ✅ Deixar os giros mais “ao fundo” */
+    opacity: 0.42;
+    filter: blur(1.6px);
 }
 .analysis-card.da-analyzing .da-reel-chip.is-selected {
     z-index: 2;
     filter: brightness(1.06);
+    /* ✅ Número analisado fica legível */
+    opacity: 0.92;
+    filter: none;
 }
 .analysis-card.da-analyzing .da-reel-chip.is-thinking {
     z-index: 3;
