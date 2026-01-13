@@ -727,8 +727,8 @@ const DEFAULT_ANALYZER_CONFIG = {
         n4DynamicGales: true,     // N4 - Permitir mudar a cor no Gale (G1/G2) quando estiver rodando "somente N4"
         n5MinuteBias: 60,         // N5 - Ritmo por Giro / Minuto
         n6RetracementWindow: 80,  // N6 - Retração Histórica (janela de análise)
-        n7DecisionWindow: 20,     // N7 - Continuidade Global (decisões analisadas)
-        n7HistoryWindow: 100,     // N7 - Continuidade Global (histórico base)
+        n7DecisionWindow: 20,     // N7 - Barreira (Ápice %) (W máx → 4 janelas curtas: ex. 20 → 5/10/15/20)
+        n7HistoryWindow: 100,     // N7 - Barreira (Ápice %) (qtd de offsets/janelas p/ medir piso/teto)
         n0History: 2000,          // N0 - Detector de Branco (histórico analisado)
         n0Window: 100,            // N0 - Detector de Branco (tamanho da janela não-sobreposta)
         n8Barrier1: 50,           // N8 - Barreira 1 (cor oposta) (janela em giros)
@@ -1725,7 +1725,7 @@ let martingaleState = {
 };
 
 // ✅ Diamante (G1/G2): recriar o "raciocínio" (patternDescription) para a fase atual,
-// incluindo N4 (re-análise), e validando N9/N10 também no GALE.
+// incluindo N4 (re-análise), e validando barreiras N7/N8/N9/N10 também no GALE (por maioria).
 function buildDiamondGalePhaseAnalysis({ history, phase, preferredColor, fallbackColor, config }) {
     const normalizeColor = (v) => {
         const s = String(v || '').toLowerCase().trim();
@@ -1760,10 +1760,19 @@ function buildDiamondGalePhaseAnalysis({ history, phase, preferredColor, fallbac
     const fallback = normalizeColor(fallbackColor);
     let chosen = (pref === 'red' || pref === 'black' || pref === 'white') ? pref : (fallback || 'red');
 
-    // 2) Validar N8/N9/N10 para a cor candidata do GALE
+    // 2) Validar barreiras N7/N8/N9/N10 para a cor candidata do GALE (por maioria)
+    const n7Enabled = isDiamondLevelEnabled('N7', cfg);
     const n8Enabled = isDiamondLevelEnabled('N8', cfg);
     const n9Enabled = isDiamondLevelEnabled('N9', cfg);
     const n10Enabled = isDiamondLevelEnabled('N10', cfg);
+    const n7DecisionWindow = (cfg === analyzerConfig)
+        ? getDiamondWindow('n7DecisionWindow', 20)
+        : getDiamondWindowFromConfig(cfg, 'n7DecisionWindow', 20);
+    const n7HistoryWindow = (cfg === analyzerConfig)
+        ? getDiamondWindow('n7HistoryWindow', 100)
+        : getDiamondWindowFromConfig(cfg, 'n7HistoryWindow', 100);
+    const n7MaxWindow = Math.max(10, Math.min(50, Math.floor(Number(n7DecisionWindow) || 20)));
+    const n7HistWindow = Math.max(n7MaxWindow, Math.min(2000, Math.floor(Number(n7HistoryWindow) || 100)));
     const n8Window = (cfg === analyzerConfig)
         ? getDiamondWindow('n8Barrier1', getDiamondWindow('n8Barrier', 50))
         : getDiamondWindowFromConfig(cfg, 'n8Barrier1', getDiamondWindowFromConfig(cfg, 'n8Barrier', 50));
@@ -1776,11 +1785,22 @@ function buildDiamondGalePhaseAnalysis({ history, phase, preferredColor, fallbac
 
     const evalBarriers = (color) => {
         const c = normalizeColor(color);
+        const n7 = n7Enabled
+            ? validateN7ApexPercentageBarrier(hist, c, { maxWindow: n7MaxWindow, historyWindow: n7HistWindow })
+            : { allowed: true, reason: 'disabled', details: 'DESATIVADO' };
         const n8 = n8Enabled ? validateOppositeContinuationBarrier(hist, c, n8Window, { minStreakToWorry: 3 }) : { allowed: true, reason: 'disabled', details: 'DESATIVADO' };
         const n9 = n9Enabled ? validateSequenceBarrier(hist, c, n9Window, null) : { allowed: true, reason: 'disabled', currentStreak: 0, targetStreak: 0, maxStreakFound: 0 };
         const n10 = n10Enabled ? validateN10IntelligentBarrier(hist, c, { historySize: n10History, minOccurrences: 4 }) : { allowed: true, reason: 'disabled', details: 'DESATIVADO' };
-        const allowed = !!(n8 && n8.allowed !== false) && !!(n9 && n9.allowed !== false) && !!(n10 && n10.allowed !== false);
-        return { allowed, n8, n9, n10 };
+        const votes = [];
+        if (n7Enabled) votes.push({ id: 'N7', allowed: n7 && n7.allowed !== false });
+        if (n8Enabled) votes.push({ id: 'N8', allowed: n8 && n8.allowed !== false });
+        if (n9Enabled) votes.push({ id: 'N9', allowed: n9 && n9.allowed !== false });
+        if (n10Enabled) votes.push({ id: 'N10', allowed: n10 && n10.allowed !== false });
+        const total = votes.length;
+        const approvals = votes.filter(v => v.allowed).length;
+        const needed = total > 0 ? (Math.floor(total / 2) + 1) : 0;
+        const allowed = total === 0 ? true : approvals >= needed;
+        return { allowed, approvals, needed, total, n7, n8, n9, n10 };
     };
 
     let barriers = evalBarriers(chosen);
@@ -1802,8 +1822,16 @@ function buildDiamondGalePhaseAnalysis({ history, phase, preferredColor, fallbac
         const p2Txt = p2 != null ? fmtPct(p2) : 'n/d';
         const p3Txt = p3 != null ? fmtPct(p3) : 'n/d';
         const strengthTxt = p1 != null ? `${Math.round(p1 * 100)}%` : '0%';
-        const detail = `P1 ${p1Txt} • P2 ${p2Txt} • P3 ${p3Txt}`;
+        const detail = `Entrada ${p1Txt} • Até G1 ${p2Txt} • Até G2 ${p3Txt}`;
         return `N4 - Autointeligente → ${String(chosen).toUpperCase()} (${strengthTxt} • ${detail})`;
+    })();
+
+    const n7Line = (() => {
+        if (!n7Enabled) return `N7 - Barreira (Ápice %) → DESATIVADO`;
+        const n7 = barriers.n7 || {};
+        const status = (n7.allowed !== false) ? '✅ APROVADO' : '🚫 BLOQUEADO';
+        const detail = (typeof n7.details === 'string' && n7.details.trim()) ? n7.details.trim() : status;
+        return `N7 - Barreira (Ápice %) → ${detail}`;
     })();
 
     const n8Line = (() => {
@@ -1839,6 +1867,7 @@ function buildDiamondGalePhaseAnalysis({ history, phase, preferredColor, fallbac
 
     const reasoning =
         `${n4Line}\n` +
+        `${n7Line}\n` +
         `${n8Line}\n` +
         `${n9Line}\n` +
         `${n10Line}\n` +
@@ -1872,6 +1901,7 @@ function buildDiamondGalePhaseAnalysis({ history, phase, preferredColor, fallbac
         blockedAll,
         chosenColor: chosen,
         n4Res,
+        n7: barriers.n7,
         n8: barriers.n8,
         n9: barriers.n9,
         n10: barriers.n10,
@@ -1926,7 +1956,7 @@ function buildDiamondNoSignalReport({ history, config }) {
             const p2Txt = p2 != null ? fmtPct(p2) : 'n/d';
             const p3Txt = p3 != null ? fmtPct(p3) : 'n/d';
             const strengthTxt = p1 != null ? `${Math.round(p1 * 100)}%` : '0%';
-            const detail = `P1 ${p1Txt} • P2 ${p2Txt} • P3 ${p3Txt}`;
+            const detail = `Entrada ${p1Txt} • Até G1 ${p2Txt} • Até G2 ${p3Txt}`;
             return `N4 - Autointeligente → ${String(chosen).toUpperCase()} (${strengthTxt} • ${detail})`;
         })();
 
@@ -1934,6 +1964,15 @@ function buildDiamondNoSignalReport({ history, config }) {
         const n8Enabled = isDiamondLevelEnabled('N8', cfg);
         const n9Enabled = isDiamondLevelEnabled('N9', cfg);
         const n10Enabled = isDiamondLevelEnabled('N10', cfg);
+        const n7Enabled = isDiamondLevelEnabled('N7', cfg);
+        const n7DecisionWindow = (cfg === analyzerConfig)
+            ? getDiamondWindow('n7DecisionWindow', 20)
+            : getDiamondWindowFromConfig(cfg, 'n7DecisionWindow', 20);
+        const n7HistoryWindow = (cfg === analyzerConfig)
+            ? getDiamondWindow('n7HistoryWindow', 100)
+            : getDiamondWindowFromConfig(cfg, 'n7HistoryWindow', 100);
+        const n7MaxWindow = Math.max(10, Math.min(50, Math.floor(Number(n7DecisionWindow) || 20)));
+        const n7HistWindow = Math.max(n7MaxWindow, Math.min(2000, Math.floor(Number(n7HistoryWindow) || 100)));
         const n8Window = (cfg === analyzerConfig)
             ? getDiamondWindow('n8Barrier1', getDiamondWindow('n8Barrier', 50))
             : getDiamondWindowFromConfig(cfg, 'n8Barrier1', getDiamondWindowFromConfig(cfg, 'n8Barrier', 50));
@@ -1945,9 +1984,18 @@ function buildDiamondNoSignalReport({ history, config }) {
             : getDiamondWindowFromConfig(cfg, 'n10History', 2000);
 
         const c = chosenValid ? chosen : 'red';
+        const n7 = n7Enabled ? validateN7ApexPercentageBarrier(hist, c, { maxWindow: n7MaxWindow, historyWindow: n7HistWindow }) : { allowed: true, details: 'DESATIVADO' };
         const n8 = n8Enabled ? validateOppositeContinuationBarrier(hist, c, n8Window, { minStreakToWorry: 3 }) : { allowed: true, details: 'DESATIVADO' };
         const n9 = n9Enabled ? validateSequenceBarrier(hist, c, n9Window, null) : { allowed: true, currentStreak: 0, targetStreak: 0, maxStreakFound: 0, details: 'DESATIVADO' };
         const n10 = n10Enabled ? validateN10IntelligentBarrier(hist, c, { historySize: n10History, minOccurrences: 4 }) : { allowed: true, details: 'DESATIVADO' };
+
+        const n7Line = (() => {
+            if (!n7Enabled) return `N7 - Barreira (Ápice %) → DESATIVADO`;
+            const ok = !!(n7 && n7.allowed !== false);
+            const status = ok ? '✅ APROVADO' : '🚫 BLOQUEADO';
+            const detail = (typeof n7.details === 'string' && n7.details.trim()) ? n7.details.trim() : status;
+            return `N7 - Barreira (Ápice %) → ${detail}`;
+        })();
 
         const n8Line = (() => {
             if (!n8Enabled) return `N8 - Barreira 1 (Oposta) → DESATIVADO`;
@@ -1976,6 +2024,7 @@ function buildDiamondNoSignalReport({ history, config }) {
         const intensityLabel = (cfg && cfg.signalIntensity === 'conservative') ? 'Conservador' : 'Agressivo';
         const reasoning =
             `${n4Line}\n` +
+            `${n7Line}\n` +
             `${n8Line}\n` +
             `${n9Line}\n` +
             `${n10Line}\n` +
@@ -2011,6 +2060,7 @@ function buildDiamondNoSignalReport({ history, config }) {
             reasoning,
             patternDescription: JSON.stringify(aiDescriptionData),
             n4Res,
+            n7,
             n8,
             n9,
             n10
@@ -12391,130 +12441,215 @@ function analyzeBayesianCalibration(history, baseWindow = 100, priorConfig = { r
     };
 }
 
-function analyzeGlobalContinuity(signalData, decisionWindow = 20, historyLimit = 100, intensity = 'aggressive') {
-    if (!signalData || !Array.isArray(signalData.signals) || signalData.signals.length === 0) {
-        return {
-            color: null,
-            strength: 0,
-            status: '❌ Nulo',
-            details: 'Sem decisões registradas'
+/**
+ * N7: Barreira por "Ápice" da % das cores (janelas deslizantes)
+ *
+ * Pedido (modo Diamante):
+ * - Trabalhar com 4 janelas curtas (derivadas de `maxWindow`, padrão 20 → 5/10/15/20).
+ * - Em cada janela, calcular a % RED/BLACK (ignorando WHITE) em offsets deslizantes do histórico.
+ * - Para cada cor, extrair piso (mínimo histórico) e teto (máximo histórico) dessa %.
+ * - No giro atual, escolher a extremidade mais "quente" (mais perto de um piso/teto) e sugerir uma cor:
+ *   - encostou no piso de X → prever X (tende a subir / respeitar o piso)
+ *   - encostou no teto de X → prever a oposta (evita romper teto)
+ * - Essa barreira SEMPRE tenta retornar uma recomendação (base), e aprova o sinal apenas se bater com a cor candidata.
+ */
+function validateN7ApexPercentageBarrier(history, candidateColor, options = {}) {
+    try {
+        const normalize = (v) => {
+            const direct = normalizeSpinColorValue(v);
+            if (direct) return direct;
+            const raw = (v && typeof v === 'object') ? v.color : v;
+            return normalizeColorName(raw);
         };
-    }
+        const opp = (c) => (c === 'red' ? 'black' : c === 'black' ? 'red' : null);
+        const cand = normalize(candidateColor);
+        if (!cand) {
+            return { allowed: true, reason: 'invalid_color', recommendedColor: null, details: 'APROVADO • cor inválida', meta: null };
+        }
+        // ✅ Não atrapalhar WHITE: N0 é o responsável por filtrar/autorizar branco.
+        if (cand === 'white') {
+            return { allowed: true, reason: 'white_skip', recommendedColor: 'white', details: 'APROVADO • white', meta: { skipped: true } };
+        }
 
-    const relevantSignals = signalData.signals
-        .slice(-Math.max(decisionWindow, Math.min(800, Number(historyLimit) || 100)))
-        .filter(sig => sig && typeof sig.hit === 'boolean' && (sig.colorRecommended === 'red' || sig.colorRecommended === 'black'));
+        const maxWindowRaw = Math.floor(Number(options.maxWindow ?? options.decisionWindow ?? 20) || 20);
+        const maxWindow = Math.max(8, Math.min(200, maxWindowRaw));
+        const historyWindowsRaw = Math.floor(Number(options.historyWindow ?? options.historyLimit ?? 100) || 100);
+        const historyWindows = Math.max(20, Math.min(2000, historyWindowsRaw));
+        const step = Math.max(1, Math.floor(maxWindow / 4));
 
-    const minBase = Math.max(12, Math.min(decisionWindow, 25));
-    if (relevantSignals.length < minBase) {
-        return {
-            color: null,
-            strength: 0,
-            status: '❌ Nulo',
-            details: `Histórico de decisões insuficiente (${relevantSignals.length}/${minBase})`
+        // 4 janelas por padrão: step, 2*step, 3*step, maxWindow (ex.: 20 → 5/10/15/20)
+        const windowSizes = (() => {
+            const raw = [step, step * 2, step * 3, maxWindow];
+            const uniq = [];
+            raw.forEach((n) => {
+                const v = Math.max(2, Math.floor(Number(n) || 2));
+                if (!uniq.includes(v)) uniq.push(v);
+            });
+            while (uniq.length < 4) {
+                const last = uniq.length ? uniq[uniq.length - 1] : 2;
+                uniq.push(last + 1);
+            }
+            return uniq.slice(0, 4);
+        })();
+
+        const histArr = Array.isArray(history) ? history : [];
+        if (histArr.length < Math.max(8, windowSizes[0] || 8)) {
+            // Fail-open com pouco histórico: não bloquear por falta de base.
+            return {
+                allowed: true,
+                reason: 'insufficient_history',
+                recommendedColor: cand,
+                details: `APROVADO • histórico insuficiente (${histArr.length})`,
+                meta: { windowSizes, historyWindows }
+            };
+        }
+
+        const computeWindowStats = (w) => {
+            const windowSize = Math.max(2, Math.floor(Number(w) || 2));
+            const maxOffsets = Math.max(1, Math.min(historyWindows, histArr.length - windowSize + 1));
+            let samples = 0;
+            let minRed = Infinity, maxRed = -Infinity;
+            let minBlack = Infinity, maxBlack = -Infinity;
+            let current = null;
+
+            for (let offset = 0; offset < maxOffsets; offset++) {
+                let red = 0;
+                let black = 0;
+                let white = 0;
+                for (let j = 0; j < windowSize; j++) {
+                    const c = normalize(histArr[offset + j]);
+                    if (c === 'red') red++;
+                    else if (c === 'black') black++;
+                    else if (c === 'white') white++;
+                }
+                // ✅ Pedido: branco NÃO pode ser ignorado na soma (ele afeta a % real)
+                const denom = red + black + white;
+                if (denom <= 0) continue;
+                const redPct = (red / denom) * 100;
+                const blackPct = (black / denom) * 100;
+                const whitePct = 100 - redPct - blackPct;
+                samples++;
+                if (redPct < minRed) minRed = redPct;
+                if (redPct > maxRed) maxRed = redPct;
+                if (blackPct < minBlack) minBlack = blackPct;
+                if (blackPct > maxBlack) maxBlack = blackPct;
+                if (offset === 0) {
+                    current = { redPct, blackPct, whitePct, red, black, white, denom };
+                }
+            }
+
+            if (!current || samples <= 0 || !Number.isFinite(minRed) || !Number.isFinite(maxRed)) return null;
+            const rangeRed = Math.max(0, maxRed - minRed);
+            const rangeBlack = Math.max(0, maxBlack - minBlack);
+            return {
+                windowSize,
+                maxOffsets,
+                samples,
+                current,
+                min: { red: minRed, black: minBlack },
+                max: { red: maxRed, black: maxBlack },
+                range: { red: rangeRed, black: rangeBlack }
+            };
         };
-    }
 
-    const windowSignals = relevantSignals.slice(-decisionWindow);
-    const colorStats = {
-        red: { attempts: 0, hits: 0 },
-        black: { attempts: 0, hits: 0 }
-    };
+        const candidates = [];
+        for (const w of windowSizes) {
+            const stats = computeWindowStats(w);
+            if (!stats) continue;
+            const sampleFactor = Math.max(0, Math.min(1, stats.samples / Math.max(1, stats.maxOffsets)));
+            const curR = stats.current.redPct;
+            const curB = stats.current.blackPct;
 
-    windowSignals.forEach(sig => {
-        const color = sig.colorRecommended;
-        if (!colorStats[color]) return;
-        colorStats[color].attempts++;
-        if (sig.hit) colorStats[color].hits++;
-    });
+            const pushCandidate = (kind, baseColor, recommendColor, dist, range) => {
+                const distance = Math.max(0, Number(dist) || 0);
+                const safeRange = Number.isFinite(range) && range > 0 ? range : 0;
+                const normDist = safeRange > 0 ? (distance / safeRange) : (distance <= 0 ? 0 : 1);
+                // Penalidades leves: preferir janela com base suficiente e extremos mais “estáveis”
+                const rangePenalty = (safeRange / 100) * 0.12;
+                const samplePenalty = (1 - sampleFactor) * 0.18;
+                const score = normDist + rangePenalty + samplePenalty;
+                candidates.push({
+                    recommendColor,
+                    kind,
+                    baseColor,
+                    windowSize: stats.windowSize,
+                    distance,
+                    normDist,
+                    sampleFactor,
+                    range: safeRange,
+                    score,
+                    stats
+                });
+            };
 
-    const totalAttempts = windowSignals.length;
-    const totalHits = windowSignals.filter(sig => sig.hit).length;
-    const overallRate = totalAttempts > 0 ? (totalHits / totalAttempts) * 100 : 0;
+            // piso/teto do vermelho
+            pushCandidate('floor', 'red', 'red', curR - stats.min.red, stats.range.red);
+            pushCandidate('ceiling', 'red', 'black', stats.max.red - curR, stats.range.red);
+            // piso/teto do preto
+            pushCandidate('floor', 'black', 'black', curB - stats.min.black, stats.range.black);
+            pushCandidate('ceiling', 'black', 'red', stats.max.black - curB, stats.range.black);
+        }
 
-    const thresholds = {
-        aggressive: { high: 55, low: 40 },
-        conservative: { high: 65, low: 50 }
-    };
-    const { high } = thresholds[intensity] || thresholds.aggressive;
+        if (candidates.length === 0) {
+            return {
+                allowed: true,
+                reason: 'no_samples',
+                recommendedColor: cand,
+                details: 'APROVADO • sem amostras suficientes',
+                meta: { windowSizes, historyWindows }
+            };
+        }
 
-    // ✅ Se a taxa geral está baixa, esse nível NÃO deve "forçar" voto (evita ruído)
-    if (overallRate < high) {
+        // Melhor candidato: menor score; empate → preferir janela maior (mais estável) e dist menor.
+        candidates.sort((a, b) => {
+            if (a.score !== b.score) return a.score - b.score;
+            if (a.windowSize !== b.windowSize) return b.windowSize - a.windowSize;
+            return a.distance - b.distance;
+        });
+
+        const best = candidates[0];
+        const recommendedColor = best && (best.recommendColor === 'red' || best.recommendColor === 'black') ? best.recommendColor : cand;
+        const allowed = recommendedColor === cand;
+        const ptColor = (c) => (c === 'red' ? 'VERMELHO' : c === 'black' ? 'PRETO' : c === 'white' ? 'BRANCO' : '—');
+        const baseLabel = ptColor(best.baseColor);
+        const kindLabel = best.kind === 'floor' ? 'piso' : 'teto';
+
+        const fmtPct = (x) => `${(Number(x) || 0).toFixed(1)}%`;
+        const s = best.stats;
+        const detailsCore =
+            `Sugere ${ptColor(recommendedColor)} • Janela ${best.windowSize}` +
+            ` • ${kindLabel} do ${baseLabel}` +
+            ` • Vermelho ${fmtPct(s.current.redPct)} [${fmtPct(s.min.red)}–${fmtPct(s.max.red)}]` +
+            ` • Preto ${fmtPct(s.current.blackPct)} [${fmtPct(s.min.black)}–${fmtPct(s.max.black)}]` +
+            (typeof s.current.whitePct === 'number' ? ` • Branco ${fmtPct(s.current.whitePct)}` : '') +
+            ` • Amostras ${s.samples}/${s.maxOffsets}`;
+        const details = allowed
+            ? `APROVADO • ${detailsCore}`
+            : `BLOQUEADO • ${detailsCore} • Candidata ${ptColor(cand)}`;
+
+        const strength = Math.max(0, Math.min(1, (1 - Math.min(1, best.normDist)) * (0.55 + 0.45 * best.sampleFactor)));
         return {
-            color: null,
-            strength: 0,
-            status: '⚠️ Instabilidade',
-            reason: 'overall_low',
-            details: `NULO • taxa geral ${overallRate.toFixed(1)}% < ${high}% • n=${totalAttempts}`
+            allowed,
+            reason: allowed ? 'match' : 'mismatch',
+            recommendedColor,
+            strength,
+            details,
+            meta: {
+                windowSizes,
+                historyWindows,
+                chosen: {
+                    windowSize: best.windowSize,
+                    kind: best.kind,
+                    baseColor: best.baseColor,
+                    score: Number(best.score.toFixed(4)),
+                    normDist: Number(best.normDist.toFixed(4)),
+                    distance: Number(best.distance.toFixed(4))
+                }
+            }
         };
+    } catch (e) {
+        return { allowed: true, reason: 'internal_error', recommendedColor: null, details: 'APROVADO • erro interno', meta: null };
     }
-
-    const rAtt = colorStats.red.attempts;
-    const bAtt = colorStats.black.attempts;
-    const rHit = colorStats.red.hits;
-    const bHit = colorStats.black.hits;
-
-    // ✅ Para comparar cores, precisamos de amostra mínima em AMBAS.
-    const MIN_PER_COLOR = 6;
-    if (rAtt < MIN_PER_COLOR || bAtt < MIN_PER_COLOR) {
-        return {
-            color: null,
-            strength: 0,
-            status: '❌ Nulo',
-            reason: 'per_color_low',
-            details: `NULO • poucas amostras por cor (R ${rAtt}/${MIN_PER_COLOR} • B ${bAtt}/${MIN_PER_COLOR})`
-        };
-    }
-
-    const pR = rAtt > 0 ? rHit / rAtt : 0;
-    const pB = bAtt > 0 ? bHit / bAtt : 0;
-    const delta = pR - pB;
-    const deltaAbs = Math.abs(delta);
-
-    // Critério de rigor: diferença mínima (15-20pp) + significância
-    const MIN_DELTA = intensity === 'conservative' ? 0.20 : 0.15;
-    const Z_THRESHOLD = intensity === 'conservative' ? 2.58 : 2.33;
-
-    if (deltaAbs < MIN_DELTA) {
-        return {
-            color: null,
-            strength: 0,
-            status: '⚖️ Neutra',
-            reason: 'delta_low',
-            details: `NULO • Δ ${(deltaAbs * 100).toFixed(0)}pp < ${(MIN_DELTA * 100).toFixed(0)}pp • R ${(pR * 100).toFixed(0)}% • B ${(pB * 100).toFixed(0)}%`
-        };
-    }
-
-    const pooled = (rHit + bHit) / Math.max(1, rAtt + bAtt);
-    const se = Math.sqrt(Math.max(0, pooled * (1 - pooled)) * (1 / rAtt + 1 / bAtt));
-    const z = se > 0 ? delta / se : 0;
-    const zAbs = Math.abs(z);
-    if (zAbs < Z_THRESHOLD) {
-        return {
-            color: null,
-            strength: 0,
-            status: '⚖️ Neutra',
-            reason: 'z_low',
-            details: `NULO • z ${zAbs.toFixed(2)} < ${Z_THRESHOLD} • Δ ${(deltaAbs * 100).toFixed(0)}pp`
-        };
-    }
-
-    const voteColor = delta > 0 ? 'red' : 'black';
-    const zConf = Math.max(0, Math.min(1, (zAbs - Z_THRESHOLD) / (4 - Z_THRESHOLD)));
-    const dConf = Math.max(0, Math.min(1, (deltaAbs - MIN_DELTA) / (0.45 - MIN_DELTA)));
-    const nConf = Math.max(0, Math.min(1, totalAttempts / 40));
-    const strength = clamp01(zConf * 0.55 + dConf * 0.35 + nConf * 0.10);
-    const status = strength >= 0.85 ? '🔥 Alta confiança' : '✅ Continuidade';
-
-    const details = `${status} • Δ ${(delta * 100).toFixed(0)}pp • z ${zAbs.toFixed(2)} • geral ${overallRate.toFixed(1)}% • R ${rHit}/${rAtt} • B ${bHit}/${bAtt}`;
-
-    return {
-        color: voteColor,
-        strength,
-        status,
-        reason: 'ok',
-        details
-    };
 }
 
 /**
@@ -20882,7 +21017,7 @@ async function analyzeWithPatternSystem(history) {
             'N4 - Autointeligente · leitura do momento (n-grams adaptativos)',
             'N5 - Ritmo por Giro (minuto alvo)',
             'N6 - Retração Histórica',
-            'N7 - Continuidade Global',
+            'N7 - Barreira (Ápice %)',
             'N8 - Barreira 1 (cor oposta)',
             'N9 - Barreira 2 (cor indicada)',
             'N10 - Barreira Inteligente (8-10 giros)'
@@ -21343,7 +21478,7 @@ async function analyzeWithPatternSystem(history) {
             N4: { emoji: '🔷', label: 'N4 - Autointeligente' },
             N5: { emoji: '🕑', label: 'N5 - Ritmo por Giro' },
             N6: { emoji: '📉', label: 'N6 - Retração Histórica' },
-            N7: { emoji: '📈', label: 'N7 - Continuidade Global' },
+            N7: { emoji: '📈', label: 'N7 - Barreira (Ápice %)' },
             N8: { emoji: '🛡️', label: 'N8 - Barreira 1 (Oposta)' },
             N9: { emoji: '🛑', label: 'N9 - Barreira 2 (Indicada)' },
             N10:{ emoji: '🧠', label: 'N10 - Barreira Inteligente' }
@@ -21358,8 +21493,9 @@ async function analyzeWithPatternSystem(history) {
             if (level.disabled) {
                 return `${prefix}${meta.label} → DESATIVADO`;
             }
-            // ✅ N8/N9/N10 são validadores (não votam). Nunca devem aparecer como "NULO" — mostrar APROVADO/BLOQUEADO + resumo.
-            if (level.id === 'N8' || level.id === 'N9' || level.id === 'N10') {
+            // ✅ N7/N8/N9/N10 são barreiras/validadores (não votam).
+            // Nunca devem aparecer como "NULO" — mostrar APROVADO/BLOQUEADO + resumo.
+            if (level.id === 'N7' || level.id === 'N8' || level.id === 'N9' || level.id === 'N10') {
                 const detail = level.details ? String(level.details) : 'APROVADO';
                 return `${prefix}${meta.label} → ${detail}`;
             }
@@ -21858,7 +21994,7 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
             const p1Label = (typeof nivel9.p1 === 'number') ? `${(nivel9.p1 * 100).toFixed(1)}%` : `${Math.round(autoStrength * 100)}%`;
             const p2Label = (typeof nivel9.p2 === 'number') ? `${(nivel9.p2 * 100).toFixed(1)}%` : 'n/d';
             const p3Label = (typeof nivel9.p3 === 'number') ? `${(nivel9.p3 * 100).toFixed(1)}%` : 'n/d';
-            autoDetailsText = `P1 ${p1Label} • P2 ${p2Label} • P3 ${p3Label}`;
+            autoDetailsText = `Entrada ${p1Label} • Até G1 ${p2Label} • Até G2 ${p3Label}`;
         } else if (n4Enabled && nivel9 && nivel9.details) {
             autoDetailsText = nivel9.details;
         }
@@ -21911,17 +22047,20 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
 		const n7Enabled = isLevelEnabledLocal('N7');
 		const decisionWindowConfigured = Math.max(10, Math.min(50, getDiamondWindow('n7DecisionWindow', 20)));
 		const historyWindowConfigured = Math.max(decisionWindowConfigured, Math.min(200, getDiamondWindow('n7HistoryWindow', 100)));
-		const continuityResult = analyzeGlobalContinuity(signalsHistory, decisionWindowConfigured, historyWindowConfigured, analyzerConfig.signalIntensity || 'aggressive');
-		levelReports.push({
+		const n7Report = {
 			id: 'N7',
-			name: 'Continuidade Global',
-			color: n7Enabled ? continuityResult.color : null,
-			weight: n7Enabled ? weightFor(levelWeights.globalContinuity) : 0,
-			strength: n7Enabled ? (continuityResult.strength || 0) : 0,
-			score: n7Enabled ? directionValue(continuityResult.color) * (continuityResult.strength || 0) : 0,
-			details: n7Enabled ? continuityResult.details : 'DESATIVADO',
-            disabled: !n7Enabled
-		});
+			name: 'Barreira (Ápice %)',
+			color: null, // ✅ N7 não vota cor (barreira)
+			weight: 0,
+			strength: 0,
+			score: 0,
+			details: n7Enabled
+				? `PENDENTE • Wmáx ${decisionWindowConfigured} | Hist ${historyWindowConfigured}`
+				: 'DESATIVADO',
+            disabled: !n7Enabled,
+            meta: { maxWindow: decisionWindowConfigured, historyWindow: historyWindowConfigured }
+		};
+		levelReports.push(n7Report);
 
         // N10 - Barreira Inteligente (validador: NÃO vota)
         const n10Enabled = isLevelEnabledLocal('N10');
@@ -22818,25 +22957,14 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
         // N8 (Barreira 1 - oposta) e N9 (Barreira 2 - indicada)
         const n9Enabled = isLevelEnabledLocal('N9');
         const n8WindowCfg = getDiamondWindow('n8Barrier1', getDiamondWindow('n8Barrier', 50));
-        let n8Barrier1 = { allowed: true, details: 'DESATIVADO' };
-        let n8DetailsText = 'DESATIVADO';
-        if (n8Enabled) {
-            n8Barrier1 = validateOppositeContinuationBarrier(history, predictedColor, n8WindowCfg, { minStreakToWorry: 3 });
-            n8DetailsText = (n8Barrier1 && n8Barrier1.details) ? n8Barrier1.details : (n8Barrier1.allowed ? 'APROVADO' : 'BLOQUEADO');
-            // atualizar report existente do N8
+        // ✅ NOVO FLUXO: barreiras (N7–N10) decidem por maioria e validam a COR FINAL do consenso.
+        // Aqui deixamos como "pendente" e avaliamos após o consenso.
+        let n8Barrier1 = { allowed: true, details: n8Enabled ? 'PENDENTE' : 'DESATIVADO' };
+        let n8DetailsText = n8Enabled ? 'PENDENTE' : 'DESATIVADO';
+        try {
             const rep = levelReports.find(l => l && l.id === 'N8');
             if (rep) rep.details = n8DetailsText;
-            if (!n8Barrier1.allowed) {
-                await emitLevelStatuses(levelReports, { force: true });
-                sendAnalysisStatus(`N8 - Barreira 1: BLOQUEADO (${n8DetailsText})`);
-                await sleep(2000);
-                await restoreIAStatus();
-                return null;
-            }
-        } else {
-            const rep = levelReports.find(l => l && l.id === 'N8');
-            if (rep) rep.details = 'DESATIVADO';
-        }
+        } catch (_) {}
         let barrierResult = {
             allowed: true,
             currentStreak: 0,
@@ -22848,25 +22976,7 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
         let barrierDetailsText = 'DESATIVADO';
         let barrierStrength = 0;
 
-        if (!n9Enabled) {
-            console.log('%c║  🛑 N9 - BARREIRA 2 (INDICADA) DESATIVADA (pelo usuário) ║', 'color: #777777; font-weight: bold; font-size: 14px;');
-        } else {
-        console.log('%c║  🛑 N9 - BARREIRA 2 (INDICADA)                          ║', 'color: #FF0000; font-weight: bold; font-size: 14px;');
-        console.log(`%c🎯 Cor candidata antes da barreira: ${predictedColor.toUpperCase()}`, `color: ${predictedColor === 'red' ? '#FF0000' : '#FFFFFF'}; font-weight: bold;`);
-        console.log(`%c📊 Configuração: ${historySize} giros para análise`, 'color: #FF0000;');
-
-            barrierResult = validateSequenceBarrier(history, predictedColor, getDiamondWindow('n8Barrier', historySize), {
-            override: alternanceOverrideActive,
-            targetRuns: nivel7 ? nivel7.alternanceTargetRuns : null,
-            maxRuns: nivel7 ? nivel7.alternanceMaxRuns : null
-        });
-            const alternanceSummaryText = nivel7 && nivel7.details ? nivel7.details : 'Alternância em análise';
-            barrierDetailsText = barrierResult.alternanceBlocked
-            ? `Alternância bloqueada • ${alternanceSummaryText}`
-            : `Atual ${barrierResult.currentStreak} • alvo ${barrierResult.targetStreak} • máx ${barrierResult.maxStreakFound}` +
-                (barrierResult.gapRuleBlocked ? ' (sem folga)' : '');
-
-        // 🔥 VERIFICAR SE ALTERNÂNCIA ESTÁ BLOQUEADA
+        // 🔥 VERIFICAR SE ALTERNÂNCIA ESTÁ BLOQUEADA (veto duro — não é "barreira por voto")
         if (alternanceBlocked && alternanceOverrideActive) {
             console.log('%c🚫🚫🚫 SINAL BLOQUEADO - CONTROLE DE ALTERNÂNCIA! 🚫🚫🚫', 'color: #FFFFFF; font-weight: bold; font-size: 16px; background: #FF0000;');
             console.log(`%c   Motivo: ${alternanceBlockReason}`, 'color: #FF6666; font-weight: bold;');
@@ -22878,17 +22988,17 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
             await restoreIAStatus();
             return null;
         }
-        const streakGap = barrierResult.maxStreakFound - barrierResult.targetStreak;
-        if (barrierResult.allowed) {
-            barrierStrength = 0.4;
-        if (streakGap >= 2) {
-            barrierStrength = 0.6;
-        } else if (streakGap === 1) {
-            barrierStrength = 0.5;
+
+        // N9 será avaliada após o consenso (por maioria junto com N7/N8/N10)
+        if (!n9Enabled) {
+            console.log('%c║  🛑 N9 - BARREIRA 2 (INDICADA) DESATIVADA (pelo usuário) ║', 'color: #777777; font-weight: bold; font-size: 14px;');
+            barrierDetailsText = 'DESATIVADO';
+        } else {
+            console.log('%c║  🛑 N9 - BARREIRA 2 (INDICADA)                          ║', 'color: #FF0000; font-weight: bold; font-size: 14px;');
+            console.log('%c   (avaliada após o consenso)', 'color: #FF0000;');
+            barrierDetailsText = 'PENDENTE';
         }
-        }
-        }
-        const barrierStatusLabel = barrierResult.allowed ? 'APROVADO' : 'BLOQUEADO';
+        const barrierStatusLabel = n9Enabled ? 'PENDENTE' : 'DESATIVADO';
         
         // ✅ CORREÇÃO: N9 é apenas validador, NÃO vota
         // Verificar se há votos de outros níveis (excluindo N0, N9 e N10)
@@ -22933,25 +23043,14 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
         });
         console.log('%c╚════════════════════════════════════════════════════════════╝', summaryStyle);
 
-        if (!barrierResult.allowed) {
-            console.log('%c🚫🚫🚫 SINAL BLOQUEADO PELA BARREIRA! 🚫🚫🚫', 'color: #FFFFFF; font-weight: bold; font-size: 16px; background: #FF0000;');
-            console.log('%c   Sequência sem precedente histórico!', 'color: #FF6666; font-weight: bold;');
-        await emitLevelStatuses(levelReports, { force: true });
-        sendAnalysisStatus(`N9 - Barreira 2: BLOQUEADO (${barrierDetailsText})`);
-        await sleep(2000);
-            await restoreIAStatus();
-            console.log('%c   ❌ SINAL CANCELADO!', 'color: #FF0000; font-weight: bold; font-size: 14px;');
-            return null;
-        }
-
-        console.log('%c✅ BARREIRA LIBERADA! Sequência é viável.', 'color: #00FF88; font-weight: bold; font-size: 14px;');
+        // ✅ Importante: as 4 barreiras (N7–N10) decidem por maioria após o consenso.
         
         // ✅ VERIFICAÇÃO CRÍTICA:
-        // Se não houver nenhum voto vindo dos níveis "votantes" (N1..N7), cancelar o sinal.
+        // Se não houver nenhum voto vindo dos níveis "votantes" (N1..N6), cancelar o sinal.
         // - N9/N10 são validadores/veto (não são voto).
         // - N0 é detector de branco (só vira "sinal" quando FORÇA WHITE via BLOCK ALL).
         const votingLevelsOnly = levelReports.filter(lvl => 
-            lvl.id !== 'N0' && lvl.id !== 'N8' && lvl.id !== 'N9' && lvl.id !== 'N10' && 
+            lvl.id !== 'N0' && lvl.id !== 'N7' && lvl.id !== 'N8' && lvl.id !== 'N9' && lvl.id !== 'N10' && 
             !lvl.disabled && lvl.color && (lvl.strength || 0) > 0
         );
         
@@ -22961,12 +23060,12 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
             const activeEnabledLabel = activeEnabledIds.length > 0 ? activeEnabledIds.join(', ') : 'nenhum';
             const hint = n0EnabledNow
                 ? 'Dica: com só N0 (Detector de Branco) ativo, sinais podem ficar horas sem aparecer — ele só dispara quando prevê WHITE com confiança suficiente.'
-                : 'Dica: ative pelo menos um nível votante (N1–N7) para gerar sinais.';
+                : 'Dica: ative pelo menos um nível votante (N1–N6) para gerar sinais.';
 
-            console.log('%c🚫 NENHUM VOTO DOS NÍVEIS VOTANTES (N1–N7)', 'color: #FF6666; font-weight: bold; font-size: 16px;');
+            console.log('%c🚫 NENHUM VOTO DOS NÍVEIS VOTANTES (N1–N6)', 'color: #FF6666; font-weight: bold; font-size: 16px;');
             console.log(`%c   Níveis ativos: ${activeEnabledLabel}`, 'color: #FF6666; font-weight: bold;');
-            console.log('%c   ❌ SINAL CANCELADO - sem votos válidos (N1–N7)', 'color: #FF0000; font-weight: bold;');
-            sendAnalysisStatus(`❌ Sem votos (N1–N7). Ativos: ${activeEnabledLabel}. ${hint}`);
+            console.log('%c   ❌ SINAL CANCELADO - sem votos válidos (N1–N6)', 'color: #FF0000; font-weight: bold;');
+            sendAnalysisStatus(`❌ Sem votos (N1–N6). Ativos: ${activeEnabledLabel}. ${hint}`);
             await sleep(2000);
             await restoreIAStatus();
             return null;
@@ -22986,7 +23085,7 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
         // ✅ Intensidade: respeitar config + auto-ajuste quando a performance recente cair
         const requestedIntensity = normalizeSignalIntensity(analyzerConfig && analyzerConfig.signalIntensity, 'aggressive');
         let signalIntensity = requestedIntensity;
-        const votingLevelIds = ['N1','N2','N3','N4','N5','N6','N7'];
+        const votingLevelIds = ['N1','N2','N3','N4','N5','N6'];
         const allVotingLevelsEnabled = votingLevelIds.every(id => diamondLevelEnabledMap[id]);
 
         // ✅ Auto-intensidade (pedido do usuário: “se a estratégia está errada, ele muda”):
@@ -23086,12 +23185,8 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
                     n10Report.details = n10BarrierResult && n10BarrierResult.details ? n10BarrierResult.details : 'APROVADO';
                 }
                 if (n10BarrierResult && n10BarrierResult.allowed === false) {
-                    console.log('%c🚫🚫🚫 SINAL BLOQUEADO PELO N10 (BARREIRA INTELIGENTE)! 🚫🚫🚫', 'color: #FFFFFF; font-weight: bold; font-size: 16px; background: #FF0000;');
-                    await emitLevelStatuses(levelReports, { force: true });
-                    sendAnalysisStatus(`N10 - Barreira Inteligente: BLOQUEADO (${n10BarrierResult.details || 'sem detalhes'})`);
-                    await sleep(2000);
-                    await restoreIAStatus();
-                    return null;
+                    // ✅ Pedido: barreiras funcionam por MAIORIA (N7–N10). Não retornar aqui.
+                    console.log('%c⚠️ N10 DESAPROVOU (decisão final por maioria das barreiras)', 'color: #FFAA00; font-weight: bold;');
                 }
             } catch (e) {
                 // Fail-open: em caso de erro interno, não bloquear sinal
@@ -23103,6 +23198,93 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
             if (n10Report) n10Report.details = 'DESATIVADO';
         }
 
+        // ═══════════════════════════════════════════════════════════════
+        // 🛡️ BARREIRAS POR MAIORIA (N7–N10)
+        // - N7: Ápice % (janelas deslizantes) → aprova se bate com a cor candidata
+        // - N8/N9/N10: barreiras existentes (permitido/bloqueado)
+        // Regra (pedido):
+        // - empate (2 aprova / 2 reprova) => SEM sinal
+        // - maioria simples (ex.: 3/4) => sinal liberado
+        // ═══════════════════════════════════════════════════════════════
+        let n7BarrierResult = { allowed: true, details: n7Enabled ? 'PENDENTE' : 'DESATIVADO' };
+        if (n7Enabled) {
+            n7BarrierResult = validateN7ApexPercentageBarrier(history, consensusColor, {
+                maxWindow: decisionWindowConfigured,
+                historyWindow: historyWindowConfigured
+            });
+            try {
+                const rep = levelReports.find(l => l && l.id === 'N7');
+                if (rep) rep.details = (n7BarrierResult && n7BarrierResult.details) ? n7BarrierResult.details : (n7BarrierResult.allowed ? 'APROVADO' : 'BLOQUEADO');
+            } catch (_) {}
+        } else {
+            try {
+                const rep = levelReports.find(l => l && l.id === 'N7');
+                if (rep) rep.details = 'DESATIVADO';
+            } catch (_) {}
+        }
+
+        if (n8Enabled) {
+            n8Barrier1 = validateOppositeContinuationBarrier(history, consensusColor, n8WindowCfg, { minStreakToWorry: 3 });
+            n8DetailsText = (n8Barrier1 && n8Barrier1.details)
+                ? n8Barrier1.details
+                : ((n8Barrier1 && n8Barrier1.allowed === false) ? 'BLOQUEADO' : 'APROVADO');
+            try {
+                const rep = levelReports.find(l => l && l.id === 'N8');
+                if (rep) rep.details = n8DetailsText;
+            } catch (_) {}
+        } else {
+            try {
+                const rep = levelReports.find(l => l && l.id === 'N8');
+                if (rep) rep.details = 'DESATIVADO';
+            } catch (_) {}
+        }
+
+        if (n9Enabled) {
+            barrierResult = validateSequenceBarrier(history, consensusColor, getDiamondWindow('n8Barrier', historySize), {
+                override: alternanceOverrideActive,
+                targetRuns: nivel7 ? nivel7.alternanceTargetRuns : null,
+                maxRuns: nivel7 ? nivel7.alternanceMaxRuns : null
+            });
+            barrierDetailsText = barrierResult && barrierResult.alternanceBlocked
+                ? 'Alternância bloqueada'
+                : `Atual ${barrierResult.currentStreak} • alvo ${barrierResult.targetStreak} • máx ${barrierResult.maxStreakFound}` +
+                    (barrierResult.gapRuleBlocked ? ' (sem folga)' : '');
+            try {
+                const rep = levelReports.find(l => l && l.id === 'N9');
+                if (rep) rep.details = `${barrierResult.allowed ? 'APROVADO' : 'BLOQUEADO'} • ${barrierDetailsText}`;
+            } catch (_) {}
+        } else {
+            barrierResult = { allowed: true, currentStreak: 0, targetStreak: 0, maxStreakFound: 0, reason: 'disabled', alternanceBlocked: false };
+            barrierDetailsText = 'DESATIVADO';
+            try {
+                const rep = levelReports.find(l => l && l.id === 'N9');
+                if (rep) rep.details = 'DESATIVADO';
+            } catch (_) {}
+        }
+
+        const barrierVotes = [];
+        const addBarrierVote = (id, enabled, allowed) => {
+            if (!enabled) return;
+            barrierVotes.push({ id, allowed: allowed !== false });
+        };
+        addBarrierVote('N7', n7Enabled, n7BarrierResult && n7BarrierResult.allowed);
+        addBarrierVote('N8', n8Enabled, n8Barrier1 && n8Barrier1.allowed);
+        addBarrierVote('N9', n9Enabled, barrierResult && barrierResult.allowed);
+        addBarrierVote('N10', n10Enabled, n10BarrierResult && n10BarrierResult.allowed);
+
+        const barrierTotal = barrierVotes.length;
+        const barrierApprovals = barrierVotes.filter(v => v.allowed).length;
+        const barrierNeeded = barrierTotal > 0 ? (Math.floor(barrierTotal / 2) + 1) : 0;
+        if (barrierTotal > 0 && barrierApprovals < barrierNeeded) {
+            const disapprovers = barrierVotes.filter(v => !v.allowed).map(v => v.id).join(', ') || '—';
+            console.log(`%c🚫 BARREIRAS REPROVARAM: aprova ${barrierApprovals}/${barrierTotal} (mín ${barrierNeeded}) • reprovaram: ${disapprovers}`, 'color: #FF6666; font-weight: bold;');
+            await emitLevelStatuses(levelReports, { force: true });
+            sendAnalysisStatus(`🚫 Barreiras: ${barrierApprovals}/${barrierTotal} aprovaram (mín ${barrierNeeded})`);
+            await sleep(2000);
+            await restoreIAStatus();
+            return null;
+        }
+
         if (signalIntensity === 'conservative') {
             if (voteCounts[consensusColor] < 5) {
                 console.log(`%c❌ Conservador: apenas ${voteCounts[consensusColor]}/5 votos para ${consensusColor.toUpperCase()}.`, 'color: #FF6666; font-weight: bold;');
@@ -23111,37 +23293,7 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
                 await restoreIAStatus();
                 return null;
             }
-
-            if (!n9Enabled) {
-                console.log('%c❌ Conservador: Barreira Final (N9) precisa estar ativa.', 'color: #FF6666; font-weight: bold;');
-                sendAnalysisStatus('❌ Conservador: ative a Barreira Final (N9)');
-                await sleep(2000);
-                await restoreIAStatus();
-                return null;
-            }
-
-            if (!barrierResult.allowed) {
-                console.log('%c❌ Conservador: Barreira Final bloqueou o sinal.', 'color: #FF6666; font-weight: bold;');
-                sendAnalysisStatus('❌ Conservador: Barreira Final bloqueou');
-                await sleep(2000);
-                await restoreIAStatus();
-                return null;
-            }
-
-            if (!n10Enabled) {
-                console.log('%c❌ Conservador: Barreira Inteligente (N10) precisa estar ativa.', 'color: #FF6666; font-weight: bold;');
-                sendAnalysisStatus('❌ Conservador: ative a Barreira Inteligente (N10)');
-                await sleep(2000);
-                await restoreIAStatus();
-                return null;
-            }
-            if (n10BarrierResult && n10BarrierResult.allowed === false) {
-                console.log('%c❌ Conservador: N10 bloqueou o sinal.', 'color: #FF6666; font-weight: bold;');
-                sendAnalysisStatus('❌ Conservador: N10 bloqueou');
-                await sleep(2000);
-                await restoreIAStatus();
-                return null;
-            }
+            // ✅ Barreiras (N7–N10) já foram aplicadas por maioria acima.
         }
 
         finalColor = consensusColor;
@@ -23404,10 +23556,10 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
         console.log('%c✅ BARREIRA LIBERADA! Sequência é viável.', 'color: #00FF88; font-weight: bold; font-size: 14px;');
         
         // ═══════════════════════════════════════════════════════════════
-			const prefix = continuityResult.strength > 0 ? 'Reforço' : 'Redução';
-			sendAnalysisStatus(`📈 N7 - Continuidade Global → ${continuityResult.color.toUpperCase()} (${prefix})`);
+			const n7Text = (n7BarrierResult && n7BarrierResult.details) ? n7BarrierResult.details : 'N/D';
+			sendAnalysisStatus(`📈 N7 - Barreira (Ápice %) → ${n7Text}`);
 		} else {
-			sendAnalysisStatus(`📈 N7 - Continuidade Global → NULO`);
+			sendAnalysisStatus(`📈 N7 - Barreira (Ápice %) → DESATIVADO`);
 		}
 		await sleep(1500);
 
@@ -23478,11 +23630,11 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
         }
         await sleep(1500);
 
-        if (continuityResult && continuityResult.color && (continuityResult.strength || 0) !== 0) {
-            const prefix2 = continuityResult.strength > 0 ? 'Reforço' : 'Redução';
-            sendAnalysisStatus(`📈 N7 - Continuidade Global → ${continuityResult.color.toUpperCase()} (${prefix2})`);
+        if (n7Enabled) {
+            const n7Text2 = (n7BarrierResult && n7BarrierResult.details) ? n7BarrierResult.details : 'N/D';
+            sendAnalysisStatus(`📈 N7 - Barreira (Ápice %) → ${n7Text2}`);
         } else {
-            sendAnalysisStatus(`📈 N7 - Continuidade Global → NULO`);
+            sendAnalysisStatus(`📈 N7 - Barreira (Ápice %) → DESATIVADO`);
         }
         await sleep(1500);
         
@@ -23598,10 +23750,10 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
 			: `N6 - Retração Histórica: NULO`;
 
 		const continuityDescription = !n7Enabled
-            ? `N7 - Continuidade Global: DESATIVADO`
-			: continuityResult && continuityResult.details
-			? `N7 - Continuidade Global: ${continuityResult.details}`
-			: `N7 - Continuidade Global: NULO`;
+            ? `N7 - Barreira (Ápice %): DESATIVADO`
+			: (n7BarrierResult && n7BarrierResult.details)
+			? `N7 - Barreira (Ápice %): ${n7BarrierResult.details}`
+			: `N7 - Barreira (Ápice %): N/D`;
 
 		const barrier1Report = levelReports.find(level => level.id === 'N8');
 		const barrier1Description = !n8Enabled
@@ -25645,8 +25797,10 @@ function patternKeyOf(p) {
 	const size = normalizedPattern.length;
 	
 	// ✅ ASSINATURA ÚNICA: tipo + tamanho + sequência + próxima cor
-	// ⚠️ NÃO incluir triggerColor (pode variar entre ocorrências)
-	const uniqueKey = `${type}|s:${size}|p:${core}|e:${expect}`;
+	// ✅ Premium (rigor): incluir triggerColor normalizada
+	// Isso impede “misturar” ocorrências com disparos diferentes (ex.: vermelho vs branco).
+	const trig = normalizeColorName(p.triggerColor) || '';
+	const uniqueKey = `${type}|s:${size}|p:${core}|e:${expect}|t:${trig}`;
 	
 	return uniqueKey;
 }
@@ -25711,11 +25865,14 @@ async function verifyWithSavedPatternsFast(history, dbOverride = null) {
 			// Cor de disparo atual (antes do padrão head)
 			const currentTrigger = (history[need] && history[need].color) ? history[need].color : null;
 			const currentTriggerNorm = normalizeColorName(currentTrigger);
+			const savedTriggerNorm = normalizeColorName(pat && pat.triggerColor);
 			const firstPatternNorm = normalizeColorName(getInitialPatternColor(pat.pattern));
 			if (!firstPatternNorm) continue;
 
 			if (requireTrigger) {
 				if (!currentTriggerNorm) continue;
+				// ✅ Rigor: se o padrão salvo possui trigger, ela DEVE bater com a trigger atual
+				if (savedTriggerNorm && currentTriggerNorm !== savedTriggerNorm) continue;
 				const validation = validateDisparoColor(firstPatternNorm, currentTriggerNorm);
 				if (!validation.valid) continue;
 			}
@@ -25750,7 +25907,7 @@ async function verifyWithSavedPatternsFast(history, dbOverride = null) {
 					pattern: pat.pattern,
 					occurrences: occ,
 					patternType: patternName,
-					triggerColor: currentTrigger || null,
+					triggerColor: (savedTriggerNorm || currentTrigger || null),
 					summary: {
 						occurrences: occ,
 						wins,
@@ -25834,6 +25991,7 @@ async function verifyWithSavedPatternsLegacy(history, dbOverride = null) {
 		const currentTrigger = headColors[need]; // cor imediatamente anterior ao padrão no histórico
 	
 	const currentTriggerNormalized = normalizeColorName(currentTrigger);
+	const savedTriggerNormalized = normalizeColorName(pat && pat.triggerColor);
 	const firstPatternNormalized = normalizeColorName(getInitialPatternColor(pat.pattern));
 
 	if (!firstPatternNormalized) {
@@ -25850,6 +26008,15 @@ async function verifyWithSavedPatternsLegacy(history, dbOverride = null) {
 			});
 			continue;
 		}
+		// ✅ Rigor: se o padrão salvo possui trigger, ela DEVE bater com a trigger atual
+		if (savedTriggerNormalized && currentTriggerNormalized !== savedTriggerNormalized) {
+			console.log('❌ Padrão salvo rejeitado: trigger atual diferente da trigger salva', {
+				pattern: pat.pattern,
+				currentTrigger: currentTriggerNormalized,
+				savedTrigger: savedTriggerNormalized
+			});
+			continue;
+		}
 		const validation = validateDisparoColor(firstPatternNormalized, currentTriggerNormalized);
 		if (!validation.valid) {
 			console.log('❌ Padrão salvo rejeitado: cor de disparo atual inválida', {
@@ -25863,7 +26030,7 @@ async function verifyWithSavedPatternsLegacy(history, dbOverride = null) {
 			continue;
 		}
 	}
-		// NÃO exigir que a trigger seja igual à salva; triggers podem variar por ocorrência
+		// ✅ Rigor: trigger NÃO pode variar por ocorrência (ver filtros abaixo)
 
 		// Reconstruir ocorrências com números e horários a partir do histórico
 	// ✅ APLICAR PROFUNDIDADE DE ANÁLISE CONFIGURADA PELO USUÁRIO
@@ -25906,7 +26073,12 @@ async function verifyWithSavedPatternsLegacy(history, dbOverride = null) {
 				if (!trigNormalized) {
 					triggerValid = false;
 				} else {
-					triggerValid = validateDisparoColor(firstPatternNormalized, trigNormalized).valid;
+					// ✅ Rigor: se existe trigger salva, deve casar em TODAS as ocorrências
+					if (savedTriggerNormalized && trigNormalized !== savedTriggerNormalized) {
+						triggerValid = false;
+					} else {
+						triggerValid = validateDisparoColor(firstPatternNormalized, trigNormalized).valid;
+					}
 				}
 			}
 			if (!triggerValid) continue;
@@ -25959,6 +26131,8 @@ async function verifyWithSavedPatternsLegacy(history, dbOverride = null) {
 		// ✅ Respeitar "Exigir cor de disparo": se desativado, não validar disparo aqui.
 		if (requireTrigger) {
 			if (!trigNormalized) continue;
+			// ✅ Rigor: se existe trigger salva, deve casar em TODAS as ocorrências
+			if (savedTriggerNormalized && trigNormalized !== savedTriggerNormalized) continue;
 			if (!validateDisparoColor(firstPatternNormalized, trigNormalized).valid) continue;
 		}
 		
@@ -26143,7 +26317,8 @@ async function verifyWithSavedPatternsLegacy(history, dbOverride = null) {
 				allOccurrenceNumbers: occNumbers,
 				allOccurrenceTimestamps: occTimestamps,
 				patternType: patternName,
-			triggerColor: currentTrigger || null, // SEMPRE usar trigger ATUAL, não o salvo
+				// ✅ Rigor: preferir trigger do padrão salvo (fixa). Se não existir, usar a atual.
+				triggerColor: (savedTriggerNormalized || currentTrigger || null),
 				allTriggerNumbers: trigNumbers,
                 allTriggerTimestamps: trigTimestamps,
                 occurrenceDetails: occurrenceDetails, // Detalhes por ocorrência (append-only)
@@ -26161,8 +26336,9 @@ async function verifyWithSavedPatternsLegacy(history, dbOverride = null) {
 						if (analyzerConfig.requireTrigger) {
 						const trig = history[i + need] ? history[i + need].color : null;
 						if (!trig || !isValidTrigger(trig, pat.pattern)) continue;
+						const trigNorm = normalizeColorName(trig);
+						if (savedTriggerNormalized && trigNorm && trigNorm !== savedTriggerNormalized) continue;
 						}
-						// triggers podem variar; não exigir igualdade à trigger salva
                         occ++;
                         const out = history[i-1] ? history[i-1].color : null;
                         if (out === suggested) w++; else l++;
@@ -26183,7 +26359,8 @@ async function verifyWithSavedPatternsLegacy(history, dbOverride = null) {
                         if (analyzerConfig.requireTrigger) {
                         const trig = history[i + need] ? history[i + need].color : null;
                         if (!trig || !isValidTrigger(trig, pat.pattern)) continue;
-                            // NÃO filtrar por cor de disparo específica - triggers podem variar entre ocorrências
+                        const trigNorm = normalizeColorName(trig);
+                        if (savedTriggerNormalized && trigNorm && trigNorm !== savedTriggerNormalized) continue;
                         }
                         counted++;
                         const out = history[i-1] ? history[i-1].color : null;
@@ -27198,8 +27375,11 @@ function validateDisparoColor(corInicial, corDisparo) {
     const trigger = normalizeColorName(corDisparo);
     
     const mapping = {
-        'red': ['black', 'white'],
-        'black': ['red', 'white'],
+        // ✅ Rigor Premium:
+        // - Se o padrão inicia em PRETO, disparo é VERMELHO (e vice-versa).
+        // - Branco NÃO é “válido por ser diferente” quando o padrão inicia em red/black.
+        'red': ['black'],
+        'black': ['red'],
         'white': ['red', 'black']
     };
     
@@ -30635,13 +30815,38 @@ function computeAssertivenessForColorPattern(patternColors, expectedNext, histor
 async function sendMessageToContent(type, data = null) {
     return new Promise((resolve) => {
         chrome.tabs.query({}, function(tabs) {
-            const blazeTabs = tabs.filter(tab => {
-                if (!tab.url) return false;
-                return tab.url.includes('blaze.bet.br') || 
-                       tab.url.includes('blaze.com') || 
-                       tab.url.includes('blaze1.space') ||
-                       tab.url.includes('blaze-1.com');
-            });
+            const isBlazeUrl = (url) => {
+                try {
+                    if (!url) return false;
+                    const u = new URL(String(url));
+                    const host = String(u.hostname || '').toLowerCase().trim();
+                    if (!host) return false;
+                    // ✅ Deve cobrir TODOS os domínios suportados no manifest desta extensão.
+                    const allowed = new Set([
+                        'blaze.bet.br',
+                        'blaze.com',
+                        'blaze1.space',
+                        'blaze-1.com',
+                        'blaze-bet.com'
+                    ]);
+                    if (allowed.has(host)) return true;
+                    // Alguns mirrors usam subdomínios (ex.: www.blaze.com)
+                    for (const base of allowed) {
+                        if (host === `www.${base}`) return true;
+                    }
+                    return false;
+                } catch (_) {
+                    // fallback simples (compat)
+                    const s = String(url || '').toLowerCase();
+                    return s.includes('blaze.bet.br') ||
+                           s.includes('blaze.com') ||
+                           s.includes('blaze1.space') ||
+                           s.includes('blaze-1.com') ||
+                           s.includes('blaze-bet.com');
+                }
+            };
+
+            const blazeTabs = (Array.isArray(tabs) ? tabs : []).filter(tab => isBlazeUrl(tab && tab.url));
             
             if (!blazeTabs || blazeTabs.length === 0) {
                 resolve(false);
@@ -36079,21 +36284,24 @@ function analyzeDiamondLevelsSimulation(history, config, simState) {
         disabled: !n6Enabled
     });
 
-    // N7 - Continuidade global
+    // N7 - Barreira (Ápice %)
     const n7Enabled = isLevelEnabledLocal('N7');
     const decisionWindowConfigured = Math.max(10, Math.min(50, getDiamondWindowFromConfig(config, 'n7DecisionWindow', 20)));
     const historyWindowConfigured = Math.max(decisionWindowConfigured, Math.min(200, getDiamondWindowFromConfig(config, 'n7HistoryWindow', 100)));
-    const continuityResult = n7Enabled ? analyzeGlobalContinuity(simState.signalsHistory, decisionWindowConfigured, historyWindowConfigured, config.signalIntensity || 'aggressive') : null;
-    levelReports.push({
+    const n7Report = {
         id: 'N7',
-        name: 'Continuidade Global',
-        color: n7Enabled ? continuityResult.color : null,
-        weight: n7Enabled ? weightFor(levelWeights.globalContinuity) : 0,
-        strength: n7Enabled ? (continuityResult.strength || 0) : 0,
-        score: n7Enabled && continuityResult.color ? directionValue(continuityResult.color) * (continuityResult.strength || 0) : 0,
-        details: n7Enabled ? continuityResult.details : 'DESATIVADO',
-        disabled: !n7Enabled
-    });
+        name: 'Barreira (Ápice %)',
+        color: null,
+        weight: 0,
+        strength: 0,
+        score: 0,
+        details: n7Enabled
+            ? `PENDENTE • Wmáx ${decisionWindowConfigured} | Hist ${historyWindowConfigured}`
+            : 'DESATIVADO',
+        disabled: !n7Enabled,
+        meta: { maxWindow: decisionWindowConfigured, historyWindow: historyWindowConfigured }
+    };
+    levelReports.push(n7Report);
 
     // N8 - Barreira 1 (Oposta) (validador: NÃO vota)
     const n8Enabled = isLevelEnabledLocal('N8');
@@ -36342,46 +36550,19 @@ function analyzeDiamondLevelsSimulation(history, config, simState) {
     }
 
     // N8 (Barreira 1 - oposta) e N9 (Barreira 2 - indicada)
-    if (n8Enabled) {
-        const n8WindowCfg = getDiamondWindowFromConfig(config, 'n8Barrier1', getDiamondWindowFromConfig(config, 'n8Barrier', 50));
-        const n8Res = validateOppositeContinuationBarrier(history, predictedColor, n8WindowCfg, { minStreakToWorry: 3 });
-        n8Report.details = (n8Res && n8Res.details) ? n8Res.details : (n8Res && n8Res.allowed === false ? 'BLOQUEADO' : 'APROVADO');
-        if (n8Res && n8Res.allowed === false) {
-            return null;
-        }
-    } else {
-        n8Report.details = 'DESATIVADO';
-    }
+    // ✅ Novo fluxo: barreiras (N7–N10) decidem por maioria e validam a COR FINAL do consenso.
+    // Aqui deixamos como "pendente" e avaliamos após o consenso.
+    const n8WindowCfg = getDiamondWindowFromConfig(config, 'n8Barrier1', getDiamondWindowFromConfig(config, 'n8Barrier', 50));
+    let n8Res = { allowed: true, details: n8Enabled ? 'PENDENTE' : 'DESATIVADO' };
+    n8Report.details = n8Enabled ? 'PENDENTE' : 'DESATIVADO';
 
     const n9Enabled = isLevelEnabledLocal('N9');
     let barrierResult = { allowed: true, alternanceBlocked: false };
     if (alternanceBlocked && alternanceOverrideActive) {
         return null;
     }
-    let barrierDetailsText = '';
-    if (n9Enabled) {
-        barrierResult = validateSequenceBarrier(history, predictedColor, getDiamondWindowFromConfig(config, 'n8Barrier', historySize), {
-            override: alternanceOverrideActive,
-            targetRuns: nivel7 ? nivel7.alternanceTargetRuns : null,
-            maxRuns: nivel7 ? nivel7.alternanceMaxRuns : null
-        });
-        if (barrierResult && barrierResult.alternanceBlocked) {
-            barrierDetailsText = 'BLOQUEADO • alternância';
-        } else if (barrierResult && barrierResult.allowed) {
-            const cur = Number(barrierResult.currentStreak ?? 0);
-            const target = Number(barrierResult.targetStreak ?? 0);
-            const maxHist = Number(barrierResult.maxStreakFound ?? 0);
-            barrierDetailsText = `APROVADO • atual ${cur} • alvo ${target} • máxHist ${maxHist}`;
-        } else {
-            const cur = Number(barrierResult.currentStreak ?? 0);
-            const target = Number(barrierResult.targetStreak ?? 0);
-            const maxHist = Number(barrierResult.maxStreakFound ?? 0);
-            barrierDetailsText = `BLOQUEADO • atual ${cur} • alvo ${target} • máxHist ${maxHist}`;
-        }
-        if (!barrierResult.allowed) {
-            return null;
-        }
-    }
+    // N9 será avaliada após o consenso (por maioria junto com N7/N8/N10)
+    let barrierDetailsText = n9Enabled ? 'PENDENTE' : 'DESATIVADO';
 
     levelReports.push({
         id: 'N9',
@@ -36390,13 +36571,13 @@ function analyzeDiamondLevelsSimulation(history, config, simState) {
         weight: 0,
         strength: 0,
         score: 0,
-        details: n9Enabled ? (barrierDetailsText || (barrierResult.allowed ? 'APROVADO' : 'BLOQUEADO')) : 'DESATIVADO',
+        details: n9Enabled ? barrierDetailsText : 'DESATIVADO',
         disabled: !n9Enabled
     });
 
-    // Verificação: precisa existir voto de níveis 1-7 (N8/N9/N10 são barreiras)
+    // Verificação: precisa existir voto de níveis 1-6 (N7–N10 são barreiras)
     const votingLevelsOnly = levelReports.filter(lvl =>
-        lvl.id !== 'N0' && lvl.id !== 'N8' && lvl.id !== 'N9' && lvl.id !== 'N10' &&
+        lvl.id !== 'N0' && lvl.id !== 'N7' && lvl.id !== 'N8' && lvl.id !== 'N9' && lvl.id !== 'N10' &&
         !lvl.disabled && lvl.color && (lvl.strength || 0) > 0
     );
     if (votingLevelsOnly.length === 0) {
@@ -36405,7 +36586,7 @@ function analyzeDiamondLevelsSimulation(history, config, simState) {
 
     // Intensidade
     let signalIntensity = normalizeSignalIntensity(config && config.signalIntensity, 'aggressive');
-    const votingLevelIds = ['N1','N2','N3','N4','N5','N6','N7'];
+    const votingLevelIds = ['N1','N2','N3','N4','N5','N6'];
     const allVotingLevelsEnabled = votingLevelIds.every(id => diamondLevelEnabledMap[id]);
     if (signalIntensity === 'conservative' && !allVotingLevelsEnabled) {
         signalIntensity = 'aggressive';
@@ -36416,7 +36597,7 @@ function analyzeDiamondLevelsSimulation(history, config, simState) {
     }
 
     // ✅ Só níveis que VOTAM entram na conta de confiança (N9/N10 são validadores)
-    const VOTING_LEVEL_IDS = new Set(['N1','N2','N3','N4','N5','N6','N7']);
+    const VOTING_LEVEL_IDS = new Set(['N1','N2','N3','N4','N5','N6']);
     const votingLevelsList = levelReports.filter(lvl => VOTING_LEVEL_IDS.has(lvl.id) && !lvl.disabled);
     const positiveVotingLevels = votingLevelsList.filter(lvl => lvl.color && (lvl.strength || 0) > 0);
     const negativeVotingLevels = votingLevelsList.filter(lvl => lvl.color && (lvl.strength || 0) < 0);
@@ -36448,7 +36629,7 @@ function analyzeDiamondLevelsSimulation(history, config, simState) {
             if (n10Report) {
                 n10Report.details = n10BarrierResult && n10BarrierResult.details ? n10BarrierResult.details : 'APROVADO';
             }
-            if (n10BarrierResult && n10BarrierResult.allowed === false) return null;
+            // ✅ Pedido: barreiras funcionam por MAIORIA (N7–N10). Não retornar aqui.
         } catch (_) {
             n10BarrierResult = { allowed: true, reason: 'internal_error', details: 'APROVADO • erro interno' };
             if (n10Report) n10Report.details = n10BarrierResult.details;
@@ -36458,12 +36639,87 @@ function analyzeDiamondLevelsSimulation(history, config, simState) {
         if (n10Report) n10Report.details = 'DESATIVADO';
     }
 
+    // ═══════════════════════════════════════════════════════════════
+    // 🛡️ BARREIRAS POR MAIORIA (N7–N10) — valida a COR FINAL (consenso)
+    // Regra (pedido):
+    // - empate (2/2) => sem sinal
+    // - maioria (ex.: 3/4) => sinal liberado
+    // ═══════════════════════════════════════════════════════════════
+    let n7BarrierResult = { allowed: true, details: n7Enabled ? 'PENDENTE' : 'DESATIVADO' };
+    if (n7Enabled) {
+        n7BarrierResult = validateN7ApexPercentageBarrier(history, consensusColor, {
+            maxWindow: decisionWindowConfigured,
+            historyWindow: historyWindowConfigured
+        });
+        if (n7Report) {
+            n7Report.details = (n7BarrierResult && n7BarrierResult.details)
+                ? n7BarrierResult.details
+                : (n7BarrierResult && n7BarrierResult.allowed === false ? 'BLOQUEADO' : 'APROVADO');
+        }
+    } else if (n7Report) {
+        n7Report.details = 'DESATIVADO';
+    }
+
+    if (n8Enabled) {
+        n8Res = validateOppositeContinuationBarrier(history, consensusColor, n8WindowCfg, { minStreakToWorry: 3 });
+        n8Report.details = (n8Res && n8Res.details)
+            ? n8Res.details
+            : (n8Res && n8Res.allowed === false ? 'BLOQUEADO' : 'APROVADO');
+    } else {
+        n8Report.details = 'DESATIVADO';
+    }
+
+    if (n9Enabled) {
+        barrierResult = validateSequenceBarrier(history, consensusColor, getDiamondWindowFromConfig(config, 'n8Barrier', historySize), {
+            override: alternanceOverrideActive,
+            targetRuns: nivel7 ? nivel7.alternanceTargetRuns : null,
+            maxRuns: nivel7 ? nivel7.alternanceMaxRuns : null
+        });
+        if (barrierResult && barrierResult.alternanceBlocked) {
+            barrierDetailsText = 'BLOQUEADO • alternância';
+        } else if (barrierResult && barrierResult.allowed) {
+            const cur = Number(barrierResult.currentStreak ?? 0);
+            const target = Number(barrierResult.targetStreak ?? 0);
+            const maxHist = Number(barrierResult.maxStreakFound ?? 0);
+            barrierDetailsText = `APROVADO • atual ${cur} • alvo ${target} • máxHist ${maxHist}`;
+        } else {
+            const cur = Number(barrierResult.currentStreak ?? 0);
+            const target = Number(barrierResult.targetStreak ?? 0);
+            const maxHist = Number(barrierResult.maxStreakFound ?? 0);
+            barrierDetailsText = `BLOQUEADO • atual ${cur} • alvo ${target} • máxHist ${maxHist}`;
+        }
+        try {
+            const rep = levelReports.find(lvl => lvl && lvl.id === 'N9');
+            if (rep) rep.details = barrierDetailsText || (barrierResult && barrierResult.allowed ? 'APROVADO' : 'BLOQUEADO');
+        } catch (_) {}
+    } else {
+        barrierDetailsText = 'DESATIVADO';
+        try {
+            const rep = levelReports.find(lvl => lvl && lvl.id === 'N9');
+            if (rep) rep.details = 'DESATIVADO';
+        } catch (_) {}
+    }
+
+    const barrierVotes = [];
+    const addBarrierVote = (id, enabled, allowed) => {
+        if (!enabled) return;
+        barrierVotes.push({ id, allowed: allowed !== false });
+    };
+    addBarrierVote('N7', n7Enabled, n7BarrierResult && n7BarrierResult.allowed);
+    addBarrierVote('N8', n8Enabled, n8Res && n8Res.allowed);
+    addBarrierVote('N9', n9Enabled, barrierResult && barrierResult.allowed);
+    addBarrierVote('N10', n10Enabled, n10BarrierResult && n10BarrierResult.allowed);
+
+    const barrierTotal = barrierVotes.length;
+    const barrierApprovals = barrierVotes.filter(v => v.allowed).length;
+    const barrierNeeded = barrierTotal > 0 ? (Math.floor(barrierTotal / 2) + 1) : 0;
+    if (barrierTotal > 0 && barrierApprovals < barrierNeeded) {
+        return null;
+    }
+
     if (signalIntensity === 'conservative') {
         if (voteCounts[consensusColor] < 5) return null;
-        if (!n9Enabled) return null;
-        if (!barrierResult.allowed) return null;
-        if (!n10Enabled) return null;
-        if (n10BarrierResult && n10BarrierResult.allowed === false) return null;
+        // ✅ Barreiras (N7–N10) já foram aplicadas por maioria acima.
     }
 
     const maxVotingSlots = votingLevelsList.length;

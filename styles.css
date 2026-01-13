@@ -335,6 +335,83 @@
 .pattern-info .pattern-dot.black { background: #21222D; }
 .pattern-info .pattern-dot.white { background: #fff; box-shadow: 0 0 0 2px #F44336; }
 
+/* ✅ Premium: preview de "padrões em formação" */
+.pattern-info .pattern-dot.matched { opacity: 1; box-shadow: 0 0 0 2px rgba(76, 175, 80, 0.75), 0 0 0 5px rgba(76, 175, 80, 0.15); }
+.pattern-info .pattern-dot.remaining { opacity: 0.35; }
+.pattern-info .pattern-dot.next { opacity: 1; box-shadow: 0 0 0 2px rgba(255, 193, 7, 0.9), 0 0 0 5px rgba(255, 193, 7, 0.12); }
+
+.pattern-formation-subtitle {
+    margin-top: -6px;
+    margin-bottom: 10px;
+    text-align: center;
+    color: #8da2bb;
+    font-size: 11px;
+}
+.pattern-formation-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-top: 8px;
+}
+.pattern-formation-item {
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 10px;
+    padding: 10px;
+}
+.pattern-formation-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    font-size: 11px;
+    color: #cdd6e8;
+}
+.pattern-formation-progress {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 2px 8px;
+    border-radius: 9999px;
+    background: rgba(43, 108, 176, 0.18);
+    color: #e6f0ff;
+    font-weight: 800;
+}
+.pattern-formation-meta {
+    color: #8da2bb;
+    font-size: 11px;
+}
+.pattern-formation-seq {
+    margin-top: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    flex-wrap: wrap;
+}
+.pattern-formation-missing {
+    margin-top: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    flex-wrap: wrap;
+    font-size: 11px;
+    color: #8da2bb;
+}
+.pattern-formation-footer {
+    margin-top: 8px;
+    text-align: center;
+    font-size: 11px;
+    color: #cdd6e8;
+}
+.pattern-formation-empty {
+    padding: 10px 4px;
+    text-align: center;
+    color: #8da2bb;
+    font-size: 12px;
+}
+
 .pattern-stats { display: flex; gap: 12px; align-items: center; margin-top: 8px; color: #8da2bb; font-size: 12px; }
 .pattern-stats .win-loss { font-weight: 600; color: #cdd6e8; }
 .pattern-stats .pattern-len { color: #8da2bb; opacity: 0.95; }
@@ -1791,7 +1868,8 @@
     position: relative;
     box-sizing: border-box;
     border: none;
-    font-size: 16px;
+    /* ✅ Blaze: número menor */
+    font-size: 13px;
     font-weight: bold;
     background: #252736;
     color: #fff;
@@ -1803,8 +1881,9 @@
   left: 50%;
   top: 50%;
   transform: translate(-50%, -50%);
-  width: 28px;
-  height: 28px;
+  /* ✅ Blaze: anel menor, mais “respiro” */
+  width: 22px;
+  height: 22px;
   border-radius: 50%;
   border: 2px solid #fff;
   opacity: 0.90;
@@ -1813,7 +1892,8 @@
 .spin-number.red { background: #F44336; color: #fff; border-color: #fff; }
 .spin-number.black { background: #21222D; color: #fff; border-color: #fff; }
 .spin-number.white { background: #fff; color: #F44336; border: none; }
-.spin-number.white::after { border-color: #F44336; opacity: 0.95; }
+/* ✅ Blaze: branco NÃO tem anel */
+.spin-number.white::after { display: none; content: none; }
 
 .spin-meta {
     display: flex;
@@ -2135,11 +2215,14 @@
         inset 0 1px 0 rgba(0, 0, 0, 0.06);
 }
 .analysis-card.da-analyzing .da-reel-chip.white::before {
-    border-color: rgba(244, 67, 54, 0.92);
+    /* ✅ Blaze: branco NÃO tem anel */
+    display: none;
+    content: none;
 }
 .analysis-card.da-analyzing .da-reel-chip.white.is-thinking::before {
-    border-color: rgba(244, 67, 54, 0.22);
-    border-top-color: #F44336;
+    /* ✅ Blaze: branco NÃO tem anel */
+    display: none;
+    content: none;
 }
 
 /* (antigo) keyframes do scroll contínuo removido — agora a roleta é “gira e para” via JS */
@@ -2518,6 +2601,7 @@
     display: flex;
     gap: 4px;
     flex-wrap: wrap;
+    align-items: flex-start;
 }
 
 .pattern-spin {
@@ -2527,13 +2611,18 @@
 }
 .pattern-quadrado.trigger-highlight {
 	position: relative;
-	box-shadow: 0 0 0 3px #FFC107; /* anel amarelo para diferenciar trigger */
+	/* ✅ anel interno também (não some com overflow/recortes) */
+	box-shadow:
+		0 0 0 2px #FFC107 inset,
+		0 0 0 3px rgba(255, 193, 7, 0.55); /* anel amarelo para diferenciar trigger */
 	border-color: #FFC107 !important;
 }
 
 /* Alerta de cor de disparo inválida */
 .pattern-quadrado.trigger-highlight.invalid-trigger {
-	box-shadow: 0 0 0 3px #FF5252; /* anel vermelho para trigger inválido */
+	box-shadow:
+		0 0 0 2px #FF5252 inset,
+		0 0 0 3px rgba(255, 82, 82, 0.55); /* anel vermelho para trigger inválido */
 	border-color: #FF5252 !important;
 	animation: pulse-invalid 1.5s ease-in-out infinite;
 }
@@ -4476,8 +4565,9 @@
 }
 
 .pattern-quadrado.white::after {
-    border-color: #F44336;
-    opacity: 0.95;
+    /* ✅ Blaze: branco NÃO tem anel */
+    display: none;
+    content: none;
 }
 
 .stats-grid {
@@ -4817,7 +4907,8 @@
   position: relative;
   box-sizing: border-box;
   border: none;
-  font-size: calc(16px * var(--font-scale, 1));
+  /* ✅ Blaze: número menor */
+  font-size: calc(13px * var(--font-scale, 1));
   font-weight: bold;
   background: #252736;
   color: #fff;
@@ -4863,17 +4954,16 @@
   top: 50%;
   transform: translate(-50%, -50%);
   /* ✅ O anel deve acompanhar o tamanho do ícone quando usamos --icon-scale (ex.: grid mobile do “Últimos 14 giros”) */
-  width: calc(28px * var(--icon-scale, 1));
-  height: calc(28px * var(--icon-scale, 1));
+  /* ✅ Blaze: anel menor (mais “respiro”) */
+  width: calc(22px * var(--icon-scale, 1));
+  height: calc(22px * var(--icon-scale, 1));
   border-radius: 50%;
   border: calc(2px * var(--icon-scale, 1)) solid #fff;
   opacity: 0.90;
   z-index: 1;
 }
-.spin-history-quadrado.white::after {
-    border-color: #F44336;
-    opacity: 0.95;
-}
+/* ✅ Blaze: branco NÃO tem anel */
+.spin-history-quadrado.white::after { display: none; content: none; }
 .spin-history-bar-blaze .spin-history-quadrado:last-child {
     margin-right: 0;
 }
@@ -5029,6 +5119,7 @@
     gap: 4px;
     margin-top: 4px;
     padding: 4px 8px;
+    align-items: flex-start;
 }
 
 .pattern-sep {
@@ -5038,6 +5129,11 @@
     font-weight: 900;
     color: #cdd6e8;
     padding: 0 4px;
+    /* ✅ alinhar com o quadrado (não com quadrado+horário) */
+    height: 28px;
+    line-height: 28px;
+    align-self: flex-start;
+    margin-top: 2px;
 }
 
 .occurrence-item {

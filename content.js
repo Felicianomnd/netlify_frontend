@@ -3437,7 +3437,7 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                                     <button type="button" class="diamond-sim-option" data-level="N4">N4 - Autointeligente</button>
                                     <button type="button" class="diamond-sim-option" data-level="N5">N5 - Ritmo por Giro</button>
                                     <button type="button" class="diamond-sim-option" data-level="N6">N6 - Retração Histórica</button>
-                                    <button type="button" class="diamond-sim-option" data-level="N7">N7 - Continuidade Global</button>
+                                    <button type="button" class="diamond-sim-option" data-level="N7">N7 - Barreira (Ápice %)</button>
                                     <button type="button" class="diamond-sim-option" data-level="N8">N8 - Barreira 1 (Oposta)</button>
                                     <button type="button" class="diamond-sim-option" data-level="N9">N9 - Barreira 2 (Indicada)</button>
                                     <button type="button" class="diamond-sim-option" data-level="N10">N10 - Barreira Inteligente</button>
@@ -3660,28 +3660,28 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                         </div>
                         <div class="diamond-level-field" data-level="n7">
                             <div class="diamond-level-header">
-                                <div class="diamond-level-title">N7 - Continuidade Global</div>
+                                <div class="diamond-level-title">N7 - Barreira (Ápice %)</div>
                                 <label class="diamond-level-switch checkbox-label">
                                     <input type="checkbox" class="diamond-level-toggle-input" id="diamondLevelToggleN7" checked />
                                     <span class="switch-track"></span>
                                 </label>
                             </div>
                             <div class="diamond-level-note">
-                                Avalia se as decisões recentes da IA mantêm consistência com o histórico de acertos. Ajuda a calibrar confiança baseada em performance real.
+                                Calcula o “ápice” da porcentagem (piso/teto) de VERMELHO/PRETO em 4 janelas deslizantes curtas (ex.: 5/10/15/20). A barreira sempre gera uma base e aprova o sinal apenas quando a cor candidata bate com o ápice previsto.
                             </div>
                             <div class="diamond-level-double">
                                 <div>
-                                    <span>Decisões analisadas</span>
+                                    <span>W máximo (giros)</span>
                                     <input type="number" id="diamondN7DecisionWindow" min="10" max="50" value="20" />
                                     <span class="diamond-level-subnote">
-                                        Últimas decisões avaliadas (rec: 20)
+                                        Define 4 janelas curtas (ex.: 20 → 5/10/15/20)
                                     </span>
                                 </div>
                                 <div>
-                                    <span>Histórico base (giros)</span>
+                                    <span>Histórico (janelas)</span>
                                     <input type="number" id="diamondN7HistoryWindow" min="50" max="200" value="100" />
                                     <span class="diamond-level-subnote">
-                                        Total de decisões de referência (≥ decisões analisadas)
+                                        Quantas janelas deslizantes usar para medir piso/teto
                                     </span>
                                 </div>
                             </div>
@@ -11356,6 +11356,33 @@ autoBetHistoryStore.init().catch(error => console.warn('AutoBetHistory: iniciali
             return { label: 'G0', index: 0 };
         }
 
+        // ✅ Normalizador robusto para estágio do Martingale (storage pode vir legado)
+        // Aceita: 'ENTRADA', 'G1', 'G2', 'g1', 1, 2, '1', '2'
+        function normalizeMartingaleStageLabel(raw) {
+            try {
+                if (raw == null) return { label: '', index: null };
+                if (typeof raw === 'number') {
+                    const n = Math.floor(raw);
+                    if (!Number.isFinite(n)) return { label: '', index: null };
+                    if (n <= 0) return { label: 'G0', index: 0 };
+                    return { label: `G${n}`, index: n };
+                }
+                const s = String(raw || '').trim().toUpperCase();
+                if (!s) return { label: '', index: null };
+                if (s === 'ENTRADA') return { label: 'G0', index: 0 };
+                const m = /^G?(\d+)$/.exec(s);
+                if (m) {
+                    const n = parseInt(m[1], 10);
+                    if (!Number.isFinite(n)) return { label: '', index: null };
+                    return { label: `G${n}`, index: n };
+                }
+                if (s === 'G0') return { label: 'G0', index: 0 };
+                return { label: s, index: null };
+            } catch (_) {
+                return { label: '', index: null };
+            }
+        }
+
         function calculateBetAmount(stageIndex = 0) {
             if (config.inverseModeEnabled) {
                 return calculateInverseBetAmount();
@@ -14998,6 +15025,8 @@ async function persistAnalyzerState(newState) {
                 return String(text || '').replace(/^[^A-Za-zÀ-ÿ0-9]+/g, '').trim();
             };
 
+            const BARRIER_LEVEL_IDS = new Set(['N7', 'N8', 'N9', 'N10']);
+
             lines.forEach((line) => {
                 const cleanLine = stripLeadingSymbols(line);
                 // Meta
@@ -15032,6 +15061,7 @@ async function persistAnalyzerState(newState) {
                 const name = m[2].trim();
                 const statusRaw = m[3].trim();
                 const statusClean = stripLeadingSymbols(statusRaw);
+                const isBarrier = BARRIER_LEVEL_IDS.has(id);
 
                 // Filtrar níveis desativados para reduzir poluição (pedido do usuário)
                 if (/DESATIVADO/i.test(statusClean)) return;
@@ -15050,9 +15080,10 @@ async function persistAnalyzerState(newState) {
 
                 const pctMatch = statusClean.match(/([0-9]+(?:\.[0-9]+)?)\s*%/);
                 const pct = pctMatch ? Number(pctMatch[1]) : null;
-                const voteColor = detectVoteColor(main) || detectVoteColor(statusClean);
+                // ✅ N7–N10 são BARREIRAS: nunca tratar como "Voto:" só porque aparece RED/BLACK no detalhe.
+                const voteColor = isBarrier ? null : (detectVoteColor(main) || detectVoteColor(statusClean));
                 const badgeText = (() => {
-                    if (voteColor) return `Voto: ${colorLabel(voteColor)}`;
+                    if (!isBarrier && voteColor) return `Voto: ${colorLabel(voteColor)}`;
                     if (/NULO/i.test(main)) return 'Nulo';
                     if (/BLOQUEADO/i.test(main)) return 'Bloqueado';
                     if (/APROVADO/i.test(main)) return 'Aprovado';
@@ -15084,7 +15115,18 @@ async function persistAnalyzerState(newState) {
             const fmtPct = (value) => (typeof value === 'number' && Number.isFinite(value)) ? `${value.toFixed(1)}%` : '—';
             const colorLabel = (color) => (color === 'red' ? 'Vermelho' : color === 'black' ? 'Preto' : color === 'white' ? 'Branco' : '—');
 
-            const decisionText = meta.decision ? colorLabel(meta.decision) : (aiData && aiData.color ? colorLabel(aiData.color) : '—');
+            const blockedReasonText = String((aiData && (aiData.blockedReason || aiData.blocked_reason)) || '').toLowerCase().trim();
+            const isBlockedUi = !!(aiData && (aiData.blocked === true || blockedReasonText));
+            const isNoSignalUi = blockedReasonText === 'no_signal';
+            // ✅ Não confundir "relatório sem sinal" com decisão de aposta:
+            // - Sem sinal: mostrar "Nulo" (mesmo que exista cor candidata nos detalhes do N4)
+            // - Bloqueado (barreiras/segurança): mostrar "Bloqueado"
+            // - Sinal normal: mostrar a decisão real
+            const decisionText = isNoSignalUi
+                ? 'Nulo'
+                : (isBlockedUi
+                    ? 'Bloqueado'
+                    : (meta.decision ? colorLabel(meta.decision) : (aiData && aiData.color ? colorLabel(aiData.color) : '—')));
             const modeText = meta.mode ? meta.mode : '—';
             const scoreFallback = (() => {
                 // Se o texto não trouxe um score global, usar o % do N4 (quando existir) como referência de "score interno".
@@ -15092,7 +15134,10 @@ async function persistAnalyzerState(newState) {
                 return (n4 && typeof n4.pct === 'number' && Number.isFinite(n4.pct)) ? n4.pct : null;
             })();
             const scoreValue = (typeof meta.score === 'number' && Number.isFinite(meta.score)) ? meta.score : scoreFallback;
-            const scoreText = (typeof scoreValue === 'number' && Number.isFinite(scoreValue)) ? `${scoreValue.toFixed(1)}%` : '—';
+            // ✅ Quando NÃO há sinal (ou está bloqueado), não exibir "confiança/score" para não induzir aposta.
+            const scoreText = (isBlockedUi || isNoSignalUi)
+                ? '—'
+                : ((typeof scoreValue === 'number' && Number.isFinite(scoreValue)) ? `${scoreValue.toFixed(1)}%` : '—');
             const confFallback = (aiData && typeof aiData.confidence === 'number' && Number.isFinite(aiData.confidence)) ? aiData.confidence : null;
             const confBase = (typeof meta.confidence === 'number' && Number.isFinite(meta.confidence)) ? meta.confidence : confFallback;
 
@@ -15112,9 +15157,11 @@ async function persistAnalyzerState(newState) {
                 if (b == null) return a;
                 return Math.max(a, b);
             })();
-            const confText = (typeof finalConfValue === 'number' && Number.isFinite(finalConfValue))
-                ? `${Math.max(0, Math.min(100, finalConfValue)).toFixed(1)}%`
-                : '—';
+            const confText = (isBlockedUi || isNoSignalUi)
+                ? '—'
+                : ((typeof finalConfValue === 'number' && Number.isFinite(finalConfValue))
+                    ? `${Math.max(0, Math.min(100, finalConfValue)).toFixed(1)}%`
+                    : '—');
 
             const summary = `
                 <div class="diamond-reasoning-summary">
@@ -15254,6 +15301,10 @@ async function persistAnalyzerState(newState) {
 
         const diamond = renderDiamondReasoningBlocks(aiData.reasoning || '');
         const topConfidenceText = (() => {
+            // ✅ Quando é relatório (sem sinal ou bloqueado), não exibir confiança no topo.
+            const blockedReasonTop = String((aiData && (aiData.blockedReason || aiData.blocked_reason)) || '').toLowerCase().trim();
+            const isBlockedTop = !!(aiData && (aiData.blocked === true || blockedReasonTop));
+            if (isBlockedTop) return '—';
             if (diamond && typeof diamond.finalConfValue === 'number' && Number.isFinite(diamond.finalConfValue)) {
                 return `${Math.max(0, Math.min(100, diamond.finalConfValue)).toFixed(1)}%`;
             }
@@ -15277,10 +15328,8 @@ async function persistAnalyzerState(newState) {
                 return `Entrar na cor <span class="ai-entry-action-color ${safeColorClass}">${escapeHtml(entryColorText)}</span>${resultInlineHtml}`;
             }
             const label = (blockedReason === 'no_signal') ? 'Sem sinal no momento' : 'Sinal bloqueado';
-            const suggested = safeColorClass
-                ? ` <span class="ai-entry-action-sep">|</span> Sugestão: <span class="ai-entry-action-color ${safeColorClass}">${escapeHtml(entryColorText)}</span>`
-                : '';
-            return `${escapeHtml(label)}${suggested}${resultInlineHtml}`;
+            // ✅ NÃO mostrar "Sugestão: PRETO/VERMELHO" quando não há sinal/bloqueado (evita induzir aposta).
+            return `${escapeHtml(label)} <span class="ai-entry-action-sep">|</span> <span class="loss-text">NÃO APOSTAR</span>${resultInlineHtml}`;
         })();
 
         const spinsSection = (showSpins && spinsCount > 0) ? `
@@ -16032,6 +16081,257 @@ async function persistAnalyzerState(newState) {
         } catch (_) {}
     }
 
+    // ═══════════════════════════════════════════════════════════════
+    // ✅ PREMIUM: "PADRÕES EM FORMAÇÃO" (preview)
+    // Pedido do usuário:
+    // - Após WIN/LOSS (CLEAR_ANALYSIS), NÃO pode ficar exibindo o padrão antigo.
+    // - Se não houver sinal ativo, exibir padrões que estão SE FORMANDO e o que falta sair.
+    // ═══════════════════════════════════════════════════════════════
+    let __daPatternDBCacheClient = null;
+    let __daPatternDBCacheClientAt = 0;
+    let __daPatternFormationToken = 0;
+
+    function daNormalizeColorToken(value) {
+        try {
+            const v = String(value || '').toLowerCase().trim();
+            if (!v) return null;
+            if (v === 'red' || v === 'r' || v === 'vermelho' || v === 'v') return 'red';
+            if (v === 'black' || v === 'b' || v === 'preto' || v === 'p') return 'black';
+            if (v === 'white' || v === 'w' || v === 'branco' || v === 'branca' || v === '0') return 'white';
+            return null;
+        } catch (_) {
+            return null;
+        }
+    }
+
+    function daColorLabel(color) {
+        if (color === 'red') return 'Vermelho';
+        if (color === 'black') return 'Preto';
+        if (color === 'white') return 'Branco';
+        return '';
+    }
+
+    function daClampInt(value, min, max, fallback) {
+        const n = Math.floor(Number(value));
+        if (!Number.isFinite(n)) return fallback;
+        return Math.max(min, Math.min(max, n));
+    }
+
+    async function daGetPatternDBCached(maxAgeMs = 1500) {
+        try {
+            const now = Date.now();
+            if (__daPatternDBCacheClient && (now - __daPatternDBCacheClientAt) < Math.max(0, Number(maxAgeMs) || 0)) {
+                return __daPatternDBCacheClient;
+            }
+        } catch (_) {}
+
+        try {
+            const res = (storageCompat && typeof storageCompat.get === 'function')
+                ? await storageCompat.get(['patternDB'])
+                : await new Promise(resolve => {
+                    try {
+                        chrome.storage.local.get(['patternDB'], (r) => resolve(r || {}));
+                    } catch (_) { resolve({}); }
+                });
+
+            const db = (res && res.patternDB && Array.isArray(res.patternDB.patterns_found))
+                ? res.patternDB
+                : { patterns_found: [], version: 1 };
+            try {
+                __daPatternDBCacheClient = db;
+                __daPatternDBCacheClientAt = Date.now();
+            } catch (_) {}
+            return db;
+        } catch (_) {
+            return { patterns_found: [], version: 1 };
+        }
+    }
+
+    function renderPremiumFormationPanel(patternInfoEl, { maxItems = 5 } = {}) {
+        if (!patternInfoEl) return;
+
+        // Apenas no modo Premium (aiMode=false). No Diamante, o card já é usado para relatório N4/N8/N9/N10.
+        const isAIMode = getCurrentAiModeFlag(latestAnalyzerConfig);
+        if (isAIMode) return;
+
+        const token = ++__daPatternFormationToken;
+
+        // Últimos giros (ordem cronológica) para medir progresso de formação
+        const cfg = latestAnalyzerConfig && typeof latestAnalyzerConfig === 'object' ? latestAnalyzerConfig : {};
+        const minSize = daClampInt(cfg.minPatternSize ?? 2, 2, 50, 2);
+        const maxSize = daClampInt(cfg.maxPatternSize ?? 12, minSize, 50, Math.max(minSize, 12));
+        const recentLenTarget = Math.max(2, Math.min(30, maxSize)); // não precisa de muitos giros pra preview
+
+        const recent = Array.isArray(currentHistoryData) ? currentHistoryData.slice(0, recentLenTarget) : [];
+        const recentColorsChron = recent
+            .slice()
+            .reverse()
+            .map(s => daNormalizeColorToken(s && s.color))
+            .filter(Boolean);
+
+        const bankSearching = !!bankSearchUiActive;
+
+        // Sem giros ainda
+        if (!recentColorsChron.length) {
+            setPatternMainContent(
+                patternInfoEl,
+                `<div class="pattern-summary pattern-formation">
+                    <div class="pattern-title">Padrões em formação</div>
+                    <div class="pattern-formation-empty">Aguardando giros para detectar formações...</div>
+                </div>`,
+                { expanded: false }
+            );
+            try { refreshPatternLastSpins(patternInfoEl, getPatternLastSpinsLimit()); } catch (_) {}
+            return;
+        }
+
+        // Buscar banco e renderizar preview (assíncrono)
+        daGetPatternDBCached().then((db) => {
+            try {
+                // Evitar sobrescrever se um sinal/relatório chegou enquanto carregávamos o banco.
+                if (token !== __daPatternFormationToken) return;
+                if (lastAnalysisSignature) return;
+
+                const patterns = (db && Array.isArray(db.patterns_found)) ? db.patterns_found : [];
+
+                if (!patterns.length) {
+                    const msg = bankSearching
+                        ? 'Buscando padrões no banco...'
+                        : 'Banco de padrões vazio. Clique em "Buscar Padrões" para popular.';
+                    setPatternMainContent(
+                        patternInfoEl,
+                        `<div class="pattern-summary pattern-formation">
+                            <div class="pattern-title">Padrões em formação</div>
+                            <div class="pattern-formation-empty">${escapeHtml(msg)}</div>
+                        </div>`,
+                        { expanded: false }
+                    );
+                    try { refreshPatternLastSpins(patternInfoEl, getPatternLastSpinsLimit()); } catch (_) {}
+                    return;
+                }
+
+                const recentLen = recentColorsChron.length;
+                const candidates = [];
+
+                for (let idx = 0; idx < patterns.length; idx++) {
+                    const p = patterns[idx];
+                    if (!p || !Array.isArray(p.pattern) || p.pattern.length < 2) continue;
+                    const L = p.pattern.length;
+                    if (L < minSize || L > maxSize) continue;
+
+                    const maxK = Math.min(L - 1, recentLen);
+                    if (maxK <= 0) continue;
+
+                    let bestK = 0;
+                    // match prefix (cronológico) com o sufixo dos últimos giros
+                    for (let k = 1; k <= maxK; k++) {
+                        let ok = true;
+                        for (let j = 0; j < k; j++) {
+                            const needColor = daNormalizeColorToken(p.pattern[L - 1 - j]); // cronológico: reverse()
+                            const gotColor = recentColorsChron[recentLen - k + j];
+                            if (!needColor || needColor !== gotColor) { ok = false; break; }
+                        }
+                        if (ok) bestK = k;
+                    }
+
+                    if (bestK <= 0) continue;
+
+                    candidates.push({
+                        p,
+                        L,
+                        k: bestK,
+                        confidence: Number.isFinite(Number(p.confidence)) ? Number(p.confidence) : 0,
+                        occurrences: Number.isFinite(Number(p.occurrences)) ? Number(p.occurrences) : 0,
+                        expected: daNormalizeColorToken(p.expected_next || p.suggestedColor) || null
+                    });
+                }
+
+                if (!candidates.length) {
+                    setPatternMainContent(
+                        patternInfoEl,
+                        `<div class="pattern-summary pattern-formation">
+                            <div class="pattern-title">Padrões em formação</div>
+                            <div class="pattern-formation-empty">Nenhum padrão em formação no momento.</div>
+                        </div>`,
+                        { expanded: false }
+                    );
+                    try { refreshPatternLastSpins(patternInfoEl, getPatternLastSpinsLimit()); } catch (_) {}
+                    return;
+                }
+
+                candidates.sort((a, b) => {
+                    if (b.k !== a.k) return b.k - a.k; // mais perto de completar
+                    if (b.confidence !== a.confidence) return b.confidence - a.confidence;
+                    if (b.occurrences !== a.occurrences) return b.occurrences - a.occurrences;
+                    return b.L - a.L;
+                });
+
+                const top = candidates.slice(0, Math.max(1, Math.min(10, Number(maxItems) || 5)));
+
+                const renderDots = (colors, opts = {}) => {
+                    const list = Array.isArray(colors) ? colors : [];
+                    const {
+                        matchedCount = 0,
+                        nextIndex = -1
+                    } = opts;
+                    return list.map((c, i) => {
+                        const cls = [
+                            'pattern-dot',
+                            c,
+                            (i < matchedCount) ? 'matched' : 'remaining',
+                            (i === nextIndex) ? 'next' : ''
+                        ].filter(Boolean).join(' ');
+                        return `<span class="${cls}"></span>`;
+                    }).join(' ');
+                };
+
+                const itemsHtml = top.map(({ p, L, k, confidence, occurrences, expected }) => {
+                    const chron = [];
+                    for (let i = L - 1; i >= 0; i--) {
+                        const c = daNormalizeColorToken(p.pattern[i]);
+                        if (c) chron.push(c);
+                    }
+                    const missing = chron.slice(k);
+                    const nextNeeded = missing.length ? missing[0] : null;
+                    const progressLabel = `${k}/${L}`;
+                    const confTxt = confidence > 0 ? `${confidence.toFixed(1)}%` : '';
+                    const occTxt = occurrences > 0 ? `${occurrences}x` : '';
+                    const expectedTxt = expected ? ` • Entrada: ${daColorLabel(expected)}` : '';
+
+                    return `
+                        <div class="pattern-formation-item">
+                            <div class="pattern-formation-head">
+                                <span class="pattern-formation-progress">${escapeHtml(progressLabel)}</span>
+                                ${confTxt ? `<span class="pattern-formation-meta">Conf: ${escapeHtml(confTxt)}</span>` : ''}
+                                ${occTxt ? `<span class="pattern-formation-meta">Occ: ${escapeHtml(occTxt)}</span>` : ''}
+                            </div>
+                            <div class="pattern-formation-seq" title="Sequência (cronológica)">
+                                ${renderDots(chron, { matchedCount: k, nextIndex: k })}
+                            </div>
+                            <div class="pattern-formation-missing">
+                                Falta: ${missing.length ? renderDots(missing, { matchedCount: 0, nextIndex: 0 }) : '<span class="meta-muted">—</span>'}
+                            </div>
+                            <div class="pattern-formation-footer">
+                                ${nextNeeded ? `Próximo: <strong>${escapeHtml(daColorLabel(nextNeeded))}</strong>${escapeHtml(expectedTxt)}` : `Progresso atualizado${escapeHtml(expectedTxt)}`}
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+
+                setPatternMainContent(
+                    patternInfoEl,
+                    `<div class="pattern-summary pattern-formation">
+                        <div class="pattern-title">Padrões em formação</div>
+                        <div class="pattern-formation-subtitle">Mostrando ${top.length} candidato(s) mais próximos de completar</div>
+                        <div class="pattern-formation-list">${itemsHtml}</div>
+                    </div>`,
+                    { expanded: false }
+                );
+                try { refreshPatternLastSpins(patternInfoEl, getPatternLastSpinsLimit()); } catch (_) {}
+            } catch (_) {}
+        }).catch(() => {});
+    }
+
     // ✅ Diamante: confiança exibida para o usuário (TOPO e cards) deve seguir a regra:
     // exibir o MAIOR entre score interno (Score combinado / fallback N4) e a confiança do sinal/fonte.
     function computeDiamondDisplayConfidence(analysisLike) {
@@ -16563,6 +16863,8 @@ async function persistAnalyzerState(newState) {
                                 renderSuggestionStatus(currentAnalysisStatus);
                                 try { if (patternSection) patternSection.style.display = ''; } catch (_) {}
                                 try { refreshPatternLastSpins(patternInfo, getPatternLastSpinsLimit()); } catch (_) {}
+                                // ✅ Premium: limpar padrão antigo após resultado e mostrar "padrões em formação"
+                                try { renderPremiumFormationPanel(patternInfo); } catch (_) {}
                                 setSuggestionStage('');
                                 try { hideMasterSignalOverlay(); } catch (_) {}
                             }
@@ -16571,6 +16873,8 @@ async function persistAnalyzerState(newState) {
                             renderSuggestionStatus(currentAnalysisStatus);
                             try { if (patternSection) patternSection.style.display = ''; } catch (_) {}
                             try { refreshPatternLastSpins(patternInfo, getPatternLastSpinsLimit()); } catch (_) {}
+                            // ✅ Premium: limpar padrão antigo após resultado e mostrar "padrões em formação"
+                            try { renderPremiumFormationPanel(patternInfo); } catch (_) {}
                             setSuggestionStage('');
                             try { hideMasterSignalOverlay(); } catch (_) {}
                         });
@@ -16579,6 +16883,8 @@ async function persistAnalyzerState(newState) {
                         renderSuggestionStatus(currentAnalysisStatus);
                         try { if (patternSection) patternSection.style.display = ''; } catch (_) {}
                         try { refreshPatternLastSpins(patternInfo, getPatternLastSpinsLimit()); } catch (_) {}
+                        // ✅ Premium: limpar padrão antigo após resultado e mostrar "padrões em formação"
+                        try { renderPremiumFormationPanel(patternInfo); } catch (_) {}
                         setSuggestionStage('');
                         try { hideMasterSignalOverlay(); } catch (_) {}
                     }
@@ -17030,6 +17336,11 @@ async function persistAnalyzerState(newState) {
         // Importante: quando NÃO há sinal (analysis=null), precisamos SEMPRE resetar o DOM para o anel "Analisando".
         // Então o bloqueio deve depender da fonte única (`daTopSignalVisible`), e não do DOM (que pode estar stale).
         if (daTopSignalVisible) return;
+        // ✅ Segurança extra: se houver martingale/entrada ativa, NÃO mostrar "Analisando" no topo.
+        try {
+            const ms = (typeof martingaleState !== 'undefined' && martingaleState && typeof martingaleState === 'object') ? martingaleState : null;
+            if (ms && ms.active) return;
+        } catch (_) {}
         const normalized = typeof statusText === 'string' ? statusText : '';
         suggestionColor.removeAttribute('title');
         // Garantir reset completo (evita sobrar "G1/G2" ou spinner pendente)
@@ -21049,6 +21360,40 @@ function logModeSnapshotUI(snapshot) {
         // ✅ SE O MODO IA NÃO ESTIVER ATIVO, MOSTRAR NA CAIXA EMBAIXO (modo padrão)
         if (!isAIMode) {
             console.log('%c   📍 Modo PADRÃO - exibindo na caixa de sugestão', 'color: #FFD700; font-weight: bold;');
+
+            // ✅ Se estamos em Martingale (G1/G2...) aguardando resultado, nunca mostrar loader "Analisando".
+            // Esse era o bug do print: no G1 aparecia o anel "Analisando" no topo.
+            try {
+                const ms = (typeof martingaleState !== 'undefined' && martingaleState && typeof martingaleState === 'object') ? martingaleState : null;
+                const stageInfo = normalizeMartingaleStageLabel(ms && ms.stage != null ? ms.stage : '');
+                const stageLabel = stageInfo && stageInfo.label ? stageInfo.label : '';
+                const rawColor = ms ? (ms.currentColor || ms.entryColor || ms.color) : null;
+                const c = String(rawColor || '').toLowerCase().trim();
+                const color = (c === 'red' || c === 'vermelho') ? 'red' : (c === 'black' || c === 'preto') ? 'black' : (c === 'white' || c === 'branco') ? 'white' : null;
+                if (ms && ms.active && color) {
+                    const suggestionColor = document.getElementById('suggestionColor');
+                    const analysisModeTitle = document.getElementById('analysisModeTitle');
+                    if (analysisModeTitle) analysisModeTitle.textContent = 'Aguardando resultado';
+                    try {
+                        const analysisSectionEl = document.querySelector('.analysis-section');
+                        if (analysisSectionEl) analysisSectionEl.classList.remove('da-analyzing');
+                    } catch (_) {}
+                    try {
+                        const analysisCardEl = document.querySelector('.analysis-section .analysis-card');
+                        if (analysisCardEl) analysisCardEl.classList.remove('da-analyzing');
+                    } catch (_) {}
+                    if (suggestionColor) {
+                        suggestionColor.className = `suggestion-color suggestion-color-box ${color}`;
+                        suggestionColor.innerHTML = `<span class="pending-indicator"></span>`;
+                        suggestionColor.setAttribute('title', `IA • Aguardando resultado${(stageLabel && stageLabel !== 'G0') ? ` (${stageLabel})` : ''}`);
+                    }
+                    try { setSuggestionStage((stageLabel && stageLabel !== 'G0') ? stageLabel : ''); } catch (_) {}
+                    daTopSignalVisible = true;
+                    syncBetModeView();
+                    return;
+                }
+            } catch (_) {}
+
             // Em modo padrão não há gale ativo controlado pela IA
             setSuggestionStage('');
             // ✅ Nunca deixar o status "Analisando" sobrescrever um sinal já visível
