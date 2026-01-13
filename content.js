@@ -2009,11 +2009,13 @@ const DIAMOND_LEVEL_DEFAULTS = {
     n6RetracementWindow: 80,
     n7DecisionWindow: 20,
     n7HistoryWindow: 100,
+    // N8 - Barreira 1 (Oposta): janela em giros
+    n8Barrier1: 50,
     n8Barrier: 50,
     n9History: 100,
     n9NullThreshold: 8,
     n9PriorStrength: 1,
-    // N8 - Walk-forward Não-Sobreposto (exibido como tal, ainda usa chave N10 internamente)
+    // N10 (histórico auxiliar usado internamente pelas barreiras/diagnóstico)
     n10Window: 20,
     n10History: 500,
     n10Analyses: 600,
@@ -3434,8 +3436,8 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                                     <button type="button" class="diamond-sim-option" data-level="N5">N5 - Ritmo por Giro</button>
                                     <button type="button" class="diamond-sim-option" data-level="N6">N6 - Retração Histórica</button>
                                     <button type="button" class="diamond-sim-option" data-level="N7">N7 - Continuidade Global</button>
-                                    <button type="button" class="diamond-sim-option" data-level="N8">N8 - Walk-forward</button>
-                                    <button type="button" class="diamond-sim-option" data-level="N9">N9 - Barreira Final</button>
+                                    <button type="button" class="diamond-sim-option" data-level="N8">N8 - Barreira 1 (Oposta)</button>
+                                    <button type="button" class="diamond-sim-option" data-level="N9">N9 - Barreira 2 (Indicada)</button>
                                     <button type="button" class="diamond-sim-option" data-level="N10">N10 - Barreira Inteligente</button>
                                 </div>
                             </div>
@@ -3684,42 +3686,30 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                         </div>
                         <div class="diamond-level-field" data-level="n8">
                             <div class="diamond-level-header">
-                                <div class="diamond-level-title">N8 - Walk-forward não-sobreposto</div>
+                                <div class="diamond-level-title">N8 - Barreira 1 (cor oposta)</div>
                                 <label class="diamond-level-switch checkbox-label">
                                     <input type="checkbox" class="diamond-level-toggle-input" id="diamondLevelToggleN8" checked />
                                     <span class="switch-track"></span>
                                 </label>
                             </div>
                             <div class="diamond-level-note">
-                                Testa diversas estratégias em janelas NÃO-sobrepostas para escolher a melhor combinação e aplicar na janela mais recente, sem olhar o futuro.
+                                Barreira inversa: avalia o risco da <strong>cor oposta</strong> continuar a sequência (ex.: 3 vermelhos → risco do 4º vermelho) antes de liberar a entrada na cor indicada.
                             </div>
-                            <div class="diamond-level-double">
-                                <div>
-                                    <span>Histórico base (giros)</span>
-                                    <input type="number" id="diamondN10History" min="100" max="10000" value="500" />
-                                    <span class="diamond-level-subnote">
-                                        Total de giros usados no walk-forward (ex.: 500, 1000, 2000, 5000, 10000)
-                                    </span>
-                                </div>
-                                <div>
-                                    <span>Tamanho da janela W (giros)</span>
-                                    <input type="number" id="diamondN10Window" min="5" max="50" value="20" />
-                                    <span class="diamond-level-subnote">
-                                        Giros por janela NÃO-sobreposta. Recomendado: 20.
-                                    </span>
-                                </div>
-                            </div>
+                            <input type="number" id="diamondN8Barrier1" min="1" value="50" />
+                            <span class="diamond-level-subnote">
+                                Recomendado: 30–50 giros (ex.: 50) para filtro equilibrado de segurança
+                            </span>
                         </div>
                         <div class="diamond-level-field" data-level="n9">
                             <div class="diamond-level-header">
-                                <div class="diamond-level-title">N9 - Barreira Final (janela)</div>
+                                <div class="diamond-level-title">N9 - Barreira 2 (cor indicada)</div>
                                 <label class="diamond-level-switch checkbox-label">
                                     <input type="checkbox" class="diamond-level-toggle-input" id="diamondLevelToggleN9" checked />
                                     <span class="switch-track"></span>
                                 </label>
                             </div>
                             <div class="diamond-level-note">
-                                Última validação de segurança: verifica se a sequência prevista tem precedente histórico. Valores maiores = filtro mais rigoroso, menos sinais porém mais seguros.
+                                Barreira da cor indicada: verifica se a sequência prevista (na cor do sinal) tem precedente histórico. Valores maiores = filtro mais rigoroso, menos sinais porém mais seguros.
                             </div>
                             <input type="number" id="diamondN8Barrier" min="1" value="50" />
                             <span class="diamond-level-subnote">
@@ -5354,8 +5344,8 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
             : upper === 'N3' ? ['diamondN3Alternance']
             : upper === 'N4' ? ['diamondN4Persistence']
             : upper === 'N7' ? ['diamondN7HistoryWindow']
-            : upper === 'N8' ? ['diamondN10History']
-            : upper === 'N10' ? ['diamondN9History']
+            : upper === 'N8' ? ['diamondN8Barrier1']
+            : upper === 'N9' ? ['diamondN8Barrier']
             : [];
 
         if (!ids.length) return;
@@ -7043,6 +7033,7 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
             n6RetracementWindow: getNumber('diamondN6Retracement', 30, 120, DIAMOND_LEVEL_DEFAULTS.n6RetracementWindow),
             n7DecisionWindow: getNumber('diamondN7DecisionWindow', 10, 50, DIAMOND_LEVEL_DEFAULTS.n7DecisionWindow),
             n7HistoryWindow: getNumber('diamondN7HistoryWindow', 50, 200, DIAMOND_LEVEL_DEFAULTS.n7HistoryWindow),
+            n8Barrier1: getNumber('diamondN8Barrier1', 1, null, DIAMOND_LEVEL_DEFAULTS.n8Barrier1),
             n8Barrier: getNumber('diamondN8Barrier', 1, null, DIAMOND_LEVEL_DEFAULTS.n8Barrier),
             n9History: getNumber('diamondN9History', 30, 400, DIAMOND_LEVEL_DEFAULTS.n9History),
             n9NullThreshold: getNumber('diamondN9NullThreshold', 2, 20, DIAMOND_LEVEL_DEFAULTS.n9NullThreshold),
@@ -7184,8 +7175,9 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                         if (upper === 'N3') return Number(windows.n3Alternance) || 0;
                         if (upper === 'N4') return Number(windows.n4Persistence) || 0;
                         if (upper === 'N7') return Number(windows.n7HistoryWindow) || 0;
-                        if (upper === 'N8') return Number(windows.n10History) || 0;
-                        if (upper === 'N10') return Number(windows.n9History) || 0;
+                        if (upper === 'N8') return Number(windows.n8Barrier1) || 0;
+                        // N10 não tem parâmetro de janela no painel (barreira fixa 8-10). Mantemos 0 aqui.
+                        if (upper === 'N10') return 0;
                         return 0;
                     }
                     // mode=all: maior exigência dentre níveis ativos
@@ -7194,8 +7186,7 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                         enabled.n3 ? (Number(windows.n3Alternance) || 0) : 0,
                         enabled.n4 ? (Number(windows.n4Persistence) || 0) : 0,
                         enabled.n7 ? (Number(windows.n7HistoryWindow) || 0) : 0,
-                        enabled.n8 ? (Number(windows.n10History) || 0) : 0,
-                        enabled.n10 ? (Number(windows.n9History) || 0) : 0
+                        enabled.n8 ? (Number(windows.n8Barrier1) || 0) : 0
                     );
                 })();
                 if (requiredHistory > 0) {
@@ -7852,6 +7843,7 @@ function showCenteredNotice(message, options = {}) {
         setInput('diamondN6Retracement', getValue('n6RetracementWindow', DIAMOND_LEVEL_DEFAULTS.n6RetracementWindow));
         setInput('diamondN7DecisionWindow', getValue('n7DecisionWindow', DIAMOND_LEVEL_DEFAULTS.n7DecisionWindow));
         setInput('diamondN7HistoryWindow', getValue('n7HistoryWindow', DIAMOND_LEVEL_DEFAULTS.n7HistoryWindow));
+        setInput('diamondN8Barrier1', getValue('n8Barrier1', DIAMOND_LEVEL_DEFAULTS.n8Barrier1));
         setInput('diamondN8Barrier', getValue('n8Barrier', DIAMOND_LEVEL_DEFAULTS.n8Barrier));
         setInput('diamondN9History', getValue('n9History', DIAMOND_LEVEL_DEFAULTS.n9History));
         setInput('diamondN9NullThreshold', getValue('n9NullThreshold', DIAMOND_LEVEL_DEFAULTS.n9NullThreshold));
@@ -8033,6 +8025,7 @@ function showCenteredNotice(message, options = {}) {
             n6RetracementWindow: getNumber('diamondN6Retracement', 30, 120, DIAMOND_LEVEL_DEFAULTS.n6RetracementWindow),
             n7DecisionWindow: getNumber('diamondN7DecisionWindow', 10, 50, DIAMOND_LEVEL_DEFAULTS.n7DecisionWindow),
             n7HistoryWindow: getNumber('diamondN7HistoryWindow', 50, 200, DIAMOND_LEVEL_DEFAULTS.n7HistoryWindow),
+            n8Barrier1: getNumber('diamondN8Barrier1', 1, null, DIAMOND_LEVEL_DEFAULTS.n8Barrier1),
             n8Barrier: getNumber('diamondN8Barrier', 1, null, DIAMOND_LEVEL_DEFAULTS.n8Barrier),
             n9History: getNumber('diamondN9History', 30, 400, DIAMOND_LEVEL_DEFAULTS.n9History),
             n9NullThreshold: getNumber('diamondN9NullThreshold', 2, 20, DIAMOND_LEVEL_DEFAULTS.n9NullThreshold),
