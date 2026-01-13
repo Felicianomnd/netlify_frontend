@@ -1779,6 +1779,7 @@
             // Adicionar classe no header para linha indicadora
             if (header) {
                 header.classList.add('ai-active');
+                header.classList.remove('premium-active');
                 }
 
             // 🖥️ Desktop: selector de modo (Premium vs IA) deve refletir aiMode
@@ -1803,6 +1804,7 @@
             // Remover classe no header
             if (header) {
                 header.classList.remove('ai-active');
+                header.classList.add('premium-active');
             }
 
             // 🖥️ Desktop: selector de modo (Premium vs IA) deve refletir aiMode
@@ -14509,6 +14511,10 @@ async function persistAnalyzerState(newState) {
     let currentAnalysisStatus = 'Aguardando análise...';
     let modeApiStatusTypingInterval = null;
 
+    // ✅ Guard: quando há sinal visível no topo, NÃO permitir que updates de status ("Analisando")
+    // sobrescrevam o quadrado do sinal com o loader.
+    let daTopSignalVisible = false;
+
     // ✅ UI: reset suave da barra de progresso (evita “engasgo” ao limpar após resultado)
     let lastTopSignalVisible = false;
     let confidenceResetTimer = null;
@@ -15262,6 +15268,21 @@ async function persistAnalyzerState(newState) {
             return ` <span class="ai-entry-action-sep">|</span> Resultado: <span class="${cls}">${escapeHtml(r)}</span>`;
         })();
 
+        // ✅ Quando não há sinal (ou foi bloqueado), ainda exibir o relatório,
+        // mas NÃO mostrar "Entrar na cor" como se fosse recomendação.
+        const blockedReason = String((aiData && (aiData.blockedReason || aiData.blocked_reason)) || '').toLowerCase().trim();
+        const isBlocked = !!(aiData && (aiData.blocked === true || blockedReason));
+        const actionHtml = (() => {
+            if (!isBlocked) {
+                return `Entrar na cor <span class="ai-entry-action-color ${safeColorClass}">${escapeHtml(entryColorText)}</span>${resultInlineHtml}`;
+            }
+            const label = (blockedReason === 'no_signal') ? 'Sem sinal no momento' : 'Sinal bloqueado';
+            const suggested = safeColorClass
+                ? ` <span class="ai-entry-action-sep">|</span> Sugestão: <span class="ai-entry-action-color ${safeColorClass}">${escapeHtml(entryColorText)}</span>`
+                : '';
+            return `${escapeHtml(label)}${suggested}${resultInlineHtml}`;
+        })();
+
         const spinsSection = (showSpins && spinsCount > 0) ? `
             <div class="ai-entry-section">
                 <div class="ai-entry-section-title">Últimos ${spinsCount} giros</div>
@@ -15273,7 +15294,7 @@ async function persistAnalyzerState(newState) {
             <div class="ai-entry-analysis">
                 <div class="ai-entry-head">
                     <div class="ai-entry-action">
-                        Entrar na cor <span class="ai-entry-action-color ${safeColorClass}">${escapeHtml(entryColorText)}</span>${resultInlineHtml}
+                        ${actionHtml}
                     </div>
                     <div class="ai-entry-confidence">
                         Confiança <span class="ai-entry-confidence-value">${escapeHtml(topConfidenceText)}</span>
@@ -16165,6 +16186,8 @@ async function persistAnalyzerState(newState) {
         
         // track para reset suave ao “limpar” sinal
         let topSignalVisibleNow = false;
+        // default: sem sinal (pode ser atualizado abaixo)
+        daTopSignalVisible = false;
 
         if (Object.prototype.hasOwnProperty.call(data, 'analysis')) {
             // ✅ Sinais internos (uso técnico) nunca devem aparecer no UI.
@@ -16177,8 +16200,12 @@ async function persistAnalyzerState(newState) {
             }
 
             if (data.analysis) {
-                topSignalVisibleNow = true;
                 const analysis = data.analysis;
+                const isBlockedSignal = !!(analysis && analysis.blockedSignal);
+                // ✅ "Sinal bloqueado" (barreiras N8/N9/N10) deve exibir o raciocínio no card de padrão,
+                // porém NÃO pode recomendar cor no topo.
+                topSignalVisibleNow = !isBlockedSignal;
+                daTopSignalVisible = !isBlockedSignal;
                 const confidenceClamped = computeDiamondDisplayConfidence(analysis);
                 // ✅ Nova regra: IA é a "fase principal". Sempre tratar o sinal como aposta do usuário.
                 // (Fase 2 / "Sinal de entrada" deixa de ser o fluxo principal.)
@@ -16212,45 +16239,60 @@ async function persistAnalyzerState(newState) {
                 if (analysisSig !== lastAnalysisSignature) {
                     lastAnalysisSignature = analysisSig;
                     
-                    // ✅ Voltar a exibir sinais no topo (Aguardando sinal), como antes:
-                    // - Sinal normal: aparece aqui em cima
-                    // - Sinal de entrada: também aparece e recebe destaque (fundo branco no desktop)
-                    confidenceFill.style.width = `${confidenceClamped}%`;
-                    confidenceText.textContent = `${confidenceClamped.toFixed(1)}%`;
+                    if (!isBlockedSignal) {
+                        // ✅ Voltar a exibir sinais no topo (Aguardando sinal), como antes:
+                        // - Sinal normal: aparece aqui em cima
+                        // - Sinal de entrada: também aparece e recebe destaque (fundo branco no desktop)
+                        confidenceFill.style.width = `${confidenceClamped}%`;
+                        confidenceText.textContent = `${confidenceClamped.toFixed(1)}%`;
 
-                    if (analysisCardEl) {
-                        analysisCardEl.classList.toggle('da-entry-signal-highlight', isEntrySignal);
-                    }
+                        if (analysisCardEl) {
+                            analysisCardEl.classList.toggle('da-entry-signal-highlight', isEntrySignal);
+                        }
 
-                    if (suggestionColor) {
-                        suggestionColor.removeAttribute('data-gale');
-                        suggestionColor.className = `suggestion-color suggestion-color-box ${analysis.color}`;
-                        suggestionColor.setAttribute('title', isEntrySignal ? 'Sinal de entrada' : 'Sinal');
-                        // Estilo "Apostas": anel girando aguardando resultado
-                        suggestionColor.innerHTML = `<span class="pending-indicator"></span>`;
-                    }
+                        if (suggestionColor) {
+                            suggestionColor.removeAttribute('data-gale');
+                            suggestionColor.className = `suggestion-color suggestion-color-box ${analysis.color}`;
+                            suggestionColor.setAttribute('title', isEntrySignal ? 'Sinal de entrada' : 'Sinal');
+                            // Estilo "Apostas": anel girando aguardando resultado
+                            suggestionColor.innerHTML = `<span class="pending-indicator"></span>`;
+                        }
 
-                    // Mostrar estágio quando existir (G1/G2...), senão ocultar
-                    try { setSuggestionStage(phaseLabel || ''); } catch (_) {}
-                    // ✅ Fallback: em alguns fluxos o "stage" pode estar apenas no martingaleState (e não em analysis.phase).
-                    // Ex.: entrou no G1/G2 e o topo precisa mostrar o rótulo dentro do ícone.
-                    if (!phaseLabel) {
+                        // Mostrar estágio quando existir (G1/G2...), senão ocultar
+                        try { setSuggestionStage(phaseLabel || ''); } catch (_) {}
+                        // ✅ Fallback: em alguns fluxos o "stage" pode estar apenas no martingaleState (e não em analysis.phase).
+                        // Ex.: entrou no G1/G2 e o topo precisa mostrar o rótulo dentro do ícone.
+                        if (!phaseLabel) {
+                            try {
+                                storageCompat.get(['martingaleState']).then((res = {}) => {
+                                    const ms = res.martingaleState;
+                                    const stage = ms && ms.active ? String(ms.stage || '').toUpperCase().trim() : '';
+                                    if (stage && stage !== 'G0' && stage !== 'ENTRADA') {
+                                        try { setSuggestionStage(stage); } catch (_) {}
+                                    }
+                                }).catch(() => {});
+                            } catch (_) {}
+                        }
+
+                        // Sincronizar visual do modo aposta
+                        syncBetModeView();
+
+                        // ✅ Branco: manter a aba "Branco" atualizada (inclui preview pendente)
+                        try { renderWhiteSignalPreview(analysis); } catch (_) {}
+                    } else {
+                        // 🚫 Bloqueado: manter o topo em "Analisando" e só exibir o raciocínio no card de padrão
+                        try { confidenceFill.style.width = '0%'; } catch (_) {}
+                        try { confidenceText.textContent = '0%'; } catch (_) {}
+                        try { setSuggestionStage(''); } catch (_) {}
                         try {
-                            storageCompat.get(['martingaleState']).then((res = {}) => {
-                                const ms = res.martingaleState;
-                                const stage = ms && ms.active ? String(ms.stage || '').toUpperCase().trim() : '';
-                                if (stage && stage !== 'G0' && stage !== 'ENTRADA') {
-                                    try { setSuggestionStage(stage); } catch (_) {}
-                                }
-                            }).catch(() => {});
+                            const analysisSectionEl = document.querySelector('.analysis-section');
+                            if (analysisSectionEl) analysisSectionEl.classList.add('da-analyzing');
                         } catch (_) {}
+                        try { if (analysisCardEl) analysisCardEl.classList.add('da-analyzing'); } catch (_) {}
+                        try { renderSuggestionStatus(''); } catch (_) {}
+                        try { syncBetModeView(); } catch (_) {}
+                        try { renderWhiteSignalPreview(null); } catch (_) {}
                     }
-
-                    // Sincronizar visual do modo aposta
-                    syncBetModeView();
-
-                    // ✅ Branco: manter a aba "Branco" atualizada (inclui preview pendente)
-                    try { renderWhiteSignalPreview(analysis); } catch (_) {}
                 }
                 
                 // Update pattern info - renderizar para sinais IA (fase principal)
@@ -16343,22 +16385,41 @@ async function persistAnalyzerState(newState) {
                 // ✅ Overlay removido: agora o Sinal de entrada aparece destacado AQUI em cima.
                 try { hideMasterSignalOverlay(); } catch (_) {}
 
-                // ✅ Título do bloco superior: quando há sinal, estamos "aguardando resultado"
-                try {
-                    const analysisModeTitle = document.getElementById('analysisModeTitle');
-                    if (analysisModeTitle) {
-                        analysisModeTitle.textContent = isEntrySignal ? 'Sinal de entrada' : 'Aguardando resultado';
-                    }
-                } catch (_) {}
-                // ✅ Remover estado “analisando” (título + layout)
-                try {
-                    const analysisSectionEl = document.querySelector('.analysis-section');
-                    if (analysisSectionEl) analysisSectionEl.classList.remove('da-analyzing');
-                } catch (_) {}
-                try {
-                    const analysisCardEl = document.querySelector('.analysis-section .analysis-card');
-                    if (analysisCardEl) analysisCardEl.classList.remove('da-analyzing');
-                } catch (_) {}
+                if (!isBlockedSignal) {
+                    // ✅ Título do bloco superior: quando há sinal, estamos "aguardando resultado"
+                    try {
+                        const analysisModeTitle = document.getElementById('analysisModeTitle');
+                        if (analysisModeTitle) {
+                            analysisModeTitle.textContent = isEntrySignal ? 'Sinal de entrada' : 'Aguardando resultado';
+                        }
+                    } catch (_) {}
+                    // ✅ Remover estado “analisando” (título + layout)
+                    try {
+                        const analysisSectionEl = document.querySelector('.analysis-section');
+                        if (analysisSectionEl) analysisSectionEl.classList.remove('da-analyzing');
+                    } catch (_) {}
+                    try {
+                        const analysisCardEl = document.querySelector('.analysis-section .analysis-card');
+                        if (analysisCardEl) analysisCardEl.classList.remove('da-analyzing');
+                    } catch (_) {}
+                } else {
+                    // 🚫 Bloqueado: manter topo em "Analisando" e sinalizar bloqueio no título
+                    try {
+                        const analysisModeTitle = document.getElementById('analysisModeTitle');
+                        if (analysisModeTitle) {
+                            const br = String((analysis && (analysis.blockedReason || analysis.blocked_reason)) || '').toLowerCase().trim();
+                            analysisModeTitle.textContent = (br === 'no_signal') ? 'Sem sinal' : 'Sinal bloqueado';
+                        }
+                    } catch (_) {}
+                    try {
+                        const analysisSectionEl = document.querySelector('.analysis-section');
+                        if (analysisSectionEl) analysisSectionEl.classList.add('da-analyzing');
+                    } catch (_) {}
+                    try {
+                        const analysisCardEl = document.querySelector('.analysis-section .analysis-card');
+                        if (analysisCardEl) analysisCardEl.classList.add('da-analyzing');
+                    } catch (_) {}
+                }
                 
                 // ✅ Estágio (G1/G2...) no topo:
                 // Agora é tratado acima via `analysis.phase` (phaseLabel) + fallback do `martingaleState.stage`.
@@ -16370,6 +16431,7 @@ async function persistAnalyzerState(newState) {
                 lastAnalysisSignature = '';
                 confidenceFill.style.width = '0%';
                 confidenceText.textContent = '0%';
+                daTopSignalVisible = false;
                 try {
                     const analysisCardEl = document.querySelector('.analysis-section .analysis-card');
                     if (analysisCardEl) analysisCardEl.classList.remove('da-entry-signal-highlight');
@@ -16421,6 +16483,8 @@ async function persistAnalyzerState(newState) {
                             suggestionColor.setAttribute('title', `IA • Aguardando resultado (${stage})`);
                             suggestionColor.innerHTML = `<span class="pending-indicator"></span>`;
                         }
+                        // ✅ Há “sinal em andamento” (martingale) => bloquear status loader
+                        daTopSignalVisible = true;
                         try { setSuggestionStage(stage); } catch (_) {}
 
                         // ✅ Topo: agora está aguardando resultado, então NÃO é "Analisando"
@@ -16444,8 +16508,13 @@ async function persistAnalyzerState(newState) {
                             if (patternSection) patternSection.style.display = '';
                             if (patternInfo) {
                                 if (!hasPattern) {
-                                    // ✅ Nunca deixar vazio após resultado/refresh
-                                    setPatternMainContent(patternInfo, '', { expanded: false });
+                                    // ✅ Pedido: sempre manter o painel de raciocínio visível.
+                                    // Se não houver relatório disponível neste estado, mostrar placeholder (não “sumir”).
+                                    setPatternMainContent(
+                                        patternInfo,
+                                        `<div class="pattern-empty">Relatório indisponível para este estado.</div>`,
+                                        { expanded: false }
+                                    );
                                     try { refreshPatternLastSpins(patternInfo, getPatternLastSpinsLimit()); } catch (_) {}
                                 } else {
                                     patternInfo.classList.add('pattern-expanded');
@@ -16490,32 +16559,26 @@ async function persistAnalyzerState(newState) {
                         storageCompat.get(['martingaleState']).then((res = {}) => {
                             const ms = res.martingaleState;
                             if (!renderFromMartingale(ms)) {
+                                daTopSignalVisible = false;
                                 renderSuggestionStatus(currentAnalysisStatus);
                                 try { if (patternSection) patternSection.style.display = ''; } catch (_) {}
-                                try { setPatternMainContent(patternInfo, '', { expanded: false }); } catch (_) {}
                                 try { refreshPatternLastSpins(patternInfo, getPatternLastSpinsLimit()); } catch (_) {}
-                                try { patternInfo.title = ''; } catch (_) {}
-                                try { patternInfo?.classList?.remove('pattern-expanded'); } catch (_) {}
                                 setSuggestionStage('');
                                 try { hideMasterSignalOverlay(); } catch (_) {}
                             }
                         }).catch(() => {
+                            daTopSignalVisible = false;
                             renderSuggestionStatus(currentAnalysisStatus);
                             try { if (patternSection) patternSection.style.display = ''; } catch (_) {}
-                            try { setPatternMainContent(patternInfo, '', { expanded: false }); } catch (_) {}
                             try { refreshPatternLastSpins(patternInfo, getPatternLastSpinsLimit()); } catch (_) {}
-                            try { patternInfo.title = ''; } catch (_) {}
-                            try { patternInfo?.classList?.remove('pattern-expanded'); } catch (_) {}
                             setSuggestionStage('');
                             try { hideMasterSignalOverlay(); } catch (_) {}
                         });
                     } catch (_) {
+                        daTopSignalVisible = false;
                         renderSuggestionStatus(currentAnalysisStatus);
                         try { if (patternSection) patternSection.style.display = ''; } catch (_) {}
-                        try { setPatternMainContent(patternInfo, '', { expanded: false }); } catch (_) {}
                         try { refreshPatternLastSpins(patternInfo, getPatternLastSpinsLimit()); } catch (_) {}
-                        try { patternInfo.title = ''; } catch (_) {}
-                        try { patternInfo?.classList?.remove('pattern-expanded'); } catch (_) {}
                         setSuggestionStage('');
                         try { hideMasterSignalOverlay(); } catch (_) {}
                     }
@@ -16963,8 +17026,14 @@ async function persistAnalyzerState(newState) {
     function renderSuggestionStatus(statusText) {
         const suggestionColor = document.getElementById('suggestionColor');
         if (!suggestionColor) return;
+        // ✅ Se já temos sinal ativo (Premium ou Diamante), nunca sobrescrever com loader "Analisando".
+        // Importante: quando NÃO há sinal (analysis=null), precisamos SEMPRE resetar o DOM para o anel "Analisando".
+        // Então o bloqueio deve depender da fonte única (`daTopSignalVisible`), e não do DOM (que pode estar stale).
+        if (daTopSignalVisible) return;
         const normalized = typeof statusText === 'string' ? statusText : '';
         suggestionColor.removeAttribute('title');
+        // Garantir reset completo (evita sobrar "G1/G2" ou spinner pendente)
+        try { suggestionColor.removeAttribute('data-gale'); } catch (_) {}
         
         // Regra nova: se NÃO há sinal visível, sempre mostrar o spinner (sensação de análise rodando)
         // Vale para modo padrão e modo diamante.
@@ -20395,6 +20464,7 @@ function logModeSnapshotUI(snapshot) {
             
             const analysisPayload = request.data || null;
             const isHiddenInternal = !!(analysisPayload && analysisPayload.hiddenInternal);
+            const isBlockedSignal = !!(analysisPayload && analysisPayload.blockedSignal);
             const effectiveMode = (messageMode === 'diamond' || messageMode === 'standard') ? messageMode : tabMode;
 
             // ✅ IA VIVA: se a bolinha está em HOLD (após "Limpar") e chegou um sinal visível,
@@ -20420,7 +20490,7 @@ function logModeSnapshotUI(snapshot) {
             });
 
             // ✅ Sinais internos (hiddenInternal) não podem acionar auto-bet nem "vazar" para UI normal.
-            if (!isHiddenInternal && autoBetManager && typeof autoBetManager.handleAnalysis === 'function') {
+            if (!isHiddenInternal && !isBlockedSignal && autoBetManager && typeof autoBetManager.handleAnalysis === 'function') {
                 autoBetManager.handleAnalysis(analysisPayload);
             }
 
@@ -20981,7 +21051,10 @@ function logModeSnapshotUI(snapshot) {
             console.log('%c   📍 Modo PADRÃO - exibindo na caixa de sugestão', 'color: #FFD700; font-weight: bold;');
             // Em modo padrão não há gale ativo controlado pela IA
             setSuggestionStage('');
-            renderSuggestionStatus(status);
+            // ✅ Nunca deixar o status "Analisando" sobrescrever um sinal já visível
+            if (!daTopSignalVisible) {
+                renderSuggestionStatus(status);
+            }
             return; // NÃO atualizar o cabeçalho
         }
         

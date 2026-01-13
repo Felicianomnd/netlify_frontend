@@ -1784,24 +1784,9 @@ function buildDiamondGalePhaseAnalysis({ history, phase, preferredColor, fallbac
     };
 
     let barriers = evalBarriers(chosen);
-    // Se a cor preferida foi bloqueada (principalmente quando mudou), tentar fallback (cor anterior).
-    if (!barriers.allowed && fallback && fallback !== chosen && (chosen === 'red' || chosen === 'black')) {
-        const tryFallback = evalBarriers(fallback);
-        if (tryFallback.allowed) {
-            chosen = fallback;
-            barriers = tryFallback;
-        }
-    }
-    // Último recurso: tentar o oposto (evita travar em uma cor que excedeu limite).
-    if (!barriers.allowed && (chosen === 'red' || chosen === 'black')) {
-        const alt = oppositeRB(chosen);
-        const tryAlt = evalBarriers(alt);
-        if (tryAlt.allowed) {
-            chosen = alt;
-            barriers = tryAlt;
-        }
-    }
-
+    // ✅ Regra do usuário: barreiras são veto FINAL no Gale.
+    // - Não "tentar outra cor" só para evitar o bloqueio.
+    // - Se N8/N9/N10 bloquearam, NÃO recomendar cor no topo (apenas registrar o raciocínio).
     const blockedAll = !barriers.allowed;
 
     // 3) Construir reasoning compatível com o parser da UI (content.js)
@@ -1848,6 +1833,10 @@ function buildDiamondGalePhaseAnalysis({ history, phase, preferredColor, fallbac
         return `N10 - Barreira Inteligente → ${detail}`;
     })();
 
+    const decisionLine = blockedAll
+        ? `DECISÃO: 🚫 BLOQUEADO (não recomendar)`
+        : `DECISÃO: ${String(chosen).toUpperCase()}`;
+
     const reasoning =
         `${n4Line}\n` +
         `${n8Line}\n` +
@@ -1856,7 +1845,7 @@ function buildDiamondGalePhaseAnalysis({ history, phase, preferredColor, fallbac
         `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
         `Modo: ${intensityLabel}\n` +
         `Score combinado: ${Number(scoreCombined || 0).toFixed(1)}%\n` +
-        `DECISÃO: ${String(chosen).toUpperCase()}\n` +
+        `${decisionLine}\n` +
         `Confiança: ${Number(confidencePct || 0).toFixed(1)}%`;
 
     // 4) Montar payload estruturado (AI_ANALYSIS) – é isso que a UI renderiza no topo
@@ -1874,7 +1863,9 @@ function buildDiamondGalePhaseAnalysis({ history, phase, preferredColor, fallbac
         last5Spins: last10Spins.slice(0, 10),
         reasoning,
         historySize: Math.min(Math.max(cfg.aiHistorySize || 50, 20), hist.length),
-        galePhase: ph
+        galePhase: ph,
+        blocked: !!blockedAll,
+        blockedReason: blockedAll ? 'barriers' : null
     };
 
     return {
@@ -1888,6 +1879,145 @@ function buildDiamondGalePhaseAnalysis({ history, phase, preferredColor, fallbac
         reasoning,
         patternDescription: JSON.stringify(aiDescriptionData)
     };
+}
+
+// ✅ Diamante: mesmo quando NÃO houver sinal, gerar um relatório (raciocínio) para a UI.
+// Objetivo: o usuário ver o que está acontecendo por trás (N4 + barreiras N8/N9/N10),
+// sem recomendar entrada no topo.
+function buildDiamondNoSignalReport({ history, config }) {
+    try {
+        const normalizeColor = (v) => {
+            const s = String(v || '').toLowerCase().trim();
+            if (!s) return '';
+            if (s === 'branco') return 'white';
+            if (s.startsWith('w')) return 'white';
+            if (s.startsWith('r')) return 'red';
+            if (s.startsWith('b') && s !== 'branco') return 'black';
+            return s;
+        };
+        const clamp01Local = (x) => Math.max(0, Math.min(1, Number(x) || 0));
+        const fmtPct = (x) => `${(clamp01Local(x) * 100).toFixed(1)}%`;
+
+        const hist = Array.isArray(history) ? history : [];
+        const cfg = (config && typeof config === 'object') ? config : analyzerConfig;
+
+        const { maxGales } = getMartingaleSettings('diamond', cfg);
+
+        // Reusar o mesmo "motor" do N4 (P1/P2/P3) — sem depender de haver Gale.
+        const n4Res = pickN4DynamicGaleResult({
+            history: hist,
+            config: cfg,
+            stageNumber: 0, // entrada
+            maxGales,
+            forcePick: true
+        });
+
+        const chosen = (n4Res && n4Res.color) ? normalizeColor(n4Res.color) : '';
+        const chosenValid = (chosen === 'red' || chosen === 'black' || chosen === 'white');
+
+        const p1 = (n4Res && typeof n4Res.p1 === 'number') ? clamp01Local(n4Res.p1) : null;
+        const p2 = (n4Res && typeof n4Res.p2 === 'number') ? clamp01Local(n4Res.p2) : null;
+        const p3 = (n4Res && typeof n4Res.p3 === 'number') ? clamp01Local(n4Res.p3) : null;
+        const confidencePct = (p1 != null) ? Math.round(p1 * 1000) / 10 : 0; // 1 casa
+
+        const n4Line = (() => {
+            if (!chosenValid) return `N4 - Autointeligente → NULO`;
+            const p1Txt = p1 != null ? fmtPct(p1) : 'n/d';
+            const p2Txt = p2 != null ? fmtPct(p2) : 'n/d';
+            const p3Txt = p3 != null ? fmtPct(p3) : 'n/d';
+            const strengthTxt = p1 != null ? `${Math.round(p1 * 100)}%` : '0%';
+            const detail = `P1 ${p1Txt} • P2 ${p2Txt} • P3 ${p3Txt}`;
+            return `N4 - Autointeligente → ${String(chosen).toUpperCase()} (${strengthTxt} • ${detail})`;
+        })();
+
+        // Barreiras: sempre rodar e reportar (mesmo sem sinal)
+        const n8Enabled = isDiamondLevelEnabled('N8', cfg);
+        const n9Enabled = isDiamondLevelEnabled('N9', cfg);
+        const n10Enabled = isDiamondLevelEnabled('N10', cfg);
+        const n8Window = (cfg === analyzerConfig)
+            ? getDiamondWindow('n8Barrier1', getDiamondWindow('n8Barrier', 50))
+            : getDiamondWindowFromConfig(cfg, 'n8Barrier1', getDiamondWindowFromConfig(cfg, 'n8Barrier', 50));
+        const n9Window = (cfg === analyzerConfig)
+            ? getDiamondWindow('n8Barrier', 50)
+            : getDiamondWindowFromConfig(cfg, 'n8Barrier', 50);
+        const n10History = (cfg === analyzerConfig)
+            ? getDiamondWindow('n10History', 2000)
+            : getDiamondWindowFromConfig(cfg, 'n10History', 2000);
+
+        const c = chosenValid ? chosen : 'red';
+        const n8 = n8Enabled ? validateOppositeContinuationBarrier(hist, c, n8Window, { minStreakToWorry: 3 }) : { allowed: true, details: 'DESATIVADO' };
+        const n9 = n9Enabled ? validateSequenceBarrier(hist, c, n9Window, null) : { allowed: true, currentStreak: 0, targetStreak: 0, maxStreakFound: 0, details: 'DESATIVADO' };
+        const n10 = n10Enabled ? validateN10IntelligentBarrier(hist, c, { historySize: n10History, minOccurrences: 4 }) : { allowed: true, details: 'DESATIVADO' };
+
+        const n8Line = (() => {
+            if (!n8Enabled) return `N8 - Barreira 1 (Oposta) → DESATIVADO`;
+            const ok = !!(n8 && n8.allowed !== false);
+            const status = ok ? '✅ APROVADO' : '🚫 BLOQUEADO';
+            const detail = (typeof n8.details === 'string' && n8.details.trim()) ? n8.details.trim() : status;
+            return `N8 - Barreira 1 (Oposta) → ${status}${detail && detail !== status ? ` (${detail})` : ''}`;
+        })();
+        const n9Line = (() => {
+            if (!n9Enabled) return `N9 - Barreira 2 (Indicada) → DESATIVADO`;
+            const ok = !!(n9 && n9.allowed !== false);
+            const status = ok ? '✅ APROVADO' : '🚫 BLOQUEADO';
+            const cur = Number(n9.currentStreak ?? 0);
+            const target = Number(n9.targetStreak ?? 0);
+            const maxHist = Number(n9.maxStreakFound ?? 0);
+            return `N9 - Barreira 2 (Indicada) → ${status} (Atual ${cur} • alvo ${target} • máx ${maxHist}${n9.gapRuleBlocked ? ' (sem folga)' : ''})`;
+        })();
+        const n10Line = (() => {
+            if (!n10Enabled) return `N10 - Barreira Inteligente → DESATIVADO`;
+            const ok = !!(n10 && n10.allowed !== false);
+            const status = ok ? '✅ APROVADO' : '🚫 BLOQUEADO';
+            const detail = (typeof n10.details === 'string' && n10.details.trim()) ? n10.details.trim() : status;
+            return `N10 - Barreira Inteligente → ${status}${detail && detail !== status ? ` (${detail})` : ''}`;
+        })();
+
+        const intensityLabel = (cfg && cfg.signalIntensity === 'conservative') ? 'Conservador' : 'Agressivo';
+        const reasoning =
+            `${n4Line}\n` +
+            `${n8Line}\n` +
+            `${n9Line}\n` +
+            `${n10Line}\n` +
+            `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+            `Modo: ${intensityLabel}\n` +
+            `Score combinado: ${Number(confidencePct || 0).toFixed(1)}%\n` +
+            `DECISÃO: NULO\n` +
+            `Confiança: ${Number(confidencePct || 0).toFixed(1)}%`;
+
+        const last10Spins = hist.slice(0, 10).map(spin => ({
+            color: spin.color,
+            number: spin.number,
+            timestamp: spin.timestamp
+        }));
+
+        const aiDescriptionData = {
+            type: 'AI_ANALYSIS',
+            color: chosenValid ? chosen : null,
+            confidence: Number(confidencePct || 0),
+            diamondSourceLevel: 'N4',
+            last10Spins,
+            last5Spins: last10Spins.slice(0, 10),
+            reasoning,
+            historySize: Math.min(Math.max(cfg.aiHistorySize || 50, 20), hist.length),
+            galePhase: 'G0',
+            blocked: true,
+            blockedReason: 'no_signal'
+        };
+
+        return {
+            chosenColor: chosenValid ? chosen : null,
+            confidencePct: Number(confidencePct || 0),
+            reasoning,
+            patternDescription: JSON.stringify(aiDescriptionData),
+            n4Res,
+            n8,
+            n9,
+            n10
+        };
+    } catch (_) {
+        return null;
+    }
 }
 
 function calculateGaleConfidenceValue(baseConfidence = 0, analysis = null, state = martingaleState, options = null) {
@@ -5153,7 +5283,8 @@ async function processNewSpinFromServer(spinData) {
                                 // ⚪ Branco: NÃO mudar cor em gales — respeitar configuração exclusiva do Branco.
                                 let g1Color = currentAnalysis.color;
                                 let g1DiamondPhase = null;
-                                if (analyzerConfig.aiMode && normalizeSimpleBetColor(currentAnalysis.color) !== 'white' && shouldUseN4DynamicGalesForConfig(analyzerConfig)) {
+                                const isWhiteEntry = normalizeSimpleBetColor(currentAnalysis.color) === 'white';
+                                if (analyzerConfig.aiMode && !isWhiteEntry && shouldUseN4DynamicGalesForConfig(analyzerConfig)) {
                                     const picked = pickN4DynamicGaleColor({
                                         history: cachedHistory,
                                         config: analyzerConfig,
@@ -5162,7 +5293,11 @@ async function processNewSpinFromServer(spinData) {
                                         forcePick: true
                                     });
                                     if (picked) g1Color = picked;
-                                    // ✅ Recriar raciocínio/níveis para o GALE (para UI e relatório)
+                                }
+                                // ✅ Diamante: SEMPRE reavaliar no GALE (G1), mesmo quando não pode trocar cor.
+                                // - N4 reanalisa (quando habilitado) e gera P1/P2/P3
+                                // - N8/N9/N10 são barreiras (veto final)
+                                if (analyzerConfig.aiMode && !isWhiteEntry) {
                                     g1DiamondPhase = buildDiamondGalePhaseAnalysis({
                                         history: cachedHistory,
                                         phase: 'G1',
@@ -5174,6 +5309,7 @@ async function processNewSpinFromServer(spinData) {
                                         g1Color = g1DiamondPhase.chosenColor;
                                     }
                                 }
+                                const g1BlockedByBarriers = !!(g1DiamondPhase && g1DiamondPhase.blockedAll);
                                 
                                 // ⚠️ CRÍTICO: Registrar LOSS da ENTRADA antes de tentar G1
                                 // ✅ Fix financeiro: congelar config do ciclo na primeira entrada
@@ -5207,8 +5343,10 @@ async function processNewSpinFromServer(spinData) {
                                 last5Spins: entrySpinsSnapshot
                                     },
                                     martingaleStage: 'ENTRADA',
-                                    finalResult: null,  // Ainda não é final, vai tentar G1
-                                    continuingToG1: true,  // Flag indicando que continuará
+                                    // 🚫 Se o próximo GALE foi bloqueado (N8/N9/N10), encerrar o ciclo aqui (sem recomendar G1).
+                                    finalResult: g1BlockedByBarriers ? 'RED' : null,
+                                    continuingToG1: g1BlockedByBarriers ? false : true,
+                                    ...(g1BlockedByBarriers ? { blockedNextGale: 'G1' } : {}),
                                     // ✅ NOVO: IDENTIFICAR MODO DE ANÁLISE
                                     analysisMode: analyzerConfig.aiMode ? 'diamond' : 'standard',
                                     // ✅ NOVO: marcar se este ciclo era SINAL DE ENTRADA
@@ -5226,6 +5364,59 @@ async function processNewSpinFromServer(spinData) {
                                 
                                 activeHistory.unshift(entradaLossEntry);
                                 // ✅ Pedido: não limitar histórico por ciclos (acumular ilimitado)
+
+                                // 🚫 Barreira bloqueou o GALE: não iniciar Martingale nem emitir G1.
+                                if (g1BlockedByBarriers) {
+                                    try {
+                                        const currentMode = analyzerConfig.aiMode ? 'diamond' : 'standard';
+                                        const { wins: filteredWins, losses: filteredLosses } = calculateFilteredScore(entriesHistory, currentMode);
+
+                                        // Telegram: tratar como RED (parou no primeiro LOSS)
+                                        if (!isHiddenInternal) {
+                                            detachPromise(
+                                                sendTelegramMartingaleRET(filteredWins, filteredLosses, currentMode, currentAnalysis.confidence),
+                                                'telegram-martingale-ret'
+                                            );
+                                        }
+
+                                        // Encerrar ciclo e limpar estado
+                                        resetMartingaleState();
+                                        await chrome.storage.local.set({
+                                            analysis: null,
+                                            pattern: null,
+                                            lastBet: { status: 'loss', phase: 'G0', resolvedAtTimestamp: latestSpin.created_at, blockedNextGale: 'G1' },
+                                            // ✅ Marcar fim do ciclo (RED) para referência de estado/telemetria
+                                            lastCycleResolvedSpinId: latestSpin ? (latestSpin.id || null) : null,
+                                            lastCycleResolvedSpinTimestamp: latestSpin ? (latestSpin.created_at || null) : null,
+                                            lastCycleResolvedTimestamp: Date.now(),
+                                            ...(isHiddenInternal ? { [RECOVERY_SECURE_HISTORY_KEY]: recoverySecureHistory } : { entriesHistory }),
+                                            martingaleState
+                                        });
+
+                                        // UI: atualizar histórico e mostrar o raciocínio do bloqueio (sem recomendar cor no topo)
+                                        if (!isHiddenInternal) {
+                                            try { sendMessageToContent('ENTRIES_UPDATE', entriesHistory); } catch (_) {}
+                                            try {
+                                                const blockedUi = attachLatestSpinsSnapshot({
+                                                    color: g1Color,
+                                                    confidence: Number(g1DiamondPhase?.confidencePct || 0),
+                                                    probability: Number(g1DiamondPhase?.confidencePct || 0),
+                                                    diamondSourceLevel: 'N4',
+                                                    patternDescription: (g1DiamondPhase && typeof g1DiamondPhase.patternDescription === 'string')
+                                                        ? g1DiamondPhase.patternDescription
+                                                        : currentAnalysis.patternDescription,
+                                                    phase: 'G1',
+                                                    createdOnTimestamp: latestSpin.created_at,
+                                                    analysisMode: 'diamond',
+                                                    blockedSignal: true,
+                                                    blockedReason: 'barriers'
+                                                });
+                                                sendMessageToContent('NEW_ANALYSIS', blockedUi);
+                                            } catch (_) {}
+                                        }
+                                    } catch (_) {}
+                                    return;
+                                }
                                 
                                 // Salvar estado do Martingale
                                 martingaleState.active = true;
@@ -5527,7 +5718,8 @@ async function processNewSpinFromServer(spinData) {
                                 let nextGaleColor = martingaleState.currentColor || martingaleState.entryColor || currentAnalysis.color;
                                 let nextGaleDiamondPhase = null;
                                 // ⚪ Branco: NÃO mudar cor em gales — respeitar configuração exclusiva do Branco.
-                                if (normalizeSimpleBetColor(martingaleState.entryColor || currentAnalysis.color) !== 'white' && shouldUseN4DynamicGalesForConfig(analyzerConfig)) {
+                                const isWhiteCycle = normalizeSimpleBetColor(martingaleState.entryColor || currentAnalysis.color) === 'white';
+                                if (!isWhiteCycle && shouldUseN4DynamicGalesForConfig(analyzerConfig)) {
                                     const picked = pickN4DynamicGaleColor({
                                         history: cachedHistory,
                                         config: analyzerConfig,
@@ -5539,7 +5731,7 @@ async function processNewSpinFromServer(spinData) {
                                 }
 
                                 // ✅ Diamante: recalcular raciocínio/níveis para o próximo GALE (G2...) e aplicar barreiras N9/N10 também aqui.
-                                if (analyzerConfig.aiMode && normalizeSimpleBetColor(martingaleState.entryColor || currentAnalysis.color) !== 'white' && shouldUseN4DynamicGalesForConfig(analyzerConfig)) {
+                                if (analyzerConfig.aiMode && !isWhiteCycle) {
                                     nextGaleDiamondPhase = buildDiamondGalePhaseAnalysis({
                                         history: cachedHistory,
                                         phase: `G${nextGaleNumber}`,
@@ -5551,6 +5743,7 @@ async function processNewSpinFromServer(spinData) {
                                         nextGaleColor = nextGaleDiamondPhase.chosenColor;
                                     }
                                 }
+                                const nextGaleBlockedByBarriers = !!(nextGaleDiamondPhase && nextGaleDiamondPhase.blockedAll);
                                 
                                 console.log(`🎯 COR CONFIRMADA PARA G${nextGaleNumber}: ${nextGaleColor}`);
                                 
@@ -5580,8 +5773,11 @@ async function processNewSpinFromServer(spinData) {
                                         last5Spins: entrySpinsSnapshot
                                     },
                                     martingaleStage: currentStage,
-                                    finalResult: null,
-                                    [`continuingToG${nextGaleNumber}`]: true,
+                                    // 🚫 Se o próximo GALE foi bloqueado (N8/N9/N10), encerrar o ciclo aqui (sem recomendar próximo).
+                                    finalResult: nextGaleBlockedByBarriers ? 'RED' : null,
+                                    ...(nextGaleBlockedByBarriers
+                                        ? { blockedNextGale: `G${nextGaleNumber}` }
+                                        : { [`continuingToG${nextGaleNumber}`]: true }),
                                     // ✅ IDENTIFICAR MODO DE ANÁLISE (crítico para UI filtrar corretamente no gráfico)
                                     analysisMode: analyzerConfig.aiMode ? 'diamond' : 'standard',
                                     // ✅ NOVO: marcar se este ciclo era SINAL DE ENTRADA
@@ -5590,6 +5786,56 @@ async function processNewSpinFromServer(spinData) {
                                 
                                 activeHistory.unshift(galeLossEntry);
                                 // ✅ Pedido: não limitar histórico por ciclos (acumular ilimitado)
+
+                                // 🚫 Barreira bloqueou o próximo GALE: encerrar ciclo agora (não evoluir estágio nem emitir análise).
+                                if (nextGaleBlockedByBarriers) {
+                                    try {
+                                        const currentMode = analyzerConfig.aiMode ? 'diamond' : 'standard';
+                                        const { wins: filteredWins, losses: filteredLosses } = calculateFilteredScore(entriesHistory, currentMode);
+
+                                        if (!isHiddenInternal) {
+                                            detachPromise(
+                                                sendTelegramMartingaleRET(filteredWins, filteredLosses, currentMode, currentAnalysis.confidence),
+                                                'telegram-martingale-ret'
+                                            );
+                                        }
+
+                                        resetMartingaleState();
+                                        await chrome.storage.local.set({ 
+                                            analysis: null, 
+                                            pattern: null, 
+                                            lastBet: { status: 'loss', phase: currentStage, resolvedAtTimestamp: latestSpin.created_at, blockedNextGale: `G${nextGaleNumber}` },
+                                            // ✅ Marcar fim do ciclo (RED) para referência de estado/telemetria
+                                            lastCycleResolvedSpinId: latestSpin ? (latestSpin.id || null) : null,
+                                            lastCycleResolvedSpinTimestamp: latestSpin ? (latestSpin.created_at || null) : null,
+                                            lastCycleResolvedTimestamp: Date.now(),
+                                            ...(isHiddenInternal ? { [RECOVERY_SECURE_HISTORY_KEY]: recoverySecureHistory } : { entriesHistory }),
+                                            martingaleState
+                                        });
+
+                                        if (!isHiddenInternal) {
+                                            try { sendMessageToContent('ENTRIES_UPDATE', entriesHistory); } catch (_) {}
+                                            try {
+                                                const blockedUi = attachLatestSpinsSnapshot({
+                                                    color: nextGaleColor,
+                                                    confidence: Number(nextGaleDiamondPhase?.confidencePct || 0),
+                                                    probability: Number(nextGaleDiamondPhase?.confidencePct || 0),
+                                                    diamondSourceLevel: 'N4',
+                                                    patternDescription: (nextGaleDiamondPhase && typeof nextGaleDiamondPhase.patternDescription === 'string')
+                                                        ? nextGaleDiamondPhase.patternDescription
+                                                        : currentAnalysis.patternDescription,
+                                                    phase: `G${nextGaleNumber}`,
+                                                    createdOnTimestamp: latestSpin.created_at,
+                                                    analysisMode: 'diamond',
+                                                    blockedSignal: true,
+                                                    blockedReason: 'barriers'
+                                                });
+                                                sendMessageToContent('NEW_ANALYSIS', blockedUi);
+                                            } catch (_) {}
+                                        }
+                                    } catch (_) {}
+                                    return;
+                                }
                                 
                                 // Atualizar estado do Martingale
                                 martingaleState.stage = `G${nextGaleNumber}`;
@@ -12570,10 +12816,13 @@ function validateN10IntelligentBarrier(history, candidateColor, options = {}) {
         }
 
         if (!chosen || chosen.total <= 0) {
+            const pct = (x) => `${(Number(x || 0) * 100).toFixed(1)}%`;
             return {
                 allowed: true,
                 reason: 'no_precedent',
-                details: 'APROVADO • sem precedente (8-10)',
+                // ✅ Sempre devolver um "relatório" (mesmo sem precedente) — pedido do usuário.
+                // Evitar parênteses no final para não virar só "8-10" no painel (parser separa por "()").
+                details: `APROVADO • sem precedente em 8-10 • L=${chosen ? chosen.L : 'n/d'} • occ=${chosen ? chosen.total : 0} • base=${pct(baseRate)}`,
                 meta: { baseRate, baseCounts, candidates }
             };
         }
@@ -13407,7 +13656,12 @@ function pickN4DynamicGaleColor({ history, config, stageNumber, maxGales, forceP
 // ✅ Retorna o OBJETO completo do N4 (não só a cor) para auditoria/UI do GALE.
 function pickN4DynamicGaleResult({ history, config, stageNumber, maxGales, forcePick = true }) {
     try {
-        if (!shouldUseN4DynamicGalesForConfig(config)) return null;
+        // ✅ Sempre "reanalisar" no Gale quando N4 estiver habilitado (mesmo que o usuário bloqueie troca de cor).
+        // - O toggle n4DynamicGales controla APENAS se pode mudar a cor.
+        // - O cálculo (P1/P2/P3) deve existir para não virar "chute".
+        if (!config || !config.aiMode) return null;
+        if (!isDiamondLevelEnabled('N4', config)) return null;
+        const allowDynamicGales = shouldUseN4DynamicGalesForConfig(config);
         const historyRef = Array.isArray(history) ? history : [];
         if (!historyRef.length) return null;
 
@@ -13422,7 +13676,7 @@ function pickN4DynamicGaleResult({ history, config, stageNumber, maxGales, force
             maxGales: remaining,
             signalIntensity: (config && config.signalIntensity) || 'aggressive',
             whiteProtectionAsWin: !!(config && config.whiteProtectionAsWin),
-            dynamicGales: true,
+            dynamicGales: !!allowDynamicGales,
             forcePick: !!forcePick,
             n4SelfLearning: (signalsHistory && signalsHistory.n4SelfLearning) ? signalsHistory.n4SelfLearning : null
         });
@@ -24302,6 +24556,51 @@ async function runAnalysisController(history) {
 			}
 		}
 	// Log removido: redução de verbosidade
+
+        // ✅ Premium (modo padrão): anti-"sinais em sequência"
+        // Problema: ao finalizar um ciclo (WIN/LOSS/RET), o sistema às vezes gerava um NOVO sinal
+        // imediatamente usando o MESMO giro de resultado como base do próximo padrão (especialmente com minOcc=1).
+        // Regra: o giro que acabou de resolver o ciclo NÃO pode iniciar um novo padrão imediatamente.
+        // Implementação: se o último ciclo foi resolvido neste MESMO giro, não gerar novo sinal agora.
+        if (!analyzerConfig.aiMode && history && history.length > 0) {
+            try {
+                const latestSpin = history[0];
+                const latestMs = parseSpinTimestamp(latestSpin);
+                const latestTsStr = String(latestSpin?.timestamp ?? latestSpin?.created_at ?? '').trim();
+
+                const { lastCycleResolvedSpinId, lastCycleResolvedSpinTimestamp } = await chrome.storage.local.get([
+                    'lastCycleResolvedSpinId',
+                    'lastCycleResolvedSpinTimestamp'
+                ]);
+
+                const refId = lastCycleResolvedSpinId || null;
+                const refTsStr = String(lastCycleResolvedSpinTimestamp || '').trim();
+
+                let isCycleResolvedInThisSpin = false;
+
+                if (refId && latestSpin && latestSpin.id) {
+                    isCycleResolvedInThisSpin = String(latestSpin.id) === String(refId);
+                }
+
+                if (!isCycleResolvedInThisSpin && refTsStr && latestTsStr && latestTsStr === refTsStr) {
+                    isCycleResolvedInThisSpin = true;
+                }
+
+                if (!isCycleResolvedInThisSpin && Number.isFinite(latestMs) && refTsStr) {
+                    const refMs = parseSpinTimestamp({ timestamp: refTsStr, created_at: refTsStr });
+                    if (Number.isFinite(refMs) && refMs === latestMs) {
+                        isCycleResolvedInThisSpin = true;
+                    }
+                }
+
+                if (isCycleResolvedInThisSpin) {
+                    try { sendAnalysisStatus('⏳ Aguardando 1 giro após o resultado...'); } catch (_) {}
+                    return;
+                }
+            } catch (_) {
+                // em caso de erro, não bloquear
+            }
+        }
 		
 		// 1) Verificação com padrões salvos (rápido) - PRIORIDADE MÁXIMA
 		// ⚠️ CRÍTICO: PULAR VERIFICAÇÃO DE PADRÕES SALVOS SE MODO IA ESTIVER ATIVO
@@ -24663,6 +24962,30 @@ async function runAnalysisController(history) {
 				console.log('%c║  ⏳ Aguardando próximo giro para nova tentativa...        ║', 'color: #FFAA00; font-weight: bold;');
 				console.log('%c║  🚫 Análise padrão BLOQUEADA (modo Diamante permanece)    ║', 'color: #FFAA00; font-weight: bold;');
 				sendAnalysisStatus('⏳ IA aguardando novo giro...');
+
+                // ✅ Pedido do usuário: mesmo SEM sinal, sempre exibir o painel de raciocínio (relatório)
+                // para que o usuário veja o que está acontecendo por trás.
+                try {
+                    const report = buildDiamondNoSignalReport({ history, config: analyzerConfig });
+                    if (report && typeof report.patternDescription === 'string' && report.patternDescription.trim()) {
+                        const latestSpin = (history && history.length > 0) ? history[0] : null;
+                        const createdOn = (latestSpin && (latestSpin.timestamp || latestSpin.created_at)) || Date.now();
+                        const uiPayload = attachLatestSpinsSnapshot({
+                            color: report.chosenColor || null,
+                            confidence: Number(report.confidencePct || 0),
+                            probability: Number(report.confidencePct || 0),
+                            diamondSourceLevel: 'N4',
+                            patternDescription: report.patternDescription,
+                            phase: 'G0',
+                            predictedFor: 'next',
+                            createdOnTimestamp: createdOn,
+                            analysisMode: 'diamond',
+                            blockedSignal: true,
+                            blockedReason: 'no_signal'
+                        });
+                        sendMessageToContent('NEW_ANALYSIS', uiPayload);
+                    }
+                } catch (_) {}
 				
 				// ✅ EXIBIR RODAPÉ FIXO COM SISTEMA ATIVO
 				displaySystemFooter();

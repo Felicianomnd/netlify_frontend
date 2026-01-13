@@ -507,6 +507,10 @@
     --da-text: #ffffff;
     --da-text-muted: #7a7a7a;
     --da-header-height: 56px;
+    /* ✅ Paleta Premium (mesma tonalidade do selo "Análise Premium") */
+    --da-premium-yellow-1: #FFD700;
+    --da-premium-yellow-2: #FFA500;
+    --da-premium-text: #1a1a1a;
 }
 
 /* HEADER CONTAINER */
@@ -526,6 +530,17 @@
     box-sizing: border-box;
 }
 
+/* ✅ PREMIUM ATIVO: apenas a barrinha inferior amarela (igual IA, porém amarelo) */
+.da-header.premium-active::after {
+    background: linear-gradient(90deg,
+        transparent 0%,
+        var(--da-premium-yellow-1) 20%,
+        var(--da-premium-yellow-1) 50%,
+        var(--da-premium-yellow-2) 80%,
+        transparent 100%
+    );
+}
+
 /* ═══════════════════════════════════════════════════════════════════════════════ */
 /* 🖥️ DESKTOP DASHBOARD: header limpo (logo + Double centralizado)                 */
 /* - Remove seletor de modo do cabeçalho (vai para a coluna esquerda)              */
@@ -539,8 +554,8 @@
 }
 
 #blaze-double-analyzer.da-desktop-dashboard .da-header::after {
-    /* no desktop, o modo não deve ficar "marcado" no cabeçalho */
-    display: none !important;
+    /* ✅ Pedido: no desktop também deve aparecer a barra vermelha quando IA estiver ativa */
+    display: block !important;
 }
 
 #blaze-double-analyzer.da-desktop-dashboard .da-controls-group,
