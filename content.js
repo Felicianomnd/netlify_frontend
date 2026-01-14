@@ -12947,9 +12947,11 @@ async function persistAnalyzerState(newState) {
                 <div class="last-spin-section highlight-panel">
                     <h4>Último Giro</h4>
                     <div class="spin-display center" id="lastSpinDisplay">
-                        <div class="spin-number" id="lastSpinNumber">-</div>
-                        <div class="spin-meta">
-                            <div class="spin-time" id="lastSpinTime">--:--</div>
+                        <div class="da-lastspin-wrap" id="lastSpinWrap">
+                            <div class="spin-number" id="lastSpinNumber">-</div>
+                            <div class="spin-meta">
+                                <div class="spin-time" id="lastSpinTime">--:--</div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -12982,6 +12984,9 @@ async function persistAnalyzerState(newState) {
                     <div class="spin-rhythm-overlay" id="spinRhythmText">Aguardando base de giros...</div>
                 </div>
             </div>
+
+            <!-- ✅ Últimos giros (movido do card Padrão para baixo da barra de progresso) -->
+            <div class="da-lastspins-underbar" id="daLastSpinsUnderBar" aria-label="Últimos giros"></div>
 
             <div class="entries-section">
             <div class="entries-panel" id="entriesPanel">
@@ -13197,7 +13202,7 @@ async function persistAnalyzerState(newState) {
                 <div class="bet-mode-card">
                     <div class="bet-mode-card-title">Último giro</div>
                     <div class="bet-mode-block">
-                        <div class="bet-mode-lastspin">
+                        <div class="bet-mode-lastspin da-lastspin-wrap" id="betModeLastSpinWrap">
                             <div class="bet-mode-lastspin-number" id="betModeLastSpinNumber">-</div>
                             <div class="bet-mode-lastspin-time" id="betModeLastSpinTime">--:--</div>
                         </div>
@@ -16033,7 +16038,7 @@ async function persistAnalyzerState(newState) {
     // - Deve sempre exibir os últimos 10 giros (independente da aba ativa).
     // ═══════════════════════════════════════════════════════════════
 
-    const PATTERN_LAST_SPINS_LIMIT_MOBILE = 14;  // 📱 7 + 7 (pedido do usuário)
+    const PATTERN_LAST_SPINS_LIMIT_MOBILE = 7;   // 📱 pedido do usuário: 7 em 1 linha (abaixo da barra)
     const PATTERN_LAST_SPINS_LIMIT_DESKTOP = 18; // 🖥️ 9 + 9 (pedido do usuário)
 
     function getPatternLastSpinsLimit() {
@@ -16055,6 +16060,29 @@ async function persistAnalyzerState(newState) {
         }
     }
 
+    function getUnderRhythmLastSpinsLimit() {
+        try {
+            const desktop = (typeof isDesktop === 'function') ? isDesktop() : (window.innerWidth > 768);
+            if (!desktop) return PATTERN_LAST_SPINS_LIMIT_MOBILE; // 7 fixo no mobile
+
+            const el = document.getElementById('daLastSpinsUnderBar');
+            if (!el || !el.getBoundingClientRect) return PATTERN_LAST_SPINS_LIMIT_DESKTOP;
+            const r = el.getBoundingClientRect();
+            const w = r && r.width ? Number(r.width) : 0;
+            if (!(w > 0)) return PATTERN_LAST_SPINS_LIMIT_DESKTOP;
+
+            // Deve caber sem quebrar: calcula quantos itens cabem com o tamanho NORMAL do ícone
+            const item = 36; // tamanho normal do .spin-history-quadrado
+            const gap = 6;
+            const maxFit = Math.floor((w + gap) / (item + gap));
+            const cap = 30; // evita linha absurda em telas gigantes
+            const safeFit = maxFit > 0 ? maxFit : PATTERN_LAST_SPINS_LIMIT_DESKTOP;
+            return Math.max(7, Math.min(cap, safeFit));
+        } catch (_) {
+            return PATTERN_LAST_SPINS_LIMIT_DESKTOP;
+        }
+    }
+
     function renderPatternLastSpinsItems(spins = []) {
         const list = Array.isArray(spins) ? spins : [];
         if (!list.length) {
@@ -16067,8 +16095,8 @@ async function persistAnalyzerState(newState) {
             const number = (spin && spin.number != null) ? spin.number : '';
             const time = (() => {
                 try {
-                    const t = (spin && spin.timestamp != null) ? spin.timestamp : null;
-                    return new Date(t).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+                    const ms = parseSpinTimestampMsLocal(spin);
+                    return ms ? new Date(ms).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : '';
                 } catch (_) {
                     return '';
                 }
@@ -16087,41 +16115,14 @@ async function persistAnalyzerState(newState) {
         }).join('');
     }
 
-    function ensurePatternInfoLayout(patternInfoEl, limit = getPatternLastSpinsLimit()) {
-        if (!patternInfoEl) return { mainEl: null, rowEl: null };
-        const safeLimit = Math.max(1, Number(limit) || 10);
+    function ensurePatternInfoLayout(patternInfoEl) {
+        if (!patternInfoEl) return { mainEl: null };
 
-        // Block: últimos giros
-        let spinsBlock = patternInfoEl.querySelector('#patternLastSpinsBlock');
-        if (!spinsBlock) {
-            spinsBlock = document.createElement('div');
-            spinsBlock.id = 'patternLastSpinsBlock';
-            spinsBlock.className = 'pattern-last-spins';
-            spinsBlock.innerHTML = `
-                <div class="ai-entry-section ai-entry-section--pattern-spins">
-                    <div class="ai-entry-section-title">Últimos ${safeLimit} giros</div>
-                    <div class="ai-entry-spins" id="patternLastSpinsRow"></div>
-                </div>
-            `;
-            patternInfoEl.insertBefore(spinsBlock, patternInfoEl.firstChild);
-        } else {
-            const titleEl = spinsBlock.querySelector('.ai-entry-section-title');
-            if (titleEl) titleEl.textContent = `Últimos ${safeLimit} giros`;
-            // Garantir que fique no TOPO
-            try {
-                if (patternInfoEl.firstChild !== spinsBlock) {
-                    patternInfoEl.insertBefore(spinsBlock, patternInfoEl.firstChild);
-                }
-            } catch (_) {}
-        }
-
-        let rowEl = spinsBlock.querySelector('#patternLastSpinsRow');
-        if (!rowEl) {
-            rowEl = document.createElement('div');
-            rowEl.id = 'patternLastSpinsRow';
-            rowEl.className = 'ai-entry-spins';
-            spinsBlock.appendChild(rowEl);
-        }
+        // ✅ Pedido: remover "Últimos giros" do card Padrão (vai ficar abaixo da barra de progresso)
+        try {
+            const old = patternInfoEl.querySelector('#patternLastSpinsBlock');
+            if (old && old.remove) old.remove();
+        } catch (_) {}
 
         // Wrapper: conteúdo principal do padrão (para não “sumir”)
         let mainEl = patternInfoEl.querySelector('#patternMainContent');
@@ -16130,33 +16131,19 @@ async function persistAnalyzerState(newState) {
             mainEl.id = 'patternMainContent';
             mainEl.className = 'pattern-main';
 
-            // Mover tudo que já existe (exceto o bloco de últimos giros) para dentro do wrapper
-            const nodes = Array.from(patternInfoEl.childNodes).filter(node => node !== spinsBlock);
+            const nodes = Array.from(patternInfoEl.childNodes);
             nodes.forEach(node => {
                 try { mainEl.appendChild(node); } catch (_) {}
             });
-
-            // ✅ Padrão: "Últimos giros" no topo, conteúdo abaixo
             patternInfoEl.appendChild(mainEl);
-        } else {
-            // Garantir ordem (bloco de giros no topo)
-            try {
-                if (spinsBlock && patternInfoEl.firstChild !== spinsBlock) {
-                    patternInfoEl.insertBefore(spinsBlock, patternInfoEl.firstChild);
-                }
-                if (spinsBlock && mainEl.previousSibling !== spinsBlock) {
-                    // colocar conteúdo logo após o bloco
-                    patternInfoEl.insertBefore(mainEl, spinsBlock.nextSibling);
-                }
-            } catch (_) {}
         }
 
-        return { mainEl, rowEl };
+        return { mainEl };
     }
 
     function setPatternMainContent(patternInfoEl, html, { expanded = false } = {}) {
         try {
-            const { mainEl } = ensurePatternInfoLayout(patternInfoEl, getPatternLastSpinsLimit());
+            const { mainEl } = ensurePatternInfoLayout(patternInfoEl);
             if (!mainEl) return;
             const nextHtml = (typeof html === 'string') ? html : '';
             mainEl.innerHTML = nextHtml;
@@ -16168,10 +16155,14 @@ async function persistAnalyzerState(newState) {
 
     function refreshPatternLastSpins(patternInfoEl, limit = getPatternLastSpinsLimit()) {
         try {
-            const { mainEl, rowEl } = ensurePatternInfoLayout(patternInfoEl, limit);
-            if (!rowEl) return;
-            rowEl.innerHTML = renderPatternLastSpinsItems(getPatternLastSpinsSnapshot(limit));
-            // ✅ Não mostrar mensagem quando não há padrão (pedido do usuário)
+            // ✅ Agora renderiza os últimos giros ABAIXO da barra de progresso
+            const el = document.getElementById('daLastSpinsUnderBar');
+            if (!el) return;
+            // Desktop: tenta caber o máximo sem quebrar (até 18)
+            // Mobile: fixo 7 (1 linha)
+            const lim = getUnderRhythmLastSpinsLimit();
+            const spins = getPatternLastSpinsSnapshot(lim);
+            el.innerHTML = renderPatternLastSpinsItems(spins);
         } catch (_) {}
     }
 
@@ -16578,8 +16569,34 @@ async function persistAnalyzerState(newState) {
                 } catch (_) {}
             };
 
+            const colorClass = (clr === 'red') ? 'da-spin-red' : (clr === 'black') ? 'da-spin-black' : (clr === 'white') ? 'da-spin-white' : '';
+            const applyWrap = (wrap) => {
+                try {
+                    if (!wrap) return;
+                    // cor no container (para o gradiente do anel)
+                    try {
+                        wrap.classList?.remove('da-spin-red', 'da-spin-black', 'da-spin-white');
+                        if (colorClass) wrap.classList?.add(colorClass);
+                    } catch (_) {}
+                    // tamanho do anel (circular, envolve ícone + horário)
+                    try {
+                        const r = wrap.getBoundingClientRect ? wrap.getBoundingClientRect() : null;
+                        const w = r && r.width ? Number(r.width) : 0;
+                        const h = r && r.height ? Number(r.height) : 0;
+                        const base = Math.max(w, h);
+                        // ✅ Menor, só "abraça" número+hora (não o card):
+                        const size = Math.max(62, Math.min(120, Math.round(base + 18)));
+                        wrap.style?.setProperty('--da-lastspin-ring-size', `${size}px`);
+                    } catch (_) {}
+                    restart(wrap);
+                } catch (_) {}
+            };
+
+            // Pop no ícone + anel no wrapper (número + hora)
             restart(document.getElementById('lastSpinNumber'));
+            applyWrap(document.getElementById('lastSpinWrap'));
             restart(document.getElementById('betModeLastSpinNumber'));
+            applyWrap(document.getElementById('betModeLastSpinWrap'));
 
             try {
                 if (__daLastSpinAnimTimer) clearTimeout(__daLastSpinAnimTimer);
@@ -16587,6 +16604,8 @@ async function persistAnalyzerState(newState) {
             __daLastSpinAnimTimer = setTimeout(() => {
                 try { document.getElementById('lastSpinNumber')?.classList?.remove('da-lastspin-anim'); } catch (_) {}
                 try { document.getElementById('betModeLastSpinNumber')?.classList?.remove('da-lastspin-anim'); } catch (_) {}
+                try { document.getElementById('lastSpinWrap')?.classList?.remove('da-lastspin-anim'); } catch (_) {}
+                try { document.getElementById('betModeLastSpinWrap')?.classList?.remove('da-lastspin-anim'); } catch (_) {}
                 __daLastSpinAnimTimer = null;
             }, 650);
         } catch (_) {}
@@ -20380,7 +20399,20 @@ async function persistAnalyzerState(newState) {
         const lastSpinSource = document.getElementById('lastSpinNumber');
         const lastSpinTarget = document.getElementById('betModeLastSpinNumber');
         if (lastSpinSource && lastSpinTarget) {
-            lastSpinTarget.className = lastSpinSource.className;
+            // ✅ Não sobrescrever `className` (senão apaga classe de animação)
+            try {
+                if (lastSpinTarget.classList && lastSpinSource.classList) {
+                    lastSpinTarget.classList.add('spin-number');
+                    lastSpinTarget.classList.remove('red', 'black', 'white');
+                    if (lastSpinSource.classList.contains('red')) lastSpinTarget.classList.add('red');
+                    else if (lastSpinSource.classList.contains('black')) lastSpinTarget.classList.add('black');
+                    else if (lastSpinSource.classList.contains('white')) lastSpinTarget.classList.add('white');
+                } else {
+                    lastSpinTarget.className = lastSpinSource.className;
+                }
+            } catch (_) {
+                try { lastSpinTarget.className = lastSpinSource.className; } catch (_) {}
+            }
             lastSpinTarget.innerHTML = lastSpinSource.innerHTML;
         }
         

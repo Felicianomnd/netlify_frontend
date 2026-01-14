@@ -1688,6 +1688,86 @@
   opacity: 0.35;
 }
 
+/* ═══════════════════════════════════════════════════════════════
+   🎲 Últimos giros (abaixo da barra de progresso)
+   - Desktop: até 18 (se couber) em 1 linha
+   - Mobile: 7 em 1 linha
+   ═══════════════════════════════════════════════════════════════ */
+.da-lastspins-underbar {
+  width: 100%;
+  box-sizing: border-box;
+  margin: -4px 0 10px 0; /* encosta visualmente na barra */
+  padding: 0 2px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 4px;
+  flex-wrap: nowrap;
+  overflow: hidden;
+}
+
+/* Reaproveita o layout dos quadradinhos, mas compacto e sem texto */
+.da-lastspins-underbar .spin-history-item-wrap {
+  margin: 0 !important;
+  flex: 0 0 auto;
+  width: 32px; /* espaço para o horário (HH:MM) */
+}
+.da-lastspins-underbar .spin-history-stage,
+.da-lastspins-underbar .spin-history-stage {
+  display: none !important;
+}
+.da-lastspins-underbar .spin-history-time {
+  display: block !important;
+  font-size: 9px;
+  line-height: 1;
+  margin-top: 2px;
+  color: rgba(233, 242, 255, 0.72);
+  text-align: center;
+  white-space: nowrap;
+}
+.da-lastspins-underbar .spin-history-quadrado {
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  font-size: 12px;
+  margin: 0 auto;
+}
+.da-lastspins-underbar .spin-history-quadrado::after {
+  width: 18px;
+  height: 18px;
+  border-width: 2px;
+}
+
+@media (max-width: 520px) {
+  .da-lastspins-underbar {
+    margin: -2px 0 10px 0;
+  }
+  .da-lastspins-underbar .spin-history-item-wrap {
+    width: 40px;
+  }
+  .da-lastspins-underbar .spin-history-quadrado {
+    width: 34px;
+    height: 34px;
+    font-size: 13px;
+  }
+  .da-lastspins-underbar .spin-history-quadrado::after {
+    width: 24px;
+    height: 24px;
+    border-width: 2px;
+  }
+  .da-lastspins-underbar .spin-history-time {
+    font-size: 10px;
+    margin-top: 3px;
+  }
+}
+
+/* ✅ Desktop dashboard: ficar exatamente embaixo do "Ritmo do Giro" e com a mesma largura (span 8) */
+#blaze-double-analyzer.da-desktop-dashboard #analyzerDefaultView #daLastSpinsUnderBar.da-lastspins-underbar {
+  grid-column: 1 / span 8;
+  margin: -2px 0 10px 0;
+  padding: 0 0 0 0;
+}
+
 /* ✅ 6 níveis (tooltip) */
 .moment-quality-tip[data-level="danger"] {
   color: rgba(244, 67, 54, 0.96);
@@ -1896,32 +1976,30 @@
 .spin-number.white::after { display: none; content: none; }
 
 /* ═══════════════════════════════════════════════════════════════
-   ✨ Animação do "Último Giro" (apenas no ícone, ring em gradiente)
-   - Pop suave + anel circular com borda gradiente (um pouco maior que o quadrado)
-   - Aplica SOMENTE no #lastSpinNumber e #betModeLastSpinNumber
+   ✨ Animação do "Último Giro" (anel menor, envolvendo número+hora)
+   - Anel circular com borda gradiente e fade (não pega o card inteiro)
+   - O anel aplica em um wrapper "justo" ao conteúdo (.da-lastspin-wrap)
    ═══════════════════════════════════════════════════════════════ */
-#lastSpinNumber,
-#betModeLastSpinNumber {
+.da-lastspin-wrap {
   /* Defaults (azul da paleta) */
   --da-ring-1: rgba(0, 212, 255, 0.92);
   --da-ring-2: rgba(233, 242, 255, 0.62);
   --da-ring-3: rgba(0, 212, 255, 0.18);
-  will-change: transform, filter;
+  --da-lastspin-ring-size: 74px; /* JS recalcula por giro (fallback ok) */
+  position: relative;
+  will-change: filter;
 }
-#lastSpinNumber.red,
-#betModeLastSpinNumber.red {
+.da-lastspin-wrap.da-spin-red {
   --da-ring-1: rgba(244, 67, 54, 0.95);
   --da-ring-2: rgba(255, 214, 0, 0.75);
   --da-ring-3: rgba(244, 67, 54, 0.18);
 }
-#lastSpinNumber.black,
-#betModeLastSpinNumber.black {
+.da-lastspin-wrap.da-spin-black {
   --da-ring-1: rgba(0, 212, 255, 0.82);
   --da-ring-2: rgba(233, 242, 255, 0.72);
   --da-ring-3: rgba(0, 212, 255, 0.16);
 }
-#lastSpinNumber.white,
-#betModeLastSpinNumber.white {
+.da-lastspin-wrap.da-spin-white {
   --da-ring-1: rgba(244, 67, 54, 0.72);
   --da-ring-2: rgba(233, 242, 255, 0.78);
   --da-ring-3: rgba(244, 67, 54, 0.12);
@@ -1939,23 +2017,26 @@
   100% { opacity: 0; transform: translate(-50%, -50%) scale(1.22) rotate(260deg); filter: blur(0.9px) drop-shadow(0 0 0 rgba(0,0,0,0)); }
 }
 
+/* Pop no ícone (quadrado) */
 #lastSpinNumber.da-lastspin-anim,
 #betModeLastSpinNumber.da-lastspin-anim {
+  will-change: transform, filter;
   animation: da-lastspin-bounce 340ms cubic-bezier(0.20, 1.35, 0.30, 1) 1;
 }
 
-#lastSpinNumber.da-lastspin-anim::before,
-#betModeLastSpinNumber.da-lastspin-anim::before {
+/* Anel em gradiente envolve número+hora (wrapper justo) */
+.da-lastspin-wrap.da-lastspin-anim::before {
   content: '';
   position: absolute;
   left: 50%;
   top: 50%;
-  width: calc(100% + 18px);
-  height: calc(100% + 18px);
+  width: var(--da-lastspin-ring-size);
+  height: var(--da-lastspin-ring-size);
   transform: translate(-50%, -50%);
   border-radius: 50%;
   pointer-events: none;
   opacity: 0;
+  z-index: 0;
   background: conic-gradient(
     from 90deg,
     var(--da-ring-1),
@@ -1975,10 +2056,15 @@
   #betModeLastSpinNumber.da-lastspin-anim {
     animation-duration: 140ms;
   }
-  #lastSpinNumber.da-lastspin-anim::before,
-  #betModeLastSpinNumber.da-lastspin-anim::before {
+  .da-lastspin-wrap.da-lastspin-anim::before {
     animation-duration: 180ms;
   }
+}
+
+/* Garantir que conteúdo fique acima do anel */
+.da-lastspin-wrap > * {
+  position: relative;
+  z-index: 1;
 }
 
 .spin-meta {
