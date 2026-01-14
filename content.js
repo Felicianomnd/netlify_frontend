@@ -16071,16 +16071,56 @@ async function persistAnalyzerState(newState) {
             const w = r && r.width ? Number(r.width) : 0;
             if (!(w > 0)) return PATTERN_LAST_SPINS_LIMIT_DESKTOP;
 
-            // Deve caber sem quebrar: calcula quantos itens cabem com o tamanho NORMAL do ícone
-            const item = 36; // tamanho normal do .spin-history-quadrado
+            // Deve caber sem quebrar: calcula quantos itens cabem com o tamanho NORMAL do ícone + textos
+            const item = 38; // acompanha a largura do .spin-history-item-wrap no underbar
             const gap = 6;
             const maxFit = Math.floor((w + gap) / (item + gap));
             const cap = 30; // evita linha absurda em telas gigantes
             const safeFit = maxFit > 0 ? maxFit : PATTERN_LAST_SPINS_LIMIT_DESKTOP;
-            return Math.max(7, Math.min(cap, safeFit));
+            // ✅ Efeito "Blaze": renderiza +1 (o mais antigo fica meio cortado à esquerda)
+            const want = safeFit + 1;
+            return Math.max(7, Math.min(cap, want));
         } catch (_) {
             return PATTERN_LAST_SPINS_LIMIT_DESKTOP;
         }
+    }
+
+    // ✅ Underbar (embaixo da barra): Blaze style = mais recente à DIREITA
+    function renderUnderRhythmLastSpinsItems(spins = []) {
+        const list = Array.isArray(spins) ? spins : [];
+        if (!list.length) {
+            return `<div class="no-history" style="padding:8px 4px;">Aguardando giros...</div>`;
+        }
+
+        // snapshot vem com o mais recente primeiro; aqui queremos o mais recente à direita
+        const ordered = list.slice().reverse(); // mais antigo -> mais recente
+
+        return ordered.map((spin, index) => {
+            const color = (spin && typeof spin.color === 'string') ? spin.color.toLowerCase() : '';
+            const safeColor = (color === 'red' || color === 'black' || color === 'white') ? color : 'red';
+            const isWhite = safeColor === 'white';
+            const number = (spin && spin.number != null) ? spin.number : '';
+            const time = (() => {
+                try {
+                    const ms = parseSpinTimestampMsLocal(spin);
+                    return ms ? new Date(ms).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : '';
+                } catch (_) {
+                    return '';
+                }
+            })();
+            const title = `${safeColor === 'red' ? 'Vermelho' : safeColor === 'black' ? 'Preto' : 'Branco'}: ${number}${time ? ' - ' + time : ''}`;
+
+            // Só o MAIS RECENTE (à direita) mostra "Recente"
+            const badge = `<div class="spin-history-stage stage">${index === ordered.length - 1 ? 'Recente' : '&nbsp;'}</div>`;
+
+            return `<div class="spin-history-item-wrap" title="${escapeHtml(title)}">
+                ${badge}
+                <div class="spin-history-quadrado ${safeColor}">
+                    ${isWhite ? blazeWhiteSVG(20) : `<span>${escapeHtml(String(number))}</span>`}
+                </div>
+                <div class="spin-history-time">${escapeHtml(time || '—')}</div>
+            </div>`;
+        }).join('');
     }
 
     function renderPatternLastSpinsItems(spins = []) {
@@ -16162,7 +16202,22 @@ async function persistAnalyzerState(newState) {
             // Mobile: fixo 7 (1 linha)
             const lim = getUnderRhythmLastSpinsLimit();
             const spins = getPatternLastSpinsSnapshot(lim);
-            el.innerHTML = renderPatternLastSpinsItems(spins);
+            el.innerHTML = renderUnderRhythmLastSpinsItems(spins);
+
+            // Segunda passada: após layout, re-calcula e tenta encaixar +1 (quando houver folga real)
+            try {
+                requestAnimationFrame(() => {
+                    try {
+                        const lim2 = getUnderRhythmLastSpinsLimit();
+                        if (lim2 > lim) {
+                            const spins2 = getPatternLastSpinsSnapshot(lim2);
+                            if (spins2 && spins2.length > spins.length) {
+                                el.innerHTML = renderUnderRhythmLastSpinsItems(spins2);
+                            }
+                        }
+                    } catch (_) {}
+                });
+            } catch (_) {}
         } catch (_) {}
     }
 

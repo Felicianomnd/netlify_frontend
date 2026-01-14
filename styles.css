@@ -1697,24 +1697,49 @@
   width: 100%;
   box-sizing: border-box;
   margin: -4px 0 10px 0; /* encosta visualmente na barra */
-  padding: 0 2px;
+  padding: 0; /* ✅ sem recuo: alinhar rente com a barra */
   display: flex;
   align-items: flex-start;
-  justify-content: space-between;
-  gap: 4px;
+  justify-content: flex-end; /* ✅ mais recente rente à direita (padrão Blaze) */
+  gap: 6px;
   flex-wrap: nowrap;
   overflow: hidden;
+  position: relative; /* para o degradê do corte */
 }
 
-/* Reaproveita o layout dos quadradinhos, mas compacto e sem texto */
+/* ✅ Efeito Blaze: “corte” suave no mais antigo (lado esquerdo) */
+.da-lastspins-underbar::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 26px; /* largura do fade */
+  pointer-events: none;
+  z-index: 5;
+  background: linear-gradient(
+    to right,
+    var(--bg-primary) 0%,
+    rgba(15, 25, 35, 0.0) 100%
+  );
+}
+
+/* Reaproveita o layout dos quadradinhos, tamanho NORMAL + horário */
 .da-lastspins-underbar .spin-history-item-wrap {
   margin: 0 !important;
   flex: 0 0 auto;
-  width: 32px; /* espaço para o horário (HH:MM) */
+  width: 38px; /* ✅ um pouco mais justo pra caber +1 sem apertar */
 }
-.da-lastspins-underbar .spin-history-stage,
 .da-lastspins-underbar .spin-history-stage {
-  display: none !important;
+  display: block !important;
+  font-size: 9px;
+  line-height: 1;
+  margin-bottom: 2px;
+  min-height: 10px;
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: 0;
+  color: rgba(233, 242, 255, 0.72); /* mesma tonalidade do horário */
 }
 .da-lastspins-underbar .spin-history-time {
   display: block !important;
@@ -1726,15 +1751,15 @@
   white-space: nowrap;
 }
 .da-lastspins-underbar .spin-history-quadrado {
-  width: 26px;
-  height: 26px;
+  width: 36px;  /* ✅ tamanho normal */
+  height: 36px; /* ✅ tamanho normal */
   border-radius: 6px;
-  font-size: 12px;
+  font-size: 13px;
   margin: 0 auto;
 }
 .da-lastspins-underbar .spin-history-quadrado::after {
-  width: 18px;
-  height: 18px;
+  width: 22px;  /* acompanha o tamanho normal */
+  height: 22px; /* acompanha o tamanho normal */
   border-width: 2px;
 }
 
@@ -1743,17 +1768,21 @@
     margin: -2px 0 10px 0;
   }
   .da-lastspins-underbar .spin-history-item-wrap {
-    width: 40px;
+    width: 44px;
   }
   .da-lastspins-underbar .spin-history-quadrado {
-    width: 34px;
-    height: 34px;
+    width: 36px;
+    height: 36px;
     font-size: 13px;
   }
   .da-lastspins-underbar .spin-history-quadrado::after {
-    width: 24px;
-    height: 24px;
+    width: 22px;
+    height: 22px;
     border-width: 2px;
+  }
+  .da-lastspins-underbar .spin-history-stage {
+    font-size: 10px;
+    min-height: 11px;
   }
   .da-lastspins-underbar .spin-history-time {
     font-size: 10px;
@@ -1766,6 +1795,8 @@
   grid-column: 1 / span 8;
   margin: -2px 0 10px 0;
   padding: 0 0 0 0;
+  justify-self: stretch;
+  align-self: stretch;
 }
 
 /* ✅ 6 níveis (tooltip) */
