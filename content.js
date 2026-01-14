@@ -8875,6 +8875,19 @@ function showCenteredNotice(message, options = {}) {
 
           if (nextAuth) API_URLS.auth = nextAuth;
           if (nextGiros) API_URLS.giros = nextGiros;
+
+          // Log leve para validar troca de servidor (ajuda a depurar “não atualizou”)
+          try {
+              if (activeId) {
+                  console.log('🔧 [URLS] Servidor ativo aplicado no content:', {
+                      activeServerId: activeId,
+                      auth: API_URLS.auth,
+                      giros: API_URLS.giros
+                  });
+              } else {
+                  console.log('🔧 [URLS] URLs aplicadas no content:', { auth: API_URLS.auth, giros: API_URLS.giros });
+              }
+          } catch (_) {}
       }
       
       // Inicializa URLs automaticamente
@@ -8908,6 +8921,23 @@ function showCenteredNotice(message, options = {}) {
               }
           }, 0);
       })();
+
+      // ✅ Troca de servidor em tempo real (Admin Panel):
+      // quando `da_urls_v1` mudar no storage, atualizar as URLs do content.js e puxar histórico do servidor novo.
+      try {
+          if (typeof chrome !== 'undefined' && chrome.storage?.onChanged?.addListener) {
+              chrome.storage.onChanged.addListener((changes, areaName) => {
+                  try {
+                      if (areaName !== 'local') return;
+                      if (!changes || !changes[URLS_LOCAL_KEY]) return;
+                      const next = changes[URLS_LOCAL_KEY].newValue || null;
+                      applyRuntimeUrls(next);
+                      // Se está sem histórico (ou veio de servidor antigo), forçar refresh do histórico
+                      try { updateHistoryUIFromServer(); } catch (_) {}
+                  } catch (_) {}
+              });
+          }
+      } catch (_) {}
       
       // Obter URL da API de Giros
       function getGirosApiUrl() {
