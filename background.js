@@ -1725,7 +1725,8 @@ let martingaleState = {
 };
 
 // ✅ Diamante (G1/G2): recriar o "raciocínio" (patternDescription) para a fase atual,
-// incluindo N4 (re-análise), e validando barreiras N7/N8/N9/N10 também no GALE (por maioria).
+// incluindo N4 (re-análise) e exibindo o status das barreiras N7/N8/N9/N10 também no GALE.
+// ⚠️ Importante: as barreiras NÃO devem encerrar o ciclo de Martingale — G1/G2 seguem a config de gales.
 function buildDiamondGalePhaseAnalysis({ history, phase, preferredColor, fallbackColor, config }) {
     const normalizeColor = (v) => {
         const s = String(v || '').toLowerCase().trim();
@@ -1798,16 +1799,17 @@ function buildDiamondGalePhaseAnalysis({ history, phase, preferredColor, fallbac
         if (n10Enabled) votes.push({ id: 'N10', allowed: n10 && n10.allowed !== false });
         const total = votes.length;
         const approvals = votes.filter(v => v.allowed).length;
-        const needed = total > 0 ? (Math.floor(total / 2) + 1) : 0;
+        // ✅ Unanimidade (alinhado com as barreiras do sinal principal)
+        const needed = total;
         const allowed = total === 0 ? true : approvals >= needed;
         return { allowed, approvals, needed, total, n7, n8, n9, n10 };
     };
 
     let barriers = evalBarriers(chosen);
-    // ✅ Regra do usuário: barreiras são veto FINAL no Gale.
-    // - Não "tentar outra cor" só para evitar o bloqueio.
-    // - Se N8/N9/N10 bloquearam, NÃO recomendar cor no topo (apenas registrar o raciocínio).
-    const blockedAll = !barriers.allowed;
+    // ✅ No GALE, barreiras são INFORMATIVAS (não encerram o Martingale).
+    // Mantemos um indicador para aparecer no raciocínio, mas NÃO bloqueamos o sinal do GALE.
+    const barriersDisapproved = !barriers.allowed;
+    const blockedAll = false;
 
     // 3) Construir reasoning compatível com o parser da UI (content.js)
     const intensityLabel = (cfg && cfg.signalIntensity === 'conservative') ? 'Conservador' : 'Agressivo';
@@ -1861,9 +1863,7 @@ function buildDiamondGalePhaseAnalysis({ history, phase, preferredColor, fallbac
         return `N10 - Barreira Inteligente → ${detail}`;
     })();
 
-    const decisionLine = blockedAll
-        ? `DECISÃO: 🚫 BLOQUEADO (não recomendar)`
-        : `DECISÃO: ${String(chosen).toUpperCase()}`;
+    const decisionLine = `DECISÃO: ${String(chosen).toUpperCase()}` + (barriersDisapproved ? ' (⚠️ barreiras reprovaram)' : '');
 
     const reasoning =
         `${n4Line}\n` +
@@ -1893,12 +1893,14 @@ function buildDiamondGalePhaseAnalysis({ history, phase, preferredColor, fallbac
         reasoning,
         historySize: Math.min(Math.max(cfg.aiHistorySize || 50, 20), hist.length),
         galePhase: ph,
-        blocked: !!blockedAll,
-        blockedReason: blockedAll ? 'barriers' : null
+        blocked: false,
+        blockedReason: null,
+        barriersDisapproved: !!barriersDisapproved
     };
 
     return {
         blockedAll,
+        barriersDisapproved: !!barriersDisapproved,
         chosenColor: chosen,
         n4Res,
         n7: barriers.n7,
@@ -5359,8 +5361,6 @@ async function processNewSpinFromServer(spinData) {
                                         g1Color = g1DiamondPhase.chosenColor;
                                     }
                                 }
-                                const g1BlockedByBarriers = !!(g1DiamondPhase && g1DiamondPhase.blockedAll);
-                                
                                 // ⚠️ CRÍTICO: Registrar LOSS da ENTRADA antes de tentar G1
                                 // ✅ Fix financeiro: congelar config do ciclo na primeira entrada
                                 const cycleAutoBetCfg = ensureMartingaleCycleConfig(snapshotAutoBetConfig(analyzerConfig), currentAnalysis.color);
@@ -5393,10 +5393,8 @@ async function processNewSpinFromServer(spinData) {
                                 last5Spins: entrySpinsSnapshot
                                     },
                                     martingaleStage: 'ENTRADA',
-                                    // 🚫 Se o próximo GALE foi bloqueado (N8/N9/N10), encerrar o ciclo aqui (sem recomendar G1).
-                                    finalResult: g1BlockedByBarriers ? 'RED' : null,
-                                    continuingToG1: g1BlockedByBarriers ? false : true,
-                                    ...(g1BlockedByBarriers ? { blockedNextGale: 'G1' } : {}),
+                                    finalResult: null,
+                                    continuingToG1: true,
                                     // ✅ NOVO: IDENTIFICAR MODO DE ANÁLISE
                                     analysisMode: analyzerConfig.aiMode ? 'diamond' : 'standard',
                                     // ✅ NOVO: marcar se este ciclo era SINAL DE ENTRADA
@@ -5414,59 +5412,6 @@ async function processNewSpinFromServer(spinData) {
                                 
                                 activeHistory.unshift(entradaLossEntry);
                                 // ✅ Pedido: não limitar histórico por ciclos (acumular ilimitado)
-
-                                // 🚫 Barreira bloqueou o GALE: não iniciar Martingale nem emitir G1.
-                                if (g1BlockedByBarriers) {
-                                    try {
-                                        const currentMode = analyzerConfig.aiMode ? 'diamond' : 'standard';
-                                        const { wins: filteredWins, losses: filteredLosses } = calculateFilteredScore(entriesHistory, currentMode);
-
-                                        // Telegram: tratar como RED (parou no primeiro LOSS)
-                                        if (!isHiddenInternal) {
-                                            detachPromise(
-                                                sendTelegramMartingaleRET(filteredWins, filteredLosses, currentMode, currentAnalysis.confidence),
-                                                'telegram-martingale-ret'
-                                            );
-                                        }
-
-                                        // Encerrar ciclo e limpar estado
-                                        resetMartingaleState();
-                                        await chrome.storage.local.set({
-                                            analysis: null,
-                                            pattern: null,
-                                            lastBet: { status: 'loss', phase: 'G0', resolvedAtTimestamp: latestSpin.created_at, blockedNextGale: 'G1' },
-                                            // ✅ Marcar fim do ciclo (RED) para referência de estado/telemetria
-                                            lastCycleResolvedSpinId: latestSpin ? (latestSpin.id || null) : null,
-                                            lastCycleResolvedSpinTimestamp: latestSpin ? (latestSpin.created_at || null) : null,
-                                            lastCycleResolvedTimestamp: Date.now(),
-                                            ...(isHiddenInternal ? { [RECOVERY_SECURE_HISTORY_KEY]: recoverySecureHistory } : { entriesHistory }),
-                                            martingaleState
-                                        });
-
-                                        // UI: atualizar histórico e mostrar o raciocínio do bloqueio (sem recomendar cor no topo)
-                                        if (!isHiddenInternal) {
-                                            try { sendMessageToContent('ENTRIES_UPDATE', entriesHistory); } catch (_) {}
-                                            try {
-                                                const blockedUi = attachLatestSpinsSnapshot({
-                                                    color: g1Color,
-                                                    confidence: Number(g1DiamondPhase?.confidencePct || 0),
-                                                    probability: Number(g1DiamondPhase?.confidencePct || 0),
-                                                    diamondSourceLevel: 'N4',
-                                                    patternDescription: (g1DiamondPhase && typeof g1DiamondPhase.patternDescription === 'string')
-                                                        ? g1DiamondPhase.patternDescription
-                                                        : currentAnalysis.patternDescription,
-                                                    phase: 'G1',
-                                                    createdOnTimestamp: latestSpin.created_at,
-                                                    analysisMode: 'diamond',
-                                                    blockedSignal: true,
-                                                    blockedReason: 'barriers'
-                                                });
-                                                sendMessageToContent('NEW_ANALYSIS', blockedUi);
-                                            } catch (_) {}
-                                        }
-                                    } catch (_) {}
-                                    return;
-                                }
                                 
                                 // Salvar estado do Martingale
                                 martingaleState.active = true;
@@ -5793,7 +5738,6 @@ async function processNewSpinFromServer(spinData) {
                                         nextGaleColor = nextGaleDiamondPhase.chosenColor;
                                     }
                                 }
-                                const nextGaleBlockedByBarriers = !!(nextGaleDiamondPhase && nextGaleDiamondPhase.blockedAll);
                                 
                                 console.log(`🎯 COR CONFIRMADA PARA G${nextGaleNumber}: ${nextGaleColor}`);
                                 
@@ -5823,11 +5767,8 @@ async function processNewSpinFromServer(spinData) {
                                         last5Spins: entrySpinsSnapshot
                                     },
                                     martingaleStage: currentStage,
-                                    // 🚫 Se o próximo GALE foi bloqueado (N8/N9/N10), encerrar o ciclo aqui (sem recomendar próximo).
-                                    finalResult: nextGaleBlockedByBarriers ? 'RED' : null,
-                                    ...(nextGaleBlockedByBarriers
-                                        ? { blockedNextGale: `G${nextGaleNumber}` }
-                                        : { [`continuingToG${nextGaleNumber}`]: true }),
+                                    finalResult: null,
+                                    [`continuingToG${nextGaleNumber}`]: true,
                                     // ✅ IDENTIFICAR MODO DE ANÁLISE (crítico para UI filtrar corretamente no gráfico)
                                     analysisMode: analyzerConfig.aiMode ? 'diamond' : 'standard',
                                     // ✅ NOVO: marcar se este ciclo era SINAL DE ENTRADA
@@ -5836,56 +5777,6 @@ async function processNewSpinFromServer(spinData) {
                                 
                                 activeHistory.unshift(galeLossEntry);
                                 // ✅ Pedido: não limitar histórico por ciclos (acumular ilimitado)
-
-                                // 🚫 Barreira bloqueou o próximo GALE: encerrar ciclo agora (não evoluir estágio nem emitir análise).
-                                if (nextGaleBlockedByBarriers) {
-                                    try {
-                                        const currentMode = analyzerConfig.aiMode ? 'diamond' : 'standard';
-                                        const { wins: filteredWins, losses: filteredLosses } = calculateFilteredScore(entriesHistory, currentMode);
-
-                                        if (!isHiddenInternal) {
-                                            detachPromise(
-                                                sendTelegramMartingaleRET(filteredWins, filteredLosses, currentMode, currentAnalysis.confidence),
-                                                'telegram-martingale-ret'
-                                            );
-                                        }
-
-                                        resetMartingaleState();
-                                        await chrome.storage.local.set({ 
-                                            analysis: null, 
-                                            pattern: null, 
-                                            lastBet: { status: 'loss', phase: currentStage, resolvedAtTimestamp: latestSpin.created_at, blockedNextGale: `G${nextGaleNumber}` },
-                                            // ✅ Marcar fim do ciclo (RED) para referência de estado/telemetria
-                                            lastCycleResolvedSpinId: latestSpin ? (latestSpin.id || null) : null,
-                                            lastCycleResolvedSpinTimestamp: latestSpin ? (latestSpin.created_at || null) : null,
-                                            lastCycleResolvedTimestamp: Date.now(),
-                                            ...(isHiddenInternal ? { [RECOVERY_SECURE_HISTORY_KEY]: recoverySecureHistory } : { entriesHistory }),
-                                            martingaleState
-                                        });
-
-                                        if (!isHiddenInternal) {
-                                            try { sendMessageToContent('ENTRIES_UPDATE', entriesHistory); } catch (_) {}
-                                            try {
-                                                const blockedUi = attachLatestSpinsSnapshot({
-                                                    color: nextGaleColor,
-                                                    confidence: Number(nextGaleDiamondPhase?.confidencePct || 0),
-                                                    probability: Number(nextGaleDiamondPhase?.confidencePct || 0),
-                                                    diamondSourceLevel: 'N4',
-                                                    patternDescription: (nextGaleDiamondPhase && typeof nextGaleDiamondPhase.patternDescription === 'string')
-                                                        ? nextGaleDiamondPhase.patternDescription
-                                                        : currentAnalysis.patternDescription,
-                                                    phase: `G${nextGaleNumber}`,
-                                                    createdOnTimestamp: latestSpin.created_at,
-                                                    analysisMode: 'diamond',
-                                                    blockedSignal: true,
-                                                    blockedReason: 'barriers'
-                                                });
-                                                sendMessageToContent('NEW_ANALYSIS', blockedUi);
-                                            } catch (_) {}
-                                        }
-                                    } catch (_) {}
-                                    return;
-                                }
                                 
                                 // Atualizar estado do Martingale
                                 martingaleState.stage = `G${nextGaleNumber}`;
@@ -23185,8 +23076,8 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
                     n10Report.details = n10BarrierResult && n10BarrierResult.details ? n10BarrierResult.details : 'APROVADO';
                 }
                 if (n10BarrierResult && n10BarrierResult.allowed === false) {
-                    // ✅ Pedido: barreiras funcionam por MAIORIA (N7–N10). Não retornar aqui.
-                    console.log('%c⚠️ N10 DESAPROVOU (decisão final por maioria das barreiras)', 'color: #FFAA00; font-weight: bold;');
+                    // ✅ As barreiras (N7–N10) são validadoras e a decisão final é aplicada depois (unanimidade).
+                    console.log('%c⚠️ N10 DESAPROVOU (decisão final por unanimidade das barreiras)', 'color: #FFAA00; font-weight: bold;');
                 }
             } catch (e) {
                 // Fail-open: em caso de erro interno, não bloquear sinal
@@ -23199,12 +23090,12 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
         }
 
         // ═══════════════════════════════════════════════════════════════
-        // 🛡️ BARREIRAS POR MAIORIA (N7–N10)
+        // 🛡️ BARREIRAS POR UNANIMIDADE (N7–N10)
         // - N7: Ápice % (janelas deslizantes) → aprova se bate com a cor candidata
         // - N8/N9/N10: barreiras existentes (permitido/bloqueado)
-        // Regra (pedido):
-        // - empate (2 aprova / 2 reprova) => SEM sinal
-        // - maioria simples (ex.: 3/4) => sinal liberado
+        // Regra:
+        // - Se QUALQUER barreira ativa reprovar => SEM sinal
+        // - Só libera quando TODAS as barreiras ativas aprovarem (100%)
         // ═══════════════════════════════════════════════════════════════
         let n7BarrierResult = { allowed: true, details: n7Enabled ? 'PENDENTE' : 'DESATIVADO' };
         if (n7Enabled) {
@@ -23274,7 +23165,7 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
 
         const barrierTotal = barrierVotes.length;
         const barrierApprovals = barrierVotes.filter(v => v.allowed).length;
-        const barrierNeeded = barrierTotal > 0 ? (Math.floor(barrierTotal / 2) + 1) : 0;
+        const barrierNeeded = barrierTotal; // unanimidade
         if (barrierTotal > 0 && barrierApprovals < barrierNeeded) {
             const disapprovers = barrierVotes.filter(v => !v.allowed).map(v => v.id).join(', ') || '—';
             console.log(`%c🚫 BARREIRAS REPROVARAM: aprova ${barrierApprovals}/${barrierTotal} (mín ${barrierNeeded}) • reprovaram: ${disapprovers}`, 'color: #FF6666; font-weight: bold;');
@@ -23293,7 +23184,7 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
                 await restoreIAStatus();
                 return null;
             }
-            // ✅ Barreiras (N7–N10) já foram aplicadas por maioria acima.
+            // ✅ Barreiras (N7–N10) já foram aplicadas por unanimidade acima.
         }
 
         finalColor = consensusColor;
@@ -25977,22 +25868,33 @@ async function verifyWithSavedPatternsLegacy(history, dbOverride = null) {
 		const galeCoverageAvailable = Array(maxTrackedStage + 1).fill(0);
 		const galeSuccessCumulative = Array(maxTrackedStage + 1).fill(0);
 		if (!Array.isArray(pat.pattern) || pat.pattern.length === 0) continue;
-		const need = pat.pattern.length;
-		// ✅ Respeitar o tamanho mínimo configurado pelo usuário (evita hardcode 3)
-		if (need < minPatternSizeGate) continue;
+		
+		// ✅ PREMIUM (Pedido): ENTRAR 1 GIRO ANTES DO PADRÃO FECHAR
+		// Padrões são armazenados do mais recente → mais antigo.
+		// Ex.: fullPattern=[X,Y,Z] (X é o "fechamento" / mais recente do padrão).
+		// A entrada deve ocorrer quando o HEAD casa com [Y,Z] e prever X no próximo giro.
+		const fullPattern = pat.pattern;
+		const fullNeed = fullPattern.length;
+		// ✅ Respeitar o tamanho mínimo configurado pelo usuário (considerando o padrão completo)
+		if (fullNeed < minPatternSizeGate) continue;
+		const useEarlyEntry = fullNeed >= 2;
+		const patternToFind = useEarlyEntry ? fullPattern.slice(1) : fullPattern;
+		const need = patternToFind.length;
+		if (need <= 0) continue;
 		if (headColors.length < need) continue;
 		const currentSeq = headColors.slice(0, need);
-		const isMatch = currentSeq.every((c, i) => c === pat.pattern[i]);
+		const isMatch = currentSeq.every((c, i) => c === patternToFind[i]);
 		if (!isMatch) continue;
-		let suggested = pat.expected_next || pat.suggestedColor; // ✅ Mudado para 'let' para permitir reatribuição
+		let suggested = useEarlyEntry ? fullPattern[0] : (pat.expected_next || pat.suggestedColor);
 		if (!suggested) continue;
+		suggested = normalizeColorName(suggested) || suggested;
 
 	// Obter cor de disparo atual (será usada depois para referência)
 		const currentTrigger = headColors[need]; // cor imediatamente anterior ao padrão no histórico
 	
 	const currentTriggerNormalized = normalizeColorName(currentTrigger);
 	const savedTriggerNormalized = normalizeColorName(pat && pat.triggerColor);
-	const firstPatternNormalized = normalizeColorName(getInitialPatternColor(pat.pattern));
+	const firstPatternNormalized = normalizeColorName(getInitialPatternColor(patternToFind));
 
 	if (!firstPatternNormalized) {
 		console.warn('⚠️ Padrão salvo com cor inicial inválida (não conseguiu normalizar):', pat.pattern);
@@ -26053,7 +25955,7 @@ async function verifyWithSavedPatternsLegacy(history, dbOverride = null) {
 			const seq = history.slice(i, i + need);
 			if (seq.length < need) break;
 			const seqColors = seq.map(s => s.color);
-			const match = seqColors.every((c, idx) => c === pat.pattern[idx]);
+			const match = seqColors.every((c, idx) => c === patternToFind[idx]);
 			if (match) {
 			// ⏱️ INTERVALO ENTRE PADRÕES (ocorrências detalhadas do MESMO padrão)
 			if (minIntervalSpins > 0 && lastAcceptedIndexForDetails !== null) {
@@ -26084,7 +25986,7 @@ async function verifyWithSavedPatternsLegacy(history, dbOverride = null) {
 			if (!triggerValid) continue;
 
 			const resultColor = history[i - 1] ? history[i - 1].color : null;
-			const occurrenceRecord = createOccurrenceRecord(pat.pattern, trigColorRaw, resultColor, seq, trigSpin, occCount + 1);
+			const occurrenceRecord = createOccurrenceRecord(patternToFind, trigColorRaw, resultColor, seq, trigSpin, occCount + 1);
 			occurrenceRecord.gale_results = evaluateGaleStagesForOccurrence(history, i, suggested, maxTrackedStage);
 
 			if (occurrenceRecord.flag_invalid_disparo) {
@@ -26115,7 +26017,7 @@ async function verifyWithSavedPatternsLegacy(history, dbOverride = null) {
 			const seq = history.slice(i, i + need);
 			if (seq.length < need) break;
 			const seqColors = seq.map(s => s.color);
-			const match = seqColors.every((c, idx) => c === pat.pattern[idx]);
+			const match = seqColors.every((c, idx) => c === patternToFind[idx]);
 			if (!match) continue;
 		
 		// ⏱️ INTERVALO ENTRE PADRÕES (contagem estatística do MESMO padrão)
@@ -26307,12 +26209,17 @@ async function verifyWithSavedPatternsLegacy(history, dbOverride = null) {
 		continue;
 		}
 
-		const patternName = identifyPatternType(pat.pattern, null);
+		const patternName = identifyPatternType(patternToFind, null);
 		// Calcular assertividade inteligente baseada no histórico e contexto recente
-		const assertCalc = computeAssertivenessForColorPattern(pat.pattern, suggested, history);
+		const assertCalc = computeAssertivenessForColorPattern(patternToFind, suggested, history);
 		const patternDesc = {
 			colorAnalysis: {
-				pattern: pat.pattern,
+				pattern: patternToFind,
+                // ✅ Info extra (não quebra a UI): deixa explícito que a entrada é 1 giro antes do fechamento.
+                entryShiftSpins: useEarlyEntry ? 1 : 0,
+                fullPatternSize: fullNeed,
+                observedPatternSize: need,
+                fullPattern: fullPattern,
 				occurrences: occCount || pat.occurrences || 1,
 				allOccurrenceNumbers: occNumbers,
 				allOccurrenceTimestamps: occTimestamps,
@@ -26329,13 +26236,13 @@ async function verifyWithSavedPatternsLegacy(history, dbOverride = null) {
                         const seq = history.slice(i, i + need);
                         if (seq.length < need) break;
                         const seqColors = seq.map(s => s.color);
-                        const match = seqColors.every((c,ix) => c === pat.pattern[ix]);
+                        const match = seqColors.every((c,ix) => c === patternToFind[ix]);
                         if (!match) continue;
 						
 						// Só validar trigger se requireTrigger estiver ativo
 						if (analyzerConfig.requireTrigger) {
 						const trig = history[i + need] ? history[i + need].color : null;
-						if (!trig || !isValidTrigger(trig, pat.pattern)) continue;
+						if (!trig || !isValidTrigger(trig, patternToFind)) continue;
 						const trigNorm = normalizeColorName(trig);
 						if (savedTriggerNormalized && trigNorm && trigNorm !== savedTriggerNormalized) continue;
 						}
@@ -26352,13 +26259,13 @@ async function verifyWithSavedPatternsLegacy(history, dbOverride = null) {
                         const seq = history.slice(i, i + need);
                         if (seq.length < need) break;
                         const seqColors = seq.map(s => s.color);
-                        const match = seqColors.every((c,ix) => c === pat.pattern[ix]);
+                        const match = seqColors.every((c,ix) => c === patternToFind[ix]);
                         if (!match) continue;
                         
                         // Só validar trigger se requireTrigger estiver ativo
                         if (analyzerConfig.requireTrigger) {
                         const trig = history[i + need] ? history[i + need].color : null;
-                        if (!trig || !isValidTrigger(trig, pat.pattern)) continue;
+                        if (!trig || !isValidTrigger(trig, patternToFind)) continue;
                         const trigNorm = normalizeColorName(trig);
                         if (savedTriggerNormalized && trigNorm && trigNorm !== savedTriggerNormalized) continue;
                         }
@@ -26405,7 +26312,9 @@ async function verifyWithSavedPatternsLegacy(history, dbOverride = null) {
                         rigorWinPct,  // Porcentagem apenas das "demais"
                         sampleMin,
                         sampleMinWins100: true,
-                        patternLength: Array.isArray(pat.pattern) ? pat.pattern.length : null,
+                        // Para exibir o mesmo "tamanho do padrão" da UI, usar o tamanho do padrão COMPLETO.
+                        // (na renderização, o expected_next aparece como um quadrado à esquerda)
+                        patternLength: fullNeed,
                         galeStats: {
                             maxStageTracked: MAX_GALE_STAGE_TRACKED,
                             stages: stageSummaries,
@@ -26441,10 +26350,10 @@ async function verifyWithSavedPatternsLegacy(history, dbOverride = null) {
 		if (requireTrigger) {
 			// Verificar se a cor de disparo ATUAL (antes do padrão head) é diferente da primeira cor do padrão
 			const finalTriggerNormalized = normalizeColorName(currentTrigger);
-			const firstFinalNormalized = normalizeColorName(getInitialPatternColor(pat.pattern));
+			const firstFinalNormalized = normalizeColorName(getInitialPatternColor(patternToFind));
 
 			if (!firstFinalNormalized) {
-				console.warn('⚠️ Padrão salvo rejeitado no sinal final: cor inicial inválida', pat.pattern);
+				console.warn('⚠️ Padrão salvo rejeitado no sinal final: cor inicial inválida', patternToFind);
 				continue;
 			}
 
@@ -26456,10 +26365,10 @@ async function verifyWithSavedPatternsLegacy(history, dbOverride = null) {
 			const finalValidation = validateDisparoColor(firstFinalNormalized, finalTriggerNormalized);
 			if (!finalValidation.valid) {
 				console.log(`❌ Padrão salvo rejeitado no sinal final: cor de disparo atual INVÁLIDA`, {
-					pattern: pat.pattern.join('-'),
+					pattern: Array.isArray(patternToFind) ? patternToFind.join('-') : String(patternToFind || ''),
 					currentTrigger: currentTrigger,
 					triggerNormalized: finalTriggerNormalized,
-					firstPatternColor: getInitialPatternColor(pat.pattern),
+					firstPatternColor: getInitialPatternColor(patternToFind),
 					firstNormalized: firstFinalNormalized,
 					motivo: finalValidation.reason || 'Cor de disparo IGUAL ou inválida - corromperia o padrão!'
 				});
@@ -36640,10 +36549,10 @@ function analyzeDiamondLevelsSimulation(history, config, simState) {
     }
 
     // ═══════════════════════════════════════════════════════════════
-    // 🛡️ BARREIRAS POR MAIORIA (N7–N10) — valida a COR FINAL (consenso)
-    // Regra (pedido):
-    // - empate (2/2) => sem sinal
-    // - maioria (ex.: 3/4) => sinal liberado
+    // 🛡️ BARREIRAS POR UNANIMIDADE (N7–N10) — valida a COR FINAL (consenso)
+    // Regra:
+    // - Se QUALQUER barreira ativa reprovar => sem sinal
+    // - Só libera quando TODAS as barreiras ativas aprovarem (100%)
     // ═══════════════════════════════════════════════════════════════
     let n7BarrierResult = { allowed: true, details: n7Enabled ? 'PENDENTE' : 'DESATIVADO' };
     if (n7Enabled) {
@@ -36712,14 +36621,14 @@ function analyzeDiamondLevelsSimulation(history, config, simState) {
 
     const barrierTotal = barrierVotes.length;
     const barrierApprovals = barrierVotes.filter(v => v.allowed).length;
-    const barrierNeeded = barrierTotal > 0 ? (Math.floor(barrierTotal / 2) + 1) : 0;
+    const barrierNeeded = barrierTotal; // unanimidade
     if (barrierTotal > 0 && barrierApprovals < barrierNeeded) {
         return null;
     }
 
     if (signalIntensity === 'conservative') {
         if (voteCounts[consensusColor] < 5) return null;
-        // ✅ Barreiras (N7–N10) já foram aplicadas por maioria acima.
+        // ✅ Barreiras (N7–N10) já foram aplicadas por unanimidade acima.
     }
 
     const maxVotingSlots = votingLevelsList.length;
@@ -37243,10 +37152,23 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     } else if (request.action === 'getFullHistory') {
         // 📂 Retornar histórico completo para visualização do banco de padrões
         console.log('%c📂 [BACKGROUND] Requisição de histórico completo recebida', 'color: #667eea; font-weight: bold;');
-        console.log(`📊 Histórico em cache: ${cachedHistory.length} giros`);
-        
-        sendResponse({ history: cachedHistory });
-        return true;
+		console.log(`📊 Histórico em cache: ${cachedHistory.length} giros`);
+
+		// ✅ No refresh (ou restart do service worker), o cache pode estar vazio por alguns segundos.
+		// Em vez de responder vazio e deixar a UI "zerada", tentamos inicializar uma vez (best-effort)
+		// antes de devolver o histórico.
+		(async () => {
+			try {
+				if (!Array.isArray(cachedHistory)) cachedHistory = [];
+				if (!cachedHistory.length) {
+					try { await initializeHistoryIfNeeded(false); } catch (_) {}
+				}
+				sendResponse({ history: Array.isArray(cachedHistory) ? cachedHistory : [] });
+			} catch (e) {
+				sendResponse({ history: Array.isArray(cachedHistory) ? cachedHistory : [], error: String(e) });
+			}
+		})();
+		return true;
 	} else if (request.action === 'REQUEST_MODE_SNAPSHOT') {
 		const contextLabel = request.reason ? `Solicitado (${request.reason})` : 'Solicitado pela UI';
 		const snapshot = buildModeSnapshot(contextLabel, cachedHistory.length);

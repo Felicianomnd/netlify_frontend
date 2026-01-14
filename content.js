@@ -15532,7 +15532,9 @@ async function persistAnalyzerState(newState) {
         let patternName = '';
         
         if (parsed.colorAnalysis && parsed.colorAnalysis.pattern) {
-            const colors = parsed.colorAnalysis.pattern;
+            // ✅ Padrões (Premium) são renderizados com o MAIS RECENTE à esquerda,
+            // igual ao histórico de giros do app.
+            const colors = Array.isArray(parsed.colorAnalysis.pattern) ? parsed.colorAnalysis.pattern : [];
             const colorNames = colors.map(c => c === 'red' ? 'Vermelho' : c === 'black' ? 'Preto' : 'Branco');
             // Render como ícones/color badges em linha
             const icons = colors.map(c => `<span class="pattern-dot ${c}"></span>`).join(' ');
@@ -15642,7 +15644,10 @@ async function persistAnalyzerState(newState) {
         } else if (parsed.summary) {
             winLoss = parsed.summary;
         }
-        const len = winLoss?.patternLength || (parsed.colorAnalysis?.pattern?.length || null);
+        // ✅ Preferir tamanho "completo" quando o sinal é 1 giro antes (entryShiftSpins)
+        const len = winLoss?.patternLength
+            || (parsed.colorAnalysis && Number.isFinite(Number(parsed.colorAnalysis.fullPatternSize)) ? Number(parsed.colorAnalysis.fullPatternSize) : null)
+            || (parsed.colorAnalysis?.pattern?.length || null);
         const occLabel = `${occurrences} ocorrência${occurrences > 1 ? 's' : ''}`;
         const rigorLabel = (winLoss && typeof winLoss.othersCount === 'number') ? `${winLoss.othersCount} restante${winLoss.othersCount===1?'':'s'} (rigor)` : '';
         html += `<div class="pattern-meta">
@@ -15660,14 +15665,43 @@ async function persistAnalyzerState(newState) {
             html += `<div class="pattern-occurrences">
                 <div class="occurrences-title">Ocorrências encontradas:</div>`;
             
-            // Usar occurrenceDetails se disponível, senão usar arrays antigos
-            const maxOccurrences = hasDetails ? Math.min(occDetails.length, 5) : Math.min(lastOccurrenceNumbers.length, 5);
-            
-            for (let i = 0; i < maxOccurrences; i++) {
+            // Usar occurrenceDetails se disponível, senão usar arrays antigos.
+            // ✅ Primeiro coletar um lote maior e depois ordenar para pegar as 5 MAIS RECENTES.
+            const scanOccurrences = hasDetails ? Math.min(occDetails.length, 50) : Math.min(lastOccurrenceNumbers.length, 50);
+            const maxToShow = 5;
+
+            // ✅ Organizar ocorrências: mais recente no topo
+            const toMs = (v) => {
+                try {
+                    if (v == null) return null;
+                    if (typeof v === 'number' && Number.isFinite(v)) return v;
+                    const ms = Date.parse(String(v));
+                    return Number.isNaN(ms) ? null : ms;
+                } catch (_) {
+                    return null;
+                }
+            };
+            const mostRecentMs = (arr) => {
+                try {
+                    const list = Array.isArray(arr) ? arr : [];
+                    let best = null;
+                    for (const v of list) {
+                        const ms = toMs(v);
+                        if (ms == null) continue;
+                        if (best == null || ms > best) best = ms;
+                    }
+                    return best;
+                } catch (_) {
+                    return null;
+                }
+            };
+
+            const occItems = [];
+            for (let i = 0; i < scanOccurrences; i++) {
                 // Se temos occurrenceDetails, usar; senão usar arrays antigos
                 let occurrenceNumbers, occurrenceTimestamps, trigNum, trigTs, trigClr;
                 let occDetail = null;
-                
+
                 if (hasDetails) {
                     occDetail = occDetails[i];
                     const detailNumbers = Array.isArray(occDetail?.sequence_numbers) ? occDetail.sequence_numbers : [];
@@ -15688,27 +15722,47 @@ async function persistAnalyzerState(newState) {
                     trigTs = allTriggerTimestamps ? allTriggerTimestamps[i] : null;
                     trigClr = allTriggerColors ? allTriggerColors[i] : triggerColor;
                 }
-                
+
                 if (!occurrenceNumbers || !occurrenceTimestamps || occurrenceNumbers.length === 0) continue;
-                
-                // Usar o timestamp do primeiro giro da ocorrência
-                const timeStr = new Date(occurrenceTimestamps[0]).toLocaleString('pt-BR', { 
+
+                const ms = mostRecentMs(occurrenceTimestamps) ?? toMs(trigTs) ?? toMs(occDetail && occDetail.timestamp) ?? 0;
+                occItems.push({ i, ms, occurrenceNumbers, occurrenceTimestamps, trigNum, trigTs, trigClr, occDetail });
+            }
+
+            occItems.sort((a, b) => (b.ms || 0) - (a.ms || 0));
+            const topOccItems = occItems.slice(0, Math.max(1, Math.min(maxToShow, occItems.length)));
+
+            for (let orderIdx = 0; orderIdx < topOccItems.length; orderIdx++) {
+                const item = topOccItems[orderIdx];
+                const i = item.i;
+                const occDetail = item.occDetail;
+                const occurrenceNumbers = item.occurrenceNumbers;
+                const occurrenceTimestamps = item.occurrenceTimestamps;
+                const trigNum = item.trigNum;
+                const trigTs = item.trigTs;
+                const trigClr = item.trigClr;
+
+                const headerMs = (item.ms && item.ms > 0) ? item.ms : Date.now();
+                const timeStr = new Date(headerMs).toLocaleString('pt-BR', { 
                     day: '2-digit', 
                     month: '2-digit', 
                     hour: '2-digit', 
                     minute: '2-digit' 
                 });
-                
+
                 // Ícone de aviso se cor de disparo for inválida
                 const invalidIcon = (occDetail && occDetail.flag_invalid_disparo) ? 
                     ` <span class="invalid-trigger-icon" title="${occDetail.invalid_reason || 'Cor de disparo inválida'}">⚠️</span>` : '';
-                
+
                 html += `<div class="occurrence-item">
-                    <div class="occurrence-header">Ocorrência ${i + 1} - ${timeStr}${invalidIcon}</div>
+                    <div class="occurrence-header">Ocorrência ${orderIdx + 1} - ${timeStr}${invalidIcon}</div>
                     <div class="occurrence-sequence">`;
-                
-                // Renderizar cada giro da ocorrência IGUAL AO HISTÓRICO DE GIROS
-                const colors = parsed.colorAnalysis ? parsed.colorAnalysis.pattern : [];
+
+                // ✅ Exibir a sequência com o MAIS RECENTE à esquerda (mesmo padrão do histórico do app)
+                const colorsDisplay = (parsed.colorAnalysis && Array.isArray(parsed.colorAnalysis.pattern)) ? parsed.colorAnalysis.pattern : [];
+                const numbersDisplay = Array.isArray(occurrenceNumbers) ? occurrenceNumbers : [];
+                const timestampsDisplay = Array.isArray(occurrenceTimestamps) ? occurrenceTimestamps : [];
+
                 const expected = (parsed.expected_next || parsed.expectedNext || parsed.colorAnalysis?.expected_next || parsed.colorAnalysis?.suggestedColor || parsed?.color) || null;
 
                 // 1) Desenhar primeiro a COR ESPERADA e o separador "=" na extrema esquerda
@@ -15723,15 +15777,12 @@ async function persistAnalyzerState(newState) {
                 }
 
                 // 2) Em seguida, desenhar a sequência do padrão normalmente
-                colors.forEach((color, idx) => {
-                    const number = occurrenceNumbers[idx] || '';
-                    const timestamp = occurrenceTimestamps[idx] || '';
+                colorsDisplay.forEach((color, idx) => {
+                    const number = numbersDisplay[idx] || '';
+                    const timestamp = timestampsDisplay[idx] || '';
                     
                     // Formatar timestamp igual ao histórico (hora:minuto)
-                    const timeStr = new Date(timestamp).toLocaleString('pt-BR', { 
-                        hour: '2-digit', 
-                        minute: '2-digit' 
-                    });
+                    const timeStr = timestamp ? new Date(timestamp).toLocaleString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : '';
                     
                     // Determinar cor para exibição
                     const displayColor = color === 'red' ? 'red' : color === 'black' ? 'black' : 'white';
@@ -15739,7 +15790,7 @@ async function persistAnalyzerState(newState) {
                     const inner = isWhite ? blazeWhiteSVG(13) : `<span>${number}</span>`;
                     
                     // Destacar a cor de disparo (trigger) com anel adicional e rótulo
-                    const isTrigger = triggerColor && idx === 0 && triggerColor === (colors[0] === 'red' ? 'black' : colors[0] === 'black' ? 'red' : (colors[0] === 'white' ? 'red' : 'red')) ? false : false;
+                    const isTrigger = triggerColor && idx === 0 && triggerColor === (colorsDisplay[0] === 'red' ? 'black' : colorsDisplay[0] === 'black' ? 'red' : (colorsDisplay[0] === 'white' ? 'red' : 'red')) ? false : false;
                     // Observação: o trigger é a cor imediatamente ANTERIOR à sequência; como renderizamos apenas a sequência,
                     // vamos exibir um chip antes da sequência indicando a Trigger.
                     
@@ -15749,13 +15800,12 @@ async function persistAnalyzerState(newState) {
                     </div>`;
                 });
 
-                
-                // Se houver triggerColor, desenhar um quadrado de trigger no mesmo estilo com contorno amarelo
+                // ✅ Cor de disparo (trigger): no layout do app, o MAIS RECENTE fica à esquerda,
+                // então a trigger (que veio ANTES do padrão) fica À DIREITA.
                 if (trigClr) {
                     const trigTime = trigTs ? new Date(trigTs).toLocaleString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : '';
                     const isTrigWhite = trigClr === 'white';
                     const innerTrig = isTrigWhite ? blazeWhiteSVG(13) : `<span>${trigNum}</span>`;
-                    // Adicionar classe de alerta se cor de disparo for inválida
                     const invalidClass = (occDetail && occDetail.flag_invalid_disparo) ? ' invalid-trigger' : '';
                     html += `<div class="pattern-spin trigger-spin">
                         <div class="pattern-quadrado ${trigClr} trigger-highlight${invalidClass}">${innerTrig}</div>
@@ -16156,23 +16206,21 @@ async function persistAnalyzerState(newState) {
 
         const token = ++__daPatternFormationToken;
 
-        // Últimos giros (ordem cronológica) para medir progresso de formação
+        // Últimos giros (mesmo sentido do app: mais recente à esquerda) para medir progresso de formação
         const cfg = latestAnalyzerConfig && typeof latestAnalyzerConfig === 'object' ? latestAnalyzerConfig : {};
         const minSize = daClampInt(cfg.minPatternSize ?? 2, 2, 50, 2);
         const maxSize = daClampInt(cfg.maxPatternSize ?? 12, minSize, 50, Math.max(minSize, 12));
         const recentLenTarget = Math.max(2, Math.min(30, maxSize)); // não precisa de muitos giros pra preview
 
         const recent = Array.isArray(currentHistoryData) ? currentHistoryData.slice(0, recentLenTarget) : [];
-        const recentColorsChron = recent
-            .slice()
-            .reverse()
+        const recentColors = recent
             .map(s => daNormalizeColorToken(s && s.color))
             .filter(Boolean);
 
         const bankSearching = !!bankSearchUiActive;
 
         // Sem giros ainda
-        if (!recentColorsChron.length) {
+        if (!recentColors.length) {
             setPatternMainContent(
                 patternInfoEl,
                 `<div class="pattern-summary pattern-formation">
@@ -16210,7 +16258,7 @@ async function persistAnalyzerState(newState) {
                     return;
                 }
 
-                const recentLen = recentColorsChron.length;
+                const recentLen = recentColors.length;
                 const candidates = [];
 
                 for (let idx = 0; idx < patterns.length; idx++) {
@@ -16219,19 +16267,27 @@ async function persistAnalyzerState(newState) {
                     const L = p.pattern.length;
                     if (L < minSize || L > maxSize) continue;
 
+                    // ✅ Mesma lógica de orientação do app (mais recente à esquerda):
+                    // Um padrão de tamanho L "completa" quando os L últimos giros (mais recentes) batem com p.pattern.
+                    // Em formação = falta pelo menos 1 giro para completar.
+                    //
+                    // Regra: encontrar o MAIOR k (<=L-1) tal que:
+                    //   p.pattern[L-k .. L-1] == recentColors[0 .. k-1]
+                    // Isso significa que já temos o "corpo" do padrão no histórico atual, e falta (L-k) giros (futuros)
+                    // para completar. O próximo giro necessário será p.pattern[(L-k)-1].
                     const maxK = Math.min(L - 1, recentLen);
                     if (maxK <= 0) continue;
 
                     let bestK = 0;
-                    // match prefix (cronológico) com o sufixo dos últimos giros
-                    for (let k = 1; k <= maxK; k++) {
+                    for (let k = maxK; k >= 1; k--) {
+                        const offset = L - k; // quantos giros faltam (missingCount)
                         let ok = true;
                         for (let j = 0; j < k; j++) {
-                            const needColor = daNormalizeColorToken(p.pattern[L - 1 - j]); // cronológico: reverse()
-                            const gotColor = recentColorsChron[recentLen - k + j];
+                            const needColor = daNormalizeColorToken(p.pattern[offset + j]);
+                            const gotColor = recentColors[j];
                             if (!needColor || needColor !== gotColor) { ok = false; break; }
                         }
-                        if (ok) bestK = k;
+                        if (ok) { bestK = k; break; } // maior k = mais perto de completar
                     }
 
                     if (bestK <= 0) continue;
@@ -16239,7 +16295,7 @@ async function persistAnalyzerState(newState) {
                     candidates.push({
                         p,
                         L,
-                        k: bestK,
+                        k: bestK, // já bateu (parte observada)
                         confidence: Number.isFinite(Number(p.confidence)) ? Number(p.confidence) : 0,
                         occurrences: Number.isFinite(Number(p.occurrences)) ? Number(p.occurrences) : 0,
                         expected: daNormalizeColorToken(p.expected_next || p.suggestedColor) || null
@@ -16260,7 +16316,13 @@ async function persistAnalyzerState(newState) {
                 }
 
                 candidates.sort((a, b) => {
-                    if (b.k !== a.k) return b.k - a.k; // mais perto de completar
+                    // ✅ Ordenar pelo que falta MENOS giros:
+                    // Ex.: 7/8 (falta 1) deve vir antes de 6/9 (falta 3)
+                    const missA = Math.max(0, (a.L || 0) - (a.k || 0));
+                    const missB = Math.max(0, (b.L || 0) - (b.k || 0));
+                    if (missA !== missB) return missA - missB;
+                    // Empate: mais progresso e depois pelos demais critérios
+                    if (b.k !== a.k) return b.k - a.k;
                     if (b.confidence !== a.confidence) return b.confidence - a.confidence;
                     if (b.occurrences !== a.occurrences) return b.occurrences - a.occurrences;
                     return b.L - a.L;
@@ -16272,13 +16334,17 @@ async function persistAnalyzerState(newState) {
                     const list = Array.isArray(colors) ? colors : [];
                     const {
                         matchedCount = 0,
-                        nextIndex = -1
+                        nextIndex = -1,
+                        matchedFromIndex = null
                     } = opts;
                     return list.map((c, i) => {
+                        const isMatched = (matchedFromIndex != null)
+                            ? (i >= matchedFromIndex)
+                            : (i < matchedCount);
                         const cls = [
                             'pattern-dot',
                             c,
-                            (i < matchedCount) ? 'matched' : 'remaining',
+                            isMatched ? 'matched' : 'remaining',
                             (i === nextIndex) ? 'next' : ''
                         ].filter(Boolean).join(' ');
                         return `<span class="${cls}"></span>`;
@@ -16286,13 +16352,16 @@ async function persistAnalyzerState(newState) {
                 };
 
                 const itemsHtml = top.map(({ p, L, k, confidence, occurrences, expected }) => {
-                    const chron = [];
-                    for (let i = L - 1; i >= 0; i--) {
+                    const seq = [];
+                    for (let i = 0; i < L; i++) {
                         const c = daNormalizeColorToken(p.pattern[i]);
-                        if (c) chron.push(c);
+                        if (c) seq.push(c);
                     }
-                    const missing = chron.slice(k);
-                    const nextNeeded = missing.length ? missing[0] : null;
+                    // missingCount = quantos giros ainda faltam para completar (futuros)
+                    const missingCount = Math.max(0, L - k);
+                    const missing = missingCount > 0 ? seq.slice(0, missingCount) : [];
+                    // Próximo giro necessário (no app: o "mais novo" fica à esquerda, então o próximo a acontecer é o ÚLTIMO faltante)
+                    const nextNeeded = missingCount > 0 ? seq[missingCount - 1] : null;
                     const progressLabel = `${k}/${L}`;
                     const confTxt = confidence > 0 ? `${confidence.toFixed(1)}%` : '';
                     const occTxt = occurrences > 0 ? `${occurrences}x` : '';
@@ -16305,11 +16374,11 @@ async function persistAnalyzerState(newState) {
                                 ${confTxt ? `<span class="pattern-formation-meta">Conf: ${escapeHtml(confTxt)}</span>` : ''}
                                 ${occTxt ? `<span class="pattern-formation-meta">Occ: ${escapeHtml(occTxt)}</span>` : ''}
                             </div>
-                            <div class="pattern-formation-seq" title="Sequência (cronológica)">
-                                ${renderDots(chron, { matchedCount: k, nextIndex: k })}
+                            <div class="pattern-formation-seq" title="Sequência (mais recente → mais antigo)">
+                                ${renderDots(seq, { matchedFromIndex: missingCount, nextIndex: Math.max(0, missingCount - 1) })}
                             </div>
                             <div class="pattern-formation-missing">
-                                Falta: ${missing.length ? renderDots(missing, { matchedCount: 0, nextIndex: 0 }) : '<span class="meta-muted">—</span>'}
+                                Falta: ${missing.length ? renderDots(missing, { matchedCount: 0, nextIndex: Math.max(0, missing.length - 1) }) : '<span class="meta-muted">—</span>'}
                             </div>
                             <div class="pattern-formation-footer">
                                 ${nextNeeded ? `Próximo: <strong>${escapeHtml(daColorLabel(nextNeeded))}</strong>${escapeHtml(expectedTxt)}` : `Progresso atualizado${escapeHtml(expectedTxt)}`}
@@ -24553,6 +24622,38 @@ function logModeSnapshotUI(snapshot) {
     const GIROS_HISTORY_LIMIT = 10000; // ✅ buffer para análise (mantém 500 visíveis via currentHistoryDisplayLimit)
     let isUpdatingHistory = false;
     let lastHistoryUpdate = null;
+
+    // ✅ Robustez no refresh:
+    // - Evita UI “zerada” enquanto o servidor acorda (cold start) ou quando a primeira requisição falha.
+    // - Primeiro tentamos usar o cache do background (quando existir), e em seguida fazemos fetch do servidor.
+    // - Se vier vazio, fazemos retry com backoff (sem loop infinito).
+    let historyBootstrapRetryTimer = null;
+    let historyBootstrapRetryAttempts = 0;
+    const HISTORY_BOOTSTRAP_MAX_RETRIES = 10;
+    const HISTORY_BOOTSTRAP_RETRY_BASE_MS = 1200;
+
+    function clearHistoryBootstrapRetry() {
+        if (historyBootstrapRetryTimer) {
+            try { clearTimeout(historyBootstrapRetryTimer); } catch (_) {}
+        }
+        historyBootstrapRetryTimer = null;
+        historyBootstrapRetryAttempts = 0;
+    }
+
+    function scheduleHistoryBootstrapRetry(reason = 'unknown') {
+        try {
+            if (historyBootstrapRetryTimer) return;
+            if (historyBootstrapRetryAttempts >= HISTORY_BOOTSTRAP_MAX_RETRIES) return;
+            const attempt = historyBootstrapRetryAttempts;
+            historyBootstrapRetryAttempts += 1;
+            const delay = Math.min(30000, Math.floor(HISTORY_BOOTSTRAP_RETRY_BASE_MS * Math.pow(1.8, attempt)));
+            console.warn(`🧊 Histórico indisponível. Retry em ${Math.round(delay / 1000)}s. Motivo: ${reason}`);
+            historyBootstrapRetryTimer = setTimeout(() => {
+                historyBootstrapRetryTimer = null;
+                try { updateHistoryUIFromServer(); } catch (_) {}
+            }, delay);
+        } catch (_) {}
+    }
     let isWebSocketConnected = true; // Assume conectado inicialmente
     let historyPollingInterval = null; // Intervalo de polling para histórico
     
@@ -24865,49 +24966,48 @@ function logModeSnapshotUI(snapshot) {
     // ═══════════════════════════════════════════════════════════════
     // 🌐 ATUALIZAÇÃO COMPLETA DO HISTÓRICO (COM REQUISIÇÃO HTTP)
     // ═══════════════════════════════════════════════════════════════
-    // Atualizar UI com giros do servidor
-    async function updateHistoryUIFromServer() {
-        const spins = await fetchHistoryFromServer();
-        
-        // ✅ ATUALIZAR currentHistoryData com os giros do servidor
-        if (spins && spins.length > 0) {
-            currentHistoryData = spins;
-            // ✅ Painel Branco: sem esperar giro novo, usar imediatamente os 10k giros carregados
+    function applyHistorySnapshotToUI(spins, source = 'snapshot') {
+        try {
+            const arr = Array.isArray(spins) ? spins : [];
+            if (!arr.length) return false;
+
+            // ✅ Atualizar buffer
+            currentHistoryData = arr;
+
+            // ✅ Painel Branco: sem esperar giro novo, usar imediatamente o buffer carregado
             try { whiteInsightsHistoryCache = currentHistoryData.slice(0, 10000); } catch (_) {}
             try { scheduleMasterSignalStatsRefresh(0); } catch (_) {}
+
             // ✅ Ritmo do giro: inicializar/atualizar com base no histórico carregado
             try { startSpinRhythmCountdownFromHistory(currentHistoryData); } catch (_) {}
-        }
-        
-        if (spins && spins.length > 0) {
-            // Atualizar o elemento de histórico
+
             const historyContainer = document.getElementById('spin-history-bar-ext');
-            
+
             if (historyContainer) {
                 // ✅ SALVAR posição do scroll ANTES de atualizar (container interno com scroll)
                 const scrollContainer = historyContainer.querySelector('.spin-history-bar-blaze');
                 let scrollPosition = 0;
                 let wasScrolledDown = false;
-                
+
                 if (scrollContainer) {
                     scrollPosition = scrollContainer.scrollTop;
                     wasScrolledDown = scrollPosition > 10; // Se estava rolando a lista (mais de 10px)
                 }
-                
-                historyContainer.innerHTML = renderSpinHistory(spins);
+
+                historyContainer.innerHTML = renderSpinHistory(arr);
                 historyContainer.style.display = 'block';
 
                 // Dashboard desktop: botão do topo (+ no servidor) + preenchimento automático no fullscreen
                 try { bindHistoryLoadMoreIndicator(); } catch (_) {}
                 try { ensureHistoryFullscreenFillsSpace(); } catch (_) {}
-                
+
                 // ✅ RESTAURAR posição do scroll DEPOIS de atualizar (só se não estava no topo)
                 if (wasScrolledDown && scrollPosition > 0) {
                     setTimeout(() => {
                         const newScrollContainer = historyContainer.querySelector('.spin-history-bar-blaze');
                         if (newScrollContainer) {
                             newScrollContainer.scrollTop = scrollPosition;
-                            
+
                             requestAnimationFrame(() => {
                                 const finalContainer = historyContainer.querySelector('.spin-history-bar-blaze');
                                 if (finalContainer && finalContainer.scrollTop !== scrollPosition) {
@@ -24917,83 +25017,93 @@ function logModeSnapshotUI(snapshot) {
                         }
                     }, 50);
                 }
-                
+
                 // ✅ Adicionar event listener para o botão "Carregar Mais" (otimizado - sem duplicação)
                 const loadMoreBtn = document.getElementById('loadMoreHistoryBtn');
                 if (loadMoreBtn) {
-                    // ✅ Usar onclick para substituir automaticamente (evita acúmulo de listeners)
-                    loadMoreBtn.onclick = function() {
-                        const remaining = spins.length - currentHistoryDisplayLimit;
+                    loadMoreBtn.onclick = function handleLoadMore() {
+                        const remaining = currentHistoryData.length - currentHistoryDisplayLimit;
                         const increment = 500;
                         const addAmount = remaining > increment ? increment : remaining;
-                        
+
                         currentHistoryDisplayLimit += addAmount;
                         console.log(`📊 Carregando mais ${addAmount} giros. Total exibido agora: ${currentHistoryDisplayLimit}`);
-                        
-                        // Re-renderizar com novo limite
+
                         historyContainer.innerHTML = renderSpinHistory(currentHistoryData);
-                        
-                        // Re-anexar handler automaticamente (onclick substitui, não acumula)
+
                         const newLoadMoreBtn = document.getElementById('loadMoreHistoryBtn');
                         if (newLoadMoreBtn) {
-                            newLoadMoreBtn.onclick = arguments.callee;
+                            newLoadMoreBtn.onclick = handleLoadMore;
                         }
                     };
                 }
             } else {
-                // Se container não existe, criar
                 const statsSection = document.querySelector('.stats-section');
                 if (statsSection) {
                     const wrap = document.createElement('div');
                     wrap.id = 'spin-history-bar-ext';
-                    wrap.innerHTML = renderSpinHistory(spins);
+                    wrap.innerHTML = renderSpinHistory(arr);
                     statsSection.appendChild(wrap);
 
                     // Dashboard desktop: botão do topo (+ no servidor) + preenchimento automático no fullscreen
                     try { bindHistoryLoadMoreIndicator(); } catch (_) {}
                     try { ensureHistoryFullscreenFillsSpace(); } catch (_) {}
-                    
+
                     // ✅ Adicionar event listener para o botão "Carregar Mais" (criação inicial - otimizado)
                     const loadMoreBtn = document.getElementById('loadMoreHistoryBtn');
                     if (loadMoreBtn) {
-                        // ✅ Usar onclick para substituir automaticamente (evita acúmulo de listeners)
-                        loadMoreBtn.onclick = function() {
-                            const remaining = spins.length - currentHistoryDisplayLimit;
+                        loadMoreBtn.onclick = function handleLoadMore() {
+                            const remaining = currentHistoryData.length - currentHistoryDisplayLimit;
                             const increment = 500;
                             const addAmount = remaining > increment ? increment : remaining;
-                            
+
                             currentHistoryDisplayLimit += addAmount;
                             console.log(`📊 Carregando mais ${addAmount} giros. Total exibido agora: ${currentHistoryDisplayLimit}`);
-                            
-                            // Re-renderizar com novo limite
+
                             wrap.innerHTML = renderSpinHistory(currentHistoryData);
-                            
-                            // Re-anexar handler automaticamente (onclick substitui, não acumula)
+
                             const newLoadMoreBtn = document.getElementById('loadMoreHistoryBtn');
                             if (newLoadMoreBtn) {
-                                newLoadMoreBtn.onclick = arguments.callee;
+                                newLoadMoreBtn.onclick = handleLoadMore;
                             }
                         };
                     }
                 }
             }
-            
+
             // Atualizar último giro também
-            if (spins[0]) {
-                const lastSpin = spins[0];
-                updateSidebar({ lastSpin: lastSpin });
+            if (arr[0]) {
+                try { updateSidebar({ lastSpin: arr[0] }); } catch (_) {}
             }
-            
+
             // Atualizar total de giros
             const totalSpins = document.getElementById('totalSpins');
             if (totalSpins) {
-                totalSpins.textContent = spins.length;
+                totalSpins.textContent = String(arr.length);
             }
-        } else {
-            // ⚠️ Nenhum giro disponível ainda
+
+            return true;
+        } catch (_) {
+            return false;
+        }
+    }
+
+    // Atualizar UI com giros do servidor
+    async function updateHistoryUIFromServer() {
+        // Evitar reentrância (fetchHistoryFromServer já tem guarda, mas aqui prevenimos retries em cima de fetch ativo)
+        if (isUpdatingHistory) return;
+
+        const hasHistory = Array.isArray(currentHistoryData) && currentHistoryData.length > 0;
+        if (!hasHistory) {
+            // ✅ Ao iniciar o fetch, não deixar a UI “0” (parece bug/zerou)
+            const totalSpins = document.getElementById('totalSpins');
+            if (totalSpins) {
+                totalSpins.textContent = '...';
+            }
+
+            // ✅ Garantir container visível com status de carregamento enquanto busca
             const historyContainer = document.getElementById('spin-history-bar-ext');
             if (!historyContainer) {
-                // Criar container com mensagem de "aguardando giros"
                 const statsSection = document.querySelector('.stats-section');
                 if (statsSection) {
                     const wrap = document.createElement('div');
@@ -25002,21 +25112,63 @@ function logModeSnapshotUI(snapshot) {
                         <div class="spin-history-label">
                             <span>ÚLTIMOS GIROS</span>
                             <div class="spin-count-info">
-                                <span class="displaying-count">Aguardando servidor...</span>
+                                <span class="displaying-count">Carregando histórico...</span>
                             </div>
                         </div>
                         <div class="spin-history-bar-blaze" style="text-align: center; padding: 20px; color: #888;">
-                            ⏳ Aguardando primeiro giro da Blaze...
+                            ⏳ Carregando histórico do servidor...
                         </div>
                     `;
                     statsSection.appendChild(wrap);
                 }
             }
-            
-            // Atualizar total de giros como 0
-            const totalSpins = document.getElementById('totalSpins');
-            if (totalSpins) {
-                totalSpins.textContent = '0';
+        }
+
+        const spins = await fetchHistoryFromServer();
+
+        if (Array.isArray(spins) && spins.length > 0) {
+            clearHistoryBootstrapRetry();
+            applyHistorySnapshotToUI(spins, 'server');
+            return;
+        }
+
+        // ⚠️ Se já temos histórico em memória, NÃO “zerar” a UI por uma falha momentânea do servidor
+        const nowLen = Array.isArray(currentHistoryData) ? currentHistoryData.length : 0;
+        if (nowLen > 0) {
+            // Se o histórico parece pequeno (ex.: background acabou de reiniciar), tentar completar depois
+            if (nowLen < 2000) {
+                scheduleHistoryBootstrapRetry('server_empty_keep_buffer');
+            }
+            return;
+        }
+
+        // Nenhum histórico ainda: manter UI em estado de carregamento e tentar novamente
+        scheduleHistoryBootstrapRetry('server_empty_initial');
+
+        const totalSpins = document.getElementById('totalSpins');
+        if (totalSpins) {
+            totalSpins.textContent = '...';
+        }
+
+        // Criar container com mensagem de carregamento (sem "0 giros" enganoso)
+        const historyContainer = document.getElementById('spin-history-bar-ext');
+        if (!historyContainer) {
+            const statsSection = document.querySelector('.stats-section');
+            if (statsSection) {
+                const wrap = document.createElement('div');
+                wrap.id = 'spin-history-bar-ext';
+                wrap.innerHTML = `
+                    <div class="spin-history-label">
+                        <span>ÚLTIMOS GIROS</span>
+                        <div class="spin-count-info">
+                            <span class="displaying-count">Carregando histórico...</span>
+                        </div>
+                    </div>
+                    <div class="spin-history-bar-blaze" style="text-align: center; padding: 20px; color: #888;">
+                        ⏳ Carregando histórico do servidor...
+                    </div>
+                `;
+                statsSection.appendChild(wrap);
             }
         }
     }
@@ -25053,11 +25205,51 @@ function logModeSnapshotUI(snapshot) {
     }
     
     // Iniciar histórico (atualiza instantaneamente via WebSocket)
-    function startAutoHistoryUpdate() {
+    async function startAutoHistoryUpdate() {
         console.log('⏱️ [TIMING] startAutoHistoryUpdate() chamado em:', new Date().toLocaleTimeString());
-        
-        // ✅ Carregar histórico inicial UMA VEZ (ao abrir extensão)
-        updateHistoryUIFromServer();
+
+        // ✅ 1) Tentar pegar o cache do background primeiro (instantâneo quando o SW já tem 10k em memória)
+        // Isso evita “0 / vazio” por alguns segundos após refresh.
+        const tryBackgroundHistory = () => new Promise((resolve) => {
+            try {
+                if (!chrome?.runtime?.sendMessage) return resolve(false);
+                chrome.runtime.sendMessage({ action: 'getFullHistory' }, (resp) => {
+                    const err = chrome.runtime.lastError;
+                    if (err) return resolve(false);
+                    const list = resp && Array.isArray(resp.history) ? resp.history : [];
+                    if (list.length > 0) {
+                        const ok = applyHistorySnapshotToUI(list, 'background');
+                        if (ok) {
+                            clearHistoryBootstrapRetry();
+                            return resolve(true);
+                        }
+                    }
+                    resolve(false);
+                });
+            } catch (_) {
+                resolve(false);
+            }
+        });
+
+        let appliedFromBackground = false;
+        try {
+            // Não travar a UI esperando: se não vier em ~400ms, seguimos com o fetch do servidor.
+            appliedFromBackground = await Promise.race([
+                tryBackgroundHistory(),
+                new Promise((resolve) => setTimeout(() => resolve(false), 400))
+            ]);
+        } catch (_) {
+            appliedFromBackground = false;
+        }
+
+        const lenNow = Array.isArray(currentHistoryData) ? currentHistoryData.length : 0;
+
+        // ✅ 2) Buscar do servidor quando:
+        // - background não tinha cache ainda, OU
+        // - o cache veio pequeno (ex.: SW reiniciou e ainda não reconstruiu os 10k)
+        if (!appliedFromBackground || lenNow < 2000) {
+            updateHistoryUIFromServer();
+        }
     }
     
     // Carregar configurações e banco de padrões ao iniciar

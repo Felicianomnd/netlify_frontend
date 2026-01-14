@@ -2611,19 +2611,28 @@
 }
 .pattern-quadrado.trigger-highlight {
 	position: relative;
+	box-sizing: border-box; /* ✅ borda não aumenta o quadrado */
+	/* ✅ Deixar o destaque BEM visível (no print estava “sumindo”) */
+	outline: 2px solid rgba(255, 193, 7, 0.95);
+	outline-offset: -2px; /* não altera layout */
 	/* ✅ anel interno também (não some com overflow/recortes) */
 	box-shadow:
 		0 0 0 2px #FFC107 inset,
-		0 0 0 3px rgba(255, 193, 7, 0.55); /* anel amarelo para diferenciar trigger */
+		0 0 0 3px rgba(255, 193, 7, 0.55) !important; /* anel amarelo para diferenciar trigger */
+	border: 2px solid #FFC107 !important;
 	border-color: #FFC107 !important;
 }
 
 /* Alerta de cor de disparo inválida */
 .pattern-quadrado.trigger-highlight.invalid-trigger {
+	box-sizing: border-box; /* ✅ borda não aumenta o quadrado */
 	box-shadow:
 		0 0 0 2px #FF5252 inset,
-		0 0 0 3px rgba(255, 82, 82, 0.55); /* anel vermelho para trigger inválido */
+		0 0 0 3px rgba(255, 82, 82, 0.55) !important; /* anel vermelho para trigger inválido */
 	border-color: #FF5252 !important;
+	border: 2px solid #FF5252 !important;
+	outline: 2px solid rgba(255, 82, 82, 0.95);
+	outline-offset: -2px;
 	animation: pulse-invalid 1.5s ease-in-out infinite;
 }
 
