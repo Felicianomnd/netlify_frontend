@@ -2413,9 +2413,21 @@ function applyUrlsConfigToApiConfig(urls) {
     const girosList = Array.isArray(urls.girosApiOrigins) ? urls.girosApiOrigins : [];
     const wsList = Array.isArray(urls.girosWsOrigins) ? urls.girosWsOrigins : [];
 
-    const auth = normalizeOrigin(authList[0]);
-    const giros = normalizeOrigin(girosList[0]);
-    const ws = normalizeWs(wsList[0]);
+    // ✅ Preferir servidor ativo (Admin Panel) quando disponível
+    const activeId = String(urls.activeServerId || '').trim();
+    const servers = Array.isArray(urls.servers) ? urls.servers : [];
+    let activeServer = null;
+    if (activeId && servers.length) {
+        activeServer = servers.find((s) => {
+            const sid = String(s?.id || s?.serverId || '').trim();
+            return sid && sid === activeId;
+        }) || null;
+    }
+
+    const auth = normalizeOrigin(activeServer?.authOrigin) || normalizeOrigin(authList[0]);
+    const giros = normalizeOrigin(activeServer?.girosOrigin) || normalizeOrigin(girosList[0]);
+    const wsFromServer = activeServer?.wsOrigin || activeServer?.girosWsOrigin || activeServer?.girosWsURL || activeServer?.wsURL || null;
+    const ws = normalizeWs(wsFromServer) || normalizeWs(wsList[0]);
 
     if (auth) API_CONFIG.authURL = auth;
     if (giros) API_CONFIG.baseURL = giros;
@@ -2799,9 +2811,10 @@ function connectWebSocket() {
             try {
                 const message = JSON.parse(event.data);
                 console.log('📨 Mensagem WebSocket recebida:', message.type);
-                
-                // ✅ Atualizar timestamp de último dado recebido
-                lastDataReceived = Date.now();
+                // ⚠️ Importante:
+                // Não tratar PING/PONG/CONNECTED como "dado novo".
+                // O watchdog de "dados desatualizados" deve medir GIROS realmente processados,
+                // senão o WS pode ficar "vivo" (PONG OK) mas sem entregar NEW_SPIN e a UI congela.
                 
                 switch (message.type) {
                     case 'CONNECTED':
@@ -2993,7 +3006,7 @@ function startDataFreshnessCheck() {
     console.log('   Verificará se dados estão atualizados a cada 30 segundos');
     
     // ✅ Verificar a cada 30 segundos se os dados estão desatualizados
-    dataCheckInterval = setInterval(() => {
+    dataCheckInterval = setInterval(async () => {
         const now = Date.now();
         const timeSinceLastData = now - lastDataReceived;
         const maxStaleTime = 90000; // 90 segundos (1.5 minutos)
@@ -3004,13 +3017,17 @@ function startDataFreshnessCheck() {
             console.warn(`   Último dado recebido há ${Math.floor(timeSinceLastData / 1000)} segundos`);
             console.warn('   Forçando reconexão e atualização...');
             console.warn('');
+
+            // ✅ Se o admin trocou o servidor ativo, tentar puxar /api/site/urls antes de reconectar
+            // (isso evita ficar "preso" no Render antigo mesmo com WS vivo)
+            try { await refreshUrlsFromServer(); } catch (_) {}
             
             // ✅ Forçar reconexão WebSocket
             disconnectWebSocket();
             connectWebSocket();
             
             // ✅ Forçar busca imediata de dados via polling
-            collectDoubleData();
+            detachPromise(collectDoubleData(), 'freshness_collect_latest');
         }
     }, 30000); // Verificar a cada 30 segundos
 }
@@ -3738,6 +3755,30 @@ function logActiveConfiguration() {
 
 // Apply config changes immediately
 chrome.storage.onChanged.addListener((changes, area) => {
+    if (area === 'local' && changes[URLS_LOCAL_KEY]) {
+        try {
+            const nextUrls = changes[URLS_LOCAL_KEY].newValue || null;
+            applyUrlsConfigToApiConfig(nextUrls);
+            console.log('🔧 URLs (da_urls_v1) atualizadas:', {
+                authURL: API_CONFIG.authURL,
+                baseURL: API_CONFIG.baseURL,
+                wsURL: API_CONFIG.wsURL
+            });
+
+            // ✅ Se o coletor já está rodando, reconectar para pegar o servidor novo imediatamente
+            if (isRunning) {
+                try { disconnectWebSocket(); } catch (_) {}
+                try { stopPollingFallback(); } catch (_) {}
+                try { connectWebSocket(); } catch (_) {}
+                try { startDataFreshnessCheck(); } catch (_) {}
+                detachPromise(collectDoubleData(), 'urls_changed_collect_latest');
+                detachPromise(initializeHistoryIfNeeded(true), 'urls_changed_init_history');
+            }
+        } catch (e) {
+            console.warn('⚠️ Falha ao aplicar da_urls_v1:', e);
+        }
+    }
+
     if (area === 'local' && changes.analyzerConfig) {
         try {
             const newVal = changes.analyzerConfig.newValue || {};
@@ -4599,6 +4640,10 @@ async function processNewSpinFromServer(spinData) {
                     color: rollColor,
                     timestamp: latestSpin.created_at
                 });
+
+            // ✅ Watchdog: marcar que um GIRO novo foi realmente processado
+            // (usado pelo startDataFreshnessCheck para não ficar enganado por PONG)
+            lastDataReceived = Date.now();
             
             // ⚡ ATUALIZAR CACHE IMEDIATAMENTE (operação síncrona, super rápida!)
             cachedHistory.unshift(newGiro);
@@ -38286,9 +38331,6 @@ chrome.tabs.onActivated.addListener(async (activeInfo) => {
             // ✅ Forçar busca imediata de dados para garantir que está atualizado
             console.log('🔄 Buscando dados mais recentes...');
             await collectDoubleData();
-            
-            // ✅ Resetar timer de último dado recebido
-            lastDataReceived = Date.now();
         }
     } catch (error) {
         // Ignorar erros silenciosamente (tab pode ter sido fechada)
@@ -38315,9 +38357,6 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
             // ✅ Forçar busca imediata de dados
             console.log('🔄 Sincronizando dados após reload...');
             await collectDoubleData();
-            
-            // ✅ Resetar timer
-            lastDataReceived = Date.now();
         }
     } catch (error) {
         // Ignorar erros silenciosamente

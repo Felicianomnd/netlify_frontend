@@ -8859,8 +8859,19 @@ function showCenteredNotice(message, options = {}) {
           const authList = Array.isArray(urls.authApiOrigins) ? urls.authApiOrigins : [];
           const girosList = Array.isArray(urls.girosApiOrigins) ? urls.girosApiOrigins : [];
 
-          const nextAuth = normalizeOrigin(authList[0]);
-          const nextGiros = normalizeOrigin(girosList[0]);
+          // ✅ Preferir servidor ativo (Admin Panel) quando disponível
+          const activeId = String(urls.activeServerId || '').trim();
+          const servers = Array.isArray(urls.servers) ? urls.servers : [];
+          let activeServer = null;
+          if (activeId && servers.length) {
+              activeServer = servers.find((s) => {
+                  const sid = String(s?.id || s?.serverId || '').trim();
+                  return sid && sid === activeId;
+              }) || null;
+          }
+
+          const nextAuth = normalizeOrigin(activeServer?.authOrigin) || normalizeOrigin(authList[0]);
+          const nextGiros = normalizeOrigin(activeServer?.girosOrigin) || normalizeOrigin(girosList[0]);
 
           if (nextAuth) API_URLS.auth = nextAuth;
           if (nextGiros) API_URLS.giros = nextGiros;
