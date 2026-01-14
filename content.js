@@ -17902,7 +17902,19 @@ async function persistAnalyzerState(newState) {
     function getSpinRhythmEls() {
         try {
             if (spinRhythmElsCache && spinRhythmElsCache.bar && spinRhythmElsCache.fill && spinRhythmElsCache.overlay) {
-                return spinRhythmElsCache;
+                // ✅ Mobile/SPA: se o DOM foi re-renderizado, o cache pode ficar apontando para elementos antigos.
+                // Validar se ainda estão conectados antes de reutilizar.
+                const isConnected = (el) => {
+                    try {
+                        if (!el) return false;
+                        if (typeof el.isConnected === 'boolean') return el.isConnected;
+                        return document.contains(el);
+                    } catch (_) { return false; }
+                };
+                if (isConnected(spinRhythmElsCache.bar) && isConnected(spinRhythmElsCache.fill) && isConnected(spinRhythmElsCache.overlay)) {
+                    return spinRhythmElsCache;
+                }
+                spinRhythmElsCache = null;
             }
             const bar = document.getElementById('spinRhythmBar');
             const fill = document.getElementById('spinRhythmFill');
@@ -21286,6 +21298,7 @@ function logModeSnapshotUI(snapshot) {
     const CRITICAL_UI_POLL_MS = 1000;
     let criticalLastSpinKey = null;
     let criticalAnalysisKey = null;
+    let criticalHistorySpinKey = null; // ✅ para atualizar barra/histórico mesmo sem NEW_SPIN
 
     function computeSpinKey(spin) {
         try {
@@ -21313,6 +21326,24 @@ function logModeSnapshotUI(snapshot) {
         if (!Object.prototype.hasOwnProperty.call(normalized, 'martingaleState')) normalized.martingaleState = null;
         if (!Object.prototype.hasOwnProperty.call(normalized, 'lastSpin')) normalized.lastSpin = null;
         try { updateSidebar(normalized); } catch (_) {}
+
+        // ✅ MOBILE FIX:
+        // Em alguns ambientes, `chrome.runtime.onMessage` pode falhar/atrasar.
+        // Porém `lastSpin` no storage muda normalmente. Quando isso acontecer, usamos o `lastSpin`
+        // para atualizar o buffer local e reiniciar a barra do ritmo do giro.
+        try {
+            const spinKey = computeSpinKey(normalized.lastSpin);
+            if (spinKey && spinKey !== criticalHistorySpinKey) {
+                criticalHistorySpinKey = spinKey;
+                const normalizedSpin = (typeof normalizeSpinFromServer === 'function')
+                    ? (normalizeSpinFromServer(normalized.lastSpin) || normalized.lastSpin)
+                    : normalized.lastSpin;
+                // Evitar custo síncrono: alinhar no próximo frame
+                requestAnimationFrame(() => {
+                    try { updateHistoryUIInstant(normalizedSpin); } catch (_) {}
+                });
+            }
+        } catch (_) {}
     }
 
     function loadCriticalUIData() {
@@ -24816,11 +24847,42 @@ function logModeSnapshotUI(snapshot) {
     // Buscar APENAS o último giro do servidor (fallback leve)
     async function fetchLatestSpinFromServer() {
         try {
-            const response = await fetch(`${getGirosApiUrl()}/api/giros/latest?cb=${Date.now()}`, {
-                signal: AbortSignal.timeout(5000),
-                cache: 'no-store',
-                headers: { 'accept': 'application/json', 'cache-control': 'no-cache' }
-            });
+            const url = `${getGirosApiUrl()}/api/giros/latest?cb=${Date.now()}`;
+            const timeoutMs = 5000;
+            let response = null;
+
+            // ✅ Compat (mobile): AbortSignal.timeout pode não existir
+            try {
+                if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function') {
+                    response = await fetch(url, {
+                        signal: AbortSignal.timeout(timeoutMs),
+                        cache: 'no-store',
+                        headers: { 'accept': 'application/json', 'cache-control': 'no-cache' }
+                    });
+                } else if (typeof AbortController !== 'undefined') {
+                    const controller = new AbortController();
+                    const t = setTimeout(() => {
+                        try { controller.abort(); } catch (_) {}
+                    }, Math.max(1000, timeoutMs));
+                    try {
+                        response = await fetch(url, {
+                            signal: controller.signal,
+                            cache: 'no-store',
+                            headers: { 'accept': 'application/json', 'cache-control': 'no-cache' }
+                        });
+                    } finally {
+                        clearTimeout(t);
+                    }
+                } else {
+                    // último fallback: sem timeout (melhor do que quebrar)
+                    response = await fetch(url, {
+                        cache: 'no-store',
+                        headers: { 'accept': 'application/json', 'cache-control': 'no-cache' }
+                    });
+                }
+            } catch (_) {
+                return null;
+            }
             
             if (!response.ok) {
                 throw new Error(`Servidor offline - Status ${response.status}`);
