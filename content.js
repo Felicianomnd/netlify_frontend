@@ -36,6 +36,8 @@
     let currentHistoryDisplayLimitExpanded = 1500; // Fullscreen do Histórico: começa maior para preencher o espaço
     let currentHistoryData = []; // Armazenar histórico atual para re-renderizar
     let __daLastSpinInstantKey = null; // ✅ Mobile: garantir reset da barra ao atualizar lastSpin
+    let __daLastSpinAnimKey = null; // ✅ Animação: não repetir no mesmo giro
+    let __daLastSpinAnimTimer = null;
     let autoPatternSearchTriggered = false; // Impede disparos automáticos repetidos (por carregamento de página)
     let suppressAutoPatternSearch = false; // Evita busca automática após ações que não devem re-disparar
     let autoPatternSearchInFlight = false; // Evita múltiplos sendMessage simultâneos
@@ -16553,6 +16555,43 @@ async function persistAnalyzerState(newState) {
         }
     }
 
+    // ✅ UX: animação leve quando o "Último Giro" atualiza (evita mudança brusca).
+    function triggerLastSpinAnimation(spinLike) {
+        try {
+            const s = spinLike && typeof spinLike === 'object' ? spinLike : null;
+            if (!s) return;
+            const ts = s.timestamp ?? s.created_at ?? s.createdAt ?? s.time ?? '';
+            const num = s.number ?? s.roll ?? '';
+            const clr = s.color ?? '';
+            const key = `${ts}|${num}|${clr}`;
+            if (!key) return;
+            if (__daLastSpinAnimKey && __daLastSpinAnimKey === key) return;
+            __daLastSpinAnimKey = key;
+
+            const restart = (el) => {
+                try {
+                    if (!el || !el.classList) return;
+                    el.classList.remove('da-lastspin-anim');
+                    // Force reflow para reiniciar a animação
+                    void el.offsetWidth;
+                    el.classList.add('da-lastspin-anim');
+                } catch (_) {}
+            };
+
+            restart(document.getElementById('lastSpinNumber'));
+            restart(document.getElementById('betModeLastSpinNumber'));
+
+            try {
+                if (__daLastSpinAnimTimer) clearTimeout(__daLastSpinAnimTimer);
+            } catch (_) {}
+            __daLastSpinAnimTimer = setTimeout(() => {
+                try { document.getElementById('lastSpinNumber')?.classList?.remove('da-lastspin-anim'); } catch (_) {}
+                try { document.getElementById('betModeLastSpinNumber')?.classList?.remove('da-lastspin-anim'); } catch (_) {}
+                __daLastSpinAnimTimer = null;
+            }, 650);
+        } catch (_) {}
+    }
+
     // Update sidebar with new data
     function updateSidebar(data) {
         // ═══════════════════════════════════════════════════════════════
@@ -16577,7 +16616,20 @@ async function persistAnalyzerState(newState) {
         if (data.lastSpin) {
             const spin = data.lastSpin;
             // Número com o mesmo estilo do histórico (quadrado com anel)
-            lastSpinNumber.className = `spin-number ${spin.color}`;
+            try {
+                if (lastSpinNumber && lastSpinNumber.classList) {
+                    // ✅ Não usar `className = ...` aqui, senão apagamos a classe da animação.
+                    lastSpinNumber.classList.add('spin-number');
+                    lastSpinNumber.classList.remove('red', 'black', 'white');
+                    if (spin.color === 'red' || spin.color === 'black' || spin.color === 'white') {
+                        lastSpinNumber.classList.add(spin.color);
+                    }
+                } else if (lastSpinNumber) {
+                    lastSpinNumber.className = `spin-number ${spin.color}`;
+                }
+            } catch (_) {
+                try { if (lastSpinNumber) lastSpinNumber.className = `spin-number ${spin.color}`; } catch (_) {}
+            }
             if (spin.color === 'white') {
                 lastSpinNumber.innerHTML = blazeWhiteSVG(20);
             } else {
@@ -16593,6 +16645,9 @@ async function persistAnalyzerState(newState) {
             
             // Atualizar modo aposta com último giro
             syncBetModeView();
+
+            // ✅ Animar transição do último giro
+            triggerLastSpinAnimation(spin);
 
             // ✅ FIX MOBILE (mantém o comportamento antigo):
             // Sempre que o lastSpin mudar, reiniciar a barra do giro usando o MESMO fluxo do desktop
@@ -20963,7 +21018,20 @@ function logModeSnapshotUI(snapshot) {
                 const lastSpinTime = document.getElementById('lastSpinTime');
                 
                 if (lastSpinNumber) {
-                    lastSpinNumber.className = `spin-number ${newSpin.color}`;
+                    try {
+                        if (lastSpinNumber.classList) {
+                            // ✅ Não usar `className = ...` aqui, senão apagamos a classe da animação.
+                            lastSpinNumber.classList.add('spin-number');
+                            lastSpinNumber.classList.remove('red', 'black', 'white');
+                            if (newSpin.color === 'red' || newSpin.color === 'black' || newSpin.color === 'white') {
+                                lastSpinNumber.classList.add(newSpin.color);
+                            }
+                        } else {
+                            lastSpinNumber.className = `spin-number ${newSpin.color}`;
+                        }
+                    } catch (_) {
+                        try { lastSpinNumber.className = `spin-number ${newSpin.color}`; } catch (_) {}
+                    }
                     if (newSpin.color === 'white') {
                         lastSpinNumber.innerHTML = blazeWhiteSVG(20);
                     } else {
@@ -20977,6 +21045,9 @@ function logModeSnapshotUI(snapshot) {
                         lastSpinTime.textContent = t;
                     } catch(e) {}
                 }
+
+                // ✅ Animação bonita no "Último Giro" (instantâneo)
+                try { triggerLastSpinAnimation(newSpin); } catch (_) {}
                 
                 // ✅ 2. ATUALIZAR HISTÓRICO (síncrono, usando requestAnimationFrame para performance)
                 requestAnimationFrame(() => {
