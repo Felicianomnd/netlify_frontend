@@ -35,6 +35,7 @@
     let currentHistoryDisplayLimit = 500; // Normal: começa exibindo 500 (camadas de 500)
     let currentHistoryDisplayLimitExpanded = 1500; // Fullscreen do Histórico: começa maior para preencher o espaço
     let currentHistoryData = []; // Armazenar histórico atual para re-renderizar
+    let __daLastSpinInstantKey = null; // ✅ Mobile: garantir reset da barra ao atualizar lastSpin
     let autoPatternSearchTriggered = false; // Impede disparos automáticos repetidos (por carregamento de página)
     let suppressAutoPatternSearch = false; // Evita busca automática após ações que não devem re-disparar
     let autoPatternSearchInFlight = false; // Evita múltiplos sendMessage simultâneos
@@ -16592,6 +16593,26 @@ async function persistAnalyzerState(newState) {
             
             // Atualizar modo aposta com último giro
             syncBetModeView();
+
+            // ✅ FIX MOBILE (mantém o comportamento antigo):
+            // Sempre que o lastSpin mudar, reiniciar a barra do giro usando o MESMO fluxo do desktop
+            // (updateHistoryUIInstant → startSpinRhythmCountdownFromHistory).
+            // Isso independe de `NEW_SPIN` via runtime message funcionar no celular.
+            try {
+                const ts = spin.timestamp ?? spin.created_at ?? spin.createdAt ?? spin.time ?? '';
+                const num = spin.number ?? '';
+                const clr = spin.color ?? '';
+                const key = `${ts}|${num}|${clr}`;
+                if (key && key !== __daLastSpinInstantKey) {
+                    __daLastSpinInstantKey = key;
+                    const normalizedSpin = (typeof normalizeSpinFromServer === 'function')
+                        ? (normalizeSpinFromServer(spin) || spin)
+                        : spin;
+                    requestAnimationFrame(() => {
+                        try { updateHistoryUIInstant(normalizedSpin); } catch (_) {}
+                    });
+                }
+            } catch (_) {}
         }
         
         // track para reset suave ao “limpar” sinal
