@@ -15685,7 +15685,7 @@ async function persistAnalyzerState(newState) {
         } else if (parsed.summary) {
             winLoss = parsed.summary;
         }
-        // ✅ Preferir tamanho "completo" quando o sinal é 1 giro antes (entryShiftSpins)
+        // ✅ "Tamanho do padrão" = tamanho do PADRÃO (sem contar trigger/cor de disparo).
         const len = winLoss?.patternLength
             || (parsed.colorAnalysis && Number.isFinite(Number(parsed.colorAnalysis.fullPatternSize)) ? Number(parsed.colorAnalysis.fullPatternSize) : null)
             || (parsed.colorAnalysis?.pattern?.length || null);

@@ -2574,6 +2574,34 @@ const API_CONFIG = {
     useWebSocket: true  // ✅ Usar WebSocket ao invés de polling
 };
 
+// ✅ Pedido do usuário (Premium / modo padrão):
+// Proibir envio de sinal de entrada com confiança abaixo desse piso.
+// (Regra é fixa: <45% = bloqueado)
+const MIN_PREMIUM_ENTRY_CONFIDENCE_PCT = 45;
+
+function normalizeConfidencePct(value) {
+    const n = Number(value);
+    if (!Number.isFinite(n)) return null;
+    // Alguns módulos podem produzir 0..1; normalizar para 0..100
+    const pct = (n > 0 && n <= 1) ? (n * 100) : n;
+    return Math.max(0, Math.min(100, pct));
+}
+
+async function blockPremiumLowConfidenceSignal(confPct, reason = 'low_confidence') {
+    try {
+        const shown = Number.isFinite(confPct) ? Math.round(confPct) : null;
+        const msg = shown != null
+            ? `⛔ Sinal bloqueado: confiança ${shown}% < ${MIN_PREMIUM_ENTRY_CONFIDENCE_PCT}%`
+            : `⛔ Sinal bloqueado: confiança < ${MIN_PREMIUM_ENTRY_CONFIDENCE_PCT}%`;
+        try { sendAnalysisStatus(msg); } catch (_) {}
+    } catch (_) {}
+    try {
+        await chrome.storage.local.set({ analysis: null, pattern: null });
+    } catch (_) {}
+    try { sendMessageToContent('CLEAR_ANALYSIS'); } catch (_) {}
+    return { blocked: true, reason };
+}
+
 // Inicializar config dinâmica (sem travar o bootstrap)
 (async () => {
     try {
@@ -6421,6 +6449,16 @@ async function analyzePatterns(history) {
             // `emitAnalysisToContent` decide se vira um sinal de recuperação (recoveryMode=true).
             if (recoveryModeEnabled) {
                 try { analysis.hiddenInternal = true; } catch (_) {}
+            }
+
+            // ✅ Premium (legacy): bloquear sinal com confiança < 45%
+            if (!analyzerConfig.aiMode) {
+                const confPct = normalizeConfidencePct(analysis && analysis.confidence);
+                if (confPct != null && confPct < MIN_PREMIUM_ENTRY_CONFIDENCE_PCT) {
+                    console.warn(`⛔ Premium: sinal bloqueado por confiança mínima (legacy). conf=${confPct}% < ${MIN_PREMIUM_ENTRY_CONFIDENCE_PCT}%`);
+                    await blockPremiumLowConfidenceSignal(confPct, 'low_confidence_legacy');
+                    return;
+                }
             }
 
             await chrome.storage.local.set({
@@ -24728,6 +24766,17 @@ async function runAnalysisController(history) {
                 // ✅ Não sobrescrever a confiança exibida do sinal; guardar apenas a confiança condicional do GALE (interno)
                 verifyResult.galeConfidence = calculateGaleConfidenceValue(verifyResult.confidence, verifyResult);
 			}
+
+            // ✅ Premium: bloquear sinal com confiança < 45%
+            // (Não salvar no storage, não enviar para UI/Telegram)
+            if (!analyzerConfig.aiMode) {
+                const confPct = normalizeConfidencePct(verifyResult && verifyResult.confidence);
+                if (confPct != null && confPct < MIN_PREMIUM_ENTRY_CONFIDENCE_PCT) {
+                    console.warn(`⛔ Premium: sinal bloqueado por confiança mínima. conf=${confPct}% < ${MIN_PREMIUM_ENTRY_CONFIDENCE_PCT}%`);
+                    await blockPremiumLowConfidenceSignal(confPct, 'low_confidence_saved_pattern');
+                    return;
+                }
+            }
 			
 			console.log('%c║  💾 SALVANDO SINAL/ENTRADA EM CHROME.STORAGE.LOCAL                         ║', 'color: #FFD700; font-weight: bold; font-size: 16px;');
 			console.log('%c📊 DADOS COMPLETOS DO SINAL:', 'color: #FFD700; font-weight: bold;');
@@ -25115,6 +25164,16 @@ async function runAnalysisController(history) {
 					// ✅ Não sobrescrever a confiança exibida do sinal; guardar apenas a confiança condicional do GALE (interno)
 					analysis.galeConfidence = calculateGaleConfidenceValue(analysis.confidence, analysis);
 				}
+
+                // ✅ Premium: bloquear sinal com confiança < 45%
+                if (!analyzerConfig.aiMode) {
+                    const confPct = normalizeConfidencePct(analysis && analysis.confidence);
+                    if (confPct != null && confPct < MIN_PREMIUM_ENTRY_CONFIDENCE_PCT) {
+                        console.warn(`⛔ Premium: sinal bloqueado por confiança mínima. conf=${confPct}% < ${MIN_PREMIUM_ENTRY_CONFIDENCE_PCT}%`);
+                        await blockPremiumLowConfidenceSignal(confPct, 'low_confidence_discovery');
+                        return;
+                    }
+                }
 				
 				console.log('║  💾 SALVANDO ANÁLISE EM CHROME.STORAGE.LOCAL (DESCOBERTA)║');
 				console.log('📊 Dados da análise:');
@@ -25918,7 +25977,22 @@ async function verifyWithSavedPatternsLegacy(history, dbOverride = null) {
 		// Padrões são armazenados do mais recente → mais antigo.
 		// Ex.: fullPattern=[X,Y,Z] (X é o "fechamento" / mais recente do padrão).
 		// A entrada deve ocorrer quando o HEAD casa com [Y,Z] e prever X no próximo giro.
-		const fullPattern = pat.pattern;
+		// ⚠️ Correção (pedido do usuário):
+		// O "minPatternSize" deve contar APENAS os giros do PADRÃO (após o disparo).
+		// Em alguns bancos antigos, o trigger acabou sendo incluído dentro de `pat.pattern`
+		// (como último elemento, por ser o mais antigo). Se isso acontecer, removemos para:
+		// - calcular tamanho correto
+		// - comparar sequência correta
+		const savedTriggerNormalized = normalizeColorName(pat && pat.triggerColor);
+		let fullPattern = pat.pattern;
+		try {
+			if (requireTrigger && savedTriggerNormalized && Array.isArray(fullPattern) && fullPattern.length >= 2) {
+				const lastNorm = normalizeColorName(fullPattern[fullPattern.length - 1]);
+				if (lastNorm && lastNorm === savedTriggerNormalized) {
+					fullPattern = fullPattern.slice(0, -1); // remove trigger embutido no pattern
+				}
+			}
+		} catch (_) {}
 		const fullNeed = fullPattern.length;
 		// ✅ Respeitar o tamanho mínimo configurado pelo usuário (considerando o padrão completo)
 		if (fullNeed < minPatternSizeGate) continue;
@@ -25938,7 +26012,6 @@ async function verifyWithSavedPatternsLegacy(history, dbOverride = null) {
 		const currentTrigger = headColors[need]; // cor imediatamente anterior ao padrão no histórico
 	
 	const currentTriggerNormalized = normalizeColorName(currentTrigger);
-	const savedTriggerNormalized = normalizeColorName(pat && pat.triggerColor);
 	const firstPatternNormalized = normalizeColorName(getInitialPatternColor(patternToFind));
 
 	if (!firstPatternNormalized) {
@@ -26357,8 +26430,9 @@ async function verifyWithSavedPatternsLegacy(history, dbOverride = null) {
                         rigorWinPct,  // Porcentagem apenas das "demais"
                         sampleMin,
                         sampleMinWins100: true,
-                        // Para exibir o mesmo "tamanho do padrão" da UI, usar o tamanho do padrão COMPLETO.
-                        // (na renderização, o expected_next aparece como um quadrado à esquerda)
+                        // Para exibir o "tamanho do padrão" na UI:
+                        // - NÃO conta trigger (cor de disparo)
+                        // - conta apenas o padrão completo (após o disparo)
                         patternLength: fullNeed,
                         galeStats: {
                             maxStageTracked: MAX_GALE_STAGE_TRACKED,
