@@ -24697,6 +24697,37 @@ function logModeSnapshotUI(snapshot) {
     }
     let isWebSocketConnected = true; // Assume conectado inicialmente
     let historyPollingInterval = null; // Intervalo de polling para histórico
+
+    // ✅ Watchdog do mobile:
+    // Se o content parar de receber NEW_SPIN (por domínio/subdomínio/bug de mensagem),
+    // fazemos fallback local via /api/giros/latest para manter a barra do giro atualizando.
+    let lastRealtimeSpinUpdateAt = 0;
+    let realtimeSpinWatchdogInterval = null;
+    const REALTIME_SPIN_STALE_MS = 45000; // ~1 giro e meio no pior caso
+
+    function markRealtimeSpinUpdate() {
+        try { lastRealtimeSpinUpdateAt = Date.now(); } catch (_) { lastRealtimeSpinUpdateAt = 0; }
+    }
+
+    function startRealtimeSpinWatchdog() {
+        try {
+            if (realtimeSpinWatchdogInterval) return;
+            // Base inicial: se já tem histórico, considerar "atualizado"
+            if (!lastRealtimeSpinUpdateAt && Array.isArray(currentHistoryData) && currentHistoryData.length) {
+                markRealtimeSpinUpdate();
+            }
+            realtimeSpinWatchdogInterval = setInterval(() => {
+                try {
+                    const now = Date.now();
+                    const last = Number(lastRealtimeSpinUpdateAt) || 0;
+                    if (!last || (now - last) > REALTIME_SPIN_STALE_MS) {
+                        // não depende do background; usa o endpoint mínimo
+                        pollLatestSpinAndUpdateUI();
+                    }
+                } catch (_) {}
+            }, 10000);
+        } catch (_) {}
+    }
     
     // ✅ Fallback LEVE (anti-travamento):
     // Quando o WebSocket cai, NÃO puxar 10k giros em loop (isso congela o navegador).
@@ -24856,6 +24887,7 @@ function logModeSnapshotUI(snapshot) {
     function updateHistoryUIInstant(newSpin) {
         // ⚠️ Importante: o número pode ser 0 (BRANCO). Não usar checagem "falsy".
         if (!newSpin || newSpin.number === undefined || newSpin.number === null) return;
+        markRealtimeSpinUpdate();
 
         // ✅ Manter o card "Padrão" (Últimos X giros) sempre sincronizado com o buffer local,
         // mesmo quando o giro for duplicado e a UI do histórico não precisar re-renderizar.
@@ -25011,6 +25043,7 @@ function logModeSnapshotUI(snapshot) {
         try {
             const arr = Array.isArray(spins) ? spins : [];
             if (!arr.length) return false;
+            markRealtimeSpinUpdate();
 
             // ✅ Atualizar buffer
             currentHistoryData = arr;
@@ -25291,6 +25324,9 @@ function logModeSnapshotUI(snapshot) {
         if (!appliedFromBackground || lenNow < 2000) {
             updateHistoryUIFromServer();
         }
+
+        // ✅ Sempre ligar watchdog (principalmente no mobile)
+        startRealtimeSpinWatchdog();
     }
     
     // Carregar configurações e banco de padrões ao iniciar

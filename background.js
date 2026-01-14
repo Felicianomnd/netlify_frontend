@@ -30850,17 +30850,17 @@ async function sendMessageToContent(type, data = null) {
                     const host = String(u.hostname || '').toLowerCase().trim();
                     if (!host) return false;
                     // ✅ Deve cobrir TODOS os domínios suportados no manifest desta extensão.
-                    const allowed = new Set([
+                    const allowed = [
                         'blaze.bet.br',
                         'blaze.com',
                         'blaze1.space',
                         'blaze-1.com',
                         'blaze-bet.com'
-                    ]);
-                    if (allowed.has(host)) return true;
-                    // Alguns mirrors usam subdomínios (ex.: www.blaze.com)
+                    ];
+                    // ✅ Aceitar domínio base e QUALQUER subdomínio (mobile geralmente usa m.*)
                     for (const base of allowed) {
-                        if (host === `www.${base}`) return true;
+                        if (host === base) return true;
+                        if (host.endsWith(`.${base}`)) return true;
                     }
                     return false;
                 } catch (_) {
