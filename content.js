@@ -16063,24 +16063,27 @@ async function persistAnalyzerState(newState) {
     function getUnderRhythmLastSpinsLimit() {
         try {
             const desktop = (typeof isDesktop === 'function') ? isDesktop() : (window.innerWidth > 768);
-            if (!desktop) {
-                // 📱 Mobile: 7 em 1 linha + “peek” do mais antigo (meio cortado)
-                return PATTERN_LAST_SPINS_LIMIT_MOBILE + 1;
-            }
-
             const el = document.getElementById('daLastSpinsUnderBar');
-            if (!el || !el.getBoundingClientRect) return PATTERN_LAST_SPINS_LIMIT_DESKTOP;
+            if (!el || !el.getBoundingClientRect) {
+                // fallback: ainda assim tenta manter o “peek”
+                return desktop ? (PATTERN_LAST_SPINS_LIMIT_DESKTOP + 1) : (PATTERN_LAST_SPINS_LIMIT_MOBILE + 2);
+            }
             const r = el.getBoundingClientRect();
             const w = r && r.width ? Number(r.width) : 0;
-            if (!(w > 0)) return PATTERN_LAST_SPINS_LIMIT_DESKTOP;
+            if (!(w > 0)) {
+                return desktop ? (PATTERN_LAST_SPINS_LIMIT_DESKTOP + 1) : (PATTERN_LAST_SPINS_LIMIT_MOBILE + 2);
+            }
 
-            // Deve caber sem quebrar: calcula quantos itens cabem com o tamanho NORMAL do ícone + textos
-            const item = 38; // acompanha a largura do .spin-history-item-wrap no underbar
-            const gap = 6;
+            // Calcula quantos cabem + 1 extra para forçar o “corte” (peek Blaze)
+            // Desktop e Mobile usam espaçamentos diferentes.
+            const item = desktop ? 38 : 39; // acompanha a largura do .spin-history-item-wrap no underbar
+            const gap = desktop ? 6 : 3;
             const maxFit = Math.floor((w + gap) / (item + gap));
-            const cap = 30; // evita linha absurda em telas gigantes
-            const safeFit = maxFit > 0 ? maxFit : PATTERN_LAST_SPINS_LIMIT_DESKTOP;
-            // ✅ Efeito "Blaze": renderiza +1 (o mais antigo fica meio cortado à esquerda)
+            const cap = desktop ? 30 : 20; // evita linha absurda
+            const base = desktop ? PATTERN_LAST_SPINS_LIMIT_DESKTOP : PATTERN_LAST_SPINS_LIMIT_MOBILE;
+            const safeFit = maxFit > 0 ? maxFit : base;
+            // ✅ Força o “saindo da tela”: sempre +1 acima do que coube por largura
+            // (se couber 8, mostramos 9; se couber 9, mostramos 10, etc.)
             const want = safeFit + 1;
             return Math.max(7, Math.min(cap, want));
         } catch (_) {

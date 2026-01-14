@@ -1698,7 +1698,7 @@
   width: 100%;
   box-sizing: border-box;
   margin: -4px 0 10px 0; /* encosta visualmente na barra */
-  padding: 0 0 0 var(--da-underbar-cut); /* ✅ reduz espaço útil p/ forçar “meio giro” */
+  padding: 0; /* ✅ sem padding: permite o item “invadir” e ser cortado pelo overflow */
   display: flex;
   align-items: flex-start;
   justify-content: flex-end; /* ✅ mais recente rente à direita (padrão Blaze) */
@@ -1762,12 +1762,12 @@
 
 @media (max-width: 520px) {
   .da-lastspins-underbar {
-    --da-underbar-cut: 18px; /* 📱 “meio giro” no mobile */
+    --da-underbar-cut: 16px; /* 📱 corte mais sutil */
     margin: -2px 0 10px 0;
-    gap: 4px; /* 📱 mais próximo um do outro */
+    gap: 3px; /* 📱 mais próximo um do outro (pra caber +1 e ainda cortar) */
   }
   .da-lastspins-underbar .spin-history-item-wrap {
-    width: 40px; /* 📱 mais justo pra caber 7 + meio */
+    width: 39px; /* 📱 mais justo pra caber mais 1 e sobrar “peek” */
   }
   .da-lastspins-underbar .spin-history-quadrado {
     width: 36px;
