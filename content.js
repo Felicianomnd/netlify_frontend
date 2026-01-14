@@ -21324,7 +21324,12 @@ function logModeSnapshotUI(snapshot) {
     function computeSpinKey(spin) {
         try {
             if (!spin || typeof spin !== 'object') return null;
-            return spin.timestamp || spin.created_at || `${spin.number ?? ''}-${spin.color ?? ''}`;
+            // ✅ Alguns servidores podem repetir o mesmo timestamp (ou truncar por minuto).
+            // Para detectar giro novo de forma robusta (desktop + mobile), incluir número/cor no key.
+            const ts = spin.timestamp ?? spin.created_at ?? spin.createdAt ?? spin.time ?? '';
+            const num = spin.number ?? spin.roll ?? '';
+            const clr = spin.color ?? '';
+            return `${ts}|${num}|${clr}`;
         } catch (_) { return null; }
     }
 
@@ -24989,6 +24994,7 @@ function logModeSnapshotUI(snapshot) {
             const maxCheck = Math.min(currentHistoryData.length, 60);
             const newTs = newSpin.timestamp;
             const newNum = newSpin.number;
+            const newColor = newSpin.color;
             // ✅ Compat/robustez (servidor pode entregar timestamp em segundos):
             // usar o mesmo parser que o resto do app usa para normalizar segundos→ms.
             const newTime = parseSpinTimestampMsLocal(newSpin) || NaN;
@@ -24997,13 +25003,22 @@ function logModeSnapshotUI(snapshot) {
             for (let i = 0; i < maxCheck; i++) {
                 const spin = currentHistoryData[i];
                 if (!spin) continue;
-                
-                if (spin.timestamp === newTs) {
+
+                // ✅ Dedupe robusto:
+                // - NÃO dedupar apenas por timestamp (servidor pode repetir/truncar)
+                // - dedupar quando (timestamp + número + cor) bate, ou quando (número+cor) bate e o tempo é muito próximo
+                const spinNum = spin.number;
+                const spinColor = spin.color;
+                const sameNum = (spinNum === newNum);
+                const sameColor = (spinColor === newColor) || (!spinColor && !newColor);
+                const sameTs = (spin.timestamp != null && newTs != null && String(spin.timestamp) === String(newTs));
+
+                if (sameTs && sameNum && sameColor) {
                     exists = true;
                     break;
                 }
-                
-                if (spin.number === newNum) {
+
+                if (sameNum && sameColor) {
                     const spinTime = parseSpinTimestampMsLocal(spin) || NaN;
                     if (Number.isFinite(spinTime) && Number.isFinite(newTime) && Math.abs(spinTime - newTime) < 2000) {
                         exists = true;
@@ -25016,6 +25031,9 @@ function logModeSnapshotUI(snapshot) {
             if (exists) {
                 // Ainda assim, manter o card "Padrão" sincronizado (evita ficar 1 giro atrasado)
                 syncPatternLastSpinsUI();
+                // ✅ Ainda assim, garantir que a barra fique alinhada com o histórico atual
+                // (evita “travado em Aguardando giro...” quando o servidor repete timestamp e o dedupe segura)
+                try { startSpinRhythmCountdownFromHistory(currentHistoryData); } catch (_) {}
                 return;
             }
             
