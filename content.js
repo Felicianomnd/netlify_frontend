@@ -10337,15 +10337,25 @@ autoBetHistoryStore.init().catch(error => console.warn('AutoBetHistory: iniciali
                 @media (max-width: 520px) {
                     /* ✅ Mobile: Painel de saldo em 1 container “chapado” com divisórias (igual ao card Analisando/Último giro) */
                     .auto-bet-summary {
-                        background: #0f1720;
-                        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.28);
+                        /* igual ao container do "Analisando/Último giro" */
+                        background: rgba(0, 0, 0, 0.18);
+                        border: 1px solid rgba(255, 255, 255, 0.06);
+                        border-radius: var(--radius-subtle);
+                        overflow: hidden;
+                        /* borda precisa ficar rente ao fundo (sem “borda dentro”) */
+                        padding: 0;
+                        box-shadow: none;
+                    }
+                    .auto-bet-summary-header {
+                        padding: 10px 12px;
                     }
                     .auto-bet-summary-body {
                         flex-direction: column;
                         gap: 0;
-                        border: 1px solid rgba(255, 255, 255, 0.06);
-                        border-radius: 4px;
-                        overflow: hidden;
+                        /* a borda externa fica no container .auto-bet-summary */
+                        border: none;
+                        border-radius: 0;
+                        overflow: visible;
                     }
                     .auto-bet-active-bets {
                         grid-template-columns: 1fr;
@@ -10357,6 +10367,8 @@ autoBetHistoryStore.init().catch(error => console.warn('AutoBetHistory: iniciali
                         gap: 0;
                         align-items: stretch;
                         min-width: 0;
+                        /* divisor encostando na borda externa */
+                        border-bottom: 1px solid rgba(255, 255, 255, 0.06);
                     }
                     .auto-bet-actions .auto-bet-config-launcher {
                         border-radius: 0;
@@ -10372,7 +10384,8 @@ autoBetHistoryStore.init().catch(error => console.warn('AutoBetHistory: iniciali
                         order: 1;
                         grid-template-columns: 1fr 1fr;
                         gap: 0;
-                        border-top: 1px solid rgba(255, 255, 255, 0.06);
+                        /* já tem divisor vindo da área de botões; manter aqui por segurança */
+                        border-top: none;
                     }
                     .auto-bet-summary-item {
                         background: transparent;
