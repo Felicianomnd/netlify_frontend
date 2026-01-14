@@ -1694,10 +1694,11 @@
    - Mobile: 7 em 1 linha
    ═══════════════════════════════════════════════════════════════ */
 .da-lastspins-underbar {
+  --da-underbar-cut: 22px; /* ✅ quanto “corta” o mais antigo (efeito Blaze) */
   width: 100%;
   box-sizing: border-box;
   margin: -4px 0 10px 0; /* encosta visualmente na barra */
-  padding: 0; /* ✅ sem recuo: alinhar rente com a barra */
+  padding: 0 0 0 var(--da-underbar-cut); /* ✅ reduz espaço útil p/ forçar “meio giro” */
   display: flex;
   align-items: flex-start;
   justify-content: flex-end; /* ✅ mais recente rente à direita (padrão Blaze) */
@@ -1714,14 +1715,10 @@
   left: 0;
   top: 0;
   bottom: 0;
-  width: 26px; /* largura do fade */
+  width: var(--da-underbar-cut); /* largura do fade */
   pointer-events: none;
   z-index: 5;
-  background: linear-gradient(
-    to right,
-    var(--bg-primary) 0%,
-    rgba(15, 25, 35, 0.0) 100%
-  );
+  background: linear-gradient(to right, var(--bg-primary) 0%, transparent 100%);
 }
 
 /* Reaproveita o layout dos quadradinhos, tamanho NORMAL + horário */
@@ -1765,10 +1762,12 @@
 
 @media (max-width: 520px) {
   .da-lastspins-underbar {
+    --da-underbar-cut: 18px; /* 📱 “meio giro” no mobile */
     margin: -2px 0 10px 0;
+    gap: 4px; /* 📱 mais próximo um do outro */
   }
   .da-lastspins-underbar .spin-history-item-wrap {
-    width: 44px;
+    width: 40px; /* 📱 mais justo pra caber 7 + meio */
   }
   .da-lastspins-underbar .spin-history-quadrado {
     width: 36px;

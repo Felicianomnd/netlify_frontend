@@ -16063,7 +16063,10 @@ async function persistAnalyzerState(newState) {
     function getUnderRhythmLastSpinsLimit() {
         try {
             const desktop = (typeof isDesktop === 'function') ? isDesktop() : (window.innerWidth > 768);
-            if (!desktop) return PATTERN_LAST_SPINS_LIMIT_MOBILE; // 7 fixo no mobile
+            if (!desktop) {
+                // 📱 Mobile: 7 em 1 linha + “peek” do mais antigo (meio cortado)
+                return PATTERN_LAST_SPINS_LIMIT_MOBILE + 1;
+            }
 
             const el = document.getElementById('daLastSpinsUnderBar');
             if (!el || !el.getBoundingClientRect) return PATTERN_LAST_SPINS_LIMIT_DESKTOP;
