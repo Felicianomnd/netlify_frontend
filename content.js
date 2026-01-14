@@ -24989,7 +24989,9 @@ function logModeSnapshotUI(snapshot) {
             const maxCheck = Math.min(currentHistoryData.length, 60);
             const newTs = newSpin.timestamp;
             const newNum = newSpin.number;
-            const newTime = newTs ? new Date(newTs).getTime() : NaN;
+            // ✅ Compat/robustez (servidor pode entregar timestamp em segundos):
+            // usar o mesmo parser que o resto do app usa para normalizar segundos→ms.
+            const newTime = parseSpinTimestampMsLocal(newSpin) || NaN;
             
             let exists = false;
             for (let i = 0; i < maxCheck; i++) {
@@ -25002,7 +25004,7 @@ function logModeSnapshotUI(snapshot) {
                 }
                 
                 if (spin.number === newNum) {
-                    const spinTime = spin.timestamp ? new Date(spin.timestamp).getTime() : NaN;
+                    const spinTime = parseSpinTimestampMsLocal(spin) || NaN;
                     if (Number.isFinite(spinTime) && Number.isFinite(newTime) && Math.abs(spinTime - newTime) < 2000) {
                         exists = true;
                         break;
