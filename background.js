@@ -179,7 +179,7 @@ function getDiamondConfigSnapshot() {
         ['N4', `Hist ${getDiamondWindow('n4Persistence', DEFAULT_ANALYZER_CONFIG.diamondLevelWindows.n4Persistence)}`],
         ['N5', `${getDiamondWindow('n5MinuteBias', 60)} amostras`],
         ['N6', `${getDiamondWindow('n6RetracementWindow', 80)} giros`],
-        ['N7', `Dec ${getDiamondWindow('n7DecisionWindow', 20)} | Hist ${getDiamondWindow('n7HistoryWindow', 100)}`],
+        ['N7', 'Auto (Dec 20 | Hist 100)'],
         ['N8', `Barreira 1 (oposta) → ${getDiamondWindow('n8Barrier1', getDiamondWindow('n8Barrier', 50))} giros`],
         ['N9', `Barreira 2 (indicada) → ${getDiamondWindow('n8Barrier', 50)} giros`],
         ['N10', 'Janela 8-10 giros (barreira inteligente)']
@@ -1766,12 +1766,9 @@ function buildDiamondGalePhaseAnalysis({ history, phase, preferredColor, fallbac
     const n8Enabled = isDiamondLevelEnabled('N8', cfg);
     const n9Enabled = isDiamondLevelEnabled('N9', cfg);
     const n10Enabled = isDiamondLevelEnabled('N10', cfg);
-    const n7DecisionWindow = (cfg === analyzerConfig)
-        ? getDiamondWindow('n7DecisionWindow', 20)
-        : getDiamondWindowFromConfig(cfg, 'n7DecisionWindow', 20);
-    const n7HistoryWindow = (cfg === analyzerConfig)
-        ? getDiamondWindow('n7HistoryWindow', 100)
-        : getDiamondWindowFromConfig(cfg, 'n7HistoryWindow', 100);
+    // N7: autoajuste (não usar configuração do usuário)
+    const n7DecisionWindow = 20;
+    const n7HistoryWindow = 100;
     const n7MaxWindow = Math.max(10, Math.min(50, Math.floor(Number(n7DecisionWindow) || 20)));
     const n7HistWindow = Math.max(n7MaxWindow, Math.min(2000, Math.floor(Number(n7HistoryWindow) || 100)));
     const n8Window = (cfg === analyzerConfig)
@@ -1967,12 +1964,9 @@ function buildDiamondNoSignalReport({ history, config }) {
         const n9Enabled = isDiamondLevelEnabled('N9', cfg);
         const n10Enabled = isDiamondLevelEnabled('N10', cfg);
         const n7Enabled = isDiamondLevelEnabled('N7', cfg);
-        const n7DecisionWindow = (cfg === analyzerConfig)
-            ? getDiamondWindow('n7DecisionWindow', 20)
-            : getDiamondWindowFromConfig(cfg, 'n7DecisionWindow', 20);
-        const n7HistoryWindow = (cfg === analyzerConfig)
-            ? getDiamondWindow('n7HistoryWindow', 100)
-            : getDiamondWindowFromConfig(cfg, 'n7HistoryWindow', 100);
+        // N7: autoajuste (não usar configuração do usuário)
+        const n7DecisionWindow = 20;
+        const n7HistoryWindow = 100;
         const n7MaxWindow = Math.max(10, Math.min(50, Math.floor(Number(n7DecisionWindow) || 20)));
         const n7HistWindow = Math.max(n7MaxWindow, Math.min(2000, Math.floor(Number(n7HistoryWindow) || 100)));
         const n8Window = (cfg === analyzerConfig)
@@ -12446,7 +12440,8 @@ function validateN7ApexPercentageBarrier(history, candidateColor, options = {}) 
         }
 
         const maxWindowRaw = Math.floor(Number(options.maxWindow ?? options.decisionWindow ?? 20) || 20);
-        const maxWindow = Math.max(8, Math.min(200, maxWindowRaw));
+        const histArr = Array.isArray(history) ? history : [];
+        const maxWindow = Math.max(8, Math.min(200, Math.min(maxWindowRaw, histArr.length || maxWindowRaw)));
         const historyWindowsRaw = Math.floor(Number(options.historyWindow ?? options.historyLimit ?? 100) || 100);
         const historyWindows = Math.max(20, Math.min(2000, historyWindowsRaw));
         const step = Math.max(1, Math.floor(maxWindow / 4));
@@ -12456,7 +12451,7 @@ function validateN7ApexPercentageBarrier(history, candidateColor, options = {}) 
             const raw = [step, step * 2, step * 3, maxWindow];
             const uniq = [];
             raw.forEach((n) => {
-                const v = Math.max(2, Math.floor(Number(n) || 2));
+                const v = Math.max(2, Math.floor(Math.min(Number(n) || 2, histArr.length || Number(n) || 2)));
                 if (!uniq.includes(v)) uniq.push(v);
             });
             while (uniq.length < 4) {
@@ -12466,7 +12461,6 @@ function validateN7ApexPercentageBarrier(history, candidateColor, options = {}) 
             return uniq.slice(0, 4);
         })();
 
-        const histArr = Array.isArray(history) ? history : [];
         if (histArr.length < Math.max(8, windowSizes[0] || 8)) {
             // Fail-open com pouco histórico: não bloquear por falta de base.
             return {
@@ -12480,7 +12474,8 @@ function validateN7ApexPercentageBarrier(history, candidateColor, options = {}) 
 
         const computeWindowStats = (w) => {
             const windowSize = Math.max(2, Math.floor(Number(w) || 2));
-            const maxOffsets = Math.max(1, Math.min(historyWindows, histArr.length - windowSize + 1));
+            const availableOffsets = Math.max(0, histArr.length - windowSize + 1);
+            const maxOffsets = Math.max(1, availableOffsets);
             let samples = 0;
             let minRed = Infinity, maxRed = -Infinity;
             let minBlack = Infinity, maxBlack = -Infinity;
@@ -12527,9 +12522,22 @@ function validateN7ApexPercentageBarrier(history, candidateColor, options = {}) 
         };
 
         const candidates = [];
+        const windowSnapshots = [];
         for (const w of windowSizes) {
             const stats = computeWindowStats(w);
             if (!stats) continue;
+            windowSnapshots.push({
+                windowSize: stats.windowSize,
+                samples: stats.samples,
+                maxOffsets: stats.maxOffsets,
+                current: {
+                    redPct: stats.current.redPct,
+                    blackPct: stats.current.blackPct,
+                    whitePct: stats.current.whitePct
+                },
+                min: { red: stats.min.red, black: stats.min.black },
+                max: { red: stats.max.red, black: stats.max.black }
+            });
             const sampleFactor = Math.max(0, Math.min(1, stats.samples / Math.max(1, stats.maxOffsets)));
             const curR = stats.current.redPct;
             const curB = stats.current.blackPct;
@@ -12590,13 +12598,30 @@ function validateN7ApexPercentageBarrier(history, candidateColor, options = {}) 
 
         const fmtPct = (x) => `${(Number(x) || 0).toFixed(1)}%`;
         const s = best.stats;
+        const n7Payload = {
+            windows: windowSnapshots,
+            chosen: {
+                windowSize: best.windowSize,
+                kind: best.kind,
+                baseColor: best.baseColor,
+                recommendedColor,
+                candidateColor: cand
+            },
+            history: {
+                available: histArr.length,
+                requestedWindows: historyWindows,
+                usedOffsets: s.maxOffsets
+            }
+        };
+
         const detailsCore =
-            `Sugere ${ptColor(recommendedColor)} • Janela ${best.windowSize}` +
+            `Sugere ${ptColor(recommendedColor)} • Janela ${best.windowSize} giros` +
             ` • ${kindLabel} do ${baseLabel}` +
-            ` • Vermelho ${fmtPct(s.current.redPct)} [${fmtPct(s.min.red)}–${fmtPct(s.max.red)}]` +
-            ` • Preto ${fmtPct(s.current.blackPct)} [${fmtPct(s.min.black)}–${fmtPct(s.max.black)}]` +
+            ` • Vermelho ${fmtPct(s.current.redPct)} (${fmtPct(s.min.red)}–${fmtPct(s.max.red)})` +
+            ` • Preto ${fmtPct(s.current.blackPct)} (${fmtPct(s.min.black)}–${fmtPct(s.max.black)})` +
             (typeof s.current.whitePct === 'number' ? ` • Branco ${fmtPct(s.current.whitePct)}` : '') +
-            ` • Amostras ${s.samples}/${s.maxOffsets}`;
+            ` • Amostras ${s.samples}/${s.maxOffsets}` +
+            ` [[N7DATA]]${JSON.stringify(n7Payload)}[[/N7DATA]]`;
         const details = allowed
             ? `APROVADO • ${detailsCore}`
             : `BLOQUEADO • ${detailsCore} • Candidata ${ptColor(cand)}`;
@@ -12618,7 +12643,8 @@ function validateN7ApexPercentageBarrier(history, candidateColor, options = {}) 
                     score: Number(best.score.toFixed(4)),
                     normDist: Number(best.normDist.toFixed(4)),
                     distance: Number(best.distance.toFixed(4))
-                }
+                },
+                n7Payload
             }
         };
     } catch (e) {
@@ -21009,8 +21035,9 @@ async function analyzeWithPatternSystem(history) {
     const n4Window = getDiamondWindow('n4Persistence', DEFAULT_ANALYZER_CONFIG.diamondLevelWindows.n4Persistence);
     const n5Window = getDiamondWindow('n5MinuteBias', 60);
     const n6Window = getDiamondWindow('n6RetracementWindow', 80);
-    const n7DecisionWindow = getDiamondWindow('n7DecisionWindow', 20);
-    const n7HistoryWindow = getDiamondWindow('n7HistoryWindow', 100);
+    // N7: autoajuste (não usar configuração do usuário)
+    const n7DecisionWindow = 20;
+    const n7HistoryWindow = 100;
     const n8Barrier1Window = getDiamondWindow('n8Barrier1', getDiamondWindow('n8Barrier', 50));
     const n9BarrierWindow = getDiamondWindow('n8Barrier', 50);
     const displayValue = (key, fallback, ...legacyKeys) => {
@@ -21036,7 +21063,7 @@ async function analyzeWithPatternSystem(history) {
         ['N4', `Hist ${n4Window}`],
         ['N5', `${n5Window} amostras`],
         ['N6', `${n6Window} giros`],
-        ['N7', `Decisões ${n7DecisionWindow} | Histórico ${n7HistoryWindow}`],
+        ['N7', `Auto (Decisões ${n7DecisionWindow} | Histórico ${n7HistoryWindow})`],
         ['N8', `Barreira 1 (oposta) → ${n8Barrier1Window} giros`],
         ['N9', `Barreira 2 (indicada) → ${n9BarrierWindow} giros`],
         ['N10', 'Janela 8-10 giros (barreira inteligente)']
@@ -21053,7 +21080,7 @@ async function analyzeWithPatternSystem(history) {
     const isN4Custom = n4Window !== DEFAULT_ANALYZER_CONFIG.diamondLevelWindows.n4Persistence;
     const isN5Custom = n5Window !== 60;
     const isN6Custom = n6Window !== 80;
-    const isN7Custom = n7DecisionWindow !== 20 || n7HistoryWindow !== 100;
+    const isN7Custom = false;
     const isN8Custom = n8Barrier1Window !== 50;
     const isN9Custom = n9BarrierWindow !== 50;
     
@@ -22019,8 +22046,9 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
 		});
 
 		const n7Enabled = isLevelEnabledLocal('N7');
-		const decisionWindowConfigured = Math.max(10, Math.min(50, getDiamondWindow('n7DecisionWindow', 20)));
-		const historyWindowConfigured = Math.max(decisionWindowConfigured, Math.min(200, getDiamondWindow('n7HistoryWindow', 100)));
+		// N7: autoajuste (não usar configuração do usuário)
+		const decisionWindowConfigured = 20;
+		const historyWindowConfigured = 100;
 		const n7Report = {
 			id: 'N7',
 			name: 'Barreira (Ápice %)',
@@ -22029,7 +22057,7 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
 			strength: 0,
 			score: 0,
 			details: n7Enabled
-				? `PENDENTE • Wmáx ${decisionWindowConfigured} | Hist ${historyWindowConfigured}`
+				? `PENDENTE • Auto (Wmáx ${decisionWindowConfigured} | Hist ${historyWindowConfigured})`
 				: 'DESATIVADO',
             disabled: !n7Enabled,
             meta: { maxWindow: decisionWindowConfigured, historyWindow: historyWindowConfigured }
@@ -36314,8 +36342,9 @@ function analyzeDiamondLevelsSimulation(history, config, simState) {
 
     // N7 - Barreira (Ápice %)
     const n7Enabled = isLevelEnabledLocal('N7');
-    const decisionWindowConfigured = Math.max(10, Math.min(50, getDiamondWindowFromConfig(config, 'n7DecisionWindow', 20)));
-    const historyWindowConfigured = Math.max(decisionWindowConfigured, Math.min(200, getDiamondWindowFromConfig(config, 'n7HistoryWindow', 100)));
+    // N7: autoajuste (não usar configuração do usuário)
+    const decisionWindowConfigured = 20;
+    const historyWindowConfigured = 100;
     const n7Report = {
         id: 'N7',
         name: 'Barreira (Ápice %)',
@@ -38441,5 +38470,3 @@ console.log('%c✅ Listeners de visibilidade instalados!', 'color: #00FF88; font
 console.log('%c   - Detectará quando usuário voltar para aba da Blaze', 'color: #00FF88;');
 console.log('%c   - Reconectará automaticamente se necessário', 'color: #00FF88;');
 console.log('%c   - Critical para funcionamento no mobile', 'color: #00FF88;');
-
-

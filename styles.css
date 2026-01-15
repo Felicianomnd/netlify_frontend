@@ -5923,6 +5923,85 @@
     line-height: 1.35;
 }
 
+.diamond-n7-panel {
+    margin-top: 10px;
+    padding: 8px;
+    border: 1px solid var(--stroke-subtle);
+    border-radius: var(--radius-subtle);
+    background: rgba(255, 255, 255, 0.03);
+}
+
+.diamond-n7-header {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    margin-bottom: 8px;
+}
+
+.diamond-n7-title {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--da-text);
+}
+
+.diamond-n7-meta {
+    font-size: 11px;
+    color: var(--da-text-muted);
+}
+
+.diamond-n7-bars {
+    display: grid;
+    gap: 8px;
+}
+
+.diamond-n7-bar-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 11px;
+    color: var(--da-text-muted);
+    margin-bottom: 4px;
+}
+
+.diamond-n7-bar-label {
+    font-weight: 700;
+    color: var(--da-text);
+}
+
+.diamond-n7-bar-track {
+    position: relative;
+    height: 8px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.06);
+    overflow: hidden;
+}
+
+.diamond-n7-bar-range {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.12);
+}
+
+.diamond-n7-bar-marker {
+    position: absolute;
+    top: -3px;
+    width: 2px;
+    height: 14px;
+    border-radius: 2px;
+    background: #ffffff;
+    box-shadow: 0 0 6px rgba(255, 255, 255, 0.4);
+}
+
+.diamond-n7-red .diamond-n7-bar-range {
+    background: rgba(244, 67, 54, 0.35);
+}
+
+.diamond-n7-black .diamond-n7-bar-range {
+    background: rgba(76, 76, 94, 0.5);
+}
+
 .diamond-reasoning-empty {
     color: var(--da-text-muted);
     font-size: 12.5px;
@@ -10836,6 +10915,17 @@ body.da-ext-fullscreen #patternDetailsModal .bank-patterns-modal-content {
     color: rgba(255, 255, 255, 0.65);
 }
 
+.diamond-level-auto input:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+.diamond-level-auto-note {
+    color: rgba(255, 255, 255, 0.65);
+    font-size: 12px;
+    margin-top: 6px;
+}
+
 #diamondLevelsModal button.btn-hot-pattern,
 #diamondLevelsModal .btn-secondary {
     min-width: 120px;
@@ -12754,4 +12844,3 @@ body.da-ext-fullscreen #patternDetailsModal .bank-patterns-modal-content {
     color: rgba(233, 242, 255, 0.95);
   }
 }
-

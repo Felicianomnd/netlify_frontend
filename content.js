@@ -3672,21 +3672,24 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                             <div class="diamond-level-note">
                                 Calcula o “ápice” da porcentagem (piso/teto) de VERMELHO/PRETO em 4 janelas deslizantes curtas (ex.: 5/10/15/20). A barreira sempre gera uma base e aprova o sinal apenas quando a cor candidata bate com o ápice previsto.
                             </div>
-                            <div class="diamond-level-double">
+                            <div class="diamond-level-double diamond-level-auto">
                                 <div>
                                     <span>W máximo (giros)</span>
-                                    <input type="number" id="diamondN7DecisionWindow" min="10" max="50" value="20" />
+                                    <input type="number" id="diamondN7DecisionWindow" min="10" max="50" value="20" disabled />
                                     <span class="diamond-level-subnote">
-                                        Define 4 janelas curtas (ex.: 20 → 5/10/15/20)
+                                        Ajuste automático com base no histórico disponível
                                     </span>
                                 </div>
                                 <div>
                                     <span>Histórico (janelas)</span>
-                                    <input type="number" id="diamondN7HistoryWindow" min="50" max="200" value="100" />
+                                    <input type="number" id="diamondN7HistoryWindow" min="50" max="200" value="100" disabled />
                                     <span class="diamond-level-subnote">
-                                        Quantas janelas deslizantes usar para medir piso/teto
+                                        Profundidade cresce automaticamente até ter base sólida
                                     </span>
                                 </div>
+                            </div>
+                            <div class="diamond-level-subnote diamond-level-auto-note">
+                                Este nível se autoajusta (janela e profundidade). Não há configuração manual.
                             </div>
                         </div>
                         <div class="diamond-level-field" data-level="n8">
@@ -7036,8 +7039,9 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
             n4DynamicGales: getCheckboxValue('diamondN4DynamicGales', DIAMOND_LEVEL_DEFAULTS.n4DynamicGales),
             n5MinuteBias: getNumber('diamondN5MinuteBias', 10, 200, DIAMOND_LEVEL_DEFAULTS.n5MinuteBias),
             n6RetracementWindow: getNumber('diamondN6Retracement', 30, 120, DIAMOND_LEVEL_DEFAULTS.n6RetracementWindow),
-            n7DecisionWindow: getNumber('diamondN7DecisionWindow', 10, 50, DIAMOND_LEVEL_DEFAULTS.n7DecisionWindow),
-            n7HistoryWindow: getNumber('diamondN7HistoryWindow', 50, 200, DIAMOND_LEVEL_DEFAULTS.n7HistoryWindow),
+            // N7: ajuste automático (não permitir configuração manual)
+            n7DecisionWindow: DIAMOND_LEVEL_DEFAULTS.n7DecisionWindow,
+            n7HistoryWindow: DIAMOND_LEVEL_DEFAULTS.n7HistoryWindow,
             n8Barrier1: getNumber('diamondN8Barrier1', 1, null, DIAMOND_LEVEL_DEFAULTS.n8Barrier1),
             n8Barrier: getNumber('diamondN8Barrier', 1, null, DIAMOND_LEVEL_DEFAULTS.n8Barrier),
             n9History: getNumber('diamondN9History', 30, 400, DIAMOND_LEVEL_DEFAULTS.n9History),
@@ -7048,9 +7052,6 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
         };
 
         // N2: n2Previous espelhado, sem validação min/max (o código ajusta automaticamente)
-        if (newWindows.n7HistoryWindow < newWindows.n7DecisionWindow) {
-            throw new Error('O histórico base do N7 deve ser maior ou igual ao número de decisões analisadas.');
-        }
 
         const newEnabled = {
             n0: getToggleValue('diamondLevelToggleN0', DIAMOND_LEVEL_ENABLE_DEFAULTS.n0),
@@ -7846,8 +7847,9 @@ function showCenteredNotice(message, options = {}) {
         setCheckbox('diamondN4DynamicGales', getBoolean('n4DynamicGales', DIAMOND_LEVEL_DEFAULTS.n4DynamicGales));
         setInput('diamondN5MinuteBias', getValue('n5MinuteBias', DIAMOND_LEVEL_DEFAULTS.n5MinuteBias));
         setInput('diamondN6Retracement', getValue('n6RetracementWindow', DIAMOND_LEVEL_DEFAULTS.n6RetracementWindow));
-        setInput('diamondN7DecisionWindow', getValue('n7DecisionWindow', DIAMOND_LEVEL_DEFAULTS.n7DecisionWindow));
-        setInput('diamondN7HistoryWindow', getValue('n7HistoryWindow', DIAMOND_LEVEL_DEFAULTS.n7HistoryWindow));
+        // N7: autoajuste (sempre exibir defaults)
+        setInput('diamondN7DecisionWindow', DIAMOND_LEVEL_DEFAULTS.n7DecisionWindow);
+        setInput('diamondN7HistoryWindow', DIAMOND_LEVEL_DEFAULTS.n7HistoryWindow);
         setInput('diamondN8Barrier1', getValue('n8Barrier1', DIAMOND_LEVEL_DEFAULTS.n8Barrier1));
         setInput('diamondN8Barrier', getValue('n8Barrier', DIAMOND_LEVEL_DEFAULTS.n8Barrier));
         setInput('diamondN9History', getValue('n9History', DIAMOND_LEVEL_DEFAULTS.n9History));
@@ -8028,8 +8030,9 @@ function showCenteredNotice(message, options = {}) {
             n4DynamicGales: getCheckboxValue('diamondN4DynamicGales', DIAMOND_LEVEL_DEFAULTS.n4DynamicGales),
             n5MinuteBias: getNumber('diamondN5MinuteBias', 10, 200, DIAMOND_LEVEL_DEFAULTS.n5MinuteBias),
             n6RetracementWindow: getNumber('diamondN6Retracement', 30, 120, DIAMOND_LEVEL_DEFAULTS.n6RetracementWindow),
-            n7DecisionWindow: getNumber('diamondN7DecisionWindow', 10, 50, DIAMOND_LEVEL_DEFAULTS.n7DecisionWindow),
-            n7HistoryWindow: getNumber('diamondN7HistoryWindow', 50, 200, DIAMOND_LEVEL_DEFAULTS.n7HistoryWindow),
+            // N7: ajuste automático (não permitir configuração manual)
+            n7DecisionWindow: DIAMOND_LEVEL_DEFAULTS.n7DecisionWindow,
+            n7HistoryWindow: DIAMOND_LEVEL_DEFAULTS.n7HistoryWindow,
             n8Barrier1: getNumber('diamondN8Barrier1', 1, null, DIAMOND_LEVEL_DEFAULTS.n8Barrier1),
             n8Barrier: getNumber('diamondN8Barrier', 1, null, DIAMOND_LEVEL_DEFAULTS.n8Barrier),
             n9History: getNumber('diamondN9History', 30, 400, DIAMOND_LEVEL_DEFAULTS.n9History),
@@ -8066,13 +8069,7 @@ function showCenteredNotice(message, options = {}) {
 
         // N2: n2Previous espelhado, sem validação min/max (o código ajusta automaticamente)
 
-        if (newWindows.n7HistoryWindow < newWindows.n7DecisionWindow) {
-            if (!silent) {
-            alert('O histórico base do N7 deve ser maior ou igual ao número de decisões analisadas.');
-            return;
-            }
-            newWindows.n7HistoryWindow = Math.max(newWindows.n7DecisionWindow, DIAMOND_LEVEL_DEFAULTS.n7HistoryWindow);
-        }
+        // N7: autoajuste não precisa de validação manual.
 
         const allowBlockCheckbox = document.getElementById('diamondN0AllowBlockAll');
         const allowBlockAll = allowBlockCheckbox ? !!allowBlockCheckbox.checked : true;
@@ -15088,6 +15085,20 @@ async function persistAnalyzerState(newState) {
             };
 
             const BARRIER_LEVEL_IDS = new Set(['N7', 'N8', 'N9', 'N10']);
+            const extractN7Payload = (text) => {
+                const raw = String(text || '');
+                const match = raw.match(/\[\[N7DATA\]\]([\s\S]+?)\[\[\/N7DATA\]\]/i);
+                if (!match) return { cleaned: raw.trim(), payload: null };
+                let payload = null;
+                try {
+                    payload = JSON.parse(match[1]);
+                } catch (_) {
+                    payload = null;
+                }
+                let cleaned = raw.replace(match[0], '').trim();
+                cleaned = cleaned.replace(/\s*•\s*$/g, '').trim();
+                return { cleaned, payload };
+            };
 
             lines.forEach((line) => {
                 const cleanLine = stripLeadingSymbols(line);
@@ -15140,6 +15151,13 @@ async function persistAnalyzerState(newState) {
                     detail = parts.slice(1).join(' • ');
                 }
 
+                let n7Payload = null;
+                if (id === 'N7' && detail) {
+                    const extracted = extractN7Payload(detail);
+                    detail = extracted.cleaned;
+                    n7Payload = extracted.payload;
+                }
+
                 const pctMatch = statusClean.match(/([0-9]+(?:\.[0-9]+)?)\s*%/);
                 const pct = pctMatch ? Number(pctMatch[1]) : null;
                 // ✅ N7–N10 são BARREIRAS: nunca tratar como "Voto:" só porque aparece RED/BLACK no detalhe.
@@ -15158,7 +15176,8 @@ async function persistAnalyzerState(newState) {
                     voteColor,
                     pct,
                     badgeText,
-                    detail
+                    detail,
+                    meta: n7Payload ? { n7: n7Payload } : null
                 });
             });
 
@@ -15246,12 +15265,70 @@ async function persistAnalyzerState(newState) {
                 </div>
             `;
 
+            const renderN7Panel = (lvl) => {
+                if (!lvl || !lvl.meta || !lvl.meta.n7) return '';
+                const n7 = lvl.meta.n7;
+                const windows = Array.isArray(n7.windows) ? n7.windows : [];
+                const chosen = n7.chosen || {};
+                const picked = windows.find(w => w && w.windowSize === chosen.windowSize) || windows[0];
+                if (!picked || !picked.current) return '';
+
+                const fmtPct = (v) => (typeof v === 'number' && Number.isFinite(v)) ? `${v.toFixed(1)}%` : '—';
+                const colorLabel = (color) => (color === 'red' ? 'Vermelho' : color === 'black' ? 'Preto' : '—');
+                const kindLabel = chosen.kind === 'floor' ? 'Piso' : chosen.kind === 'ceiling' ? 'Teto' : 'Base';
+                const baseLabel = colorLabel(chosen.baseColor);
+                const recLabel = colorLabel(chosen.recommendedColor);
+                const samplesText = (picked.samples != null && picked.maxOffsets != null)
+                    ? `${picked.samples}/${picked.maxOffsets}`
+                    : (picked.samples != null ? String(picked.samples) : '—');
+
+                const renderBar = (color) => {
+                    const current = picked.current && picked.current[`${color}Pct`];
+                    const min = picked.min && picked.min[color];
+                    const max = picked.max && picked.max[color];
+                    if (![current, min, max].every(v => typeof v === 'number' && Number.isFinite(v))) return '';
+
+                    const clamp = (v) => Math.max(0, Math.min(100, v));
+                    const cur = clamp(current);
+                    const minVal = clamp(min);
+                    const maxVal = clamp(max);
+                    const range = Math.max(0, maxVal - minVal);
+
+                    return `
+                        <div class="diamond-n7-bar diamond-n7-${color}">
+                            <div class="diamond-n7-bar-header">
+                                <span class="diamond-n7-bar-label">${escapeHtml(colorLabel(color))}</span>
+                                <span class="diamond-n7-bar-values">${escapeHtml(fmtPct(cur))} • intervalo ${escapeHtml(fmtPct(minVal))}-${escapeHtml(fmtPct(maxVal))}</span>
+                            </div>
+                            <div class="diamond-n7-bar-track" role="img" aria-label="${escapeHtml(colorLabel(color))}: ${fmtPct(cur)} (intervalo ${fmtPct(minVal)} a ${fmtPct(maxVal)})">
+                                <div class="diamond-n7-bar-range" style="left:${minVal}%; width:${range}%;"></div>
+                                <div class="diamond-n7-bar-marker" style="left:${cur}%;"></div>
+                            </div>
+                        </div>
+                    `;
+                };
+
+                const bars = ['red', 'black'].map(renderBar).filter(Boolean).join('');
+                if (!bars) return '';
+
+                return `
+                    <div class="diamond-n7-panel">
+                        <div class="diamond-n7-header">
+                            <div class="diamond-n7-title">Janela ${escapeHtml(String(picked.windowSize || '—'))} giros</div>
+                            <div class="diamond-n7-meta">Amostras ${escapeHtml(samplesText)} • ${escapeHtml(kindLabel)} do ${escapeHtml(baseLabel)} → sugere ${escapeHtml(recLabel)}</div>
+                        </div>
+                        <div class="diamond-n7-bars">${bars}</div>
+                    </div>
+                `;
+            };
+
             const cards = visibleLevels.map((lvl) => {
                 const badgeClass = lvl.voteColor ? `badge-${lvl.voteColor}` : 'badge-neutral';
                 const pctText = fmtPct(lvl.pct);
                 const pctHtml = (lvl.pct != null)
                     ? `<div class="diamond-level-pct"><span class="diamond-level-pct-label">Score do nível</span><span class="diamond-level-pct-value">${escapeHtml(pctText)}</span></div>`
                     : '';
+                const n7PanelHtml = lvl.id === 'N7' ? renderN7Panel(lvl) : '';
                 // ✅ Evitar duplicar o percentual no detalhe (já exibimos em "Score do nível")
                 let detailText = lvl.detail ? String(lvl.detail) : '';
                 try {
@@ -15279,6 +15356,7 @@ async function persistAnalyzerState(newState) {
                             <div class="diamond-level-badge ${badgeClass}">${escapeHtml(lvl.badgeText)}</div>
                         </div>
                         ${pctHtml}
+                        ${n7PanelHtml}
                         ${detailHtml}
                     </div>
                 `;
