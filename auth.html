@@ -2747,10 +2747,24 @@
             return n.toFixed(2).replace('.', ',');
         }
 
+        function resolveLandingMediaUrl(raw) {
+            const value = String(raw || '').trim();
+            if (!value) return '';
+            if (value.startsWith('data:')) return value;
+            if (value.startsWith('//')) return `${window.location.protocol}${value}`;
+            if (/^[a-z][a-z0-9+.-]*:\/\//i.test(value)) return value;
+            const base = document.baseURI || window.location.href;
+            try {
+                return new URL(value, base).toString();
+            } catch (_) {
+                return value;
+            }
+        }
+
         function setImgById(id, src, alt = '') {
             const el = document.getElementById(id);
             if (!el) return;
-            const s = String(src || '').trim();
+            const s = resolveLandingMediaUrl(src);
             if (!s) {
                 el.removeAttribute('src');
                 el.style.display = 'none';
@@ -3024,7 +3038,7 @@
             const cap = document.getElementById('lpPrintModalCaption');
             if (!modal || !img) return;
 
-            img.src = String(imageSrc || '');
+            img.src = resolveLandingMediaUrl(imageSrc);
             const caption = String(title || '').trim();
             if (cap) {
                 cap.textContent = caption;
@@ -3264,7 +3278,7 @@
                 for (const s of heroBannerSlides) {
                     const img = document.createElement('img');
                     img.alt = s.title ? String(s.title) : 'Banner';
-                    img.src = String(s.image);
+                    img.src = resolveLandingMediaUrl(s.image);
                     track.appendChild(img);
                 }
                 media.appendChild(track);
@@ -3275,9 +3289,9 @@
                 const imgB = document.createElement('img');
                 imgA.alt = 'Banner';
                 imgB.alt = 'Banner';
-                imgA.src = String(heroBannerSlides[0].image);
+                imgA.src = resolveLandingMediaUrl(heroBannerSlides[0].image);
                 imgA.classList.add('active');
-                imgB.src = String(heroBannerSlides[0].image);
+                imgB.src = resolveLandingMediaUrl(heroBannerSlides[0].image);
                 imgB.classList.remove('active');
                 media.appendChild(imgA);
                 media.appendChild(imgB);
@@ -3418,7 +3432,7 @@
                     if (g?.image) {
                         const img = document.createElement('img');
                         img.alt = String(g.caption || 'Imagem');
-                        img.src = String(g.image);
+                        img.src = resolveLandingMediaUrl(g.image);
                         media.appendChild(img);
                     } else {
                         media.textContent = 'Print';
@@ -3437,7 +3451,7 @@
                     }
 
                     wrap.addEventListener('click', () => {
-                        openPrintModal(String(g.image), String(g.caption || ''));
+                        openPrintModal(g.image, String(g.caption || ''));
                     });
                     galleryGrid.appendChild(wrap);
                 }
