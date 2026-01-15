@@ -15347,6 +15347,9 @@ async function persistAnalyzerState(newState) {
                         }
                     }
                 } catch (_) {}
+                if (lvl.id === 'N7') {
+                    detailText = '';
+                }
                 const detailHtml = detailText ? `<div class="diamond-level-detail">${escapeHtml(detailText)}</div>` : '';
                 return `
                     <div class="diamond-level-card">
