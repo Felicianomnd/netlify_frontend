@@ -15111,7 +15111,7 @@ const N0_DEFAULTS = Object.freeze({
     windowSize: 100,
     analysesToRun: 1000,
     minWindowsRequired: 4,
-    precisionMin: 0.45,
+    precisionMin: 0.65,
     confidenceGrid: [0.5, 0.55, 0.6, 0.65, 0.7, 0.75, 0.8, 0.85, 0.9, 0.95],
     holdoutEnabled: true,
     holdoutTolerance: 0.2,
@@ -15133,7 +15133,7 @@ const N0_WHITE_SIGNAL_TARGET_LOOKBACK_HOURS = 6; // janela curta para adaptaçã
 // ✅ Mínimo de confiança para o "budget" do N0 (anti-spam).
 // Importante: para horizontes maiores (Entrada + vários Gales), o baseline do WHITE sobe bastante.
 // Se exigirmos um lift muito alto (ex.: 1.45x) o N0 tende a ficar "mudo" por horas.
-const N0_WHITE_SIGNAL_MIN_LIFT = 1.15; // lift moderado acima do baseline no horizonte
+const N0_WHITE_SIGNAL_MIN_LIFT = 1.25; // lift moderado acima do baseline no horizonte
 const N0_WHITE_SIGNAL_MIN_CONF_CAP = 0.35; // teto: não exigir confiança irrealista (evita silêncio total)
 let n0WhiteBudgetState = {
     hourKey: null,
@@ -15673,6 +15673,7 @@ function computeN0ObserverPackage({ history, nowMs, n0Result, lookaheadSpins }) 
     try {
         const gaps = computeWhiteGapsNewestFirst(history, Math.max(600, Math.min(REALTIME_HISTORY_CAP, Math.floor((lookaheadSpins || 3) * 1200))));
         const sorted = gaps.filter((n) => Number.isFinite(n) && n >= 0).slice().sort((a, b) => a - b);
+        const p25 = quantileFromSorted(sorted, 0.25);
         const p75 = quantileFromSorted(sorted, 0.75);
         const p90 = quantileFromSorted(sorted, 0.90);
         const p95 = quantileFromSorted(sorted, 0.95);
@@ -15692,6 +15693,7 @@ function computeN0ObserverPackage({ history, nowMs, n0Result, lookaheadSpins }) 
 
         gapInfo = {
             gapNow,
+            p25,
             p75,
             p90,
             p95,
@@ -15977,10 +15979,35 @@ function evaluateN0WhiteSignalGate({ history, nowMs, lookaheadSpins, baseConfide
     const effectiveConfidence = clamp01(base + boost);
 
     // threshold "soft"
-    const allowBelowSoft = !!(hourStats && hourStats.needFill) || ((pack.strongCount || 0) >= N0_OBS_CONFIRM_MIN_STRONG);
+    const allowBelowSoft = ((hourStats && hourStats.needFill) && (pack.patternStrongCount || 0) >= 1)
+        || ((pack.strongCount || 0) >= N0_OBS_CONFIRM_MIN_STRONG);
     if (effectiveConfidence < softTUsed && !allowBelowSoft) {
         return { ok: false, reason: 'below_soft_threshold', softThreshold: softTUsed, pack, effectiveConfidence };
     }
+
+    // ✅ Gap curto demais sem padrão forte: evitar chute precoce (baixa precisão).
+    try {
+        const gapNow = pack && pack.gapInfo ? pack.gapInfo.gapNow : null;
+        const p25 = pack && pack.gapInfo ? pack.gapInfo.p25 : null;
+        const earlyGapLimit = Number.isFinite(Number(p25))
+            ? Math.max(3, Math.min(10, Math.floor(Number(p25))))
+            : 6;
+        if (gapNow != null && gapNow <= earlyGapLimit) {
+            const patternCount = pack.patternStrongCount || 0;
+            const minPatternRequired = allowSoloModel ? 1 : 2;
+            if (patternCount < minPatternRequired && !(hourStats && hourStats.burst)) {
+                return {
+                    ok: false,
+                    reason: 'early_gap_low_context',
+                    gapNow,
+                    earlyGapLimit,
+                    patternCount,
+                    pack,
+                    effectiveConfidence
+                };
+            }
+        }
+    } catch (_) {}
 
     // budget final (sem commit)
     const budget = (() => {
