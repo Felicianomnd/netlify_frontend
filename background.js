@@ -12475,7 +12475,7 @@ function validateN7ApexPercentageBarrier(history, candidateColor, options = {}) 
         const computeWindowStats = (w) => {
             const windowSize = Math.max(2, Math.floor(Number(w) || 2));
             const availableOffsets = Math.max(0, histArr.length - windowSize + 1);
-            const maxOffsets = Math.max(1, availableOffsets);
+            const maxOffsets = Math.max(1, Math.min(availableOffsets, historyWindows));
             let samples = 0;
             let minRed = Infinity, maxRed = -Infinity;
             let minBlack = Infinity, maxBlack = -Infinity;
