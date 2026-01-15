@@ -12443,7 +12443,16 @@ function validateN7ApexPercentageBarrier(history, candidateColor, options = {}) 
         const histArr = Array.isArray(history) ? history : [];
         const maxWindow = Math.max(8, Math.min(200, Math.min(maxWindowRaw, histArr.length || maxWindowRaw)));
         const historyWindowsRaw = Math.floor(Number(options.historyWindow ?? options.historyLimit ?? 100) || 100);
-        const historyWindows = Math.max(20, Math.min(2000, historyWindowsRaw));
+        const historyWindowsMax = Math.max(100, Math.min(2000, historyWindowsRaw));
+        const historyWindowsAuto = (() => {
+            const size = histArr.length;
+            if (size >= 2000) return 2000;
+            if (size >= 1500) return 1500;
+            if (size >= 1000) return 1000;
+            if (size >= 500) return 500;
+            return Math.max(100, size);
+        })();
+        const historyWindows = Math.min(historyWindowsMax, historyWindowsAuto);
         const step = Math.max(1, Math.floor(maxWindow / 4));
 
         // 4 janelas por padrão: step, 2*step, 3*step, maxWindow (ex.: 20 → 5/10/15/20)
