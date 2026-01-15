@@ -3458,33 +3458,13 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                             <div class="diamond-level-note">
                                 Usa observadores de contexto (gap desde o último branco, puxadores por número, quebra de sequência e n-grams do tail) e valida em janelas NÃO-sobrepostas. Otimiza para pegar BRANCO em até 3 giros (Entrada/G1/G2) e pode bloquear os demais níveis quando a confiança é alta.
                             </div>
-                            <div class="diamond-level-double">
-                                <div>
-                                    <span>Histórico analisado (N)</span>
-                                    <input type="number" id="diamondN0History" min="500" max="10000" value="2000" />
-                                    <span class="diamond-level-subnote">
-                                        Recomendado: 2000 giros (mín. 500 • máx. 10000)
-                                    </span>
-                                </div>
-                                <div>
-                                    <span>Tamanho da janela W (giros)</span>
-                                    <input type="number" id="diamondN0Window" min="25" max="250" value="100" />
-                                    <span class="diamond-level-subnote">
-                                        Recomendado: 100 giros (mín. 25 • máx. 250)
-                                    </span>
+                            <div class="diamond-level-note" style="margin-top: 10px;">
+                                <strong>Auto-inteligente:</strong> a profundidade e o tamanho da janela são escolhidos automaticamente.
+                                <div class="diamond-level-subnote" style="margin-top: 6px;">
+                                    • Profundidade dinâmica (máximo 2000 giros).<br />
+                                    • Janela dinâmica entre 5 e 500 giros, com testes internos para melhor assertividade.
                                 </div>
                             </div>
-                            <label class="checkbox-label" style="margin-top: 10px;">
-                                <input type="checkbox" id="diamondN0AllowBlockAll" checked />
-                                Ativar bloqueio total (BLOCK ALL) — desmarque para usar apenas como alerta
-                            </label>
-                            <label class="checkbox-label" style="margin-top: 10px;">
-                                <input type="checkbox" id="diamondN0UseFrozenModel" />
-                                Usar modelo fixo (salvo no teste) — não recalcular automaticamente
-                            </label>
-                            <button type="button" class="btn-save-pattern" id="diamondN0ClearFrozenModelBtn" style="max-width: 220px; margin-top: 8px;">
-                                Limpar modelo salvo
-                            </button>
                         </div>
                         <div class="diamond-level-field" data-level="n1">
                             <div class="diamond-level-header">
@@ -5348,8 +5328,7 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
         const upper = String(levelId || '').toUpperCase();
         // IDs que representam "Histórico analisado (giros)" (campos que exigem mais giros no topo)
         const ids =
-            upper === 'N0' ? ['diamondN0History']
-            : upper === 'N3' ? ['diamondN3Alternance']
+            upper === 'N3' ? ['diamondN3Alternance']
             : upper === 'N4' ? ['diamondN4Persistence']
             : upper === 'N7' ? ['diamondN7HistoryWindow']
             : upper === 'N8' ? ['diamondN8Barrier1']
@@ -5686,38 +5665,6 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
             // ✅ Salvar e fechar: persistir ajustes do nível (sem precisar clicar em "Salvar"), depois voltar para configurar níveis
             clearCloseBtn.addEventListener('click', async () => {
                 try { await saveDiamondLevels({ silent: true, skipSync: true }); } catch (_) {}
-
-                // ✅ Pedido: ao salvar um backtest bom do N0, "congelar" o modelo usado para o modo real
-                try {
-                    const mode = diamondSimCurrentMode || 'level';
-                    const levelId = diamondSimCurrentLevelId || null;
-                    const isN0 = mode === 'level' && String(levelId || '').toUpperCase() === 'N0';
-                    // Se o usuário está salvando um backtest do N0, congelar automaticamente (pedido)
-                    if (isN0 && diamondSimSessionId && diamondSimHasResults) {
-                        setDiamondSimulationLoading(true, 'Salvando modelo do N0...', 'simulate');
-                        const cfg = await buildDiamondConfigSnapshotFromModal();
-                        try { cfg.n0FrozenEnabled = true; } catch (_) {}
-                        const resolvedHistoryLimit = resolveDiamondSimHistoryLimitFromUI(1000);
-                        await new Promise((resolve) => {
-                            chrome.runtime.sendMessage({
-                                action: 'DIAMOND_FREEZE_N0_MODEL_FROM_BACKTEST',
-                                sessionId: diamondSimSessionId,
-                                historyLimit: resolvedHistoryLimit,
-                                config: cfg
-                            }, (resp) => {
-                                try {
-                                    if (resp && resp.status === 'success') {
-                                        showToast('✅ Modelo do N0 salvo e aplicado no modo real.', 2200);
-                                    } else if (resp && resp.status === 'error') {
-                                        showToast(`⚠️ Falha ao salvar modelo: ${resp.error || 'erro'}`, 3000);
-                                    }
-                                } catch (_) {}
-                                resolve();
-                            });
-                        });
-                    }
-                } catch (_) {}
-
                 try { setDiamondSimulationLoading(false); } catch (_) {}
                 exitDiamondSimulationView({ cancelIfRunning: true, clear: true, closeModal: false });
             });
@@ -7021,8 +6968,6 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
         }
         n4History = Math.max(10, Math.min(10000, Math.floor(Number.isFinite(n4History) ? n4History : DIAMOND_LEVEL_DEFAULTS.n4Persistence)));
         const newWindows = {
-            n0History: getNumber('diamondN0History', 500, 10000, DIAMOND_LEVEL_DEFAULTS.n0History),
-            n0Window: getNumber('diamondN0Window', 25, 250, DIAMOND_LEVEL_DEFAULTS.n0Window),
             n1WindowSize: getNumber('diamondN1WindowSize', 5, 120, DIAMOND_LEVEL_DEFAULTS.n1WindowSize),
             n1PrimaryRequirement: getNumber('diamondN1PrimaryRequirement', 5, 200, DIAMOND_LEVEL_DEFAULTS.n1PrimaryRequirement),
             n1SecondaryRequirement: getNumber('diamondN1SecondaryRequirement', 1, 200, DIAMOND_LEVEL_DEFAULTS.n1SecondaryRequirement),
@@ -7066,11 +7011,6 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
             n9: getToggleValue('diamondLevelToggleN9', DIAMOND_LEVEL_ENABLE_DEFAULTS.n9),
             n10: getToggleValue('diamondLevelToggleN10', DIAMOND_LEVEL_ENABLE_DEFAULTS.n10)
         };
-
-        const allowBlockCheckbox = document.getElementById('diamondN0AllowBlockAll');
-        const allowBlockAll = allowBlockCheckbox ? !!allowBlockCheckbox.checked : true;
-        const frozenModelToggle = document.getElementById('diamondN0UseFrozenModel');
-        const n0FrozenEnabled = frozenModelToggle ? !!frozenModelToggle.checked : false;
 
         const storageData = await storageCompat.get(['analyzerConfig']);
         const currentConfig = storageData.analyzerConfig || {};
@@ -7136,8 +7076,6 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                 ...newEnabled
             },
             minuteSpinWindow: newWindows.n5MinuteBias,
-            n0AllowBlockAll: allowBlockAll,
-            n0FrozenEnabled,
             martingaleProfiles: updatedProfiles,
             autoBetConfig: sanitizedAutoBetConfig,
             whiteProtectionAsWin: !!sanitizedAutoBetConfig.whiteProtection
@@ -7177,7 +7115,7 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                 const upper = (mode === 'level' && levelId) ? String(levelId).toUpperCase() : '';
                 const requiredHistory = (() => {
                     if (mode === 'level' && upper) {
-                        if (upper === 'N0') return Number(windows.n0History) || 0;
+                        if (upper === 'N0') return 2000;
                         if (upper === 'N3') return Number(windows.n3Alternance) || 0;
                         if (upper === 'N4') return Number(windows.n4Persistence) || 0;
                         if (upper === 'N7') return Number(windows.n7HistoryWindow) || 0;
@@ -7188,7 +7126,7 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                     }
                     // mode=all: maior exigência dentre níveis ativos
                     return Math.max(
-                        enabled.n0 ? (Number(windows.n0History) || 0) : 0,
+                        enabled.n0 ? 2000 : 0,
                         enabled.n3 ? (Number(windows.n3Alternance) || 0) : 0,
                         enabled.n4 ? (Number(windows.n4Persistence) || 0) : 0,
                         enabled.n7 ? (Number(windows.n7HistoryWindow) || 0) : 0,
@@ -7810,20 +7748,6 @@ function showCenteredNotice(message, options = {}) {
             }
             return def;
         };
-        setInput('diamondN0History', getValue('n0History', DIAMOND_LEVEL_DEFAULTS.n0History));
-        setInput('diamondN0Window', getValue('n0Window', DIAMOND_LEVEL_DEFAULTS.n0Window));
-        const allowBlockCheckbox = document.getElementById('diamondN0AllowBlockAll');
-        if (allowBlockCheckbox) {
-            if (config && Object.prototype.hasOwnProperty.call(config, 'n0AllowBlockAll')) {
-                allowBlockCheckbox.checked = !!config.n0AllowBlockAll;
-            } else {
-                allowBlockCheckbox.checked = true;
-            }
-        }
-        const frozenToggle = document.getElementById('diamondN0UseFrozenModel');
-        if (frozenToggle) {
-            frozenToggle.checked = !!(config && config.n0FrozenEnabled);
-        }
         setInput('diamondN1WindowSize', getValue('n1WindowSize', DIAMOND_LEVEL_DEFAULTS.n1WindowSize));
         setInput('diamondN1PrimaryRequirement', getValue('n1PrimaryRequirement', DIAMOND_LEVEL_DEFAULTS.n1PrimaryRequirement));
         setInput('diamondN1SecondaryRequirement', getValue('n1SecondaryRequirement', DIAMOND_LEVEL_DEFAULTS.n1SecondaryRequirement));
@@ -7885,21 +7809,6 @@ function showCenteredNotice(message, options = {}) {
         initializeDiamondLevelToggles();
         refreshDiamondLevelToggleStates();
 
-        // Botão: limpar modelo salvo do N0
-        try {
-            const clearBtn = document.getElementById('diamondN0ClearFrozenModelBtn');
-            if (clearBtn && !clearBtn.dataset.listenerAttached) {
-                clearBtn.addEventListener('click', async () => {
-                    try {
-                        chrome.runtime.sendMessage({ action: 'DIAMOND_CLEAR_N0_FROZEN_MODEL' }, () => {});
-                        const t = document.getElementById('diamondN0UseFrozenModel');
-                        if (t) t.checked = false;
-                        showToast('🧹 Modelo do N0 removido.', 1800);
-                    } catch (_) {}
-                });
-                clearBtn.dataset.listenerAttached = '1';
-            }
-        } catch (_) {}
     }
 
     function openDiamondLevelsModal() {
@@ -8011,8 +7920,6 @@ function showCenteredNotice(message, options = {}) {
         }
         n4History = Math.max(10, Math.min(10000, Math.floor(Number.isFinite(n4History) ? n4History : DIAMOND_LEVEL_DEFAULTS.n4Persistence)));
         const newWindows = {
-            n0History: getNumber('diamondN0History', 500, 10000, DIAMOND_LEVEL_DEFAULTS.n0History),
-            n0Window: getNumber('diamondN0Window', 25, 250, DIAMOND_LEVEL_DEFAULTS.n0Window),
             n1WindowSize: getNumber('diamondN1WindowSize', 5, 120, DIAMOND_LEVEL_DEFAULTS.n1WindowSize),
             n1PrimaryRequirement: getNumber('diamondN1PrimaryRequirement', 5, 200, DIAMOND_LEVEL_DEFAULTS.n1PrimaryRequirement),
             n1SecondaryRequirement: getNumber('diamondN1SecondaryRequirement', 1, 200, DIAMOND_LEVEL_DEFAULTS.n1SecondaryRequirement),
@@ -8071,9 +7978,6 @@ function showCenteredNotice(message, options = {}) {
 
         // N7: autoajuste não precisa de validação manual.
 
-        const allowBlockCheckbox = document.getElementById('diamondN0AllowBlockAll');
-        const allowBlockAll = allowBlockCheckbox ? !!allowBlockCheckbox.checked : true;
-
         try {
             // Feedback global: início do salvamento
             if (!silent) showGlobalSaveLoading();
@@ -8089,8 +7993,7 @@ function showCenteredNotice(message, options = {}) {
                     ...currentConfig.diamondLevelEnabled,
                     ...newEnabled
                 },
-                minuteSpinWindow: newWindows.n5MinuteBias,
-                n0AllowBlockAll: allowBlockAll
+                minuteSpinWindow: newWindows.n5MinuteBias
             };
 
                 await storageCompat.set({ analyzerConfig: updatedConfig });

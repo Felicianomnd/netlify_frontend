@@ -172,7 +172,7 @@ function getDiamondConfigSnapshot() {
         return Number.isFinite(raw) && raw > 0 ? raw : fallback;
     };
     return [
-        ['N0', `Hist ${getValue('n0History', N0_DEFAULTS.historySize)} | W ${getDiamondWindow('n0Window', N0_DEFAULTS.windowSize)} | BlockAll ${analyzerConfig.n0AllowBlockAll !== false ? 'sim' : 'não'}`],
+        ['N0', 'Auto (Hist ≤ 2000 | W 5–500)'],
         ['N1', `W ${getDiamondWindow('n1WindowSize', SAFE_ZONE_DEFAULTS.windowSize)} | minA ${getDiamondWindow('n1PrimaryRequirement', SAFE_ZONE_DEFAULTS.primaryRequirement)} | minB ${getDiamondWindow('n1SecondaryRequirement', SAFE_ZONE_DEFAULTS.secondaryRequirement)}`],
         ['N2', `Janela base ${getDiamondWindow('n2Recent', 10)} (auto)`],
         ['N3', `Prof ${getDiamondWindow('n3Alternance', 2000)} | Rigor ${getDiamondWindow('n3BaseThresholdPct', 60)}% | minOcc ${getDiamondWindow('n3MinOccurrences', 3)}`],
@@ -696,7 +696,6 @@ const DEFAULT_ANALYZER_CONFIG = {
     requireTrigger: true,         // ✅ exigir cor de disparo (ATIVADO)
     consecutiveMartingale: false, // ✅ Legado: valor do modo ativo (mantido para compatibilidade)
     maxGales: 0,                  // ✅ Legado: valor do modo ativo (mantido para compatibilidade)
-    n0AllowBlockAll: true,        // ✅ Permite bloqueio total pelo detector de branco (modo informativo se false)
     martingaleProfiles: {         // ✅ Perfis independentes por modo
         // consecutiveGales = quantos gales são IMEDIATOS (consecutivos) antes de passar a esperar novo sinal
         // Ex.: maxGales=2 e consecutiveGales=1 => G1 imediato, G2 só no próximo sinal
@@ -729,8 +728,8 @@ const DEFAULT_ANALYZER_CONFIG = {
         n6RetracementWindow: 80,  // N6 - Retração Histórica (janela de análise)
         n7DecisionWindow: 20,     // N7 - Barreira (Ápice %) (W máx → 4 janelas curtas: ex. 20 → 5/10/15/20)
         n7HistoryWindow: 100,     // N7 - Barreira (Ápice %) (qtd de offsets/janelas p/ medir piso/teto)
-        n0History: 2000,          // N0 - Detector de Branco (histórico analisado)
-        n0Window: 100,            // N0 - Detector de Branco (tamanho da janela não-sobreposta)
+        n0History: 2000,          // (LEGADO) N0 - Detector de Branco (histórico analisado agora é auto)
+        n0Window: 100,            // (LEGADO) N0 - Detector de Branco (janela agora é auto)
         n8Barrier1: 50,           // N8 - Barreira 1 (cor oposta) (janela em giros)
         n8Barrier: 50,            // N9 - Barreira 2 (cor indicada) (mantido como n8Barrier por compatibilidade)
         // (LEGADO) chaves antigas do N10 "Calibração Bayesiana" (não usadas pela lógica atual)
@@ -1242,10 +1241,6 @@ function mergeAnalyzerConfig(overrides = {}) {
         ...DEFAULT_ANALYZER_CONFIG,
         ...(overrides || {})
     };
-    const hasAllowBlockOverride = overrides && Object.prototype.hasOwnProperty.call(overrides, 'n0AllowBlockAll');
-    analyzerConfig.n0AllowBlockAll = hasAllowBlockOverride
-        ? !!overrides.n0AllowBlockAll
-        : DEFAULT_ANALYZER_CONFIG.n0AllowBlockAll;
     analyzerConfig.martingaleProfiles = {
         standard: { ...(defaults.standard || {}), ...(overrideProfiles.standard || {}) },
         diamond: { ...(defaults.diamond || {}), ...(overrideProfiles.diamond || {}) }
@@ -4765,7 +4760,6 @@ async function processNewSpinFromServer(spinData) {
                     const otherModeKey = activeModeKey === 'diamond' ? 'standard' : 'diamond';
                     console.log('⚙️ Configurações carregadas:', {
                         aiMode: analyzerConfig.aiMode,
-                        n0AllowBlockAll: analyzerConfig.n0AllowBlockAll !== false,
                         martingale: {
                             [activeModeKey]: getMartingaleSettings(activeModeKey),
                             [otherModeKey]: getMartingaleSettings(otherModeKey)
@@ -7599,11 +7593,6 @@ function pruneN0SelfLearningIfNeeded() {
 
 async function recordN0SelfLearningFromResolvedCycle(analysisObj, outcome) {
     try {
-        // ✅ Se o N0 estiver com modelo congelado, não alterar o auto-aprendizado (mantém comportamento fixo)
-        try {
-            if (analyzerConfig && analyzerConfig.n0FrozenEnabled) return false;
-        } catch (_) {}
-
         const analysis = analysisObj && typeof analysisObj === 'object' ? analysisObj : null;
         if (!analysis) return false;
         // ✅ Aprender apenas de sinais "visíveis" (não contam ciclos silenciosos da Recuperação).
@@ -10342,17 +10331,8 @@ function analyzeLast20Temperature(last20Spins, activePattern) {
 // ═══════════════════════════════════════════════════════════════
 
 function getMemoriaAtivaHistoryCap() {
-    // Mantém o comportamento histórico (2000) como mínimo seguro,
-    // mas permite crescer até 10k quando o usuário ajustar N0 (diamondLevelWindows.n0History).
-    try {
-        const windows = analyzerConfig && analyzerConfig.diamondLevelWindows ? analyzerConfig.diamondLevelWindows : {};
-        const raw = Number(windows.n0History);
-        const desired = Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : 2000;
-        const minSafe = 2000;
-        return clampInt(Math.max(minSafe, desired), minSafe, REALTIME_HISTORY_CAP);
-    } catch (_) {
-        return Math.min(2000, REALTIME_HISTORY_CAP);
-    }
+    // Profundidade dinâmica limitada a 2000 giros (N0 auto-inteligente).
+    return Math.min(N0_AUTO_SETTINGS.historyMax, REALTIME_HISTORY_CAP);
 }
 
 /**
@@ -15119,10 +15099,26 @@ const N0_DEFAULTS = Object.freeze({
     softBlockFactor: 0.5
 });
 
+const N0_AUTO_SETTINGS = Object.freeze({
+    historyMax: 2000,
+    windowMin: 5,
+    windowMax: 500,
+    minHistory: 200,
+    evalConfigs: 140,
+    reevaluateEverySpins: 25
+});
+
 // ✅ Cache em memória do N0 (evita re-treinar 1000 configs a cada giro, especialmente no backtest).
 // Importante: é runtime-only (service worker). Não persiste entre reinícios do SW.
 const N0_RUNTIME_MODEL_CACHE_VERSION = 1;
 const n0RuntimeModelCache = new Map(); // cacheKey -> { version, model, trainedAt, trainedOnSpinKey, spinsSinceTrain, lastSeenSpinKey, lastResult }
+let n0AutoWindowCache = {
+    lastSeenSpinKey: null,
+    lastEvalSpinKey: null,
+    windowSize: N0_DEFAULTS.windowSize,
+    historySize: N0_DEFAULTS.historySize,
+    spinsSinceEval: 0
+};
 
 // ✅ Controle de volume do Branco (N0):
 // Objetivo: evitar "chute em massa" (muitos sinais por hora) e manter sinais proporcionais ao volume real de brancos.
@@ -18076,6 +18072,8 @@ function runN0DetectorLegacy(history, options = {}) {
                 : N0_DEFAULTS.holdoutTolerance,
             seed: Number.isFinite(Number(options.seed)) ? Number(options.seed) : N0_DEFAULTS.seed
         };
+        settings.historySize = Math.max(50, Math.min(N0_AUTO_SETTINGS.historyMax, settings.historySize));
+        settings.windowSize = Math.max(N0_AUTO_SETTINGS.windowMin, Math.min(N0_AUTO_SETTINGS.windowMax, settings.windowSize));
 
         // ✅ Determinismo + ordem correta + dedup:
         // o histórico pode vir com duplicados e fora de ordem (cache/servidor).
@@ -19183,16 +19181,228 @@ function runN0Detector(history, options = {}) {
     }
 }
 
-function getN0SettingsFromAnalyzerConfig() {
-    const windows = analyzerConfig && analyzerConfig.diamondLevelWindows ? analyzerConfig.diamondLevelWindows : {};
-    const historySizeRaw = Number(windows.n0History);
-    const windowSizeRaw = Number(windows.n0Window);
-    const historySize = Number.isFinite(historySizeRaw) && historySizeRaw > 0 ? Math.floor(historySizeRaw) : N0_DEFAULTS.historySize;
-    const windowSize = Number.isFinite(windowSizeRaw) && windowSizeRaw > 0 ? Math.floor(windowSizeRaw) : N0_DEFAULTS.windowSize;
+function getLatestN0SpinKey(history) {
+    try {
+        const latest = Array.isArray(history) && history.length ? history[0] : null;
+        if (!latest) return 'none';
+        return String(
+            latest.id ||
+            latest.round_id ||
+            latest.timestamp ||
+            latest.created_at ||
+            latest.createdAt ||
+            latest.number ||
+            'unknown'
+        );
+    } catch (_) {
+        return 'unknown';
+    }
+}
+
+function buildN0AutoWindowCandidates(historyLength, lookaheadSpins) {
+    const base = [5, 8, 10, 12, 15, 20, 25, 30, 40, 50, 60, 75, 100, 120, 150, 200, 250, 300, 400, 500];
+    const minLen = Math.max(0, Math.floor(Number(lookaheadSpins) || 0));
+    const candidates = base.filter((w) => w >= N0_AUTO_SETTINGS.windowMin && w <= N0_AUTO_SETTINGS.windowMax)
+        .filter((w) => historyLength >= (w * 2 + minLen));
+    if (candidates.length > 0) return candidates;
+    const fallback = Math.max(
+        N0_AUTO_SETTINGS.windowMin,
+        Math.min(N0_AUTO_SETTINGS.windowMax, Math.floor(historyLength / 2))
+    );
+    return fallback > 0 ? [fallback] : [];
+}
+
+function scoreN0WindowCandidate({
+    normalizedHistory,
+    normalizedPairs,
+    windowSize,
+    lookaheadSpins,
+    analysesToRun,
+    minWindowsRequired
+}) {
+    const offsetStep = Math.max(1, Math.min(windowSize, Math.floor(windowSize / 10)));
+    const stride = windowSize;
+    const windows = [];
+    let windowIndex = 0;
+
+    for (let offset = 0; offset < windowSize; offset += offsetStep) {
+        const sliced = normalizedHistory.slice(offset);
+        const chunk = buildN0Windows(sliced, windowSize, stride, lookaheadSpins);
+        for (const entry of chunk) {
+            const globalStart = entry.start + offset;
+            const windowNumbers = normalizedPairs
+                .slice(globalStart, globalStart + windowSize)
+                .map((p) => (p && Number.isFinite(Number(p.n)) ? Math.floor(Number(p.n)) : null));
+            windows.push({
+                ...entry,
+                index: windowIndex++,
+                start: globalStart,
+                targetIndex: entry.targetIndex + offset,
+                offset,
+                window_numbers: windowNumbers
+            });
+        }
+    }
+
+    if (windows.length < minWindowsRequired) return null;
+
+    const trainingContext = buildN0WindowContext(windows);
+    const candidateConfigs = generateN0Configs(analysesToRun, N0_DEFAULTS.seed + windowSize);
+    const evaluations = [];
+    candidateConfigs.forEach((cfg) => {
+        const evaluation = evaluateN0Config(windows, cfg, trainingContext);
+        if (evaluation.metrics.n_preds >= minWindowsRequired) {
+            evaluations.push(evaluation);
+        }
+    });
+    if (evaluations.length === 0) return null;
+
+    const targetWhiteRate = windows.length > 0
+        ? (windows.filter(w => w && w.target === 'W').length / windows.length)
+        : 0;
+    const minCoverageFloor = Math.max(0.03, Math.min(0.25, targetWhiteRate * 0.35));
+    const coverageEligible = evaluations.filter(ev => (ev && ev.metrics && typeof ev.metrics.coverage === 'number')
+        ? (ev.metrics.coverage >= minCoverageFloor)
+        : false
+    );
+    const rankingPool = coverageEligible.length > 0 ? coverageEligible : evaluations;
+
+    rankingPool.sort((a, b) => {
+        const mA = a.metrics;
+        const mB = b.metrics;
+        if (mB.precision !== mA.precision) return mB.precision - mA.precision;
+        if (mB.f1 !== mA.f1) return mB.f1 - mA.f1;
+        if (mB.recall !== mA.recall) return mB.recall - mA.recall;
+        if (mB.coverage !== mA.coverage) return mB.coverage - mA.coverage;
+        if ((mB.acc_recent || 0) !== (mA.acc_recent || 0)) return (mB.acc_recent || 0) - (mA.acc_recent || 0);
+        return 0;
+    });
+
+    const best = rankingPool[0];
+    if (!best || !best.metrics) return null;
+
     return {
-        historySize: Math.max(200, Math.min(REALTIME_HISTORY_CAP, historySize)),
-        windowSize: Math.max(25, Math.min(250, windowSize)),
-        allowBlockAll: analyzerConfig && analyzerConfig.n0AllowBlockAll !== false
+        windowSize,
+        windowsCount: windows.length,
+        precision: Number(best.metrics.precision) || 0,
+        f1: Number(best.metrics.f1) || 0,
+        recall: Number(best.metrics.recall) || 0,
+        coverage: Number(best.metrics.coverage) || 0,
+        accRecent: Number(best.metrics.acc_recent) || 0
+    };
+}
+
+function resolveN0AutoSettings(history, lookaheadSpins) {
+    const sourceHistory = Array.isArray(history) ? history : [];
+    const available = sourceHistory.length;
+    let historySize = Math.min(N0_AUTO_SETTINGS.historyMax, available || N0_DEFAULTS.historySize);
+    if (available > 0 && available < N0_AUTO_SETTINGS.minHistory) {
+        historySize = available;
+    } else {
+        historySize = Math.max(N0_AUTO_SETTINGS.minHistory, historySize);
+    }
+
+    const latestSpinKey = getLatestN0SpinKey(sourceHistory);
+    if (n0AutoWindowCache.lastSeenSpinKey && n0AutoWindowCache.lastSeenSpinKey === latestSpinKey) {
+        return {
+            historySize,
+            windowSize: n0AutoWindowCache.windowSize || N0_DEFAULTS.windowSize
+        };
+    }
+
+    if (n0AutoWindowCache.windowSize && n0AutoWindowCache.spinsSinceEval < N0_AUTO_SETTINGS.reevaluateEverySpins) {
+        n0AutoWindowCache.spinsSinceEval += 1;
+        n0AutoWindowCache.lastSeenSpinKey = latestSpinKey;
+        n0AutoWindowCache.historySize = historySize;
+        return {
+            historySize,
+            windowSize: n0AutoWindowCache.windowSize
+        };
+    }
+
+    if (!sourceHistory.length) {
+        n0AutoWindowCache = {
+            lastSeenSpinKey: latestSpinKey,
+            lastEvalSpinKey: latestSpinKey,
+            windowSize: N0_DEFAULTS.windowSize,
+            historySize,
+            spinsSinceEval: 0
+        };
+        return {
+            historySize,
+            windowSize: N0_DEFAULTS.windowSize
+        };
+    }
+
+    const stableWindow = getStableChronologicalHistoryWindow({
+        limit: Math.min(historySize, sourceHistory.length),
+        sourceHistory
+    });
+    const normalizedPairs = normalizeN0HistoryPairs(stableWindow.chronological).slice(-historySize);
+    const normalizedHistory = normalizedPairs.map((p) => (p ? p.c : null));
+    const candidates = buildN0AutoWindowCandidates(normalizedHistory.length, lookaheadSpins);
+    const analysesToRun = Math.max(60, Math.min(N0_DEFAULTS.analysesToRun, N0_AUTO_SETTINGS.evalConfigs));
+    const minWindowsRequired = Math.max(3, Math.min(12, N0_DEFAULTS.minWindowsRequired));
+    const prevWindow = n0AutoWindowCache.windowSize || N0_DEFAULTS.windowSize;
+
+    let best = null;
+    for (const windowSize of candidates) {
+        const scored = scoreN0WindowCandidate({
+            normalizedHistory,
+            normalizedPairs,
+            windowSize,
+            lookaheadSpins,
+            analysesToRun,
+            minWindowsRequired
+        });
+        if (!scored) continue;
+        if (!best) {
+            best = scored;
+            continue;
+        }
+        const better = (() => {
+            if (scored.precision !== best.precision) return scored.precision > best.precision;
+            if (scored.f1 !== best.f1) return scored.f1 > best.f1;
+            if (scored.recall !== best.recall) return scored.recall > best.recall;
+            if (scored.coverage !== best.coverage) return scored.coverage > best.coverage;
+            const distA = Math.abs(scored.windowSize - prevWindow);
+            const distB = Math.abs(best.windowSize - prevWindow);
+            if (distA !== distB) return distA < distB;
+            return scored.windowsCount > best.windowsCount;
+        })();
+        if (better) best = scored;
+    }
+
+    let resolvedWindow = best ? best.windowSize : N0_DEFAULTS.windowSize;
+    if (!Number.isFinite(resolvedWindow) || resolvedWindow <= 0) {
+        resolvedWindow = N0_DEFAULTS.windowSize;
+    }
+    resolvedWindow = Math.max(
+        N0_AUTO_SETTINGS.windowMin,
+        Math.min(N0_AUTO_SETTINGS.windowMax, Math.floor(resolvedWindow))
+    );
+
+    n0AutoWindowCache = {
+        lastSeenSpinKey: latestSpinKey,
+        lastEvalSpinKey: latestSpinKey,
+        windowSize: resolvedWindow,
+        historySize,
+        spinsSinceEval: 0
+    };
+
+    return {
+        historySize,
+        windowSize: resolvedWindow
+    };
+}
+
+function getN0SettingsFromAnalyzerConfig(history, lookaheadSpins = 1) {
+    const resolved = resolveN0AutoSettings(history, lookaheadSpins);
+    const historySize = Number.isFinite(resolved.historySize) ? resolved.historySize : N0_DEFAULTS.historySize;
+    const windowSize = Number.isFinite(resolved.windowSize) ? resolved.windowSize : N0_DEFAULTS.windowSize;
+    return {
+        historySize: Math.max(50, Math.min(N0_AUTO_SETTINGS.historyMax, Math.floor(historySize))),
+        windowSize: Math.max(N0_AUTO_SETTINGS.windowMin, Math.min(N0_AUTO_SETTINGS.windowMax, Math.floor(windowSize)))
     };
 }
 
@@ -21079,11 +21289,8 @@ async function analyzeWithPatternSystem(history) {
         return fallback;
     };
     
-    const n0HistoryConfigured = displayValue('n0History', N0_DEFAULTS.historySize);
-    const n0WindowConfigured = getDiamondWindow('n0Window', N0_DEFAULTS.windowSize);
-    
     [
-        ['N0', `Hist ${n0HistoryConfigured} | W ${n0WindowConfigured} | BlockAll ${analyzerConfig.n0AllowBlockAll !== false ? 'sim' : 'não'}`],
+        ['N0', 'Auto (Hist ≤ 2000 | W 5–500)'],
         ['N1', `Zona Segura → W ${n1WindowSize} | minA ${n1PrimaryRequirement} | minB ${n1SecondaryRequirement}`],
         ['N2', `W ${n2W} (auto)`],
         ['N3', `Prof ${n3Window} | Rigor ${getDiamondWindow('n3BaseThresholdPct', 60)}% | minOcc ${getDiamondWindow('n3MinOccurrences', 3)}`],
@@ -21098,7 +21305,6 @@ async function analyzeWithPatternSystem(history) {
     logDivider();
     
     // Verificar se os valores são padrão ou personalizados
-    const isN0Custom = n0HistoryConfigured !== N0_DEFAULTS.historySize || n0WindowConfigured !== N0_DEFAULTS.windowSize;
     const isN1Custom = n1WindowSize !== SAFE_ZONE_DEFAULTS.windowSize ||
         n1PrimaryRequirement !== SAFE_ZONE_DEFAULTS.primaryRequirement ||
         n1SecondaryRequirement !== SAFE_ZONE_DEFAULTS.secondaryRequirement;
@@ -21112,7 +21318,6 @@ async function analyzeWithPatternSystem(history) {
     const isN9Custom = n9BarrierWindow !== 50;
     
     const customCount = [
-        isN0Custom,
         isN1Custom,
         isN2Custom,
         isN3Custom,
@@ -21128,7 +21333,6 @@ async function analyzeWithPatternSystem(history) {
         logInfo('Personalização', 'Todos os níveis usando valores padrão');
     } else {
         const customLevels = [];
-        if (isN0Custom) customLevels.push('N0');
         if (isN1Custom) customLevels.push('N1');
         if (isN2Custom) customLevels.push('N2');
         if (isN3Custom) customLevels.push('N3');
@@ -21536,7 +21740,6 @@ async function analyzeWithPatternSystem(history) {
 const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9', 'N10'];
         let diamondSequenceDisplayed = false;
 
-        const n0Settings = getN0SettingsFromAnalyzerConfig();
         // ✅ IMPORTANTE: horizonte do N0 deve seguir os GALES DO BRANCO (config exclusiva),
         // não o maxGales global de vermelho/preto.
         const { maxGales: n0MaxGalesConfigured } = getMartingaleSettingsForEntryColor('white', 'diamond', analyzerConfig);
@@ -21544,6 +21747,7 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
             1,
             Math.min(6, (Math.floor(Number(n0MaxGalesConfigured) || 0) + 1))
         );
+        const n0Settings = getN0SettingsFromAnalyzerConfig(history, n0LookaheadSpins);
         const n0Options = {
             historySize: n0Settings.historySize,
             windowSize: n0Settings.windowSize,
@@ -21560,22 +21764,11 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
             seed: N0_DEFAULTS.seed
         };
 
-        // ✅ Modelo congelado (salvo no backtest): usar SEM recalcular
-        try {
-            if (analyzerConfig && analyzerConfig.n0FrozenEnabled && analyzerConfig.n0FrozenModel && analyzerConfig.n0FrozenModel.best_config) {
-                n0Options.frozenModel = analyzerConfig.n0FrozenModel;
-                // evitar escrever/treinar cache quando congelado
-                n0Options.cache = false;
-                n0Options.cacheMaxAgeSpins = 0;
-            }
-        } catch (_) {}
-
         let n0Result = null;
         let n0EffectiveAction = 'no_block';
         let n0ForceWhite = false;
         let n0SoftBlockActive = false;
         let n0WhiteStrength = 0;
-        let n0ActionSuppressed = false;
         let n0DetailSummary = 'NULO';
         // ✅ Gate + observadores (qualidade do sinal)
         let n0GateAlert = null;
@@ -21595,7 +21788,7 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
         } else {
             try {
                 console.log('%c║  ⚪ NÍVEL 0 - DETECTOR DE BRANCO                         ║', 'color: #FFFFFF; font-weight: bold; font-size: 14px;');
-                console.log(`%c   Histórico analisado: ${n0Options.historySize} giros | Janela: ${n0Options.windowSize} giros`, 'color: #FFFFFF; font-weight: bold;');
+                console.log(`%c   Histórico analisado: ${n0Options.historySize} giros | Janela auto: ${n0Options.windowSize} giros`, 'color: #FFFFFF; font-weight: bold;');
                 console.log(`%c   Horizonte alvo: ${n0Options.lookaheadSpins} giro(s) (Entrada/G1/G2...)`, 'color: #FFFFFF; font-weight: bold;');
                 console.log(`%c   Modelos avaliados: ${n0Options.analysesToRun} | Holdout: ${n0Options.holdoutEnabled ? 'ATIVO' : 'DESATIVADO'}`, 'color: #FFFFFF; font-weight: bold;');
 
@@ -21603,7 +21796,6 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
 
                 if (n0Result && n0Result.enabled) {
                 const actionRequested = n0Result.blocking_action || 'no_block';
-                const blockAllAllowed = n0Settings.allowBlockAll;
                 n0WhiteStrength = clamp01(n0Result.white_confidence || 0);
                 const bestMetrics = n0Result.best_metrics || {};
                 const blockMetrics = n0Result.blocking_metrics || {};
@@ -21616,14 +21808,6 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
                 }
 
                 n0EffectiveAction = actionRequested;
-                if (actionRequested === 'block_all' && !blockAllAllowed) {
-                    n0EffectiveAction = 'no_block';
-                    n0ActionSuppressed = true;
-                }
-                if (n0ActionSuppressed) {
-                    console.log('%c   ℹ️ BLOCK ALL desativado pelo usuário (modo informativo)', 'color: #FFAA00; font-weight: bold;');
-                }
-
                 n0ForceWhite = n0EffectiveAction === 'block_all' && n0Result.pred_live === 'W';
                 n0SoftBlockActive = n0EffectiveAction === 'soft_block' && n0Result.pred_live === 'W';
 
@@ -21703,7 +21887,7 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
                 const actionLabel = (() => {
                     if (canBlockAll) return 'BLOCK ALL';
                     if (canAlert && n0SoftBlockActive) return 'SOFT BLOCK';
-                    if (canAlert) return n0ActionSuppressed ? 'ALERTA (info)' : 'ALERTA';
+                    if (canAlert) return 'ALERTA';
                     if (n0GateAlert && n0GateAlert.ok === false) return 'EVITAR';
                     return 'NULO';
                 })();
@@ -21732,11 +21916,9 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
                 if (n0CooldownInfo && n0CooldownInfo.ok === false) {
                     detailsParts.push(`cooldown ${n0CooldownInfo.remaining}/${n0CooldownInfo.required}`);
                 }
-                if (n0ActionSuppressed) detailsParts.push('informativo');
-
                 n0DetailSummary = detailsParts.join(' • ');
 
-                console.log(`%c   ➤ Ação sugerida: ${actionRequested.toUpperCase()}${n0ActionSuppressed ? ' (modo informativo)' : ''}`, 'color: #FFFFFF; font-weight: bold;');
+                console.log(`%c   ➤ Ação sugerida: ${actionRequested.toUpperCase()}`, 'color: #FFFFFF; font-weight: bold;');
                 console.log(`%c   ➤ Confiança: ${(n0WhiteStrength * 100).toFixed(2)}% | Threshold: ${(n0Result.blocking_threshold * 100 || 0).toFixed(2)}% | Precision*: ${blockMetrics.precision != null ? (blockMetrics.precision * 100).toFixed(1) + '%' : 'n/d'}`, 'color: #FFFFFF; font-weight: bold;');
                 if (n0Result.best_config) {
                     console.log('%c   ➤ Melhor configuração:', 'color: #FFFFFF; font-weight: bold;');
@@ -21821,10 +22003,9 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
                         : null;
                     const suffixThreshold = thresholdPct !== null ? ` • t* ${thresholdPct}%` : '';
                     if (n0ForceWhite) {
-                        const suppressedLabel = n0ActionSuppressed ? ' (informativo)' : '';
                         return {
                             id,
-                            message: `${friendlyName}: BLOCK ALL (${confPct}%${suffixThreshold})${suppressedLabel}`
+                            message: `${friendlyName}: BLOCK ALL (${confPct}%${suffixThreshold})`
                         };
                     }
                     if (n0SoftBlockActive) {
@@ -21834,10 +22015,9 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
                         };
                     }
                     if (level.color === 'white') {
-                        const infoSuffix = n0ActionSuppressed ? ' • informativo' : '';
                         return {
                             id,
-                            message: `${friendlyName}: ALERTA (${confPct}%${suffixThreshold})${infoSuffix}`
+                            message: `${friendlyName}: ALERTA (${confPct}%${suffixThreshold})`
                         };
                     }
                     if (n0Result.enabled === false) {
@@ -22300,7 +22480,7 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
                             ? Math.round(n0Result.blocking_threshold * 100)
                             : null;
 
-                        sendAnalysisStatus(`⚪ N0 - Detector de Branco: BLOCK ALL (${whiteConfidencePct}%${thresholdPct !== null ? ` • t* ${thresholdPct}%` : ''})${n0ActionSuppressed ? ' (informativo)' : ''}`);
+                        sendAnalysisStatus(`⚪ N0 - Detector de Branco: BLOCK ALL (${whiteConfidencePct}%${thresholdPct !== null ? ` • t* ${thresholdPct}%` : ''})`);
                         await sleep(2000);
                         if (analyzerConfig.aiMode) {
                             sendAnalysisStatus('Sinal de entrada');
@@ -22380,7 +22560,7 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
                             `t*: ${thresholdPct !== null ? `${thresholdPct}%` : 'n/d'} • F1 ${(bestMetrics.f1 != null ? (bestMetrics.f1 * 100).toFixed(1) : 'n/d')}% • Precision* ${(blockMetrics.precision != null ? (blockMetrics.precision * 100).toFixed(1) : 'n/d')}%\n` +
                             holdoutReasoning +
                             `Configs: ${n0Result && n0Result.effective_configs != null ? `${n0Result.effective_configs}/${n0Result.tested_configs}` : (n0Result && n0Result.tested_configs != null ? n0Result.tested_configs : 'n/d')}\n` +
-                            `Ação: BLOCK ALL${n0ActionSuppressed ? ' (modo informativo)' : ''}`;
+                            `Ação: BLOCK ALL`;
 
                         const diamondN0 = (() => {
                             try {
@@ -22567,9 +22747,7 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
             const thresholdPct = n0Result && n0Result.blocking_threshold != null
                 ? Math.round(n0Result.blocking_threshold * 100)
                 : null;
-            const actionLabel =
-                n0SoftBlockActive ? 'SOFT BLOCK'
-                : (n0ActionSuppressed ? 'ALERTA (informativo)' : 'ALERTA');
+            const actionLabel = n0SoftBlockActive ? 'SOFT BLOCK' : 'ALERTA';
 
             console.log('%c⚪ N0 PREVIU WHITE (modo misto) — emitindo sinal WHITE', 'color: #FFFFFF; font-weight: bold; font-size: 15px; background: #000000;');
             sendAnalysisStatus(`⚪ N0 - Detector de Branco: ${actionLabel} (${whiteConfidencePct}%${thresholdPct !== null ? ` • t* ${thresholdPct}%` : ''})`);
@@ -22784,9 +22962,7 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
             const thresholdPct = n0Result && n0Result.blocking_threshold != null
                 ? Math.round(n0Result.blocking_threshold * 100)
                 : null;
-            const actionLabel =
-                n0SoftBlockActive ? 'SOFT BLOCK'
-                : (n0ActionSuppressed ? 'ALERTA (informativo)' : 'ALERTA');
+            const actionLabel = n0SoftBlockActive ? 'SOFT BLOCK' : 'ALERTA';
 
             console.log('%c⚪ N0 (somente) PREVIU WHITE — emitindo sinal independente', 'color: #FFFFFF; font-weight: bold; font-size: 15px; background: #000000;');
             sendAnalysisStatus(`⚪ N0 - Detector de Branco: ${actionLabel} (${whiteConfidencePct}%${thresholdPct !== null ? ` • t* ${thresholdPct}%` : ''})`);
@@ -35455,16 +35631,13 @@ function getSafeZoneSettingsFromConfig(config) {
     return { windowSize, minPrimary, minSecondary, maxEntries };
 }
 
-function getN0SettingsFromConfig(config) {
-    const windows = config && config.diamondLevelWindows ? config.diamondLevelWindows : {};
-    const historySizeRaw = Number(windows.n0History);
-    const windowSizeRaw = Number(windows.n0Window);
-    const historySize = Number.isFinite(historySizeRaw) && historySizeRaw > 0 ? Math.floor(historySizeRaw) : N0_DEFAULTS.historySize;
-    const windowSize = Number.isFinite(windowSizeRaw) && windowSizeRaw > 0 ? Math.floor(windowSizeRaw) : N0_DEFAULTS.windowSize;
+function getN0SettingsFromConfig(config, history, lookaheadSpins = 1) {
+    const resolved = resolveN0AutoSettings(history, lookaheadSpins);
+    const historySize = Number.isFinite(resolved.historySize) ? resolved.historySize : N0_DEFAULTS.historySize;
+    const windowSize = Number.isFinite(resolved.windowSize) ? resolved.windowSize : N0_DEFAULTS.windowSize;
     return {
-        historySize: Math.max(200, Math.min(REALTIME_HISTORY_CAP, historySize)),
-        windowSize: Math.max(25, Math.min(250, windowSize)),
-        allowBlockAll: config && config.n0AllowBlockAll !== false
+        historySize: Math.max(50, Math.min(N0_AUTO_SETTINGS.historyMax, Math.floor(historySize))),
+        windowSize: Math.max(N0_AUTO_SETTINGS.windowMin, Math.min(N0_AUTO_SETTINGS.windowMax, Math.floor(windowSize)))
     };
 }
 
@@ -36000,10 +36173,10 @@ function analyzeDiamondLevelsSimulation(history, config, simState) {
 
     // N0
     const n0Enabled = isLevelEnabledLocal('N0');
-    const n0Settings = getN0SettingsFromConfig(config);
     // ✅ Simulação deve seguir GALES DO BRANCO (config exclusiva), igual ao modo real.
     const { maxGales: n0MaxGalesConfigured } = getMartingaleSettingsForEntryColor('white', 'diamond', config);
     const n0LookaheadSpins = Math.max(1, Math.min(6, (Math.floor(Number(n0MaxGalesConfigured) || 0) + 1)));
+    const n0Settings = getN0SettingsFromConfig(config, history, n0LookaheadSpins);
     const n0Options = {
         historySize: n0Settings.historySize,
         windowSize: n0Settings.windowSize,
@@ -36027,7 +36200,6 @@ function analyzeDiamondLevelsSimulation(history, config, simState) {
     let n0ForceWhite = false;
     let n0SoftBlockActive = false;
     let n0WhiteStrength = 0;
-    let n0ActionSuppressed = false;
     // ✅ Gate/observadores no simulador (alinha com o modo real, sem mexer no budget global)
     let n0UiVoteWhite = false;
     let n0EffectiveConfidence = null; // 0..1
@@ -36045,13 +36217,8 @@ function analyzeDiamondLevelsSimulation(history, config, simState) {
             n0Result = runN0Detector(history, n0Options);
             if (n0Result && n0Result.enabled) {
                 const actionRequested = n0Result.blocking_action || 'no_block';
-                const blockAllAllowed = n0Settings.allowBlockAll;
                 n0WhiteStrength = clamp01Local(n0Result.white_confidence || 0);
                 n0EffectiveAction = actionRequested;
-                if (actionRequested === 'block_all' && !blockAllAllowed) {
-                    n0EffectiveAction = 'no_block';
-                    n0ActionSuppressed = true;
-                }
                 n0ForceWhite = n0EffectiveAction === 'block_all' && n0Result.pred_live === 'W';
                 n0SoftBlockActive = n0EffectiveAction === 'soft_block' && n0Result.pred_live === 'W';
             }
@@ -36149,7 +36316,7 @@ function analyzeDiamondLevelsSimulation(history, config, simState) {
             : (n0ForceWhite
                 ? 'BLOCK ALL'
                 : (n0UiVoteWhite
-                    ? (n0SoftBlockActive ? 'SOFT BLOCK' : (n0ActionSuppressed ? 'ALERTA (info)' : 'ALERTA'))
+                    ? (n0SoftBlockActive ? 'SOFT BLOCK' : 'ALERTA')
                     : ((n0GateReason && n0Result && n0Result.enabled !== false) ? `EVITAR (${n0GateReason || 'gate'})` : 'NULO')
                 )
             ) + (n0ObsShort ? ` • ${n0ObsShort}` : ''),
@@ -36548,9 +36715,7 @@ function analyzeDiamondLevelsSimulation(history, config, simState) {
     if (anyVotingLevelEnabled && n0BudgetOk && n0BudgetOk.ok) {
         if (intervalBlocked) return null;
         const whiteConfidencePct = Math.max(0, Math.min(100, Math.round((Number(n0BudgetOk.effectiveConfidence) || 0) * 100)));
-        const actionLabel =
-            n0SoftBlockActive ? 'SOFT BLOCK'
-            : (n0ActionSuppressed ? 'ALERTA (informativo)' : 'ALERTA');
+        const actionLabel = n0SoftBlockActive ? 'SOFT BLOCK' : 'ALERTA';
         return {
             color: 'white',
             confidence: whiteConfidencePct,
@@ -36593,9 +36758,7 @@ function analyzeDiamondLevelsSimulation(history, config, simState) {
         if (okSolo) {
             const eff = (typeof n0EffectiveConfidence === 'number' && Number.isFinite(n0EffectiveConfidence)) ? n0EffectiveConfidence : (n0WhiteStrength || 0);
             const whiteConfidencePct = Math.max(0, Math.min(100, Math.round(eff * 100)));
-            const actionLabel =
-                n0SoftBlockActive ? 'SOFT BLOCK'
-                : (n0ActionSuppressed ? 'ALERTA (informativo)' : 'ALERTA');
+            const actionLabel = n0SoftBlockActive ? 'SOFT BLOCK' : 'ALERTA';
             return {
                 color: 'white',
                 confidence: whiteConfidencePct,
@@ -37362,127 +37525,6 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         }
         sendResponse({ status: 'ok' });
         return true;
-    } else if (request.action === 'DIAMOND_CLEAR_N0_FROZEN_MODEL') {
-        (async () => {
-            try {
-                const stored = await chrome.storage.local.get(['analyzerConfig']);
-                const base = stored && stored.analyzerConfig && typeof stored.analyzerConfig === 'object' ? stored.analyzerConfig : {};
-                const updated = {
-                    ...base,
-                    n0FrozenEnabled: false,
-                    n0FrozenModel: null,
-                    _clientUpdatedAt: Date.now()
-                };
-                await chrome.storage.local.set({ analyzerConfig: updated });
-                mergeAnalyzerConfig(updated);
-                sendResponse({ status: 'success' });
-            } catch (e) {
-                sendResponse({ status: 'error', error: String(e) });
-            }
-        })();
-        return true;
-    } else if (request.action === 'DIAMOND_FREEZE_N0_MODEL_FROM_BACKTEST') {
-        (async () => {
-            try {
-                const sid = (typeof request.sessionId === 'string' && request.sessionId.trim()) ? request.sessionId.trim() : '';
-                const cfg = request.config && typeof request.config === 'object' ? request.config : (analyzerConfig || {});
-                const requestedLimit = Number(request.historyLimit);
-                const safeDefault = 1440;
-
-                const sourceHistory = await getHistorySourceForPastRuns(requestedLimit);
-                const availableHistory = Array.isArray(sourceHistory) ? sourceHistory.length : 0;
-                const limit = (Number.isFinite(requestedLimit) && requestedLimit > 0)
-                    ? Math.min(requestedLimit, 10000, availableHistory || requestedLimit)
-                    : Math.min(safeDefault, availableHistory || safeDefault);
-
-                const snapKey = sid ? makePastSimSnapshotKey('diamond', sid, limit) : null;
-                let chronological = [];
-                if (snapKey) {
-                    const snap = pastSimHistorySnapshots.get(snapKey);
-                    if (snap && Array.isArray(snap.chronological)) {
-                        chronological = snap.chronological;
-                    }
-                }
-                if (!chronological.length) {
-                    const stableWindow = getStableChronologicalHistoryWindow({ limit, sourceHistory: Array.isArray(sourceHistory) ? sourceHistory : [] });
-                    chronological = stableWindow.chronological;
-                    if (snapKey) {
-                        pastSimHistorySnapshots.set(snapKey, {
-                            chronological,
-                            meta: stableWindow.meta,
-                            fromTimestamp: chronological[0]?.timestamp || null,
-                            toTimestamp: chronological[chronological.length - 1]?.timestamp || null
-                        });
-                        prunePastSimSnapshots();
-                    }
-                }
-
-                const historyMostRecentFirst = chronological.slice().reverse();
-                const n0Settings = (typeof getN0SettingsFromConfig === 'function')
-                    ? getN0SettingsFromConfig(cfg)
-                    : { historySize: N0_DEFAULTS.historySize, windowSize: N0_DEFAULTS.windowSize, allowBlockAll: true };
-                const { maxGales: n0MaxGalesConfigured } = getMartingaleSettingsForEntryColor('white', 'diamond', cfg);
-                const n0LookaheadSpins = Math.max(1, Math.min(6, (Math.floor(Number(n0MaxGalesConfigured) || 0) + 1)));
-
-                const settings = {
-                    historySize: n0Settings.historySize,
-                    windowSize: n0Settings.windowSize,
-                    lookaheadSpins: n0LookaheadSpins,
-                    analysesToRun: N0_DEFAULTS.analysesToRun,
-                    minWindowsRequired: N0_DEFAULTS.minWindowsRequired,
-                    precisionMin: N0_DEFAULTS.precisionMin,
-                    confidenceGrid: N0_DEFAULTS.confidenceGrid,
-                    holdoutEnabled: N0_DEFAULTS.holdoutEnabled,
-                    holdoutTolerance: N0_DEFAULTS.holdoutTolerance,
-                    seed: N0_DEFAULTS.seed
-                };
-                const cacheKey = buildN0RuntimeCacheKey(settings);
-                try { n0RuntimeModelCache.delete(cacheKey); } catch (_) {}
-
-                // Treinar (forçar) com histórico estável do backtest
-                runN0Detector(historyMostRecentFirst, {
-                    ...settings,
-                    assumeStableHistory: true,
-                    silent: true,
-                    cache: true,
-                    cacheMaxAgeSpins: 0
-                });
-
-                const cachedRow = n0RuntimeModelCache.get(cacheKey);
-                const model = cachedRow && cachedRow.model && typeof cachedRow.model === 'object' ? cachedRow.model : null;
-                if (!model || !model.best_config) {
-                    sendResponse({ status: 'error', error: 'Não foi possível gerar o modelo do N0.' });
-                    return;
-                }
-
-                const frozenModel = {
-                    ...model,
-                    frozenAt: Date.now(),
-                    frozenFrom: {
-                        fromTimestamp: chronological[0]?.timestamp || null,
-                        toTimestamp: chronological[chronological.length - 1]?.timestamp || null,
-                        usedHistoryLimit: chronological.length
-                    }
-                };
-
-                const stored = await chrome.storage.local.get(['analyzerConfig']);
-                const base = stored && stored.analyzerConfig && typeof stored.analyzerConfig === 'object' ? stored.analyzerConfig : {};
-                const updated = {
-                    ...base,
-                    aiMode: true,
-                    n0FrozenEnabled: true,
-                    n0FrozenModel: frozenModel,
-                    _clientUpdatedAt: Date.now()
-                };
-                await chrome.storage.local.set({ analyzerConfig: updated });
-                mergeAnalyzerConfig(updated);
-
-                sendResponse({ status: 'success' });
-            } catch (e) {
-                sendResponse({ status: 'error', error: String(e) });
-            }
-        })();
-        return true;
     } else if (request.action === 'STANDARD_SIMULATE_PAST') {
         (async () => {
             try {
@@ -37945,7 +37987,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                         const windows = cfg && cfg.diamondLevelWindows ? cfg.diamondLevelWindows : {};
                         const enabled = cfg && cfg.diamondLevelEnabled ? cfg.diamondLevelEnabled : {};
                         const requiredHistory = Math.max(
-                            enabled.n0 ? (Number(windows.n0History) || 0) : 0,
+                            enabled.n0 ? N0_AUTO_SETTINGS.historyMax : 0,
                             enabled.n3 ? (Number(windows.n3Alternance) || 0) : 0,
                             enabled.n4 ? (Number(windows.n4Persistence) || 0) : 0,
                             enabled.n7 ? (Number(windows.n7HistoryWindow) || 0) : 0,
