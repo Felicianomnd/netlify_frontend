@@ -12859,9 +12859,12 @@ function validateOppositeContinuationBarrier(history, predictedColor, configured
 }
 
 /**
- * N10: Barreira Inteligente (20 giros)
- * - NÃO vota cor. Apenas libera/bloqueia o sinal (como o N9), usando micro-leitura dos últimos 20 giros.
- * - Estratégia: n-gram (20) + baseline do histórico (com suavização) => bloqueia quando há evidência forte contra a cor candidata.
+ * N10: Barreira Inteligente (sequência de números)
+ * - NÃO vota cor. Apenas libera/bloqueia o sinal (como o N9).
+ * - Estratégia: usa os últimos 2 números (com cor) e procura no histórico o que saiu depois.
+ *   Se não houver base confiável, tenta os últimos 3 números; se ainda assim faltar base,
+ *   tenta o último número isolado quando houver evidência sólida.
+ * - Profundidade dinâmica: até 2000 giros, com pesos maiores para os giros mais recentes.
  *
  * Observações:
  * - Fail-open quando não há amostra suficiente (não bloqueia por falta de dados).
@@ -12879,13 +12882,21 @@ function validateN10IntelligentBarrier(history, candidateColor, options = {}) {
             return { allowed: true, reason: 'white_skip', details: 'APROVADO • white', meta: { skipped: true } };
         }
 
-        const maxHistory = Math.max(120, Math.min(4000, Math.floor(Number(options.historySize) || 2000)));
+        const maxHistory = Math.max(50, Math.min(2000, Math.floor(Number(options.historySize) || 2000)));
         const trimmed = Array.isArray(history) ? history.slice(0, maxHistory) : [];
         const chronological = trimmed.slice().reverse(); // antigo -> recente
-        const sequence = chronological.map(normalizeSpinColorValue).filter(Boolean);
 
-        // Precisamos de pelo menos (20 + 1) para ter "próximo giro" após a janela.
-        if (sequence.length < 21) {
+        const sequence = chronological.map((spin) => {
+            if (!spin) return null;
+            const color = normalizeSpinColorValue(spin);
+            const num = Number(spin.number ?? spin.numero ?? spin.value ?? spin.roll ?? null);
+            if (!color || !Number.isFinite(num)) return null;
+            const number = Math.floor(num);
+            if (number < 0 || number > 14) return null;
+            return { color, number };
+        }).filter(Boolean);
+
+        if (sequence.length < 4) {
             return {
                 allowed: true,
                 reason: 'insufficient_history',
@@ -12894,105 +12905,151 @@ function validateN10IntelligentBarrier(history, candidateColor, options = {}) {
             };
         }
 
-        // Baseline do histórico (para detectar quando a janela está "pior que aleatório")
-        const baseCounts = { red: 0, black: 0, white: 0 };
-        for (const c of sequence) {
-            if (c === 'red' || c === 'black' || c === 'white') baseCounts[c] += 1;
-        }
-        const baseTotal = baseCounts.red + baseCounts.black + baseCounts.white;
-        const baseRate = baseTotal > 0 ? (baseCounts[cand] / baseTotal) : 0;
+        const colorPt = (c) => (c === 'red' ? 'Vermelho' : c === 'black' ? 'Preto' : c === 'white' ? 'Branco' : String(c || '—'));
+        const pct = (x) => `${(Number(x || 0) * 100).toFixed(1)}%`;
+        const minOcc = Math.max(2, Math.min(50, Math.floor(Number(options.minOccurrences) || 4)));
+        const depths = [50, 100, 200, 300, 500, 1000, 1500, 2000]
+            .filter((d) => d <= sequence.length);
 
-        const lengths = [20].filter((L) => sequence.length > L);
-        if (lengths.length === 0) {
-            return {
-                allowed: true,
-                reason: 'insufficient_history',
-                details: `APROVADO • histórico insuficiente (${sequence.length} giros)`,
-                meta: { available: sequence.length }
-            };
-        }
+        const weightForAge = (age) => {
+            const a = Math.max(0, Math.floor(Number(age) || 0));
+            if (a <= 50) return 1.6;
+            if (a <= 200) return 1.25;
+            return 0.85;
+        };
 
-        // Suavização Dirichlet simples (evita 0%/100% com pouca amostra)
-        const prior = { red: 1, black: 1, white: 0.5 };
-        const priorTotal = prior.red + prior.black + prior.white;
+        const buildKey = (entry) => `${entry.number}:${entry.color}`;
 
-        const candidates = lengths.map((L) => {
-            const targetWindow = sequence.slice(sequence.length - L);
-            const stats = computeNgramStats(sequence, targetWindow, L);
-            const total = Number(stats && stats.total) || 0;
-            const counts = stats && stats.counts ? stats.counts : { red: 0, black: 0, white: 0 };
-            const post = {
-                red: ((Number(counts.red) || 0) + prior.red) / (total + priorTotal),
-                black: ((Number(counts.black) || 0) + prior.black) / (total + priorTotal),
-                white: ((Number(counts.white) || 0) + prior.white) / (total + priorTotal)
-            };
+        const computeWeightedStats = (segment, pattern) => {
+            if (!segment.length || segment.length <= pattern.length) {
+                return { total: 0, weightedTotal: 0, counts: { red: 0, black: 0, white: 0 } };
+            }
+            let total = 0;
+            let weightedTotal = 0;
+            const counts = { red: 0, black: 0, white: 0 };
+            for (let i = 0; i + pattern.length < segment.length; i++) {
+                let match = true;
+                for (let j = 0; j < pattern.length; j++) {
+                    if (buildKey(segment[i + j]) !== pattern[j]) {
+                        match = false;
+                        break;
+                    }
+                }
+                if (!match) continue;
+                const nextSpin = segment[i + pattern.length];
+                if (!nextSpin || !nextSpin.color) continue;
+                const age = (segment.length - 1) - (i + pattern.length);
+                const w = weightForAge(age);
+                counts[nextSpin.color] = (counts[nextSpin.color] || 0) + w;
+                weightedTotal += w;
+                total += 1;
+            }
+            return { total, weightedTotal, counts };
+        };
 
-            let leader = 'red';
-            let leaderP = post.red;
-            if (post.black > leaderP) { leader = 'black'; leaderP = post.black; }
-            if (post.white > leaderP) { leader = 'white'; leaderP = post.white; }
+        const pickBestDepth = (pattern) => {
+            let best = null;
+            for (const depth of depths) {
+                const segment = sequence.slice(Math.max(0, sequence.length - depth));
+                const stats = computeWeightedStats(segment, pattern);
+                if (stats.total < minOcc) continue;
+                const weightedTotal = stats.weightedTotal || 0;
+                if (weightedTotal <= 0) continue;
+                const pRed = (stats.counts.red || 0) / weightedTotal;
+                const pBlack = (stats.counts.black || 0) / weightedTotal;
+                const pWhite = (stats.counts.white || 0) / weightedTotal;
+                let leader = 'red';
+                let leaderP = pRed;
+                if (pBlack > leaderP) { leader = 'black'; leaderP = pBlack; }
+                if (pWhite > leaderP) { leader = 'white'; leaderP = pWhite; }
+                const candP = cand === 'red' ? pRed : cand === 'black' ? pBlack : pWhite;
+                const gap = leaderP - candP;
+                const sample = { depth, stats, leader, leaderP, candP, gap };
+                if (!best) {
+                    best = sample;
+                } else if (stats.total > best.stats.total) {
+                    best = sample;
+                } else if (stats.total === best.stats.total && leaderP > best.leaderP) {
+                    best = sample;
+                }
+            }
+            return best;
+        };
 
-            const candP = post[cand] || 0;
-            const gap = leaderP - candP;
-            return { L, total, counts, post, leader, leaderP, candP, gap };
-        });
+        const last1 = sequence.slice(-1);
+        const last2 = sequence.slice(-2);
+        const last3 = sequence.slice(-3);
 
-        // Preferir a maior janela (L=20) que tenha amostra mínima; senão, usar a que mais apareceu.
-        const minOcc = Math.max(2, Math.min(20, Math.floor(Number(options.minOccurrences) || 4)));
-        let chosen = candidates.find((r) => r.total >= minOcc);
+        const pattern2 = last2.map(buildKey);
+        const pattern3 = last3.map(buildKey);
+        const pattern1 = last1.map(buildKey);
+
+        let chosen = pickBestDepth(pattern2);
+        let patternLen = 2;
+        let patternLabel = `2n`;
+
         if (!chosen) {
-            chosen = candidates.slice().sort((a, b) => b.total - a.total)[0];
+            const backup = pickBestDepth(pattern3);
+            if (backup) {
+                chosen = backup;
+                patternLen = 3;
+                patternLabel = `3n`;
+            }
         }
 
-        if (!chosen || chosen.total <= 0) {
-            const pct = (x) => `${(Number(x || 0) * 100).toFixed(1)}%`;
+        if (!chosen) {
+            const backup = pickBestDepth(pattern1);
+            if (backup && backup.stats.total >= minOcc && backup.leaderP >= 0.55) {
+                chosen = backup;
+                patternLen = 1;
+                patternLabel = `1n`;
+            }
+        }
+
+        if (!chosen) {
             return {
                 allowed: true,
-                reason: 'no_precedent',
-                // ✅ Sempre devolver um "relatório" (mesmo sem precedente) — pedido do usuário.
-                // Evitar parênteses no final para não virar só "20" no painel (parser separa por "()").
-                details: `APROVADO • sem precedente em 20 • L=${chosen ? chosen.L : 'n/d'} • occ=${chosen ? chosen.total : 0} • base=${pct(baseRate)}`,
-                meta: { baseRate, baseCounts, candidates }
+                reason: 'insufficient_precedent',
+                details: `APROVADO • base insuficiente • occ<${minOcc} • histórico ${sequence.length}`,
+                meta: { available: sequence.length }
             };
         }
 
-        // Regras de bloqueio (somente quando há evidência razoável)
-        const evidence = chosen.total;
-        const MIN_EVIDENCE_BLOCK = 8;
-        const GAP_BLOCK = 0.10;   // 10pp de vantagem do líder sobre a cor candidata
-        const LIFT_BLOCK = 0.95;  // abaixo de 95% do baseline do próprio histórico
-
+        const evidence = chosen.stats.total;
+        const GAP_BLOCK = 0.10;
+        const MIN_EVIDENCE_BLOCK = Math.max(4, Math.floor(minOcc));
         let allowed = true;
         let reason = 'ok';
+
         if (evidence >= MIN_EVIDENCE_BLOCK) {
             if (chosen.leader !== cand && chosen.gap >= GAP_BLOCK) {
                 allowed = false;
-                reason = 'ngram_opposes';
-            } else if (baseRate > 0 && chosen.candP < baseRate * LIFT_BLOCK) {
-                allowed = false;
-                reason = 'below_baseline';
+                reason = 'pattern_opposes';
             }
         } else {
-            // pouca evidência => não bloquear (fail-open)
             reason = 'low_evidence';
         }
 
-        const pct = (x) => `${(Number(x || 0) * 100).toFixed(1)}%`;
-        const colorPt = (c) => (c === 'red' ? 'Vermelho' : c === 'black' ? 'Preto' : c === 'white' ? 'Branco' : String(c || '—'));
-        // ⚠️ Importante (UI): NÃO usar tokens RED/BLACK/WHITE no texto,
-        // senão o painel interpreta como "Voto: cor" (N10 é barreira, não votante).
         const details =
             `${allowed ? 'APROVADO' : 'BLOQUEADO'} • ` +
-            `L=${chosen.L} • occ=${chosen.total} • ` +
+            `p=${patternLabel} • depth=${chosen.depth} • occ=${chosen.stats.total} • ` +
             `P(${colorPt(cand)})=${pct(chosen.candP)} • ` +
             `líder=${colorPt(chosen.leader)}(${pct(chosen.leaderP)}) • ` +
-            `gap=${pct(chosen.gap)} • base=${pct(baseRate)}`;
+            `gap=${pct(chosen.gap)}`;
 
         return {
             allowed,
             reason,
             details,
-            meta: { chosen, baseRate, baseCounts, candidates }
+            meta: {
+                patternLen,
+                depth: chosen.depth,
+                stats: chosen.stats,
+                leader: chosen.leader,
+                leaderP: chosen.leaderP,
+                candP: chosen.candP,
+                gap: chosen.gap
+            }
         };
     } catch (error) {
         return {
