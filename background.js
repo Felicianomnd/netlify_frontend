@@ -12861,13 +12861,12 @@ function validateOppositeContinuationBarrier(history, predictedColor, configured
 /**
  * N10: Barreira Inteligente (sequência de números)
  * - NÃO vota cor. Apenas libera/bloqueia o sinal (como o N9).
- * - Estratégia: usa os últimos 2 números (com cor) e procura no histórico o que saiu depois.
- *   Se não houver base confiável, tenta os últimos 3 números; se ainda assim faltar base,
- *   tenta o último número isolado quando houver evidência sólida.
- * - Profundidade dinâmica: até 2000 giros, com pesos maiores para os giros mais recentes.
+ * - Estratégia: usa o último número e o penúltimo número para ver qual cor costuma vir em seguida.
+ *   A análise usa até 120 giros, com janela dinâmica (10, 20, 30... até encontrar ocorrência)
+ *   e peso maior para os 10 giros mais recentes.
  *
  * Observações:
- * - Fail-open quando não há amostra suficiente (não bloqueia por falta de dados).
+ * - Fail-closed quando não há amostra suficiente (bloqueia por falta de dados).
  * - WHITE: por padrão, não bloqueia (N0 já controla o branco).
  */
 function validateN10IntelligentBarrier(history, candidateColor, options = {}) {
@@ -12898,173 +12897,95 @@ function validateN10IntelligentBarrier(history, candidateColor, options = {}) {
 
         if (sequence.length < 4) {
             return {
-                allowed: true,
+                allowed: false,
                 reason: 'insufficient_history',
-                details: `APROVADO • histórico insuficiente (${sequence.length} giros)`,
+                details: `BLOQUEADO • base insuficiente`,
                 meta: { available: sequence.length }
             };
         }
 
         const colorPt = (c) => (c === 'red' ? 'Vermelho' : c === 'black' ? 'Preto' : c === 'white' ? 'Branco' : String(c || '—'));
-        const pct = (x) => `${(Number(x || 0) * 100).toFixed(1)}%`;
-        const minOcc = Math.max(2, Math.min(50, Math.floor(Number(options.minOccurrences) || 4)));
-        const depths = [50, 100, 200, 300, 500, 1000, 1500, 2000]
-            .filter((d) => d <= sequence.length);
+        const minOcc = Math.max(1, Math.min(50, Math.floor(Number(options.minOccurrences) || 4)));
+        const maxDepth = Math.min(120, sequence.length);
+        const recentSequence = sequence.slice(-maxDepth);
 
-        const weightForAge = (age) => {
-            const a = Math.max(0, Math.floor(Number(age) || 0));
-            if (a <= 50) return 1.6;
-            if (a <= 200) return 1.25;
-            return 0.85;
-        };
-
-        const buildKey = (entry) => `${entry.number}:${entry.color}`;
-
-        const computeWeightedStats = (segment, pattern) => {
-            if (!segment.length || segment.length <= pattern.length) {
-                return { total: 0, weightedTotal: 0, counts: { red: 0, black: 0, white: 0 } };
+        const analyzeNumberFollow = (targetNumber) => {
+            if (!Number.isFinite(targetNumber)) {
+                return { hasBase: false, reason: 'invalid_number' };
             }
-            let total = 0;
-            let weightedTotal = 0;
+
+            let windowSize = 10;
+            while (windowSize <= maxDepth) {
+                const window = recentSequence.slice(-windowSize);
+                const hasOccurrence = window.some((spin, idx) => spin.number === targetNumber && idx < window.length - 1);
+                if (hasOccurrence) break;
+                windowSize += 10;
+            }
+
+            if (windowSize > maxDepth) {
+                return { hasBase: false, reason: 'no_occurrence' };
+            }
+
+            const window = recentSequence.slice(-windowSize);
             const counts = { red: 0, black: 0, white: 0 };
-            for (let i = 0; i + pattern.length < segment.length; i++) {
-                let match = true;
-                for (let j = 0; j < pattern.length; j++) {
-                    if (buildKey(segment[i + j]) !== pattern[j]) {
-                        match = false;
-                        break;
-                    }
-                }
-                if (!match) continue;
-                const nextSpin = segment[i + pattern.length];
+            let total = 0;
+            const recentCutoff = Math.max(0, window.length - 10);
+
+            for (let i = 0; i < window.length - 1; i++) {
+                const spin = window[i];
+                if (spin.number !== targetNumber) continue;
+                const nextSpin = window[i + 1];
                 if (!nextSpin || !nextSpin.color) continue;
-                const age = (segment.length - 1) - (i + pattern.length);
-                const w = weightForAge(age);
-                counts[nextSpin.color] = (counts[nextSpin.color] || 0) + w;
-                weightedTotal += w;
-                total += 1;
+                const weight = i >= recentCutoff ? 2 : 1;
+                counts[nextSpin.color] = (counts[nextSpin.color] || 0) + weight;
+                total += weight;
             }
-            return { total, weightedTotal, counts };
+
+            if (total < minOcc) {
+                return { hasBase: false, reason: 'low_occurrence', total, windowSize };
+            }
+
+            const leader = Object.keys(counts).reduce((best, color) => {
+                if (counts[color] > (counts[best] || 0)) return color;
+                return best;
+            }, 'red');
+
+            return { hasBase: true, leader, total, windowSize, counts };
         };
 
-        const pickBestDepth = (pattern) => {
-            let best = null;
-            for (const depth of depths) {
-                const segment = sequence.slice(Math.max(0, sequence.length - depth));
-                const stats = computeWeightedStats(segment, pattern);
-                if (stats.total < minOcc) continue;
-                const weightedTotal = stats.weightedTotal || 0;
-                if (weightedTotal <= 0) continue;
-                const pRed = (stats.counts.red || 0) / weightedTotal;
-                const pBlack = (stats.counts.black || 0) / weightedTotal;
-                const pWhite = (stats.counts.white || 0) / weightedTotal;
-                let leader = 'red';
-                let leaderP = pRed;
-                if (pBlack > leaderP) { leader = 'black'; leaderP = pBlack; }
-                if (pWhite > leaderP) { leader = 'white'; leaderP = pWhite; }
-                const candP = cand === 'red' ? pRed : cand === 'black' ? pBlack : pWhite;
-                const gap = leaderP - candP;
-                const sample = { depth, stats, leader, leaderP, candP, gap };
-                if (!best) {
-                    best = sample;
-                } else if (stats.total > best.stats.total) {
-                    best = sample;
-                } else if (stats.total === best.stats.total && leaderP > best.leaderP) {
-                    best = sample;
-                }
-            }
-            return best;
-        };
+        const lastSpin = sequence[sequence.length - 1];
+        const penultimateSpin = sequence[sequence.length - 2];
+        const phase1 = analyzeNumberFollow(lastSpin && lastSpin.number);
+        const phase2 = analyzeNumberFollow(penultimateSpin && penultimateSpin.number);
 
-        const last1 = sequence.slice(-1);
-        const last2 = sequence.slice(-2);
-        const last3 = sequence.slice(-3);
-
-        const pattern2 = last2.map(buildKey);
-        const pattern3 = last3.map(buildKey);
-        const pattern1 = last1.map(buildKey);
-
-        let chosen = pickBestDepth(pattern2);
-        let patternLen = 2;
-        let patternLabel = `2n`;
-
-        if (!chosen) {
-            const backup = pickBestDepth(pattern3);
-            if (backup) {
-                chosen = backup;
-                patternLen = 3;
-                patternLabel = `3n`;
-            }
-        }
-
-        if (!chosen) {
-            const backup = pickBestDepth(pattern1);
-            if (backup && backup.stats.total >= minOcc && backup.leaderP >= 0.55) {
-                chosen = backup;
-                patternLen = 1;
-                patternLabel = `1n`;
-            }
-        }
-
-        if (!chosen) {
+        if (!phase1.hasBase || !phase2.hasBase) {
             return {
-                allowed: true,
-                reason: 'insufficient_precedent',
-                details: `APROVADO • base insuficiente • occ<${minOcc} • histórico ${sequence.length}`,
-                meta: { available: sequence.length }
+                allowed: false,
+                reason: 'insufficient_base',
+                details: 'BLOQUEADO • base insuficiente',
+                meta: { phase1, phase2 }
             };
         }
 
-        const evidence = chosen.stats.total;
-        const GAP_BLOCK = 0.10;
-        const MIN_EVIDENCE_BLOCK = Math.max(4, Math.floor(minOcc));
-        let allowed = true;
-        let reason = 'ok';
+        const phase1Match = phase1.leader === cand;
+        const phase2Match = phase2.leader === cand;
+        const allowed = phase1Match && phase2Match;
 
-        if (evidence >= MIN_EVIDENCE_BLOCK) {
-            if (chosen.leader !== cand && chosen.gap >= GAP_BLOCK) {
-                allowed = false;
-                reason = 'pattern_opposes';
-            }
-        } else {
-            reason = 'low_evidence';
-        }
-
-        const formatSpin = (spin) => {
-            if (!spin) return null;
-            return `${spin.number} ${colorPt(spin.color)}`;
-        };
-        const recentSpins = sequence.slice(-patternLen).map(formatSpin).filter(Boolean);
-        const recentText = recentSpins.length
-            ? `Últimos ${patternLen} giros: ${recentSpins.join(' • ')}`
-            : 'Últimos giros: —';
-        const details =
-            `${allowed ? 'APROVADO' : 'BLOQUEADO'} • ` +
-            `${recentText} • ` +
-            `Histórico analisado: ${chosen.depth} giros • ` +
-            `Ocorrências: ${chosen.stats.total}x • ` +
-            `Comparação: ${colorPt(chosen.leader)} ${pct(chosen.leaderP)} vs ${colorPt(cand)} ${pct(chosen.candP)} • ` +
-            `Diferença ${pct(chosen.gap)}`;
+        const details = allowed
+            ? `APROVADO • sequência confirma ${colorPt(cand)}`
+            : `BLOQUEADO • sequência aponta ${colorPt(phase1Match ? phase2.leader : phase1.leader)}`;
 
         return {
             allowed,
-            reason,
+            reason: allowed ? 'ok' : 'sequence_mismatch',
             details,
-            meta: {
-                patternLen,
-                depth: chosen.depth,
-                stats: chosen.stats,
-                leader: chosen.leader,
-                leaderP: chosen.leaderP,
-                candP: chosen.candP,
-                gap: chosen.gap
-            }
+            meta: { phase1, phase2 }
         };
     } catch (error) {
         return {
-            allowed: true,
+            allowed: false,
             reason: 'internal_error',
-            details: 'APROVADO • erro interno',
+            details: 'BLOQUEADO • erro interno',
             meta: { error: error && error.message ? error.message : String(error) }
         };
     }
