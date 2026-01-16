@@ -13030,12 +13030,21 @@ function validateN10IntelligentBarrier(history, candidateColor, options = {}) {
             reason = 'low_evidence';
         }
 
+        const formatSpin = (spin) => {
+            if (!spin) return null;
+            return `${spin.number} ${colorPt(spin.color)}`;
+        };
+        const recentSpins = sequence.slice(-patternLen).map(formatSpin).filter(Boolean);
+        const recentText = recentSpins.length
+            ? `Últimos ${patternLen} giros: ${recentSpins.join(' • ')}`
+            : 'Últimos giros: —';
         const details =
             `${allowed ? 'APROVADO' : 'BLOQUEADO'} • ` +
-            `p=${patternLabel} • depth=${chosen.depth} • occ=${chosen.stats.total} • ` +
-            `P(${colorPt(cand)})=${pct(chosen.candP)} • ` +
-            `líder=${colorPt(chosen.leader)}(${pct(chosen.leaderP)}) • ` +
-            `gap=${pct(chosen.gap)}`;
+            `${recentText} • ` +
+            `Histórico analisado: ${chosen.depth} giros • ` +
+            `Ocorrências: ${chosen.stats.total}x • ` +
+            `Comparação: ${colorPt(chosen.leader)} ${pct(chosen.leaderP)} vs ${colorPt(cand)} ${pct(chosen.candP)} • ` +
+            `Diferença ${pct(chosen.gap)}`;
 
         return {
             allowed,
