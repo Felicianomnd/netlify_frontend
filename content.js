@@ -3706,14 +3706,14 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                         </div>
                         <div class="diamond-level-field" data-level="n10">
                             <div class="diamond-level-header">
-                                <div class="diamond-level-title">N10 - Barreira Inteligente (8-10 giros)</div>
+                                <div class="diamond-level-title">N10 - Barreira Inteligente (20 giros)</div>
                                 <label class="diamond-level-switch checkbox-label">
                                     <input type="checkbox" class="diamond-level-toggle-input" id="diamondLevelToggleN10" checked />
                                     <span class="switch-track"></span>
                                 </label>
                             </div>
                             <div class="diamond-level-note">
-                                Barreira inteligente: analisa automaticamente os últimos <strong>8-10 giros</strong> e decide se o sinal é viável.
+                                Barreira inteligente: analisa automaticamente os últimos <strong>20 giros</strong> e decide se o sinal é viável.
                                 Não vota cor — apenas <strong>libera/bloqueia</strong> (como o N9). Sem parâmetros configuráveis.
                             </div>
                         </div>
@@ -7120,7 +7120,7 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                         if (upper === 'N4') return Number(windows.n4Persistence) || 0;
                         if (upper === 'N7') return Number(windows.n7HistoryWindow) || 0;
                         if (upper === 'N8') return Number(windows.n8Barrier1) || 0;
-                        // N10 não tem parâmetro de janela no painel (barreira fixa 8-10). Mantemos 0 aqui.
+                        // N10 não tem parâmetro de janela no painel (barreira fixa 20). Mantemos 0 aqui.
                         if (upper === 'N10') return 0;
                         return 0;
                     }

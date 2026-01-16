@@ -182,7 +182,7 @@ function getDiamondConfigSnapshot() {
         ['N7', 'Auto (Dec 20 | Hist 100)'],
         ['N8', `Barreira 1 (oposta) → ${getDiamondWindow('n8Barrier1', getDiamondWindow('n8Barrier', 50))} giros`],
         ['N9', `Barreira 2 (indicada) → ${getDiamondWindow('n8Barrier', 50)} giros`],
-        ['N10', 'Janela 8-10 giros (barreira inteligente)']
+        ['N10', 'Janela 20 giros (barreira inteligente)']
     ];
 }
 
@@ -755,7 +755,7 @@ const DEFAULT_ANALYZER_CONFIG = {
         n7: true,
         n8: true,  // N8 - Barreira 1 (cor oposta)
         n9: true,  // N9 - Barreira 2 (cor indicada)
-        n10: true  // N10 - Barreira Inteligente (8-10 giros)
+        n10: true  // N10 - Barreira Inteligente (20 giros)
     }
 };
 
@@ -1798,8 +1798,19 @@ function buildDiamondGalePhaseAnalysis({ history, phase, preferredColor, fallbac
     };
 
     let barriers = evalBarriers(chosen);
+    let switchedByBarriers = false;
     // ✅ No GALE, barreiras são INFORMATIVAS (não encerram o Martingale).
-    // Mantemos um indicador para aparecer no raciocínio, mas NÃO bloqueamos o sinal do GALE.
+    // Porém, no modo consecutivo, se a cor candidata for bloqueada e a oposta for aprovada,
+    // ajustamos o sinal para respeitar a leitura das barreiras.
+    if (!barriers.allowed && (chosen === 'red' || chosen === 'black')) {
+        const opposite = oppositeRB(chosen);
+        const oppositeBarriers = evalBarriers(opposite);
+        if (oppositeBarriers.allowed) {
+            chosen = opposite;
+            barriers = oppositeBarriers;
+            switchedByBarriers = true;
+        }
+    }
     const barriersDisapproved = !barriers.allowed;
     const blockedAll = false;
 
@@ -1855,7 +1866,10 @@ function buildDiamondGalePhaseAnalysis({ history, phase, preferredColor, fallbac
         return `N10 - Barreira Inteligente → ${detail}`;
     })();
 
-    const decisionLine = `DECISÃO: ${String(chosen).toUpperCase()}` + (barriersDisapproved ? ' (⚠️ barreiras reprovaram)' : '');
+    const decisionLine =
+        `DECISÃO: ${String(chosen).toUpperCase()}` +
+        (switchedByBarriers ? ' (ajustada pelas barreiras)' : '') +
+        (barriersDisapproved ? ' (⚠️ barreiras reprovaram)' : '');
 
     const reasoning =
         `${n4Line}\n` +
@@ -12845,9 +12859,9 @@ function validateOppositeContinuationBarrier(history, predictedColor, configured
 }
 
 /**
- * N10: Barreira Inteligente (8-10 giros)
- * - NÃO vota cor. Apenas libera/bloqueia o sinal (como o N9), usando micro-leitura dos últimos 8–10 giros.
- * - Estratégia: n-gram (8..10) + baseline do histórico (com suavização) => bloqueia quando há evidência forte contra a cor candidata.
+ * N10: Barreira Inteligente (20 giros)
+ * - NÃO vota cor. Apenas libera/bloqueia o sinal (como o N9), usando micro-leitura dos últimos 20 giros.
+ * - Estratégia: n-gram (20) + baseline do histórico (com suavização) => bloqueia quando há evidência forte contra a cor candidata.
  *
  * Observações:
  * - Fail-open quando não há amostra suficiente (não bloqueia por falta de dados).
@@ -12870,8 +12884,8 @@ function validateN10IntelligentBarrier(history, candidateColor, options = {}) {
         const chronological = trimmed.slice().reverse(); // antigo -> recente
         const sequence = chronological.map(normalizeSpinColorValue).filter(Boolean);
 
-        // Precisamos de pelo menos (10 + 1) para ter "próximo giro" após a janela.
-        if (sequence.length < 12) {
+        // Precisamos de pelo menos (20 + 1) para ter "próximo giro" após a janela.
+        if (sequence.length < 21) {
             return {
                 allowed: true,
                 reason: 'insufficient_history',
@@ -12888,7 +12902,7 @@ function validateN10IntelligentBarrier(history, candidateColor, options = {}) {
         const baseTotal = baseCounts.red + baseCounts.black + baseCounts.white;
         const baseRate = baseTotal > 0 ? (baseCounts[cand] / baseTotal) : 0;
 
-        const lengths = [10, 9, 8].filter((L) => sequence.length > L);
+        const lengths = [20].filter((L) => sequence.length > L);
         if (lengths.length === 0) {
             return {
                 allowed: true,
@@ -12923,7 +12937,7 @@ function validateN10IntelligentBarrier(history, candidateColor, options = {}) {
             return { L, total, counts, post, leader, leaderP, candP, gap };
         });
 
-        // Preferir a maior janela (L=10→8) que tenha amostra mínima; senão, usar a que mais apareceu.
+        // Preferir a maior janela (L=20) que tenha amostra mínima; senão, usar a que mais apareceu.
         const minOcc = Math.max(2, Math.min(20, Math.floor(Number(options.minOccurrences) || 4)));
         let chosen = candidates.find((r) => r.total >= minOcc);
         if (!chosen) {
@@ -12936,8 +12950,8 @@ function validateN10IntelligentBarrier(history, candidateColor, options = {}) {
                 allowed: true,
                 reason: 'no_precedent',
                 // ✅ Sempre devolver um "relatório" (mesmo sem precedente) — pedido do usuário.
-                // Evitar parênteses no final para não virar só "8-10" no painel (parser separa por "()").
-                details: `APROVADO • sem precedente em 8-10 • L=${chosen ? chosen.L : 'n/d'} • occ=${chosen ? chosen.total : 0} • base=${pct(baseRate)}`,
+                // Evitar parênteses no final para não virar só "20" no painel (parser separa por "()").
+                details: `APROVADO • sem precedente em 20 • L=${chosen ? chosen.L : 'n/d'} • occ=${chosen ? chosen.total : 0} • base=${pct(baseRate)}`,
                 meta: { baseRate, baseCounts, candidates }
             };
         }
@@ -21200,7 +21214,7 @@ function runN8Detector(history, options = {}) {
  * - N1..N7 geram votos especializados
  * - N8 vota via walk-forward não-sobreposto
  * - N9 é a barreira final (veto histórico)
- * - N10 é a barreira inteligente (micro 8-10 giros)
+ * - N10 é a barreira inteligente (micro 20 giros)
  */
 async function analyzeWithPatternSystem(history) {
     
@@ -21257,7 +21271,7 @@ async function analyzeWithPatternSystem(history) {
             'N7 - Barreira (Ápice %)',
             'N8 - Barreira 1 (cor oposta)',
             'N9 - Barreira 2 (cor indicada)',
-            'N10 - Barreira Inteligente (8-10 giros)'
+            'N10 - Barreira Inteligente (20 giros)'
         ].forEach(text => console.log(`   ${text}`));
         logDivider();
         logSection(`[Diamante] Configurações atuais`);
@@ -21300,7 +21314,7 @@ async function analyzeWithPatternSystem(history) {
         ['N7', `Auto (Decisões ${n7DecisionWindow} | Histórico ${n7HistoryWindow})`],
         ['N8', `Barreira 1 (oposta) → ${n8Barrier1Window} giros`],
         ['N9', `Barreira 2 (indicada) → ${n9BarrierWindow} giros`],
-        ['N10', 'Janela 8-10 giros (barreira inteligente)']
+        ['N10', 'Janela 20 giros (barreira inteligente)']
     ].forEach(([label, detail]) => logInfo(label, detail));
     logDivider();
     
@@ -22277,7 +22291,7 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
         if (!n10Enabled) {
             console.log('%c║  🧠 N10 - BARREIRA INTELIGENTE DESATIVADA (pelo usuário) ║', 'color: #777777; font-weight: bold; font-size: 14px;');
         } else {
-            console.log('%c║  🧠 N10 - BARREIRA INTELIGENTE (8-10 GIROS)             ║', 'color: #00FFFF; font-weight: bold; font-size: 14px;');
+            console.log('%c║  🧠 N10 - BARREIRA INTELIGENTE (20 GIROS)               ║', 'color: #00FFFF; font-weight: bold; font-size: 14px;');
         }
 
         const n10Report = {
@@ -23378,7 +23392,7 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
         }
 
         // ═══════════════════════════════════════════════════════════════
-        // 🧠 N10 - BARREIRA INTELIGENTE (8-10 GIROS)
+        // 🧠 N10 - BARREIRA INTELIGENTE (20 GIROS)
         // - NÃO vota cor. Só libera/bloqueia o sinal do consenso.
         // - Deve rodar ANTES do modo Conservador (para bloquear também no Agressivo).
         // ═══════════════════════════════════════════════════════════════
@@ -36868,7 +36882,7 @@ function analyzeDiamondLevelsSimulation(history, config, simState) {
     if (!consensusColor || consensusVotes === 0) return null;
     if (consensusVotes === secondVotes) return null;
 
-    // 🧠 N10 - Barreira Inteligente (8-10 giros): valida o consenso (não vota)
+    // 🧠 N10 - Barreira Inteligente (20 giros): valida o consenso (não vota)
     if (n10Enabled) {
         try {
             const n10HistoryCap = Math.max(120, Math.min(2000, history.length || 0));
