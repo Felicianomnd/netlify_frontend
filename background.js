@@ -12905,7 +12905,7 @@ function validateN10IntelligentBarrier(history, candidateColor, options = {}) {
         }
 
         const colorPt = (c) => (c === 'red' ? 'Vermelho' : c === 'black' ? 'Preto' : c === 'white' ? 'Branco' : String(c || '—'));
-        const minOcc = Math.max(1, Math.min(50, Math.floor(Number(options.minOccurrences) || 4)));
+        const minOcc = Math.max(1, Math.min(50, Math.floor(Number(options.minOccurrences) || 1)));
         const maxDepth = Math.min(120, sequence.length);
         const recentSequence = sequence.slice(-maxDepth);
 
@@ -12958,22 +12958,24 @@ function validateN10IntelligentBarrier(history, candidateColor, options = {}) {
         const phase1 = analyzeNumberFollow(lastSpin && lastSpin.number);
         const phase2 = analyzeNumberFollow(penultimateSpin && penultimateSpin.number);
 
-        if (!phase1.hasBase || !phase2.hasBase) {
+        const phasesWithBase = [phase1, phase2].filter((phase) => phase && phase.hasBase);
+
+        if (phasesWithBase.length === 0) {
             return {
-                allowed: false,
+                allowed: true,
                 reason: 'insufficient_base',
-                details: 'BLOQUEADO • base insuficiente',
+                details: 'APROVADO • base insuficiente',
                 meta: { phase1, phase2 }
             };
         }
 
-        const phase1Match = phase1.leader === cand;
-        const phase2Match = phase2.leader === cand;
-        const allowed = phase1Match && phase2Match;
+        const phase1Match = phase1.hasBase ? phase1.leader === cand : null;
+        const phase2Match = phase2.hasBase ? phase2.leader === cand : null;
+        const allowed = phasesWithBase.every((phase) => phase.leader === cand);
 
         const details = allowed
             ? `APROVADO • sequência confirma ${colorPt(cand)}`
-            : `BLOQUEADO • sequência aponta ${colorPt(phase1Match ? phase2.leader : phase1.leader)}`;
+            : `BLOQUEADO • sequência aponta ${colorPt((phase1Match === false ? phase1.leader : phase2.leader) || (phasesWithBase[0] && phasesWithBase[0].leader))}`;
 
         return {
             allowed,
