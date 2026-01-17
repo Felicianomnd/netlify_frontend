@@ -705,6 +705,26 @@
             background: rgba(255, 0, 63, 0.06);
         }
 
+        /* ✅ Card do plano trial (teste gratuito) na landing */
+        .pricing-card-trial {
+            position: relative;
+            border-color: rgba(255, 0, 63, 0.4);
+            background: rgba(255, 0, 63, 0.05);
+        }
+
+        .pricing-trial-badge {
+            position: absolute;
+            top: -1px;
+            right: 16px;
+            background: #ff003f;
+            color: #ffffff;
+            font-size: 11px;
+            font-weight: 800;
+            padding: 4px 10px;
+            border-radius: 0 0 6px 6px;
+            letter-spacing: 0.5px;
+        }
+
         /* (removido) selo por-plano — agora existe um texto único acima de todos os planos */
 
         .pricing-name {
@@ -1242,6 +1262,26 @@
         .plan-card.selected {
             border-color: #ff003f;
             background: rgba(255, 0, 63, 0.1);
+        }
+
+        /* ✅ Card do plano trial (teste gratuito) */
+        .plan-card-trial {
+            position: relative;
+            border-color: rgba(255, 0, 63, 0.4);
+            background: rgba(255, 0, 63, 0.05);
+        }
+
+        .plan-trial-badge {
+            position: absolute;
+            top: -1px;
+            right: 16px;
+            background: #ff003f;
+            color: #ffffff;
+            font-size: 11px;
+            font-weight: 800;
+            padding: 4px 10px;
+            border-radius: 0 0 6px 6px;
+            letter-spacing: 0.5px;
         }
 
         .verification-card {
@@ -3108,6 +3148,9 @@
             await new Promise(r => setTimeout(r, 180));
         }
 
+        // Armazenar config do trial para a landing
+        let landingTrialConfig = null;
+
         async function loadLandingPage() {
             await ensureUrlsReady(); // Garantir que API_URL está configurado
             
@@ -3126,10 +3169,24 @@
             applyLandingBranding(loadLandingBrandCache() || null);
 
             try {
-                const response = await fetch(`${API_URL}/site/landing`, { cache: 'no-store' });
-                const data = await response.json().catch(() => ({}));
-                if (!response.ok || !data.success) {
+                // Buscar landing e trial em paralelo
+                const [landingResponse, trialResponse] = await Promise.all([
+                    fetch(`${API_URL}/site/landing`, { cache: 'no-store' }),
+                    fetch(`${API_URL}/site/trial`, { cache: 'no-store' }).catch(() => null)
+                ]);
+                
+                const data = await landingResponse.json().catch(() => ({}));
+                if (!landingResponse.ok || !data.success) {
                     throw new Error(data.error || 'Erro ao carregar landing');
+                }
+                
+                // Processar trial
+                landingTrialConfig = null;
+                if (trialResponse) {
+                    const trialData = await trialResponse.json().catch(() => null);
+                    if (trialData?.enabled && trialData?.trial) {
+                        landingTrialConfig = trialData.trial;
+                    }
                 }
 
                 landingConfig = data.landing || null;
@@ -3468,6 +3525,46 @@
                 clearNode(pricingGrid);
                 const highlight = cfg?.pricing?.highlightDuration || null;
                 const ctaText = cfg?.pricing?.ctaText || 'Assinar';
+
+                // ✅ Adicionar card do trial SE habilitado
+                if (landingTrialConfig) {
+                    const trialHours = Number(landingTrialConfig.hours) || 24;
+                    const trialName = landingTrialConfig.name || 'Teste Grátis';
+                    const trialDesc = landingTrialConfig.description || `Experimente grátis por ${trialHours} horas`;
+                    
+                    const trialCard = document.createElement('div');
+                    trialCard.className = 'pricing-card pricing-card-trial';
+                    
+                    const trialBadge = document.createElement('div');
+                    trialBadge.className = 'pricing-trial-badge';
+                    trialBadge.textContent = 'GRÁTIS';
+                    
+                    const name = document.createElement('div');
+                    name.className = 'pricing-name';
+                    name.textContent = trialName;
+                    
+                    const price = document.createElement('div');
+                    price.className = 'pricing-price';
+                    price.innerHTML = `R$ 0,00 <span>/ ${trialHours}h</span>`;
+                    
+                    const desc = document.createElement('p');
+                    desc.className = 'pricing-desc';
+                    desc.textContent = trialDesc;
+                    
+                    const btn = document.createElement('button');
+                    btn.type = 'button';
+                    btn.className = 'btn btn-primary';
+                    btn.textContent = 'Testar Grátis';
+                    btn.addEventListener('click', () => openAuthModal('register', { planDuration: 'trial' }));
+                    
+                    trialCard.appendChild(trialBadge);
+                    trialCard.appendChild(name);
+                    trialCard.appendChild(price);
+                    trialCard.appendChild(desc);
+                    trialCard.appendChild(btn);
+                    
+                    pricingGrid.appendChild(trialCard);
+                }
 
                 const sortedPlans = Array.isArray(plans) ? [...plans].sort((a, b) => (a.days || 0) - (b.days || 0)) : [];
                 for (const plan of sortedPlans) {
@@ -4026,6 +4123,10 @@
                         pendingUserId = null;
                         emailVerificationToken = null; // não é cadastro novo
                         selectedPlan = null; // força escolher plano (permite trocar de plano)
+                        
+                        // ✅ Se já usou trial, não mostrar opção de trial novamente
+                        hideTrialOption = data.trialUsed === true || data.isTrial === true;
+                        
                         clearPendingAutoLogin();
                         await loadPlans();
                         showScreen('planScreen');
@@ -4283,21 +4384,52 @@
             }
         }
 
+        // Flag para não mostrar trial se usuário já usou (conta expirada que era trial)
+        let hideTrialOption = false;
+
         async function loadPlans() {
             await ensureUrlsReady(); // Garantir que API_URL está configurado
             try {
-                const response = await fetch(`${API_URL}/plans`);
-                const data = await response.json();
+                // Buscar planos pagos e configuração do trial em paralelo
+                const [plansRes, trialRes] = await Promise.all([
+                    fetch(`${API_URL}/plans`),
+                    fetch(`${API_URL}/site/trial`).catch(() => null)
+                ]);
                 
-                if (data.success) {
+                const plansData = await plansRes.json();
+                const trialData = trialRes ? await trialRes.json().catch(() => null) : null;
+                
+                if (plansData.success) {
                     const container = document.getElementById('plansContainer');
-                    container.innerHTML = data.plans.map(plan => `
+                    let html = '';
+                    
+                    // Adicionar plano trial SE: habilitado E não é conta que já usou trial
+                    if (trialData?.enabled && trialData?.trial && !hideTrialOption) {
+                        const trial = trialData.trial;
+                        const trialHours = Number(trial.hours) || 24;
+                        const trialName = trial.name || 'Teste Grátis';
+                        const trialDesc = trial.description || `Experimente grátis por ${trialHours} horas`;
+                        
+                        html += `
+                            <div class="plan-card plan-card-trial" onclick="selectPlan(event, 'trial')">
+                                <div class="plan-trial-badge">GRÁTIS</div>
+                                <div class="plan-name">${trialName}</div>
+                                <div class="plan-price">R$ 0,00 <span>/ ${trialHours}h</span></div>
+                                <div class="plan-description">${trialDesc}</div>
+                            </div>
+                        `;
+                    }
+                    
+                    // Adicionar planos pagos
+                    html += plansData.plans.map(plan => `
                         <div class="plan-card" onclick="selectPlan(event, '${plan.duration}')">
                             <div class="plan-name">${plan.name}</div>
                             <div class="plan-price">R$ ${plan.price.toFixed(2).replace('.', ',')} <span>/ ${plan.days} dias</span></div>
                             <div class="plan-description">${plan.description}</div>
                         </div>
                     `).join('');
+                    
+                    container.innerHTML = html;
                 }
             } catch (error) {
                 showMessage('Erro ao carregar planos', 'error');
@@ -4329,6 +4461,52 @@
             btn.innerHTML = '<div class="loader"></div> Processando...';
             
             try {
+                // ✅ TRIAL: cadastro gratuito sem pagamento
+                if (selectedPlan === 'trial') {
+                    if (!userData?.name || !userData?.email || !userData?.password) {
+                        showMessage('Preencha todos os dados para o teste gratuito.', 'error');
+                        return;
+                    }
+                    
+                    if (!emailVerificationToken) {
+                        showMessage('Confirme o código enviado para o seu e-mail antes de continuar.', 'error');
+                        return;
+                    }
+                    
+                    const trialResp = await fetch(`${API_URL}/auth/register-trial`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            name: userData.name,
+                            email: userData.email,
+                            password: userData.password,
+                            verificationToken: emailVerificationToken,
+                            affiliateCode: getStoredAffiliateCode()
+                        })
+                    });
+                    
+                    const trialData = await trialResp.json().catch(() => ({}));
+                    
+                    if (!trialResp.ok || !trialData.success) {
+                        throw new Error(trialData.error || 'Erro ao ativar o teste gratuito.');
+                    }
+                    
+                    // Trial criado com sucesso - fazer login automático
+                    if (trialData.token && trialData.user) {
+                        localStorage.setItem('authToken', trialData.token);
+                        localStorage.setItem('user', JSON.stringify(trialData.user));
+                        localStorage.setItem('lastAuthCheck', Date.now().toString());
+                        clearPendingAutoLogin();
+                        showMessage('Teste gratuito ativado! Redirecionando...', 'success');
+                        setTimeout(() => { window.location.href = 'index.html'; }, 1500);
+                        return;
+                    }
+                    
+                    showMessage('Teste gratuito ativado! Faça login para continuar.', 'success');
+                    setTimeout(() => { showScreen('authScreen'); switchTab('login'); }, 2000);
+                    return;
+                }
+                
                 // Se o usuário já existe como PENDING (ex.: veio do login), apenas atualizar plano
                 if (pendingUserId && userData?.email) {
                     const updateResp = await fetch(`${API_URL}/auth/pending/update-plan`, {
