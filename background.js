@@ -3392,6 +3392,15 @@ function getUserRigorThresholdsForPremium(config = analyzerConfig) {
     }
 }
 
+function getMinOccurrencesForColor(minOccurrences, color) {
+    const baseMin = Math.max(1, Number(minOccurrences) || 1);
+    const normalized = normalizeColorName(color);
+    if (normalized === 'white') {
+        return Math.max(2, baseMin);
+    }
+    return baseMin;
+}
+
 function getAnalysisWinRatePct(analysis) {
     try {
         if (!analysis || typeof analysis !== 'object') return 0;
@@ -3437,10 +3446,11 @@ function validateFrequencyAnalysis(analysis) {
 
     // ✅ Premium: respeitar rigor configurável do usuário (min/max ocorrências e WIN%)
     const { minOcc, maxOcc, winPct } = getUserRigorThresholdsForPremium();
+    const minOccForColor = getMinOccurrencesForColor(minOcc, analysis.suggestedColor);
     const occurrences = Number(analysis.occurrences ?? 0);
-    if (!Number.isFinite(occurrences) || occurrences < minOcc) {
-        logRejectedPattern('Tendência/Frequência', `${occurrences || 0}/${minOcc} ocorrências`);
-        return { valid: false, reason: `${occurrences || 0}/${minOcc} ocorrências` };
+    if (!Number.isFinite(occurrences) || occurrences < minOccForColor) {
+        logRejectedPattern('Tendência/Frequência', `${occurrences || 0}/${minOccForColor} ocorrências`);
+        return { valid: false, reason: `${occurrences || 0}/${minOccForColor} ocorrências` };
     }
     if (maxOcc > 0 && occurrences > maxOcc) {
         logRejectedPattern('Tendência/Frequência', `${occurrences}/${maxOcc} excede máx ocorrências`);
@@ -3461,10 +3471,11 @@ function validateTemporalAnalysis(analysis) {
     if (!analysis) return { valid: false, reason: 'Análise não disponível' };
 
     const { minOcc, maxOcc, winPct } = getUserRigorThresholdsForPremium();
+    const minOccForColor = getMinOccurrencesForColor(minOcc, analysis.suggestedColor);
     const occurrences = Number(analysis.occurrences ?? 0);
-    if (!Number.isFinite(occurrences) || occurrences < minOcc) {
-        logRejectedPattern('Temporal/Horário', `${occurrences || 0}/${minOcc} ocorrências`);
-        return { valid: false, reason: `${occurrences || 0}/${minOcc} ocorrências` };
+    if (!Number.isFinite(occurrences) || occurrences < minOccForColor) {
+        logRejectedPattern('Temporal/Horário', `${occurrences || 0}/${minOccForColor} ocorrências`);
+        return { valid: false, reason: `${occurrences || 0}/${minOccForColor} ocorrências` };
     }
     if (maxOcc > 0 && occurrences > maxOcc) {
         logRejectedPattern('Temporal/Horário', `${occurrences}/${maxOcc} excede máx ocorrências`);
@@ -3485,10 +3496,11 @@ function validateNumberAnalysis(analysis) {
     if (!analysis) return { valid: false, reason: 'Análise não disponível' };
 
     const { minOcc, maxOcc, winPct } = getUserRigorThresholdsForPremium();
+    const minOccForColor = getMinOccurrencesForColor(minOcc, analysis.suggestedColor);
     const occurrences = Number(analysis.occurrences ?? 0);
-    if (!Number.isFinite(occurrences) || occurrences < minOcc) {
-        logRejectedPattern('Número+Cor', `${occurrences || 0}/${minOcc} ocorrências`);
-        return { valid: false, reason: `${occurrences || 0}/${minOcc} ocorrências` };
+    if (!Number.isFinite(occurrences) || occurrences < minOccForColor) {
+        logRejectedPattern('Número+Cor', `${occurrences || 0}/${minOccForColor} ocorrências`);
+        return { valid: false, reason: `${occurrences || 0}/${minOccForColor} ocorrências` };
     }
     if (maxOcc > 0 && occurrences > maxOcc) {
         logRejectedPattern('Número+Cor', `${occurrences}/${maxOcc} excede máx ocorrências`);
@@ -3509,10 +3521,11 @@ function validateCorrelationAnalysis(analysis) {
     if (!analysis) return { valid: false, reason: 'Análise não disponível' };
 
     const { minOcc, maxOcc, winPct } = getUserRigorThresholdsForPremium();
+    const minOccForColor = getMinOccurrencesForColor(minOcc, analysis.suggestedColor);
     const occurrences = Number(analysis.occurrences ?? 0);
-    if (!Number.isFinite(occurrences) || occurrences < minOcc) {
-        logRejectedPattern('Ciclo/Periódica', `${occurrences || 0}/${minOcc} ocorrências`);
-        return { valid: false, reason: `${occurrences || 0}/${minOcc} ocorrências` };
+    if (!Number.isFinite(occurrences) || occurrences < minOccForColor) {
+        logRejectedPattern('Ciclo/Periódica', `${occurrences || 0}/${minOccForColor} ocorrências`);
+        return { valid: false, reason: `${occurrences || 0}/${minOccForColor} ocorrências` };
     }
     if (maxOcc > 0 && occurrences > maxOcc) {
         logRejectedPattern('Ciclo/Periódica', `${occurrences}/${maxOcc} excede máx ocorrências`);
@@ -26064,7 +26077,7 @@ async function verifyWithSavedPatternsFast(history, dbOverride = null) {
 			2,
 			50
 		);
-		const minWinsGate = Math.max(analyzerConfig?.minOccurrences || 1, 1);
+		const baseMinWinsGate = Math.max(analyzerConfig?.minOccurrences || 1, 1);
 		const winPercentOthersThreshold = Number(analyzerConfig?.winPercentOthers || 0) || 0;
 
 		const createdOnTimestamp = (history[0] && (history[0].created_at ?? history[0].timestamp)) || new Date().toISOString();
@@ -26090,6 +26103,7 @@ async function verifyWithSavedPatternsFast(history, dbOverride = null) {
 			let suggested = pat.expected_next || pat.suggestedColor;
 			if (!suggested) continue;
 			suggested = normalizeColorName(suggested) || suggested;
+			const minWinsGate = getMinOccurrencesForColor(baseMinWinsGate, suggested);
 
 			// Cor de disparo atual (antes do padrão head)
 			const currentTrigger = (history[need] && history[need].color) ? history[need].color : null;
@@ -26144,7 +26158,7 @@ async function verifyWithSavedPatternsFast(history, dbOverride = null) {
 						winPct,
 						lossPct: (winPct !== null) ? Math.max(0, 100 - winPct) : null,
 						balance,
-						sampleMin: minWinsGate,
+					sampleMin: minWinsGate,
 						patternLength: need
 					}
 				},
@@ -26358,7 +26372,8 @@ async function verifyWithSavedPatternsLegacy(history, dbOverride = null) {
 	// ═══════════════════════════════════════════════════════════════════════════════
 	// NOVA LÓGICA DE VALIDAÇÃO: Híbrida (Antiga + Nova)
 	// ═══════════════════════════════════════════════════════════════════════════════
-	const minOccurrences = Math.max(analyzerConfig.minOccurrences || 1, 1);
+	const baseMinOccurrences = Math.max(analyzerConfig.minOccurrences || 1, 1);
+	const minOccurrences = getMinOccurrencesForColor(baseMinOccurrences, suggested);
 	
 	// Contar todas as ocorrências do padrão no histórico
 	const colorResults = { red: 0, black: 0, white: 0 };
@@ -26604,7 +26619,8 @@ async function verifyWithSavedPatternsLegacy(history, dbOverride = null) {
                     }
                     const winPct = (w + l) > 0 ? (w/(w+l))*100 : 0;
                     // Calcular rigor baseado na configuração atual
-                    const sampleMin = Math.max(analyzerConfig.minOccurrences || 1, 1);
+                    const sampleMinBase = Math.max(analyzerConfig.minOccurrences || 1, 1);
+                    const sampleMin = getMinOccurrencesForColor(sampleMinBase, suggested);
                     let othersWins = 0, othersLosses = 0;
                     let counted = 0;
                     for (let i = need; i < history.length && counted < occ; i++) {
@@ -30314,10 +30330,11 @@ async function combineMultidimensionalAnalyses(colorAnalysis, numberAnalysis, ti
     // ✅ Premium: sem filtro oculto de risco de sequência (P(3 LOSS))
     const streakRiskOk = true;
 
+    const minOccurrencesForColor = getMinOccurrencesForColor(minOccurrences, bestRecommendation.color);
     const bestOcc = Number(bestAnalysis?.occurrences ?? 0);
     const bestSig = Number(bestAnalysis?.statisticalSignificance ?? 0);
     const meetsCriteria =
-        (Number.isFinite(bestOcc) ? bestOcc : 0) >= minOccurrences &&
+        (Number.isFinite(bestOcc) ? bestOcc : 0) >= minOccurrencesForColor &&
         (maxOccurrences === 0 || ((Number.isFinite(bestOcc) ? bestOcc : 0) <= maxOccurrences)) &&
         ((Number.isFinite(bestSig) ? bestSig : 0) >= minStatisticalSignificance) &&
         streakRiskOk;
@@ -30444,7 +30461,7 @@ async function combineMultidimensionalAnalyses(colorAnalysis, numberAnalysis, ti
         const occStr = bestAnalysis?.occurrences != null ? bestAnalysis.occurrences : 'N/A';
         const sigStr = bestAnalysis?.statisticalSignificance != null ? bestAnalysis.statisticalSignificance.toFixed(2) : 'N/A';
         const maxOccStr = (typeof maxOccurrences === 'number' && maxOccurrences > 0) ? `/máx ${maxOccurrences}` : '';
-        console.log(`❌ Análise rejeitada (Premium): conf=${confStr}%, occ=${occStr}/${minOccurrences}${maxOccStr}, sig=${sigStr}${rigorMessage ? ` | ${rigorMessage}` : ''}`);
+        console.log(`❌ Análise rejeitada (Premium): conf=${confStr}%, occ=${occStr}/${minOccurrencesForColor}${maxOccStr}, sig=${sigStr}${rigorMessage ? ` | ${rigorMessage}` : ''}`);
         return null;
     }
     
