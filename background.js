@@ -21678,13 +21678,18 @@ async function analyzeWithPatternSystem(history) {
         // 🔷 N4 - AUTOINTELIGENTE (CONFIGURÁVEL PELO USUÁRIO)
         // ═══════════════════════════════════════════════════════════════
         console.log('%c║  🔷 N4 - AUTOINTELIGENTE (CONFIGURÁVEL)                ║', 'color: #D35400; font-weight: bold; font-size: 14px;');
+        const n4RequestedIntensity = normalizeSignalIntensity(analyzerConfig && analyzerConfig.signalIntensity, 'aggressive');
+        const n4AllVotingLevelsEnabled = ['N1', 'N2', 'N3', 'N4', 'N5', 'N6'].every(id => isLevelEnabledLocal(id));
+        const n4SignalIntensity = (n4RequestedIntensity === 'conservative' && !n4AllVotingLevelsEnabled)
+            ? 'aggressive'
+            : n4RequestedIntensity;
         
         const { maxGales: n4MaxGalesConfigured } = getMartingaleSettings('diamond', analyzerConfig);
         const n4HistoryWindow = getDiamondWindow('n4Persistence', DEFAULT_ANALYZER_CONFIG.diamondLevelWindows.n4Persistence);
         const nivel9 = analyzeAutointeligente(history, {
             historySize: n4HistoryWindow,
             maxGales: n4MaxGalesConfigured,
-            signalIntensity: analyzerConfig.signalIntensity || 'aggressive',
+            signalIntensity: n4SignalIntensity,
             whiteProtectionAsWin: !!analyzerConfig.whiteProtectionAsWin,
             dynamicGales: shouldUseN4DynamicGalesForConfig(analyzerConfig),
             // ✅ passar estado de aprendizado do N4 (somente leitura) para filtrar/boost
