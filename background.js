@@ -13871,14 +13871,14 @@ function analyzeAutointeligente(history, options = {}) {
         // - "good" muito alto (baseline+0.10) quase nunca acontece em RB no próximo giro,
         //   então o N4 raramente usa BOOST/SWAP por memória.
         // - Ajuste mais realista: reage com vantagem moderada e evita overfit.
-        const dynBad = clamp01(baseline - 0.02);
-        const dynGood = clamp01(baseline + 0.06);
+        const dynBad = clamp01(baseline - 0.03);
+        const dynGood = clamp01(baseline + 0.05);
 
-        let minSamples = Math.max(3, Math.min(80, Math.floor(Number(store?.minSamples) || 8)));
+        let minSamples = Math.max(3, Math.min(80, Math.floor(Number(store?.minSamples) || 6)));
         // ✅ G1/G2: precisa de mais amostras, mas o valor antigo deixava a memória "lenta demais".
         // Mantemos um aumento leve para não ficar mudo, mas permitir reação mais cedo.
-        if (s >= 3) minSamples = Math.max(minSamples, 9);
-        else if (s === 2) minSamples = Math.max(minSamples, 8);
+        if (s >= 3) minSamples = Math.max(minSamples, 8);
+        else if (s === 2) minSamples = Math.max(minSamples, 7);
 
         let bad = Number(store?.badWinRate);
         let good = Number(store?.goodWinRate);
@@ -14016,9 +14016,9 @@ function analyzeAutointeligente(history, options = {}) {
                 // Ajuste de seletividade:
                 // - aggressive: ainda precisa ter edge claro (melhor assertividade, menos sinais)
                 // - conservative: ainda mais rígido
-                const minCount = signalIntensity === 'conservative' ? 45 : 35;
-                const minLiftLcb = signalIntensity === 'conservative' ? 0.022 : 0.018;
-                const minLiftMean = signalIntensity === 'conservative' ? 0.040 : 0.032;
+                const minCount = signalIntensity === 'conservative' ? 40 : 28;
+                const minLiftLcb = signalIntensity === 'conservative' ? 0.020 : 0.015;
+                const minLiftMean = signalIntensity === 'conservative' ? 0.035 : 0.025;
 
                 const candidates = [];
                 const considerRow = (tag, row, lenLabel) => {
@@ -14615,7 +14615,7 @@ function analyzeAutointeligente(history, options = {}) {
     const volumeProfile = signalIntensity === 'conservative'
         ? { targetRate: 0.20, scoreFloor: 0.40, minMargin: 0.002, minSupport: 2, minEdge: 0.0010, minWhiteLCB: 0.22, minP1Mean: 0.48, minBestOrder: 1 }
         // aggressive (volume alto): garantir entradas frequentes (sessão curta do usuário)
-        : { targetRate: 0.35, scoreFloor: 0.38, minMargin: 0.000, minSupport: 1, minEdge: 0.0000, minWhiteLCB: 0.20, minP1Mean: 0.47, minBestOrder: 1 };
+        : { targetRate: 0.40, scoreFloor: 0.35, minMargin: 0.000, minSupport: 1, minEdge: 0.0000, minWhiteLCB: 0.18, minP1Mean: 0.44, minBestOrder: 1 };
 
     const computeScore = (best, second) => {
         if (!best) return { score: -1, margin: 0, edge: 0 };
@@ -14772,7 +14772,7 @@ function analyzeAutointeligente(history, options = {}) {
     // Mantém um teto para o limiar adaptativo (principalmente no perfil agressivo / N4-only),
     // evitando que uma sequência ruim faça o N4 parar de votar.
     try {
-        const capExtra = signalIntensity === 'conservative' ? 0.05 : 0.07;
+        const capExtra = signalIntensity === 'conservative' ? 0.05 : 0.10;
         const cap = Math.max(0, Math.min(1, (Number(volumeProfile.scoreFloor) || 0.40) + capExtra));
         if (Number.isFinite(cap) && cap > 0) {
             adaptiveScoreMin = Math.min(adaptiveScoreMin, cap);
@@ -14809,8 +14809,8 @@ function analyzeAutointeligente(history, options = {}) {
 
         // ✅ N4 aprende por "tipo". Contexto completo (ctx) é muito esparso; usamos tiers agregados para reagir cedo.
         // Ajuste: reagir com poucas amostras quando o tipo começa a errar (pedido do usuário).
-        const minSamplesAgg = Math.max(3, Math.floor(minSamples * 0.35));
-        const minSamplesGlobal = Math.max(4, Math.floor(minSamples * 0.55));
+        const minSamplesAgg = Math.max(2, Math.floor(minSamples * 0.30));
+        const minSamplesGlobal = Math.max(3, Math.floor(minSamples * 0.45));
         const swapDelta = 0.04;
 
         const readLearningWinRate = (st) => {
