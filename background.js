@@ -2417,7 +2417,7 @@ function applyUrlsConfigToApiConfig(urls) {
     const wsList = Array.isArray(urls.girosWsOrigins) ? urls.girosWsOrigins : [];
 
     // ✅ Preferir servidor ativo (Admin Panel) quando disponível
-    const activeId = String(urls.activeServerId || '').trim();
+    const activeId = String(urls.runtimeActiveServerId || urls.activeServerId || '').trim();
     const servers = Array.isArray(urls.servers) ? urls.servers : [];
     let activeServer = null;
     if (activeId && servers.length) {
@@ -2449,6 +2449,7 @@ function applyUrlsConfigToApiConfig(urls) {
 const FALLBACK_ORIGINS = {
     auth: [
         'https://blaze-analyzer-api-v2-p9xb.onrender.com',
+        'https://blaze-analyzer-api-v2-z8s3.onrender.com',
         'https://blaze-analyzer-api-v2.onrender.com'
     ],
     giros: [
@@ -2458,9 +2459,15 @@ const FALLBACK_ORIGINS = {
 };
 
 function getCandidateAuthOrigins(cfg) {
+    const activeId = String(cfg?.runtimeActiveServerId || cfg?.activeServerId || '').trim();
+    let activeOrigin = '';
+    if (activeId && Array.isArray(cfg?.servers)) {
+        const activeServer = cfg.servers.find((s) => String(s?.id || s?.serverId || '').trim() === activeId);
+        activeOrigin = normalizeOrigin(activeServer?.authOrigin);
+    }
     const fromArray = Array.isArray(cfg?.authApiOrigins) ? cfg.authApiOrigins : [];
     const fromServers = Array.isArray(cfg?.servers) ? cfg.servers.map((s) => s?.authOrigin) : [];
-    const combined = [...fromArray, ...fromServers, ...FALLBACK_ORIGINS.auth]
+    const combined = [activeOrigin, ...fromArray, ...fromServers, ...FALLBACK_ORIGINS.auth]
         .map(normalizeOrigin)
         .filter(Boolean);
     return [...new Set(combined)];
@@ -2526,12 +2533,14 @@ async function refreshUrlsFromServer() {
             console.log('🔍 Auth URL não respondeu, iniciando auto-discovery...');
             const urls = await autoDiscoverUrls();
             if (urls) {
+                const runtimeActiveId = String(urls.runtimeActiveServerId || urls.activeServerId || '').trim() || null;
                 const merged = {
                     authApiOrigins: Array.isArray(urls.authApiOrigins) ? urls.authApiOrigins.map(normalizeOrigin).filter(Boolean) : [],
                     girosApiOrigins: Array.isArray(urls.girosApiOrigins) ? urls.girosApiOrigins.map(normalizeOrigin).filter(Boolean) : [],
                     girosWsOrigins: Array.isArray(urls.girosWsOrigins) ? urls.girosWsOrigins.map(normalizeWs).filter(Boolean) : [],
                     servers: Array.isArray(urls.servers) ? urls.servers : [],
-                    activeServerId: String(urls.activeServerId || '').trim() || null,
+                    activeServerId: runtimeActiveId,
+                    runtimeActiveServerId: runtimeActiveId,
                     updatedAt: urls.updatedAt || null
                 };
                 if (merged.authApiOrigins.length || merged.girosApiOrigins.length || merged.girosWsOrigins.length) {
@@ -2547,12 +2556,14 @@ async function refreshUrlsFromServer() {
         if (!data.success || !data.urls) return;
 
         const urls = data.urls || {};
+        const runtimeActiveId = String(urls.runtimeActiveServerId || urls.activeServerId || '').trim() || null;
         const merged = {
             authApiOrigins: Array.isArray(urls.authApiOrigins) ? urls.authApiOrigins.map(normalizeOrigin).filter(Boolean) : [],
             girosApiOrigins: Array.isArray(urls.girosApiOrigins) ? urls.girosApiOrigins.map(normalizeOrigin).filter(Boolean) : [],
             girosWsOrigins: Array.isArray(urls.girosWsOrigins) ? urls.girosWsOrigins.map(normalizeWs).filter(Boolean) : [],
             servers: Array.isArray(urls.servers) ? urls.servers : [],
-            activeServerId: String(urls.activeServerId || '').trim() || null,
+            activeServerId: runtimeActiveId,
+            runtimeActiveServerId: runtimeActiveId,
             updatedAt: urls.updatedAt || null
         };
         if (merged.authApiOrigins.length || merged.girosApiOrigins.length || merged.girosWsOrigins.length) {

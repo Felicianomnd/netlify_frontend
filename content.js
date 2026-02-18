@@ -8648,6 +8648,7 @@ function showCenteredNotice(message, options = {}) {
       const FALLBACK_ORIGINS = {
           auth: [
               'https://blaze-analyzer-api-v2-p9xb.onrender.com',
+              'https://blaze-analyzer-api-v2-z8s3.onrender.com',
               'https://blaze-analyzer-api-v2.onrender.com'
           ],
           giros: [
@@ -8673,9 +8674,15 @@ function showCenteredNotice(message, options = {}) {
       }
 
       function getCandidateAuthOrigins(cfg) {
+          const activeId = String(cfg?.runtimeActiveServerId || cfg?.activeServerId || '').trim();
+          let activeOrigin = '';
+          if (activeId && Array.isArray(cfg?.servers)) {
+              const activeServer = cfg.servers.find((s) => String(s?.id || s?.serverId || '').trim() === activeId);
+              activeOrigin = normalizeOrigin(activeServer?.authOrigin);
+          }
           const fromArray = Array.isArray(cfg?.authApiOrigins) ? cfg.authApiOrigins : [];
           const fromServers = Array.isArray(cfg?.servers) ? cfg.servers.map((s) => s?.authOrigin) : [];
-          const combined = [...fromArray, ...fromServers, ...FALLBACK_ORIGINS.auth]
+          const combined = [activeOrigin, ...fromArray, ...fromServers, ...FALLBACK_ORIGINS.auth]
               .map(normalizeOrigin)
               .filter(Boolean);
           return [...new Set(combined)];
@@ -8741,7 +8748,8 @@ function showCenteredNotice(message, options = {}) {
                           enabled: s?.enabled === false ? false : true
                       }))
                       : [],
-                  activeServerId: String(urls.activeServerId || '').trim() || null,
+                  activeServerId: String(urls.runtimeActiveServerId || urls.activeServerId || '').trim() || null,
+                  runtimeActiveServerId: String(urls.runtimeActiveServerId || urls.activeServerId || '').trim() || null,
                   updatedAt: urls.updatedAt || null
               };
               if (merged.authApiOrigins.length || merged.girosApiOrigins.length || merged.girosWsOrigins.length) {
@@ -8763,7 +8771,7 @@ function showCenteredNotice(message, options = {}) {
           const girosList = Array.isArray(urls.girosApiOrigins) ? urls.girosApiOrigins : [];
 
           // ✅ Preferir servidor ativo (Admin Panel) quando disponível
-          const activeId = String(urls.activeServerId || '').trim();
+          const activeId = String(urls.runtimeActiveServerId || urls.activeServerId || '').trim();
           const servers = Array.isArray(urls.servers) ? urls.servers : [];
           let activeServer = null;
           if (activeId && servers.length) {
