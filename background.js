@@ -2220,6 +2220,28 @@ function calculateGaleConfidenceValue(baseConfidence = 0, analysis = null, state
     return round1(clampPct(finalConfidence, 0, 95));
 }
 
+function resolveEntryConfidenceForUI(primaryAnalysis = null, fallbackAnalysis = null) {
+    const list = [primaryAnalysis, fallbackAnalysis]
+        .filter((item) => item && typeof item === 'object');
+
+    const values = [];
+    for (const item of list) {
+        values.push(item.confidence);
+        values.push(item.galeConfidence);
+        values.push(item.probability);
+    }
+
+    for (const raw of values) {
+        const n = Number(raw);
+        if (Number.isFinite(n) && n > 0) return n;
+    }
+    for (const raw of values) {
+        const n = Number(raw);
+        if (Number.isFinite(n)) return n;
+    }
+    return 0;
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // CONTROLE DE ENTRADAS DE ALTERNÂNCIA (MODO DIAMANTE - NÍVEL 3)
 // ═══════════════════════════════════════════════════════════════════════════════

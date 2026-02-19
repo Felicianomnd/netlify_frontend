@@ -4714,10 +4714,14 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                 stageText = phaseDigit ? (isWin ? `WIN <span style="color: white;">G${phaseDigit}</span>` : `LOSS <span style="color: white;">G${phaseDigit}</span>`) : (isWin ? 'WIN' : 'LOSS');
             }
 
-            const confTop = (typeof e.confidence === 'number') ? `${e.confidence.toFixed(0)}%` : '';
+            const displayConf = resolveEntryDisplayConfidence(e);
+            const confTop = (typeof displayConf === 'number' && Number.isFinite(displayConf)) ? `${displayConf.toFixed(0)}%` : '';
             const resultBar = `<div class="entry-result-bar ${barClass}"></div>`;
             const stageLabel = stageText ? `<div class="entry-stage ${barClass}">${stageText}</div>` : '';
-            const title = `Giro: ${e.number} • Cor: ${e.color} • ${time} • Resultado: ${e.result}${e.martingaleStage ? ' • Estágio: '+e.martingaleStage : ''}${e.confidence? ' • Confiança: '+e.confidence.toFixed(1)+'%' : ''}`;
+            const confTitle = (typeof displayConf === 'number' && Number.isFinite(displayConf))
+                ? ` • Confiança: ${displayConf.toFixed(1)}%`
+                : '';
+            const title = `Giro: ${e.number} • Cor: ${e.color} • ${time} • Resultado: ${e.result}${e.martingaleStage ? ' • Estágio: '+e.martingaleStage : ''}${confTitle}`;
 
             return `<div class="entry-item-wrap clickable-entry" title="${title}" data-entry-index="${entryIndex}">
                 <div class="entry-conf-top">${confTop || '&nbsp;'}</div>
@@ -6899,10 +6903,14 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                 stageText = phaseDigit ? (isWin ? `WIN <span style="color: white;">G${phaseDigit}</span>` : `LOSS <span style="color: white;">G${phaseDigit}</span>`) : (isWin ? 'WIN' : 'LOSS');
             }
 
-            const confTop = (typeof e.confidence === 'number') ? `${e.confidence.toFixed(0)}%` : '';
+            const displayConf = resolveEntryDisplayConfidence(e);
+            const confTop = (typeof displayConf === 'number' && Number.isFinite(displayConf)) ? `${displayConf.toFixed(0)}%` : '';
             const resultBar = `<div class="entry-result-bar ${barClass}"></div>`;
             const stageLabel = stageText ? `<div class="entry-stage ${barClass}">${stageText}</div>` : '';
-            const title = `Giro: ${e.number} • Cor: ${e.color} • ${time} • Resultado: ${e.result}${e.martingaleStage ? ' • Estágio: '+e.martingaleStage : ''}${e.confidence? ' • Confiança: '+e.confidence.toFixed(1)+'%' : ''}`;
+            const confTitle = (typeof displayConf === 'number' && Number.isFinite(displayConf))
+                ? ` • Confiança: ${displayConf.toFixed(1)}%`
+                : '';
+            const title = `Giro: ${e.number} • Cor: ${e.color} • ${time} • Resultado: ${e.result}${e.martingaleStage ? ' • Estágio: '+e.martingaleStage : ''}${confTitle}`;
 
             return `<div class="entry-item-wrap clickable-entry" title="${title}" data-entry-index="${entryIndex}">
                 <div class="entry-conf-top">${confTop || '&nbsp;'}</div>
@@ -16672,6 +16680,69 @@ async function persistAnalyzerState(newState) {
         }
     }
 
+    function resolveEntryDisplayConfidence(entryLike) {
+        try {
+            const e = entryLike && typeof entryLike === 'object' ? entryLike : null;
+            if (!e) return null;
+
+            const firstFinite = (...values) => {
+                for (const value of values) {
+                    const n = Number(value);
+                    if (Number.isFinite(n)) return n;
+                }
+                return null;
+            };
+
+            const baseConfidence = firstFinite(
+                e.confidence,
+                e && e.patternData ? e.patternData.confidence : null,
+                e.galeConfidence,
+                e && e.patternData ? e.patternData.galeConfidence : null,
+                e.probability
+            );
+
+            const patternDescription = (() => {
+                if (e && e.patternData && e.patternData.patternDescription != null) return e.patternData.patternDescription;
+                if (e && e.patternDescription != null) return e.patternDescription;
+                if (e && e.summary != null) return e.summary;
+                return null;
+            })();
+
+            const diamondSourceLevel = e.diamondSourceLevel
+                || (e && e.patternData ? e.patternData.diamondSourceLevel : null)
+                || null;
+
+            const inferredMode = (() => {
+                const mode = String(e.analysisMode || '').toLowerCase().trim();
+                if (mode === 'diamond' || mode === 'standard') return mode;
+                if (diamondSourceLevel) return 'diamond';
+                try {
+                    const txt = typeof patternDescription === 'string'
+                        ? patternDescription
+                        : (patternDescription && typeof patternDescription === 'object' ? JSON.stringify(patternDescription) : '');
+                    if (/\bN(?:10|[0-9])\b/i.test(txt) || /score combinado|confian[çc]a/i.test(txt)) return 'diamond';
+                } catch (_) {}
+                return 'standard';
+            })();
+
+            if (inferredMode === 'diamond') {
+                const computed = computeDiamondDisplayConfidence({
+                    confidence: Number.isFinite(baseConfidence) ? baseConfidence : 0,
+                    analysisMode: 'diamond',
+                    diamondSourceLevel,
+                    patternDescription
+                });
+                if (Number.isFinite(computed)) return Math.max(0, Math.min(100, computed));
+            }
+
+            if (Number.isFinite(baseConfidence)) return Math.max(0, Math.min(100, baseConfidence));
+            return null;
+        } catch (_) {
+            const n = Number(entryLike && entryLike.confidence);
+            return Number.isFinite(n) ? Math.max(0, Math.min(100, n)) : null;
+        }
+    }
+
     // ✅ UX: animação leve quando o "Último Giro" atualiza (evita mudança brusca).
     function triggerLastSpinAnimation(spinLike) {
         try {
@@ -18800,21 +18871,8 @@ async function persistAnalyzerState(newState) {
                 }
             }
             
-            const displayConf = (() => {
-                try {
-                    const patternDesc = e && e.patternData ? e.patternData.patternDescription : null;
-                    return computeDiamondDisplayConfidence({
-                        confidence: (typeof e.confidence === 'number' && Number.isFinite(e.confidence)) ? e.confidence : 0,
-                        analysisMode: e.analysisMode,
-                        diamondSourceLevel: e.diamondSourceLevel,
-                        patternDescription: patternDesc
-                    });
-                } catch (_) {
-                    const n = Number(e && e.confidence);
-                    return Number.isFinite(n) ? Math.max(0, Math.min(100, n)) : 0;
-                }
-            })();
-            const confTitle = (typeof displayConf === 'number' && Number.isFinite(displayConf) && displayConf > 0)
+            const displayConf = resolveEntryDisplayConfidence(e);
+            const confTitle = (typeof displayConf === 'number' && Number.isFinite(displayConf))
                 ? ` • Confiança: ${displayConf.toFixed(1)}%`
                 : '';
 
@@ -18824,7 +18882,7 @@ async function persistAnalyzerState(newState) {
                 `${e.isMaster ? ' • SINAL DE ENTRADA' : ''}`;
             
             // ✅ Diamante: mesma regra do modal/topo (max entre score interno e nível fonte)
-            const confTop = (typeof displayConf === 'number' && Number.isFinite(displayConf) && displayConf > 0)
+            const confTop = (typeof displayConf === 'number' && Number.isFinite(displayConf))
                 ? `${displayConf.toFixed(0)}%`
                 : '';
             
@@ -19197,7 +19255,8 @@ async function persistAnalyzerState(newState) {
                         : `LOSS <span style="color: white;">G${galeNum}</span>`;
                 }
 
-                const confTop = (typeof entry.confidence === 'number') ? `${entry.confidence.toFixed(0)}%` : '';
+                const displayConf = resolveEntryDisplayConfidence(entry);
+                const confTop = (typeof displayConf === 'number' && Number.isFinite(displayConf)) ? `${displayConf.toFixed(0)}%` : '';
                 const title = `Branco • Giro: ${entry.number} • ${time} • Resultado: ${entry.result}`;
                 return `
                     <div class="entry-item-wrap clickable-entry" title="${title}" data-entry-index="${idx}">
