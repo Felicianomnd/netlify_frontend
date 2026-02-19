@@ -2010,6 +2010,8 @@ const DIAMOND_LEVEL_DEFAULTS = {
     n4Persistence: 500,
     // ✅ N4: permitir mudar a cor no Gale (G1/G2) quando estiver rodando "somente N4"
     n4DynamicGales: true,
+    n5TriangulationDepth: 5000,
+    // (LEGADO) campo antigo do N5
     n5MinuteBias: 60,
     n6RetracementWindow: 80,
     n7DecisionWindow: 20,
@@ -3438,7 +3440,7 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                                     <button type="button" class="diamond-sim-option" data-level="N2">N2 - Ritmo Autônomo</button>
                                     <button type="button" class="diamond-sim-option" data-level="N3">N3 - Alternância</button>
                                     <button type="button" class="diamond-sim-option" data-level="N4">N4 - Autointeligente</button>
-                                    <button type="button" class="diamond-sim-option" data-level="N5">N5 - Ritmo por Giro</button>
+                                    <button type="button" class="diamond-sim-option" data-level="N5">N5 - Triangulacao de Padroes</button>
                                     <button type="button" class="diamond-sim-option" data-level="N6">N6 - Retração Histórica</button>
                                     <button type="button" class="diamond-sim-option" data-level="N7">N7 - Barreira (Ápice %)</button>
                                     <button type="button" class="diamond-sim-option" data-level="N8">N8 - Barreira 1 (Oposta)</button>
@@ -3611,18 +3613,18 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                         </div>
                         <div class="diamond-level-field" data-level="n5">
                             <div class="diamond-level-header">
-                                <div class="diamond-level-title">N5 - Ritmo por Giro (amostras)</div>
+                                <div class="diamond-level-title">N5 - Triangulacao de Padroes (profundidade)</div>
                                 <label class="diamond-level-switch checkbox-label">
                                     <input type="checkbox" class="diamond-level-toggle-input" id="diamondLevelToggleN5" checked />
                                     <span class="switch-track"></span>
                                 </label>
                             </div>
                             <div class="diamond-level-note">
-                                Detecta viés temporal por minuto e posição do giro (1º ou 2º giro de cada minuto). Mais amostras = análise mais confiável porém menos sensível.
+                                Analisa 6 modelos de padrao em paralelo com triangulacao de votos. Busca no historico ate a profundidade configurada, reduzindo rigor apenas ate 60% de similaridade.
                             </div>
-                            <input type="number" id="diamondN5MinuteBias" min="10" max="200" value="60" />
+                            <input type="number" id="diamondN5TriangulationDepth" min="200" max="10000" value="5000" />
                             <span class="diamond-level-subnote">
-                                Recomendado: 60 amostras para equilibrar confiabilidade e sensibilidade
+                                Recomendado: 5000 giros (min. 200 • max. 10000)
                             </span>
                         </div>
                         <div class="diamond-level-field" data-level="n6">
@@ -5330,6 +5332,7 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
         const ids =
             upper === 'N3' ? ['diamondN3Alternance']
             : upper === 'N4' ? ['diamondN4Persistence']
+            : upper === 'N5' ? ['diamondN5TriangulationDepth']
             : upper === 'N7' ? ['diamondN7HistoryWindow']
             : upper === 'N8' ? ['diamondN8Barrier1']
             : upper === 'N9' ? ['diamondN8Barrier']
@@ -6982,7 +6985,7 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
             n3IgnoreWhite: getCheckboxValue('diamondN3IgnoreWhite', DIAMOND_LEVEL_DEFAULTS.n3IgnoreWhite),
             n4Persistence: n4History,
             n4DynamicGales: getCheckboxValue('diamondN4DynamicGales', DIAMOND_LEVEL_DEFAULTS.n4DynamicGales),
-            n5MinuteBias: getNumber('diamondN5MinuteBias', 10, 200, DIAMOND_LEVEL_DEFAULTS.n5MinuteBias),
+            n5TriangulationDepth: getNumber('diamondN5TriangulationDepth', 200, 10000, DIAMOND_LEVEL_DEFAULTS.n5TriangulationDepth),
             n6RetracementWindow: getNumber('diamondN6Retracement', 30, 120, DIAMOND_LEVEL_DEFAULTS.n6RetracementWindow),
             // N7: ajuste automático (não permitir configuração manual)
             n7DecisionWindow: DIAMOND_LEVEL_DEFAULTS.n7DecisionWindow,
@@ -7075,7 +7078,7 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                 ...currentConfig.diamondLevelEnabled,
                 ...newEnabled
             },
-            minuteSpinWindow: newWindows.n5MinuteBias,
+            minuteSpinWindow: newWindows.n5TriangulationDepth,
             martingaleProfiles: updatedProfiles,
             autoBetConfig: sanitizedAutoBetConfig,
             whiteProtectionAsWin: !!sanitizedAutoBetConfig.whiteProtection
@@ -7113,11 +7116,22 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                 const windows = cfg && cfg.diamondLevelWindows ? cfg.diamondLevelWindows : {};
                 const enabled = cfg && cfg.diamondLevelEnabled ? cfg.diamondLevelEnabled : {};
                 const upper = (mode === 'level' && levelId) ? String(levelId).toUpperCase() : '';
+                const resolveN5Depth = () => {
+                    const depth = Number(windows.n5TriangulationDepth);
+                    if (Number.isFinite(depth) && depth > 0) return Math.max(200, Math.min(10000, Math.floor(depth)));
+                    const legacy = Number(windows.n5MinuteBias);
+                    if (Number.isFinite(legacy) && legacy > 0) {
+                        const migrated = legacy >= 200 ? legacy : Math.max(2000, Math.floor(legacy * 50));
+                        return Math.max(200, Math.min(10000, migrated));
+                    }
+                    return 0;
+                };
                 const requiredHistory = (() => {
                     if (mode === 'level' && upper) {
                         if (upper === 'N0') return 2000;
                         if (upper === 'N3') return Number(windows.n3Alternance) || 0;
                         if (upper === 'N4') return Number(windows.n4Persistence) || 0;
+                        if (upper === 'N5') return resolveN5Depth();
                         if (upper === 'N7') return Number(windows.n7HistoryWindow) || 0;
                         if (upper === 'N8') return Number(windows.n8Barrier1) || 0;
                         // N10 não tem parâmetro de janela no painel (barreira fixa 20). Mantemos 0 aqui.
@@ -7129,6 +7143,7 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                         enabled.n0 ? 2000 : 0,
                         enabled.n3 ? (Number(windows.n3Alternance) || 0) : 0,
                         enabled.n4 ? (Number(windows.n4Persistence) || 0) : 0,
+                        enabled.n5 ? resolveN5Depth() : 0,
                         enabled.n7 ? (Number(windows.n7HistoryWindow) || 0) : 0,
                         enabled.n8 ? (Number(windows.n8Barrier1) || 0) : 0
                     );
@@ -7347,6 +7362,10 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                         setCheck('diamondN4DynamicGales', !!windows.n4DynamicGales);
                         return true;
                     }
+                    if (upper === 'N5') {
+                        setVal('diamondN5TriangulationDepth', windows.n5TriangulationDepth);
+                        return true;
+                    }
                     return false;
                 };
 
@@ -7430,13 +7449,13 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                 return el ? !!el.checked : false;
             });
 
-            // Pedido atual: otimizar em lote N1..N4 (se estiverem ativos)
-            const OPTIMIZABLE = new Set(['N1','N2','N3','N4']);
+            // Otimizacao em lote: niveis com parametros ajustaveis
+            const OPTIMIZABLE = new Set(['N1','N2','N3','N4','N5']);
             const targets = active.filter(id => OPTIMIZABLE.has(id));
             const skipped = active.filter(id => !OPTIMIZABLE.has(id));
 
             if (targets.length === 0) {
-                showCenteredNotice('Nenhum nível elegível para otimização em lote.\n\nAtive pelo menos N1, N2, N3 ou N4 (em Configurar Níveis) e tente novamente.');
+                showCenteredNotice('Nenhum nível elegível para otimização em lote.\n\nAtive pelo menos N1, N2, N3, N4 ou N5 (em Configurar Níveis) e tente novamente.');
                 return;
             }
 
@@ -7485,12 +7504,16 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                     setCheck('diamondN3IgnoreWhite', !!windows.n3IgnoreWhite);
                     return true;
                 }
-                if (upper === 'N4') {
-                    setVal('diamondN4Persistence', windows.n4Persistence);
-                    return true;
-                }
-                return false;
-            };
+                    if (upper === 'N4') {
+                        setVal('diamondN4Persistence', windows.n4Persistence);
+                        return true;
+                    }
+                    if (upper === 'N5') {
+                        setVal('diamondN5TriangulationDepth', windows.n5TriangulationDepth);
+                        return true;
+                    }
+                    return false;
+                };
 
             const results = [];
             let cfg = await buildDiamondConfigSnapshotFromModal();
@@ -7769,7 +7792,17 @@ function showCenteredNotice(message, options = {}) {
         })();
         setInput('diamondN4Persistence', n4Normalized);
         setCheckbox('diamondN4DynamicGales', getBoolean('n4DynamicGales', DIAMOND_LEVEL_DEFAULTS.n4DynamicGales));
-        setInput('diamondN5MinuteBias', getValue('n5MinuteBias', DIAMOND_LEVEL_DEFAULTS.n5MinuteBias));
+        const n5LegacyRaw = getValue(
+            'n5TriangulationDepth',
+            getValue('n5MinuteBias', DIAMOND_LEVEL_DEFAULTS.n5TriangulationDepth)
+        );
+        const n5DepthNormalized = (() => {
+            const v = Number(n5LegacyRaw);
+            if (!Number.isFinite(v) || v <= 0) return DIAMOND_LEVEL_DEFAULTS.n5TriangulationDepth;
+            const migrated = v >= 200 ? v : Math.max(2000, Math.floor(v * 50));
+            return Math.max(200, Math.min(10000, Math.floor(migrated)));
+        })();
+        setInput('diamondN5TriangulationDepth', n5DepthNormalized);
         setInput('diamondN6Retracement', getValue('n6RetracementWindow', DIAMOND_LEVEL_DEFAULTS.n6RetracementWindow));
         // N7: autoajuste (sempre exibir defaults)
         setInput('diamondN7DecisionWindow', DIAMOND_LEVEL_DEFAULTS.n7DecisionWindow);
@@ -7935,7 +7968,7 @@ function showCenteredNotice(message, options = {}) {
             n4Persistence: n4History,
             // ✅ FIX: o toggle "Permitir mudar a cor no Gale (G1/G2)" deve persistir (não voltar sozinho)
             n4DynamicGales: getCheckboxValue('diamondN4DynamicGales', DIAMOND_LEVEL_DEFAULTS.n4DynamicGales),
-            n5MinuteBias: getNumber('diamondN5MinuteBias', 10, 200, DIAMOND_LEVEL_DEFAULTS.n5MinuteBias),
+            n5TriangulationDepth: getNumber('diamondN5TriangulationDepth', 200, 10000, DIAMOND_LEVEL_DEFAULTS.n5TriangulationDepth),
             n6RetracementWindow: getNumber('diamondN6Retracement', 30, 120, DIAMOND_LEVEL_DEFAULTS.n6RetracementWindow),
             // N7: ajuste automático (não permitir configuração manual)
             n7DecisionWindow: DIAMOND_LEVEL_DEFAULTS.n7DecisionWindow,
@@ -7993,7 +8026,7 @@ function showCenteredNotice(message, options = {}) {
                     ...currentConfig.diamondLevelEnabled,
                     ...newEnabled
                 },
-                minuteSpinWindow: newWindows.n5MinuteBias
+                minuteSpinWindow: newWindows.n5TriangulationDepth
             };
 
                 await storageCompat.set({ analyzerConfig: updatedConfig });

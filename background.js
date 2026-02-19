@@ -177,7 +177,7 @@ function getDiamondConfigSnapshot() {
         ['N2', `Janela base ${getDiamondWindow('n2Recent', 10)} (auto)`],
         ['N3', `Prof ${getDiamondWindow('n3Alternance', 2000)} | Rigor ${getDiamondWindow('n3BaseThresholdPct', 60)}% | minOcc ${getDiamondWindow('n3MinOccurrences', 3)}`],
         ['N4', `Hist ${getDiamondWindow('n4Persistence', DEFAULT_ANALYZER_CONFIG.diamondLevelWindows.n4Persistence)}`],
-        ['N5', `${getDiamondWindow('n5MinuteBias', 60)} amostras`],
+        ['N5', `Prof ${getDiamondWindow('n5TriangulationDepth', N5_TRIANGULATION_DEFAULT_DEPTH)} giros`],
         ['N6', `${getDiamondWindow('n6RetracementWindow', 80)} giros`],
         ['N7', 'Auto (Dec 20 | Hist 100)'],
         ['N8', `Barreira 1 (oposta) → ${getDiamondWindow('n8Barrier1', getDiamondWindow('n8Barrier', 50))} giros`],
@@ -724,7 +724,10 @@ const DEFAULT_ANALYZER_CONFIG = {
         n3IgnoreWhite: false,     // N3 - Alternância (ignorar previsões de branco)
         n4Persistence: 500,       // N4 - Autointeligente (histórico analisado em giros) ✅ default oficial (print)
         n4DynamicGales: true,     // N4 - Permitir mudar a cor no Gale (G1/G2) quando estiver rodando "somente N4"
-        n5MinuteBias: 60,         // N5 - Ritmo por Giro / Minuto
+        // N5 - Triangulação de Padrões (profundidade máxima de giros)
+        n5TriangulationDepth: 5000,
+        // (LEGADO) N5 antigo: amostras por minuto/posição
+        n5MinuteBias: 60,
         n6RetracementWindow: 80,  // N6 - Retração Histórica (janela de análise)
         n7DecisionWindow: 20,     // N7 - Barreira (Ápice %) (W máx → 4 janelas curtas: ex. 20 → 5/10/15/20)
         n7HistoryWindow: 100,     // N7 - Barreira (Ápice %) (qtd de offsets/janelas p/ medir piso/teto)
@@ -760,6 +763,11 @@ const DEFAULT_ANALYZER_CONFIG = {
 };
 
 const DIAMOND_LEVEL_IDS = Object.freeze(['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9', 'N10']);
+
+const N5_TRIANGULATION_MIN_DEPTH = 200;
+const N5_TRIANGULATION_MAX_DEPTH = 10000;
+const N5_TRIANGULATION_DEFAULT_DEPTH = 5000;
+const N5_TRIANGULATION_MIN_SIMILARITY = 0.6;
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // 👑 SINAL DE ENTRADA (FASE 2) - CUT OFF
@@ -1362,10 +1370,41 @@ function getDiamondWindow(key, fallback) {
     if (legacyKey && Number.isFinite(Number(windows[legacyKey])) && Number(windows[legacyKey]) > 0) {
         return Number(windows[legacyKey]);
     }
+    if (key === 'n5TriangulationDepth') {
+        const explicitDepth = Number(windows.n5TriangulationDepth);
+        if (Number.isFinite(explicitDepth) && explicitDepth > 0) {
+            return Math.max(
+                N5_TRIANGULATION_MIN_DEPTH,
+                Math.min(N5_TRIANGULATION_MAX_DEPTH, Math.floor(explicitDepth))
+            );
+        }
+        const legacySamples = Number(windows.n5MinuteBias);
+        if (Number.isFinite(legacySamples) && legacySamples > 0) {
+            // Migração: converte a antiga escala de amostras para uma profundidade útil.
+            const migratedDepth = legacySamples >= 200
+                ? legacySamples
+                : Math.max(2000, Math.floor(legacySamples * 50));
+            return Math.max(
+                N5_TRIANGULATION_MIN_DEPTH,
+                Math.min(N5_TRIANGULATION_MAX_DEPTH, migratedDepth)
+            );
+        }
+    }
     // Compatibilidade com versões antigas (ex.: minuteSpinWindow individual)
-    if (key === 'n5MinuteBias' && Number.isFinite(Number(analyzerConfig.minuteSpinWindow))) {
+    if ((key === 'n5MinuteBias' || key === 'n5TriangulationDepth') && Number.isFinite(Number(analyzerConfig.minuteSpinWindow))) {
         const legacy = Number(analyzerConfig.minuteSpinWindow);
-        if (legacy > 0) return legacy;
+        if (legacy > 0) {
+            if (key === 'n5TriangulationDepth') {
+                const migratedDepth = legacy >= 200
+                    ? legacy
+                    : Math.max(2000, Math.floor(legacy * 50));
+                return Math.max(
+                    N5_TRIANGULATION_MIN_DEPTH,
+                    Math.min(N5_TRIANGULATION_MAX_DEPTH, migratedDepth)
+                );
+            }
+            return legacy;
+        }
     }
     return fallback;
 }
@@ -12029,169 +12068,445 @@ function analyzeMomentumWithSizes(history, recentSize, previousSize) {
     };
 }
 
-/**
- * NÍVEL 5 (novo): Ritmo por Giro e Minuto
- * Mede a cor dominante para o próximo giro (1 ou 2) dentro do minuto alvo
- * Examina até windowSize ocorrências recentes com mesmo minuto e posição
- */
-function analyzeMinuteSpinBias(history, targetMinute, targetPosition, windowSize = 60) {
-    console.log('%c┌─────────────────────────────────────────────────────────┐', 'color: #1ABC9C; font-weight: bold;');
-    console.log(`%c│ 🔍 NÍVEL 5: RITMO POR GIRO (min:${String(targetMinute).padStart(2, '0')} • giro ${targetPosition}) │`, 'color: #1ABC9C; font-weight: bold;');
-    console.log('%c└─────────────────────────────────────────────────────────┘', 'color: #1ABC9C; font-weight: bold;');
-    
-    // windowSize aqui representa "quantas ocorrências do mesmo minuto/posição" vamos coletar (não giros totais)
-    const MAX_WINDOW = Math.max(10, Math.min(200, windowSize));
-    const counts = { red: 0, black: 0, white: 0, other: 0 };
-    const samples = [];
-    
-    for (let i = 0; i < history.length && samples.length < MAX_WINDOW; i++) {
-        const spin = history[i];
-        if (!spin || !spin.timestamp) continue;
-        
-        const pos = identifySpinPosition(spin.timestamp);
-        if (pos !== targetPosition) continue;
-        
-        const date = new Date(spin.timestamp);
-        if (date.getMinutes() !== targetMinute) continue;
-        
-        const c = spin && spin.color ? String(spin.color).toLowerCase() : '';
-        if (c === 'red') counts.red++;
-        else if (c === 'black') counts.black++;
-        else if (c === 'white') counts.white++;
-        else counts.other++;
-        samples.push({
-            color: spin.color,
-            number: spin.number,
-            timestamp: date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
-        });
+function clampN5TriangulationDepth(value, fallback = N5_TRIANGULATION_DEFAULT_DEPTH) {
+    const parsed = Math.floor(Number(value));
+    const safe = Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+    return Math.max(N5_TRIANGULATION_MIN_DEPTH, Math.min(N5_TRIANGULATION_MAX_DEPTH, safe));
+}
+
+function calculateN5RawSimilarity(referenceWindow, candidateWindow, weights = null) {
+    if (!Array.isArray(referenceWindow) || !Array.isArray(candidateWindow)) return 0;
+    const len = Math.min(referenceWindow.length, candidateWindow.length);
+    if (len <= 0) return 0;
+    let totalWeight = 0;
+    let score = 0;
+    for (let i = 0; i < len; i++) {
+        const weight = Array.isArray(weights) && Number.isFinite(Number(weights[i])) && Number(weights[i]) > 0 ? Number(weights[i]) : 1;
+        totalWeight += weight;
+        const a = referenceWindow[i];
+        const b = candidateWindow[i];
+        if (a === b) {
+            score += weight;
+        } else if (a === 'white' || b === 'white') {
+            score += weight * 0.2;
+        }
     }
-    
-    const totalSamples = samples.length;
-    const effectiveSamples = counts.red + counts.black;
-    
-    console.log(`   📊 Amostras encontradas: ${totalSamples} (máx ${MAX_WINDOW})`);
-    console.log(`      🔴 Vermelhos: ${counts.red}`);
-    console.log(`      ⚫ Pretos: ${counts.black}`);
-    console.log(`      ⚪ Brancos: ${counts.white}`);
-    if (counts.other) console.log(`      ❓ Outros: ${counts.other}`);
-    
-    if (totalSamples === 0 || effectiveSamples <= 0) {
-        console.log('   ❌ Dados insuficientes para este minuto/giro');
+    return totalWeight > 0 ? (score / totalWeight) : 0;
+}
+
+function calculateN5TransitionSimilarity(referenceWindow, candidateWindow) {
+    if (!Array.isArray(referenceWindow) || !Array.isArray(candidateWindow)) return 0;
+    const len = Math.min(referenceWindow.length, candidateWindow.length);
+    if (len < 2) return 0;
+    const makeTransitions = (windowData) => {
+        const transitions = [];
+        for (let i = 0; i < windowData.length - 1; i++) {
+            const a = windowData[i];
+            const b = windowData[i + 1];
+            if (a === 'white' || b === 'white') {
+                transitions.push('W');
+            } else {
+                transitions.push(a === b ? 'S' : 'T');
+            }
+        }
+        return transitions;
+    };
+    const referenceTransitions = makeTransitions(referenceWindow.slice(0, len));
+    const candidateTransitions = makeTransitions(candidateWindow.slice(0, len));
+    if (referenceTransitions.length === 0) return 0;
+    let transitionMatches = 0;
+    for (let i = 0; i < referenceTransitions.length; i++) {
+        if (referenceTransitions[i] === candidateTransitions[i]) transitionMatches += 1;
+    }
+    const transitionScore = transitionMatches / referenceTransitions.length;
+    const tailScore = calculateN5RawSimilarity(
+        referenceWindow.slice(0, Math.min(4, len)),
+        candidateWindow.slice(0, Math.min(4, len))
+    );
+    return (transitionScore * 0.75) + (tailScore * 0.25);
+}
+
+function buildN5RunShape(windowData, maxRuns = 5) {
+    const out = [];
+    if (!Array.isArray(windowData) || windowData.length === 0) return out;
+    let currentColor = null;
+    let currentLen = 0;
+    for (let i = 0; i < windowData.length; i++) {
+        const c = windowData[i];
+        if (c === currentColor) {
+            currentLen += 1;
+            continue;
+        }
+        if (currentColor != null) {
+            out.push({ color: currentColor, len: currentLen });
+            if (out.length >= maxRuns) return out;
+        }
+        currentColor = c;
+        currentLen = 1;
+    }
+    if (currentColor != null && out.length < maxRuns) {
+        out.push({ color: currentColor, len: currentLen });
+    }
+    return out;
+}
+
+function calculateN5RunShapeSimilarity(referenceWindow, candidateWindow) {
+    const clamp01 = (value) => Math.max(0, Math.min(1, Number(value) || 0));
+    const referenceShape = buildN5RunShape(referenceWindow, 5);
+    const candidateShape = buildN5RunShape(candidateWindow, 5);
+    if (!referenceShape.length || !candidateShape.length) return 0;
+    const len = Math.max(referenceShape.length, candidateShape.length);
+    let total = 0;
+    for (let i = 0; i < len; i++) {
+        const a = referenceShape[i];
+        const b = candidateShape[i];
+        if (!a || !b) continue;
+        const colorScore = a.color === b.color ? 0.55 : 0;
+        const lenScore = 1 - Math.min(1, Math.abs(Number(a.len || 0) - Number(b.len || 0)) / 6);
+        total += colorScore + (lenScore * 0.45);
+    }
+    return clamp01(total / Math.max(1, len));
+}
+
+function calculateN5PairBlockSimilarity(referenceWindow, candidateWindow) {
+    if (!Array.isArray(referenceWindow) || !Array.isArray(candidateWindow)) return 0;
+    const len = Math.min(referenceWindow.length, candidateWindow.length);
+    if (len < 2) return 0;
+    const pairsA = [];
+    const pairsB = [];
+    for (let i = 0; i < len - 1; i += 2) {
+        pairsA.push(`${referenceWindow[i]}-${referenceWindow[i + 1]}`);
+        pairsB.push(`${candidateWindow[i]}-${candidateWindow[i + 1]}`);
+    }
+    if (!pairsA.length) return 0;
+    let score = 0;
+    for (let i = 0; i < pairsA.length; i++) {
+        if (pairsA[i] === pairsB[i]) score += 1;
+        else if (pairsA[i].includes('white') || pairsB[i].includes('white')) score += 0.2;
+    }
+    return score / pairsA.length;
+}
+
+function calculateN5BalanceSimilarity(referenceWindow, candidateWindow) {
+    const clamp01 = (value) => Math.max(0, Math.min(1, Number(value) || 0));
+    const profile = (windowData) => {
+        let red = 0;
+        let black = 0;
+        let transitions = 0;
+        let validTransitions = 0;
+        let longestRun = 0;
+        let currentColor = null;
+        let currentLen = 0;
+        for (let i = 0; i < windowData.length; i++) {
+            const c = windowData[i];
+            if (c === 'red') red += 1;
+            if (c === 'black') black += 1;
+            if (i < windowData.length - 1) {
+                const next = windowData[i + 1];
+                if ((c === 'red' || c === 'black') && (next === 'red' || next === 'black')) {
+                    validTransitions += 1;
+                    if (c !== next) transitions += 1;
+                }
+            }
+            if (c === currentColor) {
+                currentLen += 1;
+            } else {
+                if (currentColor != null) longestRun = Math.max(longestRun, currentLen);
+                currentColor = c;
+                currentLen = 1;
+            }
+        }
+        longestRun = Math.max(longestRun, currentLen);
+        const rbTotal = red + black;
         return {
+            redRatio: rbTotal > 0 ? red / rbTotal : 0.5,
+            alternanceRatio: validTransitions > 0 ? transitions / validTransitions : 0.5,
+            longestRun
+        };
+    };
+    const a = profile(referenceWindow);
+    const b = profile(candidateWindow);
+    const balanceScore = 1 - Math.abs(a.redRatio - b.redRatio);
+    const alternanceScore = 1 - Math.abs(a.alternanceRatio - b.alternanceRatio);
+    const runScore = 1 - Math.min(1, Math.abs(a.longestRun - b.longestRun) / Math.max(3, referenceWindow.length));
+    const tailScore = calculateN5RawSimilarity(
+        referenceWindow.slice(0, Math.min(5, referenceWindow.length)),
+        candidateWindow.slice(0, Math.min(5, candidateWindow.length))
+    );
+    return clamp01((balanceScore * 0.28) + (alternanceScore * 0.28) + (runScore * 0.2) + (tailScore * 0.24));
+}
+
+function evaluateN5TriangulationModel(colors, model) {
+    const clamp01 = (value) => Math.max(0, Math.min(1, Number(value) || 0));
+    const len = Array.isArray(colors) ? colors.length : 0;
+    const maxRecent = Number(model && model.recentSize) || 0;
+    if (len < (maxRecent + 12)) {
+        return {
+            modelId: model.id,
+            label: model.label,
             color: null,
             confidence: 0,
-            dominantPercent: 0,
-            totalSamples,
-            effectiveSamples,
-            reason: 'no_data',
-            details: 'Sem dados suficientes para este minuto/giro'
+            reason: 'insufficient_history',
+            details: 'NULO • histórico insuficiente',
+            matchCount: 0
         };
     }
-    
-    // ✅ Regras de segurança (mas ajustadas para janelas pequenas):
-    // Aqui o usuário escolhe "quantas ocorrências" vamos coletar (ex.: 20).
-    // Então o rigor deve ser compatível com N pequeno.
-    const MAX_WHITE_RATIO = 0.25; // se muitos brancos, a amostra fica enviesada
 
-    // ✅ Rigor pedido: detectar viés pequeno (≈ 6–7pp) sem exigir 67% (17pp).
-    // edge = |p - 0.5|. Ex.: 56.5% vs 43.5% => edge=6.5pp
-    const MIN_EDGE = 0.065;
-
-    // ✅ Amostra mínima proporcional ao window escolhido (evita exigir 18 quando window=20)
-    const MIN_EFFECTIVE_SAMPLES = Math.max(8, Math.min(30, Math.floor(MAX_WINDOW * 0.5)));
-
-    // z-score mínimo bem mais baixo (compatível com N pequeno).
-    // Observação: isto NÃO garante que seja "estatisticamente forte"; apenas evita votar com ruído total.
-    const Z_THRESHOLD = 0.6;
-
-    const whiteRatio = totalSamples > 0 ? (counts.white / totalSamples) : 0;
-    if (effectiveSamples < MIN_EFFECTIVE_SAMPLES) {
+    const referenceWindow = colors.slice(0, maxRecent);
+    const referenceRbCount = referenceWindow.filter(c => c === 'red' || c === 'black').length;
+    if (referenceRbCount < Math.max(3, Math.floor(maxRecent * 0.65))) {
         return {
+            modelId: model.id,
+            label: model.label,
             color: null,
             confidence: 0,
-            dominantPercent: effectiveSamples > 0 ? (Math.max(counts.red, counts.black) / effectiveSamples) : 0,
-            totalSamples,
-            effectiveSamples,
-            reason: 'low_samples',
-            details: `NULO • poucas amostras úteis (${effectiveSamples}/${MIN_EFFECTIVE_SAMPLES})`
+            reason: 'reference_low_quality',
+            details: 'NULO • referência com baixa qualidade',
+            matchCount: 0
         };
     }
-    if (whiteRatio > MAX_WHITE_RATIO) {
+
+    const candidates = [];
+    for (let idx = maxRecent; idx <= (len - maxRecent); idx++) {
+        const nextColor = colors[idx - 1];
+        if (nextColor !== 'red' && nextColor !== 'black') continue;
+        const candidateWindow = colors.slice(idx, idx + maxRecent);
+        if (candidateWindow.length < maxRecent) continue;
+        const similarity = clamp01(model.similarity(referenceWindow, candidateWindow));
+        if (similarity <= 0) continue;
+        candidates.push({ idx, nextColor, similarity });
+    }
+
+    if (!candidates.length) {
         return {
+            modelId: model.id,
+            label: model.label,
             color: null,
             confidence: 0,
-            dominantPercent: Math.max(counts.red, counts.black) / effectiveSamples,
-            totalSamples,
-            effectiveSamples,
-            reason: 'too_many_whites',
-            details: `NULO • muitos brancos (${Math.round(whiteRatio * 100)}%)`
+            reason: 'no_candidates',
+            details: 'NULO • sem candidatos',
+            matchCount: 0
         };
     }
 
-    // Empate => NULO (remove viés)
-    if (counts.red === counts.black) {
+    candidates.sort((a, b) => {
+        if (b.similarity !== a.similarity) return b.similarity - a.similarity;
+        return a.idx - b.idx;
+    });
+
+    const step = 0.05;
+    let chosenThreshold = null;
+    let selected = [];
+    for (let threshold = Math.max(N5_TRIANGULATION_MIN_SIMILARITY, Number(model.startThreshold) || 0.9); threshold >= N5_TRIANGULATION_MIN_SIMILARITY; threshold = Number((threshold - step).toFixed(2))) {
+        const passing = candidates.filter(item => item.similarity >= threshold);
+        if (passing.length >= Number(model.minMatches || 2)) {
+            chosenThreshold = threshold;
+            selected = passing.slice(0, Number(model.maxMatches || 36));
+            break;
+        }
+    }
+
+    if (!selected.length || chosenThreshold == null) {
         return {
+            modelId: model.id,
+            label: model.label,
             color: null,
             confidence: 0,
-            dominantPercent: 0.5,
-            totalSamples,
-            effectiveSamples,
-            reason: 'tie',
-            details: `NULO • empate (${counts.red}/${counts.black})`
+            reason: 'below_min_similarity',
+            details: `NULO • sem matches >= ${Math.round(N5_TRIANGULATION_MIN_SIMILARITY * 100)}%`,
+            matchCount: 0
         };
     }
 
-    const dominantColor = counts.red > counts.black ? 'red' : 'black';
-    const dominantCount = Math.max(counts.red, counts.black);
-    const dominantPercent = dominantCount / Math.max(1, effectiveSamples);
-    const edge = Math.abs(dominantPercent - 0.5);
+    let redWeight = 0;
+    let blackWeight = 0;
+    let totalWeight = 0;
+    let weightedSimilarity = 0;
+    for (const item of selected) {
+        const recencyFactor = 1 - Math.min(0.3, (item.idx / Math.max(1, len)) * 0.3);
+        const weight = item.similarity * recencyFactor;
+        totalWeight += weight;
+        weightedSimilarity += (item.similarity * weight);
+        if (item.nextColor === 'red') redWeight += weight;
+        if (item.nextColor === 'black') blackWeight += weight;
+    }
 
-    // z-score para diferença de proporções contra 50/50 (sem odds, só histórico)
-    const z = (dominantPercent - 0.5) / Math.sqrt(0.25 / Math.max(1, effectiveSamples));
-    const zAbs = Math.abs(z);
-
-    if (edge < MIN_EDGE) {
+    const dominantColor = redWeight > blackWeight ? 'red' : blackWeight > redWeight ? 'black' : null;
+    const dominantWeight = Math.max(redWeight, blackWeight);
+    const dominance = totalWeight > 0 ? (dominantWeight / totalWeight) : 0;
+    if (!dominantColor || dominance < Number(model.minDominance || 0.6)) {
         return {
+            modelId: model.id,
+            label: model.label,
             color: null,
             confidence: 0,
-            dominantPercent,
-            totalSamples,
-            effectiveSamples,
-            reason: 'edge_low',
-            details: `NULO • viés < ${Math.round(MIN_EDGE * 100)}pp (${Math.round(edge * 100)}pp)`
-        };
-    }
-    if (zAbs < Z_THRESHOLD) {
-        return {
-            color: null,
-            confidence: 0,
-            dominantPercent,
-            totalSamples,
-            effectiveSamples,
-            reason: 'z_low',
-            details: `NULO • z ${zAbs.toFixed(2)} < ${Z_THRESHOLD}`
+            reason: 'weak_majority',
+            details: `NULO • dominância fraca (${Math.round(dominance * 100)}%)`,
+            matchCount: selected.length
         };
     }
 
-    // Confiança: combina dominância com significância + fator de amostra
-    const zConf = Math.max(0, Math.min(1, (zAbs - Z_THRESHOLD) / (2.5 - Z_THRESHOLD)));
-    const edgeConf = Math.max(0, Math.min(1, (edge - MIN_EDGE) / (0.25 - MIN_EDGE))); // 25pp já seria extremo
-    const sampleConf = Math.max(0, Math.min(1, effectiveSamples / 60));
-    const confidence = Math.max(0, Math.min(1, zConf * 0.35 + edgeConf * 0.45 + sampleConf * 0.20));
+    const similarityMean = totalWeight > 0 ? (weightedSimilarity / totalWeight) : 0;
+    const sampleConf = clamp01(selected.length / Math.max(4, Number(model.minMatches || 2) * 2));
+    const dominanceConf = clamp01((dominance - Number(model.minDominance || 0.6)) / Math.max(0.01, 1 - Number(model.minDominance || 0.6)));
+    const similarityConf = clamp01((similarityMean - N5_TRIANGULATION_MIN_SIMILARITY) / Math.max(0.01, 1 - N5_TRIANGULATION_MIN_SIMILARITY));
+    const thresholdConf = clamp01((chosenThreshold - N5_TRIANGULATION_MIN_SIMILARITY) / Math.max(0.01, 1 - N5_TRIANGULATION_MIN_SIMILARITY));
+    const confidence = clamp01((dominanceConf * 0.5) + (similarityConf * 0.28) + (sampleConf * 0.12) + (thresholdConf * 0.1));
 
-    const dominantPercentFormatted = (dominantPercent * 100).toFixed(1);
-    console.log(`   🏆 Cor dominante: ${dominantColor.toUpperCase()} (${dominantPercentFormatted}%)`);
-    console.log(`   🗳️ Confiança final: ${(confidence * 100).toFixed(0)}% (viés ${Math.round(edge * 100)}pp • z ${zAbs.toFixed(2)} • n=${effectiveSamples})`);
-    
     return {
+        modelId: model.id,
+        label: model.label,
         color: dominantColor,
-        confidence,
-        dominantPercent,
-        totalSamples,
-        effectiveSamples,
-        zScore: Number(z.toFixed(3)),
+        confidence: Number(confidence.toFixed(3)),
         reason: 'ok',
-        details: `${dominantPercentFormatted}% ${dominantColor === 'red' ? 'vermelho' : 'preto'} • viés ${Math.round(edge * 100)}pp • z ${zAbs.toFixed(2)} • n=${effectiveSamples}`
+        matchCount: selected.length,
+        threshold: chosenThreshold,
+        details: `${dominantColor.toUpperCase()} • ${selected.length} matches • sim >= ${Math.round(chosenThreshold * 100)}% • dom ${Math.round(dominance * 100)}%`
+    };
+}
+
+/**
+ * N5 - Triangulacao de Padroes
+ * - Usa 6 modelos diferentes
+ * - Busca apenas na profundidade configurada pelo usuario
+ * - Relaxa rigor progressivamente ate 60% de similaridade
+ */
+function analyzeN5PatternTriangulation(history, depthLimit = N5_TRIANGULATION_DEFAULT_DEPTH) {
+    const clamp01 = (value) => Math.max(0, Math.min(1, Number(value) || 0));
+    const depth = clampN5TriangulationDepth(depthLimit, N5_TRIANGULATION_DEFAULT_DEPTH);
+    const raw = Array.isArray(history) ? history.slice(0, Math.min(history.length, depth)) : [];
+    const colors = raw
+        .map(spin => normalizeSpinColorValue(spin))
+        .filter(color => color === 'red' || color === 'black' || color === 'white');
+
+    if (colors.length < 40) {
+        return {
+            color: null,
+            confidence: 0,
+            reason: 'insufficient_history',
+            details: `NULO • histórico insuficiente (${colors.length}/40) • prof ${depth}`,
+            depthUsed: depth,
+            modelResults: []
+        };
+    }
+
+    const models = [
+        {
+            id: 'M1',
+            label: 'Sequencia curta',
+            recentSize: 4,
+            startThreshold: 0.9,
+            minMatches: 2,
+            minDominance: 0.6,
+            maxMatches: 36,
+            similarity: (ref, cand) => calculateN5RawSimilarity(ref, cand)
+        },
+        {
+            id: 'M2',
+            label: 'Sequencia ponderada',
+            recentSize: 6,
+            startThreshold: 0.9,
+            minMatches: 2,
+            minDominance: 0.6,
+            maxMatches: 36,
+            similarity: (ref, cand) => {
+                const weights = [];
+                for (let i = 0; i < ref.length; i++) {
+                    weights.push((ref.length - i) + 1);
+                }
+                return calculateN5RawSimilarity(ref, cand, weights);
+            }
+        },
+        {
+            id: 'M3',
+            label: 'Transicoes',
+            recentSize: 8,
+            startThreshold: 0.88,
+            minMatches: 2,
+            minDominance: 0.6,
+            maxMatches: 36,
+            similarity: (ref, cand) => calculateN5TransitionSimilarity(ref, cand)
+        },
+        {
+            id: 'M4',
+            label: 'Formato de runs',
+            recentSize: 10,
+            startThreshold: 0.86,
+            minMatches: 2,
+            minDominance: 0.6,
+            maxMatches: 36,
+            similarity: (ref, cand) => calculateN5RunShapeSimilarity(ref, cand)
+        },
+        {
+            id: 'M5',
+            label: 'Blocos em pares',
+            recentSize: 12,
+            startThreshold: 0.84,
+            minMatches: 2,
+            minDominance: 0.6,
+            maxMatches: 36,
+            similarity: (ref, cand) => calculateN5PairBlockSimilarity(ref, cand)
+        },
+        {
+            id: 'M6',
+            label: 'Perfil de equilibrio',
+            recentSize: 14,
+            startThreshold: 0.82,
+            minMatches: 2,
+            minDominance: 0.6,
+            maxMatches: 36,
+            similarity: (ref, cand) => calculateN5BalanceSimilarity(ref, cand)
+        }
+    ];
+
+    const modelResults = models.map((model) => evaluateN5TriangulationModel(colors, model));
+    const validVotes = modelResults.filter(result => result && (result.color === 'red' || result.color === 'black'));
+
+    if (validVotes.length < 2) {
+        return {
+            color: null,
+            confidence: 0,
+            reason: 'insufficient_model_votes',
+            details: `NULO • triangulação fraca (${validVotes.length}/6 modelos válidos) • prof ${depth}`,
+            depthUsed: depth,
+            votes: { red: 0, black: 0, none: 6 - validVotes.length },
+            modelResults
+        };
+    }
+
+    const redVotes = validVotes.filter(item => item.color === 'red').length;
+    const blackVotes = validVotes.filter(item => item.color === 'black').length;
+    if (redVotes === blackVotes) {
+        return {
+            color: null,
+            confidence: 0,
+            reason: 'tie',
+            details: `NULO • empate na triangulação (${redVotes}x${blackVotes}) • prof ${depth}`,
+            depthUsed: depth,
+            votes: { red: redVotes, black: blackVotes, none: 6 - validVotes.length },
+            modelResults
+        };
+    }
+
+    const finalColor = redVotes > blackVotes ? 'red' : 'black';
+    const majorityVotes = Math.max(redVotes, blackVotes);
+    const voteShare = majorityVotes / Math.max(1, validVotes.length);
+    const avgModelConfidence = validVotes.reduce((sum, item) => sum + (Number(item.confidence) || 0), 0) / Math.max(1, validVotes.length);
+    const modelCoverage = validVotes.length / 6;
+    const confidence = clamp01(
+        ((voteShare - 0.5) / 0.5) * 0.55 +
+        (avgModelConfidence * 0.35) +
+        (modelCoverage * 0.1)
+    );
+
+    return {
+        color: finalColor,
+        confidence: Number(confidence.toFixed(3)),
+        reason: 'ok',
+        depthUsed: depth,
+        votes: { red: redVotes, black: blackVotes, none: 6 - validVotes.length },
+        modelResults,
+        details: `Triangulação ${majorityVotes}/${validVotes.length} para ${finalColor.toUpperCase()} • modelos válidos ${validVotes.length}/6 • prof ${depth} • piso ${Math.round(N5_TRIANGULATION_MIN_SIMILARITY * 100)}%`
     };
 }
 
@@ -21279,7 +21594,7 @@ async function analyzeWithPatternSystem(history) {
             'N2 - Ritmo Autônomo · duplas/sequência (W único)',
             'N3 - Alternância Inteligente · n-grams configuráveis',
             'N4 - Autointeligente · leitura do momento (n-grams adaptativos)',
-            'N5 - Ritmo por Giro (minuto alvo)',
+            'N5 - Triangulacao de Padroes (profundidade dinamica)',
             'N6 - Retração Histórica',
             'N7 - Barreira (Ápice %)',
             'N8 - Barreira 1 (cor oposta)',
@@ -21297,7 +21612,7 @@ async function analyzeWithPatternSystem(history) {
     const n2W = getDiamondWindow('n2Recent', 10);
     const n3Window = getDiamondWindow('n3Alternance', 2000);
     const n4Window = getDiamondWindow('n4Persistence', DEFAULT_ANALYZER_CONFIG.diamondLevelWindows.n4Persistence);
-    const n5Window = getDiamondWindow('n5MinuteBias', 60);
+    const n5Window = getDiamondWindow('n5TriangulationDepth', N5_TRIANGULATION_DEFAULT_DEPTH);
     const n6Window = getDiamondWindow('n6RetracementWindow', 80);
     // N7: autoajuste (não usar configuração do usuário)
     const n7DecisionWindow = 20;
@@ -21322,7 +21637,7 @@ async function analyzeWithPatternSystem(history) {
         ['N2', `W ${n2W} (auto)`],
         ['N3', `Prof ${n3Window} | Rigor ${getDiamondWindow('n3BaseThresholdPct', 60)}% | minOcc ${getDiamondWindow('n3MinOccurrences', 3)}`],
         ['N4', `Hist ${n4Window}`],
-        ['N5', `${n5Window} amostras`],
+        ['N5', `Prof ${n5Window} giros`],
         ['N6', `${n6Window} giros`],
         ['N7', `Auto (Decisões ${n7DecisionWindow} | Histórico ${n7HistoryWindow})`],
         ['N8', `Barreira 1 (oposta) → ${n8Barrier1Window} giros`],
@@ -21338,7 +21653,7 @@ async function analyzeWithPatternSystem(history) {
     const isN2Custom = n2W !== 10;
     const isN3Custom = n3Window !== 2000;
     const isN4Custom = n4Window !== DEFAULT_ANALYZER_CONFIG.diamondLevelWindows.n4Persistence;
-    const isN5Custom = n5Window !== 60;
+    const isN5Custom = n5Window !== N5_TRIANGULATION_DEFAULT_DEPTH;
     const isN6Custom = n6Window !== 80;
     const isN7Custom = false;
     const isN8Custom = n8Barrier1Window !== 50;
@@ -21740,7 +22055,7 @@ async function analyzeWithPatternSystem(history) {
             N2: { emoji: '⚡', label: 'N2 - Ritmo Autônomo' },
             N3: { emoji: '🔷', label: 'N3 - Alternância' },
             N4: { emoji: '🔷', label: 'N4 - Autointeligente' },
-            N5: { emoji: '🕑', label: 'N5 - Ritmo por Giro' },
+            N5: { emoji: '🕑', label: 'N5 - Triangulacao de Padroes' },
             N6: { emoji: '📉', label: 'N6 - Retração Histórica' },
             N7: { emoji: '📈', label: 'N7 - Barreira (Ápice %)' },
             N8: { emoji: '🛡️', label: 'N8 - Barreira 1 (Oposta)' },
@@ -22249,24 +22564,24 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
             disabled: !n4Enabled
         });
 
-        // N5 - Ritmo por Giro (minuto/posição)
+        // N5 - Triangulacao de Padroes
         const n5Enabled = isLevelEnabledLocal('N5');
-        const minuteSpinWindow = Math.max(10, Math.min(200, getDiamondWindow('n5MinuteBias', 60)));
-        const minuteBiasResult = analyzeMinuteSpinBias(history, targetMinute, nextSpinPosition, minuteSpinWindow);
-        const minuteBiasColor = n5Enabled && minuteBiasResult && minuteBiasResult.color ? minuteBiasResult.color : null;
-        let minuteBiasStrength = clamp01(minuteBiasResult ? minuteBiasResult.confidence : 0);
-        let minuteBiasDetailsText = n5Enabled ? (minuteBiasResult ? minuteBiasResult.details : 'NULO') : 'DESATIVADO';
-        if (n5Enabled && minuteBiasResult && minuteBiasResult.totalSamples) {
-            minuteBiasDetailsText += ` • ${minuteBiasResult.totalSamples} amostras`;
-        }
+        const n5DepthLimit = clampN5TriangulationDepth(
+            getDiamondWindow('n5TriangulationDepth', N5_TRIANGULATION_DEFAULT_DEPTH),
+            N5_TRIANGULATION_DEFAULT_DEPTH
+        );
+        const n5TriangulationResult = n5Enabled ? analyzeN5PatternTriangulation(history, n5DepthLimit) : null;
+        const n5TriangulationColor = n5Enabled && n5TriangulationResult && n5TriangulationResult.color ? n5TriangulationResult.color : null;
+        let n5TriangulationStrength = clamp01(n5TriangulationResult ? n5TriangulationResult.confidence : 0);
+        let n5TriangulationDetailsText = n5Enabled ? (n5TriangulationResult ? n5TriangulationResult.details : 'NULO') : 'DESATIVADO';
 		levelReports.push({
 			id: 'N5',
-			name: 'Ritmo por Giro',
-			color: minuteBiasColor,
+			name: 'Triangulacao de Padroes',
+			color: n5TriangulationColor,
             weight: n5Enabled ? weightFor(levelWeights.minuteSpin) : 0,
-			strength: n5Enabled ? minuteBiasStrength : 0,
-			score: n5Enabled ? directionValue(minuteBiasColor) * minuteBiasStrength : 0,
-			details: minuteBiasDetailsText,
+			strength: n5Enabled ? n5TriangulationStrength : 0,
+			score: n5Enabled ? directionValue(n5TriangulationColor) * n5TriangulationStrength : 0,
+			details: n5TriangulationDetailsText,
             disabled: !n5Enabled
 		});
 
@@ -23185,7 +23500,7 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
         let predictedColor = hasPreLeader
             ? preLeader[0]
             : (scoreWithoutBarrier === 0
-            ? (minuteBiasColor || momentumColor || patternColor || 'red')
+            ? (n5TriangulationColor || momentumColor || patternColor || 'red')
                 : (scoreWithoutBarrier >= 0 ? 'red' : 'black'));
 
         if (alternanceOverride) {
@@ -23756,14 +24071,14 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
         
             if (!analyzerConfig.aiMode) {
             if (!n5Enabled) {
-                sendAnalysisStatus(`🕑 N5 - Ritmo por Giro → DESATIVADO`);
-            } else if (minuteBiasColor) {
-                sendAnalysisStatus(`🕑 N5 - Ritmo por Giro → ${minuteBiasColor.toUpperCase()}`);
+                sendAnalysisStatus(`🕑 N5 - Triangulacao de Padroes → DESATIVADO`);
+            } else if (n5TriangulationColor) {
+                sendAnalysisStatus(`🕑 N5 - Triangulacao de Padroes → ${n5TriangulationColor.toUpperCase()}`);
         } else {
-                sendAnalysisStatus(`🕑 N5 - Ritmo por Giro → NULO`);
+                sendAnalysisStatus(`🕑 N5 - Triangulacao de Padroes → NULO`);
             }
-        } else if (!minuteBiasColor) {
-            sendAnalysisStatus(`🕑 N5 - Ritmo por Giro → NULO`);
+        } else if (!n5TriangulationColor) {
+            sendAnalysisStatus(`🕑 N5 - Triangulacao de Padroes → NULO`);
         }
         await sleep(1500);
         
@@ -23853,10 +24168,10 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
         }
         await sleep(1500);
         
-        if (minuteBiasColor) {
-            sendAnalysisStatus(`🕑 N5 - Ritmo por Giro → ${minuteBiasColor.toUpperCase()}`);
+        if (n5TriangulationColor) {
+            sendAnalysisStatus(`🕑 N5 - Triangulacao de Padroes → ${n5TriangulationColor.toUpperCase()}`);
         } else {
-            sendAnalysisStatus(`🕑 N5 - Ritmo por Giro → NULO`);
+            sendAnalysisStatus(`🕑 N5 - Triangulacao de Padroes → NULO`);
         }
         await sleep(1500);
         
@@ -23975,10 +24290,10 @@ const displayOrder = ['N0', 'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9'
                 : `N4 - Autointeligente: ${nivel9 && nivel9.details ? nivel9.details : 'NULO'}`;
 		
 		const nivel5Description = !n5Enabled
-            ? `N5 - Ritmo por Giro: DESATIVADO`
-			: minuteBiasColor
-			? `N5 - Ritmo por Giro: ${minuteBiasColor.toUpperCase()} (${Math.round((minuteBiasResult?.confidence || 0) * 100)}% confiança)`
-			: `N5 - Ritmo por Giro: NULO`;
+            ? `N5 - Triangulacao de Padroes: DESATIVADO`
+			: n5TriangulationColor
+			? `N5 - Triangulacao de Padroes: ${n5TriangulationColor.toUpperCase()} (${Math.round((n5TriangulationResult?.confidence || 0) * 100)}% confianca)`
+			: `N5 - Triangulacao de Padroes: NULO`;
 
 		const retracementDescription = !n6Enabled
             ? `N6 - Retração Histórica: DESATIVADO`
@@ -35400,6 +35715,21 @@ function buildDiamondOptimizationCandidateConfig(baseConfig, levelId, rng) {
             REALTIME_HISTORY_CAP
         );
         windows.n4Persistence = w;
+    } else if (upper === 'N5') {
+        // N5 - Triangulacao de Padroes (profundidade)
+        const baseDepth = clampN5TriangulationDepth(
+            windows.n5TriangulationDepth ?? windows.n5MinuteBias ?? N5_TRIANGULATION_DEFAULT_DEPTH,
+            N5_TRIANGULATION_DEFAULT_DEPTH
+        );
+        const depth = clampN5TriangulationDepth(
+            randomInt(
+                rng,
+                Math.max(N5_TRIANGULATION_MIN_DEPTH, Math.floor(baseDepth * 0.5)),
+                Math.min(N5_TRIANGULATION_MAX_DEPTH, Math.ceil(baseDepth * 1.6))
+            ),
+            baseDepth
+        );
+        windows.n5TriangulationDepth = depth;
     } else {
         // Outros níveis: não alterar nada por enquanto (evita bagunçar configurações do usuário).
     }
@@ -35554,6 +35884,8 @@ async function runDiamondPastOptimization({ config, levelId, senderTabId, jobId,
                     ? `Prof ${dw.n3Alternance} | R ${dw.n3BaseThresholdPct ?? 60}% | minOcc ${dw.n3MinOccurrences ?? 3}`
                     : upper === 'N4'
                     ? `Hist ${dw.n4Persistence}`
+                    : upper === 'N5'
+                    ? `Prof ${dw.n5TriangulationDepth ?? N5_TRIANGULATION_DEFAULT_DEPTH} giros`
                     : '—';
 
                 // ✅ Enviar via runtime (não depende de tabId). Quem não for o job atual ignora pelo jobId.
@@ -35624,9 +35956,39 @@ function getDiamondWindowFromConfig(config, key, fallback) {
     if (legacyKey && Number.isFinite(Number(windows[legacyKey])) && Number(windows[legacyKey]) > 0) {
         return Number(windows[legacyKey]);
     }
-    if (key === 'n5MinuteBias' && Number.isFinite(Number(config && config.minuteSpinWindow))) {
+    if (key === 'n5TriangulationDepth') {
+        const explicitDepth = Number(windows.n5TriangulationDepth);
+        if (Number.isFinite(explicitDepth) && explicitDepth > 0) {
+            return Math.max(
+                N5_TRIANGULATION_MIN_DEPTH,
+                Math.min(N5_TRIANGULATION_MAX_DEPTH, Math.floor(explicitDepth))
+            );
+        }
+        const legacySamples = Number(windows.n5MinuteBias);
+        if (Number.isFinite(legacySamples) && legacySamples > 0) {
+            const migratedDepth = legacySamples >= 200
+                ? legacySamples
+                : Math.max(2000, Math.floor(legacySamples * 50));
+            return Math.max(
+                N5_TRIANGULATION_MIN_DEPTH,
+                Math.min(N5_TRIANGULATION_MAX_DEPTH, migratedDepth)
+            );
+        }
+    }
+    if ((key === 'n5MinuteBias' || key === 'n5TriangulationDepth') && Number.isFinite(Number(config && config.minuteSpinWindow))) {
         const legacy = Number(config.minuteSpinWindow);
-        if (legacy > 0) return legacy;
+        if (legacy > 0) {
+            if (key === 'n5TriangulationDepth') {
+                const migratedDepth = legacy >= 200
+                    ? legacy
+                    : Math.max(2000, Math.floor(legacy * 50));
+                return Math.max(
+                    N5_TRIANGULATION_MIN_DEPTH,
+                    Math.min(N5_TRIANGULATION_MAX_DEPTH, migratedDepth)
+                );
+            }
+            return legacy;
+        }
     }
     return fallback;
 }
@@ -36538,20 +36900,23 @@ function analyzeDiamondLevelsSimulation(history, config, simState) {
         disabled: !n4Enabled
     });
 
-    // N5 - Ritmo por giro
+    // N5 - Triangulacao de padroes
     const n5Enabled = isLevelEnabledLocal('N5');
-    const minuteSpinWindow = Math.max(10, Math.min(200, getDiamondWindowFromConfig(config, 'n5MinuteBias', 60)));
-    const minuteBiasResult = n5Enabled ? analyzeMinuteSpinBias(history, targetMinute, nextSpinPosition, minuteSpinWindow) : null;
-    const minuteBiasColor = n5Enabled && minuteBiasResult && minuteBiasResult.color ? minuteBiasResult.color : null;
-    const minuteBiasStrength = clamp01Local(minuteBiasResult ? minuteBiasResult.confidence : 0);
+    const n5DepthLimit = clampN5TriangulationDepth(
+        getDiamondWindowFromConfig(config, 'n5TriangulationDepth', N5_TRIANGULATION_DEFAULT_DEPTH),
+        N5_TRIANGULATION_DEFAULT_DEPTH
+    );
+    const n5TriangulationResult = n5Enabled ? analyzeN5PatternTriangulation(history, n5DepthLimit) : null;
+    const n5TriangulationColor = n5Enabled && n5TriangulationResult && n5TriangulationResult.color ? n5TriangulationResult.color : null;
+    const n5TriangulationStrength = clamp01Local(n5TriangulationResult ? n5TriangulationResult.confidence : 0);
     levelReports.push({
         id: 'N5',
-        name: 'Ritmo por Giro',
-        color: minuteBiasColor,
+        name: 'Triangulacao de Padroes',
+        color: n5TriangulationColor,
         weight: n5Enabled ? weightFor(levelWeights.minuteSpin) : 0,
-        strength: n5Enabled ? minuteBiasStrength : 0,
-        score: n5Enabled && minuteBiasColor ? directionValue(minuteBiasColor) * minuteBiasStrength : 0,
-        details: n5Enabled ? (minuteBiasResult ? minuteBiasResult.details : 'NULO') : 'DESATIVADO',
+        strength: n5Enabled ? n5TriangulationStrength : 0,
+        score: n5Enabled && n5TriangulationColor ? directionValue(n5TriangulationColor) * n5TriangulationStrength : 0,
+        details: n5Enabled ? (n5TriangulationResult ? n5TriangulationResult.details : 'NULO') : 'DESATIVADO',
         disabled: !n5Enabled
     });
 
@@ -36826,7 +37191,7 @@ function analyzeDiamondLevelsSimulation(history, config, simState) {
     let predictedColor = hasPreLeader
         ? preLeader[0]
         : (scoreWithoutBarrier === 0
-        ? (minuteBiasColor || momentumColor || patternColor || 'red')
+        ? (n5TriangulationColor || momentumColor || patternColor || 'red')
             : (scoreWithoutBarrier >= 0 ? 'red' : 'black'));
     if (alternanceOverride) {
         predictedColor = alternanceColor;
@@ -38026,6 +38391,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                             enabled.n0 ? N0_AUTO_SETTINGS.historyMax : 0,
                             enabled.n3 ? (Number(windows.n3Alternance) || 0) : 0,
                             enabled.n4 ? (Number(windows.n4Persistence) || 0) : 0,
+                            enabled.n5 ? clampN5TriangulationDepth(windows.n5TriangulationDepth ?? windows.n5MinuteBias ?? N5_TRIANGULATION_DEFAULT_DEPTH, N5_TRIANGULATION_DEFAULT_DEPTH) : 0,
                             enabled.n7 ? (Number(windows.n7HistoryWindow) || 0) : 0,
                             enabled.n8 ? (Number(windows.n10History) || 0) : 0,
                             enabled.n10 ? (Number(windows.n9History) || 0) : 0
