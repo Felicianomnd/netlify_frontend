@@ -9078,6 +9078,33 @@ function isDiamondLevelVisibleByAdmin(idLike) {
     return true; // default: visível
 }
 
+function isDiamondLevelEnabledByUser(idLike, cfg = null) {
+    try {
+        const key = diamondKeyFromIdLike(idLike);
+        if (!key) return true;
+
+        const currentCfg = (cfg && typeof cfg === 'object') ? cfg : latestAnalyzerConfig;
+        const enabledMap = currentCfg && currentCfg.diamondLevelEnabled && typeof currentCfg.diamondLevelEnabled === 'object'
+            ? currentCfg.diamondLevelEnabled
+            : null;
+        if (!enabledMap) return true; // fallback seguro: sem config carregada, não ocultar
+
+        if (Object.prototype.hasOwnProperty.call(enabledMap, key)) return !!enabledMap[key];
+        const lower = key.toLowerCase();
+        if (Object.prototype.hasOwnProperty.call(enabledMap, lower)) return !!enabledMap[lower];
+        const upper = key.toUpperCase();
+        if (Object.prototype.hasOwnProperty.call(enabledMap, upper)) return !!enabledMap[upper];
+
+        return true;
+    } catch (_) {
+        return true;
+    }
+}
+
+function shouldShowDiamondLevelInUi(idLike, cfg = null) {
+    return isDiamondLevelVisibleByAdmin(idLike) && isDiamondLevelEnabledByUser(idLike, cfg);
+}
+
 function applyDiamondVisibleLevelsToDiamondLevelsModal() {
     try {
         const modal = document.getElementById('diamondLevelsModal');
@@ -15134,7 +15161,7 @@ async function persistAnalyzerState(newState) {
         const renderDiamondReasoningBlocks = (rawReasoning = '') => {
             const { meta, levels } = parseDiamondReasoning(rawReasoning);
             const visibleLevels = Array.isArray(levels)
-                ? levels.filter((lvl) => lvl && isDiamondLevelVisibleByAdmin(lvl.id))
+                ? levels.filter((lvl) => lvl && shouldShowDiamondLevelInUi(lvl.id))
                 : [];
 
             const fmtPct = (value) => (typeof value === 'number' && Number.isFinite(value)) ? `${value.toFixed(1)}%` : '—';
@@ -17308,7 +17335,7 @@ async function persistAnalyzerState(newState) {
 
         const colorLabel = color === 'red' ? 'VERMELHO' : color === 'black' ? 'PRETO' : color === 'white' ? 'BRANCO' : '—';
         const confText = confidence != null ? `${confidence.toFixed(1)}%` : '—';
-        const levelText = (diamondId && isDiamondLevelVisibleByAdmin(diamondId))
+        const levelText = (diamondId && shouldShowDiamondLevelInUi(diamondId))
             ? ` • Nível: <b>${diamondId}</b>${diamondPct ? ` (${diamondPct}%)` : ''}`
             : '';
 
@@ -25644,3 +25671,5 @@ function logModeSnapshotUI(snapshot) {
     // Ver createSidebar() para o novo local de inicialização
     
 })();
+
+
