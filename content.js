@@ -4720,7 +4720,7 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
             const title = `Giro: ${e.number} • Cor: ${e.color} • ${time} • Resultado: ${e.result}${e.martingaleStage ? ' • Estágio: '+e.martingaleStage : ''}${e.confidence? ' • Confiança: '+e.confidence.toFixed(1)+'%' : ''}`;
 
             return `<div class="entry-item-wrap clickable-entry" title="${title}" data-entry-index="${entryIndex}">
-                ${confTop ? `<div class="entry-conf-top">${confTop}</div>` : ''}
+                <div class="entry-conf-top">${confTop || '&nbsp;'}</div>
                 ${stageLabel}
                 <div class="entry-item">
                     <div class="entry-box ${cls}">${badge}</div>
@@ -6905,7 +6905,7 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
             const title = `Giro: ${e.number} • Cor: ${e.color} • ${time} • Resultado: ${e.result}${e.martingaleStage ? ' • Estágio: '+e.martingaleStage : ''}${e.confidence? ' • Confiança: '+e.confidence.toFixed(1)+'%' : ''}`;
 
             return `<div class="entry-item-wrap clickable-entry" title="${title}" data-entry-index="${entryIndex}">
-                ${confTop ? `<div class="entry-conf-top">${confTop}</div>` : ''}
+                <div class="entry-conf-top">${confTop || '&nbsp;'}</div>
                 ${stageLabel}
                 <div class="entry-item">
                     <div class="entry-box ${cls}">${badge}</div>
@@ -18808,7 +18808,7 @@ async function persistAnalyzerState(newState) {
             const stageLabel = stageText ? `<div class="entry-stage ${barClass}">${stageText}</div>` : '';
             
             return `<div class="entry-item-wrap clickable-entry" title="${title}" data-entry-index="${entryIndex}">
-                ${confTop ? `<div class="entry-conf-top">${confTop}</div>` : ''}
+                <div class="entry-conf-top">${confTop || '&nbsp;'}</div>
                 ${stageLabel}
                 <div class="entry-item">
                     <div class="entry-box ${cls}">${badge}</div>
@@ -19174,7 +19174,7 @@ async function persistAnalyzerState(newState) {
                 const title = `Branco • Giro: ${entry.number} • ${time} • Resultado: ${entry.result}`;
                 return `
                     <div class="entry-item-wrap clickable-entry" title="${title}" data-entry-index="${idx}">
-                        ${confTop ? `<div class="entry-conf-top">${confTop}</div>` : ''}
+                        <div class="entry-conf-top">${confTop || '&nbsp;'}</div>
                         <div class="entry-stage ${barClass}">${stageText}</div>
                         <div class="entry-item">
                             <div class="entry-box ${cls}">${badge}</div>
