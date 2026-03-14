@@ -4927,7 +4927,7 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                 stageText = phaseDigit ? (isWin ? `WIN <span style="color: white;">G${phaseDigit}</span>` : `LOSS <span style="color: white;">G${phaseDigit}</span>`) : (isWin ? 'WIN' : 'LOSS');
             }
 
-            const displayConf = resolveEntryDisplayConfidence(e);
+            const displayConf = resolveEntryDisplayConfidenceWithStageStats(e, buildEntryStageConfidenceStats(filteredEntries));
             const confTop = (typeof displayConf === 'number' && Number.isFinite(displayConf)) ? `${displayConf.toFixed(0)}%` : '';
             const resultBar = `<div class="entry-result-bar ${barClass}"></div>`;
             const stageLabel = stageText ? `<div class="entry-stage ${barClass}">${stageText}</div>` : '';
@@ -7116,7 +7116,7 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                 stageText = phaseDigit ? (isWin ? `WIN <span style="color: white;">G${phaseDigit}</span>` : `LOSS <span style="color: white;">G${phaseDigit}</span>`) : (isWin ? 'WIN' : 'LOSS');
             }
 
-            const displayConf = resolveEntryDisplayConfidence(e);
+            const displayConf = resolveEntryDisplayConfidenceWithStageStats(e, buildEntryStageConfidenceStats(filteredEntries));
             const confTop = (typeof displayConf === 'number' && Number.isFinite(displayConf)) ? `${displayConf.toFixed(0)}%` : '';
             const resultBar = `<div class="entry-result-bar ${barClass}"></div>`;
             const stageLabel = stageText ? `<div class="entry-stage ${barClass}">${stageText}</div>` : '';
@@ -17042,6 +17042,96 @@ async function persistAnalyzerState(newState) {
         }
     }
 
+    function normalizeEntryStageKey(entryLike) {
+        try {
+            const raw = String(
+                entryLike && (entryLike.martingaleStage || entryLike.wonAt || entryLike.phase || entryLike.stage || '')
+            ).toUpperCase().trim();
+            if (!raw || raw === 'ENTRADA' || raw === 'G0' || raw === 'ENTRY') return 'ENTRADA';
+            const match = raw.match(/^G(\d+)$/);
+            if (!match) return 'ENTRADA';
+            const stageNumber = Math.max(1, parseInt(match[1], 10) || 1);
+            return `G${stageNumber}`;
+        } catch (_) {
+            return 'ENTRADA';
+        }
+    }
+
+    function buildEntryStageConfidenceStats(entriesLike) {
+        const entries = Array.isArray(entriesLike) ? entriesLike.filter((entry) => entry && typeof entry === 'object') : [];
+        const totalCycles = entries.length;
+        const attemptsByStage = new Map();
+        const winsByStage = new Map();
+        attemptsByStage.set('ENTRADA', totalCycles);
+
+        for (const entry of entries) {
+            const stageKey = normalizeEntryStageKey(entry);
+            const stageMatch = stageKey.match(/^G(\d+)$/);
+            const stageNumber = stageMatch ? Math.max(1, parseInt(stageMatch[1], 10) || 1) : 0;
+
+            for (let stageIndex = 1; stageIndex <= stageNumber; stageIndex += 1) {
+                const key = `G${stageIndex}`;
+                attemptsByStage.set(key, (attemptsByStage.get(key) || 0) + 1);
+            }
+
+            if (String(entry.result || '').toUpperCase().trim() === 'WIN') {
+                winsByStage.set(stageKey, (winsByStage.get(stageKey) || 0) + 1);
+            }
+        }
+
+        const byStage = {};
+        const keys = new Set([
+            ...Array.from(attemptsByStage.keys()),
+            ...Array.from(winsByStage.keys())
+        ]);
+
+        for (const key of keys) {
+            const attempts = key === 'ENTRADA' ? totalCycles : (attemptsByStage.get(key) || 0);
+            const wins = winsByStage.get(key) || 0;
+            const hitRatePct = attempts > 0 ? (wins / attempts) * 100 : 0;
+            byStage[key] = {
+                attempts,
+                wins,
+                hitRatePct: Math.max(0, Math.min(100, hitRatePct))
+            };
+        }
+
+        return { totalCycles, byStage };
+    }
+
+    function resolveEntryDisplayConfidenceWithStageStats(entryLike, stageStats = null) {
+        try {
+            const e = entryLike && typeof entryLike === 'object' ? entryLike : null;
+            if (!e) return null;
+
+            const firstFinite = (...values) => {
+                for (const value of values) {
+                    const n = Number(value);
+                    if (Number.isFinite(n)) return Math.max(0, Math.min(100, n));
+                }
+                return null;
+            };
+
+            const stageKey = normalizeEntryStageKey(e);
+            if (stageKey !== 'ENTRADA') {
+                const stageSpecificConfidence = firstFinite(
+                    e.galeConfidence,
+                    e && e.patternData ? e.patternData.galeConfidence : null
+                );
+                if (stageSpecificConfidence != null) return stageSpecificConfidence;
+
+                const stats = stageStats && stageStats.byStage ? stageStats.byStage[stageKey] : null;
+                if (stats && Number.isFinite(Number(stats.hitRatePct)) && Number(stats.attempts) > 0) {
+                    return Math.max(0, Math.min(100, Number(stats.hitRatePct)));
+                }
+            }
+
+            return resolveEntryDisplayConfidence(e);
+        } catch (_) {
+            return resolveEntryDisplayConfidence(entryLike);
+        }
+    }
+
     // ✅ UX: animação leve quando o "Último Giro" atualiza (evita mudança brusca).
     function triggerLastSpinAnimation(spinLike) {
         try {
@@ -19170,7 +19260,7 @@ async function persistAnalyzerState(newState) {
                 }
             }
             
-            const displayConf = resolveEntryDisplayConfidence(e);
+            const displayConf = resolveEntryDisplayConfidenceWithStageStats(e, buildEntryStageConfidenceStats(filteredEntries));
             const confTitle = (typeof displayConf === 'number' && Number.isFinite(displayConf))
                 ? ` • Confiança: ${displayConf.toFixed(1)}%`
                 : '';
@@ -19554,7 +19644,7 @@ async function persistAnalyzerState(newState) {
                         : `LOSS <span style="color: white;">G${galeNum}</span>`;
                 }
 
-                const displayConf = resolveEntryDisplayConfidence(entry);
+                const displayConf = resolveEntryDisplayConfidenceWithStageStats(entry, buildEntryStageConfidenceStats(whiteEntries));
                 const confTop = (typeof displayConf === 'number' && Number.isFinite(displayConf)) ? `${displayConf.toFixed(0)}%` : '';
                 const title = `Branco • Giro: ${entry.number} • ${time} • Resultado: ${entry.result}`;
                 return `

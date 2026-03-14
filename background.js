@@ -2220,15 +2220,29 @@ function calculateGaleConfidenceValue(baseConfidence = 0, analysis = null, state
     return round1(clampPct(finalConfidence, 0, 95));
 }
 
-function resolveEntryConfidenceForUI(primaryAnalysis = null, fallbackAnalysis = null) {
+function resolveEntryConfidenceForUI(primaryAnalysis = null, fallbackAnalysis = null, stageLike = null) {
     const list = [primaryAnalysis, fallbackAnalysis]
         .filter((item) => item && typeof item === 'object');
 
+    const stageRaw = String(
+        stageLike
+        || (primaryAnalysis && primaryAnalysis.phase)
+        || (fallbackAnalysis && fallbackAnalysis.phase)
+        || ''
+    ).toUpperCase().trim();
+    const isGaleStage = /^G\d+$/.test(stageRaw) && stageRaw !== 'G0';
+
     const values = [];
     for (const item of list) {
-        values.push(item.confidence);
-        values.push(item.galeConfidence);
-        values.push(item.probability);
+        if (isGaleStage) {
+            values.push(item.galeConfidence);
+            values.push(item.confidence);
+            values.push(item.probability);
+        } else {
+            values.push(item.confidence);
+            values.push(item.probability);
+            values.push(item.galeConfidence);
+        }
     }
 
     for (const raw of values) {
@@ -4996,9 +5010,10 @@ async function processNewSpinFromServer(spinData) {
                             const betColor = currentAnalysis.color;
                             // ✅ UI/Relatório: cada fase (Entrada/G1/G2) deve mostrar o raciocínio/cor daquela tentativa.
                             const entryAnalysisForUI = currentAnalysis;
-                            const entryConfidenceForUI = (entryAnalysisForUI && typeof entryAnalysisForUI.confidence === 'number' && Number.isFinite(entryAnalysisForUI.confidence))
-                                ? entryAnalysisForUI.confidence
-                                : 0;
+                            const entryConfidenceForUI = resolveEntryConfidenceForUI(entryAnalysisForUI, currentAnalysis, martingaleStage);
+                            const entryGaleConfidenceForUI = /^G\d+$/i.test(String(martingaleStage || '').toUpperCase().trim())
+                                ? entryConfidenceForUI
+                                : null;
                             const payoutMultiplier = getPayoutMultiplierForBetColor(betColor, cycleAutoBetCfg);
                             const stakeAmount = calcStakeForStage(martingaleStage, cycleAutoBetCfg);
                             const cycleId = (martingaleState && martingaleState.active && martingaleState.entryTimestamp)
@@ -5017,9 +5032,11 @@ async function processNewSpinFromServer(spinData) {
                                 phase: currentAnalysis.phase || 'G0',
                                 result: 'WIN',
                                 confidence: entryConfidenceForUI,
+                                galeConfidence: entryGaleConfidenceForUI,
                                 patternData: {
                                     patternDescription: entryAnalysisForUI ? entryAnalysisForUI.patternDescription : currentAnalysis.patternDescription,
                                     confidence: entryConfidenceForUI,
+                                    galeConfidence: entryGaleConfidenceForUI,
                                     color: entryAnalysisForUI ? entryAnalysisForUI.color : currentAnalysis.color,
                                     createdOnTimestamp: entryAnalysisForUI ? entryAnalysisForUI.createdOnTimestamp : currentAnalysis.createdOnTimestamp,
                                     // ✅ Snapshot de giros (para o modal "Padrão da Entrada"): manter 14, igual ao card "Últimos giros"
@@ -5316,9 +5333,8 @@ async function processNewSpinFromServer(spinData) {
                                     const entryAnalysisForUI = (martingaleState && martingaleState.active && martingaleState.analysisData)
                                         ? martingaleState.analysisData
                                         : currentAnalysis;
-                                    const entryConfidenceForUI = (entryAnalysisForUI && typeof entryAnalysisForUI.confidence === 'number' && Number.isFinite(entryAnalysisForUI.confidence))
-                                        ? entryAnalysisForUI.confidence
-                                        : ((typeof currentAnalysis.confidence === 'number' && Number.isFinite(currentAnalysis.confidence)) ? currentAnalysis.confidence : 0);
+                                    const entryConfidenceForUI = resolveEntryConfidenceForUI(entryAnalysisForUI, currentAnalysis, 'ENTRADA');
+                                    const entryGaleConfidenceForUI = null;
                                     const payoutMultiplier = getPayoutMultiplierForBetColor(betColor, cycleAutoBetCfg);
                                     const stakeAmount = calcStakeForStage('ENTRADA', cycleAutoBetCfg);
                                     const cycleId = currentAnalysis.createdOnTimestamp || latestSpin.created_at || Date.now();
@@ -5336,9 +5352,11 @@ async function processNewSpinFromServer(spinData) {
                                         phase: 'G0',
                                         result: 'LOSS',
                                         confidence: entryConfidenceForUI,
+                                        galeConfidence: entryGaleConfidenceForUI,
                                         patternData: {
                                             patternDescription: entryAnalysisForUI ? entryAnalysisForUI.patternDescription : currentAnalysis.patternDescription,
                                             confidence: entryConfidenceForUI,
+                                            galeConfidence: entryGaleConfidenceForUI,
                                             color: entryAnalysisForUI ? entryAnalysisForUI.color : currentAnalysis.color,
                                             createdOnTimestamp: entryAnalysisForUI ? entryAnalysisForUI.createdOnTimestamp : currentAnalysis.createdOnTimestamp,
                                             // ✅ Snapshot de giros (para o modal "Padrão da Entrada"): manter 14, igual ao card "Últimos giros"
@@ -5534,9 +5552,8 @@ async function processNewSpinFromServer(spinData) {
                                 );
                                 // ✅ UI/Histórico: manter a confiança ORIGINAL do sinal de entrada (não a confiança recalculada do GALE)
                                 const entryAnalysisForUI = currentAnalysis;
-                                const entryConfidenceForUI = (entryAnalysisForUI && typeof entryAnalysisForUI.confidence === 'number' && Number.isFinite(entryAnalysisForUI.confidence))
-                                    ? entryAnalysisForUI.confidence
-                                    : ((typeof currentAnalysis.confidence === 'number' && Number.isFinite(currentAnalysis.confidence)) ? currentAnalysis.confidence : 0);
+                                const entryConfidenceForUI = resolveEntryConfidenceForUI(entryAnalysisForUI, currentAnalysis, 'ENTRADA');
+                                const entryGaleConfidenceForUI = null;
                                 const entradaLossEntry = {
                             timestamp: latestSpin.created_at,
                             number: rollNumber,
@@ -5544,9 +5561,11 @@ async function processNewSpinFromServer(spinData) {
                                     phase: 'G0',
                             result: 'LOSS',
                             confidence: entryConfidenceForUI,
+                            galeConfidence: entryGaleConfidenceForUI,
                             patternData: {
                                 patternDescription: currentAnalysis.patternDescription,
                                 confidence: entryConfidenceForUI,
+                                galeConfidence: entryGaleConfidenceForUI,
                                 color: currentAnalysis.color,
                                 createdOnTimestamp: currentAnalysis.createdOnTimestamp,
                                 // ✅ Snapshot de giros (para o modal "Padrão da Entrada")
@@ -5719,9 +5738,10 @@ async function processNewSpinFromServer(spinData) {
                                     const entryAnalysisForUI = (martingaleState && martingaleState.active && martingaleState.analysisData)
                                         ? martingaleState.analysisData
                                         : currentAnalysis;
-                                    const entryConfidenceForUI = (entryAnalysisForUI && typeof entryAnalysisForUI.confidence === 'number' && Number.isFinite(entryAnalysisForUI.confidence))
-                                        ? entryAnalysisForUI.confidence
-                                        : ((typeof currentAnalysis.confidence === 'number' && Number.isFinite(currentAnalysis.confidence)) ? currentAnalysis.confidence : 0);
+                                    const entryConfidenceForUI = resolveEntryConfidenceForUI(entryAnalysisForUI, currentAnalysis, currentStage);
+                                    const entryGaleConfidenceForUI = /^G\d+$/i.test(String(currentStage || '').toUpperCase().trim())
+                                        ? entryConfidenceForUI
+                                        : null;
                                     const retEntry = {
                                         timestamp: latestSpin.created_at,
                                         number: rollNumber,
@@ -5729,9 +5749,11 @@ async function processNewSpinFromServer(spinData) {
                                         phase: currentStage,
                                         result: 'LOSS',
                                         confidence: entryConfidenceForUI,
+                                        galeConfidence: entryGaleConfidenceForUI,
                                         patternData: {
                                             patternDescription: entryAnalysisForUI ? entryAnalysisForUI.patternDescription : currentAnalysis.patternDescription,
                                             confidence: entryConfidenceForUI,
+                                            galeConfidence: entryGaleConfidenceForUI,
                                             color: entryAnalysisForUI ? entryAnalysisForUI.color : currentAnalysis.color,
                                             createdOnTimestamp: entryAnalysisForUI ? entryAnalysisForUI.createdOnTimestamp : currentAnalysis.createdOnTimestamp,
                                             // ✅ Snapshot de giros (para o modal "Padrão da Entrada")
@@ -5908,9 +5930,10 @@ async function processNewSpinFromServer(spinData) {
                                 );
                                 // ✅ UI/Relatório: cada fase deve mostrar o raciocínio/cor daquela tentativa.
                                 const entryAnalysisForUI = currentAnalysis;
-                                const entryConfidenceForUI = (entryAnalysisForUI && typeof entryAnalysisForUI.confidence === 'number' && Number.isFinite(entryAnalysisForUI.confidence))
-                                    ? entryAnalysisForUI.confidence
-                                    : 0;
+                                const entryConfidenceForUI = resolveEntryConfidenceForUI(entryAnalysisForUI, currentAnalysis, currentStage);
+                                const entryGaleConfidenceForUI = /^G\d+$/i.test(String(currentStage || '').toUpperCase().trim())
+                                    ? entryConfidenceForUI
+                                    : null;
                                 const galeLossEntry = {
                                     timestamp: latestSpin.created_at,
                                     number: rollNumber,
@@ -5918,9 +5941,11 @@ async function processNewSpinFromServer(spinData) {
                                     phase: currentStage,
                                     result: 'LOSS',
                                     confidence: entryConfidenceForUI,
+                                    galeConfidence: entryGaleConfidenceForUI,
                                     patternData: {
                                         patternDescription: entryAnalysisForUI ? entryAnalysisForUI.patternDescription : currentAnalysis.patternDescription,
                                         confidence: entryConfidenceForUI,
+                                        galeConfidence: entryGaleConfidenceForUI,
                                         color: entryAnalysisForUI ? entryAnalysisForUI.color : currentAnalysis.color,
                                         createdOnTimestamp: entryAnalysisForUI ? entryAnalysisForUI.createdOnTimestamp : currentAnalysis.createdOnTimestamp,
                                         // ✅ Snapshot de giros (para o modal "Padrão da Entrada")
@@ -6063,10 +6088,12 @@ async function processNewSpinFromServer(spinData) {
                                     color: rollColor,
                                     phase: 'G1',
                                     result: 'LOSS',
-                                    confidence: currentAnalysis.confidence,
+                                    confidence: resolveEntryConfidenceForUI(currentAnalysis, null, 'G1'),
+                                    galeConfidence: resolveEntryConfidenceForUI(currentAnalysis, null, 'G1'),
                                     patternData: {
                                         patternDescription: currentAnalysis.patternDescription,
-                                        confidence: currentAnalysis.confidence,
+                                        confidence: resolveEntryConfidenceForUI(currentAnalysis, null, 'G1'),
+                                        galeConfidence: resolveEntryConfidenceForUI(currentAnalysis, null, 'G1'),
                                         color: currentAnalysis.color,
                                         createdOnTimestamp: currentAnalysis.createdOnTimestamp
                                     },
@@ -6154,9 +6181,8 @@ async function processNewSpinFromServer(spinData) {
                                 const entryAnalysisForUI = (martingaleState && martingaleState.active && martingaleState.analysisData)
                                     ? martingaleState.analysisData
                                     : currentAnalysis;
-                                const entryConfidenceForUI = (entryAnalysisForUI && typeof entryAnalysisForUI.confidence === 'number' && Number.isFinite(entryAnalysisForUI.confidence))
-                                    ? entryAnalysisForUI.confidence
-                                    : ((typeof currentAnalysis.confidence === 'number' && Number.isFinite(currentAnalysis.confidence)) ? currentAnalysis.confidence : 0);
+                                const entryConfidenceForUI = resolveEntryConfidenceForUI(entryAnalysisForUI, currentAnalysis, 'G2');
+                                const entryGaleConfidenceForUI = entryConfidenceForUI;
                                 const retEntry = {
                                     timestamp: latestSpin.created_at,
                                     number: rollNumber,
@@ -6164,9 +6190,11 @@ async function processNewSpinFromServer(spinData) {
                                     phase: 'G2',
                                     result: 'LOSS',
                                     confidence: entryConfidenceForUI,
+                                    galeConfidence: entryGaleConfidenceForUI,
                                     patternData: {
                                         patternDescription: entryAnalysisForUI ? entryAnalysisForUI.patternDescription : currentAnalysis.patternDescription,
                                         confidence: entryConfidenceForUI,
+                                        galeConfidence: entryGaleConfidenceForUI,
                                         color: entryAnalysisForUI ? entryAnalysisForUI.color : currentAnalysis.color,
                                         createdOnTimestamp: entryAnalysisForUI ? entryAnalysisForUI.createdOnTimestamp : currentAnalysis.createdOnTimestamp,
                                         // ✅ Snapshot de giros (para o modal "Padrão da Entrada")
