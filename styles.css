@@ -1387,7 +1387,7 @@
         max-width: 100% !important;
         min-width: 0 !important;
     }
-    
+
     .profile-input {
         font-size: 12px;
         padding: 7px 9px;
@@ -4528,6 +4528,100 @@
 }
 
 /* ✅ Ajustes de layout do setor Martingale (mais claro e menos confuso) */
+.auto-bet-acc-section-hidden {
+  display: none !important;
+}
+
+#autoBetModal .auto-bet-support-panel {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 14px;
+  border-radius: 10px;
+  background:
+    linear-gradient(180deg, rgba(239, 68, 68, 0.08), rgba(239, 68, 68, 0.03)),
+    rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(239, 68, 68, 0.16);
+}
+
+#autoBetModal .auto-bet-support-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+#autoBetModal .auto-bet-support-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.7px;
+  text-transform: uppercase;
+  color: rgba(255,255,255,0.72);
+}
+
+#autoBetModal .auto-bet-support-text {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: rgba(228, 236, 255, 0.76);
+}
+
+#autoBetModal .auto-bet-support-email {
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 700;
+  text-decoration: none;
+  word-break: break-word;
+}
+
+#autoBetModal .auto-bet-support-email:hover {
+  color: #ffd6dc;
+}
+
+#autoBetModal .auto-bet-support-action {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 40px;
+  padding: 0 16px;
+  border-radius: 8px;
+  background: #ef4444;
+  border: 1px solid rgba(255,255,255,0.08);
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 700;
+  text-decoration: none;
+  transition: transform 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+}
+
+#autoBetModal .auto-bet-support-action:hover {
+  background: #dc2626;
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px rgba(239, 68, 68, 0.28);
+}
+
+#autoBetModal .auto-bet-acc-section[data-acc-key="support"] .auto-bet-acc-caret {
+  font-size: 0;
+}
+
+#autoBetModal .auto-bet-acc-section[data-acc-key="support"] .auto-bet-acc-caret::before {
+  content: '\25BE';
+  font-size: 14px;
+}
+
+@media (max-width: 640px) {
+  #autoBetModal .auto-bet-support-panel {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  #autoBetModal .auto-bet-support-action {
+    width: 100%;
+  }
+}
+
 #autoBetModal .auto-bet-martingale-settings {
   display: flex;
   flex-direction: column;

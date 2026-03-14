@@ -213,6 +213,7 @@
     const DA_NOTIF_LAST_SHOWN_PROMO_KEY = 'da_notif_last_shown_promo_v1';
     const DA_NOTIF_LAST_CFG_SIG_PROFILE_KEY = 'da_notif_last_cfg_sig_profile_v1';
     const DA_NOTIF_LAST_CFG_SIG_PROMO_KEY = 'da_notif_last_cfg_sig_promo_v1';
+    const DA_ONLINE_SESSION_STARTED_KEY = 'da_online_session_started_at_v1';
     // Compat (antigo)
     const DA_PROFILE_NUDGE_LAST_SHOWN_KEY = 'da_profile_nudge_last_shown_v1';
 
@@ -222,7 +223,10 @@
     let daProfileNudgeAutoHideRemainingMs = 0;
     let daProfileNudgePaused = false;
     let daProfileNudgeEl = null;
-    let daActiveNotifKind = null; // 'profile' | 'promo' | null
+    let daActiveNotifKind = null; // 'profile' | 'promo' | 'targeted' | null
+    let daActiveNotifMeta = null;
+    let daTargetedNotifTimerId = null;
+    let daTargetedNotifPending = null;
 
     function openMyAccountAndFocusFirstMissing(missing = []) {
         try {
@@ -412,7 +416,167 @@
         }
     }
 
+    function getOnlineSessionStartedAt() {
+        try {
+            const raw = sessionStorage.getItem(DA_ONLINE_SESSION_STARTED_KEY);
+            const parsed = raw ? Number(raw) : 0;
+            if (Number.isFinite(parsed) && parsed > 0) {
+                return parsed;
+            }
+        } catch (_) {}
+        const now = Date.now();
+        try { sessionStorage.setItem(DA_ONLINE_SESSION_STARTED_KEY, String(now)); } catch (_) {}
+        return now;
+    }
+
+    function clearOnlineSessionStartedAt() {
+        try { sessionStorage.removeItem(DA_ONLINE_SESSION_STARTED_KEY); } catch (_) {}
+    }
+
+    function clearTargetedNotificationTimer() {
+        try {
+            if (daTargetedNotifTimerId) {
+                clearTimeout(daTargetedNotifTimerId);
+            }
+        } catch (_) {}
+        daTargetedNotifTimerId = null;
+        daTargetedNotifPending = null;
+    }
+
+    function normalizeTargetedNotification(raw) {
+        const obj = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+        const id = String(obj.id || obj._id || '').trim();
+        if (!id) return null;
+        const variantRaw = String(obj.variant || '').trim().toLowerCase();
+        const image = typeof obj.image === 'string' ? obj.image.trim() : '';
+        const durationValue = Number(obj.durationSeconds);
+        const delayValue = Number(obj.delaySeconds);
+        return {
+            id,
+            variant: image ? 'image' : (variantRaw === 'image' ? 'image' : 'text'),
+            message: typeof obj.message === 'string' ? obj.message : '',
+            image,
+            durationSeconds: Number.isFinite(durationValue) ? Math.max(5, Math.min(120, durationValue)) : 20,
+            delaySeconds: Number.isFinite(delayValue) ? Math.max(0, Math.min(86400, delayValue)) : 0,
+            createdAt: obj.createdAt || null
+        };
+    }
+
+    async function markTargetedNotificationShown(notificationId) {
+        const token = localStorage.getItem('authToken');
+        if (!token || !notificationId) return false;
+        try {
+            const response = await fetch(`${getApiUrl()}/api/site/notifications/targeted/${encodeURIComponent(notificationId)}/shown`, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                },
+                signal: getTimeoutSignal(5000)
+            });
+            return response.ok;
+        } catch (_) {
+            return false;
+        }
+    }
+
+    async function dismissTargetedNotification(notificationId) {
+        const token = localStorage.getItem('authToken');
+        if (!token || !notificationId) return false;
+        try {
+            const response = await fetch(`${getApiUrl()}/api/site/notifications/targeted/${encodeURIComponent(notificationId)}/dismiss`, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                },
+                signal: getTimeoutSignal(5000)
+            });
+            return response.ok;
+        } catch (_) {
+            return false;
+        }
+    }
+
+    async function fetchTargetedNotification() {
+        const token = localStorage.getItem('authToken');
+        if (!token) return null;
+        try {
+            const response = await fetch(`${getApiUrl()}/api/site/notifications/targeted`, {
+                method: 'GET',
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                },
+                cache: 'no-store',
+                signal: getTimeoutSignal(5000)
+            });
+            if (!response.ok) return null;
+            const data = await response.json().catch(() => null);
+            if (!data || !data.success || !data.notification) return null;
+            return normalizeTargetedNotification(data.notification);
+        } catch (_) {
+            return null;
+        }
+    }
+
+    async function showScheduledTargetedNotification() {
+        const pending = daTargetedNotifPending;
+        if (!pending) return false;
+
+        daTargetedNotifTimerId = null;
+        if (daProfileNudgeEl && daProfileNudgeEl.style.display === 'flex') {
+            daTargetedNotifTimerId = setTimeout(() => {
+                showScheduledTargetedNotification().catch(() => {});
+            }, 4000);
+            return false;
+        }
+
+        showNotificationModal('targeted', null, pending);
+        daTargetedNotifPending = null;
+
+        try {
+            await markTargetedNotificationShown(pending.id);
+        } catch (_) {}
+
+        return true;
+    }
+
+    function scheduleTargetedNotification(notification) {
+        const normalized = normalizeTargetedNotification(notification);
+        if (!normalized) {
+            clearTargetedNotificationTimer();
+            return false;
+        }
+
+        if (daActiveNotifKind === 'targeted' && daActiveNotifMeta && daActiveNotifMeta.id === normalized.id) {
+            return true;
+        }
+
+        const dueAt = getOnlineSessionStartedAt() + Math.max(0, normalized.delaySeconds * 1000);
+        const waitMs = Math.max(0, dueAt - Date.now());
+
+        try {
+            if (daTargetedNotifTimerId) {
+                clearTimeout(daTargetedNotifTimerId);
+            }
+        } catch (_) {}
+
+        daTargetedNotifPending = {
+            ...normalized,
+            dueAt
+        };
+
+        if (waitMs <= 0) {
+            showScheduledTargetedNotification().catch(() => {});
+            return true;
+        }
+
+        daTargetedNotifTimerId = setTimeout(() => {
+            showScheduledTargetedNotification().catch(() => {});
+        }, waitMs);
+        return false;
+    }
+
     function hideProfileNudge() {
+        const activeMeta = daActiveNotifMeta;
         try {
             if (daProfileNudgeAutoHideTimer) {
                 clearTimeout(daProfileNudgeAutoHideTimer);
@@ -429,6 +593,10 @@
             }
         } catch (_) {}
         daActiveNotifKind = null;
+        daActiveNotifMeta = null;
+        if (activeMeta && activeMeta.kind === 'targeted' && activeMeta.id) {
+            dismissTargetedNotification(activeMeta.id).catch(() => {});
+        }
     }
 
     function normalizeRemoteNotification(raw, kind) {
@@ -545,7 +713,10 @@
             // Persistir snapshot para CTA focar no campo correto
             el.__daProfileStatusSnapshot = profileStatus && typeof profileStatus === 'object' ? profileStatus : null;
 
-            const cfg = normalizeRemoteNotification(remoteCfg, kind);
+            const cfg = kind === 'targeted'
+                ? normalizeTargetedNotification(remoteCfg)
+                : normalizeRemoteNotification(remoteCfg, kind);
+            if (!cfg) return;
 
             const card = el.querySelector('.da-profile-nudge__card');
             const imgWrap = el.querySelector('#daProfileNudgeImageWrap');
@@ -577,7 +748,9 @@
             }
 
             if (headlineEl) {
-                headlineEl.textContent = kind === 'promo' ? 'Aviso' : 'Conclua seu cadastro';
+                headlineEl.textContent = kind === 'promo'
+                    ? 'Aviso'
+                    : (kind === 'targeted' ? 'Mensagem da equipe' : 'Conclua seu cadastro');
             }
             if (subtitleEl) {
                 subtitleEl.innerHTML = kind === 'promo'
@@ -586,10 +759,17 @@
             }
 
             // CTA e missing: só no aviso de cadastro
+            if (kind === 'targeted') {
+                if (headlineEl) headlineEl.textContent = 'Mensagem da equipe';
+                if (subtitleEl) subtitleEl.innerHTML = 'Leia o comunicado enviado para a sua conta';
+            }
+
             const showCta = kind === 'profile' && !isImageOnly;
             const showMissing = kind === 'profile' && !isImageOnly;
             if (ctaText) ctaText.style.display = showCta ? '' : 'none';
             if (ctaImageText) ctaImageText.textContent = 'CONCLUIR CADASTRO';
+            if (kind === 'profile' && ctaImageText) ctaImageText.style.display = '';
+            if (kind !== 'profile' && ctaImageText) ctaImageText.style.display = 'none';
 
             if (missingWrap) missingWrap.style.display = showMissing ? '' : 'none';
             if (missingEl && showMissing) {
@@ -613,6 +793,10 @@
 
             el.style.display = 'flex';
             daActiveNotifKind = kind;
+            daActiveNotifMeta = {
+                kind,
+                id: kind === 'targeted' ? String(cfg.id || '').trim() || null : null
+            };
         } catch (_) {}
 
         // ⏱️ Auto-hide com pause/resume (segurar no card)
@@ -732,6 +916,14 @@
             const remote = await fetchRemoteNotifications({ force: false });
             const profileCfg = remote && remote.profileNudge ? normalizeRemoteNotification(remote.profileNudge, 'profile') : normalizeRemoteNotification(null, 'profile');
             const promoCfg = remote && remote.promo ? normalizeRemoteNotification(remote.promo, 'promo') : normalizeRemoteNotification(null, 'promo');
+            const targetedCfg = await fetchTargetedNotification();
+
+            if (targetedCfg) {
+                const shownNow = scheduleTargetedNotification(targetedCfg);
+                if (shownNow) return;
+            } else if (daActiveNotifKind !== 'targeted') {
+                clearTargetedNotificationTimer();
+            }
 
             // Não empilhar: se já tem modal aberto, não tentar outro agora
             if (daProfileNudgeEl && daProfileNudgeEl.style.display === 'flex') {
@@ -794,6 +986,7 @@
     function startProfileNudgeLoop() {
         try {
             if (daProfileNudgeIntervalId) return;
+            getOnlineSessionStartedAt();
             // Inicializar UI (idempotente)
             ensureProfileNudgeUI();
             // ✅ Sempre que carregar/recarregar a página: exibir logo em seguida (ignora cooldown)
@@ -813,6 +1006,8 @@
                 daProfileNudgeIntervalId = null;
             }
         } catch (_) {}
+        clearTargetedNotificationTimer();
+        clearOnlineSessionStartedAt();
         hideProfileNudge();
     }
 
@@ -3934,6 +4129,24 @@ const DIAMOND_LEVEL_ENABLE_DEFAULTS = Object.freeze({
                                         <div class="diamond-sim-guide-label min" id="standardSimGuideMin"></div>
                                         <div class="diamond-sim-guide-label cur" id="standardSimGuideCur"></div>
                                         <div class="diamond-sim-direction" id="standardSimGuideDir"></div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- 6) SUPORTE -->
+                            <div class="auto-bet-acc-section auto-bet-acc-section-hidden" data-acc-key="support-placeholder">
+                                <button type="button" class="auto-bet-acc-header" aria-expanded="false" aria-controls="autoBetAccBody-support-placeholder">
+                                    <span class="auto-bet-acc-title">Suporte</span>
+                                    <span class="auto-bet-acc-caret" aria-hidden="true">â–¾</span>
+                                </button>
+                                <div class="auto-bet-acc-body" id="autoBetAccBody-support-placeholder">
+                                    <div class="auto-bet-support-panel">
+                                        <div class="auto-bet-support-copy">
+                                            <span class="auto-bet-support-label">Canal oficial</span>
+                                            <p class="auto-bet-support-text">Entre em contato com o suporte do site pelo email oficial abaixo.</p>
+                                            <a class="auto-bet-support-email" id="legacyUserSupportEmailLink" href="mailto:doubleanalyzer@gmail.com">doubleanalyzer@gmail.com</a>
+                                        </div>
+                                        <a class="auto-bet-support-action" id="legacyUserSupportActionLink" href="mailto:doubleanalyzer@gmail.com">Enviar email</a>
                                     </div>
                                 </div>
                             </div>
@@ -13433,6 +13646,23 @@ async function persistAnalyzerState(newState) {
                         </p>
                                 </div>
                             </div>
+                            <!-- 6) SUPORTE -->
+                            <div class="auto-bet-acc-section" data-acc-key="support">
+                                <button type="button" class="auto-bet-acc-header" aria-expanded="false" aria-controls="autoBetAccBody-support">
+                                    <span class="auto-bet-acc-title">Suporte</span>
+                                    <span class="auto-bet-acc-caret" aria-hidden="true">â–¾</span>
+                                </button>
+                                <div class="auto-bet-acc-body" id="autoBetAccBody-support">
+                                    <div class="auto-bet-support-panel">
+                                        <div class="auto-bet-support-copy">
+                                            <span class="auto-bet-support-label">Canal oficial</span>
+                                            <p class="auto-bet-support-text">Entre em contato com o suporte do site pelo email oficial abaixo.</p>
+                                            <a class="auto-bet-support-email" id="userSupportEmailLink" href="mailto:doubleanalyzer@gmail.com">doubleanalyzer@gmail.com</a>
+                                        </div>
+                                        <a class="auto-bet-support-action" id="userSupportActionLink" href="mailto:doubleanalyzer@gmail.com">Enviar email</a>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                     </div>
                     <div class="auto-bet-modal-footer">
@@ -13454,6 +13684,8 @@ async function persistAnalyzerState(newState) {
         const userMenuPlan = sidebar.querySelector('#userMenuPlan');
         const userMenuPurchase = sidebar.querySelector('#userMenuPurchase');
         const userMenuDays = sidebar.querySelector('#userMenuDays');
+        const userSupportEmailLink = sidebar.querySelector('#userSupportEmailLink');
+        const userSupportActionLink = sidebar.querySelector('#userSupportActionLink');
         const titleBadge = sidebar.querySelector('#titleBadge');
 
         let compactMenuListenersAttached = false;
@@ -13594,6 +13826,72 @@ async function persistAnalyzerState(newState) {
             return numbers.replace(/(\d{5})(\d{0,3})/, '$1-$2');
         };
 
+        const OFFICIAL_SUPPORT_EMAIL = 'doubleanalyzer@gmail.com';
+        let supportContactCache = {
+            email: OFFICIAL_SUPPORT_EMAIL,
+            loaded: false,
+            inFlight: null
+        };
+
+        const normalizeSupportEmail = (value) => {
+            const email = String(value || '').trim().toLowerCase();
+            return /\S+@\S+\.\S+/.test(email) ? email : '';
+        };
+
+        const applySupportContact = (emailValue) => {
+            const email = normalizeSupportEmail(emailValue) || OFFICIAL_SUPPORT_EMAIL;
+            const mailto = `mailto:${email}`;
+
+            if (userSupportEmailLink) {
+                userSupportEmailLink.textContent = email;
+                userSupportEmailLink.href = mailto;
+            }
+
+            if (userSupportActionLink) {
+                userSupportActionLink.href = mailto;
+            }
+        };
+
+        const loadSupportContact = async ({ force = false } = {}) => {
+            if (!force && supportContactCache.loaded) {
+                applySupportContact(supportContactCache.email);
+                return supportContactCache.email;
+            }
+
+            if (!force && supportContactCache.inFlight) {
+                return supportContactCache.inFlight;
+            }
+
+            applySupportContact(supportContactCache.email);
+
+            const task = (async () => {
+                try {
+                    const API_URL = getApiUrl();
+                    const response = await fetch(`${API_URL}/api/site/support`, { cache: 'no-store' });
+                    const data = await response.json().catch(() => ({}));
+                    const remoteEmail = normalizeSupportEmail(data?.support?.supportEmail);
+
+                    supportContactCache = {
+                        email: remoteEmail || OFFICIAL_SUPPORT_EMAIL,
+                        loaded: true,
+                        inFlight: null
+                    };
+                } catch (_) {
+                    supportContactCache = {
+                        email: supportContactCache.email || OFFICIAL_SUPPORT_EMAIL,
+                        loaded: true,
+                        inFlight: null
+                    };
+                }
+
+                applySupportContact(supportContactCache.email);
+                return supportContactCache.email;
+            })();
+
+            supportContactCache.inFlight = task;
+            return task;
+        };
+
         const setUserMenuState = (open) => {
             if (!userMenuPanel || !userMenuToggle) {
                 return;
@@ -13680,6 +13978,7 @@ async function persistAnalyzerState(newState) {
 
             fillProfileInputs(user);
             syncProfileFieldState(user);
+            void loadSupportContact();
         };
 
         if (userMenuToggle) {
