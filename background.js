@@ -12560,6 +12560,361 @@ function analyzeN5PatternTriangulation(history, depthLimit = N5_TRIANGULATION_DE
     };
 }
 
+// N5 tuned override: keep below the legacy block so these declarations win.
+function buildN5TriangulationBands(depth) {
+    const safeDepth = Math.max(N5_TRIANGULATION_MIN_DEPTH, Math.floor(Number(depth) || N5_TRIANGULATION_DEFAULT_DEPTH));
+    const bands = [
+        Math.min(safeDepth, 320),
+        Math.min(safeDepth, 650),
+        Math.min(safeDepth, 1200),
+        safeDepth
+    ];
+    return Array.from(new Set(bands.filter(value => Number.isFinite(Number(value)) && Number(value) >= 80)));
+}
+
+function collectN5CandidatesByBand(colors, model, referenceWindow, bandDepth) {
+    const clamp01 = (value) => Math.max(0, Math.min(1, Number(value) || 0));
+    const len = Array.isArray(colors) ? colors.length : 0;
+    const maxRecent = Number(model && model.recentSize) || 0;
+    const bandLimit = Math.max(maxRecent + 4, Math.min(len, Math.floor(Number(bandDepth) || 0)));
+    const candidates = [];
+
+    for (let idx = maxRecent; idx <= Math.min(len - maxRecent, bandLimit - maxRecent); idx++) {
+        const nextColor = colors[idx - 1];
+        if (nextColor !== 'red' && nextColor !== 'black') continue;
+        const candidateWindow = colors.slice(idx, idx + maxRecent);
+        if (candidateWindow.length < maxRecent) continue;
+        const similarity = clamp01(model.similarity(referenceWindow, candidateWindow));
+        if (similarity <= 0) continue;
+        candidates.push({ idx, nextColor, similarity });
+    }
+
+    candidates.sort((a, b) => {
+        if (b.similarity !== a.similarity) return b.similarity - a.similarity;
+        return a.idx - b.idx;
+    });
+
+    return candidates;
+}
+
+function selectN5DistinctCandidates(candidates, minGap, maxCount) {
+    const safeGap = Math.max(1, Math.floor(Number(minGap) || 1));
+    const safeMaxCount = Math.max(1, Math.floor(Number(maxCount) || 1));
+    const selected = [];
+
+    for (const item of Array.isArray(candidates) ? candidates : []) {
+        if (selected.some((picked) => Math.abs(Number(picked.idx || 0) - Number(item.idx || 0)) < safeGap)) continue;
+        selected.push(item);
+        if (selected.length >= safeMaxCount) break;
+    }
+
+    return selected;
+}
+
+function evaluateN5TriangulationModel(colors, model) {
+    const clamp01 = (value) => Math.max(0, Math.min(1, Number(value) || 0));
+    const len = Array.isArray(colors) ? colors.length : 0;
+    const maxRecent = Number(model && model.recentSize) || 0;
+    if (len < (maxRecent + 12)) {
+        return {
+            modelId: model.id,
+            label: model.label,
+            color: null,
+            confidence: 0,
+            reason: 'insufficient_history',
+            details: 'NULO - historico insuficiente',
+            matchCount: 0
+        };
+    }
+
+    const referenceWindow = colors.slice(0, maxRecent);
+    const referenceRbCount = referenceWindow.filter(c => c === 'red' || c === 'black').length;
+    if (referenceRbCount < Math.max(3, Math.floor(maxRecent * 0.65))) {
+        return {
+            modelId: model.id,
+            label: model.label,
+            color: null,
+            confidence: 0,
+            reason: 'reference_low_quality',
+            details: 'NULO - referencia com baixa qualidade',
+            matchCount: 0
+        };
+    }
+
+    const bandDepths = Array.isArray(model.bandDepths) && model.bandDepths.length
+        ? model.bandDepths
+        : buildN5TriangulationBands(len);
+    const safeMinMatches = Math.max(2, Math.floor(Number(model.minMatches) || 2));
+    const safeMaxMatches = Math.max(8, Math.min(18, Math.floor(Number(model.maxMatches) || 18)));
+    const minGap = Math.max(2, Math.floor(maxRecent * 0.75));
+    let foundAnyCandidate = false;
+    let chosenThreshold = null;
+    let chosenBandDepth = 0;
+    let chosenBandIndex = 0;
+    let selected = [];
+
+    for (let bandIndex = 0; bandIndex < bandDepths.length; bandIndex++) {
+        const bandDepth = Math.min(len, Math.max(maxRecent + 4, Math.floor(Number(bandDepths[bandIndex]) || 0)));
+        const candidates = collectN5CandidatesByBand(colors, model, referenceWindow, bandDepth);
+        if (!candidates.length) continue;
+        foundAnyCandidate = true;
+
+        for (let threshold = Math.max(N5_TRIANGULATION_MIN_SIMILARITY, Number(model.startThreshold) || 0.9); threshold >= N5_TRIANGULATION_MIN_SIMILARITY; threshold = Number((threshold - 0.05).toFixed(2))) {
+            const passing = candidates.filter(item => item.similarity >= threshold);
+            const distinct = selectN5DistinctCandidates(passing, minGap, safeMaxMatches);
+            if (distinct.length >= safeMinMatches) {
+                selected = distinct;
+                chosenThreshold = threshold;
+                chosenBandDepth = bandDepth;
+                chosenBandIndex = bandIndex;
+                break;
+            }
+        }
+
+        if (selected.length) break;
+    }
+
+    if (!selected.length || chosenThreshold == null) {
+        return {
+            modelId: model.id,
+            label: model.label,
+            color: null,
+            confidence: 0,
+            reason: foundAnyCandidate ? 'below_min_similarity' : 'no_candidates',
+            details: foundAnyCandidate
+                ? `NULO - sem matches >= ${Math.round(N5_TRIANGULATION_MIN_SIMILARITY * 100)}%`
+                : 'NULO - sem candidatos',
+            matchCount: 0
+        };
+    }
+
+    let redWeight = 0;
+    let blackWeight = 0;
+    let totalWeight = 0;
+    let weightedSimilarity = 0;
+    for (const item of selected) {
+        const localRecencyFactor = 1 - Math.min(0.35, (item.idx / Math.max(1, chosenBandDepth || len)) * 0.35);
+        const weight = Math.pow(item.similarity, 1.8) * localRecencyFactor;
+        totalWeight += weight;
+        weightedSimilarity += (item.similarity * weight);
+        if (item.nextColor === 'red') redWeight += weight;
+        if (item.nextColor === 'black') blackWeight += weight;
+    }
+
+    const dominantColor = redWeight > blackWeight ? 'red' : blackWeight > redWeight ? 'black' : null;
+    const dominance = totalWeight > 0 ? (Math.max(redWeight, blackWeight) / totalWeight) : 0;
+    let minDominance = Math.max(Number(model.minDominance || 0.6), selected.length <= 2 ? 0.67 : 0.62);
+    if (model.id === 'M5') minDominance = Math.max(minDominance, 0.64);
+    if (!dominantColor || dominance < minDominance) {
+        return {
+            modelId: model.id,
+            label: model.label,
+            color: null,
+            confidence: 0,
+            reason: 'weak_majority',
+            details: `NULO - dominancia fraca (${Math.round(dominance * 100)}%)`,
+            matchCount: selected.length,
+            threshold: chosenThreshold,
+            bandDepth: chosenBandDepth,
+            bandIndex: chosenBandIndex
+        };
+    }
+
+    const similarityMean = totalWeight > 0 ? (weightedSimilarity / totalWeight) : 0;
+    const sampleConf = clamp01(selected.length / Math.max(4, safeMinMatches * 2));
+    const dominanceConf = clamp01((dominance - 0.6) / 0.4);
+    const similarityConf = clamp01((similarityMean - N5_TRIANGULATION_MIN_SIMILARITY) / Math.max(0.01, 1 - N5_TRIANGULATION_MIN_SIMILARITY));
+    const thresholdConf = clamp01((chosenThreshold - N5_TRIANGULATION_MIN_SIMILARITY) / Math.max(0.01, 1 - N5_TRIANGULATION_MIN_SIMILARITY));
+    const bandPenalty = chosenBandIndex * 0.07;
+    let confidence = clamp01((dominanceConf * 0.42) + (similarityConf * 0.24) + (sampleConf * 0.16) + (thresholdConf * 0.18) - bandPenalty);
+    if (selected.length <= 2) confidence *= 0.9;
+    confidence = clamp01(confidence);
+
+    return {
+        modelId: model.id,
+        label: model.label,
+        color: dominantColor,
+        confidence: Number(confidence.toFixed(3)),
+        reason: 'ok',
+        matchCount: selected.length,
+        threshold: chosenThreshold,
+        bandDepth: chosenBandDepth,
+        bandIndex: chosenBandIndex,
+        dominance: Number(dominance.toFixed(3)),
+        details: `${dominantColor.toUpperCase()} - ${selected.length} matches - faixa ${chosenBandDepth} - sim >= ${Math.round(chosenThreshold * 100)}% - dom ${Math.round(dominance * 100)}%`
+    };
+}
+
+function analyzeN5PatternTriangulation(history, depthLimit = N5_TRIANGULATION_DEFAULT_DEPTH) {
+    const clamp01 = (value) => Math.max(0, Math.min(1, Number(value) || 0));
+    const depth = clampN5TriangulationDepth(depthLimit, N5_TRIANGULATION_DEFAULT_DEPTH);
+    const raw = Array.isArray(history) ? history.slice(0, Math.min(history.length, depth)) : [];
+    const colors = raw
+        .map(spin => normalizeSpinColorValue(spin))
+        .filter(color => color === 'red' || color === 'black' || color === 'white');
+
+    if (colors.length < 40) {
+        return {
+            color: null,
+            confidence: 0,
+            reason: 'insufficient_history',
+            details: `NULO - historico insuficiente (${colors.length}/40) - prof ${depth}`,
+            depthUsed: depth,
+            modelResults: []
+        };
+    }
+
+    const bandDepths = buildN5TriangulationBands(depth);
+    const models = [
+        {
+            id: 'M1',
+            label: 'Sequencia curta',
+            recentSize: 4,
+            startThreshold: 0.9,
+            minMatches: 2,
+            minDominance: 0.6,
+            maxMatches: 18,
+            bandDepths,
+            similarity: (ref, cand) => calculateN5RawSimilarity(ref, cand)
+        },
+        {
+            id: 'M2',
+            label: 'Sequencia ponderada',
+            recentSize: 6,
+            startThreshold: 0.9,
+            minMatches: 2,
+            minDominance: 0.6,
+            maxMatches: 18,
+            bandDepths,
+            similarity: (ref, cand) => {
+                const weights = [];
+                for (let i = 0; i < ref.length; i++) {
+                    weights.push((ref.length - i) + 1);
+                }
+                return calculateN5RawSimilarity(ref, cand, weights);
+            }
+        },
+        {
+            id: 'M3',
+            label: 'Transicoes',
+            recentSize: 8,
+            startThreshold: 0.88,
+            minMatches: 2,
+            minDominance: 0.6,
+            maxMatches: 18,
+            bandDepths,
+            similarity: (ref, cand) => calculateN5TransitionSimilarity(ref, cand)
+        },
+        {
+            id: 'M4',
+            label: 'Formato de runs',
+            recentSize: 10,
+            startThreshold: 0.86,
+            minMatches: 2,
+            minDominance: 0.6,
+            maxMatches: 18,
+            bandDepths,
+            similarity: (ref, cand) => calculateN5RunShapeSimilarity(ref, cand)
+        },
+        {
+            id: 'M5',
+            label: 'Blocos em pares',
+            recentSize: 12,
+            startThreshold: 0.84,
+            minMatches: 2,
+            minDominance: 0.62,
+            maxMatches: 16,
+            bandDepths,
+            similarity: (ref, cand) => calculateN5PairBlockSimilarity(ref, cand)
+        },
+        {
+            id: 'M6',
+            label: 'Perfil de equilibrio',
+            recentSize: 14,
+            startThreshold: 0.82,
+            minMatches: 2,
+            minDominance: 0.62,
+            maxMatches: 16,
+            bandDepths,
+            similarity: (ref, cand) => calculateN5BalanceSimilarity(ref, cand)
+        }
+    ];
+
+    const modelResults = models.map((model) => evaluateN5TriangulationModel(colors, model));
+    const validVotes = modelResults.filter(result => result && (result.color === 'red' || result.color === 'black'));
+
+    if (validVotes.length < 2) {
+        return {
+            color: null,
+            confidence: 0,
+            reason: 'insufficient_model_votes',
+            details: `NULO - triangulacao fraca (${validVotes.length}/6 modelos validos) - prof ${depth}`,
+            depthUsed: depth,
+            votes: { red: 0, black: 0, none: 6 - validVotes.length },
+            modelResults
+        };
+    }
+
+    const redVotes = validVotes.filter(item => item.color === 'red').length;
+    const blackVotes = validVotes.filter(item => item.color === 'black').length;
+    let redWeight = 0;
+    let blackWeight = 0;
+    for (const vote of validVotes) {
+        const bandFactor = 1 - Math.min(0.22, Math.max(0, Number(vote.bandIndex || 0)) * 0.07);
+        const voteWeight = (Number(vote.confidence) || 0) * bandFactor;
+        if (vote.color === 'red') redWeight += voteWeight;
+        if (vote.color === 'black') blackWeight += voteWeight;
+    }
+
+    if (redWeight === blackWeight) {
+        return {
+            color: null,
+            confidence: 0,
+            reason: 'tie',
+            details: `NULO - empate na triangulacao (${redVotes}x${blackVotes}) - prof ${depth}`,
+            depthUsed: depth,
+            votes: { red: redVotes, black: blackVotes, none: 6 - validVotes.length },
+            modelResults
+        };
+    }
+
+    const finalColor = redWeight > blackWeight ? 'red' : 'black';
+    const majorityVotes = Math.max(redVotes, blackVotes);
+    const winnerVotes = validVotes.filter(item => item.color === finalColor);
+    const hasStructuralWinner = winnerVotes.some(item => ['M3', 'M4', 'M5', 'M6'].includes(item.modelId));
+    const totalWeight = redWeight + blackWeight;
+    const weightedShare = totalWeight > 0 ? (Math.max(redWeight, blackWeight) / totalWeight) : 0;
+    if (!hasStructuralWinner || weightedShare < 0.58) {
+        return {
+            color: null,
+            confidence: 0,
+            reason: 'weak_consensus',
+            details: `NULO - consenso fraco (${Math.round(weightedShare * 100)}%) - prof ${depth}`,
+            depthUsed: depth,
+            votes: { red: redVotes, black: blackVotes, none: 6 - validVotes.length },
+            modelResults
+        };
+    }
+
+    const avgModelConfidence = winnerVotes.reduce((sum, item) => sum + (Number(item.confidence) || 0), 0) / Math.max(1, winnerVotes.length);
+    const modelCoverage = validVotes.length / 6;
+    const confidence = clamp01(
+        (weightedShare * 0.42) +
+        (avgModelConfidence * 0.43) +
+        (modelCoverage * 0.15)
+    );
+
+    return {
+        color: finalColor,
+        confidence: Number(confidence.toFixed(3)),
+        reason: 'ok',
+        depthUsed: depth,
+        votes: { red: redVotes, black: blackVotes, none: 6 - validVotes.length },
+        modelResults,
+        details: `Triangulacao ${majorityVotes}/${validVotes.length} para ${finalColor.toUpperCase()} - peso ${Math.round(weightedShare * 100)}% - prof ${depth} - piso ${Math.round(N5_TRIANGULATION_MIN_SIMILARITY * 100)}%`
+    };
+}
+
 function analyzeHistoricalRetracement(history, windowSize = 80, intensity = 'aggressive') {
     const windowCap = Math.max(30, Math.min(200, Number(windowSize) || 80));
     const rawWindow = Array.isArray(history) ? history.slice(0, Math.min(windowCap, history.length)) : [];

@@ -16871,15 +16871,57 @@ async function persistAnalyzerState(newState) {
 
     // ✅ Diamante: confiança exibida para o usuário (TOPO e cards) deve seguir a regra:
     // exibir o MAIOR entre score interno (Score combinado / fallback N4) e a confiança do sinal/fonte.
+    function resolveAnalysisDisplayBaseConfidence(analysisLike) {
+        try {
+            const a = analysisLike && typeof analysisLike === 'object' ? analysisLike : null;
+            if (!a) return 0;
+
+            const stageRaw = String(
+                a.phase
+                || a.martingaleStage
+                || a.wonAt
+                || a.stage
+                || ''
+            ).toUpperCase().trim();
+            const isGaleStage = /^G\d+$/.test(stageRaw) && stageRaw !== 'G0';
+
+            const values = isGaleStage
+                ? [
+                    a.galeConfidence,
+                    a && a.patternData ? a.patternData.galeConfidence : null,
+                    a.confidence,
+                    a && a.patternData ? a.patternData.confidence : null,
+                    a.probability
+                ]
+                : [
+                    a.confidence,
+                    a && a.patternData ? a.patternData.confidence : null,
+                    a.probability,
+                    a.galeConfidence,
+                    a && a.patternData ? a.patternData.galeConfidence : null
+                ];
+
+            for (const value of values) {
+                const n = Number(value);
+                if (Number.isFinite(n) && n > 0) return n;
+            }
+            for (const value of values) {
+                const n = Number(value);
+                if (Number.isFinite(n)) return n;
+            }
+            return 0;
+        } catch (_) {
+            const n = Number(analysisLike && analysisLike.confidence);
+            return Number.isFinite(n) ? Math.max(0, Math.min(100, n)) : 0;
+        }
+    }
+
     function computeDiamondDisplayConfidence(analysisLike) {
         try {
             const a = analysisLike && typeof analysisLike === 'object' ? analysisLike : null;
             if (!a) return 0;
 
-            const base = (() => {
-                const n = Number(a.confidence);
-                return Number.isFinite(n) ? n : 0;
-            })();
+            const base = resolveAnalysisDisplayBaseConfidence(a);
 
             const isDiamond = (() => {
                 const m = a.analysisMode ? String(a.analysisMode).toLowerCase().trim() : '';
@@ -16974,8 +17016,7 @@ async function persistAnalyzerState(newState) {
             const best = candidates.length ? Math.max(...candidates) : 0;
             return Math.max(0, Math.min(100, best));
         } catch (_) {
-            const n = Number(analysisLike && analysisLike.confidence);
-            return Math.max(0, Math.min(100, Number.isFinite(n) ? n : 0));
+            return Math.max(0, Math.min(100, resolveAnalysisDisplayBaseConfidence(analysisLike)));
         }
     }
 
@@ -16984,21 +17025,7 @@ async function persistAnalyzerState(newState) {
             const e = entryLike && typeof entryLike === 'object' ? entryLike : null;
             if (!e) return null;
 
-            const firstFinite = (...values) => {
-                for (const value of values) {
-                    const n = Number(value);
-                    if (Number.isFinite(n)) return n;
-                }
-                return null;
-            };
-
-            const baseConfidence = firstFinite(
-                e.confidence,
-                e && e.patternData ? e.patternData.confidence : null,
-                e.galeConfidence,
-                e && e.patternData ? e.patternData.galeConfidence : null,
-                e.probability
-            );
+            const baseConfidence = resolveAnalysisDisplayBaseConfidence(e);
 
             const patternDescription = (() => {
                 if (e && e.patternData && e.patternData.patternDescription != null) return e.patternData.patternDescription;
@@ -17026,10 +17053,14 @@ async function persistAnalyzerState(newState) {
 
             if (inferredMode === 'diamond') {
                 const computed = computeDiamondDisplayConfidence({
-                    confidence: Number.isFinite(baseConfidence) ? baseConfidence : 0,
+                    confidence: e.confidence,
+                    galeConfidence: e.galeConfidence,
+                    probability: e.probability,
+                    phase: e.phase || e.martingaleStage || e.wonAt || e.stage || '',
                     analysisMode: 'diamond',
                     diamondSourceLevel,
-                    patternDescription
+                    patternDescription,
+                    patternData: e.patternData || null
                 });
                 if (Number.isFinite(computed)) return Math.max(0, Math.min(100, computed));
             }
@@ -17778,7 +17809,7 @@ async function persistAnalyzerState(newState) {
 
         const color = normalizeOverlayColor(analysis?.color);
         const phaseLabel = normalizeOverlayPhaseLabel(analysis?.phase);
-        const confidence = (typeof analysis?.confidence === 'number') ? Number(analysis.confidence) : null;
+        const confidence = analysis ? Number(resolveAnalysisDisplayBaseConfidence(analysis)) : null;
         const ms = analysis && typeof analysis === 'object' ? analysis.masterSignal : null;
         const diamondSrc = (ms && ms.diamondSourceLevel) ? ms.diamondSourceLevel : (analysis ? analysis.diamondSourceLevel : null);
         const diamondId = diamondSrc && diamondSrc.id ? String(diamondSrc.id) : '';
