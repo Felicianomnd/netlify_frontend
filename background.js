@@ -2523,11 +2523,13 @@ function applyUrlsConfigToApiConfig(urls) {
 // Fallback (primeiro acesso/sem cache). Depois do primeiro sync, vem do banco via /api/site/urls.
 const FALLBACK_ORIGINS = {
     auth: [
+        'https://blaze-analyzer-api-v2-r4.onrender.com',
         'https://blaze-analyzer-api-v2-p9xb.onrender.com',
         'https://blaze-analyzer-api-v2-z8s3.onrender.com',
         'https://blaze-analyzer-api-v2.onrender.com'
     ],
     giros: [
+        'https://blaze-giros-api-v2-r4.onrender.com',
         'https://blaze-giros-api-v2-7t0l.onrender.com',
         'https://blaze-giros-api-v2-1.onrender.com'
     ]
@@ -2650,11 +2652,11 @@ async function refreshUrlsFromServer() {
 
 const API_CONFIG = {
     // API de Giros (coleta automática, histórico, WebSocket)
-    baseURL: 'https://blaze-giros-api-v2-7t0l.onrender.com',
-    wsURL: 'wss://blaze-giros-api-v2-7t0l.onrender.com',
+    baseURL: 'https://blaze-giros-api-v2-r4.onrender.com',
+    wsURL: 'wss://blaze-giros-api-v2-r4.onrender.com',
     
     // API de Autenticação (usuários, admin, padrões customizados)
-    authURL: 'https://blaze-analyzer-api-v2-p9xb.onrender.com',
+    authURL: 'https://blaze-analyzer-api-v2-r4.onrender.com',
     
     enabled: true,  // Ativar/desativar sincronização
     syncInterval: 5 * 60 * 1000,  // Sincronizar a cada 5 minutos
